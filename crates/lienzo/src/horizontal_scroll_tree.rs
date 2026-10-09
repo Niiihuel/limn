@@ -12,6 +12,22 @@ pub(super) struct HorizontalScrollState {
 }
 
 impl UiTree {
+    /// Where a `horizontal_scroll` currently sits, including any wheel or
+    /// trackpad panning since the last layout.
+    pub fn horizontal_scroll_offset(&self, id: &str) -> f32 {
+        self.horizontal_scrolls
+            .get(id)
+            .map_or(0.0, |state| state.offset)
+    }
+
+    /// Position a `horizontal_scroll` from the host, for example from a
+    /// spring. The next layout clamps it to the content.
+    pub fn set_horizontal_scroll_offset(&mut self, id: &str, offset: f32) {
+        if offset.is_finite() {
+            self.horizontal_scrolls.entry(id.to_owned()).or_default().offset = offset;
+        }
+    }
+
     pub(super) fn handle_horizontal_scroll(&mut self, event: &UiEvent) -> bool {
         let (point, delta) = match event {
             UiEvent::Scroll { position, delta_y } | UiEvent::ScrollDirect { position, delta_y } => {
@@ -505,5 +521,23 @@ mod tests {
         assert!(tree.focus("tab:6"));
         check(&tree.layout(size), "tab:6", size.width);
         check(&tree.layout(Size::new(150.0, 32.0)), "tab:6", 150.0);
+    }
+
+    #[test]
+    fn host_positions_the_viewport_and_layout_clamps_it() {
+        let wide = Element::row(vec![
+            Element::button("a", "a").size(Some(200.0), Some(20.0)),
+            Element::button("b", "b").size(Some(200.0), Some(20.0)),
+        ]);
+        let mut tree = UiTree::new(Element::horizontal_scroll_2d("strip", wide));
+        let size = Size::new(300.0, 20.0);
+        assert_eq!(tree.layout(size).hit_test(Point::new(10.0, 10.0)), Some("a"));
+        tree.set_horizontal_scroll_offset("strip", 60.0);
+        tree.layout(size);
+        assert_eq!(tree.horizontal_scroll_offset("strip"), 60.0);
+        tree.set_horizontal_scroll_offset("strip", 9000.0);
+        let frame = tree.layout(size);
+        assert_eq!(tree.horizontal_scroll_offset("strip"), 100.0);
+        assert_eq!(frame.hit_test(Point::new(110.0, 10.0)), Some("b"));
     }
 }
