@@ -53,6 +53,8 @@ pub struct Breadcrumb {
     width: f32,
     height: f32,
     overflow_open: bool,
+    search_action: Option<String>,
+    editing: Option<(String, String, String)>,
 }
 
 impl Breadcrumb {
@@ -68,6 +70,8 @@ impl Breadcrumb {
             width: 320.0,
             height: 28.0,
             overflow_open: false,
+            search_action: None,
+            editing: None,
         }
     }
     pub fn width(mut self, width: f32) -> Self {
@@ -90,8 +94,56 @@ impl Breadcrumb {
     }
 }
 
+impl Breadcrumb {
+    /// End the bar with a search button that dispatches `action`. The path
+    /// gives up the button's width, so the bar keeps its size.
+    pub fn search_action(mut self, action: impl Into<String>) -> Self {
+        self.search_action = Some(action.into());
+        self
+    }
+
+    /// Show a one-line field in place of the path, for typing a location or
+    /// a search. The host owns the text through `InputChanged` and
+    /// `Submitted` for `input_id`, and leaves this mode by not calling it.
+    pub fn editing(
+        mut self,
+        input_id: impl Into<String>,
+        value: impl Into<String>,
+        placeholder: impl Into<String>,
+    ) -> Self {
+        self.editing = Some((input_id.into(), value.into(), placeholder.into()));
+        self
+    }
+}
+
 impl Component for Breadcrumb {
-    fn render(self) -> Element {
+    fn render(mut self) -> Element {
+        if let Some((id, value, placeholder)) = self.editing.take() {
+            return Element::text_input(id, value, placeholder)
+                .leading_icon(Icon::Search)
+                .leading_icon_tint(self.palette.muted)
+                .font_family(FontFamily::Sans)
+                .font_size(13.0)
+                .foreground(self.palette.text)
+                .background(self.palette.raised)
+                .radius(4.0)
+                .padding(4.0)
+                .size(Some(self.width), Some(self.height));
+        }
+        if let Some(action) = self.search_action.take() {
+            let (width, height, palette) = (self.width, self.height, self.palette);
+            let button = palette
+                .interactive_surface(Element::icon_button(action.clone(), Icon::Search, ""))
+                .foreground(palette.muted)
+                .size(Some(height), Some(height));
+            let button = Tooltip::new(button, action, "Buscar", palette)
+                .shortcut("Ctrl+F")
+                .render();
+            self.width = (width - height - GAP).max(0.0);
+            return Element::row(vec![self.render(), button])
+                .gap(GAP)
+                .size(Some(width), Some(height));
+        }
         if self.items.is_empty() {
             return Element::spacer().size(Some(self.width), Some(self.height));
         }
@@ -754,5 +806,35 @@ mod tests {
             assert!(current.x > chevron.x + chevron.width);
             assert!(current.width > 0.0 && current.x + current.width <= width + 0.01);
         }
+    }
+
+    #[test]
+    fn search_button_fits_inside_the_bar_and_editing_swaps_the_path_for_a_field() {
+        let items = || {
+            vec![
+                BreadcrumbItem::new("home").action("home"),
+                BreadcrumbItem::new("docs").action("docs"),
+            ]
+        };
+        let size = Size::new(300.0, 28.0);
+        let bar = Breadcrumb::new("path", items(), ComponentPalette::neutral_dark())
+            .width(300.0)
+            .search_action("find");
+        let frame = UiTree::new(bar.render()).layout(size);
+        let region = |id: &str| frame.regions.iter().find(|region| region.id == id).map(|region| region.rect);
+        let find = region("find").expect("search button");
+        assert_eq!((find.x + find.width, find.width), (300.0, 28.0));
+        assert!(region("docs").unwrap().x + region("docs").unwrap().width <= find.x);
+
+        let field = Breadcrumb::new("path", items(), ComponentPalette::neutral_dark())
+            .width(300.0)
+            .search_action("find")
+            .editing("query", "abc", "Buscar");
+        let mut tree = UiTree::new(field.render());
+        let frame = tree.layout(size);
+        assert!(frame.regions.iter().all(|region| region.id != "home" && region.id != "find"));
+        let input = frame.regions.iter().find(|region| region.id == "query").unwrap();
+        assert_eq!((input.kind, input.rect.width), (HitKind::TextInput, 300.0));
+        assert_eq!(tree.input_value("query"), Some("abc"));
     }
 }
