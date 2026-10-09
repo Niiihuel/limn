@@ -174,7 +174,7 @@ impl Component for Breadcrumb {
                     .font_size(FONT_SIZE)
                     .foreground(self.palette.muted);
                 let anchor = if navigable {
-                    self.palette.bar_item_surface(Element::clickable(
+                    self.palette.interactive_surface(Element::clickable(
                         format!("{}:overflow_toggle", self.id),
                         visual,
                     ))
@@ -257,7 +257,7 @@ impl Component for Breadcrumb {
                 .unwrap_or_else(|| format!("{}:item:{index}", self.id));
             let anchor = if let Some(action) = action {
                 self.palette
-                    .bar_item_surface(Element::clickable(action, visual))
+                    .interactive_surface(Element::clickable(action, visual))
             } else {
                 Element::panel(visual)
             }
@@ -346,7 +346,9 @@ mod tests {
             assert_eq!(rect.height, size.height, "hover fills the breadcrumb cell");
             assert!(hover.commands.iter().any(
                 |c| matches!(c, DrawCommand::FillRect { rect: hover_rect, color, radius }
-                if *hover_rect == rect && *color == ComponentPalette::neutral_dark().hover && *radius == 0.0)
+                if *hover_rect == rect && *color == ComponentPalette::neutral_dark().hover
+                    // The same rounded feedback as every other control.
+                    && *radius == 4.0)
             ));
         }
     }
