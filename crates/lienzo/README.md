@@ -737,3 +737,13 @@ colores, siguiendo el modelo de Warp: `surface(1..=7)` mezcla el fondo con 5,
 son velos translúcidos; `accent_surface` y `accent_surface_strong` diluyen el
 acento en el fondo al 40 y 60 %. Todo es `const fn`, y `palette()` entrega el
 `ComponentPalette` de los componentes. `Theme::DARK` es un gris neutro.
+
+### Regla de interacción
+
+Ningún elemento define su propio color de hover. Todo botón, botón de icono o
+`clickable` pasa por `Theme::interactive(elemento)`, que aplica el mismo velo
+al pasar el puntero, el mismo al presionar, el radio de control y la
+transición. Un elemento en estado elegido (pestaña activa, fila seleccionada)
+usa `Theme::active(elemento, relleno)`, que conserva su relleno bajo el puntero.
+Los velos son translúcidos, así que la respuesta se ve igual sobre cualquier
+superficie.

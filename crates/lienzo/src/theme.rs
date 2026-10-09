@@ -5,7 +5,7 @@
 //! the accent only ever appears diluted. Changing three inputs re-tints
 //! everything, and no token can drift out of step with the others.
 
-use crate::{Color, ComponentPalette};
+use crate::{Color, ComponentPalette, Element};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Theme {
@@ -92,12 +92,29 @@ impl Theme {
         mix(self.foreground, self.accent, 60)
     }
 
+    /// The one pointer-feedback treatment: hover veil, pressed veil, control
+    /// radius and transition. Every button, icon button and clickable goes
+    /// through here; nothing sets a hover color of its own.
+    pub fn interactive(&self, element: Element) -> Element {
+        self.palette().interactive_surface(element)
+    }
+
+    /// An interactive element in its chosen state, such as the active tab or
+    /// a selected row. It holds `fill` under the pointer instead of flashing
+    /// back to the hover veil.
+    pub fn active(&self, element: Element, fill: Color) -> Element {
+        self.interactive(element)
+            .background(fill)
+            .hover_background(fill)
+    }
+
     pub const fn palette(&self) -> ComponentPalette {
         ComponentPalette {
             surface: self.surface(1),
             raised: self.surface(2),
-            hover: self.surface(3),
-            selected: self.surface(3),
+            // Veils, not fills: the same feedback reads on every surface.
+            hover: self.hover(),
+            selected: self.pressed(),
             border: self.outline(),
             text: self.text(),
             muted: self.text_sub(),
@@ -134,5 +151,27 @@ mod tests {
         assert_eq!(alphas, [230, 153, 102, 51]);
         assert_eq!(theme.hover(), Color::rgba(255, 255, 255, 26));
         assert_eq!(theme.palette().border, theme.outline());
+    }
+
+    #[test]
+    fn every_interactive_element_gets_the_same_feedback() {
+        let theme = Theme::DARK;
+        let styles = [
+            theme.interactive(Element::button("a", "a")),
+            theme.interactive(Element::icon_button("b", crate::Icon::Add, "")),
+            theme.interactive(Element::clickable("c", Element::text("c"))),
+        ]
+        .map(|element| {
+            let style = element.style;
+            (style.hover_background, style.pressed_background, style.radius)
+        });
+        assert_eq!(styles[0], (Some(theme.hover()), Some(theme.pressed()), 4.0));
+        assert!(styles.iter().all(|style| *style == styles[0]));
+
+        let fill = theme.surface(4);
+        let active = theme.active(Element::clickable("d", Element::text("d")), fill).style;
+        assert_eq!((active.background, active.hover_background), (Some(fill), Some(fill)));
+        // Passive content is left alone.
+        assert_eq!(theme.interactive(Element::text("e")).style.hover_background, None);
     }
 }
