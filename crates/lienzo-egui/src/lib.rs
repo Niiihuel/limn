@@ -1887,3 +1887,50 @@ mod tests {
         }
     }
 }
+
+/// Make a tree measure text with the fonts egui paints with. Call once per
+/// tree, and again after changing the context's fonts.
+pub fn attach_fonts(tree: &mut lienzo::UiTree, ctx: &egui::Context) {
+    fn family(family: FontFamily) -> egui::FontFamily {
+        match family {
+            FontFamily::Monospace => egui::FontFamily::Monospace,
+            FontFamily::Sans => egui::FontFamily::Proportional,
+        }
+    }
+    let mono = egui::FontId::monospace(14.0);
+    let sans = egui::FontId::proportional(14.0);
+    let (metrics, sans_metrics) = ctx.fonts_mut(|fonts| {
+        (
+            lienzo::FontMetrics {
+                char_width: fonts.glyph_width(&mono, 'M'),
+                line_height: fonts.row_height(&mono),
+            },
+            lienzo::FontMetrics {
+                char_width: ('a'..='z')
+                    .map(|character| fonts.glyph_width(&sans, character))
+                    .sum::<f32>()
+                    / 26.0,
+                line_height: fonts.row_height(&sans),
+            },
+        )
+    });
+    tree.set_metrics(metrics);
+    tree.set_sans_metrics(sans_metrics);
+    let heights = ctx.clone();
+    tree.set_text_height_measurer(move |size, font| {
+        heights.fonts_mut(|fonts| fonts.row_height(&egui::FontId::new(size, family(font))))
+    });
+    let widths = ctx.clone();
+    tree.set_text_measurer(move |text, size, font| {
+        widths.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(
+                    text.to_owned(),
+                    egui::FontId::new(size, family(font)),
+                    Color32::WHITE,
+                )
+                .size()
+                .x
+        })
+    });
+}
