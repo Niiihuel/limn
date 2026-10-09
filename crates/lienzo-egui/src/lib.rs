@@ -86,6 +86,18 @@ const IMAGE_THUMBNAIL_SIDE: u32 = 384;
 const IMAGE_TEXTURE_CACHE_ENTRIES: usize = 16;
 const FULL_IMAGE_TEXTURE_CACHE_ENTRIES: usize = 2;
 
+thread_local! {
+    static IMAGE_CACHE_ENTRIES: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(IMAGE_TEXTURE_CACHE_ENTRIES) };
+}
+
+/// How many decoded images stay on the GPU at once. The default suits a
+/// conversation with a few attachments; a host showing a grid of thumbnails
+/// raises it so scrolling does not decode the same images again and again.
+pub fn set_image_cache_entries(entries: usize) {
+    IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 1024)));
+}
+
 enum RasterCacheEntry {
     Ready(egui::TextureHandle),
     Unavailable,
@@ -197,7 +209,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> Option<(egui::TextureId
         let limit = if full {
             FULL_IMAGE_TEXTURE_CACHE_ENTRIES
         } else {
-            IMAGE_TEXTURE_CACHE_ENTRIES
+            IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         };
         while cache.order.iter().filter(|key| key.2 == full).count() > limit {
             if let Some(index) = cache.order.iter().position(|key| key.2 == full) {
