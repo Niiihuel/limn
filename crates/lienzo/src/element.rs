@@ -628,6 +628,8 @@ pub struct Style {
     /// Minimum line box for formatted paragraphs, in logical pixels. Glyphs
     /// retain their natural metrics; controls and editors are unaffected.
     pub line_height: Option<f32>,
+    /// Side of a standalone icon; `None` is the standard 16 px.
+    pub icon_side: Option<f32>,
 }
 
 impl Default for Style {
@@ -668,6 +670,7 @@ impl Default for Style {
             font_size: DEFAULT_FONT_SIZE,
             font_family: FontFamily::Monospace,
             line_height: None,
+            icon_side: None,
         }
     }
 }
@@ -1553,8 +1556,17 @@ impl Element {
     }
 
     /// Kept for source compatibility while callers migrate to [`ICON_SIZE`].
-    /// All icons use the same size; individual size requests are ignored.
+    /// Icons inside controls use one size; this request is ignored.
     pub fn icon_size(self, _size: f32) -> Self {
+        self
+    }
+
+    /// Draw a standalone [`Element::icon`] larger than the control size, for
+    /// thumbnails and empty states. Controls keep the standard 16 px.
+    pub fn large_icon(mut self, side: f32) -> Self {
+        if side.is_finite() {
+            self.style.icon_side = Some(side.clamp(ICON_SIZE, 128.0));
+        }
         self
     }
 

@@ -6459,7 +6459,10 @@ impl LayoutBuilder<'_> {
                 )
             }
             ElementKind::RasterImage(_) => Size::new(available.width.min(280.0), 180.0 + padding),
-            ElementKind::Icon(_) => Size::new(ICON_SIZE + padding, ICON_SIZE + padding),
+            ElementKind::Icon(_) => {
+                let side = style.icon_side.unwrap_or(ICON_SIZE);
+                Size::new(side + padding, side + padding)
+            }
             ElementKind::Button {
                 label,
                 trailing_icon,
@@ -7677,7 +7680,12 @@ impl LayoutBuilder<'_> {
                 });
             }
             ElementKind::Icon(icon) => {
-                let side = ICON_SIZE.min(content.width).min(content.height).max(0.0);
+                let side = style
+                    .icon_side
+                    .unwrap_or(ICON_SIZE)
+                    .min(content.width)
+                    .min(content.height)
+                    .max(0.0);
                 let icon_rect = Rect::new(
                     content.x + (content.width - side) / 2.0,
                     content.y + (content.height - side) / 2.0,

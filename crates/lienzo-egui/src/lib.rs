@@ -3,7 +3,7 @@ use eframe::egui::{
 };
 use lienzo::{
     Color, DrawCommand, FontFamily, Frame, Icon, Key, Point, RasterImage, RasterImageFormat, Rect,
-    SpinnerVariant, UiEvent, ICON_SIZE,
+    SpinnerVariant, UiEvent,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -749,13 +749,16 @@ fn paint_effort_slider(
 // A texture rendered at its final physical size needs integer pixel edges.
 // Fractional UI layout coordinates otherwise make the GPU resample a sharp
 // raster even when the texture itself has exactly the right resolution.
+/// Largest icon side the tree can request, in logical pixels.
+const MAX_ICON_SIDE: f32 = 128.0;
+
 fn aligned_icon_rect(area: EguiRect, pixels_per_point: f32) -> Option<(EguiRect, u16)> {
     if !pixels_per_point.is_finite() || pixels_per_point <= 0.0 {
         return None;
     }
-    // The tree reserves a 16 point box. Keep that upper bound when painting
-    // DrawCommands supplied by another caller of the backend, too.
-    let side = area.width().min(area.height()).min(ICON_SIZE);
+    // The tree reserves 16 points for control icons and up to 128 for a
+    // standalone `large_icon`; nothing may paint beyond that.
+    let side = area.width().min(area.height()).min(MAX_ICON_SIDE);
     if !side.is_finite() || side <= 0.0 {
         return None;
     }
@@ -1864,7 +1867,13 @@ mod tests {
 
     #[test]
     fn canonical_logical_icon_uses_current_display_scale() {
-        let area = EguiRect::from_min_size(Pos2::new(3.2, 4.4), egui::Vec2::splat(32.0));
+        let area = EguiRect::from_min_size(Pos2::new(3.2, 4.4), egui::Vec2::splat(lienzo::ICON_SIZE));
+        // A standalone large icon paints at its own side, up to the cap.
+        let side = |points: f32| {
+            let area = EguiRect::from_min_size(Pos2::new(3.2, 4.4), egui::Vec2::splat(points));
+            aligned_icon_rect(area, 1.0).unwrap().1
+        };
+        assert_eq!((side(64.0), side(500.0)), (64, 128));
         for (scale, expected_pixels) in [(1.0, 16), (1.25, 20), (1.5, 24), (2.0, 32)] {
             let (aligned, pixels) = aligned_icon_rect(area, scale).unwrap();
             assert_eq!(pixels, expected_pixels);

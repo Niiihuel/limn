@@ -119,16 +119,11 @@ impl Breadcrumb {
 impl Component for Breadcrumb {
     fn render(mut self) -> Element {
         if let Some((id, value, placeholder)) = self.editing.take() {
-            return Element::text_input(id, value, placeholder)
-                .leading_icon(Icon::Search)
-                .leading_icon_tint(self.palette.muted)
-                .font_family(FontFamily::Sans)
-                .font_size(13.0)
-                .foreground(self.palette.text)
-                .background(self.palette.raised)
-                .radius(4.0)
-                .padding(4.0)
-                .size(Some(self.width), Some(self.height));
+            // The shared field keeps icon, text and caret on one centre line.
+            return crate::SearchField::new(id, value, placeholder, self.palette)
+                .size(crate::ControlSize::Compact)
+                .width(self.width)
+                .render();
         }
         if let Some(action) = self.search_action.take() {
             let (width, height, palette) = (self.width, self.height, self.palette);
