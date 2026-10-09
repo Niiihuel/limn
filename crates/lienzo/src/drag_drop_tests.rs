@@ -112,3 +112,31 @@ fn files_from_another_application_resolve_the_drop_target_under_the_pointer() {
         vec![UiAction::FilesDropped { position: at(45.0), target: Some("folder".into()), paths }]
     );
 }
+
+#[test]
+fn ghost_survives_its_source_scrolling_out_of_a_virtual_list() {
+    let list = Element::uniform_list("files", 100, 30.0, |index| {
+        Element::button(format!("row{index}"), format!("row{index}")).draggable()
+    });
+    let mut tree = UiTree::new(list);
+    tree.set_reduced_motion(true);
+    let size = Size::new(100.0, 90.0);
+    tree.layout(size);
+    let ghosts = |frame: &crate::Frame| {
+        frame
+            .commands
+            .iter()
+            .filter(|command| matches!(command, DrawCommand::Text { text, .. } if text == "row0"))
+            .count()
+    };
+    tree.handle_event(UiEvent::PointerDown(at(10.0)));
+    tree.handle_event(UiEvent::PointerMove(at(40.0)));
+    assert_eq!(ghosts(&tree.layout(size)), 2);
+    tree.handle_event(UiEvent::Scroll { position: at(40.0), delta_y: -600.0 });
+    let scrolled = tree.layout(size);
+    assert_eq!(ghosts(&scrolled), 1, "the row is recycled; only its ghost remains");
+    assert_eq!(
+        tree.handle_event(UiEvent::PointerUp(at(40.0))),
+        vec![UiAction::Dropped { id: "row0".into(), position: at(40.0), target: None }]
+    );
+}

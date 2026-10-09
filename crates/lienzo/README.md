@@ -696,12 +696,25 @@ clic con menos de 4 px de recorrido sigue siendo `Clicked`. Al superarlo,
 `Dropped { target }` al soltar; Escape o `PointerLeave` emiten `DragCancelled`.
 `over` y `target` son el destino más alto bajo el puntero, nunca el origen.
 Mientras dura el arrastre, el motor repinta el origen encima de todo, desplazado
-con el puntero y al 80 % de opacidad; no añade regiones interactivas.
+con el puntero y al 80 % de opacidad; no añade regiones interactivas. La imagen
+se captura una vez al empezar, así que sigue visible aunque la fila de origen
+salga de la vista o una lista virtual la recicle.
 
 Para archivos que llegan desde otra aplicación, el host envía
 `UiEvent::FilesHovered` y `UiEvent::FilesDropped`, y recibe las acciones del
-mismo nombre con el destino resuelto. Arrastrar hacia otra aplicación no está
-implementado.
+mismo nombre con el destino resuelto.
+
+En Wayland, winit no habla el protocolo de arrastre, así que la ventana no
+recibe archivos ni puede iniciar un arrastre. `lienzo-dnd` lo resuelve con una
+cola de eventos propia sobre el `wl_display` de la ventana:
+`FileDnd::attach(ventana, despertar)` devuelve `None` fuera de Wayland;
+`poll()` entrega `Hovered { x, y }` en cada movimiento, `Left` y
+`Dropped { x, y, paths }`, que el host reenvía como `FilesHovered` y
+`FilesDropped`. `start_drag(paths)` entrega los archivos al compositor para
+soltarlos en otra aplicación; hay que llamarlo con el botón aún presionado, por
+ejemplo al recibir `DragStarted`. Desde ahí el compositor es dueño del puntero:
+el arrastre interno se cancela y un drop sobre la propia ventana vuelve como
+`Dropped`. El arrastre saliente en X11, Windows y macOS no está implementado.
 
 ## Resortes
 

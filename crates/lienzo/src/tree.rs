@@ -1639,6 +1639,8 @@ struct PointerDrag {
     id: String,
     origin: Point,
     active: bool,
+    /// The source as painted when the drag began, before any translation.
+    ghost: Vec<DrawCommand>,
 }
 
 struct InputState {
@@ -2580,6 +2582,7 @@ impl UiTree {
         let viewport_rect = Rect::new(0.0, 0.0, viewport.width, viewport.height);
         let context_menu_paint = self.context_menu_paint(viewport_rect);
         self.measurement_cache.get_mut().clear();
+        let ghost_range;
         let (mut frame, overlay_start) = {
             let mut builder = LayoutBuilder {
                 frame: Frame {
@@ -2929,22 +2932,24 @@ impl UiTree {
                 builder.hovered = old_hovered;
                 builder.keyboard_focus = old_keyboard;
             }
-            // The dragged element follows the pointer above every layer. A
-            // source scrolled out of a virtual list simply has no ghost.
-            if let (Some(range), Some(drag), Some(pointer)) = (
-                builder.drag_ghost.take(),
-                self.pointer_drag.as_ref(),
-                self.pointer,
-            ) {
-                let (dx, dy) = (pointer.x - drag.origin.x, pointer.y - drag.origin.y);
-                let ghost: Vec<_> = builder.frame.commands[range]
-                    .iter()
-                    .map(|command| command.ghost(dx, dy))
-                    .collect();
-                builder.frame.commands.extend(ghost);
-            }
+            ghost_range = builder.drag_ghost.take();
             (builder.frame, overlay_start)
         };
+        // The dragged element follows the pointer above every layer. It
+        // is captured once, so it survives its source scrolling away or
+        // being recycled by a virtual list.
+        if let (Some(drag), Some(pointer)) = (
+            self.pointer_drag.as_mut().filter(|drag| drag.active),
+            self.pointer,
+        ) {
+            if let Some(range) = ghost_range.filter(|_| drag.ghost.is_empty()) {
+                drag.ghost = frame.commands[range].to_vec();
+            }
+            let (dx, dy) = (pointer.x - drag.origin.x, pointer.y - drag.origin.y);
+            frame
+                .commands
+                .extend(drag.ghost.iter().map(|command| command.ghost(dx, dy)));
+        }
         // Stable focus IDs may represent different virtual results after an
         // asynchronous refresh. Keep focus, but do not transfer a held press
         // to the replacement action. Unchanged aliases keep their capture.
@@ -3758,6 +3763,7 @@ impl UiTree {
                     id: id.clone(),
                     origin,
                     active: false,
+                    ghost: Vec::new(),
                 });
         }
         self.validate_ime_owner(now);
