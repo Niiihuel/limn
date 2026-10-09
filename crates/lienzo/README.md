@@ -727,3 +727,13 @@ el arrastre interno se cancela y un drop sobre la propia ventana vuelve como
 
 `syntax` (activo por defecto) incluye `lienzo-language` y tree-sitter. Sin él,
 las vistas de código usan el lexer por línea y `CodeLanguage` es local.
+
+## Tema
+
+`Theme { background, foreground, accent }` deriva toda la paleta de tres
+colores, siguiendo el modelo de Warp: `surface(1..=7)` mezcla el fondo con 5,
+10, 15, 20, 40, 60 y 90 % del primer plano; `text`, `text_sub`, `text_hint` y
+`text_disabled` son el primer plano al 90, 60, 40 y 20 %; `hover` y `pressed`
+son velos translúcidos; `accent_surface` y `accent_surface_strong` diluyen el
+acento en el fondo al 40 y 60 %. Todo es `const fn`, y `palette()` entrega el
+`ComponentPalette` de los componentes. `Theme::DARK` es un gris neutro.

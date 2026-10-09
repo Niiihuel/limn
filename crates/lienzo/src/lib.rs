@@ -35,6 +35,7 @@ mod marker;
 mod menu;
 mod modal;
 mod motion;
+mod theme;
 mod permission_selector;
 mod preferences;
 mod raster_image;
@@ -115,6 +116,7 @@ pub use stepper::{Step, Stepper};
 pub use text_shimmer::TextShimmer;
 pub use time_picker::TimePicker;
 pub use tool_activity::ToolActivity;
+pub use theme::Theme;
 pub use tree::{
     DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, TextLayoutBlock, TextLayoutRun,
     UiAction, UiEvent, UiTree,
