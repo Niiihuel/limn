@@ -548,9 +548,11 @@ mod tests {
 
     #[test]
     fn a_narrow_row_cuts_its_copy_and_paints_nothing_outside() {
+        let ink = Color::rgb(1, 2, 3);
         for width in [60.0, 120.0, 400.0] {
             let row = ListRow::new("row", TITLE, palette())
                 .icon(Icon::Code)
+                .icon_ink(ink)
                 .subtitle(WHY)
                 .subtitle_mono(true)
                 .trailing_icon(Icon::ChevronDown)
@@ -558,6 +560,18 @@ mod tests {
             let frame = tree_of(row.render()).layout(Size::new(600.0, 120.0));
             let lines = texts(&frame);
             assert_eq!(lines.len(), 2);
+            // The host's ink is the leading glyph's alone, and only the subtitle is mono.
+            let tints: Vec<Color> = icons(&frame).iter().map(|icon| icon.1).collect();
+            assert_eq!(tints, [ink, palette().muted]);
+            let families: Vec<FontFamily> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, font_family, .. } if text != "Después" => Some(*font_family),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(families, [FontFamily::Sans, FontFamily::Monospace]);
             if width < 400.0 {
                 assert!(lines.iter().all(|line| line.0.ends_with('…') || line.0.is_empty()));
             }

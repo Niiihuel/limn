@@ -64,7 +64,7 @@ impl Tooltip {
 
     /// The hint of something that stands for a file: its name as the title
     /// and the directory that holds it beneath, in a hint no wider than 320.
-    /// An entry at the root, or a bare name, has no second line.
+    /// A bare name has no second line, and a trailing separator is ignored.
     pub fn for_path(
         anchor: Element,
         anchor_id: impl Into<String>,
@@ -72,9 +72,15 @@ impl Tooltip {
         palette: ComponentPalette,
     ) -> Self {
         const MAX_WIDTH: f32 = 320.0;
+        // A trailing separator belongs to the directory it closes; a path of
+        // nothing else is the root, which names itself.
+        let trimmed = path.trim_end_matches(['/', '\\']);
+        let path = if trimmed.is_empty() { path } else { trimmed };
         let (parent, name) = match path.rfind(['/', '\\']) {
-            Some(separator) => (Some(&path[..separator.max(1)]), &path[separator + 1..]),
-            None => (None, path),
+            Some(separator) if separator + 1 < path.len() => {
+                (Some(&path[..separator.max(1)]), &path[separator + 1..])
+            }
+            _ => (None, path),
         };
         let tooltip = Self::new(anchor, anchor_id, name, palette).max_width(MAX_WIDTH);
         match parent {
@@ -2555,6 +2561,10 @@ mod tests {
         assert_eq!(hint("/etc"), ("etc".into(), described("/")));
         assert_eq!(hint("Cargo.toml"), ("Cargo.toml".into(), Vec::new()));
         assert_eq!(hint(""), (String::new(), Vec::new()));
+        // A directory written with its closing separator is still named.
+        assert_eq!(hint("crates/limn/src/"), ("src".into(), described("crates/limn")));
+        assert_eq!(hint("C:\\dir\\"), ("dir".into(), described("C:")));
+        assert_eq!(hint("/"), ("/".into(), Vec::new()));
     }
 
     #[test]
