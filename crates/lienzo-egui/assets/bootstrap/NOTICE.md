@@ -12,6 +12,3 @@ texture serves every theme and state.
 
 `src/lib.rs` maps each `lienzo::Icon` to a file here. To add an icon, copy its
 SVG from the package and add the mapping.
-
-Icons with no Bootstrap equivalent stay in `../openide/`: the brain, the
-context ring, find-and-replace and the debugger controls.

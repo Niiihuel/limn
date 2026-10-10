@@ -125,9 +125,9 @@ root element, since they cover the whole window.
 
 The standard iconography is [Bootstrap Icons](https://icons.getbootstrap.com/).
 `Icon` names what an icon means, such as `Icon::Trash` or `Icon::Search`, and
-the backend maps each to a Bootstrap icon. Four have no Bootstrap equivalent
-and keep the library's own artwork: the brain, the context ring,
-find-and-replace and the debugger controls.
+the backend maps each to a Bootstrap icon. Every built-in icon is a Bootstrap
+icon; `Icon::Brain`, which marks reasoning in progress, is drawn as
+Bootstrap's light bulb because the set has no brain.
 
 For artwork of your own, such as a brand mark, use `Icon::Custom(svg)` with
 the source of an SVG drawn with `currentColor`. It is fitted to the icon's

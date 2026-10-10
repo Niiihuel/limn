@@ -249,8 +249,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Paperclip => include_str!("../assets/bootstrap/paperclip.svg"),
         Icon::Target => include_str!("../assets/bootstrap/bullseye.svg"),
         Icon::Plan => include_str!("../assets/bootstrap/list-check.svg"),
-        Icon::Brain => include_str!("../assets/openide/brain.svg"),
-        Icon::ContextRing => include_str!("../assets/openide/context-ring.svg"),
+        Icon::Brain => include_str!("../assets/bootstrap/lightbulb.svg"),
         Icon::Check => include_str!("../assets/bootstrap/check-lg.svg"),
         Icon::InfoCircle => include_str!("../assets/bootstrap/info-circle.svg"),
         Icon::CheckCircle => include_str!("../assets/bootstrap/check-circle.svg"),
@@ -284,14 +283,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::ChevronDown => include_str!("../assets/bootstrap/chevron-down.svg"),
         Icon::ChevronRight => include_str!("../assets/bootstrap/chevron-right.svg"),
         Icon::Search => include_str!("../assets/bootstrap/search.svg"),
-        Icon::Replace => include_str!("../assets/openide/replace.svg"),
-        Icon::ReplaceAll => include_str!("../assets/openide/replace-all.svg"),
         Icon::Stop => include_str!("../assets/bootstrap/stop.svg"),
-        Icon::DebugStart => include_str!("../assets/openide/debug-start.svg"),
-        Icon::DebugPause => include_str!("../assets/openide/debug-pause.svg"),
-        Icon::DebugStepOver => include_str!("../assets/openide/debug-step-over.svg"),
-        Icon::DebugStepInto => include_str!("../assets/openide/debug-step-into.svg"),
-        Icon::DebugStepOut => include_str!("../assets/openide/debug-step-out.svg"),
 
         Icon::History => include_str!("../assets/bootstrap/clock-history.svg"),
         Icon::Close => include_str!("../assets/bootstrap/x-lg.svg"),
@@ -1735,23 +1727,6 @@ mod tests {
         })
         .expect("send arrow SVG");
         assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
-    }
-
-    #[test]
-    fn original_icons_rasterize_as_tintable_monochrome_masks() {
-        // The icons with no Bootstrap equivalent keep the library's own art.
-        for icon in [Icon::Brain, Icon::ContextRing, Icon::Replace, Icon::ReplaceAll] {
-            let source = icon_svg(icon);
-            assert!(source.contains("viewBox=\"0 0 24 24\""), "{icon:?}");
-            let image = raster_icon(IconKey { icon, pixels: 48 })
-                .unwrap_or_else(|| panic!("invalid original SVG: {icon:?}"));
-            assert_eq!(image.size, [48, 48]);
-            assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
-            assert!(image
-                .pixels
-                .iter()
-                .all(|pixel| pixel.r() == pixel.g() && pixel.g() == pixel.b()));
-        }
     }
 
     #[test]
