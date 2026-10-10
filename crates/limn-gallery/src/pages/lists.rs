@@ -168,7 +168,7 @@ pub fn view(cx: &Cx) -> Element {
                 tree_header(cx, on_card, "list-tree-open", "limn", 3, true, inner),
                 task(cx, on_card, "list-task-a", "Separar la presentación de la aplicación en componentes", false, inner),
                 task(cx, selected(cx), "list-task-b", "Filas de la barra lateral", true, inner),
-                tree_header(cx, on_card, "list-tree-folded", "openADE", 128, false, inner),
+                tree_header(cx, on_card, "list-tree-folded", "documentos", 128, false, inner),
             ]),
         ]),
         section(cx, "Acciones propias bajo un mismo hover", vec![
