@@ -5,7 +5,7 @@
 
 use limn::{
     set_tokens, tokens, Button, Component, ComponentPalette, DrawCommand, Element, Empty, Frame,
-    Modal, Motion, Radius, Size, Toast, Tokens, UiTree,
+    Markdown, Modal, Motion, Radius, Size, Toast, Tokens, UiTree,
 };
 use std::time::{Duration, Instant};
 
@@ -42,6 +42,14 @@ fn settled(palette: ComponentPalette) -> Frame {
     tree.layout(WINDOW)
 }
 
+/// A quote and a code block, which round with tokens; the tree is cached by the engine.
+fn markdown(palette: ComponentPalette) -> Frame {
+    let prose = Markdown::new("> cita\n\n```rust\nfn main() {}\n```", palette).render().element;
+    let mut tree = UiTree::new(prose);
+    tree.set_reduced_motion(true);
+    tree.layout(WINDOW)
+}
+
 /// Opacity of the toast's surface on the very first frame it is painted.
 fn toast_opacity_on_arrival(palette: ComponentPalette) -> u8 {
     let surface = tokens().radius.surface;
@@ -70,9 +78,15 @@ fn tokens_reshape_and_repace_every_component_built_after_they_change() {
     assert_eq!(Button::new("b", "B", palette).render().style.transition_ms, 120);
     assert_eq!(toast_opacity_on_arrival(palette), 0, "a toast fades in by default");
 
+    let prose = radii(&markdown(palette));
+    assert!(prose.contains(&6) && prose.contains(&8), "{prose:?}");
+
     // Square corners reach components and engine-painted surfaces alike.
     set_tokens(Tokens { radius: Radius::SQUARE, ..Tokens::DEFAULT });
     assert_eq!(radii(&settled(palette)), [0], "every corner is square");
+
+    // A Markdown tree cached while corners were round is not reused square.
+    assert_eq!(radii(&markdown(palette)), [0], "cached quote and code block are square");
 
     // Rounder: each role scales, and the roles stay distinct.
     set_tokens(Tokens { radius: Radius::DEFAULT.scaled(2.0), ..Tokens::DEFAULT });

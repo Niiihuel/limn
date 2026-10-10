@@ -120,6 +120,8 @@ pub(crate) struct MarkdownPresentation {
     labels: MarkdownLabels,
     link_action_prefix: &'static str,
     limits: MarkdownLimits,
+    // Quotes and code blocks bake token radii into the tree; as bits to stay `Eq`.
+    radius_bits: [u32; 4],
 }
 
 impl MarkdownPresentation {
@@ -167,6 +169,10 @@ impl<'a> Markdown<'a> {
                 labels: MarkdownLabels::DEFAULT,
                 link_action_prefix: "markdown_link:",
                 limits: MarkdownLimits::DEFAULT,
+                radius_bits: {
+                    let radius = crate::tokens().radius;
+                    [radius.control, radius.surface, radius.card, radius.panel].map(f32::to_bits)
+                },
             },
             streaming: false,
             plain_line_height: None,

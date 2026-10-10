@@ -223,8 +223,8 @@ mod tests {
                     let mut ids = HashSet::new();
                     let mut previous = None;
                     for region in frame.regions.iter().filter(|region| region.kind == limn::HitKind::Button) {
-                        // A link wrapped over two lines is one control in consecutive pieces.
-                        if previous != Some(&region.id) {
+                        // A Markdown link wrapped over two lines is one control in consecutive pieces.
+                        if !(region.id.starts_with("markdown-") && previous == Some(&region.id)) {
                             assert!(ids.insert(&region.id), "{}: duplicate id {}", page.id, region.id);
                         }
                         previous = Some(&region.id);
