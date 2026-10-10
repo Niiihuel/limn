@@ -36,6 +36,7 @@ pub struct Card {
 }
 
 impl Card {
+    /// A bordered card around `content`, with the default density and radius.
     pub fn new(content: Element, palette: ComponentPalette) -> Self {
         Self {
             content,

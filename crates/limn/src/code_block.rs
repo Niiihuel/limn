@@ -6,8 +6,11 @@ use crate::{Component, ComponentPalette, Element, FontFamily, RadiusRole, TextRo
 /// the code, which is always monospaced.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CodeBlockSizing {
+    /// The text role of the label above the code.
     pub label: TextRole,
+    /// Whether the label is monospaced like the code, or sans.
     pub label_mono: bool,
+    /// The text role of the code.
     pub code: TextRole,
 }
 
@@ -39,6 +42,7 @@ pub struct CodeBlock {
 }
 
 impl CodeBlock {
+    /// Plain `text` with no label, in the [`CodeBlockSizing::CHAT`] profile.
     pub fn new(text: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             text: text.into(),
