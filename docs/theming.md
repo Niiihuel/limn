@@ -42,6 +42,7 @@ Element::panel(Button::new("save", "Save", palette).render())
 | `theme.hover()`, `pressed()` | Translucent veils for pointer feedback. |
 | `theme.accent_surface()`, `accent_text()` | The accent diluted into a fill, and as readable ink. |
 | `theme.palette()` | The `ComponentPalette` components take. |
+| `theme.scheme()` | The same colors as a [`Scheme`](#a-scheme-of-explicit-roles). |
 
 ### The palette
 
@@ -64,6 +65,52 @@ any surface. To give one component different colors, pass it a modified copy:
 ```rust
 let danger = ComponentPalette { text: red, ..palette };
 ```
+
+### A scheme of explicit roles
+
+A `Theme` derives every color from three. A host with a finished design has
+the opposite need: it knows each value and wants them named once. A `Scheme`
+is that list of roles, built as a `const`:
+
+| Field | Role |
+| --- | --- |
+| `canvas`, `panel` | The page, and the docks and side panels level with it. |
+| `raised` | Cards, sidebars and inputs. |
+| `hover`, `selected` | Pointer feedback on a flat surface; a pressed control or chosen item. |
+| `border`, `shadow` | Hairlines; the shadow under floating surfaces. |
+| `text`, `muted`, `muted_on_raised` | Primary ink, and secondary ink on a flat and on a raised surface. |
+| `menu`, `menu_hover`, `menu_muted` | Floating menus and popovers. |
+| `control` | A `ControlColors`: the fill, hover, pressed, border and text of a filled control on a raised surface. |
+
+No component takes a `Scheme`. It only produces the palettes they take:
+
+| Method | Palette for |
+| --- | --- |
+| `scheme.palette()` | Components on the canvas. |
+| `scheme.card()` | Content laid on a raised surface. |
+| `scheme.menu()` | A floating menu. Its chosen row holds the hover fill. |
+| `scheme.on_raised()` | A filled control on a raised surface. |
+| `scheme.on(surface, ink)` | An action painted on a color of its own. |
+
+`on` takes the role of that color, because a scheme never guesses a role from
+a value:
+
+| `Surface` | Hover | Pressed |
+| --- | --- | --- |
+| `Flat(color)` | `scheme.hover` | `scheme.selected` |
+| `Raised(color)` | `scheme.step(color)` | `scheme.selected` |
+| `Solid(color)` | `color` | `color` |
+
+```rust
+let chosen_row = scheme.on(Surface::Raised(scheme.selected), scheme.text);
+```
+
+`scheme.step(color)` moves each channel 8 toward the ink: lighter in a dark
+scheme, darker in a light one. Alpha is kept.
+
+`theme.scheme()` gives a theme's colors by role, and
+`theme.scheme().palette()` equals `theme.palette()`. A scheme holds no status,
+link, diff or syntax colors: those stay with the host.
 
 ### Light and dark together
 

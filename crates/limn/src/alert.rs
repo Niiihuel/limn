@@ -29,10 +29,10 @@ impl AlertTone {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Neutral => "Aviso",
-            Self::Info => "Información",
-            Self::Success => "Completado",
-            Self::Warning => "Advertencia",
+            Self::Neutral => "Notice",
+            Self::Info => "Information",
+            Self::Success => "Done",
+            Self::Warning => "Warning",
             Self::Error => "Error",
         }
     }

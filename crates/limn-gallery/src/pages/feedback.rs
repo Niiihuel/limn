@@ -1,6 +1,6 @@
 use super::{row, section, Cx};
 use limn::{
-    Alert, AlertTone, Avatar, Chip, Component, Element, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton,
+    Alert, AlertTone, Avatar, Chip, Component, Element, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
     Spinner, SpinnerVariant,
 };
 
@@ -72,6 +72,10 @@ pub fn view(cx: &Cx) -> Element {
                 ])
                 .gap(8.0),
             ]),
+            Element::panel(
+                SkeletonGroup::rows("feedback-skeleton-rows", palette, 4).icon(true).render(),
+            )
+            .size(Some(width.min(336.0)), None),
         ]),
         section(cx, "Marcadores", vec![
             Marker::new("feedback-marker", "Rama creada", palette).icon(Icon::GitBranch).render(),

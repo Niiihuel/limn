@@ -178,6 +178,36 @@ pub enum Icon {
     BellSlash,
 }
 
+impl Icon {
+    /// The solid form of an icon, for the active or chosen item of a list.
+    /// An icon without one is returned as it is.
+    pub fn filled(self) -> Self {
+        match self {
+            Self::PanelLeft => Self::PanelLeftOpen,
+            Self::PanelRight => Self::PanelRightOpen,
+            Self::Bell => Self::BellFill,
+            Self::Folder => Self::FolderFill,
+            Self::Play => Self::PlayFill,
+            Self::Grid => Self::GridFill,
+            Self::Settings => Self::SettingsFill,
+            Self::Palette => Self::PaletteFill,
+            Self::Laptop => Self::LaptopFill,
+            Self::Terminal => Self::TerminalFill,
+            Self::Keyboard => Self::KeyboardFill,
+            Self::Chat => Self::ChatFill,
+            Self::Users => Self::UsersFill,
+            Self::Puzzle => Self::PuzzleFill,
+            Self::Server => Self::ServerFill,
+            Self::Book => Self::BookFill,
+            Self::Clock => Self::ClockFill,
+            Self::Bolt => Self::BoltFill,
+            Self::Archive => Self::ArchiveFill,
+            Self::ChartBar => Self::ChartBarFill,
+            other => other,
+        }
+    }
+}
+
 /// Outline forms of the passive loading indicator.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum SpinnerVariant {
@@ -1713,6 +1743,21 @@ impl Element {
     pub fn corner_mask(mut self, color: Color) -> Self {
         self.style.corner_mask = Some(color);
         self
+    }
+}
+
+#[cfg(test)]
+mod icon_tests {
+    use super::Icon;
+
+    #[test]
+    fn filled_maps_an_outline_to_its_solid_form_and_leaves_the_rest() {
+        assert_eq!(Icon::Settings.filled(), Icon::SettingsFill);
+        assert_eq!(Icon::PanelLeft.filled(), Icon::PanelLeftOpen);
+        assert_eq!(Icon::Bell.filled(), Icon::BellFill);
+        // No solid form, and already solid.
+        assert_eq!(Icon::Search.filled(), Icon::Search);
+        assert_eq!(Icon::SettingsFill.filled(), Icon::SettingsFill);
     }
 }
 

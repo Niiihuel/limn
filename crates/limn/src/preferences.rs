@@ -277,7 +277,7 @@ mod tests {
                             .suffix(Element::icon(Icon::ArrowRight))
                             .render(),
                         ActionRow::new("Desconectar", palette)
-                            .subtitle("Quita esta conexión de OpenIDE.")
+                            .subtitle("Quita esta conexión de la aplicación.")
                             .suffix(
                                 Element::button("provider_disconnect:codex", "Desconectar")
                                     .size(Some(100.0), Some(32.0)),

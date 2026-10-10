@@ -88,6 +88,19 @@ pub fn view(cx: &Cx) -> Element {
             .expanded(state.flag("nav-collapsible-plain"))
             .render(),
         ]),
+        section(cx, "Icono del elemento elegido", vec![
+            row(
+                [Icon::Folder, Icon::Settings, Icon::Chat, Icon::Bell, Icon::Search]
+                    .into_iter()
+                    .flat_map(|icon| [
+                        Element::icon(icon).foreground(palette.muted),
+                        Element::icon(icon.filled()).foreground(palette.text),
+                        Element::spacer().size(Some(8.0), None),
+                    ])
+                    .collect(),
+            ),
+            caption(cx, "Icon::filled() da la forma sólida; un icono sin ella, como la lupa, queda igual."),
+        ]),
     ])
     .gap(32.0)
 }

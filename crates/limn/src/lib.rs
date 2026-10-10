@@ -1,4 +1,4 @@
-//! A small, original UI engine for OpenIDE.
+//! A small, original UI engine for desktop applications.
 //!
 //! Application code constructs an [`Element`] tree. [`UiTree`] lays it out,
 //! retains interaction state by stable IDs, and emits backend-neutral drawing
@@ -36,6 +36,7 @@ mod theme;
 mod preferences;
 mod progress;
 mod raster_image;
+mod scheme;
 mod scroll_area;
 mod selector_sizing;
 mod separator;
@@ -103,10 +104,11 @@ pub use motion::{
 pub use preferences::{ActionRow, PreferencesGroup};
 pub use progress::Progress;
 pub use raster_image::{RasterImage, RasterImageFormat};
+pub use scheme::{ControlColors, Scheme, Surface};
 pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement};
 pub use selector_sizing::SelectorSizing;
 pub use separator::Separator;
-pub use skeleton::Skeleton;
+pub use skeleton::{Skeleton, SkeletonGroup};
 pub use spinner::Spinner;
 pub use stepper::{Step, Stepper};
 pub use text::Text;

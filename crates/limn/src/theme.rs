@@ -5,7 +5,7 @@
 //! the accent only ever appears diluted. Changing three inputs re-tints
 //! everything, and no token can drift out of step with the others.
 
-use crate::{Color, ComponentPalette, Element};
+use crate::{Color, ComponentPalette, ControlColors, Element, Scheme};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Theme {
@@ -119,6 +119,36 @@ impl Theme {
             text: self.text(),
             muted: self.text_sub(),
             shadow: Color::rgba(0, 0, 0, 120),
+        }
+    }
+
+    /// The same colors by role, for a host that derives its palettes from a
+    /// [`Scheme`]. `scheme().palette()` equals [`palette`](Self::palette).
+    pub const fn scheme(&self) -> Scheme {
+        let palette = self.palette();
+        Scheme {
+            canvas: palette.surface,
+            panel: self.background,
+            raised: palette.raised,
+            hover: palette.hover,
+            selected: palette.selected,
+            border: palette.border,
+            text: palette.text,
+            muted: palette.muted,
+            // Translucent ink reads the same on every surface.
+            muted_on_raised: palette.muted,
+            menu: palette.raised,
+            menu_hover: palette.hover,
+            menu_muted: palette.muted,
+            shadow: palette.shadow,
+            // Opaque steps: a veil in place of a fill would erase the control.
+            control: ControlColors {
+                surface: self.surface(3),
+                hover: self.surface(4),
+                pressed: mix(self.background, self.foreground, 25),
+                border: self.surface(4),
+                text: palette.text,
+            },
         }
     }
 }

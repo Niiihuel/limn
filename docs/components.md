@@ -66,6 +66,7 @@ it.
 | `Progress` | A thin bar for work whose completed share is known. |
 | `Spinner` | An indicator for work of unknown duration. |
 | `Skeleton` | A pulsing placeholder in the shape of content that is loading. |
+| `SkeletonGroup` | Placeholder rows for a list that is loading: `SkeletonGroup::rows(id, palette, count)`, with an optional leading icon square. `into_rows()` hands the rows to a host that places each one itself. |
 | `Empty` | The state of a page, pane or result list with nothing in it: an icon, a title, a reason and one next step. It has no frame of its own and sits on whatever surface it is given. |
 | `Marker` | A one-line event in a conversation or log, optionally as a separator. |
 | `TextShimmer` | Text with a moving highlight, for work in progress. |
@@ -166,6 +167,9 @@ square without distortion and tinted like any other icon:
 const LOGO: &str = include_str!("../assets/logo.svg");
 Element::icon(Icon::Custom(LOGO)).foreground(palette.text)
 ```
+
+`icon.filled()` returns the solid form of an icon, for the chosen item of a
+navigation list; an icon without one is returned unchanged.
 
 `Element::icon(Icon::...)` paints a semantic icon at 16 px. `.large_icon(px)`
 draws a standalone icon larger, for empty states and thumbnails.

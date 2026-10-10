@@ -178,7 +178,7 @@ pub enum ControlState {
 }
 
 /// Semantic colors shared by tabs, dropdowns, and floating surfaces.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComponentPalette {
     pub surface: Color,
     pub raised: Color,
@@ -1466,7 +1466,7 @@ impl Component for Switch {
     }
 }
 
-pub(crate) fn lighter(color: Color, amount: u8) -> Color {
+pub(crate) const fn lighter(color: Color, amount: u8) -> Color {
     Color::rgba(
         color.r.saturating_add(amount),
         color.g.saturating_add(amount),
@@ -1475,7 +1475,7 @@ pub(crate) fn lighter(color: Color, amount: u8) -> Color {
     )
 }
 
-fn darker(color: Color, amount: u8) -> Color {
+pub(crate) const fn darker(color: Color, amount: u8) -> Color {
     Color::rgba(
         color.r.saturating_sub(amount),
         color.g.saturating_sub(amount),

@@ -11,6 +11,7 @@ mod inputs;
 mod navigation;
 mod overlays;
 mod preferences;
+mod scheme;
 mod tokens;
 mod tooltip;
 mod typography;
@@ -24,6 +25,7 @@ pub struct Page {
 
 pub const PAGES: &[Page] = &[
     Page { id: "tokens", group: "Sistema", title: "Forma y movimiento", view: tokens::view },
+    Page { id: "scheme", group: "Sistema", title: "Esquema de color", view: scheme::view },
     Page { id: "typography", group: "Sistema", title: "Texto y separadores", view: typography::view },
     Page { id: "buttons", group: "Controles", title: "Botones", view: buttons::view },
     Page { id: "inputs", group: "Controles", title: "Entradas", view: inputs::view },
