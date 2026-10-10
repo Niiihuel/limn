@@ -1,8 +1,8 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    file_icon, Breadcrumb, BreadcrumbItem, ButtonVariant, Collapsible, Component, ControlSize,
-    Element, Icon, IconButton, Link, SegmentedControl, Step, Stepper, Tab, TabItem, TabStrip, Tabs,
-    TooltipPlacement,
+    file_icon, Breadcrumb, BreadcrumbItem, ButtonVariant, Collapsible, Component, ContextMenu,
+    ContextMenuEntry, ContextMenuItem, ControlSize, Element, FontFamily, Icon, IconButton, Link,
+    SegmentedControl, Step, Stepper, Tab, TabItem, TabStrip, Tabs, TextRole, TooltipPlacement,
 };
 
 const VIEWS: [(&str, &str, Icon); 3] = [
@@ -60,10 +60,73 @@ fn file_tabs(cx: &Cx, group: &str, count: usize) -> Element {
         .size(ControlSize::Dense)
         .tooltip("Todas las pestañas")
         .render();
+    let strip = TabStrip::new(group, items, palette).each_tab(|index, tab| {
+        let entries = vec![ContextMenuEntry::Item(
+            ContextMenuItem::new(format!("{group}-close-{index}"), "Cerrar").icon(Icon::Close),
+        )];
+        ContextMenu::new(format!("{group}-context-{index}"), tab, entries, palette).render()
+    });
     Element::column(vec![
-        TabStrip::header(TabStrip::new(group, items, palette).render(), tools, width, palette)
-            .render(),
+        TabStrip::header(strip.render(), tools, width, palette).render(),
         Element::spacer().background(palette.surface).size(Some(width), Some(36.0)),
+    ])
+    .size(Some(width), None)
+}
+
+/// A bar of label-only and icon-only tabs, tight to its edges.
+fn section_tabs(cx: &Cx) -> Element {
+    let palette = cx.palette;
+    let width = cx.width.min(640.0);
+    let chosen = cx.state.choice("nav-sections", "problems");
+    let tab = |id: &str, content: Element, tab_width: f32| {
+        TabStrip::surface(&format!("nav-sections={id}"), content, id == chosen, tab_width, palette)
+    };
+    let label = |id: &str, title: &str| {
+        let ink = if id == chosen { palette.text } else { palette.muted };
+        // Faded text is the kind that centers on both axes.
+        let text = Element::faded_text(title, 14.0)
+            .font_family(FontFamily::Sans)
+            .font_size(TextRole::Label.size())
+            .foreground(ink)
+            .center_content();
+        tab(id, text, 96.0)
+    };
+    let tabs = Element::row(vec![
+        label("problems", "Problemas"),
+        label("output", "Salida"),
+        label("terminal", "Terminal"),
+        tab("history", Element::icon(Icon::History).foreground(palette.muted).centered(), 32.0),
+    ])
+    .size(Some(320.0), Some(TabStrip::TAB_HEIGHT));
+    let leading = Element::row(vec![TabStrip::align(tabs), Element::spacer().flex(1.0)]).flex(1.0);
+    let tools = IconButton::new("nav-sections-close", Icon::Close, palette)
+        .variant(ButtonVariant::Ghost)
+        .size(ControlSize::Dense)
+        .tooltip("Cerrar panel")
+        .render();
+    bar(TabStrip::header(leading, tools, width, palette).side_inset(2.0).gap(2.0).render(), cx)
+}
+
+/// A bar for a group that shows one resource: the tab alone, with no strip.
+fn single_tab(cx: &Cx) -> Element {
+    let palette = cx.palette;
+    let width = cx.width.min(640.0);
+    let tab = TabItem::new("nav-single", "nav-single-extent", Icon::File, "Vista previa · README.md", 208.0)
+        .tooltip("docs/README.md")
+        .tooltip_placement(TooltipPlacement::Below)
+        .active(true)
+        .render(palette);
+    let leading = Element::row(vec![TabStrip::align(tab), Element::spacer().flex(1.0)]).flex(1.0);
+    let tools = Element::spacer().size(Some(0.0), None);
+    bar(TabStrip::header(leading, tools, width, palette).render(), cx)
+}
+
+/// A header over a strip of the body its active tab opens onto.
+fn bar(header: Element, cx: &Cx) -> Element {
+    let width = cx.width.min(640.0);
+    Element::column(vec![
+        header,
+        Element::spacer().background(cx.palette.surface).size(Some(width), Some(36.0)),
     ])
     .size(Some(width), None)
 }
@@ -87,7 +150,10 @@ pub fn view(cx: &Cx) -> Element {
             file_tabs(cx, "nav-files-1", 1),
             file_tabs(cx, "nav-files-3", 3),
             file_tabs(cx, "nav-files-12", 12),
-            caption(cx, "La pestaña activa se abre sobre el cuerpo; la franja se desplaza hasta mostrarla."),
+            caption(cx, "La pestaña activa se abre sobre el cuerpo; la franja se desplaza hasta mostrarla. Clic derecho en una pestaña abre su menú."),
+            section_tabs(cx),
+            single_tab(cx),
+            caption(cx, "Pestañas de sólo texto o icono, y una pestaña suelta para un grupo de un solo recurso."),
         ]),
         section(cx, "Control segmentado", vec![row(vec![
             SegmentedControl::new(tabs("nav-segments"), palette).render(),
