@@ -28,8 +28,8 @@ fn card(cx: &Cx, title: &str, width: f32) -> Element {
     .size(Some(width), None)
 }
 
-fn grid(cx: &Cx, width: f32, count: usize) -> Element {
-    let grid = CardGrid::new(width, 360.0);
+fn grid(cx: &Cx, width: f32, breakpoint: f32, count: usize) -> Element {
+    let grid = CardGrid::new(width, breakpoint);
     let item_width = grid.item_width();
     grid.items((1..=count).map(|index| card(cx, &format!("Tarjeta {index}"), item_width)).collect())
         .render()
@@ -37,16 +37,17 @@ fn grid(cx: &Cx, width: f32, count: usize) -> Element {
 
 /// A whole page in a frame, so its gutter and its own scrolling show.
 fn page(cx: &Cx, id: &str, width: f32) -> Element {
-    let page = PageColumn::new(id, width, cx.palette).reserve_rail(true);
+    // Breakpoints scaled down to the frames, so the gallery shows both states.
+    let page = PageColumn::new(id, width, cx.palette).gutter(14.0, 28.0, 360.0).reserve_rail(true);
     let content_width = page.content_width();
     let page = page.children(vec![
         PageHeader::new("Automatizaciones", cx.palette)
             .description("Tareas programadas para este proyecto")
             .trailing(Button::new(format!("{id}-new"), "Nueva tarea", cx.palette).icon(Icon::Add).render())
-            .stacked(content_width < 440.0)
+            .stacked(content_width < 300.0)
             .render(),
         SectionHeader::new("Plantillas", cx.palette).count(5).render(),
-        grid(cx, content_width, 5),
+        grid(cx, content_width, 300.0, 5),
     ]);
     Element::panel(page.render())
         .border(cx.palette.border, 1.0)
@@ -115,12 +116,13 @@ pub fn view(cx: &Cx) -> Element {
             .size(Some(width.min(420.0)), None),
         ]),
         section(cx, "Rejilla de tarjetas", vec![
-            grid(cx, width, 3),
+            grid(cx, width, 360.0, 3),
             caption(cx, "Por debajo del corte, una sola columna"),
-            grid(cx, width.min(300.0), 2),
+            grid(cx, width.min(300.0), 360.0, 2),
         ]),
         section(cx, "Columna de página", vec![
             page(cx, "page-column-wide", width),
+            caption(cx, "Estrecha: margen menor, encabezado apilado y una columna"),
             page(cx, "page-column-narrow", width.min(300.0)),
         ]),
     ])
