@@ -29,19 +29,19 @@ impl PreferencesGroup {
 }
 impl Component for PreferencesGroup {
     fn render(self) -> Element {
-        let mut heading = vec![
-            Element::text(self.title)
+        // A quiet label names the group; the card below it carries the weight.
+        let caption = |text: String| {
+            Element::text(text)
                 .font_family(FontFamily::Sans)
-                .font_size(18.0)
-                .foreground(self.palette.text),
-        ];
-        if let Some(description) = self.description {
-            heading.push(
-                Element::text(description)
-                    .font_family(FontFamily::Sans)
-                    .font_size(11.0)
-                    .foreground(self.palette.muted),
-            );
+                .font_size(11.0)
+                .foreground(self.palette.muted)
+        };
+        let mut heading = Vec::new();
+        if !self.title.is_empty() {
+            heading.push(caption(self.title));
+        }
+        if let Some(description) = self.description.filter(|text| !text.is_empty()) {
+            heading.push(caption(description));
         }
         let last_row = self.rows.len().saturating_sub(1);
         let mut rows = Vec::new();
@@ -62,15 +62,16 @@ impl Component for PreferencesGroup {
                 bottom_left: if index == last_row { group_radius() } else { 0.0 },
             }));
         }
-        Element::column(vec![
-            Element::column(heading).gap(4.0),
-            Element::panel(Element::column(rows))
-                .background(self.palette.surface)
-                .border(self.palette.border, 1.0)
-                .radius(group_radius())
-                .clip_children(),
-        ])
-        .gap(6.0)
+        let card = Element::panel(Element::column(rows))
+            .background(self.palette.surface)
+            .border(self.palette.border, 1.0)
+            .radius(group_radius())
+            .clip_children();
+        // Without a title or a description the group is just its card.
+        if heading.is_empty() {
+            return card;
+        }
+        Element::column(vec![Element::column(heading).gap(2.0).padding(4.0), card]).gap(4.0)
     }
 }
 
