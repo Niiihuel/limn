@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx};
 use limn::{
     Button, ButtonVariant, Card, CardDensity, CodeBlock, CodeBlockSizing, Component, Element,
-    FontFamily, OutputBlock, RadiusRole, Text, TextRole, TextSpan,
+    FontFamily, ListRow, OutputBlock, RadiusRole, Separator, Text, TextRole, TextSpan,
 };
 
 fn card_copy(cx: &Cx, title: &str, detail: &str) -> Element {
@@ -49,6 +49,20 @@ pub fn view(cx: &Cx) -> Element {
                     .radius(RadiusRole::Panel)
                     .width(200.0)
                     .render(),
+            ]),
+            row(vec![
+                Card::new(
+                    Element::column(vec![
+                        ListRow::new("blocks-card-flush", "Flush: fila hasta el borde", palette).render(),
+                        Separator::horizontal(palette).render(),
+                        card_copy(cx, "Sin relleno", "El contenido trae el suyo").padding(8.0),
+                    ])
+                    .clip_children(),
+                    palette,
+                )
+                .density(CardDensity::Flush)
+                .width(200.0)
+                .render(),
             ]),
             Card::new(
                 Element::column(vec![

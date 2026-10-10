@@ -5,6 +5,9 @@ use crate::{Component, ComponentPalette, Element, RadiusRole};
 /// How far a [`Card`] holds its content from its edge.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CardDensity {
+    /// None, for content whose rows run to the card's edge and bring their
+    /// own inset, such as a header that hovers across the whole card.
+    Flush,
     /// 8 px, for a card set inside another surface.
     Compact,
     /// 10 px.
@@ -16,6 +19,7 @@ pub enum CardDensity {
 impl CardDensity {
     pub(crate) const fn padding(self) -> f32 {
         match self {
+            Self::Flush => 0.0,
             Self::Compact => 8.0,
             Self::Regular => 10.0,
             Self::Roomy => 12.0,
@@ -126,6 +130,7 @@ mod tests {
     fn each_density_pads_the_content_and_the_card_is_passive() {
         let palette = ComponentPalette::neutral_dark();
         for (density, padding) in [
+            (CardDensity::Flush, 0.0),
             (CardDensity::Compact, 8.0),
             (CardDensity::Regular, 10.0),
             (CardDensity::Roomy, 12.0),
