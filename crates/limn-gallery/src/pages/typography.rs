@@ -29,8 +29,15 @@ pub fn view(cx: &Cx) -> Element {
         .gap(12.0)
     };
     Element::column(vec![
-        caption(cx, "Text toma el tamaño de un TextRole y el color de la paleta; no acepta píxeles."),
+        caption(cx, "Text toma el tamaño de un TextRole y el color de la paleta."),
         section(cx, "Escala", ROLES.iter().map(|(role, name)| sample(*role, name)).collect()),
+        section(cx, "Fuera de la escala", vec![
+            caption(cx, ".size(px) para un paso que el diseño del host tiene entre dos roles"),
+            Text::new("Small · 11", palette).role(TextRole::Small).muted().render(),
+            Text::new(".size(11.5): entre Small y Caption", palette).size(11.5).muted().render(),
+            Text::new("Caption · 12", palette).muted().render(),
+            Text::new("   42", palette).mono().size(10.5).muted().render(),
+        ]),
         section(cx, "Tinta y familia", vec![
             Text::eyebrow("EYEBROW", palette).render(),
             Text::new("Texto principal", palette).render(),

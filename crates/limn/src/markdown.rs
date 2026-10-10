@@ -22,7 +22,7 @@ use crate::markdown_parser::{
 };
 use crate::{
     AlertColors, AlertTone, CodeBlock, Color, Component, ComponentPalette, Element, ElementKind,
-    FontFamily, RadiusRole, TextSpan,
+    FontFamily, Icon, RadiusRole, TextSpan,
 };
 
 const MAX_SOURCE_ROW_CHARS: usize = 512;
@@ -260,6 +260,19 @@ impl<'a> Markdown<'a> {
             .into_iter()
             .map(|(range, url)| (range, url.into()))
             .collect()
+    }
+
+    /// `value` as a normalized HTTP(S) address, or `None` when it is not one
+    /// this renderer would open: another scheme, credentials, whitespace or
+    /// more than 2,048 bytes. For a host that receives a link's action.
+    pub fn web_link(value: &str) -> Option<String> {
+        web_url(value).map(Into::into)
+    }
+
+    /// The glyph a link to `address` wears: the GitHub mark for github.com,
+    /// a globe for everything else.
+    pub fn link_icon(address: &str) -> Icon {
+        web_url(address).as_ref().map_or(Icon::Globe, link_icon)
     }
 
     /// Return at most 20,000 Unicode scalar values. Invalid or stale offsets reset
@@ -1481,6 +1494,20 @@ mod tests {
             420.0
         ))
         .is_empty());
+    }
+
+    #[test]
+    fn a_host_reads_a_link_and_its_glyph_as_the_renderer_does() {
+        assert_eq!(
+            Markdown::web_link("https://GitHub.com/a/b").as_deref(),
+            Some("https://github.com/a/b")
+        );
+        for refused in ["file:///etc/passwd", "https://user@example.com", "https://a b", ""] {
+            assert_eq!(Markdown::web_link(refused), None);
+        }
+        assert_eq!(Markdown::link_icon("https://www.github.com/a"), Icon::Github);
+        assert_eq!(Markdown::link_icon("https://example.com"), Icon::Globe);
+        assert_eq!(Markdown::link_icon("no es una dirección"), Icon::Globe);
     }
 
     #[test]

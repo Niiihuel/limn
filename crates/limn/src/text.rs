@@ -2,12 +2,13 @@
 
 use crate::{Color, Component, ComponentPalette, Element, FontFamily, TextRole, Tooltip};
 
-/// Passive text sized by a [`TextRole`] and colored from the palette. There
-/// is no size in pixels: a size that is not on the scale is the host's own.
+/// Passive text sized by a [`TextRole`] and colored from the palette. A host
+/// whose design has a step between two roles names it with [`Text::size`].
 pub struct Text {
     value: String,
     palette: ComponentPalette,
     role: TextRole,
+    size: Option<f32>,
     ink: Color,
     mono: bool,
     truncate: bool,
@@ -23,6 +24,7 @@ impl Text {
             value: value.into(),
             palette,
             role: TextRole::Caption,
+            size: None,
             ink: palette.text,
             mono: false,
             truncate: false,
@@ -40,6 +42,16 @@ impl Text {
     /// The size, and for [`TextRole::Code`] the monospaced family.
     pub fn role(mut self, role: TextRole) -> Self {
         self.role = role;
+        self
+    }
+
+    /// A size in pixels that is not on the scale, such as 10.5; the role
+    /// still chooses the family. Values that are not finite and positive are
+    /// ignored.
+    pub fn size(mut self, px: f32) -> Self {
+        if px.is_finite() && px > 0.0 {
+            self.size = Some(px);
+        }
         self
     }
 
@@ -111,7 +123,7 @@ impl Component for Text {
         };
         let mut element = element
             .font_family(family)
-            .font_size(self.role.size())
+            .font_size(self.size.unwrap_or(self.role.size()))
             .foreground(self.ink);
         if let Some(height) = self.line_height {
             element = element.line_height(height);
@@ -175,6 +187,14 @@ mod tests {
                 .foreground(warning)
                 .line_height(18.0),
         );
+        // A size off the scale replaces the role's and nothing else.
+        same(
+            Text::new("Texto", palette).role(TextRole::Code).size(10.5).truncate().render(),
+            Element::truncated_text("Texto")
+                .font_family(FontFamily::Monospace)
+                .font_size(10.5)
+                .foreground(palette.text),
+        );
         same(
             Text::eyebrow("GRUPO", palette).render(),
             Element::text("GRUPO").font_family(FontFamily::Monospace).font_size(10.0).foreground(palette.muted),
@@ -186,7 +206,7 @@ mod tests {
         let palette = ComponentPalette::neutral_dark();
         for bad in [f32::NAN, f32::INFINITY, -1.0] {
             same(
-                Text::new("Texto", palette).fade(bad).line_height(bad).render(),
+                Text::new("Texto", palette).fade(bad).line_height(bad).size(bad).render(),
                 Text::new("Texto", palette).render(),
             );
         }

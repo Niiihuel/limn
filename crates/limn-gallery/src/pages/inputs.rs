@@ -1,6 +1,6 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement,
+    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
     SearchField, Select, SelectorSizing, Switch, TextArea, TextField, TextRole,
 };
 
@@ -156,6 +156,18 @@ pub fn view(cx: &Cx) -> Element {
             TextArea::new("input-notes", state.text("input-notes"), "Notas", palette)
                 .width(width)
                 .height(120.0)
+                .render(),
+            caption(cx, ".radius(RadiusRole::Surface), y deshabilitada"),
+            TextArea::new("input-notes-surface", state.text("input-notes-surface"), "Mensaje", palette)
+                .width(width)
+                .height(64.0)
+                .radius(RadiusRole::Surface)
+                .render(),
+            TextArea::new("input-notes-disabled", "", "Sin permiso para escribir", palette)
+                .width(width)
+                .height(64.0)
+                .radius(RadiusRole::Surface)
+                .disabled()
                 .render(),
         ]),
         section(cx, "Interruptor", vec![row(vec![

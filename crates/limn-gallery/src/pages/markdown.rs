@@ -1,11 +1,23 @@
 use super::{caption, section, Cx};
-use limn::{Element, Markdown, MarkdownLabels, MarkdownLimits};
+use limn::{Component, Element, Markdown, MarkdownLabels, MarkdownLimits, Text};
 
 const COMPLETE: &str = "# Resumen de la revisión\n\nSe corrigió **la sesión** en `src/main.rs`; el detalle está en la [guía](https://example.com/docs) y en https://github.com/rust-lang/rust.\n\n## Pasos\n\n1. Compilar el proyecto\n2. Ejecutar las pruebas\n   - [x] Unitarias\n   - [ ] De integración\n- Un punto suelto con un texto lo bastante largo como para partirse en dos líneas dentro de la columna de lectura.\n\n> Una cita mantiene su barra y su fondo aunque ocupe más de una línea de la columna.\n\n```rust\nfn main() {\n    println!(\"hola\");\n}\n```\n\n```\nsin lenguaje\n```\n\n---\n\n### Cierre\n\nTexto *con énfasis* y un salto  \nde línea forzado.";
 
 const STREAMING: &str = "El resultado llega por partes.\n\n- Primer punto ya **cerrado**\n- Segundo punto con un enlace a medias https://example.com/doc\n\nLa última línea sigue **abierta y con `código";
 
 const PLAIN: &str = "**Esto no es negrita**: revisa https://github.com/rust-lang/rust y https://example.com/docs, no `src/main.rs`.";
+
+fn link(cx: &Cx, written: &str) -> Element {
+    let palette = cx.palette;
+    let address = Markdown::web_link(written);
+    Element::row(vec![
+        Element::icon(Markdown::link_icon(written)).foreground(palette.muted),
+        Text::new(written, palette).mono().muted().render(),
+        Text::new(address.as_deref().unwrap_or("no se abre"), palette).mono().truncate().render().flex(1.0),
+    ])
+    .gap(8.0)
+    .size(Some(cx.width.min(560.0)), None)
+}
 
 pub fn view(cx: &Cx) -> Element {
     let palette = cx.palette;
@@ -61,6 +73,12 @@ pub fn view(cx: &Cx) -> Element {
                 .render()
                 .element
                 .size(Some(width), None),
+        ]),
+        section(cx, "Direcciones para el host", vec![
+            caption(cx, "Markdown::web_link normaliza o rechaza; Markdown::link_icon da el glifo"),
+            link(cx, "https://GitHub.com/limn"),
+            link(cx, "https://example.com/docs"),
+            link(cx, "file:///etc/passwd"),
         ]),
         section(cx, "Fuente por páginas", vec![
             caption(cx, "Markdown::source_page(..).render(width, palette)"),

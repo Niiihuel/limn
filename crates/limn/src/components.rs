@@ -1445,6 +1445,7 @@ pub struct TextArea {
     palette: ComponentPalette,
     width: Option<f32>,
     height: f32,
+    radius: RadiusRole,
     state: ControlState,
     preserve_line_endings: bool,
 }
@@ -1463,6 +1464,7 @@ impl TextArea {
             palette,
             width: None,
             height: 96.0,
+            radius: RadiusRole::Control,
             state: ControlState::Enabled,
             preserve_line_endings: false,
         }
@@ -1479,6 +1481,12 @@ impl TextArea {
         if height.is_finite() {
             self.height = height.max(64.0);
         }
+        self
+    }
+
+    /// Round the box with another radius token. The default is `Control`.
+    pub fn radius(mut self, radius: RadiusRole) -> Self {
+        self.radius = radius;
         self
     }
 
@@ -1520,7 +1528,7 @@ impl Component for TextArea {
             .padding(8.0)
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
-            .radius(control_radius())
+            .radius(self.radius.px())
             .size(self.width, Some(self.height));
         }
         Element::text_area(self.id, self.value, self.placeholder)
@@ -1533,7 +1541,7 @@ impl Component for TextArea {
             .font_family(FontFamily::Sans)
             .font_size(13.0)
             .padding(8.0)
-            .radius(control_radius())
+            .radius(self.radius.px())
             .min_size(80.0, self.height)
             .size(self.width, Some(self.height))
     }
@@ -3114,6 +3122,17 @@ mod tests {
         ]))
         .layout(Size::new(320.0, 140.0));
         assert!(disabled.regions.is_empty());
+    }
+
+    #[test]
+    fn a_text_area_takes_another_radius_token_enabled_and_disabled() {
+        let palette = ComponentPalette::neutral_dark();
+        let area = || TextArea::new("description", "", "Descripción", palette);
+        assert_eq!(area().render().style.radius, RadiusRole::Control.px());
+        for area in [area(), area().disabled()] {
+            let rounded = area.radius(RadiusRole::Surface).render();
+            assert_eq!(rounded.style.radius, RadiusRole::Surface.px());
+        }
     }
 
     #[test]

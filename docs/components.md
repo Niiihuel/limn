@@ -41,7 +41,7 @@ it.
 | Component | Purpose | Reports |
 | --- | --- | --- |
 | `TextField` | Single-line text. Optional password masking; `.monospace(true)` for a path, an identifier or a number; `.height(px)` for a form whose inputs are taller than a `ControlSize` (never shorter than it). | `InputChanged`, `Submitted` |
-| `TextArea` | Multi-line text. Enter adds a line; Ctrl+Enter submits. | `InputChanged`, `Submitted` |
+| `TextArea` | Multi-line text. Enter adds a line; Ctrl+Enter submits. `.radius(RadiusRole)` rounds the box with another token. | `InputChanged`, `Submitted` |
 | `SearchField` | A text field with a magnifier and an optional shortcut hint. | `InputChanged`, `Submitted` |
 | `Switch` | An on/off control. | `Clicked` |
 | `DatePicker` | An ISO date field with a navigable month calendar. | `InputChanged`, and `Clicked` for navigation and days |
@@ -124,7 +124,7 @@ root element, since they cover the whole window.
 
 | Component | Purpose |
 | --- | --- |
-| `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text, wrapped. `Text::eyebrow` is the small monospaced label above a group. It takes no size in pixels. |
+| `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text, wrapped. `Text::eyebrow` is the small monospaced label above a group. `.size(px)` is for a step the host's design has between two roles, such as 10.5; prefer a role. |
 | `Markdown` | Markdown source as wrapped prose with links, lists, quotes and code blocks; see [Markdown](#markdown). |
 
 `TextRole` is the scale, in logical pixels:
@@ -172,6 +172,9 @@ most 20,000 characters of the exact source, with the byte offsets of the pages
 before and after it. `.render(width, palette)` shows it as monospaced rows.
 `Markdown::web_links(source)` lists the complete web addresses in a text with
 their character ranges, for a host that highlights them in an editor.
+`Markdown::web_link(value)` gives one address in the normalized form the
+renderer would open, or `None`, and `Markdown::link_icon(address)` the glyph
+its link wears, for a host that draws a link of its own or receives an action.
 
 ### Actions
 
