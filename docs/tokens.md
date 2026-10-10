@@ -36,7 +36,7 @@ Corner radii in logical pixels, named for what they round.
 | `control` | 4 | Buttons, inputs, menu rows, keycaps, tooltips. |
 | `surface` | 6 | Surfaces that float: popovers, menus, toasts, the segmented track. |
 | `card` | 8 | Groups set into the page: alerts, preference groups, activity cards, the calendar. |
-| `panel` | 12 | The largest containers: dialogs, empty states, image previews, the composer. |
+| `panel` | 12 | The largest containers: dialogs, image previews, the composer. |
 
 | Constructor | Result |
 | --- | --- |

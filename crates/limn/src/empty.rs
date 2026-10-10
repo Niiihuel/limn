@@ -78,10 +78,10 @@ impl Empty {
 
 impl Component for Empty {
     fn render(self) -> Element {
-        // Empty states stay legible even when a caller requests a short pane.
-        // The floor leaves room for centered content, while natural height
-        // keeps wrapped copy and actions inside the border on narrow surfaces.
-        let minimum_height = if self.compact { 228.0 } else { 256.0 };
+        // A blank slate is only its content: an icon, what is missing, why,
+        // and the one thing to do next. It has no frame of its own, so it
+        // sits on whatever surface the caller gives it.
+        let minimum_height = if self.compact { 168.0 } else { 208.0 };
         let height = self
             .requested_height
             .unwrap_or(minimum_height)
@@ -95,29 +95,32 @@ impl Component for Empty {
         };
         let mut content = Vec::new();
         if let Some(icon) = self.icon {
-            let side = if self.compact { 28.0 } else { 32.0 };
+            let side = if self.compact { 22.0 } else { 26.0 };
             content.push(center(
                 Element::icon(icon)
                     .foreground(self.palette.muted)
-                    .large_icon(side)
                     .size(Some(side), Some(side)),
             ));
+            content.push(Element::spacer().size(None, Some(2.0)));
         }
         content.push(
             Element::text(self.title)
                 .foreground(self.palette.text)
                 .font_family(FontFamily::Sans)
-                .font_size(if self.compact { 18.0 } else { 21.0 })
+                .font_size(if self.compact { 14.0 } else { 16.0 })
                 .center_content(),
         );
         if !self.description.is_empty() {
-            content.push(
+            content.push(center(
                 Element::text(self.description)
                     .foreground(self.palette.muted)
                     .font_family(FontFamily::Sans)
-                    .font_size(if self.compact { 13.5 } else { 15.0 })
-                    .center_content(),
-            );
+                    .font_size(if self.compact { 12.5 } else { 13.0 })
+                    .center_content()
+                    .max_width(COPY_WIDTH)
+                    // In a pane narrower than the copy, wrap instead of overflowing.
+                    .shrink_to_fit(),
+            ));
         }
         if !self.actions.is_empty() || self.action_element.is_some() {
             let mut actions: Vec<Element> = self
@@ -126,34 +129,31 @@ impl Component for Empty {
                 .map(|(id, label, variant)| {
                     Button::new(id, label, self.palette)
                         .variant(variant)
-                        .button_size(if self.compact {
-                            ButtonSize::Small
-                        } else {
-                            ButtonSize::Default
-                        })
+                        .button_size(ButtonSize::Small)
                         .render()
                 })
                 .collect();
             if let Some(element) = self.action_element {
                 actions.push(element);
             }
+            content.push(Element::spacer().size(None, Some(4.0)));
             content.push(center(Element::row(actions).gap(8.0)));
         }
-        let body = Element::column(content).gap(if self.compact { 10.0 } else { 12.0 });
+        let body = Element::column(content).gap(if self.compact { 6.0 } else { 8.0 });
         let centered = Element::column(vec![
             Element::spacer().flex(1.0),
             body,
             Element::spacer().flex(1.0),
         ]);
         Element::panel(centered)
-            .padding(if self.compact { 24.0 } else { 32.0 })
-            .background(self.palette.surface)
-            .border(self.palette.border, 1.0)
-            .radius(crate::tokens().radius.panel)
+            .padding(if self.compact { 16.0 } else { 24.0 })
             .min_size(0.0, height)
             .size(self.width, None)
     }
 }
+
+/// The widest a line of explanation runs before it wraps.
+const COPY_WIDTH: f32 = 440.0;
 
 #[cfg(test)]
 mod tests {
@@ -186,16 +186,6 @@ mod tests {
                     .gap(12.0),
                 );
                 let frame = tree.layout(Size::new(width, 1200.0));
-                let surface = frame
-                    .commands
-                    .iter()
-                    .find_map(|command| match command {
-                        DrawCommand::FillRect { rect, color, .. } if *color == palette.surface => {
-                            Some(*rect)
-                        }
-                        _ => None,
-                    })
-                    .expect("empty surface");
                 let action = frame
                     .regions
                     .iter()
@@ -206,8 +196,17 @@ mod tests {
                     .iter()
                     .find(|region| region.id == "following-group")
                     .expect("following group");
-                let minimum = if compact { 228.0 } else { 256.0 };
-                let padding = if compact { 24.0 } else { 32.0 };
+                // The blank slate paints no frame; it ends where the next group starts.
+                let surface = crate::Rect::new(0.0, 0.0, width, following.rect.y - 12.0);
+                assert!(
+                    !frame.commands.iter().any(|command| matches!(
+                        command,
+                        DrawCommand::StrokeRect { rect, .. } if rect.width > width * 0.8
+                    )),
+                    "a blank slate has no outline"
+                );
+                let minimum = if compact { 168.0 } else { 208.0 };
+                let padding = if compact { 16.0 } else { 24.0 };
                 assert!(surface.height >= minimum);
                 if width == 360.0 {
                     assert!(
@@ -239,7 +238,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_keeps_actions_and_solid_frame() {
+    fn empty_keeps_its_actions_without_a_frame() {
         let palette = ComponentPalette::neutral_dark();
         let empty = Empty::new("Sin proyectos", "Crea tu primer proyecto", palette)
             .icon(Icon::Folder)
@@ -247,7 +246,7 @@ mod tests {
             .action("import", "Importar", ButtonVariant::Outline)
             .width(420.0)
             .render();
-        assert!(empty.style.border.is_some() && !empty.style.dashed_border);
+        assert!(!empty.style.dashed_border);
         let frame = UiTree::new(empty).layout(Size::new(420.0, 256.0));
         assert!(frame.regions.iter().any(|region| region.id == "create"));
         assert!(frame.regions.iter().any(|region| region.id == "import"));
@@ -267,7 +266,7 @@ mod tests {
         .render();
         assert_eq!(empty.style.width, None);
         assert_eq!(empty.style.height, None);
-        assert_eq!(empty.style.min_height, 228.0);
+        assert_eq!(empty.style.min_height, 168.0);
         let frame = UiTree::new(empty).layout(Size::new(280.0, 228.0));
         let action = frame
             .regions
@@ -282,7 +281,7 @@ mod tests {
     fn empty_centers_content_and_honors_minimum_height() {
         let palette = ComponentPalette::neutral_dark();
         for requested_height in [150.0_f32, 420.0] {
-            let height = requested_height.max(228.0);
+            let height = requested_height.max(168.0);
             let empty = Empty::new("No hay resultados", "Prueba otra búsqueda", palette)
                 .icon(Icon::Search)
                 .compact()

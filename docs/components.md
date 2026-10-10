@@ -66,7 +66,7 @@ it.
 | `Progress` | A thin bar for work whose completed share is known. |
 | `Spinner` | An indicator for work of unknown duration. |
 | `Skeleton` | A pulsing placeholder in the shape of content that is loading. |
-| `Empty` | The state of a page, pane or result list with nothing in it. |
+| `Empty` | The state of a page, pane or result list with nothing in it: an icon, a title, a reason and one next step. It has no frame of its own and sits on whatever surface it is given. |
 | `Marker` | A one-line event in a conversation or log, optionally as a separator. |
 | `TextShimmer` | Text with a moving highlight, for work in progress. |
 | `Chip` | A passive pill for a count or a label. |

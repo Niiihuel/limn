@@ -1,6 +1,6 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    Alert, AlertTone, Button, ButtonVariant, Component, Element, Empty, Icon, SegmentedControl,
+    Alert, AlertTone, Button, ButtonVariant, Component, Element, Icon, SegmentedControl,
     Switch, Tab, TextField,
 };
 
@@ -55,11 +55,12 @@ pub fn view(cx: &Cx) -> Element {
                     .render(),
             )
             .size(Some(width), None),
-            Empty::new("Panel", "Los estados vacíos y los diálogos usan el radio de panel.", palette)
-                .icon(Icon::Grid)
-                .compact()
-                .width(width)
-                .render(),
+            Element::panel(caption(cx, "Panel: los diálogos y las vistas previas usan el radio de panel."))
+                .padding(32.0)
+                .background(palette.surface)
+                .border(palette.border, 1.0)
+                .radius(tokens.radius.panel)
+                .size(Some(width), None),
         ]),
     ])
     .gap(32.0)

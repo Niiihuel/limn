@@ -22,7 +22,7 @@ pub struct Radius {
     pub surface: f32,
     /// Groups set into the page: alerts, preference groups, activity cards.
     pub card: f32,
-    /// The largest containers: dialogs, empty states, image previews.
+    /// The largest containers: dialogs, image previews, the composer.
     pub panel: f32,
 }
 
