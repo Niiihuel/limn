@@ -37,6 +37,8 @@ mod motion;
 mod notice;
 mod theme;
 mod page;
+mod pager;
+mod panel_header;
 mod preferences;
 mod progress;
 mod raster_image;
@@ -111,6 +113,8 @@ pub use motion::{
 };
 pub use notice::{Notice, NoticeSizing};
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
+pub use pager::{Pager, PagerSizing};
+pub use panel_header::{HeaderSizing, PanelHeader, SidebarPanel};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
 pub use raster_image::{RasterImage, RasterImageFormat};

@@ -12,6 +12,7 @@ mod lists;
 mod navigation;
 mod overlays;
 mod page;
+mod panels;
 mod preferences;
 mod scheme;
 mod tokens;
@@ -35,6 +36,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "lists", group: "Controles", title: "Listas", view: lists::view },
     Page { id: "preferences", group: "Controles", title: "Preferencias", view: preferences::view },
     Page { id: "page", group: "Controles", title: "Página y secciones", view: page::view },
+    Page { id: "panels", group: "Controles", title: "Paneles y paginador", view: panels::view },
     Page { id: "empty", group: "Estados", title: "Estado vacío", view: empty::view },
     Page { id: "feedback", group: "Estados", title: "Avisos y carga", view: feedback::view },
     Page { id: "overlays", group: "Superposiciones", title: "Menús y diálogos", view: overlays::view },
