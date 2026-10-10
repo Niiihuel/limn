@@ -262,7 +262,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Folder => include_str!("../assets/bootstrap/folder.svg"),
         Icon::Laptop => include_str!("../assets/bootstrap/laptop.svg"),
         Icon::Globe => include_str!("../assets/bootstrap/globe.svg"),
-        Icon::GitBranch => include_str!("../assets/bootstrap/bezier2.svg"),
+        Icon::GitBranch => include_str!("../assets/bootstrap/git.svg"),
         Icon::Grid => include_str!("../assets/bootstrap/grid.svg"),
         Icon::Palette => include_str!("../assets/bootstrap/palette.svg"),
         Icon::Users => include_str!("../assets/bootstrap/people.svg"),

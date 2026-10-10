@@ -50,7 +50,7 @@ impl Component for PreferencesGroup {
                 rows.push(
                     Element::spacer()
                         .size(None, Some(1.0))
-                        .background(self.palette.divider()),
+                        .background(self.palette.border),
                 );
             }
             // The group's child clip is rectangular. Its boundary rows must
@@ -334,46 +334,6 @@ mod tests {
                     id: "provider_disconnect:codex".into()
                 }]
             );
-        }
-    }
-
-    #[test]
-    fn rows_are_separated_by_a_rule_that_reads_on_the_group_surface() {
-        // How far apart two colors are, as a viewer would judge a thin line.
-        let distance = |a: crate::Color, b: crate::Color| {
-            (i32::from(a.r) - i32::from(b.r)).abs()
-                + (i32::from(a.g) - i32::from(b.g)).abs()
-                + (i32::from(a.b) - i32::from(b.b)).abs()
-        };
-        for palette in [ComponentPalette::neutral_dark(), crate::Theme::DARK.palette()] {
-            let divider = palette.divider();
-            assert!(
-                distance(divider, palette.surface) >= distance(palette.border, palette.surface) + 60,
-                "the rule must stand out more than the border does"
-            );
-            let group = PreferencesGroup::new(
-                "Plugins",
-                vec![
-                    ActionRow::new("Uno", palette).render(),
-                    ActionRow::new("Dos", palette).render(),
-                    ActionRow::new("Tres", palette).render(),
-                ],
-                palette,
-            )
-            .render();
-            let frame = UiTree::new(group).layout(Size::new(400.0, 300.0));
-            let rules: Vec<Rect> = frame
-                .commands
-                .iter()
-                .filter_map(|command| match command {
-                    DrawCommand::FillRect { rect, color, .. } if *color == divider && rect.height == 1.0 => {
-                        Some(*rect)
-                    }
-                    _ => None,
-                })
-                .collect();
-            assert_eq!(rules.len(), 2, "one rule between each pair of rows");
-            assert!(rules.iter().all(|rule| rule.width > 390.0), "rules span the group");
         }
     }
 }

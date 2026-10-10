@@ -104,7 +104,7 @@ root element, since they cover the whole window.
 | --- | --- |
 | `ScrollArea` | A scrolling viewport, or a virtualized list of uniform rows. |
 | `Attachment` | A file or image card, with an optional remove action. |
-| `PreferencesGroup`, `ActionRow` | A titled card of settings rows, separated by rules. A row takes an icon, a subtitle, a trailing control such as a switch or a button, and can itself be an action. |
+| `PreferencesGroup`, `ActionRow` | A titled card of settings rows, separated by hairlines. A row takes an icon, a subtitle, a trailing control such as a switch or a button, and can itself be an action. |
 
 ## Data
 

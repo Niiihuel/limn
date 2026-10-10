@@ -242,18 +242,6 @@ impl ComponentPalette {
         u16::from(self.border.r) + u16::from(self.border.g) + u16::from(self.border.b) < 3 * 128
     }
 
-    /// A rule between rows that share one surface. The border reads against
-    /// the page behind a card but nearly vanishes on the card itself, so this
-    /// is the border moved a fifth of the way towards the text.
-    pub fn divider(self) -> Color {
-        let mix = |base: u8, ink: u8| ((u16::from(base) * 4 + u16::from(ink)) / 5) as u8;
-        Color::rgb(
-            mix(self.border.r, self.text.r),
-            mix(self.border.g, self.text.g),
-            mix(self.border.b, self.text.b),
-        )
-    }
-
     /// Ink for links: blue, in the shade that reads on this palette.
     pub fn link(self) -> Color {
         if self.is_dark() {

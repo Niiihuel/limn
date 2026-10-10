@@ -58,11 +58,6 @@ Element::panel(Button::new("save", "Save", palette).render())
 `palette.link()` is the ink for links: a blue chosen to read on that palette,
 dark or light.
 
-`palette.divider()` is the rule between rows that share one surface, as in a
-`PreferencesGroup`. The border separates a card from the page behind it but
-nearly vanishes on the card's own surface, so the divider is the border moved
-a fifth of the way towards the text.
-
 Hover and selection are veils, not opaque fills, so the same feedback reads on
 any surface. To give one component different colors, pass it a modified copy:
 
