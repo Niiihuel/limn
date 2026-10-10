@@ -72,6 +72,7 @@ it.
 | `Skeleton` | A pulsing placeholder in the shape of content that is loading. |
 | `SkeletonGroup` | Placeholder rows for a list that is loading: `SkeletonGroup::rows(id, palette, count)`, with an optional leading icon square. `into_rows()` hands the rows to a host that places each one itself. |
 | `Empty` | The state of a page, pane or result list with nothing in it: an icon, a title, a reason and one next step. It has no frame of its own and sits on whatever surface it is given. `.framed()` sets it in a card of its own: the palette's surface, a hairline border and the card radius. |
+| `Notice` | A left-aligned inline notice standing where content would be: an optional muted icon, a title, a reason, a caller-owned `.action(element)` under the copy and a `.trailing(element)` after it. `.framed()` fills it with the palette's surface and the card radius, with no border. `.ink(color)` colors the title, for an error. `NoticeSizing::REGULAR` and `COMPACT` set its density; a profile with a `height` cuts each line of copy instead of wrapping it. |
 | `Marker` | A one-line event in a conversation or log, optionally as a separator. |
 | `TextShimmer` | Text with a moving highlight, for work in progress. |
 | `Chip` | A passive pill for a count or a label. `.outline()` draws the border only, with no fill. |

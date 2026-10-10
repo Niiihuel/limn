@@ -33,6 +33,7 @@ mod marker;
 mod menu;
 mod modal;
 mod motion;
+mod notice;
 mod theme;
 mod page;
 mod preferences;
@@ -106,6 +107,7 @@ pub use modal::{DismissButton, Modal};
 pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
+pub use notice::{Notice, NoticeSizing};
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;

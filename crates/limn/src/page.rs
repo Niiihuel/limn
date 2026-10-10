@@ -6,7 +6,7 @@ use crate::{
 };
 
 // A profile is plain data from the host; a bad number stops here.
-fn px(value: f32) -> f32 {
+pub(crate) fn px(value: f32) -> f32 {
     if value.is_finite() {
         value.max(0.0)
     } else {
