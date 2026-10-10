@@ -29,6 +29,7 @@ mod dropdown_menu;
 mod element;
 mod empty;
 mod file_icons;
+mod find_bar;
 mod form_field;
 mod geometry;
 mod image_viewer;
@@ -116,6 +117,7 @@ pub use element::{
 };
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};
+pub use find_bar::{FindBar, FindIds, FindLabels, FindOptions};
 pub use file_icons::{file_icon, folder_icon, language_icon, FileIcon};
 pub use geometry::{Color, Point, Rect, Size};
 pub use image_viewer::ImageViewer;

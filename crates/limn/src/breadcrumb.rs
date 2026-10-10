@@ -5,6 +5,7 @@ use crate::{
     Component, ComponentPalette, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, Element,
     FontFamily, Icon, Tooltip,
 };
+use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthStr;
 
 const FONT_SIZE: f32 = 11.5;
@@ -14,6 +15,52 @@ const GAP: f32 = 4.0;
 // Reserve the entire icon width so the flex row cannot squeeze it into text.
 const SEPARATOR_WIDTH: f32 = 14.0;
 const SEPARATOR_SPACE: f32 = SEPARATOR_WIDTH + 2.0 * GAP;
+// Narrower than this, a path keeps the room of its file icon for the name.
+const FILE_ICON_MIN_WIDTH: f32 = 76.0;
+
+/// A file path still to be split into segments, once the width is known.
+struct PathSegments {
+    path: String,
+    dirty: bool,
+    action: Option<Box<dyn Fn(&str) -> Option<String>>>,
+}
+
+impl PathSegments {
+    fn items(self, width: f32) -> Vec<BreadcrumbItem> {
+        let with_action = |item: BreadcrumbItem, segment: &str| {
+            match self.action.as_ref().and_then(|action| action(segment)) {
+                Some(action) => item.action(action),
+                None => item,
+            }
+        };
+        let file_path = Path::new(&self.path);
+        let mut accumulated = PathBuf::new();
+        let mut items = file_path
+            .parent()
+            .into_iter()
+            .flat_map(Path::components)
+            .filter_map(|part| match part {
+                std::path::Component::Normal(part) => {
+                    accumulated.push(part);
+                    let folder = accumulated.to_string_lossy();
+                    Some(with_action(
+                        BreadcrumbItem::new(part.to_string_lossy()).tooltip(&*folder),
+                        &folder,
+                    ))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        let name = file_path.file_name().unwrap_or_default().to_string_lossy();
+        let mut file = BreadcrumbItem::new(format!("{name}{}", if self.dirty { " •" } else { "" }))
+            .tooltip(&self.path);
+        if width >= FILE_ICON_MIN_WIDTH {
+            file = file.icon(crate::file_icon(&self.path));
+        }
+        items.push(with_action(file, &self.path));
+        items
+    }
+}
 
 #[derive(Clone, Debug)]
 pub struct BreadcrumbItem {
@@ -55,6 +102,7 @@ pub struct Breadcrumb {
     overflow_open: bool,
     search_action: Option<String>,
     editing: Option<(String, String, String)>,
+    path: Option<PathSegments>,
 }
 
 impl Breadcrumb {
@@ -72,8 +120,54 @@ impl Breadcrumb {
             overflow_open: false,
             search_action: None,
             editing: None,
+            path: None,
         }
     }
+
+    /// The breadcrumb of a file: one segment per folder of `path` and the
+    /// file last, with its icon when the bar is at least 76 wide. Each
+    /// segment's tooltip is its own path. Segments are passive until
+    /// [`Self::segment_action`] gives them actions.
+    pub fn from_path(
+        id: impl Into<String>,
+        path: impl Into<String>,
+        palette: ComponentPalette,
+    ) -> Self {
+        let mut breadcrumb = Self::new(id, Vec::new(), palette);
+        breadcrumb.path = Some(PathSegments {
+            path: path.into(),
+            dirty: false,
+            action: None,
+        });
+        breadcrumb
+    }
+
+    /// Mark the file of [`Self::from_path`] as having unsaved changes: a dot
+    /// follows its name.
+    pub fn dirty(mut self, dirty: bool) -> Self {
+        if let Some(path) = &mut self.path {
+            path.dirty = dirty;
+        }
+        self
+    }
+
+    /// Make the segments of [`Self::from_path`] links. `action` is called
+    /// with each folder's path from the root and, for the file, with the
+    /// whole path as it was given; `None` leaves that segment passive.
+    pub fn segment_action(mut self, action: impl Fn(&str) -> Option<String> + 'static) -> Self {
+        if let Some(path) = &mut self.path {
+            path.action = Some(Box::new(action));
+        }
+        self
+    }
+
+    /// One more segment after the last, such as a symbol inside the file of
+    /// [`Self::from_path`]. It becomes the current resource.
+    pub fn item(mut self, item: BreadcrumbItem) -> Self {
+        self.items.push(item);
+        self
+    }
+
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(0.0);
@@ -138,6 +232,11 @@ impl Component for Breadcrumb {
             return Element::row(vec![self.render(), button])
                 .gap(GAP)
                 .size(Some(width), Some(height));
+        }
+        if let Some(path) = self.path.take() {
+            let mut items = path.items(self.width);
+            items.append(&mut self.items);
+            self.items = items;
         }
         if self.items.is_empty() {
             return Element::spacer().size(Some(self.width), Some(self.height));
@@ -844,5 +943,97 @@ mod tests {
         let input = frame.regions.iter().find(|region| region.id == "query").unwrap();
         assert_eq!((input.kind, input.rect.width), (HitKind::TextInput, 300.0));
         assert_eq!(tree.input_value("query"), Some("abc"));
+    }
+
+    #[test]
+    fn a_path_becomes_folders_and_a_file_with_the_actions_the_host_gives() {
+        let palette = ComponentPalette::neutral_dark();
+        let path = "crates/limn/src/empty.rs";
+        let frame_of = |breadcrumb: Breadcrumb, width: f32| {
+            let mut tree = UiTree::new(breadcrumb.width(width).render());
+            tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 6.0);
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(width, 28.0))
+        };
+        let texts = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let passive = frame_of(Breadcrumb::from_path("path", path, palette), 600.0);
+        assert_eq!(texts(&passive), ["crates", "limn", "src", "empty.rs"]);
+        assert!(passive.regions.iter().all(|region| region.kind != HitKind::Button));
+        // The same segments the host would list by hand.
+        let by_hand = frame_of(
+            Breadcrumb::new(
+                "path",
+                vec![
+                    BreadcrumbItem::new("crates").tooltip("crates"),
+                    BreadcrumbItem::new("limn").tooltip("crates/limn"),
+                    BreadcrumbItem::new("src").tooltip("crates/limn/src"),
+                    BreadcrumbItem::new("empty.rs")
+                        .tooltip(path)
+                        .icon(crate::file_icon(path)),
+                ],
+                palette,
+            ),
+            600.0,
+        );
+        assert_eq!(passive.commands, by_hand.commands);
+
+        let linked = |width| {
+            frame_of(
+                Breadcrumb::from_path("path", path, palette)
+                    .dirty(true)
+                    .segment_action(move |segment| {
+                        (segment != "crates").then(|| {
+                            if segment == path {
+                                "copy".to_string()
+                            } else {
+                                format!("folder:{segment}")
+                            }
+                        })
+                    }),
+                width,
+            )
+        };
+        let frame = linked(600.0);
+        assert_eq!(texts(&frame), ["crates", "limn", "src", "empty.rs •"]);
+        let buttons = frame
+            .regions
+            .iter()
+            .filter(|region| region.kind == HitKind::Button)
+            .map(|region| region.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(buttons, ["folder:crates/limn", "folder:crates/limn/src", "copy"]);
+        let has_file_icon = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .any(|command| matches!(command, DrawCommand::Icon { icon: Icon::FileType(_), .. }))
+        };
+        assert!(has_file_icon(&frame));
+        // Too narrow for the icon: the name keeps the room.
+        assert!(!has_file_icon(&linked(75.0)));
+        assert!(has_file_icon(&linked(76.0)));
+
+        // A root, a bare name and an empty path leave no stray segment.
+        let rooted = frame_of(Breadcrumb::from_path("path", "/etc/hosts", palette), 300.0);
+        assert_eq!(texts(&rooted), ["etc", "hosts"]);
+        let bare = frame_of(Breadcrumb::from_path("path", "Cargo.toml", palette), 300.0);
+        assert_eq!(texts(&bare), ["Cargo.toml"]);
+        frame_of(Breadcrumb::from_path("path", "", palette), 300.0);
+
+        // An item added after the path follows the file.
+        let symbol = frame_of(
+            Breadcrumb::from_path("path", path, palette).item(BreadcrumbItem::new("render")),
+            600.0,
+        );
+        assert_eq!(texts(&symbol), ["crates", "limn", "src", "empty.rs", "render"]);
     }
 }

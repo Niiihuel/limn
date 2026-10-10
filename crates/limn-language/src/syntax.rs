@@ -46,6 +46,32 @@ impl Language {
             _ => Self::Plain,
         }
     }
+    /// The language of a file, read from the extension of `path`.
+    pub fn from_path(path: &str) -> Self {
+        Self::from_extension(
+            std::path::Path::new(path)
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .unwrap_or_default(),
+        )
+    }
+    /// [`Self::comment_markers`] for a file: a language without markers of
+    /// its own falls back on what the name of `path` conventionally uses.
+    pub fn comment_markers_for(self, path: &str) -> (&'static str, &'static str) {
+        self.comment_markers().unwrap_or_else(|| {
+            let path = std::path::Path::new(path);
+            let name = |part: Option<&std::ffi::OsStr>| {
+                part.and_then(|part| part.to_str())
+                    .unwrap_or_default()
+                    .to_ascii_lowercase()
+            };
+            match (name(path.file_stem()).as_str(), name(path.extension()).as_str()) {
+                (_, "sh" | "bash" | "zsh" | "fish" | "yaml" | "yml" | "nix" | "rb")
+                | ("makefile" | "dockerfile", _) => ("#", ""),
+                _ => ("//", ""),
+            }
+        })
+    }
     /// Opening and closing markers that comment out one line. The closing
     /// marker is empty where the language has a line comment.
     pub fn comment_markers(self) -> Option<(&'static str, &'static str)> {

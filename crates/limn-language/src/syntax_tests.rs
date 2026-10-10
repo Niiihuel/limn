@@ -351,3 +351,24 @@ fn highlights_reused_across_edits_equal_a_full_query_of_the_same_tree() {
         assert!(reused > 100, "{language:?} reused {reused}");
     }
 }
+
+#[test]
+fn a_path_gives_its_language_and_its_comment_markers() {
+    assert_eq!(Language::from_path("src/main.rs"), Language::Rust);
+    assert_eq!(Language::from_path("tool.PY"), Language::Python);
+    assert_eq!(Language::from_path("Makefile"), Language::Plain);
+    assert_eq!(Language::from_path(""), Language::Plain);
+    let markers = |path: &str| Language::from_path(path).comment_markers_for(path);
+    assert_eq!(markers("src/main.rs"), ("//", ""));
+    assert_eq!(markers("site.css"), ("/*", "*/"));
+    assert_eq!(markers("README.md"), ("<!--", "-->"));
+    // No grammar: the name of the file decides.
+    assert_eq!(markers("flake.nix"), ("#", ""));
+    assert_eq!(markers("ci.YML"), ("#", ""));
+    assert_eq!(markers("build/Makefile"), ("#", ""));
+    assert_eq!(markers("Dockerfile.dev"), ("#", ""));
+    assert_eq!(markers("main.go"), ("//", ""));
+    // A language the host chose wins over the name.
+    assert_eq!(Language::Toml.comment_markers_for("notes"), ("#", ""));
+    assert_eq!(Language::Css.comment_markers_for("a.rs"), ("/*", "*/"));
+}

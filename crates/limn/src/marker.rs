@@ -37,6 +37,7 @@ pub struct Marker {
     thinking: bool,
     truncate: bool,
     action: Option<String>,
+    ink: Option<Color>,
 }
 
 impl Marker {
@@ -52,6 +53,7 @@ impl Marker {
             thinking: false,
             truncate: false,
             action: None,
+            ink: None,
         }
     }
 
@@ -88,10 +90,19 @@ impl Marker {
         self.action = Some(action.into());
         self
     }
+    /// A status color from the host, such as its failure ink, for the label,
+    /// the icon and the spinner in place of the palette's muted.
+    pub fn ink(mut self, ink: Color) -> Self {
+        self.ink = Some(ink);
+        self
+    }
 }
 
 impl Component for Marker {
-    fn render(self) -> Element {
+    fn render(mut self) -> Element {
+        if let Some(ink) = self.ink {
+            self.palette.muted = ink;
+        }
         let label = if self.thinking || self.loading || self.shimmer {
             let highlight = if self.thinking {
                 thinking_highlight(self.palette)
@@ -510,5 +521,39 @@ mod tests {
                 id: "open-result".into()
             }]
         );
+    }
+
+    #[test]
+    fn ink_colors_the_label_and_the_icon_and_leaves_the_palette_alone() {
+        let palette = ComponentPalette::neutral_dark();
+        let ink = Color::rgb(220, 90, 90);
+        let frame_of = |marker: Marker| {
+            let mut tree = UiTree::new(marker.icon(Icon::Code).render());
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(240.0, 24.0))
+        };
+        let plain = frame_of(Marker::new("event", "Solicitud fallida", palette));
+        let inked = frame_of(Marker::new("event", "Solicitud fallida", palette).ink(ink));
+        let colors = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { color, .. } => Some(*color),
+                    DrawCommand::Icon { tint, .. } => Some(*tint),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(colors(&plain), vec![palette.muted; 2]);
+        assert_eq!(colors(&inked), vec![ink; 2]);
+        // The same as a palette whose muted is the ink, with nothing moved.
+        let by_palette = frame_of(Marker::new(
+            "event",
+            "Solicitud fallida",
+            ComponentPalette { muted: ink, ..palette },
+        ));
+        assert_eq!(inked.commands, by_palette.commands);
+        assert_eq!(plain.text_layouts(), inked.text_layouts());
     }
 }

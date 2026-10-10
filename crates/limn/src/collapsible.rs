@@ -30,6 +30,7 @@ pub struct Collapsible {
     thinking: bool,
     detail: Option<String>,
     collapse_footer: bool,
+    ink: Option<Color>,
 }
 
 impl Collapsible {
@@ -50,6 +51,7 @@ impl Collapsible {
             thinking: false,
             detail: None,
             collapse_footer: false,
+            ink: None,
         }
     }
 
@@ -91,6 +93,14 @@ impl Collapsible {
         self.detail = Some(detail.into());
         self
     }
+
+    /// A status color from the host, such as its failure ink, for the icon,
+    /// the detail, the chevron and the footer in place of the palette's
+    /// muted. The title keeps the palette's text color.
+    pub fn ink(mut self, ink: Color) -> Self {
+        self.ink = Some(ink);
+        self
+    }
 }
 
 fn centered_icon(icon: Element) -> Element {
@@ -103,7 +113,10 @@ fn centered_icon(icon: Element) -> Element {
 }
 
 impl Component for Collapsible {
-    fn render(self) -> Element {
+    fn render(mut self) -> Element {
+        if let Some(ink) = self.ink {
+            self.palette.muted = ink;
+        }
         let leading = if self.thinking {
             Element::icon(Icon::Brain).foreground(self.palette.muted)
         } else if self.loading {
@@ -685,5 +698,52 @@ mod tests {
         );
         tree.layout(Size::new(240.0, 60.0));
         assert!(!tree.is_animating());
+    }
+
+    #[test]
+    fn ink_colors_the_secondary_parts_and_the_title_keeps_its_text_color() {
+        let palette = ComponentPalette::neutral_dark();
+        let ink = Color::rgb(220, 90, 90);
+        let make = |palette: ComponentPalette, ink: Option<Color>| {
+            let row = Collapsible::new("tool", "Exploración", Element::text("cuerpo"), palette)
+                .icon(Icon::Search)
+                .detail("2 fallidas")
+                .expanded(true)
+                .collapse_footer(true);
+            let mut tree = UiTree::new(match ink {
+                Some(ink) => row.ink(ink).render(),
+                None => row.render(),
+            });
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(360.0, 200.0))
+        };
+        let inked = make(palette, Some(ink));
+        let color_of = |label: &str| {
+            inked
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Text { text, color, .. } if text == label => Some(*color),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(color_of("Exploración"), palette.text);
+        assert_eq!(color_of("2 fallidas"), ink);
+        let tints = inked
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Icon { tint, .. } => Some(*tint),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        // The leading icon, the chevron and the footer's arrow.
+        assert_eq!(tints, vec![ink; 3]);
+        assert_eq!(
+            inked.commands,
+            make(ComponentPalette { muted: ink, ..palette }, None).commands
+        );
+        assert_ne!(inked.commands, make(palette, None).commands);
     }
 }
