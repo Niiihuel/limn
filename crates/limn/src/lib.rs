@@ -11,9 +11,11 @@ mod attachment;
 mod avatar;
 mod breadcrumb;
 mod button_group;
+mod card;
 mod caret_blink;
 mod charts;
 mod chip;
+mod code_block;
 mod code_diff;
 mod code_editor;
 mod code_syntax;
@@ -35,6 +37,7 @@ mod menu;
 mod modal;
 mod motion;
 mod notice;
+mod output_block;
 mod theme;
 mod page;
 mod pager;
@@ -76,10 +79,12 @@ pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 pub use button_group::ButtonGroup;
+pub use card::{Card, CardDensity};
 pub use charts::{
     BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ColumnChart, HeatmapCell, HeatmapChart, HeatmapScale,
 };
 pub use chip::Chip;
+pub use code_block::{CodeBlock, CodeBlockSizing};
 pub use code_diff::{CodeDiff, CodeDiffLine, CodeDiffLineKind};
 pub use code_editor::{CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
 pub use code_syntax::CodeLanguage;
@@ -112,6 +117,7 @@ pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
 pub use notice::{Notice, NoticeSizing};
+pub use output_block::OutputBlock;
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
 pub use pager::{Pager, PagerSizing};
 pub use panel_header::{HeaderSizing, PanelHeader, SidebarPanel};

@@ -4,6 +4,7 @@
 use crate::app::State;
 use limn::{ComponentPalette, Element, FontFamily};
 
+mod blocks;
 mod buttons;
 mod empty;
 mod feedback;
@@ -37,6 +38,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "preferences", group: "Controles", title: "Preferencias", view: preferences::view },
     Page { id: "page", group: "Controles", title: "Página y secciones", view: page::view },
     Page { id: "panels", group: "Controles", title: "Paneles y paginador", view: panels::view },
+    Page { id: "blocks", group: "Controles", title: "Tarjetas y bloques", view: blocks::view },
     Page { id: "empty", group: "Estados", title: "Estado vacío", view: empty::view },
     Page { id: "feedback", group: "Estados", title: "Avisos y carga", view: feedback::view },
     Page { id: "overlays", group: "Superposiciones", title: "Menús y diálogos", view: overlays::view },
