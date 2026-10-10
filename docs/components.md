@@ -125,6 +125,7 @@ root element, since they cover the whole window.
 | Component | Purpose |
 | --- | --- |
 | `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text, wrapped. `Text::eyebrow` is the small monospaced label above a group. It takes no size in pixels. |
+| `Markdown` | Markdown source as wrapped prose with links, lists, quotes and code blocks; see [Markdown](#markdown). |
 
 `TextRole` is the scale, in logical pixels:
 
@@ -138,6 +139,71 @@ root element, since they cover the whole window.
 | `Small` | 11 | Sans |
 | `Micro` | 10 | Sans |
 | `Code` | 14 | Monospace |
+
+## Markdown
+
+Renders a bounded subset of Markdown as an ordinary element tree: headings of
+three levels, paragraphs, bulleted, numbered and checked lists, quotes, fenced
+code and rules, with strong, emphasis, inline code and web links. Use it for
+text that arrives as Markdown, such as a message, including while it is still
+being written.
+
+### Example
+
+```rust
+let preview = Markdown::new(source, palette).width(reading_width).render();
+// preview.element goes in the tree; preview.limited says the source was cut.
+```
+
+### Options
+
+| Builder | Effect |
+| --- | --- |
+| `.width(px)` | The reading column, kept between 48 and 1,200; 600 unless set or when not finite. |
+| `.colors(MarkdownColors)` | The ten inks and fills: `text`, `strong`, `emphasis`, `link`, `code_ink`, `code_fill`, `muted`, `success`, `panel`, `border`. The default, `MarkdownColors::for_palette`, reads the palette and paints strong text like body text. |
+| `.streaming(bool)` | The source is still growing: an unclosed delimiter at its end already styles its text, a half-written fence is held back, and a web address at the end has no action until it is delimited. |
+| `.link_action_prefix(text)` | The start of every link action; `markdown_link:` unless set. |
+| `.labels(MarkdownLabels)` | `code_fallback`, the label of a code block with no language, and `truncated_note`, the muted line under a cut preview. English unless set. |
+| `.limits(MarkdownLimits)` | `source_chars` and `blocks` rendered: 20,000 and 160 unless set. |
+| `.plain_with_autolinks(line_height)` | Keeps the source literal in one paragraph and only turns complete HTTP(S) addresses into links. Not cached and not cut. |
+
+`Markdown::source_page(source, start_byte)` returns a `MarkdownSourcePage`: at
+most 20,000 characters of the exact source, with the byte offsets of the pages
+before and after it. `.render(width, palette)` shows it as monospaced rows.
+`Markdown::web_links(source)` lists the complete web addresses in a text with
+their character ranges, for a host that highlights them in an editor.
+
+### Actions
+
+| Action | When |
+| --- | --- |
+| `Clicked { id }` with `id` = prefix, block hash, run index and URL, joined by colons | A link is activated. Only `http` and `https` destinations with a host and no credentials become links; anything else stays text. |
+
+The ID depends on the block's text and the link's position in it, so the same
+block rendered twice gives the same IDs. A host that shows a source more than
+once rewrites the span actions after rendering.
+
+### Measurements
+
+Body text is 14 on a 22 line; headings are 22, 18 and 16 at 1.4. A heading
+has 20 above it and 8 below; list items are 4 apart and other blocks 14. A
+list indents 14 per level with a 22 marker column. A quote is a padded panel
+with the surface radius and a 2 px bar; a code block is a `CodeBlock` in
+`CodeBlockSizing::CHAT` on the palette given to `new`.
+
+### Notes
+
+- The component stores nothing. Rendered trees are kept by an engine cache on
+  the UI thread: 64 complete sources within 4 MB, and the last two streaming
+  ones within 512 KB, so an append reuses every block above the one that
+  changed. A tree is reused only for an equal source, width, palette, colors,
+  labels, prefix and limits.
+- Hold `Markdown::begin_frame(scope, width)` while building a long list of
+  messages, so that a miss cannot evict the trees of the rows still to come.
+  A new scope or width empties the cache.
+- Labels and the link prefix are `&'static str`.
+- There is no bold or italic face: strong and emphasis are colors.
+- Tables, images, HTML and nested quotes are not supported and stay text.
 
 ## Layout and grouping
 

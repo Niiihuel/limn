@@ -16,3 +16,5 @@ limn-language = { path = "../limn-language", optional = true }
 unicode-linebreak = "0.1.5"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"
+# Parses link destinations; nothing is ever fetched.
+url = "2"

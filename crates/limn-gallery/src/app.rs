@@ -221,8 +221,13 @@ mod tests {
                     assert!(!frame.commands.is_empty(), "{} paints nothing", page.id);
                     // Two controls with one ID would share hover, fill and focus.
                     let mut ids = HashSet::new();
+                    let mut previous = None;
                     for region in frame.regions.iter().filter(|region| region.kind == limn::HitKind::Button) {
-                        assert!(ids.insert(&region.id), "{}: duplicate id {}", page.id, region.id);
+                        // A link wrapped over two lines is one control in consecutive pieces.
+                        if previous != Some(&region.id) {
+                            assert!(ids.insert(&region.id), "{}: duplicate id {}", page.id, region.id);
+                        }
+                        previous = Some(&region.id);
                     }
                 }
             }
