@@ -5,8 +5,8 @@ use super::{caption, row, section, Cx};
 use limn::{
     Button, ButtonVariant, Component, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
     DropdownMenuSection, Element, FontFamily, HeaderSizing, Icon, IconButton, Kbd, MenuHeader,
-    MenuItem, PanelHeader, Popover, PopoverPanel, ScrollArea, SelectorSizing, SuggestionItem,
-    SuggestionList, TextField, TooltipSpec,
+    MenuItem, PanelHeader, Popover, PopoverPanel, PopoverPanelSizing, ScrollArea, SelectorSizing,
+    SuggestionItem, SuggestionList, TextField, TooltipPlacement, TooltipSpec,
 };
 
 const MODELS: [(&str, &str, &str, &str); 5] = [
@@ -223,9 +223,46 @@ fn rows(cx: &Cx) -> Element {
     .radius(limn::tokens().radius.surface)
 }
 
+/// Actions whose names are cut to one line; the hint says the rest.
+fn actions(cx: &Cx) -> Element {
+    let action = |id: &str, icon: Icon, label: &str, description: &str| {
+        DropdownMenuItem::new(format!("menus-action={id}"), label)
+            .icon(icon)
+            .truncate()
+            .tooltip_with(
+                TooltipSpec::new(label)
+                    .description(description)
+                    .placement(TooltipPlacement::Left),
+            )
+            .into()
+    };
+    DropdownMenu::new(
+        trigger(cx, "menus-actions=open", "Acciones"),
+        vec![
+            action("copy", Icon::File, "Copiar dirección", "Copia la dirección visible al portapapeles."),
+            action(
+                "settings",
+                Icon::Code,
+                "Copiar la configuración de la conexión",
+                "Copia la configuración para conectar herramientas a esta página.",
+            ),
+            DropdownMenuEntry::Separator,
+            action("restart", Icon::Refresh, "Reiniciar", "Abre un contexto nuevo."),
+        ],
+        cx.state.text("menus-actions") == "open",
+        "menus-actions=closed",
+        cx.palette,
+    )
+    .context_menu_style()
+    .width(192.0)
+    .render()
+}
+
 /// A popover that is more than a menu: head, scrolling body, fixed foot.
-fn panel(cx: &Cx) -> Element {
+/// `padded` is the same panel in a looser profile with one hairline.
+fn panel(cx: &Cx, padded: bool) -> Element {
     let palette = cx.palette;
+    let key = if padded { "menus-padded" } else { "menus-panel" };
     let line = |label: &str, value: &str| {
         Element::row(vec![
             caption(cx, label).flex(1.0),
@@ -240,25 +277,30 @@ fn panel(cx: &Cx) -> Element {
         .map(|index| line(&format!("Cuenta {index}"), &format!("{} %", index * 7 % 100)))
         .collect();
     Popover::new(
-        trigger(cx, "menus-panel=open", "Cuenta y uso"),
+        trigger(cx, &format!("{key}=open"), if padded { "Con margen" } else { "Cuenta y uso" }),
         PopoverPanel::new(palette)
             .header(
                 PanelHeader::new("Cuenta y uso", palette)
-                    .dismiss("menus-panel=closed", "Cerrar")
+                    .dismiss(format!("{key}=closed"), "Cerrar")
                     .sizing(HeaderSizing::POPOVER)
                     .render(),
             )
-            .body(ScrollArea::new("menus-panel-body", Element::column(accounts)).render())
+            .body(ScrollArea::new(format!("{key}-body"), Element::column(accounts)).render())
             .body_max_height(180.0)
             .footer(
-                Button::new("menus-panel=details", "Ver uso y proveedores", palette)
+                Button::new(format!("{key}=details"), "Ver uso y proveedores", palette)
                     .trailing_icon(Icon::ArrowRight)
                     .variant(ButtonVariant::Ghost)
                     .render(),
             )
+            .sizing(if padded {
+                PopoverPanelSizing { gap: 8.0, padding: 10.0, header_rule: false }
+            } else {
+                PopoverPanelSizing::DEFAULT
+            })
             .render(),
-        cx.state.text("menus-panel") == "open",
-        "menus-panel=closed",
+        cx.state.text(key) == "open",
+        format!("{key}=closed"),
         palette,
     )
     .width(300.0)
@@ -318,13 +360,14 @@ pub fn view(cx: &Cx) -> Element {
     Element::column(vec![
         section(cx, "Selector y catálogo", vec![
             row(vec![selector(cx), catalog(cx), states(cx)]),
+            row(vec![actions(cx)]),
             caption(cx, &format!("Modelo: {}", cx.state.choice("menus-model", MODELS[0].2))),
         ]),
         section(cx, "Filas de menú", vec![
             row(vec![rows(cx)]),
             caption(cx, &format!("Última fila: {}", cx.state.text("menus-row"))),
         ]),
-        section(cx, "Panel en popover", vec![row(vec![panel(cx)])]),
+        section(cx, "Panel en popover", vec![row(vec![panel(cx, false), panel(cx, true)])]),
         section(cx, "Lista de sugerencias", vec![
             row(vec![
                 suggestions(cx),

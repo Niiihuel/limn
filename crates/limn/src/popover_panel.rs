@@ -1,7 +1,27 @@
 //! The content of a popover that is more than a menu: a head, a body that
 //! scrolls and a foot that stays.
 
-use crate::{Component, ComponentPalette, Element, Separator};
+use crate::{page::px, Component, ComponentPalette, Element, Separator};
+
+/// Density of a [`PopoverPanel`], in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PopoverPanelSizing {
+    /// Space between the parts and their hairlines.
+    pub gap: f32,
+    /// Space around the whole panel.
+    pub padding: f32,
+    /// Draw the hairline under the header.
+    pub header_rule: bool,
+}
+
+impl PopoverPanelSizing {
+    /// Parts 4 apart, a hairline on both sides of the body and no padding.
+    pub const DEFAULT: Self = Self {
+        gap: 4.0,
+        padding: 0.0,
+        header_rule: true,
+    };
+}
 
 /// Pass the rendered panel to `Popover::new` as its content. The popover
 /// keeps the placement, the width and the surface; the panel only stacks
@@ -13,11 +33,12 @@ pub struct PopoverPanel {
     body: Option<Element>,
     body_max_height: Option<f32>,
     footer: Option<Element>,
+    sizing: PopoverPanelSizing,
 }
 
 impl PopoverPanel {
-    /// An empty panel with hairlines between its parts and no padding of
-    /// its own.
+    /// An empty panel in [`PopoverPanelSizing::DEFAULT`]: hairlines between
+    /// its parts and no padding of its own.
     pub fn new(palette: ComponentPalette) -> Self {
         Self {
             palette,
@@ -25,6 +46,7 @@ impl PopoverPanel {
             body: None,
             body_max_height: None,
             footer: None,
+            sizing: PopoverPanelSizing::DEFAULT,
         }
     }
 
@@ -55,6 +77,12 @@ impl PopoverPanel {
         self.footer = Some(footer);
         self
     }
+
+    /// The panel's density. [`PopoverPanelSizing::DEFAULT`] unless set.
+    pub fn sizing(mut self, sizing: PopoverPanelSizing) -> Self {
+        self.sizing = sizing;
+        self
+    }
 }
 
 impl Component for PopoverPanel {
@@ -64,7 +92,7 @@ impl Component for PopoverPanel {
         let has_body = self.body.is_some();
         if let Some(header) = self.header {
             parts.push(header);
-            if has_body || self.footer.is_some() {
+            if self.sizing.header_rule && (has_body || self.footer.is_some()) {
                 parts.push(rule());
             }
         }
@@ -81,8 +109,7 @@ impl Component for PopoverPanel {
             }
             parts.push(footer);
         }
-        // Four pixels: the parts read as one surface, not as stacked cards.
-        Element::column(parts).gap(4.0)
+        Element::column(parts).gap(px(self.sizing.gap)).padding(px(self.sizing.padding))
     }
 }
 
@@ -175,6 +202,27 @@ mod tests {
         let foot = text_y(&short, "Foot");
         assert!(foot + 32.0 <= 240.0, "the footer is inside the window");
         assert!(text_y(&short, "Head") >= 0.0);
+    }
+
+    #[test]
+    fn a_profile_sets_the_rhythm_the_padding_and_drops_the_header_rule() {
+        let sizing = PopoverPanelSizing { gap: 8.0, padding: 10.0, header_rule: false };
+        let default = frame_of(panel(3), 700.0);
+        let frame = frame_of(panel(3).sizing(sizing), 700.0);
+        let rules = rules(&frame);
+        assert_eq!(rules.len(), 1, "only the hairline above the footer");
+        assert_eq!(text_y(&frame, "Foot") - (rules[0].y + 1.0), 8.0);
+        assert_eq!(rules[0].y - text_y(&frame, "Head"), 28.0 + 8.0 + 60.0 + 8.0);
+        assert_eq!(text_y(&frame, "Head") - text_y(&default, "Head"), 10.0);
+        assert_eq!(rules[0].width, self::rules(&default)[0].width - 20.0);
+
+        for bad in [f32::NAN, -3.0] {
+            let rendered = PopoverPanel::new(palette())
+                .body(Element::text("Body"))
+                .sizing(PopoverPanelSizing { gap: bad, padding: bad, header_rule: true })
+                .render();
+            assert_eq!((rendered.style.gap, rendered.style.padding), (0.0, 0.0));
+        }
     }
 
     #[test]

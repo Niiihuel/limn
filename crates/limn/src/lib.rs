@@ -140,7 +140,7 @@ pub use output_block::OutputBlock;
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
 pub use pager::{Pager, PagerSizing};
 pub use panel_header::{HeaderSizing, PanelHeader, SidebarPanel};
-pub use popover_panel::PopoverPanel;
+pub use popover_panel::{PopoverPanel, PopoverPanelSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
 pub use raster_image::{RasterImage, RasterImageFormat};

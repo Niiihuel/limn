@@ -1,6 +1,6 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    Color, Component, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement,
+    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement,
     SearchField, Select, SelectorSizing, Switch, TextArea, TextField, TextRole,
 };
 
@@ -52,6 +52,12 @@ pub fn view(cx: &Cx) -> Element {
                 .width(width)
                 .render(),
             caption(cx, "Monoespaciado, para rutas e identificadores."),
+            TextField::new("input-tall", state.text("input-tall"), "ej. filesystem", palette)
+                .size(ControlSize::Compact)
+                .width(width)
+                .height(40.0)
+                .render(),
+            caption(cx, "Con la altura del formulario: 40 sobre un control compacto."),
         ]),
         section(cx, "Campo de formulario", vec![
             Element::column(vec![
@@ -98,6 +104,28 @@ pub fn view(cx: &Cx) -> Element {
                 .render(),
             ])
             .gap(16.0)
+            .size(Some(width), None),
+            caption(cx, "Con `rows`, las líneas de dos campos en la columna del formulario, que pone la distancia."),
+            Element::column({
+                let mut rows = FormField::new(
+                    "Programa",
+                    TextField::new("flat-program", state.text("flat-program"), "ej. npx", palette).render(),
+                    palette,
+                )
+                .hint("Se inicia sin shell.")
+                .hint_above(true)
+                .rows();
+                rows.extend(
+                    FormField::new(
+                        "Directorio de trabajo",
+                        TextField::new("flat-cwd", state.text("flat-cwd"), "ej. tools/mcp", palette).render(),
+                        palette,
+                    )
+                    .rows(),
+                );
+                rows
+            })
+            .gap(7.0)
             .size(Some(width), None),
         ]),
         section(cx, "Selector", vec![

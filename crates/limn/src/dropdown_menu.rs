@@ -33,6 +33,7 @@ pub struct DropdownMenuItem {
     status_width: Option<f32>,
     chevron: bool,
     tooltip: Option<TooltipSpec>,
+    truncate: bool,
 }
 
 impl DropdownMenuItem {
@@ -53,6 +54,7 @@ impl DropdownMenuItem {
             status_width: None,
             chevron: false,
             tooltip: None,
+            truncate: false,
         }
     }
 
@@ -135,6 +137,13 @@ impl DropdownMenuItem {
     /// A hint for the row, for what its label cannot say.
     pub fn tooltip_with(mut self, tooltip: TooltipSpec) -> Self {
         self.tooltip = Some(tooltip);
+        self
+    }
+
+    /// Cut a long label with an ellipsis in a contextual menu, where it
+    /// would otherwise wrap; pair it with a hint that says the rest.
+    pub fn truncate(mut self) -> Self {
+        self.truncate = true;
         self
     }
 
@@ -729,7 +738,7 @@ impl Component for DropdownMenu {
                             .min_size(icon_size, content_height),
                         );
                     }
-                    let label = (if contextual {
+                    let label = (if contextual && !item.truncate {
                         Element::text(item.label)
                     } else {
                         Element::truncated_text(item.label)
@@ -1324,6 +1333,42 @@ mod tests {
         let item = DropdownMenuItem::new("a", "A").status_width(f32::NAN);
         assert_eq!(item.status_width, None);
         assert_eq!(item.status_width(-3.0).status_width, Some(0.0));
+    }
+
+    #[test]
+    fn a_truncated_contextual_item_keeps_one_line_where_the_label_would_wrap() {
+        let palette = ComponentPalette::neutral_dark();
+        let label = "Copy the connection settings of this page";
+        let rows = |truncate: bool| {
+            let item = DropdownMenuItem::new("copy", label).icon(Icon::Code);
+            let mut tree = open_menu(
+                DropdownMenu::new(
+                    trigger(),
+                    vec![if truncate { item.truncate() } else { item }.into()],
+                    true,
+                    "dismiss",
+                    palette,
+                )
+                .context_menu_style()
+                .width(140.0),
+            );
+            tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
+            let frame = tree.layout(Size::new(640.0, 480.0));
+            let texts: Vec<String> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, .. } if text != "Open" => Some(text.clone()),
+                    _ => None,
+                })
+                .collect();
+            (region(&frame, "copy").height, texts)
+        };
+        let (wrapped_height, _) = rows(false);
+        let (height, texts) = rows(true);
+        assert!(height < wrapped_height, "{height} < {wrapped_height}");
+        assert_eq!(texts.len(), 1);
+        assert!(texts[0].ends_with('…'), "{texts:?}");
     }
 
     #[test]

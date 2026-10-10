@@ -1,4 +1,4 @@
-use super::{row, section, Cx};
+use super::{caption, row, section, Cx};
 use limn::{
     Alert, AlertTone, Avatar, Chip, Component, Element, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
     Spinner, SpinnerVariant,
@@ -55,6 +55,8 @@ pub fn view(cx: &Cx) -> Element {
                     .render(),
             ]),
             Progress::new(1.0, palette).width(width.min(336.0)).height(8.0).render(),
+            Progress::new(progress, palette).width(width.min(336.0)).flat().render(),
+            caption(cx, "Plana: extremos rectos, para el medidor de una lista densa."),
         ]),
         section(cx, "Carga", vec![
             row(vec![

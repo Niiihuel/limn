@@ -1311,6 +1311,7 @@ pub struct TextField {
     palette: ComponentPalette,
     size: ControlSize,
     width: Option<f32>,
+    height: Option<f32>,
     state: ControlState,
     password: bool,
     monospace: bool,
@@ -1331,6 +1332,7 @@ impl TextField {
             palette,
             size: ControlSize::Regular,
             width: None,
+            height: None,
             state: ControlState::Enabled,
             password: false,
             monospace: false,
@@ -1367,6 +1369,16 @@ impl TextField {
         self
     }
 
+    /// A height of the host's own, for a form whose inputs are taller than
+    /// a [`ControlSize`]. The field is never shorter than its control size;
+    /// a value that is not finite is ignored.
+    pub fn height(mut self, height: f32) -> Self {
+        if height.is_finite() {
+            self.height = Some(height);
+        }
+        self
+    }
+
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
@@ -1384,6 +1396,8 @@ impl TextField {
 
 impl Component for TextField {
     fn render(self) -> Element {
+        let least = self.size.height().max(28.0);
+        let height = self.height.map_or(least, |height| height.max(least));
         let family = if self.monospace {
             FontFamily::Monospace
         } else {
@@ -1407,7 +1421,7 @@ impl Component for TextField {
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
             .radius(input_radius(self.size))
-            .size(self.width, Some(self.size.height().max(28.0)));
+            .size(self.width, Some(height));
         }
         input_surface(
             Element::text_input(self.id, self.value, self.placeholder)
@@ -1417,6 +1431,7 @@ impl Component for TextField {
             self.size,
             self.width,
         )
+        .size(self.width, Some(height))
         .font_family(family)
     }
 }
@@ -4343,6 +4358,31 @@ mod tests {
             assert_eq!(family(&field(false)), Some(FontFamily::Sans));
             assert_eq!(family(&field(true)), Some(FontFamily::Monospace));
             assert_eq!(field(false).regions, field(true).regions);
+        }
+    }
+
+    #[test]
+    fn a_text_field_takes_a_height_of_the_host_and_never_less_than_its_size() {
+        let palette = ComponentPalette::neutral_dark();
+        for enabled in [true, false] {
+            let style = |height: f32| {
+                TextField::new("path", "", "", palette)
+                    .size(ControlSize::Compact)
+                    .enabled(enabled)
+                    .height(height)
+                    .render()
+                    .style
+            };
+            let plain = TextField::new("path", "", "", palette)
+                .size(ControlSize::Compact)
+                .enabled(enabled)
+                .render()
+                .style;
+            assert_eq!(style(40.0).height, Some(40.0));
+            assert_eq!(style(40.0).min_height, plain.min_height);
+            for bad in [f32::NAN, f32::INFINITY, -8.0, 4.0] {
+                assert_eq!(style(bad).height, plain.height, "{bad}");
+            }
         }
     }
 

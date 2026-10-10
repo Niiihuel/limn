@@ -78,10 +78,11 @@ impl FormField {
         self.sizing = sizing;
         self
     }
-}
 
-impl Component for FormField {
-    fn render(self) -> Element {
+    /// The field's lines in order, for a form that sets every line of every
+    /// field in one column of its own. The form then owns the gap, and a
+    /// card sized from that column measures it in one sum.
+    pub fn rows(self) -> Vec<Element> {
         let sizing = self.sizing;
         let mut label = Text::new(self.label, self.palette).role(sizing.label_role);
         if sizing.label_muted {
@@ -106,7 +107,14 @@ impl Component for FormField {
         if let Some((error, ink)) = self.error {
             children.push(Text::new(error, self.palette).role(sizing.hint_role).ink(ink).render());
         }
-        Element::column(children).gap(px(sizing.gap))
+        children
+    }
+}
+
+impl Component for FormField {
+    fn render(self) -> Element {
+        let gap = px(self.sizing.gap);
+        Element::column(self.rows()).gap(gap)
     }
 }
 
@@ -189,6 +197,18 @@ mod tests {
         assert_eq!(paint(&custom, "Hint"), (palette.muted, 12.0));
         let control = custom.regions.iter().find(|region| region.id == "name").unwrap().rect;
         assert_eq!(control.y, 38.0, "label line of 30 and a gap of 8");
+    }
+
+    #[test]
+    fn rows_are_the_lines_of_the_rendered_field() {
+        let palette = ComponentPalette::neutral_dark();
+        let build = || field(palette).hint("Hint").error("Wrong", DANGER);
+        let rows = build().rows();
+        assert_eq!(rows.len(), 4, "label, control, hint, error");
+        let flat = Element::column(rows).gap(FormFieldSizing::DEFAULT.gap);
+        let mut tree = UiTree::new(Element::column(vec![flat, Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        assert_eq!(tree.layout(Size::new(300.0, 400.0)).commands, frame(build(), 300.0).commands);
     }
 
     #[test]
