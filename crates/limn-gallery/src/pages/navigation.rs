@@ -1,7 +1,8 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    Breadcrumb, BreadcrumbItem, Collapsible, Component, Element, Icon, Link, SegmentedControl, Step,
-    Stepper, Tab, Tabs,
+    file_icon, Breadcrumb, BreadcrumbItem, ButtonVariant, Collapsible, Component, ControlSize,
+    Element, Icon, IconButton, Link, SegmentedControl, Step, Stepper, Tab, TabItem, TabStrip, Tabs,
+    TooltipPlacement,
 };
 
 const VIEWS: [(&str, &str, Icon); 3] = [
@@ -9,6 +10,63 @@ const VIEWS: [(&str, &str, Icon); 3] = [
     ("changes", "Cambios", Icon::GitBranch),
     ("history", "Historial", Icon::History),
 ];
+
+const FILES: [&str; 12] = [
+    "main.rs",
+    "lib.rs",
+    "native_streaming_app_tests.rs",
+    "Cargo.toml",
+    "README.md",
+    "tab_strip.rs",
+    "a.c",
+    "horizontal_scroll_tree.rs",
+    "shell.nix",
+    "components.md",
+    "index.html",
+    "code_editor_structure_tests.rs",
+];
+
+/// A bar of `count` file tabs over a strip of the body they open onto.
+fn file_tabs(cx: &Cx, group: &str, count: usize) -> Element {
+    let palette = cx.palette;
+    let width = cx.width.min(640.0);
+    let chosen = cx.state.choice(group, "0").parse().unwrap_or(0);
+    let items = FILES[..count]
+        .iter()
+        .enumerate()
+        .map(|(index, name)| {
+            // The host owns the width: here, a rough fit to the name.
+            let tab = (68.0 + name.len() as f32 * 7.8).clamp(112.0, 208.0);
+            let close = IconButton::new(format!("{group}-close-{index}"), Icon::Close, palette)
+                .variant(ButtonVariant::Ghost)
+                .size(ControlSize::Dense)
+                .tooltip(format!("Cerrar {name}"))
+                .render();
+            TabItem::new(
+                format!("{group}={index}"),
+                format!("{group}-extent-{index}"),
+                file_icon(name),
+                *name,
+                tab,
+            )
+            .tooltip(format!("crates/limn/src/{name}"))
+            .tooltip_placement(TooltipPlacement::Below)
+            .active(index == chosen)
+            .close(close)
+        })
+        .collect();
+    let tools = IconButton::new(format!("{group}-menu"), Icon::Menu, palette)
+        .variant(ButtonVariant::Ghost)
+        .size(ControlSize::Dense)
+        .tooltip("Todas las pestañas")
+        .render();
+    Element::column(vec![
+        TabStrip::header(TabStrip::new(group, items, palette).render(), tools, width, palette)
+            .render(),
+        Element::spacer().background(palette.surface).size(Some(width), Some(36.0)),
+    ])
+    .size(Some(width), None)
+}
 
 pub fn view(cx: &Cx) -> Element {
     let palette = cx.palette;
@@ -25,6 +83,12 @@ pub fn view(cx: &Cx) -> Element {
     let step = state.choice("nav-step", "0").parse().unwrap_or(0);
     Element::column(vec![
         section(cx, "Pestañas", vec![row(vec![Tabs::new(tabs("nav-tabs"), palette).id("nav-tabs").render()])]),
+        section(cx, "Pestañas de recursos", vec![
+            file_tabs(cx, "nav-files-1", 1),
+            file_tabs(cx, "nav-files-3", 3),
+            file_tabs(cx, "nav-files-12", 12),
+            caption(cx, "La pestaña activa se abre sobre el cuerpo; la franja se desplaza hasta mostrarla."),
+        ]),
         section(cx, "Control segmentado", vec![row(vec![
             SegmentedControl::new(tabs("nav-segments"), palette).render(),
         ])]),

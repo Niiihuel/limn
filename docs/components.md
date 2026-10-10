@@ -54,6 +54,7 @@ it.
 | --- | --- |
 | `Tabs` | A row of tabs with a selection that slides to the active one. |
 | `SegmentedControl` | Tabs in one rounded track, for choosing one of a few options. |
+| `TabStrip`, `TabItem` | Folder tabs for open resources. Each `TabItem` has an icon, a title that fades, a tooltip and a slot for the host's close button; the host gives every tab its width. The strip scrolls sideways, keeps the active tab in view and reports `Clicked` with the tab's ID. `.each_tab` wraps a tab in something the host owns, such as a context menu. `TabStrip::header` is the 32-pixel bar that holds a strip and its tools (`.side_inset`, `.gap`); `TabStrip::surface` and `TabStrip::align` build label-only or icon-only tabs. The palette's `surface` is the active tab and the body, `raised` the bar, `hover` an inactive tab under the pointer. |
 | `Breadcrumb` | A path. Segments with an action are links; the last is the current resource. Middle segments collapse into a menu when space is short. |
 | `Stepper` | The steps of a short form: completed, active and pending. |
 | `Collapsible` | A header that shows or hides content beneath it. |
