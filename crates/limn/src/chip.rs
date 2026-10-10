@@ -32,15 +32,12 @@ impl Chip {
 impl Component for Chip {
     fn render(self) -> Element {
         let circular_count = self.label.len() == 1 && self.label.as_bytes()[0].is_ascii_digit();
-        let centered = Element::column(vec![
-            Element::spacer().flex(1.0),
-            Element::text(self.label)
-                .font_family(FontFamily::Sans)
-                .font_size(11.0)
-                .foreground(self.palette.text)
-                .center_content(),
-            Element::spacer().flex(1.0),
-        ]);
+        let centered = Element::text(self.label)
+            .font_family(FontFamily::Sans)
+            .font_size(11.0)
+            .foreground(self.palette.text)
+            .center_content()
+            .centered_y();
         let content = if circular_count {
             centered
         } else {

@@ -26,7 +26,8 @@ impl TextRole {
             Self::Heading => 16.0,
             Self::Body | Self::Code => 14.0,
             Self::Label => 13.0,
-            Self::Caption | Self::Small => 12.0,
+            Self::Caption => 12.0,
+            Self::Small => 11.0,
             Self::Micro => 10.0,
         }
     }
@@ -195,8 +196,9 @@ mod tests {
         assert_eq!(TextRole::Body.size(), 14.0);
         assert_eq!(TextRole::Label.size(), 13.0);
         assert_eq!(TextRole::Caption.size(), 12.0);
-        assert_eq!(TextRole::Small.size(), 12.0);
+        assert_eq!(TextRole::Small.size(), 11.0);
         assert_eq!(TextRole::Micro.size(), 10.0);
+        assert_eq!(TextRole::Code.size(), 14.0);
         assert!(TextRole::Code.monospaced());
         assert!(!TextRole::Body.monospaced());
     }

@@ -98,13 +98,42 @@ for how they enter and leave.
 `Modal`, `AlertDialog`, `ImageViewer` and `Toast::layer` wrap the window's
 root element, since they cover the whole window.
 
+## Text
+
+| Component | Purpose |
+| --- | --- |
+| `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text. `Text::eyebrow` is the small monospaced label above a group. It takes no size in pixels. |
+
+`TextRole` is the scale, in logical pixels:
+
+| Role | Size | Family |
+| --- | --- | --- |
+| `Display` | 18 | Sans |
+| `Heading` | 16 | Sans |
+| `Body` | 14 | Sans |
+| `Label` | 13 | Sans |
+| `Caption` | 12 | Sans |
+| `Small` | 11 | Sans |
+| `Micro` | 10 | Sans |
+| `Code` | 14 | Monospace |
+
 ## Layout and grouping
 
 | Component | Purpose |
 | --- | --- |
+| `Separator` | A one-pixel rule in the border color. `Separator::horizontal` and `Separator::vertical` fill their axis unless given a `.length`; `.margin` adds space across the rule, `.centered_in` centers a vertical rule in a taller bar, and `.ink` takes a color the host owns. Margin and centering are off by default. |
 | `ScrollArea` | A scrolling viewport, or a virtualized list of uniform rows. |
 | `Attachment` | A file or image card, with an optional remove action. |
 | `PreferencesGroup`, `ActionRow` | A card of settings rows separated by hairlines, under a small muted label. Without a title it is just the card. A row takes an icon, a subtitle, a trailing control such as a switch or a button, and can itself be an action. |
+
+Any element can be placed without a component:
+
+| Method | Effect |
+| --- | --- |
+| `element.centered_y()` | Centers it vertically in its parent's height. The wrapper takes over its width and flex, so it keeps its place in a row. |
+| `element.centered_x()` | Centers it horizontally in its parent's width. |
+| `element.centered()` | Centers it on both axes. |
+| `element.clip_to(width, height)` | Holds it in a fixed box that does not flex and hides what overflows, while it keeps its own width. |
 
 ## Data
 

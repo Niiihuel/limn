@@ -1,7 +1,7 @@
 //! Boxed preference lists and action rows. The host supplies actions and data;
 //! these components follow the same palette as the rest of the native UI.
 
-use crate::{Component, ComponentPalette, CornerRadii, Element, FontFamily, Icon};
+use crate::{Component, ComponentPalette, CornerRadii, Element, FontFamily, Icon, Separator};
 
 fn group_radius() -> f32 {
     crate::tokens().radius.card
@@ -47,11 +47,7 @@ impl Component for PreferencesGroup {
         let mut rows = Vec::new();
         for (index, row) in self.rows.into_iter().enumerate() {
             if !rows.is_empty() {
-                rows.push(
-                    Element::spacer()
-                        .size(None, Some(1.0))
-                        .background(self.palette.border),
-                );
+                rows.push(Separator::horizontal(self.palette).render());
             }
             // The group's child clip is rectangular. Its boundary rows must
             // paint the same outer corners during hover, press and focus.
@@ -128,22 +124,15 @@ impl Component for ActionRow {
                     .foreground(self.palette.muted),
             );
         }
-        let center = |child: Element| {
-            Element::column(vec![
-                Element::spacer().flex(1.0),
-                child,
-                Element::spacer().flex(1.0),
-            ])
-        };
         let mut children = Vec::new();
         if let Some(icon) = self.icon {
             children.push(
-                center(Element::icon(icon).foreground(self.palette.text)).size(Some(20.0), None),
+                Element::icon(icon).foreground(self.palette.text).centered_y().size(Some(20.0), None),
             );
         }
-        children.push(center(Element::column(copy).gap(4.0)).flex(1.0));
+        children.push(Element::column(copy).gap(4.0).centered_y().flex(1.0));
         if let Some(suffix) = self.suffix {
-            children.push(center(suffix));
+            children.push(suffix.centered_y());
         }
         let content = Element::row(children)
             .gap(10.0)

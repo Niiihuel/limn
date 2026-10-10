@@ -13,6 +13,7 @@ mod overlays;
 mod preferences;
 mod tokens;
 mod tooltip;
+mod typography;
 
 pub struct Page {
     pub id: &'static str,
@@ -23,6 +24,7 @@ pub struct Page {
 
 pub const PAGES: &[Page] = &[
     Page { id: "tokens", group: "Sistema", title: "Forma y movimiento", view: tokens::view },
+    Page { id: "typography", group: "Sistema", title: "Texto y separadores", view: typography::view },
     Page { id: "buttons", group: "Controles", title: "Botones", view: buttons::view },
     Page { id: "inputs", group: "Controles", title: "Entradas", view: inputs::view },
     Page { id: "navigation", group: "Controles", title: "Navegación", view: navigation::view },

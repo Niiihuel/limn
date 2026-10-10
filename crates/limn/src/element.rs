@@ -1573,6 +1573,45 @@ impl Element {
         self
     }
 
+    /// Center this element vertically in whatever height its parent gives
+    /// it. The wrapper takes over the element's width and flex, so it stands
+    /// in the same place in a row; the element keeps its own height.
+    pub fn centered_y(mut self) -> Self {
+        let width = self.style.width;
+        let flex = self.style.flex;
+        self.style.flex = 0.0;
+        Self::column(vec![Self::spacer().flex(1.0), self, Self::spacer().flex(1.0)])
+            .size(width, None)
+            .flex(flex)
+    }
+
+    /// Center this element horizontally in the width its parent gives it.
+    pub fn centered_x(self) -> Self {
+        Self::row(vec![Self::spacer().flex(1.0), self, Self::spacer().flex(1.0)])
+    }
+
+    /// Center this element on both axes in the space its parent gives it.
+    pub fn centered(self) -> Self {
+        Self::column(vec![
+            Self::spacer().flex(1.0),
+            self.centered_x(),
+            Self::spacer().flex(1.0),
+        ])
+    }
+
+    /// Hold this element in a fixed box that does not flex and hides what
+    /// falls outside, for content that keeps its own width while the box
+    /// around it is resized or animated.
+    pub fn clip_to(self, width: f32, height: f32) -> Self {
+        // A row keeps the child's width on its main axis; a column would
+        // clamp it to the box and reflow the contents.
+        let finite = |value: f32| if value.is_finite() { value } else { 0.0 };
+        Self::row(vec![self])
+            .size(Some(finite(width)), Some(finite(height)))
+            .flex(0.0)
+            .clip_children()
+    }
+
     /// Set text size in logical pixels. Hosts should measure with the same
     /// font family and size that they use to paint each run.
     pub fn font_size(mut self, size: f32) -> Self {
@@ -1674,6 +1713,85 @@ impl Element {
     pub fn corner_mask(mut self, color: Color) -> Self {
         self.style.corner_mask = Some(color);
         self
+    }
+}
+
+#[cfg(test)]
+mod centering_tests {
+    use super::*;
+    use crate::{Color, DrawCommand, Rect, Size, UiTree};
+
+    const INK: Color = Color::rgb(200, 40, 40);
+
+    fn mark(width: f32, height: f32) -> Element {
+        Element::spacer().background(INK).size(Some(width), Some(height))
+    }
+
+    fn painted(root: Element, size: Size) -> Rect {
+        UiTree::new(root)
+            .layout(size)
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *color == INK => Some(*rect),
+                _ => None,
+            })
+            .expect("the mark is painted")
+    }
+
+    #[test]
+    fn centered_y_is_the_spacer_sandwich_and_takes_over_width_and_flex() {
+        let wrapper = mark(40.0, 10.0).flex(2.0).centered_y();
+        assert_eq!((wrapper.style.width, wrapper.style.height, wrapper.style.flex), (Some(40.0), None, 2.0));
+        let ElementKind::Column(children) = &wrapper.kind else {
+            panic!("centered_y wraps in a column");
+        };
+        assert_eq!(children.len(), 3);
+        assert_eq!((children[0].style.flex, children[1].style.flex, children[2].style.flex), (1.0, 0.0, 1.0));
+        assert_eq!(children[1].style.width, Some(40.0));
+
+        for width in [120.0, 600.0] {
+            let row = Element::row(vec![mark(40.0, 10.0).centered_y(), Element::spacer().flex(1.0)]);
+            let rect = painted(row, Size::new(width, 50.0));
+            assert_eq!((rect.x, rect.y, rect.width, rect.height), (0.0, 20.0, 40.0, 10.0));
+        }
+    }
+
+    #[test]
+    fn centered_x_and_centered_place_the_element_in_the_middle() {
+        for width in [120.0, 600.0] {
+            let size = Size::new(width, 50.0);
+            let across = painted(
+                Element::column(vec![mark(40.0, 10.0).centered_x(), Element::spacer().flex(1.0)]),
+                size,
+            );
+            assert_eq!((across.x, across.y), ((width - 40.0) / 2.0, 0.0));
+            let both = painted(mark(40.0, 10.0).centered(), size);
+            assert_eq!((both.x, both.y, both.width, both.height), ((width - 40.0) / 2.0, 20.0, 40.0, 10.0));
+        }
+    }
+
+    #[test]
+    fn clip_to_is_a_fixed_box_that_hides_what_overflows() {
+        let boxed = mark(300.0, 20.0).clip_to(80.0, 20.0);
+        assert_eq!((boxed.style.width, boxed.style.height, boxed.style.flex), (Some(80.0), Some(20.0), 0.0));
+        assert!(boxed.style.clip_children);
+        let bad = mark(300.0, 20.0).clip_to(f32::NAN, f32::INFINITY);
+        assert_eq!((bad.style.width, bad.style.height), (Some(0.0), Some(0.0)));
+
+        let frame = UiTree::new(Element::row(vec![boxed, Element::spacer().flex(1.0)]))
+            .layout(Size::new(400.0, 20.0));
+        let clip = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::PushClip(rect) => Some(*rect),
+                _ => None,
+            })
+            .expect("the box clips its child");
+        // The box clips to its 80 px while the child keeps its own 300.
+        assert_eq!(clip.width, 80.0);
+        assert_eq!(painted(Element::row(vec![mark(300.0, 20.0).clip_to(80.0, 20.0)]), Size::new(400.0, 20.0)).width, 300.0);
     }
 }
 

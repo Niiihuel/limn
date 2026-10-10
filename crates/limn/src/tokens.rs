@@ -79,6 +79,29 @@ impl Default for Radius {
     }
 }
 
+/// Which of the four radii a component rounds with. A component that lets
+/// its caller choose takes one of these, never a number of pixels.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum RadiusRole {
+    Control,
+    Surface,
+    Card,
+    Panel,
+}
+
+impl RadiusRole {
+    /// The radius in force for this role, read from [`tokens`].
+    pub fn px(self) -> f32 {
+        let radius = tokens().radius;
+        match self {
+            Self::Control => radius.control,
+            Self::Surface => radius.surface,
+            Self::Card => radius.card,
+            Self::Panel => radius.panel,
+        }
+    }
+}
+
 /// The four durations, in milliseconds, that every animation is built from.
 /// A component takes one of them rather than a number of its own, so the same
 /// kind of change always takes the same time. Zero makes that kind immediate.
@@ -179,6 +202,15 @@ mod tests {
         assert_eq!(Motion::DEFAULT.scaled(0.0).enter_ms, 0);
         assert_eq!(Motion::DEFAULT.scaled(1e9).enter_ms, u16::MAX);
         assert_eq!(Motion::DEFAULT.scaled(f32::INFINITY), Motion::DEFAULT);
+    }
+
+    #[test]
+    fn each_radius_role_reads_its_token() {
+        let radius = tokens().radius;
+        assert_eq!(RadiusRole::Control.px(), radius.control);
+        assert_eq!(RadiusRole::Surface.px(), radius.surface);
+        assert_eq!(RadiusRole::Card.px(), radius.card);
+        assert_eq!(RadiusRole::Panel.px(), radius.panel);
     }
 
     #[test]

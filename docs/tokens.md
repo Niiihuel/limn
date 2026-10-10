@@ -47,6 +47,10 @@ Corner radii in logical pixels, named for what they round.
 A radius that is negative or not finite is replaced by its default when the
 tokens are set.
 
+A component that lets its caller choose a radius takes a `RadiusRole`
+(`Control`, `Surface`, `Card` or `Panel`), never a number. `role.px()` reads
+the radius in force for that role.
+
 ### Not governed by radius tokens
 
 | What | Why |

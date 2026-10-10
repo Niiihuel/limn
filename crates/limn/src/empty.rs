@@ -86,13 +86,7 @@ impl Component for Empty {
             .requested_height
             .unwrap_or(minimum_height)
             .max(minimum_height);
-        let center = |element: Element| {
-            Element::row(vec![
-                Element::spacer().flex(1.0),
-                element,
-                Element::spacer().flex(1.0),
-            ])
-        };
+        let center = Element::centered_x;
         let mut content = Vec::new();
         if let Some(icon) = self.icon {
             let side = if self.compact { 22.0 } else { 26.0 };
@@ -140,12 +134,7 @@ impl Component for Empty {
             content.push(center(Element::row(actions).gap(8.0)));
         }
         let body = Element::column(content).gap(if self.compact { 6.0 } else { 8.0 });
-        let centered = Element::column(vec![
-            Element::spacer().flex(1.0),
-            body,
-            Element::spacer().flex(1.0),
-        ]);
-        Element::panel(centered)
+        Element::panel(body.centered_y())
             .padding(if self.compact { 16.0 } else { 24.0 })
             .min_size(0.0, height)
             .size(self.width, None)
