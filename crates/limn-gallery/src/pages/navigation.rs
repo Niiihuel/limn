@@ -1,6 +1,6 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    file_icon, Breadcrumb, BreadcrumbItem, ButtonVariant, Collapsible, Component, ContextMenu,
+    file_icon, Breadcrumb, BreadcrumbItem, ButtonSizing, ButtonVariant, Collapsible, Component, ContextMenu,
     ContextMenuEntry, ContextMenuItem, ControlSize, Element, FontFamily, Icon, IconButton, Link,
     SegmentedControl, Step, Stepper, Tab, TabItem, TabStrip, Tabs, TextRole, TooltipPlacement,
 };
@@ -39,7 +39,12 @@ fn file_tabs(cx: &Cx, group: &str, count: usize) -> Element {
             let tab = (68.0 + name.len() as f32 * 7.8).clamp(112.0, 208.0);
             let close = IconButton::new(format!("{group}-close-{index}"), Icon::Close, palette)
                 .variant(ButtonVariant::Ghost)
-                .size(ControlSize::Dense)
+                // 20 px, so the hover stays inside the tab's rounded corner.
+                .sizing(ButtonSizing {
+                    height: 20.0,
+                    horizontal_padding: 2.0,
+                    ..ControlSize::Dense.button_sizing()
+                })
                 .tooltip(format!("Cerrar {name}"))
                 .render();
             TabItem::new(

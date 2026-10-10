@@ -74,8 +74,9 @@ impl TabItem {
     }
 
     /// The control in the trailing slot, built by the host so each strip
-    /// keeps its own close button and ink. It should be
-    /// [`TabStrip::CLOSE_SIZE`] square; without one the slot stays empty.
+    /// keeps its own close button and ink. It is centered in the
+    /// [`TabStrip::CLOSE_SIZE`] slot and should be 20 px square, so its hover
+    /// stays inside the tab's rounded corner; without one the slot stays empty.
     pub fn close(mut self, close: Element) -> Self {
         self.close = Some(close);
         self
@@ -85,9 +86,10 @@ impl TabItem {
     /// the roles documented on [`TabStrip`].
     pub fn render(self, palette: ComponentPalette) -> Element {
         let ink = if self.active { palette.text } else { palette.muted };
-        let close = self.close.unwrap_or_else(|| {
-            Element::spacer().size(Some(TabStrip::CLOSE_SIZE), Some(TabStrip::CLOSE_SIZE))
-        });
+        let close = self
+            .close
+            .map_or_else(Element::spacer, Element::centered)
+            .size(Some(TabStrip::CLOSE_SIZE), Some(TabStrip::CLOSE_SIZE));
         let content = Element::row(vec![
             Element::icon(self.icon)
                 .foreground(ink)
@@ -530,8 +532,7 @@ mod tests {
     #[test]
     fn each_tab_wraps_by_position_and_a_close_control_keeps_its_own_action() {
         let mut items = items(2, Some(0), 120.0);
-        let close = Element::clickable("close:1", Element::spacer())
-            .size(Some(TabStrip::CLOSE_SIZE), Some(TabStrip::CLOSE_SIZE));
+        let close = Element::clickable("close:1", Element::spacer()).size(Some(20.0), Some(20.0));
         let last = items.pop().unwrap().close(close);
         items.push(last);
         let mut seen = Vec::new();
@@ -544,12 +545,13 @@ mod tests {
         tree.set_reduced_motion(true);
         let frame = tree.layout(Size::new(420.0, TabStrip::HEADER_HEIGHT));
         let (tab, close) = (region(&frame, "tab:1"), region(&frame, "close:1"));
-        // The slot ends 2 px before the tab's right edge.
+        // The slot ends 2 px before the tab's right edge and the control is
+        // centered in it, clear of the tab's top edge and rounded corner.
         assert_eq!(
-            (close.x + close.width, close.width, close.height),
-            (tab.x + tab.width - 2.0, TabStrip::CLOSE_SIZE, TabStrip::CLOSE_SIZE)
+            (close.x + close.width, close.y, close.width, close.height),
+            (tab.x + tab.width - 4.0, tab.y + 2.0, 20.0, 20.0)
         );
-        let point = Point::new(close.x + 12.0, close.y + 12.0);
+        let point = Point::new(close.x + 10.0, close.y + 10.0);
         tree.handle_event(UiEvent::PointerDown(point));
         assert_eq!(
             tree.handle_event(UiEvent::PointerUp(point)),
