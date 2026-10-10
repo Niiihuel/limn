@@ -3,11 +3,15 @@
 //! The caller owns the tree model and action element. This module owns only the
 //! presentation of depth, continuation lines, hit area, and row spacing.
 
-use crate::{Color, Component, ComponentPalette, ControlSize, Element, ICON_SIZE};
+use crate::{
+    Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon, TextRole, ICON_SIZE,
+};
 
 const DEFAULT_STEP: f32 = 12.0;
 const GUIDE_OFFSET: f32 = 7.0;
 const GUIDE_WIDTH: f32 = 1.0;
+// Between the count, the chevron and the caller's trailing element.
+const TRAILING_GAP: f32 = 6.0;
 
 /// Guide state for one visible row in a depth-first tree. A depth-zero row has
 /// no guides. At depth `n`, there are `n - 1` ancestor lanes plus the row's
@@ -75,6 +79,8 @@ pub struct TreeRow<F: FnOnce(Element) -> Element> {
     icon: Element,
     title: Element,
     trailing: Option<Element>,
+    count: Option<usize>,
+    disclosure: Option<bool>,
     guides: TreeGuides,
     palette: ComponentPalette,
     guide_color: Color,
@@ -97,6 +103,8 @@ impl<F: FnOnce(Element) -> Element> TreeRow<F> {
             icon,
             title,
             trailing: None,
+            count: None,
+            disclosure: None,
             guides,
             palette,
             guide_color: palette.border,
@@ -109,6 +117,20 @@ impl<F: FnOnce(Element) -> Element> TreeRow<F> {
 
     pub fn trailing(mut self, element: Element) -> Self {
         self.trailing = Some(element);
+        self
+    }
+
+    /// How many items the row holds, in small muted figures at its trailing
+    /// edge, before the chevron and the trailing element.
+    pub fn count(mut self, count: usize) -> Self {
+        self.count = Some(count);
+        self
+    }
+
+    /// A muted chevron at the trailing edge, in a slot of its own: down
+    /// when `open`, right when folded.
+    pub fn disclosure(mut self, open: bool) -> Self {
+        self.disclosure = Some(open);
         self
     }
 
@@ -169,7 +191,30 @@ impl<F: FnOnce(Element) -> Element> Component for TreeRow<F> {
         children.push(Element::panel(self.icon).size(Some(ICON_SIZE), Some(self.height)));
         children.push(Element::spacer().size(Some(6.0), Some(self.height)));
         children.push(self.title.min_size(0.0, 0.0).flex(1.0));
-        if let Some(trailing) = self.trailing {
+        let mut parts = Vec::new();
+        if let Some(count) = self.count {
+            parts.push(
+                Element::truncated_text(count.to_string())
+                    .foreground(self.palette.muted)
+                    .font_family(FontFamily::Sans)
+                    .font_size(TextRole::Micro.size()),
+            );
+        }
+        if let Some(open) = self.disclosure {
+            let chevron = if open { Icon::ChevronDown } else { Icon::ChevronRight };
+            parts.push(
+                Element::panel(Element::icon(chevron).foreground(self.palette.muted))
+                    .size(Some(ICON_SIZE), Some(self.height)),
+            );
+        }
+        // A caller's element alone keeps the slot to itself, as before.
+        let trailing = if parts.is_empty() {
+            self.trailing
+        } else {
+            parts.extend(self.trailing);
+            Some(Element::row(parts).gap(TRAILING_GAP).size(None, Some(self.height)))
+        };
+        if let Some(trailing) = trailing {
             children.push(Element::spacer().size(Some(6.0), Some(self.height)));
             children.push(Element::panel(trailing).size(None, Some(self.height)));
         }
@@ -355,6 +400,71 @@ mod tests {
             DrawCommand::FillRect { rect, color, .. }
                 if *color == palette.border && rect.width == GUIDE_WIDTH && rect.y >= 15.0
         )));
+    }
+
+    #[test]
+    fn count_and_disclosure_sit_before_the_trailing_element_in_muted_ink() {
+        let palette = ComponentPalette::neutral_dark();
+        let row = |open: Option<bool>, trailing: bool| {
+            let mut row = TreeRow::new(
+                |content| Element::clickable("tree:item", content),
+                Element::icon(Icon::Folder),
+                Element::truncated_text("Project"),
+                TreeGuides::root(),
+                palette,
+            )
+            .width(200.0);
+            if let Some(open) = open {
+                row = row.count(12).disclosure(open);
+            }
+            if trailing {
+                row = row.trailing(Element::button("more", "M").size(Some(20.0), Some(20.0)));
+            }
+            let mut tree = UiTree::new(Element::column(vec![row.render()]));
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(200.0, 60.0))
+        };
+        let glyphs = |frame: &crate::Frame| -> Vec<_> {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Icon { rect, icon, tint } => Some((*rect, *icon, *tint)),
+                    _ => None,
+                })
+                .collect()
+        };
+        for (open, icon) in [(true, Icon::ChevronDown), (false, Icon::ChevronRight)] {
+            let frame = row(Some(open), false);
+            let (slot, glyph, tint) = glyphs(&frame)[1];
+            assert_eq!((glyph, tint), (icon, palette.muted));
+            // A 16 px slot before the row's 8 px end, centered on the row.
+            assert_eq!((slot.x, slot.width), (200.0 - 8.0 - ICON_SIZE, ICON_SIZE));
+            assert_eq!(slot.y + slot.height / 2.0, ControlSize::Compact.height() / 2.0);
+            let count = frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Text { text, position, font_size, color, .. } if text == "12" => {
+                        Some((position.x, *font_size, *color))
+                    }
+                    _ => None,
+                })
+                .unwrap();
+            assert_eq!((count.1, count.2), (10.0, palette.muted));
+            assert!(count.0 < slot.x - TRAILING_GAP && count.0 > 100.0);
+            assert_eq!(frame.regions.len(), 1);
+        }
+        // The caller's element stays last, with its own hit target.
+        let frame = row(Some(true), true);
+        let more = frame.regions.iter().find(|region| region.id == "more").unwrap().rect;
+        assert_eq!(more.x + more.width, 200.0 - 8.0);
+        assert_eq!(glyphs(&frame)[1].0.x + ICON_SIZE + TRAILING_GAP, more.x);
+        // Alone, it has the slot to itself as it always had.
+        let alone = row(None, true);
+        let more = alone.regions.iter().find(|region| region.id == "more").unwrap().rect;
+        assert_eq!(more.x + more.width, 200.0 - 8.0);
+        assert_eq!(glyphs(&alone).len(), 1);
     }
 
     #[test]

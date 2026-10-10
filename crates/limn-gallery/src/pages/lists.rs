@@ -1,7 +1,8 @@
 use super::{caption, section, Cx};
 use limn::{
     AlertColors, AlertTone, Button, ButtonVariant, Component, ComponentPalette, ControlSize, DiffStat,
-    Element, Icon, ListRow, RowSizing, Tooltip, TooltipPlacement, TooltipSpec,
+    Element, Icon, IconButton, ListRow, RadiusRole, RowSizing, Tooltip, TooltipPlacement, TooltipSpec,
+    TreeGuides, TreeRow,
 };
 
 const FRAMES: [(&str, &str); 4] = [
@@ -19,6 +20,65 @@ fn card(cx: &Cx, width: f32, rows: Vec<Element>) -> Element {
         .background(cx.palette.raised)
         .radius(limn::RadiusRole::Card.px())
         .size(Some(width), None)
+}
+
+/// The palette of the row the host calls selected: its fill is the list's
+/// selected color.
+fn selected(cx: &Cx) -> ComponentPalette {
+    ComponentPalette { surface: cx.palette.selected, hover: cx.palette.selected, ..cx.palette }
+}
+
+fn tree_header(cx: &Cx, palette: ComponentPalette, id: &str, title: &str, count: usize, open: bool, width: f32) -> Element {
+    let id = id.to_owned();
+    TreeRow::new(
+        move |content| Element::clickable(id, content),
+        Element::icon(limn::folder_icon(title, open)).foreground(cx.palette.muted),
+        Element::truncated_text(title)
+            .foreground(cx.palette.text)
+            .font_family(limn::FontFamily::Sans)
+            .font_size(12.0),
+        TreeGuides::root(),
+        palette,
+    )
+    .count(count)
+    .disclosure(open)
+    .width(width)
+    .render()
+}
+
+fn task(cx: &Cx, palette: ComponentPalette, id: &str, title: &str, filled: bool, width: f32) -> Element {
+    let more = format!("{id}-more");
+    let row = ListRow::new(id, title, palette)
+        .icon(Icon::Terminal)
+        .title_fade(true)
+        .trailing(
+            IconButton::new(&more, Icon::More, cx.palette)
+                .variant(ButtonVariant::Ghost)
+                .size(ControlSize::Dense)
+                .render()
+                .centered_y(),
+        )
+        .hover_with(more)
+        .radius(RadiusRole::Surface)
+        .width(width);
+    if filled { row.filled() } else { row }.render()
+}
+
+fn change(cx: &Cx, palette: ComponentPalette, id: &str, name: &str, status: &str, enabled: bool, width: f32) -> Element {
+    let stage = format!("{id}-stage");
+    ListRow::new(id, name, palette)
+        .icon(Icon::File)
+        .meta(status)
+        .enabled(enabled)
+        .trailing_action(
+            &stage,
+            // No fill of its own: the row's shared surface is its hover.
+            Element::clickable(&stage, Element::icon(Icon::Add).foreground(cx.palette.muted))
+                .size(Some(24.0), None),
+        )
+        .tooltip_with(TooltipSpec::new(format!("Abrir {name}")).placement(TooltipPlacement::Right))
+        .width(width)
+        .render()
 }
 
 pub fn view(cx: &Cx) -> Element {
@@ -101,6 +161,23 @@ pub fn view(cx: &Cx) -> Element {
             ])
             .gap(8.0)
             .size(Some(width), None),
+        ]),
+        section(cx, "Barra lateral", vec![
+            caption(cx, "Cabeceras con recuento y pliegue; títulos que se desvanecen; el botón Más mantiene el hover de su fila."),
+            card(cx, width, vec![
+                tree_header(cx, on_card, "list-tree-open", "limn", 3, true, inner),
+                task(cx, on_card, "list-task-a", "Separar la presentación de la aplicación en componentes", false, inner),
+                task(cx, selected(cx), "list-task-b", "Filas de la barra lateral", true, inner),
+                tree_header(cx, on_card, "list-tree-folded", "openADE", 128, false, inner),
+            ]),
+        ]),
+        section(cx, "Acciones propias bajo un mismo hover", vec![
+            caption(cx, "Abrir y preparar son dos destinos; el relleno es uno solo."),
+            card(cx, width, vec![
+                change(cx, on_card, "list-change-a", "list_row.rs", "M", true, inner),
+                change(cx, on_card, "list-change-b", "tree_view.rs", "A", true, inner),
+                change(cx, on_card, "list-change-c", "bloqueada.rs", "D", false, inner),
+            ]),
         ]),
         section(cx, "Recuento de cambios y pista de ruta", vec![Element::row(vec![
             stat(),

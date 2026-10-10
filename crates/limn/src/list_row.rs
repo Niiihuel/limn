@@ -6,6 +6,9 @@ use crate::{
     TooltipSpec,
 };
 
+// Width over which a faded title goes transparent.
+const TITLE_FADE: f32 = 24.0;
+
 /// Density of a [`ListRow`], in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RowSizing {
@@ -21,6 +24,10 @@ pub struct RowSizing {
     pub icon_size: f32,
     /// Side of the square a leading element is held in, at the row's top.
     pub leading_width: f32,
+    /// Height of the box the icon is centered in, or the leading element
+    /// held in, from the top of the row; `None` centers the icon in the row
+    /// and holds the leading element in a square.
+    pub leading_height: Option<f32>,
     /// Width of the column of the trailing icon.
     pub trailing_icon_size: f32,
     /// Font size of the title.
@@ -49,6 +56,7 @@ impl RowSizing {
         gap: 8.0,
         icon_size: 16.0,
         leading_width: 24.0,
+        leading_height: None,
         trailing_icon_size: 16.0,
         title_size: 12.0,
         subtitle_size: 11.0,
@@ -86,9 +94,13 @@ pub struct ListRow {
     meta_elements: Vec<Element>,
     trailing: Option<Element>,
     trailing_icon: Option<Icon>,
+    trailing_actions: Vec<(String, Element)>,
     title_ink: Option<Color>,
+    title_fade: bool,
+    hover_with: Option<String>,
     enabled: bool,
     filled: bool,
+    radius: RadiusRole,
     width: Option<f32>,
     tooltip: Option<TooltipSpec>,
     sizing: RowSizing,
@@ -110,9 +122,13 @@ impl ListRow {
             meta_elements: Vec::new(),
             trailing: None,
             trailing_icon: None,
+            trailing_actions: Vec::new(),
             title_ink: None,
+            title_fade: false,
+            hover_with: None,
             enabled: true,
             filled: false,
+            radius: RadiusRole::Control,
             width: None,
             tooltip: None,
             sizing: RowSizing::COMPACT,
@@ -177,10 +193,35 @@ impl ListRow {
         self
     }
 
+    /// A control with a hit target of its own after the row's, such as the
+    /// button that stages a file, reporting `id`. Each call adds one more.
+    /// The row and its actions then share one hover surface: the fill is
+    /// painted behind all of them whichever the pointer is over, so the
+    /// caller draws the control with no hover fill of its own. The hint
+    /// covers the row's own target alone.
+    pub fn trailing_action(mut self, id: impl Into<String>, control: Element) -> Self {
+        self.trailing_actions.push((id.into(), control));
+        self
+    }
+
     /// Paint the title in a color that carries meaning the host owns, such
     /// as unread or failed. It holds while the row is disabled.
     pub fn title_ink(mut self, color: Color) -> Self {
         self.title_ink = Some(color);
+        self
+    }
+
+    /// Fade the end of a title that does not fit instead of cutting it with
+    /// an ellipsis, for a title that changes while it is on screen.
+    pub fn title_fade(mut self, fade: bool) -> Self {
+        self.title_fade = fade;
+        self
+    }
+
+    /// Keep the row hovered while the pointer is over the control `id`, for
+    /// a trailing element that takes the pointer from the row under it.
+    pub fn hover_with(mut self, id: impl Into<String>) -> Self {
+        self.hover_with = Some(id.into());
         self
     }
 
@@ -194,6 +235,13 @@ impl ListRow {
     /// stands on its own instead of on the surface of its list.
     pub fn filled(mut self) -> Self {
         self.filled = true;
+        self
+    }
+
+    /// The corners of the row's fill and of its hover, by role.
+    /// [`RadiusRole::Control`] unless set.
+    pub fn radius(mut self, role: RadiusRole) -> Self {
+        self.radius = role;
         self
     }
 
@@ -223,6 +271,7 @@ impl Component for ListRow {
     fn render(self) -> Element {
         let sizing = self.sizing;
         let palette = self.palette;
+        let fade = self.title_fade;
         let line = |value: String, size: f32, mono: bool, ink: Color, height: Option<f32>| {
             let text = Element::truncated_text(value)
                 .font_family(if mono { FontFamily::Monospace } else { FontFamily::Sans })
@@ -237,7 +286,20 @@ impl Component for ListRow {
         let ink = self
             .title_ink
             .unwrap_or(if self.enabled { palette.text } else { palette.muted });
-        let mut title = line(self.title, sizing.title_size, false, ink, sizing.title_height);
+        let mut title = if fade {
+            // A faded title may shrink below its own width, as a cut one does.
+            let title = Element::faded_text(self.title, TITLE_FADE)
+                .font_family(FontFamily::Sans)
+                .font_size(sizing.title_size)
+                .foreground(ink)
+                .min_size(0.0, 0.0);
+            match sizing.title_height {
+                Some(height) => title.size(None, Some(px(height))),
+                None => title,
+            }
+        } else {
+            line(self.title, sizing.title_size, false, ink, sizing.title_height)
+        };
         let meta = self.meta.map(|meta| {
             let meta = Element::text(meta)
                 .font_family(FontFamily::Sans)
@@ -276,12 +338,13 @@ impl Component for ListRow {
         let mut content = Vec::new();
         if let Some(leading) = self.leading {
             let side = px(sizing.leading_width);
-            content.push(leading.size(Some(side), Some(side)));
+            let height = sizing.leading_height.map_or(side, px);
+            content.push(leading.size(Some(side), Some(height)));
         } else if let Some(icon) = self.icon {
             content.push(
                 Element::icon(icon)
                     .foreground(self.icon_ink.unwrap_or(palette.muted))
-                    .size(Some(px(sizing.icon_size)), None),
+                    .size(Some(px(sizing.icon_size)), sizing.leading_height.map(px)),
             );
         }
         content.push(copy.flex(1.0));
@@ -298,19 +361,52 @@ impl Component for ListRow {
             content = content.clip_children();
         }
         let height = if two_lines { sizing.two_line_height } else { sizing.height };
-        let mut row = if self.enabled {
-            palette.interactive_surface(Element::clickable(&self.id, content))
-        } else {
-            Element::panel(content)
+        let height = height.filter(|height| height.is_finite()).map(px);
+        let shared = !self.trailing_actions.is_empty();
+        let target = match (self.enabled, shared) {
+            // Under a shared surface the target itself paints nothing.
+            (true, true) => Element::clickable(&self.id, content)
+                .background(Color::TRANSPARENT)
+                .transition_ms(0),
+            (true, false) => palette.interactive_surface(Element::clickable(&self.id, content)),
+            (false, _) => Element::panel(content),
         }
-        .padding(px(sizing.padding))
-        .size(self.width, height.filter(|height| height.is_finite()).map(px));
-        if self.filled {
-            row = row.background(palette.surface).radius(RadiusRole::Control.px());
-        }
-        match self.tooltip {
-            Some(spec) => spec.wrap(row, self.id, palette),
+        .padding(px(sizing.padding));
+        let mut tooltip = self.tooltip;
+        let mut hint = |row: Element| match tooltip.take() {
+            Some(spec) => spec.wrap(row, self.id.clone(), palette),
             None => row,
+        };
+        let mut row = if shared {
+            let ids: Vec<String> = self
+                .enabled
+                .then(|| self.id.clone())
+                .into_iter()
+                .chain(self.trailing_actions.iter().map(|(id, _)| id.clone()))
+                .collect();
+            let target = hint(target.size(None, height)).flex(1.0);
+            let actions = self.trailing_actions.into_iter().map(|(_, control)| control);
+            Element::row(std::iter::once(target).chain(actions).collect())
+                .gap(0.0)
+                .hover_background(palette.hover)
+                .pressed_background(palette.selected)
+                .hover_surface(format!("{}:surface", self.id), ids)
+                .transition_ms(crate::tokens().motion.hover_ms)
+        } else {
+            target
+        }
+        .size(self.width, height)
+        .radius(self.radius.px());
+        if self.filled {
+            row = row.background(palette.surface);
+        }
+        if let Some(peer) = self.hover_with.filter(|_| self.enabled && !shared) {
+            row = row.hover_with(peer);
+        }
+        if shared {
+            row
+        } else {
+            hint(row)
         }
     }
 }
@@ -495,6 +591,12 @@ mod tests {
 
         let filled = tree_of(row().filled().render()).layout(size);
         assert_eq!(fills(&filled, palette.surface), vec![whole]);
+        // The role rounds the fill and the hover alike.
+        let rounder = (whole.0, RadiusRole::Surface.px());
+        let mut tree = tree_of(row().filled().radius(RadiusRole::Surface).render());
+        assert_eq!(fills(&tree.layout(size), palette.surface), vec![rounder]);
+        tree.handle_event(UiEvent::PointerMove(point));
+        assert_eq!(fills(&tree.layout(size), palette.hover), vec![rounder]);
         let passive = tree_of(row().filled().enabled(false).render()).layout(size);
         assert_eq!(fills(&passive, palette.surface), vec![whole]);
     }
@@ -544,6 +646,116 @@ mod tests {
         assert_eq!(fills(&frame, mark), vec![(Rect::new(4.0, 4.0, 24.0, 24.0), 0.0)]);
         assert!(icons(&frame).is_empty());
         assert_eq!(texts(&frame)[0].1.x, 4.0 + 24.0 + 8.0);
+    }
+
+    #[test]
+    fn the_profile_can_box_the_icon_and_the_leading_element_from_the_top() {
+        let sizing = RowSizing { height: Some(40.0), leading_height: Some(22.0), ..RowSizing::COMPACT };
+        let row = ListRow::new("row", TITLE, palette()).icon(Icon::Code).sizing(sizing);
+        let frame = tree_of(row.render()).layout(Size::new(300.0, 120.0));
+        let glyph = icons(&frame)[0].0;
+        assert_eq!(glyph.y + glyph.height / 2.0, 4.0 + 11.0);
+        let mark = Color::rgb(1, 2, 3);
+        let row = ListRow::new("row", TITLE, palette())
+            .leading(Element::spacer().background(mark))
+            .sizing(sizing);
+        let frame = tree_of(row.render()).layout(Size::new(300.0, 120.0));
+        assert_eq!(fills(&frame, mark), vec![(Rect::new(4.0, 4.0, 24.0, 22.0), 0.0)]);
+    }
+
+    #[test]
+    fn a_faded_title_is_never_cut_with_an_ellipsis() {
+        let row = |fade| ListRow::new("row", TITLE, palette()).title_fade(fade).width(80.0).render();
+        let cut = tree_of(row(false)).layout(Size::new(300.0, 120.0));
+        assert!(texts(&cut)[0].0.ends_with('…'));
+        let faded = tree_of(row(true)).layout(Size::new(300.0, 120.0));
+        let bands = texts(&faded);
+        // The whole line is painted in bands of falling opacity.
+        assert!(bands.len() > 1 && bands.iter().all(|band| band.0 == TITLE));
+        assert!(bands.iter().all(|band| band.1 == bands[0].1 && band.2 == RowSizing::COMPACT.title_size));
+        // With room to spare it is one plain line where the cut one is.
+        let wide = |fade| {
+            let row = ListRow::new("row", TITLE, palette()).title_fade(fade).render();
+            let frame = tree_of(row).layout(Size::new(600.0, 120.0));
+            texts(&frame).iter().map(|line| (line.0.to_owned(), line.1)).collect::<Vec<_>>()
+        };
+        assert_eq!(wide(true), wide(false));
+    }
+
+    #[test]
+    fn hover_with_keeps_the_row_hovered_under_its_trailing_control() {
+        let palette = ComponentPalette { hover: Color::rgb(50, 51, 52), ..palette() };
+        let row = |peer: bool| {
+            let row = ListRow::new("row", TITLE, palette)
+                .trailing(Element::button("more", "Más").size(Some(40.0), None))
+                .width(200.0);
+            if peer { row.hover_with("more") } else { row }.render()
+        };
+        let size = Size::new(300.0, 120.0);
+        for peer in [false, true] {
+            let mut tree = tree_of(row(peer));
+            let more = region(&tree.layout(size), "more");
+            tree.handle_event(UiEvent::PointerMove(Point::new(more.x + 4.0, 14.0)));
+            let frame = tree.layout(size);
+            let whole = fills(&frame, palette.hover)
+                .iter()
+                .any(|(rect, _)| *rect == Rect::new(0.0, 0.0, 200.0, 28.0));
+            assert_eq!(whole, peer);
+            assert_eq!(frame.hit_test(Point::new(more.x + 4.0, 14.0)), Some("more"));
+        }
+        // A passive row has nothing to hover.
+        let passive = ListRow::new("row", TITLE, palette).hover_with("more").enabled(false).render();
+        assert_eq!(passive.hover_peer, None);
+    }
+
+    #[test]
+    fn trailing_actions_keep_their_targets_under_one_shared_hover_surface() {
+        let palette = ComponentPalette {
+            surface: Color::rgb(30, 31, 32),
+            hover: Color::rgb(50, 51, 52),
+            selected: Color::rgb(70, 71, 72),
+            ..palette()
+        };
+        let stage = || Element::clickable("stage", Element::icon(Icon::Add)).size(Some(24.0), None);
+        let row = || {
+            ListRow::new("row", TITLE, palette)
+                .icon(Icon::Code)
+                .trailing_action("stage", stage())
+                .tooltip_with(TooltipSpec::new("Abrir cambios"))
+                .filled()
+                .width(200.0)
+        };
+        let size = Size::new(300.0, 120.0);
+        let whole = (Rect::new(0.0, 0.0, 200.0, 28.0), RadiusRole::Control.px());
+        let mut tree = tree_of(row().render());
+        let rest = tree.layout(size);
+        assert_eq!(fills(&rest, palette.surface), vec![whole]);
+        // Two targets that meet without overlapping.
+        let (open, action) = (region(&rest, "row"), region(&rest, "stage"));
+        assert_eq!((open.x, open.width, action.x, action.width), (0.0, 176.0, 176.0, 24.0));
+        for (point, id) in [(Point::new(60.0, 14.0), "row"), (Point::new(188.0, 14.0), "stage")] {
+            assert_eq!(rest.hit_test(point), Some(id));
+            tree.handle_event(UiEvent::PointerMove(point));
+            let hovered = tree.layout(size);
+            // One fill, the whole row's, whichever target the pointer is over.
+            assert_eq!(fills(&hovered, palette.hover), vec![whole], "{id}");
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(fills(&tree.layout(size), palette.selected), vec![whole], "{id}");
+            assert_eq!(
+                tree.handle_event(UiEvent::PointerUp(point)),
+                vec![UiAction::Clicked { id: id.into() }]
+            );
+        }
+        // The hint belongs to the row's own target, not to its actions.
+        let ElementKind::Row(children) = &row().render().kind else {
+            panic!("the shared surface is a row of targets");
+        };
+        assert!(matches!(&children[0].kind, ElementKind::Tooltip { anchor_id, .. } if anchor_id == "row"));
+        // Disabled, the row is passive and its action still answers.
+        let passive = ListRow::new("row", TITLE, palette).trailing_action("stage", stage()).enabled(false);
+        let frame = tree_of(passive.width(200.0).render()).layout(size);
+        assert!(frame.regions.iter().all(|region| region.id != "row"));
+        assert_eq!(frame.hit_test(Point::new(188.0, 14.0)), Some("stage"));
     }
 
     #[test]
