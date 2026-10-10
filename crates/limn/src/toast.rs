@@ -28,7 +28,7 @@ impl Toast {
             palette,
             action: None,
             dismiss: None,
-            width: 300.0,
+            width: 360.0,
         }
     }
 
@@ -101,11 +101,11 @@ impl Component for Toast {
         } else {
             colors.accent
         };
-        let mut copy = vec![line(self.title, 12.0, title_ink)];
+        let mut copy = vec![line(self.title, 13.0, title_ink)];
         if !self.description.trim().is_empty() {
-            copy.push(line(self.description, 11.5, self.palette.muted));
+            copy.push(line(self.description, 12.0, self.palette.muted));
         }
-        let copy = Element::column(copy).gap(2.0).padding(8.0);
+        let copy = Element::column(copy).gap(3.0).padding(12.0);
         let copy = match self.action {
             Some(id) => self
                 .palette
@@ -114,13 +114,18 @@ impl Component for Toast {
         };
         let mut cells = vec![copy.flex(1.0)];
         if let Some(id) = self.dismiss {
-            cells.push(
+            // The row stretches its cells, so the button is held in the middle
+            // of the card: its hover square stays centered on the glyph and on
+            // the copy beside it, whatever the card's height.
+            cells.push(Element::column(vec![
+                Element::spacer().flex(1.0),
                 IconButton::new(id, Icon::Close, self.palette)
-                    .button_size(ButtonSize::IconExtraSmall)
+                    .button_size(ButtonSize::IconSmall)
                     .variant(ButtonVariant::Ghost)
                     .render(),
-            );
-            cells.push(Element::spacer().size(Some(4.0), None));
+                Element::spacer().flex(1.0),
+            ]));
+            cells.push(Element::spacer().size(Some(8.0), None));
         }
         Element::row(cells)
             .gap(2.0)
@@ -179,7 +184,7 @@ mod tests {
         assert!(first.y + first.height <= second.y, "cards do not overlap");
         assert!(second.y + second.height <= 500.0 - 36.0);
         for card in [first, second] {
-            assert!(card.x >= 800.0 - EDGE_INSET - 300.0 && card.x + card.width <= 800.0 - EDGE_INSET);
+            assert!(card.x >= 800.0 - EDGE_INSET - 360.0 && card.x + card.width <= 800.0 - EDGE_INSET);
         }
         assert_eq!(frame.hit_test(Point::new(100.0, 100.0)), Some("base"));
         assert!(!frame.regions.iter().any(|region| region.id == "close:2"));

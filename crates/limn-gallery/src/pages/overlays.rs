@@ -107,7 +107,8 @@ pub fn view(cx: &Cx) -> Element {
         ]),
         section(cx, "Toast", vec![row(vec![
             trigger(cx, "overlay-toast=shown", "Mostrar toasts"),
-            trigger(cx, "overlay-toast=hidden", "Ocultar"),
+            // Its own ID: the toast's close button dispatches the same action.
+            trigger(cx, "overlay-toast-hide", "Ocultar").dispatch_as("overlay-toast=hidden"),
         ])]),
     ])
     .gap(32.0)
