@@ -34,6 +34,7 @@ mod menu;
 mod modal;
 mod motion;
 mod theme;
+mod page;
 mod preferences;
 mod progress;
 mod raster_image;
@@ -105,6 +106,7 @@ pub use modal::{DismissButton, Modal};
 pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
+pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
 pub use raster_image::{RasterImage, RasterImageFormat};
