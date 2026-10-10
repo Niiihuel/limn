@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    ActiveHover, Button, ButtonSize, ButtonVariant, Component, ControlSize, Element, Icon, IconButton,
-    TooltipPlacement, TooltipSpec,
+    ActiveHover, Button, ButtonGroup, ButtonSize, ButtonVariant, Color, Component, ControlSize, Element,
+    Icon, IconButton, RadiusRole, TooltipPlacement, TooltipSpec,
 };
 
 const VARIANTS: [(ButtonVariant, &str); 11] = [
@@ -17,6 +17,18 @@ const VARIANTS: [(ButtonVariant, &str); 11] = [
     (ButtonVariant::Warning, "Warning"),
     (ButtonVariant::Destructive, "Destructive"),
 ];
+
+// A status ink is the host's to choose; the gallery has no theme of its own.
+const DANGER: Color = Color::rgb(255, 92, 92);
+
+fn group(prefix: &str, palette: limn::ComponentPalette) -> Vec<Element> {
+    vec![
+        Button::new(format!("{prefix}-cancel"), "Cancelar", palette)
+            .variant(ButtonVariant::Outline)
+            .render(),
+        Button::new(format!("{prefix}-save"), "Guardar", palette).render(),
+    ]
+}
 
 pub fn view(cx: &Cx) -> Element {
     let palette = cx.palette;
@@ -43,6 +55,10 @@ pub fn view(cx: &Cx) -> Element {
         section(cx, "Deshabilitados", vec![variants("button-disabled", Button::disabled)]),
         section(cx, "Cargando", vec![variants("button-loading", |button| button.loading(true))]),
         section(cx, "Tamaños", vec![row(vec![
+            Button::new("button-mini", "Más", palette)
+                .variant(ButtonVariant::Ghost)
+                .button_size(ButtonSize::Mini)
+                .render(),
             Button::new("button-small", "Small", palette).button_size(ButtonSize::Small).render(),
             Button::new("button-default", "Default", palette).button_size(ButtonSize::Default).render(),
             Button::new("button-large", "Large", palette).button_size(ButtonSize::Large).render(),
@@ -104,6 +120,46 @@ pub fn view(cx: &Cx) -> Element {
                     .render(),
             ]),
             caption(cx, "Dense, Compact y Regular son cuadrados de 24, 28 y 32. El botón deshabilitado conserva su ayuda."),
+        ]),
+        section(cx, "Tinta, separación y radio", vec![
+            row(vec![
+                Button::new("button-ink", "Descartar", palette)
+                    .variant(ButtonVariant::Ghost)
+                    .ink(DANGER)
+                    .render(),
+                Button::new("button-ink-disabled", "Descartar", palette)
+                    .variant(ButtonVariant::Ghost)
+                    .ink(DANGER)
+                    .disabled()
+                    .render(),
+                Button::new("button-gap", "Conectar", palette)
+                    .variant(ButtonVariant::Outline)
+                    .icon(Icon::Github)
+                    .gap(12.0)
+                    .render(),
+                Button::new("button-radius", "Tarjeta", palette)
+                    .variant(ButtonVariant::Outline)
+                    .radius(RadiusRole::Card)
+                    .render(),
+            ]),
+            caption(cx, "La tinta la pasa la aplicación; deshabilitado, el botón vuelve al tono apagado."),
+        ]),
+        section(cx, "Grupo de botones", vec![
+            ButtonGroup::new(group("button-group-row", palette)).render(),
+            ButtonGroup::new(group("button-group-end", palette))
+                .align_end()
+                .leading(
+                    Button::new("button-group-help", "Ayuda", palette)
+                        .variant(ButtonVariant::Ghost)
+                        .render(),
+                )
+                .render(),
+            ButtonGroup::new(group("button-group-stacked", palette))
+                .stacked(true)
+                .reverse_when_stacked(true)
+                .render()
+                .size(Some(220.0), None),
+            caption(cx, "En fila, alineado al final con un elemento inicial, y apilado con la acción principal primero."),
         ]),
         section(cx, "Activo", vec![
             row(vec![Button::new("button-toggle", "Alternar", palette)

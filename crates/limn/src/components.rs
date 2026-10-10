@@ -5,7 +5,7 @@
 
 use crate::{
     Color, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement, TooltipItem,
-    TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
+    RadiusRole, TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
 };
 use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion};
 
@@ -428,6 +428,8 @@ pub enum ButtonSize {
     Icon,
     IconSmall,
     IconExtraSmall,
+    /// A 22 px action inside a dense row, such as "more" in a file tree.
+    Mini,
 }
 
 impl ButtonSize {
@@ -439,6 +441,7 @@ impl ButtonSize {
             Self::Icon => (36.0, 14.0, 10.0),
             Self::IconSmall => (32.0, 13.0, 8.0),
             Self::IconExtraSmall => (24.0, 12.0, 4.0),
+            Self::Mini => (22.0, 11.0, 3.0),
         };
         ButtonSizing {
             height,
@@ -514,8 +517,11 @@ pub struct Button {
     active_hover: ActiveHover,
     state: ControlState,
     loading: bool,
+    ink: Option<Color>,
     hover_ink: Option<Color>,
     pressed_ink: Option<Color>,
+    gap: Option<f32>,
+    radius: RadiusRole,
     palette: ComponentPalette,
     tooltip: TooltipSpec,
     dispatch_as: Option<String>,
@@ -547,8 +553,11 @@ impl Button {
             active_hover: ActiveHover::default(),
             state: ControlState::Enabled,
             loading: false,
+            ink: None,
             hover_ink: None,
             pressed_ink: None,
+            gap: None,
+            radius: RadiusRole::Control,
             palette,
             tooltip: TooltipSpec::none(),
             dispatch_as: None,
@@ -653,6 +662,14 @@ impl Button {
         self
     }
 
+    /// Draw the label and icons in a semantic color, such as the host's
+    /// destructive ink. Hover and press keep it unless `hover_ink` or
+    /// `pressed_ink` say otherwise; a disabled button stays muted.
+    pub fn ink(mut self, color: Color) -> Self {
+        self.ink = Some(color);
+        self
+    }
+
     pub fn hover_ink(mut self, color: Color) -> Self {
         self.hover_ink = Some(color);
         self
@@ -660,6 +677,21 @@ impl Button {
 
     pub fn pressed_ink(mut self, color: Color) -> Self {
         self.pressed_ink = Some(color);
+        self
+    }
+
+    /// Set the space between the icons and the label, in place of the
+    /// size's own. A value that is not finite is ignored.
+    pub fn gap(mut self, gap: f32) -> Self {
+        if gap.is_finite() {
+            self.gap = Some(gap.max(0.0));
+        }
+        self
+    }
+
+    /// Round the button with another radius token. The default is `Control`.
+    pub fn radius(mut self, radius: RadiusRole) -> Self {
+        self.radius = radius;
         self
     }
 
@@ -769,7 +801,7 @@ impl Button {
         let ink = if self.state == ControlState::Disabled {
             palette.muted
         } else {
-            ink
+            self.ink.unwrap_or(ink)
         };
         (
             base,
@@ -788,7 +820,8 @@ impl Component for Button {
             .button_size
             .map(ButtonSize::sizing)
             .unwrap_or_else(|| self.size.button_sizing());
-        let padding = sizing.horizontal_padding.max(4.0);
+        let padding = sizing.horizontal_padding;
+        let spacing = self.gap.unwrap_or(sizing.inner_spacing);
         let (icon, label) = self.content.parts();
         let icon_only = (icon.is_some() || self.loading) && label.is_empty();
         let width = self.width.or(icon_only.then_some(sizing.height));
@@ -799,7 +832,7 @@ impl Component for Button {
             padding
         };
         let height = sizing.height;
-        let radius = sizing.radius;
+        let radius = self.radius.px();
 
         if self.state == ControlState::Disabled || self.loading {
             // The engine's Button element always registers a hit target. A
@@ -807,12 +840,12 @@ impl Component for Button {
             // visible, but cannot be focused or activated by any input path.
             let has_label = !label.is_empty();
             let icon_space = if icon.is_some() || self.loading {
-                sizing.icon_size + sizing.inner_spacing
+                sizing.icon_size + spacing
             } else {
                 0.0
             };
             let trailing_space = if self.trailing_icon.is_some() {
-                sizing.icon_size + sizing.inner_spacing
+                sizing.icon_size + spacing
             } else {
                 0.0
             };
@@ -861,13 +894,13 @@ impl Component for Button {
                 if let Some(trailing) = self.trailing_icon {
                     children.push(center_icon(Element::icon(trailing).foreground(ink)));
                 }
-                Element::row(children).gap(sizing.inner_spacing)
+                Element::row(children).gap(spacing)
             } else if let Some(trailing) = self.trailing_icon {
                 Element::row(vec![
                     label,
                     center_icon(Element::icon(trailing).foreground(ink)),
                 ])
-                .gap(sizing.inner_spacing)
+                .gap(spacing)
             } else {
                 label
             };
@@ -909,7 +942,7 @@ impl Component for Button {
             .font_family(FontFamily::Sans)
             .font_size(sizing.font_size)
             .padding(padding)
-            .gap(sizing.inner_spacing)
+            .gap(spacing)
             .radius(radius)
             .size(width, Some(height));
         if matches!(
@@ -2693,6 +2726,85 @@ mod tests {
                 .render();
             assert_eq!(element.style.height, Some(expected));
             assert_eq!(element.style.width, Some(expected));
+        }
+    }
+
+    #[test]
+    fn mini_is_a_22_px_action_with_an_11_px_label() {
+        let palette = ComponentPalette::neutral_dark();
+        let label = Button::new("more", "More", palette)
+            .button_size(ButtonSize::Mini)
+            .width(36.0)
+            .render();
+        assert_eq!(label.style.height, Some(22.0));
+        assert_eq!(label.style.width, Some(36.0));
+        assert_eq!(label.style.font_size, 11.0);
+        assert_eq!(label.style.padding, 3.0);
+        // The square icon form still has room for the 16 px glyph.
+        let icon = IconButton::new("more", Icon::Add, palette)
+            .button_size(ButtonSize::Mini)
+            .render();
+        assert_eq!(icon.style.width, Some(22.0));
+        assert_eq!(icon.style.padding, 3.0);
+    }
+
+    #[test]
+    fn ink_colors_every_enabled_state_and_leaves_disabled_muted() {
+        let palette = ComponentPalette::neutral_dark();
+        let red = Color::rgb(255, 92, 92);
+        let button = |build: fn(Button) -> Button| {
+            build(Button::new("drop", "Drop", palette).variant(ButtonVariant::Ghost).ink(Color::rgb(255, 92, 92)))
+                .render()
+        };
+        let plain = button(|button| button);
+        assert_eq!(plain.style.foreground, red);
+        assert_eq!(plain.style.hover_foreground, Some(red));
+        assert_eq!(plain.style.pressed_foreground, Some(red));
+        let hovering = button(|button| button.hover_ink(Color::WHITE));
+        assert_eq!(hovering.style.foreground, red);
+        assert_eq!(hovering.style.hover_foreground, Some(Color::WHITE));
+
+        let mut tree = UiTree::new(button(Button::disabled));
+        let frame = tree.layout(Size::new(200.0, 40.0));
+        assert!(frame.regions.is_empty());
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, color, .. } if text == "Drop" && *color == palette.muted)));
+    }
+
+    #[test]
+    fn gap_replaces_the_icon_spacing_and_ignores_bad_input() {
+        let palette = ComponentPalette::neutral_dark();
+        let button = || Button::new("connect", "Connect", palette).icon(Icon::Add).size(ControlSize::Dense);
+        assert_eq!(button().render().style.gap, 6.0);
+        assert_eq!(button().gap(8.0).render().style.gap, 8.0);
+        assert_eq!(button().gap(f32::NAN).render().style.gap, 6.0);
+        assert_eq!(button().gap(-2.0).render().style.gap, 0.0);
+
+        // The busy form keeps the same distance between spinner and label.
+        let label_x = |gap: f32| {
+            let mut tree = UiTree::new(button().gap(gap).width(160.0).loading(true).render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(160.0, 24.0));
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Text { text, position, .. } if text == "Connect" => Some(position.x),
+                    _ => None,
+                })
+                .expect("label")
+        };
+        assert_eq!(label_x(8.0) - label_x(6.0), 2.0);
+    }
+
+    #[test]
+    fn radius_takes_a_token_role_and_defaults_to_control() {
+        let palette = ComponentPalette::neutral_dark();
+        let button = || Button::new("save", "Save", palette);
+        assert_eq!(button().render().style.radius, RadiusRole::Control.px());
+        for role in [RadiusRole::Surface, RadiusRole::Card, RadiusRole::Panel] {
+            assert_eq!(button().radius(role).render().style.radius, role.px());
+            assert_eq!(button().radius(role).disabled().render().style.radius, role.px());
         }
     }
 
