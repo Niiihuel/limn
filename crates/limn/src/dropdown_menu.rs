@@ -601,7 +601,12 @@ impl Component for DropdownMenu {
                 DropdownMenuEntry::Separator => Element::spacer()
                     .background(palette.border)
                     .size(Some(row_width), Some(1.0)),
-                DropdownMenuEntry::Custom(element) => *element,
+                // The menu knows whether it scrolls; a custom row spans the
+                // same width as its neighbours so its hover reaches the edge.
+                DropdownMenuEntry::Custom(element) => {
+                    let height = element.style.height;
+                    element.size(Some(row_width), height)
+                }
                 DropdownMenuEntry::Section(section) => {
                     let section = section.render(palette);
                     if contextual || section.style.width.is_some() {
@@ -2117,6 +2122,35 @@ mod tests {
             DrawCommand::Text {text,font_size,..}
                 if text == "Cuenta" && *font_size == sizing.label_size
         )));
+    }
+
+    #[test]
+    fn a_custom_row_in_a_short_menu_is_as_wide_as_its_neighbours() {
+        let sizing = SelectorSizing::CATALOG;
+        let narrow = sizing.preferred_width - 12.0 - sizing.scrollbar_gutter;
+        let entries = vec![
+            DropdownMenuEntry::custom(
+                Element::clickable("custom", Element::text("Proyecto"))
+                    .size(Some(narrow), Some(sizing.detail_row_height)),
+            ),
+            DropdownMenuItem::new("plain", "Abrir otra carpeta").into(),
+        ];
+        let mut tree = UiTree::new(
+            DropdownMenu::new(
+                Element::button("trigger", "Proyectos"),
+                entries,
+                true,
+                "dismiss",
+                ComponentPalette::neutral_dark(),
+            )
+            .sizing(sizing)
+            .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(600.0, 440.0));
+        let rect = |id: &str| frame.regions.iter().find(|row| row.id == id).unwrap().rect;
+        assert_eq!(rect("custom").width, rect("plain").width);
+        assert_eq!(rect("custom").height, sizing.detail_row_height);
     }
 
     #[test]
