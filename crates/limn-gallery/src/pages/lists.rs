@@ -162,6 +162,33 @@ pub fn view(cx: &Cx) -> Element {
             .gap(8.0)
             .size(Some(width), None),
         ]),
+        section(cx, "Tinta de la segunda línea, contorno y texto de ancho fijo", vec![
+            caption(cx, "La segunda línea lleva un color de estado; la fila contorneada es una tarjeta; la última guarda 160 px para su texto."),
+            ListRow::new("list-account", "Cuenta y uso", cx.palette)
+                .icon(Icon::Chat)
+                .subtitle("Proveedor · Sin actualizar")
+                .subtitle_ink(colors(AlertTone::Warning))
+                .trailing_icon(Icon::ChevronRight)
+                .filled()
+                .width(width)
+                .render(),
+            ListRow::new("list-citation", "Documentación de limn", cx.palette)
+                .icon(Icon::Search)
+                .subtitle("https://example.com/limn/list-row")
+                .subtitle_mono(true)
+                .filled()
+                .outlined()
+                .width(width)
+                .render(),
+            ListRow::new("list-budget", "Un título que se corta a los 160 px que la fila le reserva", on_card)
+                .icon(Icon::Folder)
+                .subtitle("El resto de la fila queda libre")
+                .trailing_icon(Icon::ChevronDown)
+                .copy_width(160.0)
+                .filled()
+                .width(width)
+                .render(),
+        ]),
         section(cx, "Barra lateral", vec![
             caption(cx, "Cabeceras con recuento y pliegue; títulos que se desvanecen; el botón Más mantiene el hover de su fila."),
             card(cx, width, vec![

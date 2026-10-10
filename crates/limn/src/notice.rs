@@ -68,6 +68,7 @@ pub struct Notice {
     action: Option<Element>,
     trailing: Option<Element>,
     framed: bool,
+    stacked: bool,
     width: Option<f32>,
     sizing: NoticeSizing,
     palette: ComponentPalette,
@@ -84,6 +85,7 @@ impl Notice {
             action: None,
             trailing: None,
             framed: false,
+            stacked: false,
             width: None,
             sizing: NoticeSizing::REGULAR,
             palette,
@@ -126,6 +128,13 @@ impl Notice {
     /// radius, for a notice that sits over other content.
     pub fn framed(mut self) -> Self {
         self.framed = true;
+        self
+    }
+
+    /// Set the icon over the copy instead of beside it, the profile's
+    /// `copy_gap` apart, for a hint at the top of an empty pane.
+    pub fn stacked(mut self) -> Self {
+        self.stacked = true;
         self
     }
 
@@ -179,11 +188,14 @@ impl Component for Notice {
         let mut content = Vec::new();
         if let Some(icon) = self.icon {
             let side = px(sizing.icon_size);
-            content.push(
-                Element::icon(icon)
-                    .foreground(palette.muted)
-                    .size(Some(side), Some(side)),
-            );
+            let icon = Element::icon(icon)
+                .foreground(palette.muted)
+                .size(Some(side), Some(side));
+            if self.stacked {
+                copy.insert(0, icon);
+            } else {
+                content.push(icon);
+            }
         }
         content.push(Element::column(copy).gap(px(sizing.copy_gap)).flex(1.0));
         content.extend(self.trailing);
@@ -237,6 +249,26 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn stacked_sets_the_icon_over_the_copy() {
+        let notice = Notice::new(TITLE, palette()).icon(Icon::Grid).description(WHY).stacked();
+        let frame = tree_of(notice).layout(Size::new(360.0, 600.0));
+        let icon = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Icon { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("icon");
+        let sizing = NoticeSizing::REGULAR;
+        let title = texts(&frame)[0].1;
+        assert_eq!(icon.x + icon.width / 2.0, sizing.padding + sizing.icon_size / 2.0);
+        // The copy starts at the notice's inset, under the icon's box.
+        assert_eq!(title.x, sizing.padding);
+        assert!(title.y >= sizing.padding + sizing.icon_size + sizing.copy_gap);
     }
 
     #[test]

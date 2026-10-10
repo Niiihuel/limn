@@ -82,6 +82,14 @@ pub fn view(cx: &Cx) -> Element {
                 .width(width)
                 .render(),
         ]),
+        section(cx, "Aviso apilado", vec![
+            Notice::new("Tu agente, junto al código", cx.palette)
+                .icon(Icon::Chat)
+                .description("Explora el proyecto, pide cambios o resuelve una tarea.")
+                .stacked()
+                .width(width.min(360.0))
+                .render(),
+        ]),
         section(cx, "Aviso compacto", vec![
             Notice::new("Sin problemas en este archivo", cx.palette)
                 .icon(Icon::CheckCircle)

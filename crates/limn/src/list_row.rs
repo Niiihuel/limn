@@ -87,6 +87,9 @@ pub struct ListRow {
     title: String,
     subtitle: String,
     subtitle_mono: bool,
+    subtitle_ink: Option<Color>,
+    copy_width: Option<f32>,
+    outlined: bool,
     icon: Option<Icon>,
     icon_ink: Option<Color>,
     leading: Option<Element>,
@@ -115,6 +118,9 @@ impl ListRow {
             title: title.into(),
             subtitle: String::new(),
             subtitle_mono: false,
+            subtitle_ink: None,
+            copy_width: None,
+            outlined: false,
             icon: None,
             icon_ink: None,
             leading: None,
@@ -164,6 +170,23 @@ impl ListRow {
     /// Set the subtitle in the monospaced family, for a command or a path.
     pub fn subtitle_mono(mut self, mono: bool) -> Self {
         self.subtitle_mono = mono;
+        self
+    }
+
+    /// Paint the subtitle in a color that carries meaning the host owns,
+    /// such as a warning, instead of the muted one.
+    pub fn subtitle_ink(mut self, color: Color) -> Self {
+        self.subtitle_ink = Some(color);
+        self
+    }
+
+    /// Hold the copy at a fixed width instead of the width the row has
+    /// left, for a host that budgets the columns of its rows itself. Values
+    /// that are not finite are ignored.
+    pub fn copy_width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.copy_width = Some(width.max(0.0));
+        }
         self
     }
 
@@ -235,6 +258,13 @@ impl ListRow {
     /// stands on its own instead of on the surface of its list.
     pub fn filled(mut self) -> Self {
         self.filled = true;
+        self
+    }
+
+    /// Draw a hairline in the palette's border color around the row, for a
+    /// row that is a card of its own.
+    pub fn outlined(mut self) -> Self {
+        self.outlined = true;
         self
     }
 
@@ -327,7 +357,7 @@ impl Component for ListRow {
                     self.subtitle,
                     sizing.subtitle_size,
                     self.subtitle_mono,
-                    palette.muted,
+                    self.subtitle_ink.unwrap_or(palette.muted),
                     sizing.subtitle_height,
                 ));
             }
@@ -347,7 +377,10 @@ impl Component for ListRow {
                     .size(Some(px(sizing.icon_size)), sizing.leading_height.map(px)),
             );
         }
-        content.push(copy.flex(1.0));
+        content.push(match self.copy_width {
+            Some(width) => copy.size(Some(width), None),
+            None => copy.flex(1.0),
+        });
         content.extend(self.trailing);
         if let Some(icon) = self.trailing_icon {
             content.push(
@@ -399,6 +432,9 @@ impl Component for ListRow {
         .radius(self.radius.px());
         if self.filled {
             row = row.background(palette.surface);
+        }
+        if self.outlined {
+            row = row.border(palette.border, 1.0);
         }
         if let Some(peer) = self.hover_with.filter(|_| self.enabled && !shared) {
             row = row.hover_with(peer);
@@ -853,6 +889,48 @@ mod tests {
             };
             assert_eq!((anchor_id.as_str(), title.as_str()), ("row", "Abrir cambios"));
         }
+    }
+
+    #[test]
+    fn subtitle_ink_replaces_the_muted_color_of_the_second_line() {
+        let warning = Color::rgb(230, 180, 80);
+        let row = ListRow::new("row", TITLE, palette()).subtitle(WHY).subtitle_ink(warning);
+        let frame = tree_of(row.render()).layout(Size::new(360.0, 80.0));
+        let lines = texts(&frame);
+        assert_eq!((lines[0].3, lines[1].3), (palette().text, warning));
+    }
+
+    #[test]
+    fn copy_width_holds_the_copy_whatever_the_row_has_left() {
+        let row = |width| {
+            Element::row(vec![ListRow::new("row", TITLE, palette())
+                .trailing_icon(Icon::ChevronRight)
+                .copy_width(100.0)
+                .render()
+                .size(Some(width), None)])
+        };
+        let chevron = |width| icons(&tree_of(row(width)).layout(Size::new(400.0, 80.0)))[0].0.x;
+        // Padding 4, the copy, the gap: the chevron does not follow the edge.
+        assert_eq!(chevron(300.0), 112.0);
+        assert_eq!(chevron(90.0), 112.0);
+        let bad = ListRow::new("row", TITLE, palette()).copy_width(f32::NAN).copy_width(-5.0);
+        assert_eq!(bad.copy_width, Some(0.0));
+    }
+
+    #[test]
+    fn outlined_draws_a_hairline_in_the_border_color() {
+        let borders = |row: ListRow| {
+            tree_of(row.render())
+                .layout(Size::new(360.0, 80.0))
+                .commands
+                .iter()
+                .filter(|command| matches!(command,
+                    DrawCommand::StrokeRect { color, width, .. }
+                        if *color == palette().border && *width == 1.0))
+                .count()
+        };
+        assert_eq!(borders(ListRow::new("row", TITLE, palette())), 0);
+        assert_eq!(borders(ListRow::new("row", TITLE, palette()).outlined()), 1);
     }
 
     #[test]

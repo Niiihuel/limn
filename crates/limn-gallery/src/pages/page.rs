@@ -36,9 +36,12 @@ fn grid(cx: &Cx, width: f32, breakpoint: f32, count: usize) -> Element {
 }
 
 /// A whole page in a frame, so its gutter and its own scrolling show.
-fn page(cx: &Cx, id: &str, width: f32) -> Element {
+fn page(cx: &Cx, id: &str, width: f32, tint: bool) -> Element {
     // Breakpoints scaled down to the frames, so the gallery shows both states.
-    let page = PageColumn::new(id, width, cx.palette).gutter(14.0, 28.0, 360.0).reserve_rail(true);
+    let page = PageColumn::new(id, width, cx.palette)
+        .gutter(14.0, 28.0, 360.0)
+        .reserve_rail(true)
+        .tint_scrollbar(tint);
     let content_width = page.content_width();
     let page = page.children(vec![
         PageHeader::new("Automatizaciones", cx.palette)
@@ -85,6 +88,13 @@ pub fn view(cx: &Cx) -> Element {
                 .sizing(CATALOG)
                 .render()
                 .size(Some(width.min(360.0)), None),
+            caption(cx, "El elemento final en la línea del título, sin centrar"),
+            PageHeader::new("Automatizaciones", palette)
+                .description("Tareas programadas para este proyecto, con una descripción que ocupa más de una línea en una página estrecha.")
+                .trailing(action("page-header-top"))
+                .trailing_top(true)
+                .render()
+                .size(Some(width.min(420.0)), None),
             caption(cx, "Sólo título"),
             PageHeader::new("Atajos de teclado", palette).render(),
         ]),
@@ -101,6 +111,12 @@ pub fn view(cx: &Cx) -> Element {
                 SectionHeader::new("Fuentes", palette)
                     .detail("12")
                     .sizing(SectionSizing::LABEL)
+                    .render(),
+                SectionHeader::new("Un título de sección demasiado largo que se corta en una línea", palette)
+                    .detail("128")
+                    .truncate(true)
+                    .sizing(SectionSizing::LIST)
+                    .width(280.0)
                     .render(),
                 SectionHeader::new("Herramientas", palette)
                     .trailing(
@@ -121,9 +137,11 @@ pub fn view(cx: &Cx) -> Element {
             grid(cx, width.min(300.0), 360.0, 2),
         ]),
         section(cx, "Columna de página", vec![
-            page(cx, "page-column-wide", width),
+            page(cx, "page-column-wide", width, true),
             caption(cx, "Estrecha: margen menor, encabezado apilado y una columna"),
-            page(cx, "page-column-narrow", width.min(300.0)),
+            page(cx, "page-column-narrow", width.min(300.0), true),
+            caption(cx, "Con la barra de desplazamiento en su propio color, sin teñir"),
+            page(cx, "page-column-plain", width.min(300.0), false),
         ]),
     ])
     .gap(32.0)

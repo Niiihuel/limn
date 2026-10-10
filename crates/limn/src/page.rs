@@ -61,6 +61,7 @@ pub struct PageHeader {
     leading: Option<Element>,
     trailing: Option<Element>,
     stacked: bool,
+    trailing_top: bool,
     truncate: bool,
     sizing: PageHeaderSizing,
     palette: ComponentPalette,
@@ -75,6 +76,7 @@ impl PageHeader {
             leading: None,
             trailing: None,
             stacked: false,
+            trailing_top: false,
             truncate: false,
             sizing: PageHeaderSizing::DEFAULT,
             palette,
@@ -102,6 +104,13 @@ impl PageHeader {
     /// Place the trailing element under the copy, for a narrow page.
     pub fn stacked(mut self, stacked: bool) -> Self {
         self.stacked = stacked;
+        self
+    }
+
+    /// Keep the trailing element on the title's line instead of centering
+    /// it on the header.
+    pub fn trailing_top(mut self, top: bool) -> Self {
+        self.trailing_top = top;
         self
     }
 
@@ -142,7 +151,11 @@ impl Component for PageHeader {
             }
             row.push(copy.flex(1.0));
             if let Some(trailing) = trailing {
-                row.push(trailing.centered_y());
+                row.push(if self.trailing_top {
+                    trailing
+                } else {
+                    trailing.centered_y()
+                });
             }
             let row = Element::row(row).gap(px(sizing.row_gap));
             match px(sizing.height) {
@@ -169,6 +182,7 @@ pub struct PageColumn {
     gutter: (f32, f32, f32),
     gap: f32,
     reserve_rail: bool,
+    tint_scrollbar: bool,
     palette: ComponentPalette,
 }
 
@@ -185,6 +199,7 @@ impl PageColumn {
             gutter: (14.0, 28.0, 640.0),
             gap: 10.0,
             reserve_rail: false,
+            tint_scrollbar: true,
             palette,
         }
     }
@@ -236,6 +251,13 @@ impl PageColumn {
         self
     }
 
+    /// Paint the scrollbar in the palette's muted color (the default) or
+    /// leave it the scroll area's own.
+    pub fn tint_scrollbar(mut self, tint: bool) -> Self {
+        self.tint_scrollbar = tint;
+        self
+    }
+
     /// The padding in force at this page's width.
     pub fn gutter_width(&self) -> f32 {
         let (narrow, wide, breakpoint) = self.gutter;
@@ -263,10 +285,14 @@ impl Component for PageColumn {
     fn render(self) -> Element {
         let (width, gutter) = (self.content_width(), self.gutter_width());
         let column = Element::column(self.children).gap(self.gap).size(Some(width), None);
-        ScrollArea::new(self.scroll_id, column.centered_x().padding(gutter))
-            .tint(self.palette.muted)
-            .render()
-            .flex(1.0)
+        let area = ScrollArea::new(self.scroll_id, column.centered_x().padding(gutter));
+        if self.tint_scrollbar {
+            area.tint(self.palette.muted)
+        } else {
+            area
+        }
+        .render()
+        .flex(1.0)
     }
 }
 
@@ -401,6 +427,7 @@ pub struct SectionHeader {
     disclosure: Option<bool>,
     action: Option<String>,
     width: Option<f32>,
+    truncate: bool,
     sizing: SectionSizing,
     palette: ComponentPalette,
 }
@@ -416,6 +443,7 @@ impl SectionHeader {
             disclosure: None,
             action: None,
             width: None,
+            truncate: false,
             sizing: SectionSizing::TITLE,
             palette,
         }
@@ -460,6 +488,13 @@ impl SectionHeader {
         self
     }
 
+    /// Cut the title to one line instead of wrapping it, for a heading in
+    /// a list of rows of one height.
+    pub fn truncate(mut self, truncate: bool) -> Self {
+        self.truncate = truncate;
+        self
+    }
+
     /// The row's density. [`SectionSizing::TITLE`] unless set.
     pub fn sizing(mut self, sizing: SectionSizing) -> Self {
         self.sizing = sizing;
@@ -489,7 +524,7 @@ impl Component for SectionHeader {
                 text.centered_y()
             }
         };
-        let title = sans(self.title, sizing.title_size, false).foreground(if sizing.title_muted {
+        let title = sans(self.title, sizing.title_size, self.truncate).foreground(if sizing.title_muted {
             self.palette.muted
         } else {
             self.palette.text
@@ -648,6 +683,50 @@ mod tests {
             .gap(f32::NAN);
         assert_eq!(bad.content_width(), 0.0);
         assert_eq!(page(2000.0).max_width(f32::NAN).content_width(), 960.0);
+    }
+
+    #[test]
+    fn page_header_trailing_top_keeps_the_action_on_the_title_line() {
+        let header = PageHeader::new("Proveedores", palette())
+            .description("Cuentas conectadas")
+            .trailing(button("new").size(None, Some(16.0)))
+            .trailing_top(true)
+            .render();
+        let frame = frame_of(header, 400.0);
+        assert_eq!(region(&frame, "new").y, 0.0);
+        assert!((region(&frame, "new").x + region(&frame, "new").width - 400.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn page_column_scrollbar_is_tinted_unless_told_otherwise() {
+        let tint = |page: PageColumn| match page.render().kind {
+            crate::ElementKind::Scroll { appearance, .. } => appearance.tint,
+            _ => panic!("a page column is a scroll area"),
+        };
+        assert_eq!(tint(PageColumn::new("page", 400.0, palette())), Some(palette().muted));
+        assert_eq!(tint(PageColumn::new("page", 400.0, palette()).tint_scrollbar(false)), None);
+    }
+
+    #[test]
+    fn section_header_truncate_keeps_a_long_title_on_one_line() {
+        let title = "Un título de sección bastante más largo que su fila";
+        let header = |truncate| {
+            frame_of(
+                SectionHeader::new(title, palette())
+                    .detail("12")
+                    .truncate(truncate)
+                    .sizing(SectionSizing::LABEL)
+                    .render(),
+                120.0,
+            )
+        };
+        let cut = |frame: &Frame| {
+            frame.commands.iter().any(|command| {
+                matches!(command, DrawCommand::Text { text, .. } if text.ends_with('…'))
+            })
+        };
+        assert!(!cut(&header(false)));
+        assert!(cut(&header(true)));
     }
 
     #[test]
