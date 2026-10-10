@@ -135,6 +135,8 @@ pub enum Icon {
     ChevronRight,
     Search,
     Stop,
+    Play,
+    Pause,
     History,
     Close,
     CloseBold,
