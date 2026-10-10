@@ -1,24 +1,25 @@
-//! Shared VS Code-style shortcut notation, keycaps and geometry.
+//! Shared shortcut notation, keycaps and geometry.
 
 use crate::{Color, Icon};
 
 pub(crate) const FONT_SIZE: f32 = 11.0;
 pub(crate) const MENU_FONT_SIZE: f32 = 12.0;
-pub(crate) const HEIGHT: f32 = 20.0;
-pub(crate) const HORIZONTAL_PADDING: f32 = 5.0;
+pub(crate) const HEIGHT: f32 = 18.0;
+pub(crate) const HORIZONTAL_PADDING: f32 = 4.0;
+/// Three quarters of a control's radius: 3 px by default.
 pub(crate) fn radius() -> f32 {
-    crate::tokens().radius.control
+    crate::tokens().radius.control * 0.75
 }
-pub(crate) const ICON_SIZE: f32 = 12.0;
-pub(crate) const KEY_SPACING: f32 = 2.0;
-pub(crate) const CHORD_GAP: f32 = 6.0;
-pub(crate) const MIN_WIDTH: f32 = 22.0;
+pub(crate) const ICON_SIZE: f32 = 11.0;
+pub(crate) const KEY_SPACING: f32 = 1.5;
+pub(crate) const CHORD_GAP: f32 = 8.0;
+pub(crate) const MIN_WIDTH: f32 = 18.0;
 
 pub(crate) fn label(value: &str) -> &str {
     value.trim()
 }
 
-/// Menus use a single accelerator label; instructional hints use outlined
+/// Menus use a single accelerator label; instructional hints use flat
 /// keycaps. Both share the same platform notation and chord boundaries.
 pub(crate) fn menu_label(value: &str) -> String {
     menu_label_for_platform(value, cfg!(target_os = "macos"))
@@ -124,7 +125,6 @@ fn chord_keys(value: &str) -> Vec<&str> {
 
 pub(crate) enum Part<'a> {
     Key(&'a str),
-    Separator,
     KeyGap,
     ChordGap,
 }
@@ -144,7 +144,7 @@ fn parts_for_platform(value: &str, macos: bool) -> Vec<Part<'_>> {
         }
         for (key_index, key) in chord.into_iter().enumerate() {
             if key_index > 0 {
-                parts.push(if macos { Part::KeyGap } else { Part::Separator });
+                parts.push(Part::KeyGap);
             }
             parts.push(Part::Key(key_label(key, macos)));
         }
@@ -175,44 +175,15 @@ pub(crate) fn width(value: &str, measure: impl Fn(&str) -> f32) -> f32 {
             } else {
                 measure(key)
             }),
-            Part::Separator => measure("+") + KEY_SPACING * 2.0,
             Part::KeyGap => KEY_SPACING * 2.0,
             Part::ChordGap => CHORD_GAP,
         })
         .sum()
 }
 
-/// A subtle neutral surface and outline retain the parent theme's contrast.
-/// The lower edge is painted separately, without stacking two translucent outlines.
+/// A flat, faint neutral chip: no outline, so a row of keys reads as one hint.
 pub(crate) fn cap_fill(ink: Color) -> Color {
-    Color::rgba(128, 128, 128, ((u16::from(ink.a) * 10 + 50) / 100) as u8)
-}
-
-pub(crate) fn cap_border(ink: Color) -> Color {
-    Color::rgba(
-        ink.r,
-        ink.g,
-        ink.b,
-        ((u16::from(ink.a) * 16 + 50) / 100) as u8,
-    )
-}
-
-pub(crate) fn cap_bottom_border(ink: Color) -> Color {
-    Color::rgba(
-        ink.r,
-        ink.g,
-        ink.b,
-        ((u16::from(ink.a) * 22 + 50) / 100) as u8,
-    )
-}
-
-pub(crate) fn separator_ink(ink: Color) -> Color {
-    Color::rgba(
-        ink.r,
-        ink.g,
-        ink.b,
-        ((u16::from(ink.a) * 60 + 50) / 100) as u8,
-    )
+    Color::rgba(128, 128, 128, ((u16::from(ink.a) * 14 + 50) / 100) as u8)
 }
 
 #[cfg(test)]
@@ -256,11 +227,11 @@ mod tests {
             parts.as_slice(),
             [
                 Part::Key("Ctrl"),
-                Part::Separator,
+                Part::KeyGap,
                 Part::Key("+"),
                 Part::ChordGap,
                 Part::Key("Ctrl"),
-                Part::Separator,
+                Part::KeyGap,
                 Part::Key("-")
             ]
         ));
@@ -287,11 +258,11 @@ mod tests {
                 parts_for_platform(input, false).as_slice(),
                 [
                     Part::Key("Ctrl"),
-                    Part::Separator,
+                    Part::KeyGap,
                     Part::Key("+"),
                     Part::ChordGap,
                     Part::Key("Ctrl"),
-                    Part::Separator,
+                    Part::KeyGap,
                     Part::Key("-")
                 ]
             ));

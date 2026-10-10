@@ -869,6 +869,9 @@ struct ScrollFocusTarget {
     rect: Rect,
     viewport: Rect,
     layout_offset: f32,
+    /// Scroll areas around the innermost one, outermost first. Each must
+    /// scroll too, or a partly visible inner list keeps its control clipped.
+    ancestors: Vec<(String, Rect, f32)>,
 }
 
 struct ScrollFocusContext {
@@ -4629,26 +4632,28 @@ impl UiTree {
         let Some(target) = self.frame.scroll_focus_targets.get(id) else {
             return;
         };
-        let max_offset = self.scroll_max(&target.scroll_id);
-        self.scroll_transitions.remove(&target.scroll_id);
-        if self
-            .scroll_button_hold
-            .as_ref()
-            .is_some_and(|hold| hold.id == target.scroll_id)
-        {
-            self.scroll_button_hold = None;
-        }
-        let offset = self
-            .scroll_offsets
-            .entry(target.scroll_id.clone())
-            .or_default();
-        let top = target.rect.y - (*offset - target.layout_offset);
-        let bottom = top + target.rect.height;
-        let viewport_bottom = target.viewport.y + target.viewport.height;
-        if top < target.viewport.y {
-            *offset = (*offset - (target.viewport.y - top)).clamp(0.0, max_offset);
-        } else if bottom > viewport_bottom {
-            *offset = (*offset + bottom - viewport_bottom).clamp(0.0, max_offset);
+        let rect = target.rect;
+        let mut areas = target.ancestors.clone();
+        areas.push((target.scroll_id.clone(), target.viewport, target.layout_offset));
+        for (scroll_id, viewport, layout_offset) in areas {
+            let max_offset = self.scroll_max(&scroll_id);
+            self.scroll_transitions.remove(&scroll_id);
+            if self
+                .scroll_button_hold
+                .as_ref()
+                .is_some_and(|hold| hold.id == scroll_id)
+            {
+                self.scroll_button_hold = None;
+            }
+            let offset = self.scroll_offsets.entry(scroll_id).or_default();
+            let top = rect.y - (*offset - layout_offset);
+            let bottom = top + rect.height;
+            let viewport_bottom = viewport.y + viewport.height;
+            if top < viewport.y {
+                *offset = (*offset - (viewport.y - top)).clamp(0.0, max_offset);
+            } else if bottom > viewport_bottom {
+                *offset = (*offset + bottom - viewport_bottom).clamp(0.0, max_offset);
+            }
         }
     }
 
@@ -5953,21 +5958,6 @@ impl LayoutBuilder<'_> {
         for part in shortcut::parts(label) {
             let key = match part {
                 shortcut::Part::Key(key) => key,
-                shortcut::Part::Separator => {
-                    let width = self.text_width("+", text_style);
-                    self.frame.commands.push(DrawCommand::Text {
-                        position: Point::new(
-                            x + shortcut::KEY_SPACING,
-                            y + (shortcut::HEIGHT - line_height) / 2.0,
-                        ),
-                        text: "+".to_owned(),
-                        color: shortcut::separator_ink(ink),
-                        font_size: shortcut::FONT_SIZE,
-                        font_family: FontFamily::Sans,
-                    });
-                    x += width + shortcut::KEY_SPACING * 2.0;
-                    continue;
-                }
                 shortcut::Part::KeyGap => {
                     x += shortcut::KEY_SPACING * 2.0;
                     continue;
@@ -5989,32 +5979,6 @@ impl LayoutBuilder<'_> {
                 color: fill,
                 radius: shortcut::radius(),
             });
-            self.frame.commands.push(DrawCommand::PushClip(Rect::new(
-                cap.x,
-                cap.y,
-                cap.width,
-                cap.height - 1.0,
-            )));
-            self.frame.commands.push(DrawCommand::StrokeRect {
-                rect: cap,
-                color: shortcut::cap_border(ink),
-                width: 1.0,
-                radius: shortcut::radius(),
-            });
-            self.frame.commands.push(DrawCommand::PopClip);
-            self.frame.commands.push(DrawCommand::PushClip(Rect::new(
-                cap.x,
-                cap.y + cap.height - 1.0,
-                cap.width,
-                1.0,
-            )));
-            self.frame.commands.push(DrawCommand::StrokeRect {
-                rect: cap,
-                color: shortcut::cap_bottom_border(ink),
-                width: 1.0,
-                radius: shortcut::radius(),
-            });
-            self.frame.commands.push(DrawCommand::PopClip);
             if let Some(icon) = icon {
                 self.frame.commands.push(DrawCommand::Icon {
                     rect: Rect::new(
@@ -8682,6 +8646,7 @@ impl LayoutBuilder<'_> {
         }
         if let (Some(scroll), Some(id)) = (self.scroll_focus_context.last(), focusable_id(element))
         {
+            let ancestors = self.scroll_focus_ancestors();
             self.frame.scroll_focus_targets.insert(
                 id.to_owned(),
                 ScrollFocusTarget {
@@ -8689,12 +8654,22 @@ impl LayoutBuilder<'_> {
                     rect,
                     viewport: scroll.viewport,
                     layout_offset: scroll.offset,
+                    ancestors,
                 },
             );
         }
     }
 
+    fn scroll_focus_ancestors(&self) -> Vec<(String, Rect, f32)> {
+        let outer = self.scroll_focus_context.len().saturating_sub(1);
+        self.scroll_focus_context[..outer]
+            .iter()
+            .map(|scroll| (scroll.id.clone(), scroll.viewport, scroll.offset))
+            .collect()
+    }
+
     fn record_inline_focus_target(&mut self, id: &str, rect: Rect) {
+        let ancestors = self.scroll_focus_ancestors();
         if let Some(scroll) = self.scroll_focus_context.last() {
             // A multi-line link is one keyboard stop. Reveal its first painted
             // fragment, without creating a giant rectangle over nearby prose.
@@ -8706,6 +8681,7 @@ impl LayoutBuilder<'_> {
                     rect,
                     viewport: scroll.viewport,
                     layout_offset: scroll.offset,
+                    ancestors,
                 });
         }
     }
@@ -10347,7 +10323,7 @@ mod tests {
         assert_eq!(caps[1].width, shortcut::cap_width(4.0));
         assert_eq!(
             caps[1].x - caps[0].x - caps[0].width,
-            2.0 + shortcut::KEY_SPACING * 2.0
+            shortcut::KEY_SPACING * 2.0
         );
         let labels: Vec<_> = frame
             .commands
@@ -10375,12 +10351,10 @@ mod tests {
             assert!((position.x + text_width / 2.0 - cap.x - cap.width / 2.0).abs() < 0.01);
             assert!((position.y + line_height / 2.0 - cap.y - cap.height / 2.0).abs() < 0.01);
         }
-        assert!(frame.commands.iter().any(|command| matches!(command,
-            DrawCommand::Text { text, color, position, .. }
-                if text == "+" && color.a < ink.a
-                    && position.x > caps[0].x + caps[0].width
-                    && position.x + 2.0 < caps[1].x
-        )));
+        assert!(!frame
+            .commands
+            .iter()
+            .any(|command| matches!(command, DrawCommand::Text { text, .. } if text == "+")));
         assert_eq!(frame.regions.len(), 1);
         assert_eq!(frame.regions[0].id, "next");
         assert_eq!(frame.regions[0].rect.x, caps[1].x + caps[1].width);
@@ -10389,16 +10363,10 @@ mod tests {
             frame.text_blocks.is_empty(),
             "decorative caps are not selectable text"
         );
-        assert_eq!(
-            frame
-                .commands
-                .iter()
-                .filter(|command| matches!(command,
-                    DrawCommand::StrokeRect { color, .. } if *color == shortcut::cap_bottom_border(ink)
-                ))
-                .count(),
-            2,
-        );
+        assert!(!frame
+            .commands
+            .iter()
+            .any(|command| matches!(command, DrawCommand::StrokeRect { .. })));
     }
 
     #[test]
@@ -10431,7 +10399,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(labels, ["Ctrl", "+", "+"]);
+        assert_eq!(labels, ["Ctrl", "+"]);
         tree.set_root(shortcut("   ", None));
         let empty = tree.layout(Size::new(160.0, 30.0));
         assert!(empty.commands.is_empty());

@@ -2449,11 +2449,11 @@ mod tests {
     fn keyboard_shortcuts_preserve_chords_and_literal_keys_without_hit_targets() {
         let palette = ComponentPalette::neutral_dark();
         for (keys, expected) in [
-            ("Ctrl++", vec!["Ctrl", "+", "+"]),
-            ("Ctrl+Shift+M", vec!["Ctrl", "+", "Shift", "+", "M"]),
-            ("Ctrl+K Ctrl+C", vec!["Ctrl", "+", "K", "Ctrl", "+", "C"]),
+            ("Ctrl++", vec!["Ctrl", "+"]),
+            ("Ctrl+Shift+M", vec!["Ctrl", "Shift", "M"]),
+            ("Ctrl+K Ctrl+C", vec!["Ctrl", "K", "Ctrl", "C"]),
             ("Esc", vec!["Esc"]),
-            ("Alt+←", vec!["Alt", "+", "←"]),
+            ("Alt+←", vec!["Alt", "←"]),
             ("↑↓", vec!["↑", "↓"]),
             ("", vec![]),
         ] {

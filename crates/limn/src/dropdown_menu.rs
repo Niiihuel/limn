@@ -1822,10 +1822,10 @@ mod tests {
             DrawCommand::Text { text, .. } if text == "Ctrl+N"
         )));
         assert!(
-            frame.commands.iter().any(|command| matches!(command,
+            !frame.commands.iter().any(|command| matches!(command,
                 DrawCommand::Text { text, .. } if text == "+"
             )),
-            "instructional keycaps retain a visible combination separator"
+            "keys of one combination sit side by side without a separator"
         );
         assert!(frame.commands.iter().any(|command| matches!(command,
             DrawCommand::FillRect { color, radius, rect }
