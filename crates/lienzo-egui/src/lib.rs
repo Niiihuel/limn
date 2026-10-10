@@ -9,7 +9,6 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
-mod provider_icons;
 
 /// Colors of the effort slider, the only command without colors of its own.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -259,19 +258,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::ErrorCircle => include_str!("../assets/bootstrap/x-circle.svg"),
         Icon::Settings => include_str!("../assets/bootstrap/gear.svg"),
         Icon::Github => include_str!("../assets/bootstrap/github.svg"),
-        Icon::Codex
-        | Icon::OpenAi
-        | Icon::OpenRouter
-        | Icon::OpenCode
-        | Icon::Nvidia
-        | Icon::MiniMax
-        | Icon::Zai
-        | Icon::Anthropic
-        | Icon::Groq
-        | Icon::Mistral
-        | Icon::Xai
-        | Icon::DeepSeek => crate::provider_icons::svg_for_icon(icon)
-            .expect("every provider icon has embedded artwork"),
+        Icon::Custom(source) => source,
         Icon::Chat => include_str!("../assets/bootstrap/chat.svg"),
         Icon::Folder => include_str!("../assets/bootstrap/folder.svg"),
         Icon::Laptop => include_str!("../assets/bootstrap/laptop.svg"),
@@ -344,9 +331,9 @@ fn raster_icon(key: IconKey) -> Option<egui::ColorImage> {
     let tree = resvg::usvg::Tree::from_str(&source, &resvg::usvg::Options::default()).ok()?;
     let pixels = u32::from(key.pixels);
     let mut pixmap = resvg::tiny_skia::Pixmap::new(pixels, pixels)?;
-    let transform = if crate::provider_icons::svg_for_icon(key.icon).is_some() {
-        // Provider marks have different source aspect ratios. Contain the
-        // artwork in the same 16px budget without stretching NVIDIA or Z.ai.
+    let transform = if matches!(key.icon, Icon::Custom(_)) {
+        // Application artwork comes in any aspect ratio. Contain it in the
+        // icon's square instead of stretching it.
         let scale = pixels as f32 / tree.size().width().max(tree.size().height());
         resvg::tiny_skia::Transform::from_row(
             scale,
@@ -1710,29 +1697,11 @@ mod tests {
     }
 
     #[test]
-    fn provider_marks_rasterize_as_tintable_monochrome_masks() {
-        for icon in crate::provider_icons::PROVIDER_ICONS {
-            let source = icon_svg(icon);
-            assert!(source.contains("viewBox="), "{icon:?}");
-            assert!(source.contains("fill=\"currentColor\""), "{icon:?}");
-            let image = raster_icon(IconKey { icon, pixels: 48 })
-                .unwrap_or_else(|| panic!("invalid provider SVG: {icon:?}"));
-            assert_eq!(image.size, [48, 48]);
-            assert!(image.pixels.iter().any(|pixel| pixel.a() > 0));
-            assert!(image
-                .pixels
-                .iter()
-                .all(|pixel| pixel.r() == pixel.g() && pixel.g() == pixel.b()));
-        }
-    }
-
-    #[test]
-    fn openai_mark_uses_the_native_icon_budget_instead_of_upstream_empty_margins() {
+    fn custom_artwork_is_contained_centered_and_tintable_whatever_its_shape() {
+        // Twice as wide as tall, drawn with the current color.
+        const WIDE: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><rect width="200" height="100" fill="currentColor"/></svg>"#;
         for pixels in [16, 32] {
-            let image = raster_icon(IconKey {
-                icon: Icon::OpenAi,
-                pixels,
-            }).unwrap();
+            let image = raster_icon(IconKey { icon: Icon::Custom(WIDE), pixels }).unwrap();
             let side = usize::from(pixels);
             let mut bounds = (side, side, 0, 0);
             for (index, pixel) in image.pixels.iter().enumerate() {
@@ -1740,62 +1709,19 @@ mod tests {
                     continue;
                 }
                 let (x, y) = (index % side, index / side);
-                bounds.0 = bounds.0.min(x);
-                bounds.1 = bounds.1.min(y);
-                bounds.2 = bounds.2.max(x);
-                bounds.3 = bounds.3.max(y);
+                bounds = (bounds.0.min(x), bounds.1.min(y), bounds.2.max(x), bounds.3.max(y));
             }
             let width = bounds.2 + 1 - bounds.0;
             let height = bounds.3 + 1 - bounds.1;
-            assert!(
-                width >= side - 2 && height >= side - 2,
-                "OpenAI underfills its native icon budget at {pixels}px: {bounds:?}"
-            );
-            assert!(
-                width.abs_diff(height) <= 1,
-                "OpenAI must preserve its proportions"
-            );
-        }
-    }
-
-    #[test]
-    fn provider_marks_fit_native_budget_without_squashing_non_square_artwork() {
-        for pixels in [16, 32] {
-            for (icon, expected_ratio) in [
-                (Icon::Nvidia, 351.46 / 258.785),
-                (Icon::OpenCode, 256.0 / 320.0),
-            ] {
-                let image = raster_icon(IconKey { icon, pixels }).unwrap();
-                let side = usize::from(pixels);
-                let mut bounds = (side, side, 0, 0);
-                for (index, pixel) in image.pixels.iter().enumerate() {
-                    if pixel.a() < 32 {
-                        continue;
-                    }
-                    let (x, y) = (index % side, index / side);
-                    bounds.0 = bounds.0.min(x);
-                    bounds.1 = bounds.1.min(y);
-                    bounds.2 = bounds.2.max(x);
-                    bounds.3 = bounds.3.max(y);
-                }
-                let width = (bounds.2 + 1 - bounds.0) as f32;
-                let height = (bounds.3 + 1 - bounds.1) as f32;
-                assert!(
-                    (width - height * expected_ratio).abs() <= 2.0,
-                    "{icon:?} distorted at {pixels}px: {bounds:?}"
-                );
-                assert!(
-                    (bounds.0 + bounds.2 + 1).abs_diff(side) <= 1,
-                    "{icon:?} not centered horizontally: {bounds:?}"
-                );
-                assert!(
-                    (bounds.1 + bounds.3 + 1).abs_diff(side) <= 1,
-                    "{icon:?} not centered vertically: {bounds:?}"
-                );
-                // A theme tint must never reveal an opaque app-tile background.
-                assert_eq!(image.pixels[0].a(), 0);
-                assert_eq!(image.pixels[side * side - 1].a(), 0);
-            }
+            assert_eq!(width, side, "fills the square's width at {pixels}px");
+            assert!(width.abs_diff(height * 2) <= 2, "kept its shape: {bounds:?}");
+            assert!((bounds.1 + bounds.3 + 1).abs_diff(side) <= 1, "centered: {bounds:?}");
+            // A white mask, so the theme's tint decides the color.
+            assert!(image
+                .pixels
+                .iter()
+                .all(|pixel| pixel.r() == pixel.g() && pixel.g() == pixel.b()));
+            assert_eq!(image.pixels[0].a(), 0, "nothing painted outside the artwork");
         }
     }
 

@@ -103,6 +103,7 @@ root element, since they cover the whole window.
 | Component | Purpose |
 | --- | --- |
 | `ScrollArea` | A scrolling viewport, or a virtualized list of uniform rows. |
+| `Attachment` | A file or image card, with an optional remove action. |
 | `PreferencesGroup`, `ActionRow` | A titled card of settings rows, separated by rules. A row takes an icon, a subtitle, a trailing control such as a switch or a button, and can itself be an action. |
 
 ## Data
@@ -120,27 +121,22 @@ root element, since they cover the whole window.
 | `CodeEditor` | An editor view over a host-owned text buffer: selection, folding, diagnostics, breakpoints, optional Vim mode. |
 | `CodeDiff` | A virtualized, read-only diff. |
 
-## Application-specific
-
-Built for a coding assistant's interface and kept in the library because they
-compose the same primitives. Useful as worked examples of larger components.
-
-| Component | Purpose |
-| --- | --- |
-| `ToolActivity` | One tool invocation: header, target, running state, collapsible output. |
-| `FileActivity` | A file operation with its state and inline content. |
-| `Attachment` | A file or image card. |
-| `ApprovalRequest` | A notice asking the user to review a request. |
-| `PermissionSelector` | A menu of permission levels. |
-| `ContextMeter`, `ContextUsage` | How much of a budget is used, as a meter and a breakdown. |
-
 ## Icons
 
 The standard iconography is [Bootstrap Icons](https://icons.getbootstrap.com/).
 `Icon` names what an icon means, such as `Icon::Trash` or `Icon::Search`, and
 the backend maps each to a Bootstrap icon. Four have no Bootstrap equivalent
 and keep the library's own artwork: the brain, the context ring,
-find-and-replace and the debugger controls. Provider marks are brand artwork.
+find-and-replace and the debugger controls.
+
+For artwork of your own, such as a brand mark, use `Icon::Custom(svg)` with
+the source of an SVG drawn with `currentColor`. It is fitted to the icon's
+square without distortion and tinted like any other icon:
+
+```rust
+const LOGO: &str = include_str!("../assets/logo.svg");
+Element::icon(Icon::Custom(LOGO)).foreground(palette.text)
+```
 
 `Element::icon(Icon::...)` paints a semantic icon at 16 px. `.large_icon(px)`
 draws a standalone icon larger, for empty states and thumbnails.

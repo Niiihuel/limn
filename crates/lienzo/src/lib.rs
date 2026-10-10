@@ -7,7 +7,6 @@
 
 mod alert;
 mod alert_dialog;
-mod approval_request;
 mod attachment;
 mod avatar;
 mod breadcrumb;
@@ -20,14 +19,12 @@ mod code_syntax;
 mod collapsible;
 mod components;
 mod composer;
-mod context;
 mod context_menu;
 mod date_picker;
 mod date_time_picker;
 mod dropdown_menu;
 mod element;
 mod empty;
-mod file_activity;
 mod file_icons;
 mod geometry;
 mod image_viewer;
@@ -36,7 +33,6 @@ mod menu;
 mod modal;
 mod motion;
 mod theme;
-mod permission_selector;
 mod preferences;
 mod progress;
 mod raster_image;
@@ -51,7 +47,6 @@ mod text_width_cache;
 mod time_picker;
 mod toast;
 mod tokens;
-mod tool_activity;
 mod tree;
 mod tree_view;
 mod typography;
@@ -67,7 +62,6 @@ mod text_measurement_tests;
 
 pub use alert::{Alert, AlertColors, AlertTone};
 pub use alert_dialog::AlertDialog;
-pub use approval_request::ApprovalRequest;
 pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
@@ -85,9 +79,6 @@ pub use components::{
     SearchField, SegmentedControl, Switch, Tab, Tabs, TextArea, TextField, Tooltip,
 };
 pub use composer::Composer;
-pub use context::{
-    ContextContent, ContextMeter, ContextRow, ContextSegment, ContextUsage, ContextUsageRow,
-};
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
 pub use date_picker::DatePicker;
 pub use date_time_picker::DateTimePicker;
@@ -98,7 +89,6 @@ pub use element::{
     TooltipStyle, UniformList, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 pub use empty::Empty;
-pub use file_activity::FileActivity;
 pub use file_icons::{file_icon, folder_icon, language_icon, FileIcon};
 pub use geometry::{Color, Point, Rect, Size};
 pub use image_viewer::ImageViewer;
@@ -108,7 +98,6 @@ pub use modal::{DismissButton, Modal};
 pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
-pub use permission_selector::{PermissionOption, PermissionSelector};
 pub use preferences::{ActionRow, PreferencesGroup};
 pub use progress::Progress;
 pub use raster_image::{RasterImage, RasterImageFormat};
@@ -121,7 +110,6 @@ pub use text_shimmer::TextShimmer;
 pub use time_picker::TimePicker;
 pub use toast::Toast;
 pub use tokens::{set_tokens, tokens, Motion, Radius, Tokens};
-pub use tool_activity::ToolActivity;
 pub use theme::Theme;
 pub use tree::{
     DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, TextLayoutBlock, TextLayoutRun,

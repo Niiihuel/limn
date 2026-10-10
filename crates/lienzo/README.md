@@ -162,13 +162,6 @@ monta un popup sin scope de foco ni backdrop bloqueante: el host administra sus
 atajos y cierre mientras el editor conserva el foco. Los popovers ordinarios
 conservan su navegación y captura de foco.
 
-`PermissionSelector` presenta filas compactas con icono y selección;
-las explicaciones de cada opción se muestran en tooltips laterales.
-`PermissionOption` define acción, etiqueta, descripción y disponibilidad.
-`.separator_before()` permite separar grupos de opciones dentro del mismo menú.
-El host proporciona las políticas reales, conserva la selección y procesa
-las acciones; el componente no modifica permisos ni aislamiento por sí mismo.
-
 `SelectorSizing::COMPACT` y `CATALOG` comparten las medidas de filas, iconos,
 tipografía y scroll. Definen anchos preferidos de 256 y 320 px, filas de
 32 px (44 con un ID secundario) y tooltips de hasta 320 px.
@@ -218,15 +211,6 @@ El componente no interpreta ni ejecuta el contenido; sirve para razonamiento
 público, argumentos provisionales y grupos de actividad. Los IDs estables
 conservan foco y fase del spinner durante el streaming. El host puede construir
 un `Element::spacer()` para el cuerpo cerrado y evitar trabajo de presentación.
-
-`ToolActivity::new(toggle_id, title, content, palette)` presenta una operación
-con encabezado de 32 px, icono y destino con elipsis medida. `command(true)` usa
-tipografía monoespaciada para el destino; `running(true)` anima el título y
-respeta movimiento reducido. `note(...)` conserva errores o permisos visibles
-con el cuerpo cerrado. El host controla `expanded(bool)`, conserva un ID estable
-entre preview y ejecución y suministra únicamente estados observados. La salida
-de procesos se compone como contenido pasivo; el componente no envía stdin ni
-ejecuta herramientas al abrirse.
 
 ```rust
 use lienzo::{Component, ComponentPalette, Skeleton};
@@ -660,29 +644,7 @@ visible. Consulta [el diseño y validación](../../docs/native-code-editor-desig
 y [guardado e historial](../../docs/editor-save-history.md) para límites,
 autoridad de archivos y cómo abrir, guardar o recargar un documento.
 
-## Contexto
-
-`ContextMeter::new(id, percent, palette)` combina un anillo de uso y un control
-accesible por pointer/teclado. `None` conserva el estado desconocido; `Some(0)` y
-`Some(100)` dibujan uso vacío/completo. El host entrega el porcentaje de uso;
-el componente no consulta proveedores ni calcula tokens.
-
-`ContextContent` compone secciones con `ContextRow` (etiqueta, valor y descripción)
-y footer. Conserva unidades, precisión y procedencia del host. Se puede colocar
-dentro de ScrollArea/Popover; texto y hashes largos se ajustan al ancho. No hay
-inferencia de capacidades por nombre, tokenizer ni base de precios en la UI.
-Las pruebas verifican unknown/zero/full, activación por teclado y contenido largo
-a 240/360/640 px. El host verifica además scopes, scroll y Escape del panel.
-
-`ContextUsage` es el resumen compacto: porcentaje/cociente aportados por el host,
-barra de `ContextSegment` con fracciones medidas, leyenda de `ContextUsageRow` y
-acciones explícitas de cerrar/detalles. Las fracciones se limitan a la ventana;
-bytes, cantidades o valores desconocidos no crean segmentos de tokens. La prueba
-de geometría verifica proporciones 25%/5%/70% a 300/660 px y acciones por teclado.
-El host usa este resumen como vista inicial y `ContextContent` como inspección
-expandida, con offsets de scroll separados.
-
-### Menús dentro de un panel
+## Menús dentro de un panel
 
 `DropdownMenu::inline(true)` conserva el disparador y coloca las opciones
 expandidas debajo, ocupando espacio en el layout. No crea backdrop ni un

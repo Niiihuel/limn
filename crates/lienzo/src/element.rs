@@ -105,18 +105,11 @@ pub enum Icon {
     ErrorCircle,
     Settings,
     Github,
-    Codex,
-    OpenAi,
-    OpenRouter,
-    OpenCode,
-    Nvidia,
-    MiniMax,
-    Zai,
-    Anthropic,
-    Groq,
-    Mistral,
-    Xai,
-    DeepSeek,
+    /// Artwork the application supplies: the source of an SVG drawn with
+    /// `currentColor`. It is fitted to the icon's square without distortion
+    /// and tinted like any other icon, so a brand mark or a product glyph
+    /// follows the theme.
+    Custom(&'static str),
     Chat,
     Folder,
     Laptop,

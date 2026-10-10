@@ -14,5 +14,4 @@ texture serves every theme and state.
 SVG from the package and add the mapping.
 
 Icons with no Bootstrap equivalent stay in `../openide/`: the brain, the
-context ring, find-and-replace and the debugger controls. Provider marks are
-brand artwork and live in `../providers/`.
+context ring, find-and-replace and the debugger controls.
