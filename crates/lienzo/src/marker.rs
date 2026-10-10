@@ -162,11 +162,11 @@ impl Component for Marker {
             MarkerVariant::Default => row,
             MarkerVariant::Border => Element::column(vec![row, line()]).gap(8.0),
             MarkerVariant::Separator => Element::row(vec![
-                centered(line()).flex(1.0),
-                // The label shares the icon's leading edge instead of being
-                // independently centered in its flexible wrapping slot.
-                Element::panel(row).flex(4.0),
-                centered(line()).flex(1.0),
+                // The rules take the width the label leaves, so they hug it
+                // at any width; a label too long for the row wraps instead.
+                centered(line()).min_size(16.0, 0.0).flex(1.0),
+                Element::panel(row).shrink_to_fit(),
+                centered(line()).min_size(16.0, 0.0).flex(1.0),
             ])
             .gap(10.0),
         };

@@ -241,7 +241,7 @@ pub(crate) fn surface(
                 };
                 palette
                     .interactive_surface(row)
-                    .radius(action_style::ROW_RADIUS)
+                    .radius(action_style::row_radius())
                     .transition_ms(0)
                     .size(Some(row_width), Some(layout.height))
             }

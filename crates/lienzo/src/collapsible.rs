@@ -29,7 +29,6 @@ pub struct Collapsible {
     loading: bool,
     thinking: bool,
     detail: Option<String>,
-    title_flex: f32,
     collapse_footer: bool,
 }
 
@@ -50,7 +49,6 @@ impl Collapsible {
             loading: false,
             thinking: false,
             detail: None,
-            title_flex: 3.0,
             collapse_footer: false,
         }
     }
@@ -93,15 +91,6 @@ impl Collapsible {
         self.detail = Some(detail.into());
         self
     }
-
-    /// Share the available header width with the detail (whose flex is one).
-    /// A short group title can use one so longer status counts remain visible.
-    pub fn title_flex(mut self, weight: f32) -> Self {
-        if weight.is_finite() && weight > 0.0 {
-            self.title_flex = weight;
-        }
-        self
-    }
 }
 
 fn centered_icon(icon: Element) -> Element {
@@ -124,10 +113,6 @@ impl Component for Collapsible {
         } else {
             Element::spacer()
         };
-        let has_detail = self
-            .detail
-            .as_ref()
-            .is_some_and(|detail| !detail.is_empty());
         let title = if self.thinking {
             Element::shimmer_truncated_text(
                 format!("{}:text", self.id),
@@ -144,7 +129,10 @@ impl Component for Collapsible {
                 .font_family(FontFamily::Sans)
                 .font_size(13.0)
                 .size(None, Some(HEADER_HEIGHT - HEADER_PADDING * 2.0))
-                .flex(if has_detail { self.title_flex } else { 1.0 }),
+                // The title keeps its own width and is the first to give it
+                // up, with an ellipsis, when the header is too narrow.
+                .min_size(48.0, 0.0)
+                .shrink_to_fit(),
         ];
         if let Some(detail) = self.detail.filter(|detail| !detail.is_empty()) {
             header.push(
@@ -153,9 +141,13 @@ impl Component for Collapsible {
                     .font_size(11.0)
                     .foreground(self.palette.muted)
                     .size(None, Some(HEADER_HEIGHT - HEADER_PADDING * 2.0))
-                    .flex(1.0),
+                    // Short metadata right after the title; it yields only
+                    // once the title is down to its minimum.
+                    .max_width(240.0)
+                    .shrink_to_fit(),
             );
         }
+        header.push(Element::spacer().flex(1.0));
         header.push(centered_icon(
             Element::icon(if self.expanded {
                 Icon::ChevronDown
@@ -182,6 +174,7 @@ impl Component for Collapsible {
         // The footer owns its vertical inset; do not add another bottom
         // spacer and inter-item gap between the last line and its control.
         let content = Element::column(content).gap(4.0).flex(1.0);
+        let body_id = format!("{}:body", self.id);
         let body = Element::row(vec![
             Element::spacer().size(Some(24.0), Some(1.0)),
             Element::spacer()
@@ -189,7 +182,8 @@ impl Component for Collapsible {
                 .background(self.palette.border),
             Element::spacer().size(Some(8.0), Some(1.0)),
             content,
-        ]);
+        ])
+        .animate_enter(body_id);
         let mut rows = vec![header, body];
         if self.collapse_footer {
             rows.push(collapse_footer(&self.id, self.palette));
@@ -546,18 +540,23 @@ mod tests {
                         ..
                     } if *font_size == 11.0 => Some((text, position)),
                     _ => None,
-                })
-                .unwrap();
+                });
+            // The narrowest header has no room left for the detail.
+            assert_eq!(detail.is_some(), width > 100.0);
+            let title_limit = detail.map_or(icons[1].x, |detail| detail.1.x);
             assert!(title_runs.iter().all(|(text, position)| {
-                text.ends_with('…')
+                // Only the widest header fits the whole title.
+                (text.ends_with('…') || width == 900.0)
                     && !text.contains('\n')
                     && position.x >= icons[0].x + icons[0].width + 6.0
-                    && position.x + measure(text) <= detail.1.x - 6.0 + 0.1
+                    && position.x + measure(text) <= title_limit - 6.0 + 0.1
                     && position.y >= 0.0
                     && position.y + 13.0 <= HEADER_HEIGHT
             }));
-            assert!(detail.1.x + measure(detail.0) <= icons[1].x - 6.0 + 0.1);
-            assert!(detail.1.y >= 0.0 && detail.1.y + 11.0 <= HEADER_HEIGHT);
+            if let Some(detail) = detail {
+                assert!(detail.1.x + measure(detail.0) <= icons[1].x - 6.0 + 0.1);
+                assert!(detail.1.y >= 0.0 && detail.1.y + 11.0 <= HEADER_HEIGHT);
+            }
             assert!(
                 !moving
                     .commands

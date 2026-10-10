@@ -52,7 +52,9 @@ pub fn truncate_measured(
     } else {
         max_width.max(0.0)
     };
-    let fits = |width: f32| width.is_finite() && width <= limit;
+    // A slot rebuilt from flex shares and paddings can come back a rounding
+    // error narrower than the label it was sized from.
+    let fits = |width: f32| width.is_finite() && width <= limit + 0.01;
     if value.is_empty() || limit == f32::INFINITY || fits(measure(value)) {
         return value.to_owned();
     }

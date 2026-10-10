@@ -52,13 +52,26 @@ impl Stepper {
             return Element::spacer();
         }
         let active_index = self.active_index.min(self.steps.len() - 1);
+        // Rows stretch their children; this holds one at its own height.
+        let middle = |child: Element| {
+            Element::column(vec![
+                Element::spacer().flex(1.0),
+                child,
+                Element::spacer().flex(1.0),
+            ])
+        };
         let mut items = Vec::with_capacity(self.steps.len() * 2 - 1);
         for (index, step) in self.steps.into_iter().enumerate() {
             if index > 0 {
+                // The rules take the spare width; the steps keep their own.
                 items.push(
-                    Element::panel(Element::spacer())
-                        .background(self.palette.border)
-                        .size(Some(16.0), Some(1.0)),
+                    middle(
+                        Element::panel(Element::spacer())
+                            .background(self.palette.border)
+                            .size(None, Some(1.0)),
+                    )
+                    .min_size(16.0, 0.0)
+                    .flex(1.0),
                 );
             }
             let active = index == active_index;
@@ -67,26 +80,22 @@ impl Stepper {
             } else {
                 self.palette.muted
             };
-            let badge = Element::panel(
+            let badge = Element::panel(middle(
                 Element::text((index + 1).to_string())
                     .foreground(if active { self.palette.surface } else { ink })
                     .font_family(FontFamily::Sans)
                     .font_size(12.0)
                     .center_content(),
-            )
+            ))
+            // A veil, so the badge stays visible over the step's hover fill.
+            // The decoration ID lets the fill cross-fade when the step changes.
             .background(if active {
                 self.palette.text
             } else {
-                self.palette.raised
+                self.palette.selected
             })
-            .border(
-                if active {
-                    self.palette.text
-                } else {
-                    self.palette.border
-                },
-                1.0,
-            )
+            .hover_surface(format!("{}:badge", step.id), [] as [&str; 0])
+            .transition_ms(crate::tokens().motion.move_ms)
             .radius(12.0)
             .size(Some(24.0), Some(24.0));
             let mut copy = vec![Element::text(step.label)
@@ -105,12 +114,10 @@ impl Stepper {
                 self.palette
                     .interactive_surface(Element::clickable(
                         step.id,
-                        Element::row(vec![badge, Element::column(copy).gap(2.0)])
-                            .gap(7.0)
-                            .center_content(),
+                        Element::row(vec![middle(badge), middle(Element::column(copy).gap(2.0))])
+                            .gap(7.0),
                     ))
                     .padding(4.0)
-                    .flex(1.0)
                     .size(None, Some(42.0)),
             );
         }

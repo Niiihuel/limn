@@ -17,8 +17,8 @@ pub struct MenuMotion {
 impl Default for MenuMotion {
     fn default() -> Self {
         Self {
-            open_ms: 140,
-            item_ms: crate::components::CONTROL_HOVER_TRANSITION_MS,
+            open_ms: crate::tokens().motion.enter_ms,
+            item_ms: crate::tokens().motion.hover_ms,
         }
     }
 }
@@ -161,6 +161,21 @@ impl Default for SpringMotion {
         Self {
             damping_ratio: 1.0,
             stiffness: 800.0,
+        }
+    }
+}
+
+impl SpringMotion {
+    /// A spring with no overshoot that has covered 99% of any distance after
+    /// `duration`. It lets a duration token set the pace of a movement that
+    /// still behaves like a spring: it keeps its speed when it is redirected.
+    pub fn settling_in(duration: Duration) -> Self {
+        // A critically damped spring is within 1% of rest when ωt = 6.64.
+        let seconds = duration.as_secs_f32().max(0.001);
+        let omega = 6.64 / seconds;
+        Self {
+            damping_ratio: 1.0,
+            stiffness: omega * omega,
         }
     }
 }
@@ -340,12 +355,26 @@ impl ColorTransition {
         .clamp(0.0, 1.0);
         // Fast onset, soft finish; the same curve applies when retargeting mid-flight.
         let eased = 1.0 - (1.0 - progress).powi(3);
-        Color::rgba(
-            channel(self.from.r, self.target.r, eased),
-            channel(self.from.g, self.target.g, eased),
-            channel(self.from.b, self.target.b, eased),
-            channel(self.from.a, self.target.a, eased),
-        )
+        // Mix what each color contributes once painted. Mixing raw channels
+        // between an opaque fill and a translucent veil passes through a
+        // bright, half-opaque color: a flash on every hover.
+        let weighted = |color: Color| {
+            let alpha = f32::from(color.a) / 255.0;
+            [
+                f32::from(color.r) * alpha,
+                f32::from(color.g) * alpha,
+                f32::from(color.b) * alpha,
+                f32::from(color.a),
+            ]
+        };
+        let (from, target) = (weighted(self.from), weighted(self.target));
+        let mixed: [f32; 4] = std::array::from_fn(|index| from[index] + (target[index] - from[index]) * eased);
+        let alpha = mixed[3] / 255.0;
+        if alpha <= 0.0 {
+            return Color::TRANSPARENT;
+        }
+        let plain = |value: f32| (value / alpha).round().clamp(0.0, 255.0) as u8;
+        Color::rgba(plain(mixed[0]), plain(mixed[1]), plain(mixed[2]), mixed[3].round() as u8)
     }
 
     pub(crate) fn is_active(&self, now: Instant) -> bool {
@@ -569,5 +598,70 @@ mod tests {
         spring.retarget_with_motion(120.0, start, true);
         assert_eq!(spring.value(start), 120.0);
         assert!(!spring.is_active(start));
+    }
+}
+
+#[cfg(test)]
+mod spring_tests {
+    use super::*;
+
+    #[test]
+    fn a_spring_paced_by_a_duration_arrives_on_time_without_overshoot_and_keeps_its_speed() {
+        let start = Instant::now();
+        let at = |ms| start + Duration::from_millis(ms);
+        let motion = SpringMotion::settling_in(Duration::from_millis(170));
+        let mut spring = ScalarSpring::new(0.0, start).motion(motion);
+        spring.retarget(100.0, start);
+
+        // 99% of the way after the duration, and never past the target.
+        assert!((spring.value(at(170)) - 99.0).abs() < 0.5, "{}", spring.value(at(170)));
+        for ms in (0..=600).step_by(10) {
+            let value = spring.value(at(ms));
+            assert!((0.0..=100.0).contains(&value), "{value} at {ms} ms");
+        }
+        assert!(!spring.is_active(at(600)));
+
+        // Redirected mid-flight it continues at the speed it had: no stop.
+        let before = spring.velocity(at(60));
+        assert!(before > 100.0, "moving fast at 60 ms: {before}");
+        spring.retarget(300.0, at(60));
+        assert!((spring.velocity(at(60)) - before).abs() < 1.0);
+        assert!((spring.value(at(60)) - ScalarSpring::new(0.0, start).motion(motion).value(at(60))).abs() < 100.0);
+
+        // A shorter duration is a stiffer spring.
+        assert!(
+            SpringMotion::settling_in(Duration::from_millis(85)).stiffness
+                > motion.stiffness * 3.9
+        );
+        assert!(SpringMotion::settling_in(Duration::ZERO).stiffness.is_finite());
+    }
+}
+
+#[cfg(test)]
+mod color_transition_tests {
+    use super::*;
+
+    #[test]
+    fn fading_an_opaque_fill_into_a_veil_never_flashes_brighter_than_both() {
+        let started = Instant::now();
+        let fill = Color::rgb(40, 41, 44);
+        let veil = Color::rgba(255, 255, 255, 26);
+        let mut transition = ColorTransition::new(fill, started);
+        transition.retarget(veil, started, Duration::from_millis(120));
+        // Brightness once painted over the window background.
+        let painted = |color: Color| {
+            let alpha = f32::from(color.a) / 255.0;
+            f32::from(color.r) * alpha + 30.0 * (1.0 - alpha)
+        };
+        let (low, high) = (painted(fill).min(painted(veil)), painted(fill).max(painted(veil)));
+        for step in 0..=12 {
+            let seen = painted(transition.color(started + Duration::from_millis(step * 10)));
+            assert!((low - 1.0..=high + 1.0).contains(&seen), "{seen} at {step}0 ms");
+        }
+        assert_eq!(transition.color(started + Duration::from_millis(120)), veil);
+        // Opaque colors still mix channel by channel.
+        let mut opaque = ColorTransition::new(Color::rgb(0, 0, 0), started);
+        opaque.retarget(Color::rgb(200, 100, 50), started, Duration::from_millis(100));
+        assert_eq!(opaque.color(started + Duration::from_millis(100)), Color::rgb(200, 100, 50));
     }
 }

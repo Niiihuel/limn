@@ -47,12 +47,16 @@ impl Component for Avatar {
             .next()
             .map(|character| character.to_uppercase().collect::<String>())
             .unwrap_or_else(|| "?".to_owned());
-        Element::panel(Element::row(vec![
+        Element::panel(Element::column(vec![
             Element::spacer().flex(1.0),
-            Element::text(initial)
-                .font_family(FontFamily::Sans)
-                .font_size(self.size * 0.42)
-                .foreground(self.palette.text),
+            Element::row(vec![
+                Element::spacer().flex(1.0),
+                Element::text(initial)
+                    .font_family(FontFamily::Sans)
+                    .font_size(self.size * 0.42)
+                    .foreground(self.palette.text),
+                Element::spacer().flex(1.0),
+            ]),
             Element::spacer().flex(1.0),
         ]))
         .size(Some(self.size), Some(self.size))

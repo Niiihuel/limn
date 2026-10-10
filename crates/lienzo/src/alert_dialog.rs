@@ -46,7 +46,7 @@ impl AlertDialog {
             palette,
             width: 440.0,
             destructive: None,
-            animation_ms: 160,
+            animation_ms: crate::tokens().motion.enter_ms,
             body: None,
         }
     }
@@ -175,6 +175,8 @@ mod tests {
         let palette = ComponentPalette::neutral_dark();
         let base = || Element::button("underlying", "Fondo").size(Some(400.0), Some(300.0));
         let mut tree = UiTree::new(base());
+        // The dialog is checked settled, not partway through its entrance.
+        tree.set_reduced_motion(true);
         tree.layout(Size::new(400.0, 300.0));
         assert!(tree.focus("underlying"));
         tree.set_root(

@@ -3,7 +3,9 @@
 
 use crate::{Component, ComponentPalette, CornerRadii, Element, FontFamily, Icon};
 
-const GROUP_RADIUS: f32 = 8.0;
+fn group_radius() -> f32 {
+    crate::tokens().radius.card
+}
 
 pub struct PreferencesGroup {
     title: String,
@@ -48,16 +50,16 @@ impl Component for PreferencesGroup {
                 rows.push(
                     Element::spacer()
                         .size(None, Some(1.0))
-                        .background(self.palette.border),
+                        .background(self.palette.divider()),
                 );
             }
             // The group's child clip is rectangular. Its boundary rows must
             // paint the same outer corners during hover, press and focus.
             rows.push(row.corner_radii(CornerRadii {
-                top_left: if index == 0 { GROUP_RADIUS } else { 0.0 },
-                top_right: if index == 0 { GROUP_RADIUS } else { 0.0 },
-                bottom_right: if index == last_row { GROUP_RADIUS } else { 0.0 },
-                bottom_left: if index == last_row { GROUP_RADIUS } else { 0.0 },
+                top_left: if index == 0 { group_radius() } else { 0.0 },
+                top_right: if index == 0 { group_radius() } else { 0.0 },
+                bottom_right: if index == last_row { group_radius() } else { 0.0 },
+                bottom_left: if index == last_row { group_radius() } else { 0.0 },
             }));
         }
         Element::column(vec![
@@ -65,7 +67,7 @@ impl Component for PreferencesGroup {
             Element::panel(Element::column(rows))
                 .background(self.palette.surface)
                 .border(self.palette.border, 1.0)
-                .radius(GROUP_RADIUS)
+                .radius(group_radius())
                 .clip_children(),
         ])
         .gap(6.0)
@@ -214,15 +216,15 @@ mod tests {
                         .unwrap()
                         .rect;
                     let expected = CornerRadii {
-                        top_left: if index == 0 { GROUP_RADIUS } else { 0.0 },
-                        top_right: if index == 0 { GROUP_RADIUS } else { 0.0 },
+                        top_left: if index == 0 { group_radius() } else { 0.0 },
+                        top_right: if index == 0 { group_radius() } else { 0.0 },
                         bottom_right: if index == count - 1 {
-                            GROUP_RADIUS
+                            group_radius()
                         } else {
                             0.0
                         },
                         bottom_left: if index == count - 1 {
-                            GROUP_RADIUS
+                            group_radius()
                         } else {
                             0.0
                         },
@@ -312,7 +314,7 @@ mod tests {
             let hovered = tree.layout(viewport);
             assert_eq!(
                 painted_corners(&hovered, account, palette.hover),
-                Some(CornerRadii::top(GROUP_RADIUS))
+                Some(CornerRadii::top(group_radius()))
             );
             let disconnect = hovered
                 .regions
@@ -332,6 +334,46 @@ mod tests {
                     id: "provider_disconnect:codex".into()
                 }]
             );
+        }
+    }
+
+    #[test]
+    fn rows_are_separated_by_a_rule_that_reads_on_the_group_surface() {
+        // How far apart two colors are, as a viewer would judge a thin line.
+        let distance = |a: crate::Color, b: crate::Color| {
+            (i32::from(a.r) - i32::from(b.r)).abs()
+                + (i32::from(a.g) - i32::from(b.g)).abs()
+                + (i32::from(a.b) - i32::from(b.b)).abs()
+        };
+        for palette in [ComponentPalette::neutral_dark(), crate::Theme::DARK.palette()] {
+            let divider = palette.divider();
+            assert!(
+                distance(divider, palette.surface) >= distance(palette.border, palette.surface) + 60,
+                "the rule must stand out more than the border does"
+            );
+            let group = PreferencesGroup::new(
+                "Plugins",
+                vec![
+                    ActionRow::new("Uno", palette).render(),
+                    ActionRow::new("Dos", palette).render(),
+                    ActionRow::new("Tres", palette).render(),
+                ],
+                palette,
+            )
+            .render();
+            let frame = UiTree::new(group).layout(Size::new(400.0, 300.0));
+            let rules: Vec<Rect> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::FillRect { rect, color, .. } if *color == divider && rect.height == 1.0 => {
+                        Some(*rect)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(rules.len(), 2, "one rule between each pair of rows");
+            assert!(rules.iter().all(|rule| rule.width > 390.0), "rules span the group");
         }
     }
 }

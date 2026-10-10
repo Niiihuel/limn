@@ -102,6 +102,8 @@ impl Attachment {
 
 impl Component for Attachment {
     fn render(self) -> Element {
+        // Previews keep their concentric corners in proportion to a panel.
+        let panel = crate::tokens().radius.panel;
         let vertical = self.orientation == AttachmentOrientation::Vertical;
         let preview_only = vertical && !self.show_caption;
         let padding = if preview_only { 2.0 } else { 8.0 };
@@ -160,7 +162,7 @@ impl Component for Attachment {
             Element::icon(self.icon).foreground(self.palette.muted)
         }
         .background(self.palette.raised)
-        .radius(if preview_only { 14.0 } else { 6.0 })
+        .radius(if preview_only { panel * 14.0 / 12.0 } else { crate::tokens().radius.surface })
         .size(Some(media_width), Some(media_height));
         let remove = self.remove_action.map(|id| {
             let button = IconButton::new(&id, Icon::Close, self.palette)
@@ -171,7 +173,7 @@ impl Component for Attachment {
                 })
                 .size(ControlSize::Dense)
                 .render()
-                .radius(12.0)
+                .radius(panel)
                 .size(Some(24.0), Some(24.0));
             Tooltip::new(button, id, format!("Quitar {}", self.title), self.palette)
                 .render()
@@ -211,7 +213,7 @@ impl Component for Attachment {
             .padding(padding)
             .background(self.palette.surface)
             .border(self.palette.border, 1.0)
-            .radius(if preview_only { 16.0 } else { 10.0 })
+            .radius(if preview_only { panel * 16.0 / 12.0 } else { panel * 10.0 / 12.0 })
             .size(Some(self.width), Some(height));
         let card = if let Some(id) = self.open_action {
             Tooltip::new(Element::clickable(&id, card), id, &self.title, self.palette)

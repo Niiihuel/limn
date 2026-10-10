@@ -362,9 +362,15 @@ pub struct Element {
     /// Another action whose pointer hover should also highlight this element.
     /// Useful when a row contains a more specific action such as its menu.
     pub hover_peer: Option<String>,
+    /// ID under which this element fades in when it is first placed, and
+    /// whether its last paint is left behind to fade out once it is gone.
+    pub presence: Option<(String, bool)>,
     /// A paint-only surface keyed independently from the actions it follows.
     /// It adds no pointer target or keyboard focus stop.
     pub hover_surface: Option<(String, Vec<String>)>,
+    /// Names this passive child of a tab strip as a place where the strip's
+    /// selection indicator can rest, such as either end of a switch.
+    pub indicator_slot: Option<String>,
     /// Optional action dispatched by an interactive element whose focus ID
     /// must remain distinct from another control with the same action.
     pub action_alias: Option<String>,
@@ -584,6 +590,8 @@ pub struct Style {
     pub padding: f32,
     pub gap: f32,
     pub flex: f32,
+    /// In a row, give up width the row cannot spare instead of overflowing.
+    pub shrink: bool,
     pub background: Option<Color>,
     /// Paint-only scrim above children, opaque at the top and transparent at
     /// its bottom edge. Useful where scrolling content passes under a header.
@@ -644,6 +652,7 @@ impl Default for Style {
             padding: 0.0,
             gap: 0.0,
             flex: 0.0,
+            shrink: false,
             background: None,
             top_fade: None,
             bottom_fade: None,
@@ -687,7 +696,9 @@ impl Element {
             kind,
             style: Style::default(),
             hover_peer: None,
+            presence: None,
             hover_surface: None,
+            indicator_slot: None,
             action_alias: None,
             menu_secondary_action: false,
             draggable: false,
@@ -757,6 +768,27 @@ impl Element {
         self
     }
 
+    /// Fade and settle this element in when it first appears. For content
+    /// in the page's flow, which leaves at once when it is removed.
+    pub fn animate_enter(mut self, id: impl Into<String>) -> Self {
+        self.presence = Some((id.into(), false));
+        self
+    }
+
+    /// As [`Element::animate_enter`], and fade out in place once removed.
+    /// For floating content such as a toast: nothing else moves into the
+    /// space it leaves, so its last paint can linger there.
+    pub fn animate_presence(mut self, id: impl Into<String>) -> Self {
+        self.presence = Some((id.into(), true));
+        self
+    }
+
+    /// Let a tab strip's selection rest on this child when `id` is selected.
+    pub fn indicator_slot(mut self, id: impl Into<String>) -> Self {
+        self.indicator_slot = Some(id.into());
+        self
+    }
+
     pub fn panel(child: Self) -> Self {
         Self::new(ElementKind::Panel(Box::new(child)))
     }
@@ -766,7 +798,7 @@ impl Element {
             id: id.into(),
             child: Box::new(child),
         })
-        .transition_ms(120)
+        .transition_ms(crate::tokens().motion.hover_ms)
     }
 
     /// Keep one visual hover surface across a parent action and one nested
@@ -845,7 +877,7 @@ impl Element {
                 dismiss_id: dismiss_id.into(),
                 placement,
                 gap: 5.0,
-                animation_ms: 140,
+                animation_ms: crate::tokens().motion.enter_ms,
                 close_animation_ms: None,
                 open_scale: 1.0,
                 view_key: None,
@@ -1167,7 +1199,7 @@ impl Element {
             trailing_icon: None,
         })
         .padding(8.0)
-        .transition_ms(120)
+        .transition_ms(crate::tokens().motion.hover_ms)
     }
 
     /// Pass an empty label for an icon-only button.
@@ -1180,7 +1212,7 @@ impl Element {
         })
         .padding(4.0)
         .gap(6.0)
-        .transition_ms(120)
+        .transition_ms(crate::tokens().motion.hover_ms)
     }
 
     /// Place a second canonical-size icon at the far edge of an icon button.
@@ -1567,6 +1599,13 @@ impl Element {
         if side.is_finite() {
             self.style.icon_side = Some(side.clamp(ICON_SIZE, 128.0));
         }
+        self
+    }
+
+    /// Keep the natural width while the row has room, and wrap within what
+    /// is left once it does not. Flex siblings keep their minimum widths.
+    pub fn shrink_to_fit(mut self) -> Self {
+        self.style.shrink = true;
         self
     }
 

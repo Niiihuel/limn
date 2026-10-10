@@ -17,7 +17,9 @@ pub(crate) mod action_style {
     pub(crate) const MAX_HEIGHT: f32 = 384.0;
     pub(crate) const LABEL_FONT_SIZE: f32 = 13.0;
     pub(crate) const SHORTCUT_FONT_SIZE: f32 = 12.0;
-    pub(crate) const ROW_RADIUS: f32 = crate::components::CONTROL_RADIUS;
+    pub(crate) fn row_radius() -> f32 {
+        crate::components::control_radius()
+    }
     pub(crate) const HORIZONTAL_PADDING: f32 = 8.0;
     pub(crate) const GAP: f32 = 8.0;
     pub(crate) const SEPARATOR_HEIGHT: f32 = 9.0;
@@ -34,7 +36,7 @@ pub(crate) mod action_style {
             .padding(INSET)
             .background(palette.surface)
             .border(palette.border, 1.0)
-            .radius(crate::components::FLOATING_SURFACE_RADIUS)
+            .radius(crate::components::surface_radius())
             .shadow(palette.shadow, Point::new(0.0, 6.0), 18.0, 0.0)
             .size(Some(width), height)
             .clip_children()
@@ -169,7 +171,7 @@ impl Component for MenuItem {
             .foreground(ink)
             .action_menu_item()
             .transition_ms(0)
-            .radius(action_style::ROW_RADIUS)
+            .radius(action_style::row_radius())
             .clip_children()
             .size(Some(self.width), Some(self.height))
     }
@@ -276,7 +278,7 @@ mod tests {
                         color,
                         radius,
                     } if *color == crate::shortcut::cap_fill(palette.text)
-                        && *radius == crate::shortcut::RADIUS =>
+                        && *radius == crate::shortcut::radius() =>
                     {
                         Some(*rect)
                     }

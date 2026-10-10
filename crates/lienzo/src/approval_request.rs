@@ -131,7 +131,7 @@ impl Component for ApprovalRequest {
         .padding(if self.compact { 8.0 } else { 10.0 })
         .background(self.palette.surface)
         .border(self.palette.border, 1.0)
-        .radius(8.0)
+        .radius(crate::tokens().radius.card)
     }
 }
 

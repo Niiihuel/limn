@@ -6,7 +6,9 @@ pub(crate) const FONT_SIZE: f32 = 11.0;
 pub(crate) const MENU_FONT_SIZE: f32 = 12.0;
 pub(crate) const HEIGHT: f32 = 20.0;
 pub(crate) const HORIZONTAL_PADDING: f32 = 5.0;
-pub(crate) const RADIUS: f32 = 4.0;
+pub(crate) fn radius() -> f32 {
+    crate::tokens().radius.control
+}
 pub(crate) const ICON_SIZE: f32 = 12.0;
 pub(crate) const KEY_SPACING: f32 = 2.0;
 pub(crate) const CHORD_GAP: f32 = 6.0;

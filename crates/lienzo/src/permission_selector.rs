@@ -202,7 +202,7 @@ impl Component for PermissionSelector {
                 .background(crate::Color::TRANSPARENT)
                 .padding(sizing.padding)
                 .size(None, Some(sizing.row_height))
-                .radius(crate::components::CONTROL_RADIUS);
+                .radius(crate::components::control_radius());
             rows.push(
                 Tooltip::new(row, option.action_id, option.label, palette)
                     .description(option.description)
@@ -248,7 +248,7 @@ impl Component for PermissionSelector {
         )
         .width(self.width)
         .placement(self.placement)
-        .animation_ms(120)
+        .animation_ms(crate::tokens().motion.enter_ms)
         .render()
     }
 }

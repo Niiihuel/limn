@@ -61,7 +61,7 @@ impl Composer {
             palette,
             border_color: palette.border,
             shadow_color: palette.shadow,
-            card_radius: 10.0,
+            card_radius: crate::tokens().radius.panel,
         }
     }
 
@@ -177,7 +177,7 @@ impl Component for Composer {
                 .font_family(FontFamily::Sans)
                 .font_size(self.editor_font_size)
                 .padding(if self.inline_controls { 5.0 } else { 6.0 })
-                .radius(6.0)
+                .radius(crate::tokens().radius.surface)
                 .size(None, Some(self.editor_height));
             let editor = if let Some((minimum, maximum)) = self.auto_grow {
                 editor.text_area_auto_grow(minimum, maximum)
@@ -232,7 +232,7 @@ impl Component for Composer {
             .font_family(FontFamily::Sans)
             .font_size(self.editor_font_size)
             .padding(8.0)
-            .radius(6.0)
+            .radius(crate::tokens().radius.surface)
             .size(None, Some(self.editor_height));
         let editor = if let Some((minimum, maximum)) = self.auto_grow {
             editor.text_area_auto_grow(minimum, maximum)

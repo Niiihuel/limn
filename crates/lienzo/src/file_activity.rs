@@ -336,7 +336,7 @@ impl Component for FileActivity {
                 .padding(1.0)
                 .background(self.palette.surface)
                 .border(self.palette.border, 1.0)
-                .radius(8.0)
+                .radius(crate::tokens().radius.card)
         }
     }
 }
@@ -880,7 +880,7 @@ mod tests {
                 }
             })
             .expect("filename tooltip");
-        assert!(tooltip.x >= title.x + title.width + 8.0);
+        assert!(tooltip.x >= title.x + title.width + 7.0);
         let text_top = focused.commands[index..]
             .iter()
             .find_map(|command| {

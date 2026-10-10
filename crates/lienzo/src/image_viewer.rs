@@ -91,7 +91,8 @@ fn control(id: &str, icon: Icon, title: &str, enabled: bool, palette: ComponentP
         .size(ControlSize::Spacious)
         .enabled(enabled)
         .render()
-        .radius(18.0)
+        // Half as round again as a panel, as a full-window preview.
+        .radius(crate::tokens().radius.panel * 1.5)
         .size(Some(36.0), Some(36.0));
     Tooltip::new(button, id, title, palette)
         .render()
@@ -207,13 +208,13 @@ impl Component for ImageViewer {
         )
         .padding(16.0)
         .background(self.palette.surface)
-        .radius(12.0)
+        .radius(crate::tokens().radius.panel)
         .clip_children()
         .size(Some(width), Some(height));
         let mut popover =
             Element::popover(self.base, viewer, &self.close_id, PopoverPlacement::Center)
                 .popover_scrim(Color::rgba(0, 0, 0, 230))
-                .popover_animation_ms(120)
+                .popover_animation_ms(crate::tokens().motion.enter_ms)
                 .popover_backdrop_dismiss(true)
                 .popover_initial_focus(&self.close_id);
         if let Some(id) = self.return_focus {

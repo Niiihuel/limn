@@ -290,6 +290,8 @@ impl Component for Breadcrumb {
                     .font_size(FONT_SIZE)
                     .foreground(if current {
                         self.palette.text
+                    } else if item.action.is_some() {
+                        self.palette.link()
                     } else {
                         self.palette.muted
                     })
@@ -303,8 +305,8 @@ impl Component for Breadcrumb {
                 .cloned()
                 .unwrap_or_else(|| format!("{}:item:{index}", self.id));
             let anchor = if let Some(action) = action {
-                self.palette
-                    .interactive_surface(Element::clickable(action, visual))
+                // A link, not a button: underlined under the pointer, no fill.
+                Element::clickable(action, visual).underline_on_hover()
             } else {
                 Element::panel(visual)
             }
@@ -390,13 +392,24 @@ mod tests {
                 .rect;
             assert_eq!(rect, after, "hover must not change geometry");
             assert_eq!(rect.y, 0.0);
-            assert_eq!(rect.height, size.height, "hover fills the breadcrumb cell");
-            assert!(hover.commands.iter().any(
-                |c| matches!(c, DrawCommand::FillRect { rect: hover_rect, color, radius }
-                if *hover_rect == rect && *color == ComponentPalette::neutral_dark().hover
-                    // The same rounded feedback as every other control.
-                    && *radius == 4.0)
-            ));
+            assert_eq!(rect.height, size.height);
+            let fills = |frame: &crate::Frame| {
+                frame
+                    .commands
+                    .iter()
+                    .filter_map(|c| match c {
+                        DrawCommand::FillRect { rect, .. } => Some(*rect),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            // A link: the pointer underlines its label and fills nothing.
+            assert!(fills(&initial).is_empty());
+            let hovered = fills(&hover);
+            assert_eq!(hovered.len(), 1, "one underline at {width}: {hovered:?}");
+            let line = hovered[0];
+            assert_eq!(line.height, 1.0);
+            assert!(line.x >= rect.x && line.x + line.width <= rect.x + rect.width + 0.1);
         }
     }
 

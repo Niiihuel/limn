@@ -38,8 +38,9 @@ impl AlertTone {
     }
 }
 
-/// Independently configurable alert colors. The default surface stays neutral;
-/// status color belongs to the icon and stripe, while copy retains readable ink.
+/// Independently configurable alert colors. The surface and border stay
+/// neutral. Status color belongs to the icon, and an error also tints its
+/// copy; the other tones keep ordinary ink so a page of notices stays calm.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AlertColors {
     pub surface: Color,
@@ -51,9 +52,9 @@ pub struct AlertColors {
 
 impl AlertColors {
     /// Choose dark/light status tokens and keep text and icons readable on the
-    /// palette's raised surface. Custom colors can be supplied with `.colors`.
+    /// palette's surface. Custom colors can be supplied with `.colors`.
     pub fn for_tone(tone: AlertTone, palette: ComponentPalette) -> Self {
-        let surface = palette.raised;
+        let surface = palette.surface;
         let dark = luminance(surface) < 0.179;
         let accent = match (tone, dark) {
             (AlertTone::Neutral, _) => palette.text,
@@ -67,12 +68,18 @@ impl AlertColors {
             (AlertTone::Error, false) => Color::rgb(184, 25, 34),
         };
         let accent = readable_ink(accent, surface, 3.0);
+        let (title, description) = if tone == AlertTone::Error {
+            // The description sits a step back from the title, in the same hue.
+            (accent, blend(accent, surface, 40))
+        } else {
+            (palette.text, palette.muted)
+        };
         Self {
             surface,
-            border: blend(palette.border, accent, 32),
+            border: palette.border,
             accent,
-            title: readable_ink(palette.text, surface, 4.5),
-            description: readable_ink(palette.muted, surface, 4.5),
+            title: readable_ink(title, surface, 4.5),
+            description: readable_ink(description, surface, 4.5),
         }
     }
 }
@@ -150,7 +157,7 @@ impl Component for Alert {
         let mut copy = vec![Element::text(title)
             .foreground(colors.title)
             .font_family(FontFamily::Sans)
-            .font_size(if self.compact { 14.0 } else { 15.0 })];
+            .font_size(14.0)];
         if !self.description.trim().is_empty() {
             copy.push(
                 Element::text(self.description)
@@ -159,18 +166,15 @@ impl Component for Alert {
                     .font_size(13.0),
             );
         }
-        let copy = Element::column(copy).gap(4.0);
+        let copy = Element::column(copy).gap(2.0);
         let copy = match (self.action, self.compact) {
             (Some(action), true) => Element::column(vec![copy, action]).gap(12.0),
             (Some(mut action), false) => {
                 let width = action.style.width;
                 let flex = action.style.flex;
                 action.style.flex = 0.0;
-                let action = Element::column(vec![
-                    Element::spacer().flex(1.0),
-                    action,
-                    Element::spacer().flex(1.0),
-                ])
+                // The action holds the top corner beside the title.
+                let action = Element::column(vec![action, Element::spacer().flex(1.0)])
                 .size(width, None)
                 .flex(flex);
                 Element::row(vec![copy.flex(1.0), action]).gap(12.0)
@@ -213,21 +217,10 @@ impl Component for Alert {
             Element::spacer().size(Some(4.0), None),
         ])
         .padding(12.0);
-        // The stripe stretches with wrapped copy. Its inset ends stay within
-        // the rounded surface without guessing the message's height.
-        let stripe = Element::column(vec![
-            Element::spacer().size(None, Some(8.0)),
-            Element::spacer()
-                .background(colors.accent)
-                .radius(1.5)
-                .flex(1.0),
-            Element::spacer().size(None, Some(8.0)),
-        ])
-        .size(Some(3.0), None);
-        Element::panel(Element::row(vec![stripe, padded.flex(1.0)]))
+        Element::panel(padded)
             .background(colors.surface)
             .border(colors.border, 1.0)
-            .radius(8.0)
+            .radius(crate::tokens().radius.card)
             .min_size(0.0, 48.0)
             .clip_children()
     }
@@ -262,7 +255,13 @@ fn contrast(a: Color, b: Color) -> f32 {
 }
 
 fn readable_ink(candidate: Color, surface: Color, minimum: f32) -> Color {
-    let candidate = Color::rgb(candidate.r, candidate.g, candidate.b);
+    // A translucent ink is judged as it will look on this surface. Dropping
+    // its alpha would turn a muted veil into full-strength text.
+    let candidate = blend(
+        surface,
+        Color::rgb(candidate.r, candidate.g, candidate.b),
+        u16::from(candidate.a),
+    );
     if contrast(candidate, surface) >= minimum {
         return candidate;
     }
@@ -319,7 +318,8 @@ mod tests {
         for palette in [ComponentPalette::neutral_dark(), light_palette()] {
             for tone in TONES {
                 let colors = AlertColors::for_tone(tone, palette);
-                assert_eq!(colors.surface, palette.raised);
+                assert_eq!(colors.surface, palette.surface);
+                assert_eq!(colors.border, palette.border, "the frame stays neutral");
                 assert!(
                     contrast(colors.title, colors.surface) >= 4.5,
                     "title: {tone:?}"
@@ -412,7 +412,7 @@ mod tests {
                     .commands
                     .iter()
                     .find_map(|command| match command {
-                        DrawCommand::FillRect { rect, color, .. } if *color == palette.raised => {
+                        DrawCommand::FillRect { rect, color, .. } if *color == palette.surface => {
                             Some(*rect)
                         }
                         _ => None,
@@ -466,21 +466,6 @@ mod tests {
                     .find(|region| region.id == "following")
                     .unwrap();
                 assert!(following.rect.y >= surface.y + surface.height + 8.0 - 0.1);
-                let stripe = frame
-                    .commands
-                    .iter()
-                    .find_map(|command| match command {
-                        DrawCommand::FillRect { rect, color, .. }
-                            if *color
-                                == AlertColors::for_tone(AlertTone::Error, palette).accent
-                                && rect.width == 3.0 =>
-                        {
-                            Some(*rect)
-                        }
-                        _ => None,
-                    })
-                    .unwrap();
-                assert!(contains(surface, stripe));
             }
         }
     }
@@ -709,6 +694,30 @@ mod tests {
                 vec!["Título exacto", "Mensaje exacto"]
             );
             assert!(frame.regions.is_empty());
+        }
+    }
+
+    #[test]
+    fn only_an_error_tints_its_copy_and_no_tone_paints_a_stripe() {
+        let palette = ComponentPalette::neutral_dark();
+        for tone in TONES {
+            let colors = AlertColors::for_tone(tone, palette);
+            if tone == AlertTone::Error {
+                assert_eq!(colors.title, colors.accent);
+                assert_ne!(colors.description, palette.muted);
+                assert_ne!(colors.description, colors.title, "the description sits a step back");
+            } else {
+                assert_eq!((colors.title, colors.description), (palette.text, palette.muted));
+            }
+            let alert = Alert::new("Título", "Descripción", palette).tone(tone).render();
+            let frame = UiTree::new(alert).layout(Size::new(400.0, 80.0));
+            // One fill, the surface: nothing else is painted behind the copy.
+            let fills = frame
+                .commands
+                .iter()
+                .filter(|command| matches!(command, DrawCommand::FillRect { .. }))
+                .count();
+            assert_eq!(fills, 1, "{tone:?}");
         }
     }
 }

@@ -100,7 +100,7 @@ impl Modal {
             initial_focus: None,
             return_focus: None,
             backdrop_dismiss: false,
-            animation_ms: 160,
+            animation_ms: crate::tokens().motion.enter_ms,
         }
     }
 
@@ -209,7 +209,7 @@ impl Component for Modal {
             .size(Some(self.width), self.height)
             .background(self.palette.surface)
             .border(self.palette.border, 1.0)
-            .radius(10.0)
+            .radius(crate::tokens().radius.panel)
             .shadow(self.palette.shadow, Point::new(0.0, 16.0), 32.0, 0.0)
             .clip_children();
 

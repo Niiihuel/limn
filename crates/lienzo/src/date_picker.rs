@@ -218,7 +218,7 @@ impl Component for DatePicker {
                 .padding(8.0)
                 .background(self.palette.surface)
                 .border(self.palette.border, 1.0)
-                .radius(9.0),
+                .radius(crate::tokens().radius.card),
         ])
         .gap(7.0)
     }

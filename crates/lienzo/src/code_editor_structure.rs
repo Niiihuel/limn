@@ -238,7 +238,7 @@ fn control(
             palette.text.b,
             24,
         ))
-        .transition_ms(120)
+        .transition_ms(crate::tokens().motion.hover_ms)
         .radius(3.0)
         .size(Some(rect.width), Some(rect.height));
     StructureControl {

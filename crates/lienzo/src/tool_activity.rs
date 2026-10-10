@@ -183,7 +183,7 @@ impl ToolActivity {
         Element::column(rows)
             .background(self.palette.surface)
             .border(self.palette.border, 1.0)
-            .radius(8.0)
+            .radius(crate::tokens().radius.card)
             .clip_children()
     }
 }

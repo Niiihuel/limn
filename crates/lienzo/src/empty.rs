@@ -95,11 +95,11 @@ impl Component for Empty {
         };
         let mut content = Vec::new();
         if let Some(icon) = self.icon {
-            let side = if self.compact { 46.0 } else { 52.0 };
+            let side = if self.compact { 28.0 } else { 32.0 };
             content.push(center(
-                Element::panel(Element::icon(icon).foreground(self.palette.text))
-                    .background(self.palette.raised)
-                    .radius(13.0)
+                Element::icon(icon)
+                    .foreground(self.palette.muted)
+                    .large_icon(side)
                     .size(Some(side), Some(side)),
             ));
         }
@@ -145,25 +145,14 @@ impl Component for Empty {
             body,
             Element::spacer().flex(1.0),
         ]);
-        let border = emphasized_border(self.palette.border, self.palette.text);
         Element::panel(centered)
-            .padding(if self.compact { 18.0 } else { 24.0 })
+            .padding(if self.compact { 24.0 } else { 32.0 })
             .background(self.palette.surface)
-            .dashed_border(border, 1.0)
-            .radius(14.0)
+            .border(self.palette.border, 1.0)
+            .radius(crate::tokens().radius.panel)
             .min_size(0.0, height)
             .size(self.width, None)
     }
-}
-
-fn emphasized_border(border: crate::Color, text: crate::Color) -> crate::Color {
-    let blend = |base: u8, ink: u8| ((u16::from(base) * 4 + u16::from(ink)) / 5) as u8;
-    crate::Color::rgba(
-        blend(border.r, text.r),
-        blend(border.g, text.g),
-        blend(border.b, text.b),
-        border.a,
-    )
 }
 
 #[cfg(test)]
@@ -218,7 +207,7 @@ mod tests {
                     .find(|region| region.id == "following-group")
                     .expect("following group");
                 let minimum = if compact { 228.0 } else { 256.0 };
-                let padding = if compact { 18.0 } else { 24.0 };
+                let padding = if compact { 24.0 } else { 32.0 };
                 assert!(surface.height >= minimum);
                 if width == 360.0 {
                     assert!(
@@ -250,7 +239,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_keeps_actions_and_dashed_frame() {
+    fn empty_keeps_actions_and_solid_frame() {
         let palette = ComponentPalette::neutral_dark();
         let empty = Empty::new("Sin proyectos", "Crea tu primer proyecto", palette)
             .icon(Icon::Folder)
@@ -258,7 +247,7 @@ mod tests {
             .action("import", "Importar", ButtonVariant::Outline)
             .width(420.0)
             .render();
-        assert!(empty.style.dashed_border);
+        assert!(empty.style.border.is_some() && !empty.style.dashed_border);
         let frame = UiTree::new(empty).layout(Size::new(420.0, 256.0));
         assert!(frame.regions.iter().any(|region| region.id == "create"));
         assert!(frame.regions.iter().any(|region| region.id == "import"));

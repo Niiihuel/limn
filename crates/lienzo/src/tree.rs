@@ -22,7 +22,9 @@ use std::time::{Duration, Instant};
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::element::UniformList;
-use crate::motion::{skeleton_color, spinner_angle, ColorTransition, ScalarTransition};
+use crate::motion::{
+    skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
+};
 use crate::shortcut;
 use crate::text_width_cache::TextWidthCache;
 #[path = "formatted_text_cache.rs"]
@@ -46,6 +48,8 @@ use crate::{
     TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 
+const TOOLTIP_HEIGHT: f32 = 24.0;
+const TOOLTIP_PADDING: f32 = 8.0;
 const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
 const SLIDER_THUMB_INSET: f32 = 17.0;
 const SLIDER_SETTLE_DURATION: Duration = Duration::from_millis(220);
@@ -881,8 +885,10 @@ struct TabFocusScope {
 #[derive(Debug)]
 struct TabIndicatorState {
     selected_id: String,
-    x: ScalarTransition,
-    width: ScalarTransition,
+    // Springs, so an indicator redirected mid-flight keeps its speed instead
+    // of stopping and starting again.
+    x: ScalarSpring,
+    width: ScalarSpring,
 }
 
 /// Final-position paint for a floating surface. It is deliberately separate
@@ -897,6 +903,8 @@ struct PopoverSnapshot {
     view_key: Option<String>,
     rect: Rect,
     slide_sign: f32,
+    /// The dimming behind a dialog; it fades with the surface.
+    scrim: Option<(Rect, Color)>,
 }
 
 struct PopoverExit {
@@ -2385,8 +2393,14 @@ impl UiTree {
         self.reduced_motion = reduced;
     }
 
-    /// Suggested repaint interval for visible animation. A resting effort
-    /// slider uses a lighter cadence than drag and ordinary transitions.
+    /// How soon the next frame is needed, or `None` at rest.
+    ///
+    /// A transition returns zero: paint on the very next display refresh, so
+    /// movement runs at the display's own rate and in step with it. A fixed
+    /// interval would cap a 120 Hz display at half its rate and drift against
+    /// any display, which reads as stutter. Ambient indicators such as a
+    /// spinner keep a 16 ms cadence: they never finish, so painting them at
+    /// display rate would cost power for no visible gain.
     pub fn animation_repaint_after(&self) -> Option<Duration> {
         self.animation_repaint_after_at(Instant::now())
     }
@@ -2440,17 +2454,18 @@ impl UiTree {
             .values()
             .any(|state| state.is_active(now))
         {
-            // Let a 120 Hz host paint each refresh during direct manipulation.
-            // Interpolation still uses elapsed time, independent of frame rate.
-            return Some(Duration::from_millis(8));
+            // Paint each refresh during direct manipulation. Interpolation
+            // uses elapsed time, so it is independent of the frame rate.
+            return Some(Duration::ZERO);
         }
-        let fast = (!self.reduced_motion
+        let ambient = (!self.reduced_motion
             && (!self.skeleton_started.is_empty()
                 || !self.shimmer_started.is_empty()
-                || !self.spinner_started.is_empty()
-                || self.slider_drag.is_some()
+                || !self.spinner_started.is_empty()))
+            || self.scroll_button_hold.is_some();
+        let transition = (!self.reduced_motion
+            && (self.slider_drag.is_some()
                 || self.slider_motion.values().any(|state| state.is_fast(now))))
-            || self.scroll_button_hold.is_some()
             || self.transitions.values().any(|state| state.is_active(now))
             || self
                 .popover_transitions
@@ -2475,7 +2490,9 @@ impl UiTree {
                 && elapsed < TOOLTIP_HOVER_DELAY)
                 .then(|| TOOLTIP_HOVER_DELAY - elapsed)
         });
-        if fast {
+        if transition {
+            Some(Duration::ZERO)
+        } else if ambient {
             Some(Duration::from_millis(16))
         } else if !self.reduced_motion && !self.slider_motion.is_empty() {
             Some(hover_wait.map_or(Duration::from_millis(33), |wait| {
@@ -2692,13 +2709,14 @@ impl UiTree {
                         initial_focus,
                         return_focus,
                     } => {
-                        if let Some(color) = scrim {
+                        let scrim_index = scrim.map(|color| {
                             builder.frame.commands.push(DrawCommand::FillRect {
                                 rect: viewport_rect,
                                 color,
                                 radius: 0.0,
                             });
-                        }
+                            builder.frame.commands.len() - 1
+                        });
                         if backdrop {
                             builder.frame.regions.push(HitRegion {
                                 id: dismiss_id.clone(),
@@ -2761,6 +2779,11 @@ impl UiTree {
                             );
                             transition.value(now)
                         };
+                        if let Some(DrawCommand::FillRect { color, .. }) =
+                            scrim_index.and_then(|index| builder.frame.commands.get_mut(index))
+                        {
+                            color.a = (f32::from(color.a) * progress.clamp(0.0, 1.0)).round() as u8;
+                        }
                         let command_start = builder.frame.commands.len();
                         // Deferred surfaces own a clone of the original tree.
                         // Rebuild the pointer-based focus path for that clone
@@ -2810,6 +2833,7 @@ impl UiTree {
                                 view_key: view_key.clone(),
                                 rect,
                                 slide_sign,
+                                scrim: scrim.map(|color| (viewport_rect, color)),
                             },
                         );
                         if let Some(transition) = builder
@@ -2892,16 +2916,22 @@ impl UiTree {
                         max_width,
                         placement,
                         colors,
-                    } => builder.paint_tooltip(
-                        anchor,
-                        &title,
-                        shortcut.as_deref(),
-                        &sections,
-                        max_width,
-                        placement,
-                        colors,
-                        viewport_rect,
-                    ),
+                    } => {
+                        let start = builder.frame.commands.len();
+                        builder.paint_tooltip(
+                            anchor,
+                            &title,
+                            shortcut.as_deref(),
+                            &sections,
+                            max_width,
+                            placement,
+                            colors,
+                            viewport_rect,
+                        );
+                        // One hint shows at a time, so they share one fade:
+                        // moving between neighbours does not blink.
+                        builder.animate_surface("__tooltip", start, anchor, 0.0, true);
+                    }
                 }
                 builder.measurement_scope = previous_scope;
             }
@@ -2926,7 +2956,9 @@ impl UiTree {
                     rect: *rect,
                     kind: HitKind::Surface,
                 });
+                let start = builder.frame.commands.len();
                 builder.place(menu, *rect, Some(viewport_rect));
+                builder.animate_surface("__context_menu", start, *rect, 1.0, true);
                 builder.focused = old_focus;
                 builder.pressed = old_pressed;
                 builder.hovered = old_hovered;
@@ -2983,7 +3015,7 @@ impl UiTree {
                     Duration::from_millis(u64::from(
                         paint
                             .close_animation_ms
-                            .unwrap_or(paint.animation_ms.min(110)),
+                            .unwrap_or(paint.animation_ms.min(crate::tokens().motion.exit_ms)),
                     )),
                 );
                 self.popover_exits
@@ -2998,6 +3030,14 @@ impl UiTree {
                 let scale = exit.paint.open_scale + (1.0 - exit.paint.open_scale) * opacity;
                 let rect = exit.paint.rect;
                 let origin = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height);
+                if let Some((rect, mut color)) = exit.paint.scrim {
+                    color.a = (f32::from(color.a) * opacity.clamp(0.0, 1.0)).round() as u8;
+                    exit_commands.push(DrawCommand::FillRect {
+                        rect,
+                        color,
+                        radius: 0.0,
+                    });
+                }
                 for command in &exit.paint.commands {
                     let mut command = command.clone();
                     animate_popover_command(&mut command, opacity, slide, scale, origin);
@@ -5199,7 +5239,7 @@ fn place_tooltip(
     preferred: TooltipPlacement,
 ) -> (Rect, TooltipPlacement) {
     let inset = 8.0;
-    let gap = 8.0;
+    let gap = 7.0;
     let width = desired.width.min((viewport.width - inset * 2.0).max(0.0));
     let height = desired.height.min((viewport.height - inset * 2.0).max(0.0));
     let left_room = (anchor.x - viewport.x - inset - gap).max(0.0);
@@ -5328,6 +5368,57 @@ enum TooltipBlock<'a> {
 }
 
 impl LayoutBuilder<'_> {
+    /// Give what was painted since command `start` the shared entrance and,
+    /// if it `leaves`, keep its paint to fade out once it stops being painted.
+    /// Used by everything that is not a popover: tooltips, context menus and
+    /// elements with [`Element::animate_enter`] or `animate_presence`.
+    fn animate_surface(&mut self, id: &str, start: usize, rect: Rect, slide_sign: f32, leaves: bool) {
+        if self.reduced_motion || self.frame.commands.len() == start {
+            return;
+        }
+        let now = self.now;
+        self.observed_popovers.insert(id.to_owned());
+        let exits = self.popover_exits;
+        let transition = self
+            .popover_transitions
+            .entry(id.to_owned())
+            .or_insert_with(|| {
+                // Reopened while leaving: continue from what is still visible.
+                ScalarTransition::new(
+                    exits.get(id).map_or(0.0, |exit| exit.opacity.value(now)),
+                    now,
+                )
+            });
+        transition.retarget(
+            1.0,
+            now,
+            Duration::from_millis(u64::from(crate::tokens().motion.enter_ms)),
+        );
+        let progress = transition.value(now);
+        if leaves {
+            self.popover_snapshots.insert(
+            id.to_owned(),
+            PopoverSnapshot {
+                commands: self.frame.commands[start..].to_vec(),
+                animation_ms: crate::tokens().motion.enter_ms,
+                close_animation_ms: None,
+                open_scale: 1.0,
+                view_key: None,
+                rect,
+                slide_sign,
+                scrim: None,
+            },
+            );
+        }
+        if progress < 1.0 {
+            let origin = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height);
+            let slide = (1.0 - progress) * slide_sign * 4.0;
+            for command in &mut self.frame.commands[start..] {
+                animate_popover_command(command, progress, slide, 1.0, origin);
+            }
+        }
+    }
+
     fn code_text_height(&self) -> f32 {
         self.text_height_measurer
             .as_ref()
@@ -5470,11 +5561,11 @@ impl LayoutBuilder<'_> {
             return;
         }
         let title_style = Style {
-            font_size: 12.5,
+            font_size: 12.0,
             font_family: FontFamily::Sans,
             ..Style::default()
         };
-        let content_max = max_width - 24.0;
+        let content_max = max_width - TOOLTIP_PADDING * 2.0;
         let shortcut = shortcut
             .map(shortcut::label)
             .filter(|value| !value.is_empty());
@@ -5581,11 +5672,13 @@ impl LayoutBuilder<'_> {
             content_height += size.height;
             blocks.push(block);
         }
-        let body_width = (24.0 + content_width).max(32.0).min(max_width);
+        let body_width = (TOOLTIP_PADDING * 2.0 + content_width)
+            .max(TOOLTIP_HEIGHT)
+            .min(max_width);
         let body_height = if rich {
-            (content_height + 16.0).max(32.0)
+            (content_height + 12.0).max(TOOLTIP_HEIGHT)
         } else {
-            32.0
+            TOOLTIP_HEIGHT
         };
         let (body, placement) = place_tooltip(
             anchor,
@@ -5593,97 +5686,70 @@ impl LayoutBuilder<'_> {
             viewport,
             preferred,
         );
-        if body.width < 32.0 || body.height < 28.0 {
+        if body.width < TOOLTIP_HEIGHT || body.height < TOOLTIP_HEIGHT {
             return;
         }
+        // A small pointer names the element the hint belongs to.
         let tip_x = (anchor.x + anchor.width / 2.0).clamp(
-            body.x + 12.0,
-            (body.x + body.width - 12.0).max(body.x + 12.0),
+            body.x + TOOLTIP_PADDING,
+            (body.x + body.width - TOOLTIP_PADDING).max(body.x + TOOLTIP_PADDING),
         );
         let tip_y = (anchor.y + anchor.height / 2.0).clamp(
-            body.y + 12.0,
-            (body.y + body.height - 12.0).max(body.y + 12.0),
+            body.y + TOOLTIP_PADDING,
+            (body.y + body.height - TOOLTIP_PADDING).max(body.y + TOOLTIP_PADDING),
         );
+        let vertical = |base: f32, away: f32| {
+            (
+                [
+                    Point::new(tip_x - 5.0, base),
+                    Point::new(tip_x + 5.0, base),
+                    Point::new(tip_x, base + 5.0 * away),
+                ],
+                [
+                    Point::new(tip_x - 3.5, base - away),
+                    Point::new(tip_x + 3.5, base - away),
+                    Point::new(tip_x, base + 3.0 * away),
+                ],
+            )
+        };
+        let horizontal = |base: f32, away: f32| {
+            (
+                [
+                    Point::new(base, tip_y - 5.0),
+                    Point::new(base, tip_y + 5.0),
+                    Point::new(base + 5.0 * away, tip_y),
+                ],
+                [
+                    Point::new(base - away, tip_y - 3.5),
+                    Point::new(base - away, tip_y + 3.5),
+                    Point::new(base + 3.0 * away, tip_y),
+                ],
+            )
+        };
         let (outline, fill) = match placement {
-            TooltipPlacement::Above => {
-                let base = body.y + body.height - 1.0;
-                (
-                    [
-                        Point::new(tip_x - 7.0, base),
-                        Point::new(tip_x + 7.0, base),
-                        Point::new(tip_x, base + 7.0),
-                    ],
-                    [
-                        Point::new(tip_x - 5.5, base - 1.0),
-                        Point::new(tip_x + 5.5, base - 1.0),
-                        Point::new(tip_x, base + 5.0),
-                    ],
-                )
-            }
-            TooltipPlacement::Below => {
-                let base = body.y + 1.0;
-                (
-                    [
-                        Point::new(tip_x - 7.0, base),
-                        Point::new(tip_x + 7.0, base),
-                        Point::new(tip_x, base - 7.0),
-                    ],
-                    [
-                        Point::new(tip_x - 5.5, base + 1.0),
-                        Point::new(tip_x + 5.5, base + 1.0),
-                        Point::new(tip_x, base - 5.0),
-                    ],
-                )
-            }
-            TooltipPlacement::Left => {
-                let base = body.x + body.width - 1.0;
-                (
-                    [
-                        Point::new(base, tip_y - 7.0),
-                        Point::new(base, tip_y + 7.0),
-                        Point::new(base + 7.0, tip_y),
-                    ],
-                    [
-                        Point::new(base - 1.0, tip_y - 5.5),
-                        Point::new(base - 1.0, tip_y + 5.5),
-                        Point::new(base + 5.0, tip_y),
-                    ],
-                )
-            }
-            TooltipPlacement::Right => {
-                let base = body.x + 1.0;
-                (
-                    [
-                        Point::new(base, tip_y - 7.0),
-                        Point::new(base, tip_y + 7.0),
-                        Point::new(base - 7.0, tip_y),
-                    ],
-                    [
-                        Point::new(base + 1.0, tip_y - 5.5),
-                        Point::new(base + 1.0, tip_y + 5.5),
-                        Point::new(base - 5.0, tip_y),
-                    ],
-                )
-            }
+            TooltipPlacement::Above => vertical(body.y + body.height - 1.0, 1.0),
+            TooltipPlacement::Below => vertical(body.y + 1.0, -1.0),
+            TooltipPlacement::Left => horizontal(body.x + body.width - 1.0, 1.0),
+            TooltipPlacement::Right => horizontal(body.x + 1.0, -1.0),
         };
         self.frame.commands.push(DrawCommand::Shadow {
             rect: body,
-            shadow: BoxShadow::new(colors.shadow, Point::new(0.0, 3.0), 10.0, 0.0),
-            radius: crate::components::FLOATING_SURFACE_RADIUS,
+            shadow: BoxShadow::new(colors.shadow, Point::new(0.0, 2.0), 6.0, 0.0),
+            radius: crate::tokens().radius.control,
         });
         self.frame.commands.push(DrawCommand::FillRect {
             rect: body,
             color: colors.background,
-            radius: crate::components::FLOATING_SURFACE_RADIUS,
+            radius: crate::tokens().radius.control,
         });
         self.frame.commands.push(DrawCommand::StrokeRect {
             rect: body,
             color: colors.border,
             width: 1.0,
-            radius: crate::components::FLOATING_SURFACE_RADIUS,
+            radius: crate::tokens().radius.control,
         });
-        // Paint the pointer last so its fill covers the body border at the
-        // join. The two nested triangles leave a crisp one-pixel outline.
+        // Painted last so its fill covers the body border at the join; the
+        // nested triangles leave a one-pixel outline.
         self.frame.commands.push(DrawCommand::FillTriangle {
             points: outline,
             color: colors.border,
@@ -5693,10 +5759,10 @@ impl LayoutBuilder<'_> {
             color: colors.background,
         });
         let content = Rect::new(
-            body.x + 12.0,
-            body.y + if rich { 8.0 } else { 1.0 },
-            (body.width - 24.0).max(0.0),
-            (body.height - if rich { 16.0 } else { 2.0 }).max(0.0),
+            body.x + TOOLTIP_PADDING,
+            body.y + if rich { 6.0 } else { 1.0 },
+            (body.width - TOOLTIP_PADDING * 2.0).max(0.0),
+            (body.height - if rich { 12.0 } else { 2.0 }).max(0.0),
         );
         self.frame.commands.push(DrawCommand::PushClip(content));
         let mut text_y = if rich {
@@ -5719,7 +5785,7 @@ impl LayoutBuilder<'_> {
         }
         if let (Some(shortcut), Some(width)) = (shortcut, keycap_width) {
             let keycap = Rect::new(
-                body.x + body.width - 12.0 - width,
+                body.x + body.width - TOOLTIP_PADDING - width,
                 if rich {
                     content.y
                 } else {
@@ -5921,7 +5987,7 @@ impl LayoutBuilder<'_> {
             self.frame.commands.push(DrawCommand::FillRect {
                 rect: cap,
                 color: fill,
-                radius: shortcut::RADIUS,
+                radius: shortcut::radius(),
             });
             self.frame.commands.push(DrawCommand::PushClip(Rect::new(
                 cap.x,
@@ -5933,7 +5999,7 @@ impl LayoutBuilder<'_> {
                 rect: cap,
                 color: shortcut::cap_border(ink),
                 width: 1.0,
-                radius: shortcut::RADIUS,
+                radius: shortcut::radius(),
             });
             self.frame.commands.push(DrawCommand::PopClip);
             self.frame.commands.push(DrawCommand::PushClip(Rect::new(
@@ -5946,7 +6012,7 @@ impl LayoutBuilder<'_> {
                 rect: cap,
                 color: shortcut::cap_bottom_border(ink),
                 width: 1.0,
-                radius: shortcut::RADIUS,
+                radius: shortcut::radius(),
             });
             self.frame.commands.push(DrawCommand::PopClip);
             if let Some(icon) = icon {
@@ -6032,6 +6098,50 @@ impl LayoutBuilder<'_> {
             FontFamily::Sans => self.sans_metrics,
         }
         .at_size(style.font_size)
+    }
+
+    /// Underline the text painted since command `first`, kept inside `bounds`.
+    /// A faded label paints its line several times; each is underlined once.
+    fn underline_text(&mut self, first: usize, bounds: Rect, style: Style) {
+        let mut lines: Vec<(Point, f32, f32, Color)> = Vec::new();
+        for command in &self.frame.commands[first..] {
+            let DrawCommand::Text {
+                position,
+                text,
+                color,
+                font_size,
+                font_family,
+            } = command
+            else {
+                continue;
+            };
+            let run = Style {
+                font_size: *font_size,
+                font_family: *font_family,
+                ..style
+            };
+            match lines.iter_mut().find(|line| line.0 == *position) {
+                Some(line) if color.a > line.3.a => line.3 = *color,
+                Some(_) => {}
+                None => lines.push((
+                    *position,
+                    self.text_width(text, run),
+                    self.metrics_for(run).line_height,
+                    *color,
+                )),
+            }
+        }
+        for (position, width, line_height, color) in lines {
+            let left = position.x.max(bounds.x);
+            let right = (position.x + width).min(bounds.x + bounds.width);
+            if right > left {
+                self.frame.commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(left, position.y + line_height - 2.0, right - left, 1.0),
+                    color,
+                    radius: 0.0,
+                });
+            }
+        }
     }
 
     fn text_width(&self, value: &str, style: Style) -> f32 {
@@ -6242,7 +6352,7 @@ impl LayoutBuilder<'_> {
                     } else {
                         2
                     })),
-                    radius: 4.0,
+                    radius: crate::tokens().radius.control,
                 });
             }
             let x = button.x + button.width / 2.0;
@@ -6627,6 +6737,7 @@ impl LayoutBuilder<'_> {
                     .map(|child| self.measure(child, Size::new(f32::INFINITY, inner.height)))
                     .collect();
                 self.fit_row_shortcuts(children, &mut sizes, inner, style.gap);
+                self.fit_shrinking(children, &mut sizes, inner, style.gap);
                 // Row layout reserves intrinsic widths for fixed siblings and
                 // distributes the remainder between flex children. Measure
                 // those children at the same assigned widths so wrapped text
@@ -6686,6 +6797,9 @@ impl LayoutBuilder<'_> {
             && focusable_id(element) == self.drag_source;
         let start = self.frame.commands.len();
         self.place_inner(element, rect, clip);
+        if let Some((id, leaves)) = &element.presence {
+            self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);
+        }
         if dragged {
             self.drag_ghost = Some(start..self.frame.commands.len());
         }
@@ -6932,6 +7046,16 @@ impl LayoutBuilder<'_> {
             }
         }
         let content = rect.inset(style.padding);
+        // A button's padding is horizontal: its label and icon are centered in
+        // the full height, so deep padding on a short button cannot erase them.
+        let content = if matches!(
+            element.kind,
+            ElementKind::Button { .. } | ElementKind::IconButton { .. }
+        ) {
+            Rect::new(content.x, rect.y, content.width, rect.height)
+        } else {
+            content
+        };
         let parent_clip = clip;
         let clip = if style.clip_children {
             let child_clip = clip
@@ -6967,7 +7091,7 @@ impl LayoutBuilder<'_> {
                         ElementKind::Button { id, .. } | ElementKind::IconButton { id, .. } => {
                             id == &selection.selected_id
                         }
-                        _ => false,
+                        _ => child.indicator_slot.as_ref() == Some(&selection.selected_id),
                     });
                     if let Some(target) = index.and_then(|index| rects.get(index)).copied() {
                         self.observed_tabs.insert(selection.group_id.clone());
@@ -6976,8 +7100,8 @@ impl LayoutBuilder<'_> {
                             .entry(selection.group_id.clone())
                             .or_insert_with(|| TabIndicatorState {
                                 selected_id: selection.selected_id.clone(),
-                                x: ScalarTransition::new(target.x, self.now),
-                                width: ScalarTransition::new(target.width, self.now),
+                                x: ScalarSpring::new(target.x, self.now),
+                                width: ScalarSpring::new(target.width, self.now),
                             });
                         if self.reduced_motion || selection.animation_ms == 0 {
                             state.x.snap_to(target.x, self.now);
@@ -6985,8 +7109,11 @@ impl LayoutBuilder<'_> {
                             state.selected_id.clone_from(&selection.selected_id);
                         } else if state.selected_id != selection.selected_id {
                             let duration = Duration::from_millis(u64::from(selection.animation_ms));
-                            state.x.retarget(target.x, self.now, duration);
-                            state.width.retarget(target.width, self.now, duration);
+                            let motion = crate::SpringMotion::settling_in(duration);
+                            state.x = state.x.motion(motion);
+                            state.width = state.width.motion(motion);
+                            state.x.retarget(target.x, self.now);
+                            state.width.retarget(target.width, self.now);
                             state.selected_id.clone_from(&selection.selected_id);
                         } else if state.x.target() != target.x
                             || state.width.target() != target.width
@@ -7018,7 +7145,14 @@ impl LayoutBuilder<'_> {
             ElementKind::Panel(child) => self.place(child, content, clip),
             ElementKind::Clickable { id, child } => {
                 self.add_region(id, rect, HitKind::Button, clip);
+                let first = self.frame.commands.len();
                 self.place(child, content, clip);
+                if style.underline_on_hover
+                    && (self.hovered == Some(id.as_str())
+                        || self.keyboard_focus && self.focused == Some(id.as_str()))
+                {
+                    self.underline_text(first, content, style);
+                }
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
                     self.draw_focus_ring(rect, style);
                 }
@@ -7964,6 +8098,14 @@ impl LayoutBuilder<'_> {
                 } else {
                     content
                 };
+                // The line sits in the middle of a field taller than its text.
+                let slack = (content.height - metrics.line_height).max(0.0);
+                let content = Rect::new(
+                    content.x,
+                    content.y + slack / 2.0,
+                    content.width,
+                    content.height - slack,
+                );
                 let state = self
                     .inputs
                     .entry(id.clone())
@@ -8698,6 +8840,54 @@ impl LayoutBuilder<'_> {
         rects
     }
 
+    /// Re-measure a row's `shrink` children at the width the row can spare,
+    /// so their text wraps or truncates instead of pushing siblings out.
+    /// They give up width in order, each down to its minimum width first.
+    fn fit_shrinking(&self, children: &[Element], sizes: &mut [Size], row: Size, gap: f32) {
+        if !row.width.is_finite() || !children.iter().any(|child| child.style.shrink) {
+            return;
+        }
+        let reserved = gap * children.len().saturating_sub(1) as f32
+            + children
+                .iter()
+                .zip(sizes.iter())
+                .filter(|(child, _)| !child.style.shrink)
+                .map(|(child, size)| {
+                    if child.style.flex > 0.0 {
+                        child.style.min_width
+                    } else {
+                        size.width
+                    }
+                })
+                .sum::<f32>();
+        let spare = (row.width - reserved).max(0.0);
+        let natural: f32 = children
+            .iter()
+            .zip(sizes.iter())
+            .filter(|(child, _)| child.style.shrink)
+            .map(|(_, size)| size.width)
+            .sum();
+        let mut deficit = natural - spare;
+        let mut widths: Vec<f32> = sizes.iter().map(|size| size.width).collect();
+        for respect_minimum in [true, false] {
+            for (child, width) in children.iter().zip(&mut widths) {
+                if deficit <= 0.0 || !child.style.shrink {
+                    continue;
+                }
+                let floor = if respect_minimum { child.style.min_width } else { 0.0 };
+                let given = (*width - floor).clamp(0.0, deficit);
+                *width -= given;
+                deficit -= given;
+            }
+        }
+        for ((child, size), width) in children.iter().zip(sizes.iter_mut()).zip(widths) {
+            if child.style.shrink && width < size.width {
+                *size = self.measure(child, Size::new(width, row.height));
+                size.width = size.width.min(width);
+            }
+        }
+    }
+
     fn flex_rects(
         &mut self,
         children: &[Element],
@@ -8729,6 +8919,12 @@ impl LayoutBuilder<'_> {
         }
         if row {
             self.fit_row_shortcuts(
+                children,
+                &mut sizes,
+                Size::new(available_main, available_cross),
+                gap,
+            );
+            self.fit_shrinking(
                 children,
                 &mut sizes,
                 Size::new(available_main, available_cross),
@@ -9773,7 +9969,10 @@ mod tests {
             halfway.hit_test(Point::new(project_region.x + 5.0, 16.0)),
             Some("project")
         );
-        let complete = tree.layout_at(viewport, start + Duration::from_millis(180));
+        // A spring covers 99% of the way in the duration and then settles.
+        let arriving = tree.layout_at(viewport, start + Duration::from_millis(180));
+        assert!((indicator(&arriving).x - project_region.x).abs() < 1.5);
+        let complete = tree.layout_at(viewport, start + Duration::from_millis(600));
         assert_eq!(indicator(&complete).x, project_region.x);
         tree.set_reduced_motion(true);
         tree.set_root(make_tabs("group"));
@@ -10125,7 +10324,7 @@ mod tests {
                     color,
                     radius,
                 } if *color == fill => {
-                    assert_eq!(*radius, shortcut::RADIUS);
+                    assert_eq!(*radius, shortcut::radius());
                     Some(*rect)
                 }
                 _ => None,

@@ -38,6 +38,7 @@ mod motion;
 mod theme;
 mod permission_selector;
 mod preferences;
+mod progress;
 mod raster_image;
 mod scroll_area;
 mod selector_sizing;
@@ -48,6 +49,8 @@ mod stepper;
 mod text_shimmer;
 mod text_width_cache;
 mod time_picker;
+mod toast;
+mod tokens;
 mod tool_activity;
 mod tree;
 mod tree_view;
@@ -78,7 +81,7 @@ pub use code_syntax::CodeLanguage;
 pub use collapsible::Collapsible;
 pub use components::{
     Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component, ComponentPalette,
-    ControlSize, ControlState, DropdownList, DropdownOption, IconButton, Kbd, Popover, Search,
+    ControlSize, ControlState, DropdownList, DropdownOption, IconButton, Kbd, Link, Popover, Search,
     SearchField, SegmentedControl, Switch, Tab, Tabs, TextArea, TextField, Tooltip,
 };
 pub use composer::Composer;
@@ -107,6 +110,7 @@ pub use motion::{
 };
 pub use permission_selector::{PermissionOption, PermissionSelector};
 pub use preferences::{ActionRow, PreferencesGroup};
+pub use progress::Progress;
 pub use raster_image::{RasterImage, RasterImageFormat};
 pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement};
 pub use selector_sizing::SelectorSizing;
@@ -115,6 +119,8 @@ pub use spinner::Spinner;
 pub use stepper::{Step, Stepper};
 pub use text_shimmer::TextShimmer;
 pub use time_picker::TimePicker;
+pub use toast::Toast;
+pub use tokens::{set_tokens, tokens, Motion, Radius, Tokens};
 pub use tool_activity::ToolActivity;
 pub use theme::Theme;
 pub use tree::{

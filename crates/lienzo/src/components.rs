@@ -15,11 +15,18 @@ pub trait Component {
     fn render(self) -> Element;
 }
 
-pub(crate) const CONTROL_HOVER_TRANSITION_MS: u16 = 120;
+pub(crate) fn hover_ms() -> u16 {
+    crate::tokens().motion.hover_ms
+}
 // Discrete corners for editor chrome. Circular controls (for example the
 // switch thumb or a host's avatar) opt into their own semantic shape.
-pub(crate) const CONTROL_RADIUS: f32 = 4.0;
-pub(crate) const FLOATING_SURFACE_RADIUS: f32 = 6.0;
+pub(crate) fn control_radius() -> f32 {
+    crate::tokens().radius.control
+}
+
+pub(crate) fn surface_radius() -> f32 {
+    crate::tokens().radius.surface
+}
 
 /// A small, viewport-aware hint anchored to a control or a passive element.
 /// It appears after a short hover delay or immediately with keyboard focus,
@@ -189,7 +196,7 @@ impl ComponentPalette {
     /// panels remain passive. Callers retain their contextual palette and can
     /// override the selected treatment after applying this style.
     pub fn interactive_surface(self, mut element: Element) -> Element {
-        self.style_interactive_surface(&mut element, CONTROL_RADIUS);
+        self.style_interactive_surface(&mut element, control_radius());
         element
     }
 
@@ -212,7 +219,7 @@ impl ComponentPalette {
                 element.style.hover_background = Some(self.hover);
                 element.style.pressed_background = Some(self.selected);
                 element.style.radius = radius;
-                element.style.transition_ms = CONTROL_HOVER_TRANSITION_MS;
+                element.style.transition_ms = hover_ms();
             }
             _ => {}
         }
@@ -231,16 +238,38 @@ impl ComponentPalette {
         }
     }
 
+    fn is_dark(self) -> bool {
+        u16::from(self.border.r) + u16::from(self.border.g) + u16::from(self.border.b) < 3 * 128
+    }
+
+    /// A rule between rows that share one surface. The border reads against
+    /// the page behind a card but nearly vanishes on the card itself, so this
+    /// is the border moved a fifth of the way towards the text.
+    pub fn divider(self) -> Color {
+        let mix = |base: u8, ink: u8| ((u16::from(base) * 4 + u16::from(ink)) / 5) as u8;
+        Color::rgb(
+            mix(self.border.r, self.text.r),
+            mix(self.border.g, self.text.g),
+            mix(self.border.b, self.text.b),
+        )
+    }
+
+    /// Ink for links: blue, in the shade that reads on this palette.
+    pub fn link(self) -> Color {
+        if self.is_dark() {
+            Color::rgb(68, 147, 248)
+        } else {
+            Color::rgb(9, 105, 218)
+        }
+    }
+
     fn tooltip_style(self) -> TooltipStyle {
         // Buttons may use an action palette with a light fill or muted ink.
         // The shared tooltip still belongs to the surrounding theme: its
         // border and muted text are stable semantic tokens across actions.
         // Dark surfaces need a clearer edge and a darker interior than a
         // regular raised control. Light themes retain their own colors.
-        let dark_theme =
-            u16::from(self.border.r) + u16::from(self.border.g) + u16::from(self.border.b)
-                < 3 * 128;
-        if dark_theme {
+        if self.is_dark() {
             TooltipStyle {
                 background: darker(self.border, 19),
                 border: lighter(self.border, 18),
@@ -305,7 +334,7 @@ pub enum ButtonSize {
 }
 
 impl ButtonSize {
-    pub const fn sizing(self) -> ButtonSizing {
+    pub fn sizing(self) -> ButtonSizing {
         let (height, font_size, horizontal_padding) = match self {
             Self::Default => (36.0, 14.0, 16.0),
             Self::Small => (32.0, 13.0, 12.0),
@@ -320,7 +349,7 @@ impl ButtonSize {
             icon_size: ICON_SIZE,
             horizontal_padding,
             inner_spacing: 8.0,
-            radius: CONTROL_RADIUS,
+            radius: control_radius(),
         }
     }
 }
@@ -357,7 +386,7 @@ pub struct ButtonSizing {
 }
 
 impl ControlSize {
-    pub const fn button_sizing(self) -> ButtonSizing {
+    pub fn button_sizing(self) -> ButtonSizing {
         let height = self.height();
         ButtonSizing {
             height,
@@ -561,7 +590,7 @@ impl Button {
                 Color::TRANSPARENT,
                 Color::TRANSPARENT,
                 Color::TRANSPARENT,
-                palette.text,
+                palette.link(),
             ),
             ButtonVariant::Subtle | ButtonVariant::Outline => (
                 palette.surface,
@@ -644,6 +673,12 @@ impl Component for Button {
         let (icon, label) = self.content.parts();
         let icon_only = (icon.is_some() || self.loading) && label.is_empty();
         let width = self.width.or(icon_only.then_some(sizing.height));
+        // A square icon button keeps room for its glyph at every size.
+        let padding = if icon_only {
+            padding.min(((width.unwrap_or(sizing.height) - sizing.icon_size) / 2.0).max(0.0))
+        } else {
+            padding
+        };
         let height = sizing.height;
         let radius = sizing.radius;
 
@@ -750,7 +785,7 @@ impl Component for Button {
             .pressed_background(pressed)
             .hover_foreground(self.hover_ink.unwrap_or(ink))
             .pressed_foreground(self.pressed_ink.or(self.hover_ink).unwrap_or(ink))
-            .transition_ms(CONTROL_HOVER_TRANSITION_MS)
+            .transition_ms(hover_ms())
             .foreground(ink)
             .font_family(FontFamily::Sans)
             .font_size(sizing.font_size)
@@ -787,6 +822,51 @@ impl Component for Button {
         } else {
             element
         }
+    }
+}
+
+/// A text action that hugs its label: link ink, underlined under the pointer
+/// and keyboard focus, with no hover fill. Emits `UiAction::Clicked`.
+pub struct Link {
+    action_id: String,
+    label: String,
+    color: Color,
+    font_size: f32,
+}
+
+impl Link {
+    pub fn new(
+        action_id: impl Into<String>,
+        label: impl Into<String>,
+        palette: ComponentPalette,
+    ) -> Self {
+        Self {
+            action_id: action_id.into(),
+            label: label.into(),
+            color: palette.link(),
+            font_size: 13.0,
+        }
+    }
+
+    pub fn color(mut self, color: Color) -> Self {
+        self.color = color;
+        self
+    }
+
+    pub fn font_size(mut self, size: f32) -> Self {
+        self.font_size = size;
+        self
+    }
+}
+
+impl Component for Link {
+    fn render(self) -> Element {
+        Element::button(self.action_id, self.label)
+            .foreground(self.color)
+            .font_family(FontFamily::Sans)
+            .font_size(self.font_size)
+            .padding(0.0)
+            .underline_on_hover()
     }
 }
 
@@ -1134,7 +1214,7 @@ impl Component for TextArea {
             .padding(8.0)
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
-            .radius(CONTROL_RADIUS)
+            .radius(control_radius())
             .size(self.width, Some(self.height));
         }
         Element::text_area(self.id, self.value, self.placeholder)
@@ -1147,14 +1227,14 @@ impl Component for TextArea {
             .font_family(FontFamily::Sans)
             .font_size(13.0)
             .padding(8.0)
-            .radius(CONTROL_RADIUS)
+            .radius(control_radius())
             .min_size(80.0, self.height)
             .size(self.width, Some(self.height))
     }
 }
 
 fn input_radius(_size: ControlSize) -> f32 {
-    CONTROL_RADIUS
+    control_radius()
 }
 
 fn input_surface(
@@ -1359,22 +1439,34 @@ impl Component for Switch {
         } else {
             self.palette.selected
         };
-        let thumb = Element::spacer()
-            .size(Some(THUMB), Some(THUMB))
-            .background(thumb_color)
-            .radius(THUMB / 2.0);
-        let offset = Element::spacer().size(Some(TRACK_WIDTH - THUMB - 6.0), Some(THUMB));
-        let contents = if self.checked {
-            Element::row(vec![offset, thumb])
-        } else {
-            Element::row(vec![thumb, offset])
+        // The thumb is the strip's selection indicator: it slides between the
+        // two slots when `checked` changes and keeps its place across rebuilds.
+        let slot = |name: &str| {
+            Element::spacer()
+                .size(Some(THUMB), Some(THUMB))
+                .indicator_slot(name)
         };
+        let contents = Element::tab_strip(
+            vec![
+                slot("off"),
+                Element::spacer().size(Some(TRACK_WIDTH - THUMB * 2.0 - 6.0), Some(THUMB)),
+                slot("on"),
+            ],
+            Vec::new(),
+        )
+        .tab_selection(
+            format!("{}:thumb", self.action_id),
+            if self.checked { "on" } else { "off" },
+            thumb_color,
+            THUMB / 2.0,
+            crate::tokens().motion.move_ms,
+        );
         let enabled = self.state == ControlState::Enabled;
         let track = if enabled {
             Element::clickable(self.action_id, contents)
                 .hover_background(lighter(track_color, 10))
                 .pressed_background(lighter(track_color, 16))
-                .transition_ms(120)
+                .transition_ms(hover_ms())
         } else {
             Element::panel(contents)
         };
@@ -1467,7 +1559,7 @@ impl Tabs {
             height: ControlSize::Dense.height(),
             gap: TAB_GAP,
             id: None,
-            animation_ms: 170,
+            animation_ms: crate::tokens().motion.move_ms,
         }
     }
 
@@ -1556,7 +1648,7 @@ impl Component for Tabs {
                     ])
                     .padding(TAB_ITEM_PADDING)
                     .background(Color::TRANSPARENT)
-                    .radius(CONTROL_RADIUS)
+                    .radius(control_radius())
                     .size(Some(item.width), Some(self.height));
                 }
                 let button = if let Some(icon) = item.icon {
@@ -1573,7 +1665,7 @@ impl Component for Tabs {
                     .font_size(TAB_FONT_SIZE)
                     .padding(TAB_ITEM_PADDING)
                     .gap(TAB_ICON_GAP)
-                    .radius(CONTROL_RADIUS)
+                    .radius(control_radius())
                     .center_content()
                     .size(Some(item.width), Some(self.height))
             })
@@ -1582,14 +1674,14 @@ impl Component for Tabs {
             .gap(self.gap)
             .padding(TAB_TRACK_PADDING)
             .background(self.palette.surface)
-            .radius(FLOATING_SURFACE_RADIUS)
+            .radius(surface_radius())
             .size(None, Some(self.height + TAB_TRACK_PADDING * 2.0));
         if let Some(selected_id) = selected_id {
             strip.tab_selection(
                 group_id,
                 selected_id,
                 self.palette.selected,
-                CONTROL_RADIUS,
+                control_radius(),
                 self.animation_ms,
             )
         } else {
@@ -1670,7 +1762,7 @@ impl Popover {
             placement: PopoverPlacement::BottomStart,
             width: 240.0,
             palette,
-            animation_ms: 140,
+            animation_ms: crate::tokens().motion.enter_ms,
             close_animation_ms: None,
             open_scale: 1.0,
             view_key: None,
@@ -1722,7 +1814,7 @@ impl Component for Popover {
             .size(Some(self.width), None)
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
-            .radius(FLOATING_SURFACE_RADIUS)
+            .radius(surface_radius())
             .shadow(self.palette.shadow, Point::new(0.0, 9.0), 22.0, 0.0);
         let mut popover = Element::popover(self.anchor, floating, self.dismiss_id, self.placement)
             .popover_animation_ms(self.animation_ms)
@@ -1878,6 +1970,106 @@ mod tests {
     use crate::{DrawCommand, ElementKind, Point, Size, UiAction, UiEvent, UiTree};
 
     #[test]
+    fn a_transition_asks_for_the_next_refresh_and_a_spinner_for_a_slower_cadence() {
+        use std::time::Duration;
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(200.0, 60.0);
+
+        let mut resting = UiTree::new(Button::new("save", "Save", palette).render());
+        resting.layout(size);
+        assert_eq!(resting.animation_repaint_after(), None, "an idle window costs nothing");
+
+        // Hovering starts a fill transition: every display refresh until it ends.
+        resting.handle_event(UiEvent::PointerMove(Point::new(20.0, 20.0)));
+        resting.layout(size);
+        assert_eq!(resting.animation_repaint_after(), Some(Duration::ZERO));
+
+        // A spinner never finishes, so it does not run at display rate.
+        let mut spinning = UiTree::new(crate::Spinner::new("busy", palette.text).render());
+        spinning.layout(size);
+        assert_eq!(spinning.animation_repaint_after(), Some(Duration::from_millis(16)));
+
+        // With movement switched off the hover no longer animates.
+        let mut still = UiTree::new(Button::new("save", "Save", palette).render());
+        still.set_reduced_motion(true);
+        still.layout(size);
+        still.handle_event(UiEvent::PointerMove(Point::new(20.0, 20.0)));
+        still.layout(size);
+        assert_eq!(still.animation_repaint_after(), None);
+    }
+
+    #[test]
+    fn large_buttons_center_their_label_and_keep_their_icon() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = UiTree::new(Element::row(vec![
+            Button::new("large", "Large", palette).button_size(ButtonSize::Large).render(),
+            Button::new("default", "Default", palette).button_size(ButtonSize::Default).render(),
+            IconButton::new("large-icon", Icon::Add, palette)
+                .button_size(ButtonSize::Large)
+                .render(),
+            Element::spacer().flex(1.0),
+        ]))
+        .layout(Size::new(400.0, 40.0));
+        let label = |wanted: &str| {
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Text { position, text, .. } if text == wanted => Some(position.y),
+                    _ => None,
+                })
+                .expect("label")
+        };
+        // Padding deeper than half the height used to push the label down:
+        // both labels sit the same distance above their button's middle.
+        assert!((label("Large") - 20.0 - (label("Default") - 18.0)).abs() < 0.1);
+        let icon = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Icon { icon: Icon::Add, rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("icon");
+        assert_eq!((icon.width, icon.height), (ICON_SIZE, ICON_SIZE));
+        assert!((icon.y + icon.height / 2.0 - 20.0).abs() < 0.5);
+    }
+
+    #[test]
+    fn search_field_taller_than_its_line_centers_the_text_and_disabled_labels_fit() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = UiTree::new(Element::column(vec![
+            SearchField::new("search", "", "Buscar", palette).shortcut("Ctrl+K").width(300.0).render(),
+            Element::row(vec![
+                Button::new("off", "Destructive", palette)
+                    .variant(ButtonVariant::Destructive)
+                    .disabled()
+                    .render(),
+                Element::spacer().flex(1.0),
+            ]),
+        ]))
+        .layout(Size::new(400.0, 200.0));
+        let field = frame.regions.iter().find(|region| region.id == "search").expect("field").rect;
+        let text = |wanted: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { position, text, .. } if text == wanted => Some(*position),
+                _ => None,
+            })
+        };
+        let placeholder = text("Buscar").expect("placeholder");
+        let line = 14.0 * 13.0 / 14.0;
+        assert!(field.height > 32.0);
+        assert!(
+            (placeholder.y - field.y - (field.height - line) / 2.0).abs() < 4.0
+                && placeholder.y - field.y > 8.5,
+            "placeholder at {} in a field of {}",
+            placeholder.y - field.y,
+            field.height
+        );
+        assert!(text("Destructive").is_some(), "disabled label was truncated");
+    }
+
+    #[test]
     fn shared_hover_reaches_tooltip_trigger_without_changing_hits_or_enabling_disabled_actions() {
         use std::time::{Duration, Instant};
         let palette = ComponentPalette::neutral_dark();
@@ -1916,7 +2108,7 @@ mod tests {
         assert_eq!(hovered.hit_test(point), Some("ready"));
         assert!(hovered.commands.iter().any(|command| matches!(command,
             DrawCommand::FillRect { rect, color, radius }
-                if *rect == bounds && *color == palette.hover && *radius == CONTROL_RADIUS
+                if *rect == bounds && *color == palette.hover && *radius == control_radius()
         )));
         tree.handle_event(UiEvent::PointerDown(point));
         tree.layout_at(viewport, start + Duration::from_millis(200));
@@ -2450,7 +2642,7 @@ mod tests {
         let palette = ComponentPalette::neutral_dark();
         let tabs = Tabs::new(vec![Tab::new("files", "Archivos", 88.0)], palette).render();
         assert_eq!(tabs.style.background, Some(palette.surface));
-        assert_eq!(tabs.style.radius, FLOATING_SURFACE_RADIUS);
+        assert_eq!(tabs.style.radius, surface_radius());
         assert_eq!(tabs.style.padding, 2.0);
         assert_eq!(tabs.style.height, Some(28.0));
         assert_eq!(tabs.style.gap, 2.0);
@@ -2909,14 +3101,14 @@ mod tests {
             palette,
         )
         .render();
-        assert_eq!(segment.style.radius, FLOATING_SURFACE_RADIUS);
+        assert_eq!(segment.style.radius, surface_radius());
         assert_eq!(segment.style.width, Some(154.0));
         let mut tree = UiTree::new(segment);
         let frame = tree.layout(Size::new(154.0, 28.0));
         assert!(frame.commands.iter().any(|command| matches!(
             command,
             DrawCommand::FillRect { rect, color, radius }
-                if *color == palette.surface && rect.width == 154.0 && rect.height == 28.0 && *radius == FLOATING_SURFACE_RADIUS
+                if *color == palette.surface && rect.width == 154.0 && rect.height == 28.0 && *radius == surface_radius()
         )));
         assert!(tree.focus("group"));
         assert_eq!(

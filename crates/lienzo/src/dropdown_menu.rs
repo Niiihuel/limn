@@ -611,7 +611,7 @@ impl Component for DropdownMenu {
                         let row = row
                             .size(None, None)
                             .min_size(0.0, row_height)
-                            .radius(action_style::ROW_RADIUS)
+                            .radius(action_style::row_radius())
                             .transition_ms(0);
                         if enabled { row.action_menu_item() } else { row }
                     } else {
@@ -712,7 +712,7 @@ impl Component for DropdownMenu {
                     .size(Some(self.width), None)
                     .background(palette.surface)
                     .border(palette.border, 1.0)
-                    .radius(crate::components::FLOATING_SURFACE_RADIUS)
+                    .radius(crate::components::surface_radius())
                     .clip_children(),
             ])
             .gap(4.0)
@@ -982,7 +982,7 @@ mod tests {
                     _ => None,
                 })
                 .collect();
-            assert_eq!(fills, vec![(*row, action_style::ROW_RADIUS)]);
+            assert_eq!(fills, vec![(*row, action_style::row_radius())]);
         }
     }
 
@@ -1095,7 +1095,7 @@ mod tests {
                     .iter()
                     .filter_map(|command| match command {
                         DrawCommand::FillRect { rect, radius, .. }
-                            if *radius == crate::shortcut::RADIUS
+                            if *radius == crate::shortcut::radius()
                                 && rect.height == crate::shortcut::HEIGHT
                                 && rect.y >= first.y
                                 && rect.y + rect.height <= first.y + first.height =>
@@ -1833,7 +1833,7 @@ mod tests {
                     let fill = crate::shortcut::cap_fill(palette.text);
                     (fill.r, fill.g, fill.b)
                 }
-                    && *radius == crate::shortcut::RADIUS
+                    && *radius == crate::shortcut::radius()
                     && rect.height == crate::shortcut::HEIGHT
         )));
         assert!(frame.commands.iter().any(|command| matches!(command,

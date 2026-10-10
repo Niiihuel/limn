@@ -127,6 +127,8 @@ fn compact_menu_shortcuts_share_tooltip_keycaps_without_partial_chords() {
         )
         .render();
         let mut tree = UiTree::new(root);
+        // Geometry is checked settled, not partway through the entrance.
+        tree.set_reduced_motion(true);
         tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 9.0);
         let size = Size::new(width, 260.0);
         tree.layout(size);
@@ -138,7 +140,7 @@ fn compact_menu_shortcuts_share_tooltip_keycaps_without_partial_chords() {
             .iter()
             .filter_map(|command| match command {
                 DrawCommand::FillRect { rect, radius, .. }
-                    if *radius == crate::shortcut::RADIUS
+                    if *radius == crate::shortcut::radius()
                         && rect.height == crate::shortcut::HEIGHT =>
                 {
                     Some(*rect)
