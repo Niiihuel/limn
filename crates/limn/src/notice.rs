@@ -148,7 +148,7 @@ impl Component for Notice {
     fn render(self) -> Element {
         let sizing = self.sizing;
         let palette = self.palette;
-        let height = sizing.height.filter(|height| height.is_finite());
+        let height = sizing.height.filter(|height| height.is_finite()).map(px);
         // A notice that cannot grow keeps each line of copy to one line.
         let line = |value: String, role: TextRole, ink: Color, line_height: Option<f32>| {
             let text = Text::new(value, palette).role(role).ink(ink);
@@ -403,5 +403,13 @@ mod tests {
             _ => true,
         }));
         assert_eq!(Notice::new(TITLE, palette()).width(-20.0).render().style.width, Some(0.0));
+        let sunk = NoticeSizing {
+            height: Some(-51.0),
+            ..NoticeSizing::COMPACT
+        };
+        assert_eq!(
+            Notice::new(TITLE, palette()).sizing(sunk).render().style.height,
+            Some(0.0)
+        );
     }
 }
