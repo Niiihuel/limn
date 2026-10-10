@@ -145,7 +145,14 @@ pub fn view(cx: &Cx) -> Element {
     };
     let step = state.choice("nav-step", "0").parse().unwrap_or(0);
     Element::column(vec![
-        section(cx, "Pestañas", vec![row(vec![Tabs::new(tabs("nav-tabs"), palette).id("nav-tabs").render()])]),
+        section(cx, "Pestañas", vec![
+            row(vec![Tabs::new(tabs("nav-tabs"), palette).id("nav-tabs").render()]),
+            row(vec![Tabs::new(tabs("nav-fill"), palette)
+                .id("nav-fill")
+                .fill_width(cx.width.min(520.0))
+                .render()]),
+            caption(cx, "Con fill_width las pestañas se reparten el ancho que da el anfitrión."),
+        ]),
         section(cx, "Pestañas de recursos", vec![
             file_tabs(cx, "nav-files-1", 1),
             file_tabs(cx, "nav-files-3", 3),

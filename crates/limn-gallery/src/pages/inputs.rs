@@ -1,5 +1,36 @@
 use super::{caption, row, section, Cx};
-use limn::{Component, Element, SearchField, Switch, TextArea, TextField};
+use limn::{
+    Color, Component, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement,
+    SearchField, Select, SelectorSizing, Switch, TextArea, TextField, TextRole,
+};
+
+const SHELLS: [(&str, &str); 4] = [("bash", "Bash"), ("zsh", "Zsh"), ("fish", "Fish"), ("nu", "Nushell")];
+
+/// A select over the demo's shells; `group` keeps its choice and open state.
+fn shell_select(cx: &Cx, group: &str) -> Select {
+    let chosen = cx.state.choice(group, SHELLS[0].0);
+    let label = SHELLS.iter().find(|(id, _)| *id == chosen).map_or(SHELLS[0].1, |(_, label)| label);
+    let options = SHELLS
+        .iter()
+        .map(|(id, label)| {
+            let option = DropdownOption::new(format!("{group}={id}&{group}-open=no"), *label)
+                .selected(*id == chosen);
+            if *id == "nu" {
+                option.disabled()
+            } else {
+                option
+            }
+        })
+        .collect();
+    Select::new(
+        format!("{group}-open=yes"),
+        label,
+        options,
+        cx.state.text(&format!("{group}-open")) == "yes",
+        format!("{group}-open=no"),
+        cx.palette,
+    )
+}
 
 pub fn view(cx: &Cx) -> Element {
     let palette = cx.palette;
@@ -16,6 +47,76 @@ pub fn view(cx: &Cx) -> Element {
                 .width(width)
                 .render(),
             TextField::new("input-disabled", "No editable", "", palette).disabled().width(width).render(),
+            TextField::new("input-path", state.text("input-path"), "src/main.rs", palette)
+                .monospace(true)
+                .width(width)
+                .render(),
+            caption(cx, "Monoespaciado, para rutas e identificadores."),
+        ]),
+        section(cx, "Campo de formulario", vec![
+            Element::column(vec![
+                FormField::new(
+                    "Nombre",
+                    TextField::new("field-name", state.text("field-name"), "Mi proyecto", palette).render(),
+                    palette,
+                )
+                .render(),
+                FormField::new(
+                    "Ejecutable",
+                    TextField::new("field-program", state.text("field-program"), "/usr/bin/env", palette)
+                        .monospace(true)
+                        .render(),
+                    palette,
+                )
+                .hint("Ruta absoluta a un archivo existente. Se ejecuta sin shell.")
+                .hint("El agente no puede cambiar esta ruta.")
+                .hint_above(true)
+                .render(),
+                FormField::new(
+                    "Ruta dentro del proyecto",
+                    TextField::new("field-path", state.text("field-path"), "src/nuevo.rs", palette).render(),
+                    palette,
+                )
+                .hint("Las carpetas que falten se crean.")
+                .error("Ya existe un archivo con esa ruta.", Color::rgb(229, 83, 75))
+                .render(),
+                FormField::new(
+                    "Instrucciones",
+                    TextArea::new("field-notes", state.text("field-notes"), "Describe la tarea", palette)
+                        .height(72.0)
+                        .render(),
+                    palette,
+                )
+                .hint("Etiqueta apagada sobre una línea de 18, como en un asistente por pasos.")
+                .sizing(FormFieldSizing {
+                    label_muted: true,
+                    label_height: 18.0,
+                    hint_role: TextRole::Caption,
+                    gap: 8.0,
+                    ..FormFieldSizing::DEFAULT
+                })
+                .render(),
+            ])
+            .gap(16.0)
+            .size(Some(width), None),
+        ]),
+        section(cx, "Selector", vec![
+            row(vec![
+                shell_select(cx, "select-plain").render(),
+                shell_select(cx, "select-off").enabled(false).render(),
+            ]),
+            caption(cx, "La lista toma el ancho del botón. Desactivado no se abre ni recibe el foco."),
+            row(vec![shell_select(cx, "select-compact")
+                .sizing(SelectorSizing::COMPACT)
+                .icon(Icon::Terminal)
+                .placement(PopoverPlacement::BottomStart)
+                .render()]),
+            caption(cx, "Con un perfil: filas compactas y la lista en su ancho preferido, con icono."),
+            shell_select(cx, "select-wide")
+                .width(width)
+                .placement(PopoverPlacement::BottomStart)
+                .render(),
+            caption(cx, "Tan ancho como su formulario, con la lista bajo el borde inicial."),
         ]),
         section(cx, "Búsqueda", vec![
             SearchField::new("input-search", state.text("input-search"), "Buscar", palette)

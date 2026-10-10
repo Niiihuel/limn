@@ -1228,6 +1228,7 @@ pub struct TextField {
     width: Option<f32>,
     state: ControlState,
     password: bool,
+    monospace: bool,
 }
 
 impl TextField {
@@ -1247,11 +1248,19 @@ impl TextField {
             width: None,
             state: ControlState::Enabled,
             password: false,
+            monospace: false,
         }
     }
 
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Set the value in the monospaced family, for a path, an identifier or
+    /// a number.
+    pub fn monospace(mut self, monospace: bool) -> Self {
+        self.monospace = monospace;
         self
     }
 
@@ -1290,6 +1299,11 @@ impl TextField {
 
 impl Component for TextField {
     fn render(self) -> Element {
+        let family = if self.monospace {
+            FontFamily::Monospace
+        } else {
+            FontFamily::Sans
+        };
         if self.state == ControlState::Disabled {
             let text = if self.password && !self.value.is_empty() {
                 "•".repeat(self.value.chars().count())
@@ -1301,7 +1315,7 @@ impl Component for TextField {
             return Element::panel(
                 Element::truncated_text(text)
                     .foreground(self.palette.muted)
-                    .font_family(FontFamily::Sans)
+                    .font_family(family)
                     .font_size(13.0),
             )
             .padding(8.0)
@@ -1318,6 +1332,7 @@ impl Component for TextField {
             self.size,
             self.width,
         )
+        .font_family(family)
     }
 }
 
@@ -1773,6 +1788,20 @@ impl Tabs {
 
     pub fn size(mut self, size: ControlSize) -> Self {
         self.height = size.height();
+        self
+    }
+
+    /// Give every tab the same width so the track is `total` wide, whatever
+    /// width each tab was built with. A total that is not finite is ignored.
+    pub fn fill_width(mut self, total: f32) -> Self {
+        if total.is_finite() && !self.items.is_empty() {
+            let count = self.items.len() as f32;
+            let width = (total - TAB_TRACK_PADDING * 2.0 - self.gap * (count - 1.0)) / count;
+            for item in &mut self.items {
+                // The same floor as `Tab::new`.
+                item.width = width.max(40.0);
+            }
+        }
         self
     }
 }
@@ -4081,6 +4110,60 @@ mod tests {
                 id: "choice:4".into()
             }]
         );
+    }
+
+    #[test]
+    fn fill_width_shares_the_total_between_the_tabs_and_ignores_a_bad_total() {
+        let palette = ComponentPalette::neutral_dark();
+        let tabs = |total: f32| {
+            Tabs::new(
+                vec![Tab::new("a", "A", 50.0), Tab::new("b", "B", 90.0), Tab::new("c", "C", 70.0)],
+                palette,
+            )
+            .fill_width(total)
+        };
+        for total in [240.0, 301.0, 520.0] {
+            let mut tree = UiTree::new(Element::column(vec![
+                Element::row(vec![tabs(total).render(), Element::spacer().flex(1.0)]),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(800.0, 100.0));
+            let rect = |id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+            assert_eq!(rect("a").width, rect("b").width);
+            assert_eq!(rect("b").width, rect("c").width);
+            assert!((rect("a").x - TAB_TRACK_PADDING).abs() < 0.01);
+            let end = rect("c").x + rect("c").width + TAB_TRACK_PADDING;
+            assert!((end - total).abs() < 0.01, "{total}: track ends at {end}");
+        }
+        for bad in [f32::NAN, f32::INFINITY] {
+            let widths: Vec<_> = tabs(bad).items.iter().map(|item| item.width).collect();
+            assert_eq!(widths, [50.0, 90.0, 70.0]);
+        }
+        assert!(tabs(-10.0).items.iter().all(|item| item.width == 40.0));
+        assert!(Tabs::new(Vec::new(), palette).fill_width(200.0).items.is_empty());
+    }
+
+    #[test]
+    fn monospace_text_field_changes_only_the_family_enabled_and_disabled() {
+        let palette = ComponentPalette::neutral_dark();
+        for disabled in [false, true] {
+            let field = |mono| {
+                let field = TextField::new("path", "src/main.rs", "", palette)
+                    .monospace(mono)
+                    .enabled(!disabled);
+                UiTree::new(field.render()).layout(Size::new(300.0, 32.0))
+            };
+            let family = |frame: &crate::Frame| {
+                frame.commands.iter().find_map(|command| match command {
+                    DrawCommand::Text { font_family, .. } => Some(*font_family),
+                    _ => None,
+                })
+            };
+            assert_eq!(family(&field(false)), Some(FontFamily::Sans));
+            assert_eq!(family(&field(true)), Some(FontFamily::Monospace));
+            assert_eq!(field(false).regions, field(true).regions);
+        }
     }
 
     #[test]

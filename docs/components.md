@@ -40,20 +40,22 @@ it.
 
 | Component | Purpose | Reports |
 | --- | --- | --- |
-| `TextField` | Single-line text. Optional password masking. | `InputChanged`, `Submitted` |
+| `TextField` | Single-line text. Optional password masking; `.monospace(true)` for a path, an identifier or a number. | `InputChanged`, `Submitted` |
 | `TextArea` | Multi-line text. Enter adds a line; Ctrl+Enter submits. | `InputChanged`, `Submitted` |
 | `SearchField` | A text field with a magnifier and an optional shortcut hint. | `InputChanged`, `Submitted` |
 | `Switch` | An on/off control. | `Clicked` |
 | `DatePicker` | An ISO date field with a navigable month calendar. | `InputChanged`, and `Clicked` for navigation and days |
 | `TimePicker` | A 24-hour `HH:MM` field with step controls. | `InputChanged`, and `Clicked` for the steps |
 | `DateTimePicker` | The two above combined, each keeping its own state. | As above |
+| `Select` | A button showing the current choice that opens a `DropdownList` of the others. Controlled: the host passes the label, the options and whether it is open. `.sizing(SelectorSizing)` gives the trigger the profile's `min_width` and the list its `preferred_width`; `.width` and `.menu_width` override them, and without either the list is as wide as the trigger. `.menu_palette`, `.placement` (under the far edge by default), `.icon`, `.enabled`. | `Clicked` with its own ID, an option's action, or the dismiss ID |
+| `FormField`, `FormFieldSizing` | A label over a control the host owns, which fills the field's width. `.hint` adds a muted line under the control, or between the label and the control with `.hint_above(true)`; `.error(text, ink)` adds a last line in the host's color. `FormFieldSizing` sets the label's role, whether it is muted, the least height of its line, the role of hints and error, and the gap. | Nothing of its own |
 | `Composer` | A message composition surface. The host owns the text and the actions around it. | The actions of the controls the host places in it |
 
 ## Navigation
 
 | Component | Purpose |
 | --- | --- |
-| `Tabs` | A row of tabs with a selection that slides to the active one. |
+| `Tabs` | A row of tabs with a selection that slides to the active one. `.fill_width(total)` gives every tab the same width so the track is `total` wide. |
 | `SegmentedControl` | Tabs in one rounded track, for choosing one of a few options. |
 | `TabStrip`, `TabItem` | Folder tabs for open resources. Each `TabItem` has an icon, a title that fades, a tooltip and a slot for the host's close button; the host gives every tab its width. The strip scrolls sideways, keeps the active tab in view and reports `Clicked` with the tab's ID. `.each_tab` wraps a tab in something the host owns, such as a context menu. `TabStrip::header` is the 32-pixel bar that holds a strip and its tools (`.side_inset`, `.gap`); `TabStrip::surface` and `TabStrip::align` build label-only or icon-only tabs. The palette's `surface` is the active tab and the body, `raised` the bar, `hover` an inactive tab under the pointer. |
 | `Breadcrumb` | A path. Segments with an action are links; the last is the current resource. Middle segments collapse into a menu when space is short. |
@@ -103,7 +105,7 @@ for how they enter and leave.
 | `DropdownMenu` | A menu of actions with headings, separators, shortcuts and submenus. |
 | `DropdownList` | A list for choosing one option, with the current one marked. |
 | `ContextMenu` | A menu opened by a secondary click on its child. |
-| `Modal` | A centered dialog for forms, with a title, a scrolling body and a footer. |
+| `Modal` | A centered dialog for forms, with a title, a scrolling body and a footer. `Modal::fit_width(viewport_width, max)` is the width that keeps the window's margin clear, and `Modal::body_width(modal_width)` the width a body can count on: inside the padding and the rail reserved while it scrolls. |
 | `AlertDialog` | A centered confirmation for consequential actions. |
 | `ImageViewer` | A full-window image gallery. |
 

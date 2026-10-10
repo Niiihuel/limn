@@ -2,7 +2,7 @@ use super::{caption, row, section, Cx};
 use limn::{
     AlertDialog, AlertTone, Button, ButtonVariant, Color, Component, ContextMenu, ContextMenuEntry,
     ContextMenuItem, DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption,
-    Element, FontFamily, Icon, Modal, Popover, TextField, Toast,
+    Element, FontFamily, FormField, Icon, Modal, Popover, TextField, Toast,
 };
 
 const LANGUAGES: [(&str, &str); 3] = [("rust", "Rust"), ("python", "Python"), ("typescript", "TypeScript")];
@@ -126,9 +126,16 @@ pub fn layers(cx: &Cx, base: Element) -> Element {
         "overlay-modal=closed",
         palette,
     )
-    .width(420.0)
+    .width(Modal::fit_width(cx.width, 420.0))
     .body(
-        TextField::new("overlay-modal-name", state.text("overlay-modal-name"), "Nombre", palette).render(),
+        FormField::new(
+            "Nombre",
+            TextField::new("overlay-modal-name", state.text("overlay-modal-name"), "Mi proyecto", palette)
+                .render(),
+            palette,
+        )
+        .hint("Sólo letras, números y guiones.")
+        .render(),
     )
     .footer(Element::row(vec![
         Element::spacer().flex(1.0),

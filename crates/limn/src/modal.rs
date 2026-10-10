@@ -58,6 +58,12 @@ impl Component for DismissButton {
     }
 }
 
+// The card's inset and the rail its body reserves for the scrollbar.
+const PADDING: f32 = 14.0;
+const RAIL_WIDTH: f32 = 14.0;
+// The least space kept between the card and the window, both sides together.
+const VIEWPORT_MARGIN: f32 = 24.0;
+
 /// A controlled modal with a fixed header and footer. When `height` is set,
 /// only the body scrolls, keeping its actions visible in a short viewport.
 pub struct Modal {
@@ -109,6 +115,19 @@ impl Modal {
             self.width = width.max(240.0);
         }
         self
+    }
+
+    /// The width for a card that prefers `max` in a window `viewport_width`
+    /// wide: it gives way so the window's margin stays clear.
+    pub fn fit_width(viewport_width: f32, max: f32) -> f32 {
+        (viewport_width - VIEWPORT_MARGIN).min(max)
+    }
+
+    /// The width a body can count on in a card `modal_width` wide: what is
+    /// left inside the padding and the rail reserved while the body scrolls.
+    /// A body that does not scroll is laid out one rail wider.
+    pub fn body_width(modal_width: f32) -> f32 {
+        (modal_width - 2.0 * PADDING - RAIL_WIDTH).max(0.0)
     }
 
     /// Set a bounded card height. The body receives the remaining space and
@@ -190,7 +209,7 @@ impl Component for Modal {
                     // sections and never covers controls at the right edge.
                     .appearance(
                         ScrollbarAppearance::reserved()
-                            .rail_width(14.0)
+                            .rail_width(RAIL_WIDTH)
                             .thumb_width(4.0)
                             .tint(self.palette.muted),
                     )
@@ -205,7 +224,7 @@ impl Component for Modal {
         }
 
         let card = Element::panel(Element::column(sections).gap(10.0))
-            .padding(14.0)
+            .padding(PADDING)
             .size(Some(self.width), self.height)
             .background(self.palette.surface)
             .border(self.palette.border, 1.0)
@@ -330,6 +349,38 @@ mod tests {
                 }
             );
         }
+    }
+
+    #[test]
+    fn body_width_is_the_rendered_inner_width_and_fit_width_keeps_the_margin() {
+        for width in [240.0, 361.0, 520.0, 860.0] {
+            for (content, rail) in [(600.0, 0.0), (20.0, RAIL_WIDTH)] {
+                let mut tree = UiTree::new(
+                    Modal::new(
+                        Element::spacer(),
+                        true,
+                        "Title",
+                        "",
+                        "dismiss",
+                        ComponentPalette::neutral_dark(),
+                    )
+                    .width(width)
+                    .height(300.0)
+                    .body(Element::column(vec![
+                        Element::text_input("fill", "", ""),
+                        Element::spacer().size(None, Some(content)),
+                    ]))
+                    .render(),
+                );
+                tree.set_reduced_motion(true);
+                let frame = tree.layout(Size::new(1200.0, 600.0));
+                let field = frame.regions.iter().find(|region| region.id == "fill").unwrap().rect;
+                assert_eq!(field.width, Modal::body_width(width) + rail, "{width} {content}");
+            }
+        }
+        assert_eq!(Modal::body_width(10.0), 0.0);
+        assert_eq!(Modal::fit_width(1200.0, 560.0), 560.0);
+        assert_eq!(Modal::fit_width(360.0, 560.0), 336.0);
     }
 
     fn sample_modal() -> Element {
