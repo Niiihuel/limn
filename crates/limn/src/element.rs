@@ -155,6 +155,27 @@ pub enum Icon {
     Collapse,
     Expand,
     Clock,
+    /// Filled counterparts, for the chosen item of a navigation list.
+    FolderFill,
+    PlayFill,
+    GridFill,
+    SettingsFill,
+    PaletteFill,
+    LaptopFill,
+    TerminalFill,
+    KeyboardFill,
+    ChatFill,
+    UsersFill,
+    PuzzleFill,
+    ServerFill,
+    BookFill,
+    ClockFill,
+    BoltFill,
+    ArchiveFill,
+    ChartBarFill,
+    Bell,
+    BellFill,
+    BellSlash,
 }
 
 /// Outline forms of the passive loading indicator.
