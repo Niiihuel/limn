@@ -12,7 +12,6 @@ pub struct MenuHeader {
     palette: ComponentPalette,
     title: Option<String>,
     back: Option<(String, String)>,
-    center: Option<Element>,
     trailing: Option<Element>,
     search: Option<(String, String, String)>,
     width: Option<f32>,
@@ -25,7 +24,6 @@ impl MenuHeader {
             palette,
             title: None,
             back: None,
-            center: None,
             trailing: None,
             search: None,
             width: None,
@@ -42,13 +40,6 @@ impl MenuHeader {
     /// view the user entered from another one. `label` names this view.
     pub fn back(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
         self.back = Some((id.into(), label.into()));
-        self
-    }
-
-    /// An element centered in the room between the lead and the trailing
-    /// tool, such as the value a slider below is previewing.
-    pub fn center(mut self, element: Element) -> Self {
-        self.center = Some(element);
         self
     }
 
@@ -84,7 +75,6 @@ impl Component for MenuHeader {
         let sizing = SelectorSizing::COMPACT;
         let palette = self.palette;
         let tool = ControlSize::Compact.height();
-        let plain = self.center.is_none() && self.trailing.is_none();
         let lead = match (self.back, self.title) {
             (Some((id, label)), _) => {
                 let back = IconButton::new(id, Icon::ArrowLeft, palette)
@@ -93,7 +83,7 @@ impl Component for MenuHeader {
                     .size(ControlSize::Compact);
                 // The button fills what the trailing tool leaves, so the
                 // whole strip is the way back.
-                match self.width.filter(|_| self.center.is_none()) {
+                match self.width {
                     Some(width) => {
                         let taken = if self.trailing.is_some() {
                             tool + sizing.gap
@@ -102,8 +92,7 @@ impl Component for MenuHeader {
                         };
                         back.width((width - taken).max(0.0)).render()
                     }
-                    None if self.center.is_none() => back.render().flex(1.0),
-                    None => back.render(),
+                    None => back.render().flex(1.0),
                 }
             }
             (None, title) => {
@@ -112,28 +101,18 @@ impl Component for MenuHeader {
                     .font_size(sizing.label_size)
                     .foreground(palette.text)
                     .padding(sizing.padding);
-                if plain {
+                if self.trailing.is_none() {
                     title.size(self.width, Some(sizing.header_height))
-                } else if self.center.is_none() {
-                    title.flex(1.0)
                 } else {
-                    title
+                    title.flex(1.0)
                 }
             }
         };
-        let head = if plain {
-            lead.size(self.width, Some(sizing.header_height))
-        } else {
-            let mut row = vec![lead];
-            if let Some(center) = self.center {
-                row.push(center.flex(1.0));
-            }
-            if let Some(trailing) = self.trailing {
-                row.push(trailing.size(Some(tool), Some(tool)));
-            }
-            Element::row(row)
+        let head = match self.trailing {
+            Some(trailing) => Element::row(vec![lead, trailing.size(Some(tool), Some(tool))])
                 .gap(sizing.gap)
-                .size(self.width, Some(sizing.header_height))
+                .size(self.width, Some(sizing.header_height)),
+            None => lead.size(self.width, Some(sizing.header_height)),
         };
         let Some((id, query, placeholder)) = self.search else {
             return head;

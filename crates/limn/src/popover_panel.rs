@@ -1,7 +1,7 @@
 //! The content of a popover that is more than a menu: a head, a body that
 //! scrolls and a foot that stays.
 
-use crate::{CardDensity, Component, ComponentPalette, Element, Separator};
+use crate::{Component, ComponentPalette, Element, Separator};
 
 /// Pass the rendered panel to `Popover::new` as its content. The popover
 /// keeps the placement, the width and the surface; the panel only stacks
@@ -13,8 +13,6 @@ pub struct PopoverPanel {
     body: Option<Element>,
     body_max_height: Option<f32>,
     footer: Option<Element>,
-    separators: bool,
-    density: Option<CardDensity>,
 }
 
 impl PopoverPanel {
@@ -27,8 +25,6 @@ impl PopoverPanel {
             body: None,
             body_max_height: None,
             footer: None,
-            separators: true,
-            density: None,
         }
     }
 
@@ -59,20 +55,6 @@ impl PopoverPanel {
         self.footer = Some(footer);
         self
     }
-
-    /// Whether a hairline separates the body from the header and from the
-    /// footer (it does unless set).
-    pub fn separators(mut self, separators: bool) -> Self {
-        self.separators = separators;
-        self
-    }
-
-    /// Pad the panel like a card of this density. Without it the panel
-    /// keeps to the popover's own inset.
-    pub fn density(mut self, density: CardDensity) -> Self {
-        self.density = Some(density);
-        self
-    }
 }
 
 impl Component for PopoverPanel {
@@ -82,7 +64,7 @@ impl Component for PopoverPanel {
         let has_body = self.body.is_some();
         if let Some(header) = self.header {
             parts.push(header);
-            if self.separators && (has_body || self.footer.is_some()) {
+            if has_body || self.footer.is_some() {
                 parts.push(rule());
             }
         }
@@ -94,17 +76,13 @@ impl Component for PopoverPanel {
             parts.push(body.flex(1.0));
         }
         if let Some(footer) = self.footer {
-            if self.separators && has_body {
+            if has_body {
                 parts.push(rule());
             }
             parts.push(footer);
         }
         // Four pixels: the parts read as one surface, not as stacked cards.
-        let panel = Element::column(parts).gap(4.0);
-        match self.density {
-            Some(density) => panel.padding(density.padding()),
-            None => panel,
-        }
+        Element::column(parts).gap(4.0)
     }
 }
 
@@ -200,15 +178,7 @@ mod tests {
     }
 
     #[test]
-    fn separators_and_density_are_options_and_a_bad_cap_is_ignored() {
-        assert!(rules(&frame_of(panel(3).separators(false), 700.0)).is_empty());
-        let plain = PopoverPanel::new(palette()).body(Element::text("Body")).render();
-        assert_eq!(plain.style.padding, 0.0);
-        let padded = PopoverPanel::new(palette())
-            .body(Element::text("Body"))
-            .density(CardDensity::Regular)
-            .render();
-        assert_eq!(padded.style.padding, 10.0);
+    fn a_bad_cap_is_ignored() {
         let capped = |height: f32| {
             let ElementKind::Column(mut parts) =
                 PopoverPanel::new(palette())

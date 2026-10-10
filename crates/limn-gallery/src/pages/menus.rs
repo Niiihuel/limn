@@ -99,6 +99,8 @@ fn catalog(cx: &Cx) -> Element {
                     .description(*id)
                     .detail_mono(true)
                     .status(*status)
+                    // One slot for every status, so they start in a column.
+                    .status_width(84.0)
                     .selected(*id == chosen)
                     .enabled(*status != "No compatible")
                     .tooltip_with(TooltipSpec::new(*title).description(format!("Identificador: {id}")))
