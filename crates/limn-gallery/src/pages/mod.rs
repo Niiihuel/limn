@@ -10,6 +10,7 @@ mod empty;
 mod feedback;
 mod inputs;
 mod lists;
+mod menus;
 mod navigation;
 mod overlays;
 mod page;
@@ -42,6 +43,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "empty", group: "Estados", title: "Estado vacío", view: empty::view },
     Page { id: "feedback", group: "Estados", title: "Avisos y carga", view: feedback::view },
     Page { id: "overlays", group: "Superposiciones", title: "Menús y diálogos", view: overlays::view },
+    Page { id: "menus", group: "Superposiciones", title: "Selectores y sugerencias", view: menus::view },
     Page { id: "tooltip", group: "Superposiciones", title: "Tooltip", view: tooltip::view },
 ];
 

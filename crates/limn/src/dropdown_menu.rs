@@ -3,11 +3,14 @@
 use crate::components::{
     Component, ComponentPalette, ControlState, Kbd, Popover, Tooltip, lighter,
 };
-use crate::menu::action_style;
+use crate::menu::{DetailRow, action_style};
 use crate::{
     Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, PopoverPlacement, ScrollArea,
-    ScrollbarAppearance, SelectorSizing,
+    ScrollbarAppearance, SelectorSizing, Separator, Skeleton, TooltipSpec,
 };
+
+// The height of the viewport that holds an error too long for one row.
+const ERROR_HEIGHT: f32 = 104.0;
 
 // The scroll viewport remains the full menu content width. Only its children
 // give up this much room, so the scrollbar never paints over a row or label.
@@ -24,6 +27,12 @@ pub struct DropdownMenuItem {
     pub state: ControlState,
     pub submenu: Option<Vec<DropdownMenuEntry>>,
     pub destructive: Option<Color>,
+    description: Option<String>,
+    detail_mono: bool,
+    status: Option<String>,
+    status_width: Option<f32>,
+    chevron: bool,
+    tooltip: Option<TooltipSpec>,
 }
 
 impl DropdownMenuItem {
@@ -38,6 +47,12 @@ impl DropdownMenuItem {
             state: ControlState::Enabled,
             submenu: None,
             destructive: None,
+            description: None,
+            detail_mono: false,
+            status: None,
+            status_width: None,
+            chevron: false,
+            tooltip: None,
         }
     }
 
@@ -70,6 +85,59 @@ impl DropdownMenuItem {
     }
 
     /// Opens a second menu beside this row on pointer hover or keyboard focus.
+    /// Enable or disable the item; the counterpart of [`disabled`](Self::disabled)
+    /// for a state the host computes.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.state = if enabled {
+            ControlState::Enabled
+        } else {
+            ControlState::Disabled
+        };
+        self
+    }
+
+    /// A quiet second line under the label. The item becomes a two-line row
+    /// (`SelectorSizing::detail_row_height`) with a column for the check;
+    /// it ignores `shortcut`, `annotation`, `submenu` and `destructive`.
+    pub fn description(mut self, text: impl Into<String>) -> Self {
+        self.description = Some(text.into());
+        self
+    }
+
+    /// Set the description in the monospaced family, for an identifier.
+    pub fn detail_mono(mut self, mono: bool) -> Self {
+        self.detail_mono = mono;
+        self
+    }
+
+    /// Short muted text at the far end of the description line.
+    pub fn status(mut self, text: impl Into<String>) -> Self {
+        self.status = Some(text.into());
+        self
+    }
+
+    /// Fix the status slot's width instead of following its text. Values
+    /// that are not finite are ignored.
+    pub fn status_width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.status_width = Some(width.max(0.0));
+        }
+        self
+    }
+
+    /// End a two-line item with a chevron instead of the check column: it
+    /// opens another view of the same menu.
+    pub fn chevron(mut self) -> Self {
+        self.chevron = true;
+        self
+    }
+
+    /// A hint for the row, for what its label cannot say.
+    pub fn tooltip_with(mut self, tooltip: TooltipSpec) -> Self {
+        self.tooltip = Some(tooltip);
+        self
+    }
+
     pub fn submenu(mut self, entries: Vec<DropdownMenuEntry>) -> Self {
         self.submenu = Some(entries);
         self
@@ -88,6 +156,132 @@ pub enum DropdownMenuEntry {
     Separator,
     /// An application-specific control inside the shared menu surface.
     Custom(Box<Element>),
+    /// A group heading that folds and unfolds its items.
+    Section(DropdownMenuSection),
+    /// A muted sentence in place of items: nothing found, or work in course.
+    Message(String),
+    /// Placeholder rows while the items load. Skeleton IDs derive from `id`.
+    Loading { id: String, rows: usize },
+    /// A failure too long for a row, in its own short scroll area named `id`.
+    Error { id: String, text: String },
+}
+
+/// The heading of a group the user can fold: an icon, a label, how many
+/// items it holds and a chevron. The host owns `collapsed` and leaves the
+/// group's items out of the entries while it is set.
+pub struct DropdownMenuSection {
+    id: String,
+    label: String,
+    icon: Option<Icon>,
+    count: Option<usize>,
+    collapsed: bool,
+    width: Option<f32>,
+}
+
+impl DropdownMenuSection {
+    /// A section reporting `id` when its heading is activated.
+    pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            icon: None,
+            count: None,
+            collapsed: false,
+            width: None,
+        }
+    }
+
+    /// An icon before the label.
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// How many items the section holds, before the chevron.
+    pub fn count(mut self, count: usize) -> Self {
+        self.count = Some(count);
+        self
+    }
+
+    /// Point the chevron right instead of down.
+    pub fn collapsed(mut self, collapsed: bool) -> Self {
+        self.collapsed = collapsed;
+        self
+    }
+
+    /// A fixed width, for a menu whose rows keep clear of a reserved rail.
+    /// Values that are not finite are ignored.
+    pub fn width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.width = Some(width.max(0.0));
+        }
+        self
+    }
+
+    fn render(self, palette: ComponentPalette) -> Element {
+        let sizing = SelectorSizing::COMPACT;
+        let mut children = Vec::with_capacity(4);
+        if let Some(icon) = self.icon {
+            children.push(
+                Element::icon(icon)
+                    .foreground(palette.muted)
+                    .size(Some(sizing.icon_size), Some(sizing.icon_size)),
+            );
+        }
+        children.push(
+            Element::truncated_text(self.label)
+                .font_family(FontFamily::Sans)
+                .font_size(sizing.label_size)
+                .foreground(palette.muted)
+                .flex(1.0),
+        );
+        if let Some(count) = self.count {
+            children.push(
+                Element::text(count.to_string())
+                    .font_family(FontFamily::Sans)
+                    .font_size(sizing.detail_size)
+                    .foreground(palette.muted),
+            );
+        }
+        children.push(
+            Element::icon(if self.collapsed {
+                Icon::ChevronRight
+            } else {
+                Icon::ChevronDown
+            })
+            .foreground(palette.muted)
+            .size(Some(sizing.icon_size), Some(sizing.icon_size)),
+        );
+        palette
+            .interactive_surface(
+                Element::clickable(self.id, Element::row(children).gap(sizing.gap))
+                    .action_menu_item(),
+            )
+            .padding(sizing.padding)
+            .size(self.width, Some(sizing.row_height))
+    }
+}
+
+impl From<DropdownMenuSection> for DropdownMenuEntry {
+    fn from(section: DropdownMenuSection) -> Self {
+        Self::Section(section)
+    }
+}
+
+// What a two-line item, a section and the state rows occupy, whatever the
+// density of the menu's one-line items; `None` for an ordinary row.
+fn fixed_entry_height(entry: &DropdownMenuEntry) -> Option<f32> {
+    let sizing = SelectorSizing::COMPACT;
+    match entry {
+        DropdownMenuEntry::Item(item) if item.description.is_some() => {
+            Some(sizing.detail_row_height)
+        }
+        DropdownMenuEntry::Section(_) => Some(sizing.row_height),
+        DropdownMenuEntry::Loading { rows, .. } => Some(*rows as f32 * sizing.row_height),
+        DropdownMenuEntry::Error { .. } => Some(ERROR_HEIGHT),
+        DropdownMenuEntry::Custom(element) => element.style.height,
+        _ => None,
+    }
 }
 
 impl DropdownMenuEntry {
@@ -124,7 +318,7 @@ fn group_boundaries(entries: Vec<DropdownMenuEntry>) -> Vec<DropdownMenuEntry> {
                 }
                 has_content = false;
             }
-            DropdownMenuEntry::Item(_) | DropdownMenuEntry::Custom(_) => {
+            _ => {
                 has_content = true;
             }
         }
@@ -141,6 +335,7 @@ fn group_boundaries(entries: Vec<DropdownMenuEntry>) -> Vec<DropdownMenuEntry> {
 pub struct DropdownMenu {
     anchor: Element,
     header: Option<Element>,
+    footer: Option<Element>,
     entries: Vec<DropdownMenuEntry>,
     open: bool,
     dismiss_id: String,
@@ -169,6 +364,7 @@ impl DropdownMenu {
         Self {
             anchor,
             header: None,
+            footer: None,
             entries,
             open,
             dismiss_id: dismiss_id.into(),
@@ -235,6 +431,13 @@ impl DropdownMenu {
     /// It shares the menu's focus scope but never scrolls with the options.
     pub fn header(mut self, header: Element) -> Self {
         self.header = Some(header);
+        self
+    }
+
+    /// Content kept under the options, below a hairline: an action that
+    /// must stay in reach however far the list scrolls.
+    pub fn footer(mut self, footer: Element) -> Self {
+        self.footer = Some(footer);
         self
     }
 
@@ -310,8 +513,7 @@ impl Component for DropdownMenu {
         let action_height = |entry: &DropdownMenuEntry| match entry {
             DropdownMenuEntry::Heading(_) => action_style::HEADER_HEIGHT,
             DropdownMenuEntry::Separator => action_style::SEPARATOR_HEIGHT,
-            DropdownMenuEntry::Custom(element) => element.style.height.unwrap_or(row_height),
-            DropdownMenuEntry::Item(_) => row_height,
+            entry => fixed_entry_height(entry).unwrap_or(row_height),
         };
         let visible_height = if contextual {
             // This is a ceiling, not the list's actual height. Rows are
@@ -330,10 +532,7 @@ impl Component for DropdownMenu {
                     .map(|entry| match entry {
                         DropdownMenuEntry::Heading(_) => sizing.header_height,
                         DropdownMenuEntry::Separator => 1.0,
-                        DropdownMenuEntry::Custom(element) => {
-                            element.style.height.unwrap_or(row_height)
-                        }
-                        DropdownMenuEntry::Item(_) => row_height,
+                        entry => fixed_entry_height(entry).unwrap_or(row_height),
                     });
             heights.sum::<f32>() + self.max_visible_items.saturating_sub(1) as f32 * 2.0
         } else {
@@ -394,6 +593,70 @@ impl Component for DropdownMenu {
                     .background(palette.border)
                     .size(Some(row_width), Some(1.0)),
                 DropdownMenuEntry::Custom(element) => *element,
+                DropdownMenuEntry::Section(section) => {
+                    let section = section.render(palette);
+                    if contextual || section.style.width.is_some() {
+                        section
+                    } else {
+                        section.size(Some(row_width), Some(SelectorSizing::COMPACT.row_height))
+                    }
+                }
+                DropdownMenuEntry::Message(text) => {
+                    state_text(text, palette).size((!contextual).then_some(row_width), None)
+                }
+                DropdownMenuEntry::Loading { id, rows } => {
+                    let sizing = SelectorSizing::COMPACT;
+                    Element::column(
+                        (0..rows)
+                            .map(|index| {
+                                Element::panel(
+                                    Skeleton::block(
+                                        format!("{id}:{index}"),
+                                        palette,
+                                        (row_width - sizing.padding * 2.0).max(0.0),
+                                        sizing.icon_size,
+                                    )
+                                    .render(),
+                                )
+                                .padding(sizing.padding)
+                                .size(Some(row_width), Some(sizing.row_height))
+                            })
+                            .collect(),
+                    )
+                }
+                DropdownMenuEntry::Error { id, text } => ScrollArea::new(
+                    id,
+                    state_text(text, palette)
+                        .size(Some((row_width - scrollbar_gutter).max(0.0)), None),
+                )
+                .render()
+                .size(Some(row_width), Some(ERROR_HEIGHT)),
+                DropdownMenuEntry::Item(item) if item.description.is_some() => {
+                    let enabled = item.state == ControlState::Enabled;
+                    let id = item.action_id.clone();
+                    let row = DetailRow {
+                        action_id: item.action_id,
+                        label: item.label,
+                        description: item.description.unwrap_or_default(),
+                        icon: item.icon,
+                        mono: item.detail_mono,
+                        status: item.status,
+                        status_width: item.status_width,
+                        chevron: item.chevron,
+                        selected: Some(item.selected),
+                        enabled,
+                    }
+                    .render(palette);
+                    let row = if contextual {
+                        row
+                    } else {
+                        row.size(Some(row_width), Some(SelectorSizing::COMPACT.detail_row_height))
+                    };
+                    match item.tooltip {
+                        Some(tooltip) => tooltip.wrap(row, id, palette),
+                        None => row,
+                    }
+                }
                 DropdownMenuEntry::Item(mut item) => {
                     let tooltip_hint = if self.hints_in_tooltips
                         && (item.shortcut.is_some() || item.annotation.is_some())
@@ -623,6 +886,8 @@ impl Component for DropdownMenu {
                             tooltip = tooltip.shortcut(shortcut);
                         }
                         tooltip.render()
+                    } else if let Some(tooltip) = item.tooltip {
+                        tooltip.wrap(row, submenu_id.clone(), palette)
                     } else {
                         row
                     };
@@ -681,6 +946,18 @@ impl Component for DropdownMenu {
                 content
             };
             Element::column(vec![header, content]).gap(2.0)
+        } else {
+            content
+        };
+        let content = if let Some(footer) = self.footer {
+            // The options give way first when placement shortens the surface,
+            // so the footer is never the part that is cut off.
+            Element::column(vec![
+                content.flex(1.0),
+                Separator::horizontal(palette).render(),
+                footer,
+            ])
+            .gap(SelectorSizing::COMPACT.gap)
         } else {
             content
         };
@@ -743,6 +1020,16 @@ impl Component for DropdownMenu {
     }
 }
 
+// The muted sentence of a message or an error.
+fn state_text(text: String, palette: ComponentPalette) -> Element {
+    let sizing = SelectorSizing::COMPACT;
+    Element::text(text)
+        .font_family(FontFamily::Sans)
+        .font_size(sizing.label_size)
+        .foreground(palette.muted)
+        .padding(sizing.padding)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -750,6 +1037,294 @@ mod tests {
         ControlSize, DrawCommand, HitKind, Key, Point, SearchField, Size, Tooltip,
         TooltipPlacement, UiAction, UiEvent, UiTree,
     };
+
+    fn region(frame: &crate::Frame, id: &str) -> crate::Rect {
+        frame
+            .regions
+            .iter()
+            .find(|region| region.id == id && region.kind != HitKind::Scrollbar)
+            .unwrap_or_else(|| panic!("missing {id}"))
+            .rect
+    }
+
+    fn open_menu(menu: DropdownMenu) -> UiTree {
+        let mut tree = UiTree::new(menu.render());
+        tree.set_reduced_motion(true);
+        tree
+    }
+
+    fn trigger() -> Element {
+        Element::button("trigger", "Open").size(Some(80.0), Some(28.0))
+    }
+
+    #[test]
+    fn the_footer_stays_under_a_hairline_while_the_options_scroll() {
+        let palette = ComponentPalette::neutral_dark();
+        for contextual in [false, true] {
+            let menu = DropdownMenu::new(
+                trigger(),
+                (0..40)
+                    .map(|index| {
+                        DropdownMenuItem::new(format!("item:{index}"), format!("Item {index}"))
+                            .into()
+                    })
+                    .collect(),
+                true,
+                "dismiss",
+                palette,
+            )
+            .footer(Element::button("connect", "Connect").size(None, Some(28.0)));
+            let mut tree = open_menu(if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            });
+            let size = Size::new(640.0, 420.0);
+            let frame = tree.layout(size);
+            let footer = region(&frame, "connect");
+            let rule = frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::FillRect { rect, color, .. }
+                        if *color == palette.border && rect.height == 1.0 =>
+                    {
+                        Some(*rect)
+                    }
+                    _ => None,
+                })
+                .expect("a hairline above the footer");
+            assert_eq!(footer.y - (rule.y + 1.0), SelectorSizing::COMPACT.gap);
+            assert!(footer.y + footer.height <= size.height, "the footer is in the window");
+            let first = region(&frame, "item:1");
+            tree.handle_event(UiEvent::ScrollDirect {
+                position: Point::new(first.x + 20.0, first.y + 4.0),
+                delta_y: -200.0,
+            });
+            let scrolled = tree.layout(size);
+            assert_eq!(region(&scrolled, "connect"), footer);
+            assert!(
+                scrolled.regions.iter().all(|row| row.id != "item:1")
+                    || region(&scrolled, "item:1").y != first.y,
+                "the options did scroll"
+            );
+        }
+    }
+
+    #[test]
+    fn a_two_line_item_has_the_selector_metrics_in_both_menu_styles() {
+        let palette = ComponentPalette::neutral_dark();
+        let sizing = SelectorSizing::COMPACT;
+        for contextual in [false, true] {
+            let menu = DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuItem::new("model", "Model")
+                        .icon(Icon::Server)
+                        .description("large-v3")
+                        .detail_mono(true)
+                        .status("Verified")
+                        .selected(true)
+                        .into(),
+                    DropdownMenuItem::new("effort", "Effort")
+                        .icon(Icon::Brain)
+                        .description("Automatic")
+                        .chevron()
+                        .into(),
+                    DropdownMenuItem::new("off", "Unavailable")
+                        .description("No credential")
+                        .enabled(false)
+                        .into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .width(300.0);
+            let mut tree = open_menu(if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            });
+            let frame = tree.layout(Size::new(640.0, 480.0));
+            let (model, effort) = (region(&frame, "model"), region(&frame, "effort"));
+            assert_eq!(model.height, sizing.detail_row_height);
+            assert_eq!(effort.height, sizing.detail_row_height);
+            let text = |label: &str| {
+                frame
+                    .commands
+                    .iter()
+                    .find_map(|command| match command {
+                        DrawCommand::Text {
+                            text,
+                            position,
+                            font_size,
+                            font_family,
+                            color,
+                        } if text == label => Some((*position, *font_size, *font_family, *color)),
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("missing {label}"))
+            };
+            let (label, label_size, _, label_ink) = text("Model");
+            let (detail, detail_size, detail_family, detail_ink) = text("large-v3");
+            assert_eq!((label_size, label_ink), (sizing.label_size, palette.text));
+            assert_eq!(
+                (detail_size, detail_family, detail_ink),
+                (sizing.detail_size, FontFamily::Monospace, palette.muted)
+            );
+            assert_eq!(label.x, model.x + sizing.padding + sizing.icon_size + sizing.gap);
+            assert_eq!(label.x, detail.x);
+            assert!(detail.y > label.y);
+            assert!(text("Verified").0.x > detail.x);
+            let icons: Vec<_> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Icon { icon, rect, tint } => Some((*icon, *rect, *tint)),
+                    _ => None,
+                })
+                .collect();
+            let trailing = |icon: Icon, row: crate::Rect| {
+                let (_, rect, color) = icons.iter().find(|(kind, ..)| *kind == icon).unwrap();
+                assert_eq!(
+                    rect.x + rect.width,
+                    row.x + row.width - sizing.padding,
+                    "{icon:?} ends the row"
+                );
+                *color
+            };
+            assert_eq!(trailing(Icon::Check, model), palette.text);
+            assert_eq!(trailing(Icon::ChevronRight, effort), palette.muted);
+            assert!(
+                frame.regions.iter().all(|row| row.id != "off"),
+                "a disabled item is passive"
+            );
+            assert_eq!(text("Unavailable").3, palette.muted);
+        }
+    }
+
+    #[test]
+    fn a_section_reports_its_toggle_and_turns_its_chevron_when_collapsed() {
+        let palette = ComponentPalette::neutral_dark();
+        for collapsed in [false, true] {
+            let mut entries = vec![
+                DropdownMenuSection::new("toggle", "Provider")
+                    .icon(Icon::Server)
+                    .count(2)
+                    .collapsed(collapsed)
+                    .into(),
+            ];
+            if !collapsed {
+                entries.push(DropdownMenuItem::new("first", "First").into());
+            }
+            let mut tree = open_menu(
+                DropdownMenu::new(trigger(), entries, true, "dismiss", palette)
+                    .context_menu_style(),
+            );
+            let frame = tree.layout(Size::new(640.0, 480.0));
+            let section = region(&frame, "toggle");
+            assert_eq!(section.height, SelectorSizing::COMPACT.row_height);
+            assert!(frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::Text { text, color, .. } if text == "2" && *color == palette.muted)));
+            let chevron = if collapsed {
+                Icon::ChevronRight
+            } else {
+                Icon::ChevronDown
+            };
+            assert!(frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::Icon { icon, .. } if *icon == chevron)));
+            let point = Point::new(section.x + 20.0, section.y + 10.0);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(
+                tree.handle_event(UiEvent::PointerUp(point)),
+                vec![UiAction::Clicked { id: "toggle".into() }]
+            );
+        }
+        let fixed = DropdownMenuSection::new("toggle", "Provider").width(f32::NAN);
+        assert_eq!(fixed.render(palette).style.width, None);
+        let fixed = DropdownMenuSection::new("toggle", "Provider").width(-1.0);
+        assert_eq!(fixed.render(palette).style.width, Some(0.0));
+    }
+
+    #[test]
+    fn state_entries_paint_a_message_skeleton_rows_and_a_bounded_error() {
+        let palette = ComponentPalette::neutral_dark();
+        for contextual in [false, true] {
+            let menu = DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuEntry::Message("Nothing here yet.".into()),
+                    DropdownMenuEntry::Loading {
+                        id: "loading".into(),
+                        rows: 3,
+                    },
+                    DropdownMenuEntry::Error {
+                        id: "failure".into(),
+                        text: "The repository could not be read. ".repeat(30),
+                    },
+                    DropdownMenuItem::new("retry", "Retry").into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .width(280.0);
+            let mut tree = open_menu(if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            });
+            let frame = tree.layout(Size::new(640.0, 700.0));
+            assert!(frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::Text { text, color, font_size, .. }
+                    if text == "Nothing here yet."
+                        && *color == palette.muted
+                        && *font_size == SelectorSizing::COMPACT.label_size)));
+            let retry = region(&frame, "retry");
+            let error = frame
+                .regions
+                .iter()
+                .find(|row| row.id == "failure" && row.kind == HitKind::Scroll)
+                .expect("the error scrolls in its own viewport")
+                .rect;
+            assert!(error.height <= ERROR_HEIGHT + 0.01, "{error:?}");
+            assert!(retry.y >= error.y, "the action after a long error stays in reach");
+            assert!(retry.y + retry.height <= 700.0);
+        }
+    }
+
+    #[test]
+    fn an_item_tooltip_wraps_the_row_and_a_bad_status_width_is_ignored() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = open_menu(
+            DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuItem::new("copy", "Copy address")
+                        .tooltip_with(TooltipSpec::new("Copy").description("Copies the address."))
+                        .into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .context_menu_style(),
+        );
+        let size = Size::new(640.0, 480.0);
+        let frame = tree.layout(size);
+        let copy = region(&frame, "copy");
+        tree.handle_event(UiEvent::PointerMove(Point::new(copy.x + 8.0, copy.y + 8.0)));
+        let hinted = tree.layout_at(
+            size,
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        );
+        assert!(hinted.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, .. } if text.contains("Copies the address"))));
+        let item = DropdownMenuItem::new("a", "A").status_width(f32::NAN);
+        assert_eq!(item.status_width, None);
+        assert_eq!(item.status_width(-3.0).status_width, Some(0.0));
+    }
 
     #[test]
     fn narrow_menu_can_move_hints_to_tooltips_without_changing_actions_or_disabled_state() {

@@ -35,6 +35,7 @@ mod image_viewer;
 mod list_row;
 mod marker;
 mod menu;
+mod menu_header;
 mod modal;
 mod motion;
 mod notice;
@@ -43,6 +44,7 @@ mod theme;
 mod page;
 mod pager;
 mod panel_header;
+mod popover_panel;
 mod preferences;
 mod progress;
 mod raster_image;
@@ -55,6 +57,7 @@ mod shortcut;
 mod skeleton;
 mod spinner;
 mod stepper;
+mod suggestion_list;
 mod tab_strip;
 mod text;
 mod text_shimmer;
@@ -101,7 +104,9 @@ pub use composer::Composer;
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
 pub use date_picker::DatePicker;
 pub use date_time_picker::DateTimePicker;
-pub use dropdown_menu::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem};
+pub use dropdown_menu::{
+    DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
+};
 pub use element::{
     Border, BoxShadow, CornerRadii, Element, ElementKind, FontFamily, Icon, PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
@@ -115,6 +120,7 @@ pub use image_viewer::ImageViewer;
 pub use list_row::{DiffStat, ListRow, RowSizing};
 pub use marker::{thinking_highlight, Marker, MarkerVariant};
 pub use menu::{MenuItem, MenuSeparator};
+pub use menu_header::MenuHeader;
 pub use modal::{DismissButton, Modal};
 pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
@@ -124,6 +130,7 @@ pub use output_block::OutputBlock;
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
 pub use pager::{Pager, PagerSizing};
 pub use panel_header::{HeaderSizing, PanelHeader, SidebarPanel};
+pub use popover_panel::PopoverPanel;
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
 pub use raster_image::{RasterImage, RasterImageFormat};
@@ -135,6 +142,7 @@ pub use separator::Separator;
 pub use skeleton::{Skeleton, SkeletonGroup};
 pub use spinner::Spinner;
 pub use stepper::{Step, Stepper};
+pub use suggestion_list::{SuggestionItem, SuggestionList};
 pub use tab_strip::{TabItem, TabStrip, TabStripHeader};
 pub use text::Text;
 pub use text_shimmer::TextShimmer;

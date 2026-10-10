@@ -14,7 +14,7 @@ pub enum CardDensity {
 }
 
 impl CardDensity {
-    const fn padding(self) -> f32 {
+    pub(crate) const fn padding(self) -> f32 {
         match self {
             Self::Compact => 8.0,
             Self::Regular => 10.0,

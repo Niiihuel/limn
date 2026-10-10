@@ -1163,6 +1163,8 @@ pub struct Kbd {
     palette: ComponentPalette,
     max_width: Option<f32>,
     menu: bool,
+    alternatives: Vec<String>,
+    caption: Option<String>,
 }
 
 impl Kbd {
@@ -1172,7 +1174,22 @@ impl Kbd {
             palette,
             max_width: None,
             menu: false,
+            alternatives: Vec::new(),
+            caption: None,
         }
+    }
+
+    /// Another key that does the same, shown after a slash: Enter / Tab.
+    pub fn alternative(mut self, keys: impl Into<String>) -> Self {
+        self.alternatives.push(keys.into());
+        self
+    }
+
+    /// Say what the keys do, in a small muted caption after them: the hint
+    /// in the footer of a palette or a suggestion list.
+    pub fn caption(mut self, text: impl Into<String>) -> Self {
+        self.caption = Some(text.into());
+        self
     }
 
     /// Render the same combination as a plain, right-aligned action-menu
@@ -1193,7 +1210,33 @@ impl Kbd {
 }
 
 impl Component for Kbd {
-    fn render(self) -> Element {
+    fn render(mut self) -> Element {
+        if self.caption.is_some() || !self.alternatives.is_empty() {
+            let palette = self.palette;
+            let small = crate::TextRole::Small.size();
+            let caption = self.caption.take();
+            let mut parts = Vec::new();
+            for keys in std::iter::once(std::mem::take(&mut self.keys))
+                .chain(std::mem::take(&mut self.alternatives))
+            {
+                if !parts.is_empty() {
+                    parts.push(Element::text("/").font_size(small).foreground(palette.muted));
+                }
+                parts.push(Kbd { keys, ..Kbd::new("", palette) }.render());
+            }
+            if let Some(caption) = caption {
+                parts.push(
+                    Element::text(caption)
+                        .font_family(FontFamily::Sans)
+                        .font_size(small)
+                        .foreground(palette.muted),
+                );
+            }
+            // One pixel of air above and below the keycaps.
+            return Element::row(parts)
+                .gap(4.0)
+                .size(None, Some(crate::shortcut::HEIGHT + 2.0));
+        }
         if crate::shortcut::label(&self.keys).is_empty() {
             return Element::spacer().size(Some(0.0), Some(0.0));
         }
@@ -3039,6 +3082,49 @@ mod tests {
             assert_eq!(frame.regions.len(), 1);
             assert!(caps.iter().all(|cap| cap.x + cap.width <= next.rect.x));
         }
+    }
+
+    #[test]
+    fn a_captioned_hint_is_keycaps_a_slash_between_alternatives_and_a_small_muted_caption() {
+        let palette = ComponentPalette::neutral_dark();
+        let hint = Kbd::new("Enter", palette)
+            .alternative("Tab")
+            .caption("Accept")
+            .render();
+        assert_eq!(hint.style.height, Some(20.0));
+        let frame = UiTree::new(Element::row(vec![hint, Element::spacer().flex(1.0)]))
+            .layout(Size::new(300.0, 20.0));
+        let texts: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text {
+                    text,
+                    position,
+                    color,
+                    font_size,
+                    ..
+                } => Some((text.as_str(), position.x, *color, *font_size)),
+                _ => None,
+            })
+            .collect();
+        let labels: Vec<_> = texts.iter().map(|text| text.0).collect();
+        assert_eq!(labels, ["Enter", "/", "Tab", "Accept"]);
+        assert!(texts.windows(2).all(|pair| pair[0].1 < pair[1].1));
+        for (label, _, color, size) in &texts {
+            if ["/", "Accept"].contains(label) {
+                assert_eq!((*color, *size), (palette.muted, 11.0));
+            }
+        }
+        let caps = frame
+            .commands
+            .iter()
+            .filter(|command| matches!(command,
+                DrawCommand::FillRect { color, .. }
+                    if *color == crate::shortcut::cap_fill(palette.text)))
+            .count();
+        assert_eq!(caps, 2);
+        assert!(frame.regions.is_empty(), "a hint is passive");
     }
 
     #[test]
