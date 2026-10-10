@@ -22,9 +22,13 @@ const SLOT: f32 = 24.0;
 /// Which search options are on.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct FindOptions {
+    /// Upper and lower case differ.
     pub case: bool,
+    /// Only whole words match.
     pub word: bool,
+    /// The query is a regular expression.
     pub regex: bool,
+    /// Only the selection is searched.
     pub in_selection: bool,
 }
 
@@ -32,17 +36,29 @@ pub struct FindOptions {
 /// and the dismiss ID of the popover [`FindBar::attach`] makes.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FindIds {
+    /// Input ID of the query field.
     pub query: String,
+    /// Input ID of the replace field.
     pub replacement: String,
+    /// Toggles [`FindOptions::case`].
     pub case: String,
+    /// Toggles [`FindOptions::word`].
     pub word: String,
+    /// Toggles [`FindOptions::regex`].
     pub regex: String,
+    /// Toggles [`FindOptions::in_selection`].
     pub in_selection: String,
+    /// Shows or hides the replace row.
     pub toggle_replace: String,
+    /// Steps to the match before the current one.
     pub previous: String,
+    /// Steps to the match after the current one.
     pub next: String,
+    /// Closes the bar.
     pub dismiss: String,
+    /// Replaces the current match.
     pub replace_one: String,
+    /// Replaces every match.
     pub replace_all: String,
     /// Hover target of the count's tooltip.
     pub count: String,
@@ -77,22 +93,39 @@ impl FindIds {
 /// shortcuts named in them. The default is English.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FindLabels {
+    /// Placeholder of the query field.
     pub query: String,
+    /// Placeholder of the replace field.
     pub replacement: String,
+    /// Tooltip of the case option.
     pub case: String,
+    /// Tooltip of the whole word option.
     pub word: String,
+    /// Tooltip of the regular expression option.
     pub regex: String,
+    /// Tooltip of the search in selection option.
     pub in_selection: String,
+    /// Tooltip of the button that shows the replace row.
     pub toggle_replace: String,
+    /// The shortcut that tooltip names.
     pub toggle_replace_shortcut: String,
+    /// Tooltip of the previous match button.
     pub previous: String,
+    /// The shortcut that tooltip names.
     pub previous_shortcut: String,
+    /// Tooltip of the next match button.
     pub next: String,
+    /// The shortcut that tooltip names.
     pub next_shortcut: String,
+    /// Tooltip of the close button.
     pub dismiss: String,
+    /// The shortcut that tooltip names.
     pub dismiss_shortcut: String,
+    /// Tooltip of the replace button.
     pub replace_one: String,
+    /// The shortcut that tooltip names.
     pub replace_one_shortcut: String,
+    /// Tooltip of the replace all button.
     pub replace_all: String,
     /// What the count means, as its tooltip.
     pub count: String,
@@ -190,6 +223,7 @@ impl FindBar {
         self
     }
 
+    /// Which option toggles show as on.
     pub fn options(mut self, options: FindOptions) -> Self {
         self.options = options;
         self
@@ -235,6 +269,7 @@ impl FindBar {
         self
     }
 
+    /// The host's strings in place of the English defaults.
     pub fn labels(mut self, labels: FindLabels) -> Self {
         self.labels = labels;
         self
