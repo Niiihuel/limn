@@ -476,7 +476,6 @@ impl ButtonSize {
             icon_size: ICON_SIZE,
             horizontal_padding,
             inner_spacing: 8.0,
-            radius: control_radius(),
         }
     }
 }
@@ -502,14 +501,35 @@ impl ButtonContent {
 
 /// Shared button geometry in logical pixels. The current renderer uses one
 /// canonical 16 px icon size, while density controls the hit box and type.
+/// The radius is not part of it: it is a token, chosen with
+/// [`Button::radius`]. A host keeps its own densities as consts of this type
+/// and passes one with [`Button::sizing`].
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ButtonSizing {
+    /// Height of the button, and the width of an icon-only one.
     pub height: f32,
+    /// Size of the label.
     pub font_size: f32,
+    /// Room kept for a glyph; the glyph itself is drawn at 16 px.
     pub icon_size: f32,
+    /// Space between the button's edge and its content.
     pub horizontal_padding: f32,
+    /// Space between the icons and the label.
     pub inner_spacing: f32,
-    pub radius: f32,
+}
+
+impl ButtonSizing {
+    // A profile is plain data from the host; a bad number stops here.
+    fn sanitized(self) -> Self {
+        let px = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        Self {
+            height: px(self.height),
+            font_size: px(self.font_size),
+            icon_size: px(self.icon_size),
+            horizontal_padding: px(self.horizontal_padding),
+            inner_spacing: px(self.inner_spacing),
+        }
+    }
 }
 
 impl ControlSize {
@@ -525,7 +545,6 @@ impl ControlSize {
             icon_size: ICON_SIZE,
             horizontal_padding: (height - ICON_SIZE) / 2.0,
             inner_spacing: 6.0,
-            radius: ButtonSize::Small.sizing().radius,
         }
     }
 }
@@ -539,6 +558,7 @@ pub struct Button {
     variant: ButtonVariant,
     size: ControlSize,
     button_size: Option<ButtonSize>,
+    sizing: Option<ButtonSizing>,
     width: Option<f32>,
     active: bool,
     active_hover: ActiveHover,
@@ -575,6 +595,7 @@ impl Button {
             variant: ButtonVariant::default(),
             size: ControlSize::Regular,
             button_size: None,
+            sizing: None,
             width: None,
             active: false,
             active_hover: ActiveHover::default(),
@@ -642,11 +663,20 @@ impl Button {
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
         self.button_size = None;
+        self.sizing = None;
         self
     }
 
     pub fn button_size(mut self, size: ButtonSize) -> Self {
         self.button_size = Some(size);
+        self.sizing = None;
+        self
+    }
+
+    /// Take the density from a profile of the host's, in place of a named
+    /// size. A number that is negative or not finite is read as zero.
+    pub fn sizing(mut self, sizing: ButtonSizing) -> Self {
+        self.sizing = Some(sizing.sanitized());
         self
     }
 
@@ -844,8 +874,8 @@ impl Component for Button {
     fn render(self) -> Element {
         let (base, hover, pressed, ink, outline) = self.colors();
         let sizing = self
-            .button_size
-            .map(ButtonSize::sizing)
+            .sizing
+            .or(self.button_size.map(ButtonSize::sizing))
             .unwrap_or_else(|| self.size.button_sizing());
         let padding = sizing.horizontal_padding;
         let spacing = self.gap.unwrap_or(sizing.inner_spacing);
@@ -1106,6 +1136,18 @@ impl IconButton {
 
     pub fn button_size(mut self, size: ButtonSize) -> Self {
         self.0 = self.0.button_size(size);
+        self
+    }
+
+    /// Take the density from a profile of the host's, as [`Button::sizing`].
+    pub fn sizing(mut self, sizing: ButtonSizing) -> Self {
+        self.0 = self.0.sizing(sizing);
+        self
+    }
+
+    /// Round the button with another radius token, as [`Button::radius`].
+    pub fn radius(mut self, radius: RadiusRole) -> Self {
+        self.0 = self.0.radius(radius);
         self
     }
 
@@ -2870,6 +2912,58 @@ mod tests {
             .render();
         assert_eq!(icon.style.width, Some(22.0));
         assert_eq!(icon.style.padding, 3.0);
+    }
+
+    #[test]
+    fn sizing_takes_a_host_profile_until_a_named_size_replaces_it() {
+        let palette = ComponentPalette::neutral_dark();
+        const NAV: ButtonSizing = ButtonSizing {
+            height: 30.0,
+            font_size: 14.0,
+            icon_size: 16.0,
+            horizontal_padding: 5.0,
+            inner_spacing: 4.0,
+        };
+        let label = Button::new("panel", "Panel", palette).sizing(NAV).render();
+        assert_eq!(label.style.height, Some(30.0));
+        assert_eq!(label.style.font_size, 14.0);
+        assert_eq!(label.style.padding, 5.0);
+        assert_eq!(label.style.gap, 4.0);
+        assert_eq!(label.style.radius, control_radius());
+        // A square of the profile's height, with room for the 16 px glyph.
+        let icon = IconButton::new("close", Icon::Close, palette)
+            .sizing(ButtonSizing { height: 20.0, horizontal_padding: 6.0, ..NAV })
+            .render();
+        assert_eq!((icon.style.width, icon.style.height), (Some(20.0), Some(20.0)));
+        assert_eq!(icon.style.padding, 2.0);
+        // A cell flush inside a row has no corners, enabled or passive.
+        let cell = || IconButton::new("stage", Icon::Add, palette).radius(RadiusRole::Square);
+        assert_eq!(cell().render().style.radius, 0.0);
+        assert_eq!(cell().disabled().render().style.radius, 0.0);
+        // The passive form keeps the profile's box and label size.
+        let mut tree = UiTree::new(Element::row(vec![
+            Button::new("panel", "Panel", palette).sizing(NAV).disabled().render(),
+            Element::spacer().flex(1.0),
+        ]));
+        let frame = tree.layout(Size::new(240.0, 30.0));
+        assert!(frame.regions.is_empty());
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, font_size, .. } if text == "Panel" && *font_size == 14.0)));
+
+        let named = Button::new("panel", "Panel", palette).sizing(NAV).size(ControlSize::Dense).render();
+        assert_eq!(named.style.height, Some(24.0));
+        let bad = ButtonSizing {
+            height: f32::NAN,
+            font_size: f32::INFINITY,
+            icon_size: -16.0,
+            horizontal_padding: -4.0,
+            inner_spacing: f32::NEG_INFINITY,
+        };
+        let bad = Button::new("panel", "Panel", palette).sizing(bad).render();
+        assert_eq!(bad.style.height, Some(0.0));
+        assert_eq!((bad.style.padding, bad.style.gap), (0.0, 0.0));
+        // The element refuses a zero font size and keeps its own.
+        assert!(bad.style.font_size.is_finite() && bad.style.font_size > 0.0);
     }
 
     #[test]

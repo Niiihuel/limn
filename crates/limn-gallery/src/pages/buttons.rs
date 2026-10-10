@@ -1,7 +1,26 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    ActiveHover, Button, ButtonGroup, ButtonSize, ButtonVariant, Color, Component, ControlSize, Element,
-    Icon, IconButton, RadiusRole, TooltipPlacement, TooltipSpec,
+    ActiveHover, Button, ButtonGroup, ButtonGroupSizing, ButtonSize, ButtonSizing, ButtonVariant, Color,
+    Component, ControlSize, Element, Icon, IconButton, RadiusRole, TooltipPlacement, TooltipSpec,
+};
+
+/// A host's own densities: a navigation button with a larger label, and a
+/// close button for a 20 px tab.
+const NAVIGATION: ButtonSizing = ButtonSizing {
+    height: 32.0,
+    font_size: 14.0,
+    icon_size: 16.0,
+    horizontal_padding: 5.0,
+    inner_spacing: 6.0,
+};
+const TAB_CLOSE: ButtonSizing = ButtonSizing {
+    height: 20.0,
+    horizontal_padding: 2.0,
+    ..NAVIGATION
+};
+const WIDE_GROUP: ButtonGroupSizing = ButtonGroupSizing {
+    gap: 12.0,
+    stacked_gap: 10.0,
 };
 
 const VARIANTS: [(ButtonVariant, &str); 11] = [
@@ -66,6 +85,28 @@ pub fn view(cx: &Cx) -> Element {
                 .button_size(ButtonSize::Large)
                 .render(),
         ])]),
+        section(cx, "Perfil de la aplicación", vec![
+            row(vec![
+                Button::new("button-sizing", "Panel", palette)
+                    .variant(ButtonVariant::Subtle)
+                    .icon(Icon::PanelRightOpen)
+                    .sizing(NAVIGATION)
+                    .radius(RadiusRole::Card)
+                    .render(),
+                Button::new("button-sizing-disabled", "Panel", palette)
+                    .variant(ButtonVariant::Subtle)
+                    .icon(Icon::PanelRightOpen)
+                    .sizing(NAVIGATION)
+                    .radius(RadiusRole::Card)
+                    .disabled()
+                    .render(),
+                IconButton::new("button-sizing-close", Icon::Close, palette)
+                    .variant(ButtonVariant::Ghost)
+                    .sizing(TAB_CLOSE)
+                    .render(),
+            ]),
+            caption(cx, "Un perfil propio en lugar de un tamaño con nombre: 32 px con texto de 14, y un cierre de 20 px."),
+        ]),
         section(cx, "Con icono", vec![row(vec![
             Button::new("button-icon", "Nuevo", palette).icon(Icon::Add).render(),
             Button::new("button-trailing", "Rama", palette)
@@ -141,6 +182,11 @@ pub fn view(cx: &Cx) -> Element {
                     .variant(ButtonVariant::Outline)
                     .radius(RadiusRole::Card)
                     .render(),
+                IconButton::new("button-radius-square", Icon::Add, palette)
+                    .variant(ButtonVariant::Outline)
+                    .radius(RadiusRole::Square)
+                    .tooltip("Radio: Square")
+                    .render(),
             ]),
             caption(cx, "La tinta la pasa la aplicación; deshabilitado, el botón vuelve al tono apagado."),
         ]),
@@ -165,6 +211,13 @@ pub fn view(cx: &Cx) -> Element {
                 .render()
                 .size(Some(220.0), None),
             caption(cx, "En fila, alineado al final con un elemento inicial, y apilado: el elemento inicial arriba y la acción principal primero."),
+            ButtonGroup::new(group("button-group-wide", palette)).sizing(WIDE_GROUP).render(),
+            ButtonGroup::new(group("button-group-wide-stacked", palette))
+                .sizing(WIDE_GROUP)
+                .stacked(true)
+                .render()
+                .size(Some(220.0), None),
+            caption(cx, "Con un perfil: 12 px entre acciones en fila y 10 en columna."),
         ]),
         section(cx, "Activo", vec![
             row(vec![Button::new("button-toggle", "Alternar", palette)

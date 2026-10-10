@@ -1,6 +1,7 @@
 use super::Cx;
 use limn::{
-    ActionRow, ActionRowSizing, Button, ButtonVariant, Chip, Component, Element, Icon, PreferencesGroup, Switch,
+    ActionRow, ActionRowSizing, Button, ButtonVariant, Chip, Component, Element, Icon, Kbd, PreferencesGroup,
+    Switch,
 };
 
 /// A note's density: a smaller icon column and no minimum height.
@@ -80,6 +81,11 @@ pub fn view(cx: &Cx) -> Element {
                             .render(),
                     )
                     .stacked(true)
+                    .render(),
+                ActionRow::new("Atajo junto a un texto que ocupa más de una línea cuando la columna es estrecha: la tecla se queda en la primera", palette)
+                    .wrap_title(true)
+                    .trailing(Kbd::new("Ctrl+K", palette).render())
+                    .trailing_top(true)
                     .render(),
                 ActionRow::new("Reducir movimiento", palette)
                     .subtitle("Apilada también, pero un interruptor se queda en su línea.")

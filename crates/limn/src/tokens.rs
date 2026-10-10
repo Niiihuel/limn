@@ -87,6 +87,9 @@ pub enum RadiusRole {
     Surface,
     Card,
     Panel,
+    /// No rounding, whatever the tokens: a cell that sits flush inside a row
+    /// or a bar that paints the surface.
+    Square,
 }
 
 impl RadiusRole {
@@ -98,6 +101,7 @@ impl RadiusRole {
             Self::Surface => radius.surface,
             Self::Card => radius.card,
             Self::Panel => radius.panel,
+            Self::Square => 0.0,
         }
     }
 }
@@ -211,6 +215,7 @@ mod tests {
         assert_eq!(RadiusRole::Surface.px(), radius.surface);
         assert_eq!(RadiusRole::Card.px(), radius.card);
         assert_eq!(RadiusRole::Panel.px(), radius.panel);
+        assert_eq!(RadiusRole::Square.px(), 0.0);
     }
 
     #[test]

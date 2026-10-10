@@ -14,6 +14,24 @@ pub struct ButtonGroup {
     stacked: bool,
     align_end: bool,
     reverse_when_stacked: bool,
+    sizing: ButtonGroupSizing,
+}
+
+/// Density of a [`ButtonGroup`], in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ButtonGroupSizing {
+    /// Space between actions in a row.
+    pub gap: f32,
+    /// Space between actions in a column.
+    pub stacked_gap: f32,
+}
+
+impl ButtonGroupSizing {
+    /// Actions 6 px apart in both directions.
+    pub const DEFAULT: Self = Self {
+        gap: GAP,
+        stacked_gap: GAP,
+    };
 }
 
 impl ButtonGroup {
@@ -25,6 +43,7 @@ impl ButtonGroup {
             stacked: false,
             align_end: false,
             reverse_when_stacked: false,
+            sizing: ButtonGroupSizing::DEFAULT,
         }
     }
 
@@ -52,10 +71,18 @@ impl ButtonGroup {
         self.reverse_when_stacked = reverse;
         self
     }
+
+    /// The group's density. [`ButtonGroupSizing::DEFAULT`] unless set.
+    pub fn sizing(mut self, sizing: ButtonGroupSizing) -> Self {
+        self.sizing = sizing;
+        self
+    }
 }
 
 impl Component for ButtonGroup {
     fn render(self) -> Element {
+        // A profile is plain data from the host; a bad number stops here.
+        let px = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
         let mut children: Vec<Element> = self.leading.into_iter().collect();
         if self.stacked {
             // Only the actions swap; `leading` stays before them.
@@ -64,13 +91,13 @@ impl Component for ButtonGroup {
             } else {
                 children.extend(self.buttons);
             }
-            return Element::column(children).gap(GAP);
+            return Element::column(children).gap(px(self.sizing.stacked_gap));
         }
         if self.align_end {
             children.push(Element::spacer().flex(1.0));
         }
         children.extend(self.buttons);
-        Element::row(children).gap(GAP)
+        Element::row(children).gap(px(self.sizing.gap))
     }
 }
 
@@ -107,6 +134,23 @@ mod tests {
             .iter()
             .map(|region| (region.id.clone(), region.rect))
             .collect()
+    }
+
+    #[test]
+    fn sizing_sets_one_gap_for_the_row_and_another_for_the_column() {
+        let sizing = ButtonGroupSizing { gap: 10.0, stacked_gap: 8.0 };
+        let row = rects(ButtonGroup::new(buttons()).sizing(sizing), 360.0);
+        assert_eq!(rect(&row, "save").x - rect(&row, "cancel").x, 80.0 + 10.0);
+        let column = rects(ButtonGroup::new(buttons()).sizing(sizing).stacked(true), 360.0);
+        let cancel = rect(&column, "cancel");
+        assert_eq!(rect(&column, "save").y - cancel.y, cancel.height + 8.0);
+
+        let plain = ButtonGroup::new(buttons()).render();
+        let default = ButtonGroup::new(buttons()).sizing(ButtonGroupSizing::DEFAULT).render();
+        assert_eq!(format!("{plain:?}"), format!("{default:?}"));
+        let bad = ButtonGroupSizing { gap: f32::NAN, stacked_gap: -3.0 };
+        assert_eq!(ButtonGroup::new(buttons()).sizing(bad).render().style.gap, 0.0);
+        assert_eq!(ButtonGroup::new(buttons()).sizing(bad).stacked(true).render().style.gap, 0.0);
     }
 
     fn rect(rects: &[(String, Rect)], id: &str) -> Rect {

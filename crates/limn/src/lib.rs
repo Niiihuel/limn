@@ -89,7 +89,7 @@ pub use alert_dialog::AlertDialog;
 pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
-pub use button_group::ButtonGroup;
+pub use button_group::{ButtonGroup, ButtonGroupSizing};
 pub use card::{Card, CardDensity};
 pub use charts::{
     BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ColumnChart, HeatmapCell, HeatmapChart, HeatmapScale,

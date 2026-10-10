@@ -49,7 +49,8 @@ tokens are set.
 
 A component that lets its caller choose a radius takes a `RadiusRole`
 (`Control`, `Surface`, `Card` or `Panel`), never a number. `role.px()` reads
-the radius in force for that role.
+the radius in force for that role. `RadiusRole::Square` is always zero: a
+cell that sits flush inside a row or a bar that paints the surface.
 
 ### Not governed by radius tokens
 

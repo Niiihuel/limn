@@ -119,6 +119,7 @@ pub struct ActionRow {
     wrap_title: bool,
     stacked: bool,
     align_top: bool,
+    trailing_top: bool,
     icon_muted: bool,
 }
 impl ActionRow {
@@ -135,6 +136,7 @@ impl ActionRow {
             wrap_title: false,
             stacked: false,
             align_top: false,
+            trailing_top: false,
             icon_muted: false,
         }
     }
@@ -194,6 +196,12 @@ impl ActionRow {
     /// centering them. The trailing element stays centered.
     pub fn align_top(mut self, top: bool) -> Self {
         self.align_top = top;
+        self
+    }
+    /// Keep the trailing element on the row's first line instead of
+    /// centering it, for a keycap beside copy that may wrap.
+    pub fn trailing_top(mut self, top: bool) -> Self {
+        self.trailing_top = top;
         self
     }
 }
@@ -257,7 +265,7 @@ impl Component for ActionRow {
             }
             children.push(copy.flex(1.0));
             if let Some(element) = trailing {
-                children.push(element.centered_y());
+                children.push(if self.trailing_top { element } else { element.centered_y() });
             }
             Element::row(children).gap(px(sizing.gap)).min_size(0.0, minimum_height)
         }
@@ -484,6 +492,26 @@ mod tests {
             assert!((icon.y + icon.height / 2.0 - 50.0).abs() < 0.01);
             assert_eq!((icon.x, icon.width), (12.0, ICON_SIZE));
         }
+    }
+
+    #[test]
+    fn trailing_top_keeps_the_trailing_on_the_first_line_of_wrapped_copy() {
+        let palette = ComponentPalette::neutral_dark();
+        let row = |top: bool| {
+            ActionRow::new(LONG, palette)
+                .wrap_title(true)
+                .trailing(Element::button("key", "K").size(Some(40.0), Some(18.0)))
+                .trailing_top(top)
+                .render()
+        };
+        // Narrow enough for the title to wrap, so the row is taller than the key.
+        let top = frame_of(row(true), 220.0);
+        assert!(runs(&top, LONG).len() > 1);
+        assert_eq!(region(&top, "key").y, 10.0);
+        let centered = frame_of(row(false), 220.0);
+        assert!(region(&centered, "key").y > 10.0);
+        // On one line there is nothing to choose between.
+        assert_eq!(region(&frame_of(row(true), 900.0), "key").x, 900.0 - 10.0 - 40.0);
     }
 
     #[test]
