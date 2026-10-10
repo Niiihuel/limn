@@ -231,34 +231,34 @@ fn fit_image(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
 
 fn icon_svg(icon: Icon) -> &'static str {
     match icon {
-        Icon::PanelLeft => include_str!("../assets/solar/panel-left.svg"),
-        Icon::PanelLeftOpen => include_str!("../assets/solar/panel-left-open.svg"),
-        Icon::PanelLeftClose => include_str!("../assets/solar/panel-left-close.svg"),
-        Icon::PanelBottom => include_str!("../assets/solar/panel-bottom.svg"),
-        Icon::PanelRight => include_str!("../assets/solar/panel-right.svg"),
-        Icon::PanelRightOpen => include_str!("../assets/solar/panel-right-open.svg"),
-        Icon::PanelRightClose => include_str!("../assets/solar/panel-right-close.svg"),
-        Icon::Add => include_str!("../assets/solar/add.svg"),
-        Icon::Microphone => include_str!("../assets/openide/microphone.svg"),
-        Icon::Text => include_str!("../assets/solar/text-square.svg"),
-        Icon::Image => include_str!("../assets/solar/gallery.svg"),
-        Icon::Audio => include_str!("../assets/solar/soundwave.svg"),
-        Icon::Video => include_str!("../assets/solar/videocamera.svg"),
-        Icon::File => include_str!("../assets/solar/file-text.svg"),
+        Icon::PanelLeft => include_str!("../assets/bootstrap/layout-sidebar.svg"),
+        Icon::PanelLeftOpen => include_str!("../assets/bootstrap/layout-sidebar.svg"),
+        Icon::PanelLeftClose => include_str!("../assets/bootstrap/layout-sidebar-inset.svg"),
+        Icon::PanelBottom => include_str!("../assets/bootstrap/window-dock.svg"),
+        Icon::PanelRight => include_str!("../assets/bootstrap/layout-sidebar-reverse.svg"),
+        Icon::PanelRightOpen => include_str!("../assets/bootstrap/layout-sidebar-reverse.svg"),
+        Icon::PanelRightClose => include_str!("../assets/bootstrap/layout-sidebar-inset-reverse.svg"),
+        Icon::Add => include_str!("../assets/bootstrap/plus-lg.svg"),
+        Icon::Microphone => include_str!("../assets/bootstrap/mic.svg"),
+        Icon::Text => include_str!("../assets/bootstrap/card-text.svg"),
+        Icon::Image => include_str!("../assets/bootstrap/image.svg"),
+        Icon::Audio => include_str!("../assets/bootstrap/soundwave.svg"),
+        Icon::Video => include_str!("../assets/bootstrap/camera-video.svg"),
+        Icon::File => include_str!("../assets/bootstrap/file-earmark-text.svg"),
         Icon::FileType(file) => file.svg(),
-        Icon::Infinity => include_str!("../assets/openide/infinity.svg"),
-        Icon::Paperclip => include_str!("../assets/openide/paperclip.svg"),
-        Icon::Target => include_str!("../assets/openide/target.svg"),
-        Icon::Plan => include_str!("../assets/openide/plan.svg"),
+        Icon::Infinity => include_str!("../assets/bootstrap/infinity.svg"),
+        Icon::Paperclip => include_str!("../assets/bootstrap/paperclip.svg"),
+        Icon::Target => include_str!("../assets/bootstrap/bullseye.svg"),
+        Icon::Plan => include_str!("../assets/bootstrap/list-check.svg"),
         Icon::Brain => include_str!("../assets/openide/brain.svg"),
         Icon::ContextRing => include_str!("../assets/openide/context-ring.svg"),
-        Icon::Check => include_str!("../assets/solar/check.svg"),
-        Icon::InfoCircle => include_str!("../assets/solar/info-circle.svg"),
-        Icon::CheckCircle => include_str!("../assets/solar/check-circle.svg"),
-        Icon::WarningTriangle => include_str!("../assets/solar/danger-triangle.svg"),
-        Icon::ErrorCircle => include_str!("../assets/solar/close-circle.svg"),
-        Icon::Settings => include_str!("../assets/solar/settings.svg"),
-        Icon::Github => include_str!("../assets/octicons/github-mark.svg"),
+        Icon::Check => include_str!("../assets/bootstrap/check-lg.svg"),
+        Icon::InfoCircle => include_str!("../assets/bootstrap/info-circle.svg"),
+        Icon::CheckCircle => include_str!("../assets/bootstrap/check-circle.svg"),
+        Icon::WarningTriangle => include_str!("../assets/bootstrap/exclamation-triangle.svg"),
+        Icon::ErrorCircle => include_str!("../assets/bootstrap/x-circle.svg"),
+        Icon::Settings => include_str!("../assets/bootstrap/gear.svg"),
+        Icon::Github => include_str!("../assets/bootstrap/github.svg"),
         Icon::Codex
         | Icon::OpenAi
         | Icon::OpenRouter
@@ -272,63 +272,63 @@ fn icon_svg(icon: Icon) -> &'static str {
         | Icon::Xai
         | Icon::DeepSeek => crate::provider_icons::svg_for_icon(icon)
             .expect("every provider icon has embedded artwork"),
-        Icon::Chat => include_str!("../assets/solar/chat-round-dots.svg"),
-        Icon::Folder => include_str!("../assets/solar/folder.svg"),
-        Icon::Laptop => include_str!("../assets/solar/laptop-minimalistic.svg"),
-        Icon::Globe => include_str!("../assets/openide/browser.svg"),
-        Icon::GitBranch => include_str!("../assets/solar/git-branch.svg"),
-        Icon::Grid => include_str!("../assets/solar/widget.svg"),
-        Icon::Palette => include_str!("../assets/openide/palette.svg"),
-        Icon::Users => include_str!("../assets/openide/users.svg"),
-        Icon::Puzzle => include_str!("../assets/openide/puzzle.svg"),
-        Icon::Book => include_str!("../assets/openide/book.svg"),
-        Icon::Server => include_str!("../assets/openide/server.svg"),
-        Icon::Bolt => include_str!("../assets/openide/bolt.svg"),
-        Icon::ChartBar => include_str!("../assets/openide/chart-bar.svg"),
-        Icon::Keyboard => include_str!("../assets/openide/keyboard.svg"),
-        Icon::Hash => include_str!("../assets/solar/hashtag.svg"),
-        Icon::Code => include_str!("../assets/solar/code.svg"),
-        Icon::Terminal => include_str!("../assets/openide/terminal.svg"),
-        Icon::ArrowUp => include_str!("../assets/solar/arrow-up.svg"),
-        Icon::Send => include_str!("../assets/openide/send-arrow.svg"),
-        Icon::ArrowDown => include_str!("../assets/solar/arrow-down.svg"),
-        Icon::ArrowLeft => include_str!("../assets/solar/arrow-left.svg"),
-        Icon::ArrowRight => include_str!("../assets/solar/arrow-right.svg"),
-        Icon::ChevronDown => include_str!("../assets/solar/alt-arrow-down.svg"),
-        Icon::ChevronRight => include_str!("../assets/solar/alt-arrow-right.svg"),
-        Icon::Search => include_str!("../assets/solar/magnifier.svg"),
+        Icon::Chat => include_str!("../assets/bootstrap/chat.svg"),
+        Icon::Folder => include_str!("../assets/bootstrap/folder.svg"),
+        Icon::Laptop => include_str!("../assets/bootstrap/laptop.svg"),
+        Icon::Globe => include_str!("../assets/bootstrap/globe.svg"),
+        Icon::GitBranch => include_str!("../assets/bootstrap/bezier2.svg"),
+        Icon::Grid => include_str!("../assets/bootstrap/grid.svg"),
+        Icon::Palette => include_str!("../assets/bootstrap/palette.svg"),
+        Icon::Users => include_str!("../assets/bootstrap/people.svg"),
+        Icon::Puzzle => include_str!("../assets/bootstrap/puzzle.svg"),
+        Icon::Book => include_str!("../assets/bootstrap/book.svg"),
+        Icon::Server => include_str!("../assets/bootstrap/server.svg"),
+        Icon::Bolt => include_str!("../assets/bootstrap/lightning.svg"),
+        Icon::ChartBar => include_str!("../assets/bootstrap/bar-chart.svg"),
+        Icon::Keyboard => include_str!("../assets/bootstrap/keyboard.svg"),
+        Icon::Hash => include_str!("../assets/bootstrap/hash.svg"),
+        Icon::Code => include_str!("../assets/bootstrap/code-slash.svg"),
+        Icon::Terminal => include_str!("../assets/bootstrap/terminal.svg"),
+        Icon::ArrowUp => include_str!("../assets/bootstrap/arrow-up.svg"),
+        Icon::Send => include_str!("../assets/bootstrap/send.svg"),
+        Icon::ArrowDown => include_str!("../assets/bootstrap/arrow-down.svg"),
+        Icon::ArrowLeft => include_str!("../assets/bootstrap/arrow-left.svg"),
+        Icon::ArrowRight => include_str!("../assets/bootstrap/arrow-right.svg"),
+        Icon::ChevronDown => include_str!("../assets/bootstrap/chevron-down.svg"),
+        Icon::ChevronRight => include_str!("../assets/bootstrap/chevron-right.svg"),
+        Icon::Search => include_str!("../assets/bootstrap/search.svg"),
         Icon::Replace => include_str!("../assets/openide/replace.svg"),
         Icon::ReplaceAll => include_str!("../assets/openide/replace-all.svg"),
-        Icon::Stop => include_str!("../assets/solar/stop.svg"),
+        Icon::Stop => include_str!("../assets/bootstrap/stop.svg"),
         Icon::DebugStart => include_str!("../assets/openide/debug-start.svg"),
         Icon::DebugPause => include_str!("../assets/openide/debug-pause.svg"),
         Icon::DebugStepOver => include_str!("../assets/openide/debug-step-over.svg"),
         Icon::DebugStepInto => include_str!("../assets/openide/debug-step-into.svg"),
         Icon::DebugStepOut => include_str!("../assets/openide/debug-step-out.svg"),
 
-        Icon::History => include_str!("../assets/solar/history.svg"),
-        Icon::Close => include_str!("../assets/solar/close.svg"),
-        Icon::CloseBold => include_str!("../assets/solar/close-bold.svg"),
-        Icon::CloseCircle => include_str!("../assets/solar/close-circle.svg"),
-        Icon::Refresh => include_str!("../assets/solar/refresh.svg"),
-        Icon::Menu => include_str!("../assets/solar/hamburger-menu.svg"),
-        Icon::More => include_str!("../assets/menu-dots-filled.svg"),
-        Icon::Pin => include_str!("../assets/solar/pin.svg"),
-        Icon::Archive => include_str!("../assets/solar/archive.svg"),
-        Icon::ArchiveUp => include_str!("../assets/solar/archive-up.svg"),
-        Icon::Trash => include_str!("../assets/solar/trash-bin-minimalistic.svg"),
-        Icon::Edit => include_str!("../assets/solar/pen.svg"),
-        Icon::Unread => include_str!("../assets/solar/chat-unread.svg"),
-        Icon::Filter => include_str!("../assets/solar/filter.svg"),
-        Icon::Sort => include_str!("../assets/solar/sort.svg"),
-        Icon::Collapse => include_str!("../assets/solar/minimize.svg"),
-        Icon::Expand => include_str!("../assets/solar/maximize.svg"),
-        Icon::Clock => include_str!("../assets/solar/clock-circle.svg"),
+        Icon::History => include_str!("../assets/bootstrap/clock-history.svg"),
+        Icon::Close => include_str!("../assets/bootstrap/x-lg.svg"),
+        Icon::CloseBold => include_str!("../assets/bootstrap/x-lg.svg"),
+        Icon::CloseCircle => include_str!("../assets/bootstrap/x-circle.svg"),
+        Icon::Refresh => include_str!("../assets/bootstrap/arrow-clockwise.svg"),
+        Icon::Menu => include_str!("../assets/bootstrap/list.svg"),
+        Icon::More => include_str!("../assets/bootstrap/three-dots.svg"),
+        Icon::Pin => include_str!("../assets/bootstrap/pin-angle.svg"),
+        Icon::Archive => include_str!("../assets/bootstrap/archive.svg"),
+        Icon::ArchiveUp => include_str!("../assets/bootstrap/box-arrow-up.svg"),
+        Icon::Trash => include_str!("../assets/bootstrap/trash3.svg"),
+        Icon::Edit => include_str!("../assets/bootstrap/pencil.svg"),
+        Icon::Unread => include_str!("../assets/bootstrap/chat-dots.svg"),
+        Icon::Filter => include_str!("../assets/bootstrap/funnel.svg"),
+        Icon::Sort => include_str!("../assets/bootstrap/sort-down.svg"),
+        Icon::Collapse => include_str!("../assets/bootstrap/arrows-angle-contract.svg"),
+        Icon::Expand => include_str!("../assets/bootstrap/arrows-angle-expand.svg"),
+        Icon::Clock => include_str!("../assets/bootstrap/clock.svg"),
     }
 }
 
 fn monochrome_svg(source: &str) -> String {
-    // Solar Linear draws with currentColor. Rasterize a white coverage mask
+    // The icons draw with currentColor. Rasterize a white coverage mask
     // once per icon and physical size, then tint it per DrawCommand. This
     // keeps theme and hover colors out of the texture cache, like WarpUI's
     // monochrome Icon element does for its size-cached image.
@@ -1604,7 +1604,7 @@ mod tests {
     }
 
     #[test]
-    fn bundled_solar_linear_icons_rasterize_as_monochrome_masks() {
+    fn bundled_bootstrap_icons_rasterize_as_monochrome_masks() {
         let icons = [
             Icon::PanelLeft,
             Icon::PanelLeftOpen,
@@ -1656,21 +1656,10 @@ mod tests {
         ];
         for icon in icons {
             let source = icon_svg(icon);
-            assert!(
-                source.contains("viewBox=\"0 0 24 24\""),
-                "Solar source needs a canonical square viewBox: {icon:?}"
-            );
-            if icon == Icon::More {
-                assert!(
-                    source.contains("fill=\"currentColor\""),
-                    "menu dots must be solid"
-                );
-            } else if icon == Icon::CloseBold {
-                assert!(source.contains("-bold"), "modal close must use the bold X");
-            } else {
-                assert!(source.contains("-linear"), "wrong Solar style: {icon:?}");
-            }
-            assert!(!source.contains("duotone"), "wrong Solar style: {icon:?}");
+            // Bootstrap Icons: a 16 px square drawn with the current color.
+            assert!(source.contains("class=\"bi bi-"), "not a Bootstrap icon: {icon:?}");
+            assert!(source.contains("viewBox=\"0 0 16 16\""), "{icon:?}");
+            assert!(source.contains("fill=\"currentColor\""), "{icon:?}");
             let key = IconKey { icon, pixels: 48 };
             let svg = monochrome_svg(source);
             assert!(svg.contains("#FFFFFF"), "missing white mask: {icon:?}");
@@ -1811,9 +1800,9 @@ mod tests {
     }
 
     #[test]
-    fn send_arrow_rasterizes_with_a_centered_stroke() {
+    fn send_icon_rasterizes() {
         let source = icon_svg(Icon::Send);
-        assert!(source.contains("viewBox=\"0 0 24 24\""));
+        assert!(source.contains("viewBox=\"0 0 16 16\""));
         let image = raster_icon(IconKey {
             icon: Icon::Send,
             pixels: 48,
@@ -1824,17 +1813,8 @@ mod tests {
 
     #[test]
     fn original_icons_rasterize_as_tintable_monochrome_masks() {
-        for icon in [
-            Icon::Microphone,
-            Icon::Infinity,
-            Icon::Paperclip,
-            Icon::Target,
-            Icon::Plan,
-            Icon::Brain,
-            Icon::ContextRing,
-            Icon::Replace,
-            Icon::ReplaceAll,
-        ] {
+        // The icons with no Bootstrap equivalent keep the library's own art.
+        for icon in [Icon::Brain, Icon::ContextRing, Icon::Replace, Icon::ReplaceAll] {
             let source = icon_svg(icon);
             assert!(source.contains("viewBox=\"0 0 24 24\""), "{icon:?}");
             let image = raster_icon(IconKey { icon, pixels: 48 })
@@ -1907,6 +1887,25 @@ mod tests {
             assert!(point.y > area.top() && point.y < area.bottom());
         }
     }
+}
+
+/// Use Ubuntu Regular for UI text. egui's default proportional face is
+/// Ubuntu Light, whose thin strokes read as blurry at small sizes. Call once
+/// when the window is created, before the first frame and [`attach_fonts`];
+/// egui's Unicode, emoji and monospace fallbacks are kept.
+pub fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    let name = "Ubuntu-Regular".to_owned();
+    fonts.font_data.insert(
+        name.clone(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
+    );
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, name);
+    ctx.set_fonts(fonts);
 }
 
 /// Make a tree measure text with the fonts egui paints with. Call once per
