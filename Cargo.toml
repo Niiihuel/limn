@@ -10,5 +10,9 @@ rust-version = "1.95"
 [profile.dev]
 debug = "line-tables-only"
 
+# Dependencies are built once, so they can afford to be optimized: an
+# unoptimized renderer drops frames during every animation. Workspace crates
+# stay unoptimized so a hot patch still compiles in under a second.
 [profile.dev.package."*"]
+opt-level = 2
 debug = false
