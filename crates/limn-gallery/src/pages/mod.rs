@@ -8,6 +8,7 @@ mod buttons;
 mod empty;
 mod feedback;
 mod inputs;
+mod lists;
 mod navigation;
 mod overlays;
 mod page;
@@ -31,6 +32,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "buttons", group: "Controles", title: "Botones", view: buttons::view },
     Page { id: "inputs", group: "Controles", title: "Entradas", view: inputs::view },
     Page { id: "navigation", group: "Controles", title: "Navegación", view: navigation::view },
+    Page { id: "lists", group: "Controles", title: "Listas", view: lists::view },
     Page { id: "preferences", group: "Controles", title: "Preferencias", view: preferences::view },
     Page { id: "page", group: "Controles", title: "Página y secciones", view: page::view },
     Page { id: "empty", group: "Estados", title: "Estado vacío", view: empty::view },

@@ -62,6 +62,27 @@ impl Tooltip {
         }
     }
 
+    /// The hint of something that stands for a file: its name as the title
+    /// and the directory that holds it beneath, in a hint no wider than 320.
+    /// An entry at the root, or a bare name, has no second line.
+    pub fn for_path(
+        anchor: Element,
+        anchor_id: impl Into<String>,
+        path: &str,
+        palette: ComponentPalette,
+    ) -> Self {
+        const MAX_WIDTH: f32 = 320.0;
+        let (parent, name) = match path.rfind(['/', '\\']) {
+            Some(separator) => (Some(&path[..separator.max(1)]), &path[separator + 1..]),
+            None => (None, path),
+        };
+        let tooltip = Self::new(anchor, anchor_id, name, palette).max_width(MAX_WIDTH);
+        match parent {
+            Some(parent) => tooltip.description(parent),
+            None => tooltip,
+        }
+    }
+
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self
@@ -229,7 +250,7 @@ impl TooltipSpec {
     }
 
     // Wrap a rendered button, enabled or passive, in the hint.
-    fn wrap(self, anchor: Element, id: String, button_palette: ComponentPalette) -> Element {
+    pub(crate) fn wrap(self, anchor: Element, id: String, button_palette: ComponentPalette) -> Element {
         let Some(title) = self.title.filter(|_| !self.suppressed) else {
             return anchor;
         };
@@ -2513,6 +2534,27 @@ mod tests {
                 })
             );
         }
+    }
+
+    #[test]
+    fn a_path_hint_names_the_file_over_the_directory_that_holds_it() {
+        let hint = |path: &str| {
+            let palette = ComponentPalette::neutral_dark();
+            match Tooltip::for_path(Element::spacer(), "file", path, palette).render().kind {
+                ElementKind::Tooltip { anchor_id, title, sections, max_width, .. } => {
+                    assert_eq!((anchor_id.as_str(), max_width), ("file", 320.0));
+                    (title, sections)
+                }
+                _ => panic!("a tooltip"),
+            }
+        };
+        let described = |text: &str| vec![TooltipSection::Description(text.into())];
+        assert_eq!(hint("crates/limn/src/tree.rs"), ("tree.rs".into(), described("crates/limn/src")));
+        assert_eq!(hint("C:\\src\\main.rs"), ("main.rs".into(), described("C:\\src")));
+        // The root is its own directory, and a bare name has none.
+        assert_eq!(hint("/etc"), ("etc".into(), described("/")));
+        assert_eq!(hint("Cargo.toml"), ("Cargo.toml".into(), Vec::new()));
+        assert_eq!(hint(""), (String::new(), Vec::new()));
     }
 
     #[test]

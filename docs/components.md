@@ -60,6 +60,8 @@ it.
 | `Stepper` | The steps of a short form: completed, active and pending. |
 | `Collapsible` | A header that shows or hides content beneath it. |
 | `TreeRow`, `TreeGuides` | Rows and indentation guides for file and project trees. |
+| `ListRow` | One entry of a list under a single hover surface: an `.icon` centered in the row or a caller-owned `.leading` square, a title, a muted `.subtitle` (`.subtitle_mono` for a command or a path), `.meta` text or `.meta_element`s at the end of the title's line, a `.trailing` element and a muted `.trailing_icon` such as a chevron. It hovers to the palette's `hover` and presses to its `selected`, with no fill at rest unless `.filled()`. `.enabled(false)` renders a passive row with a muted title and no hit region; `.title_ink` and `.icon_ink` take a color the host owns. `.width` fixes the width and clips the content to it; `.tooltip_with` adds a hint. |
+| `RowSizing` | The density of a `ListRow`: the two heights, padding, gaps, the icon, leading and trailing-icon columns, the font sizes, and an optional box per line of copy. `RowSizing::COMPACT` (28, or 40 with a subtitle) and `DENSE` (24 / 36) are the presets; a `None` height follows the content. |
 
 ## Feedback and status
 
@@ -92,7 +94,7 @@ for how they enter and leave.
 
 | Component | Purpose |
 | --- | --- |
-| `Tooltip` | A hint for a control, after a short hover or at once with keyboard focus. |
+| `Tooltip` | A hint for a control, after a short hover or at once with keyboard focus. `Tooltip::for_path` names a file over the directory that holds it. |
 | `Popover` | A floating slot anchored to any element, for arbitrary content. |
 | `DropdownMenu` | A menu of actions with headings, separators, shortcuts and submenus. |
 | `DropdownList` | A list for choosing one option, with the current one marked. |
@@ -153,6 +155,7 @@ Any element can be placed without a component:
 | `BarChart`, `ColumnChart` | Horizontal and vertical bar charts. |
 | `HeatmapChart` | A grid of cells colored by value. |
 | `ChartLegend` | A legend for any of the charts. |
+| `DiffStat` | The lines a change adds and removes, as `+N` and `−M`. `.inks(added, removed)` takes the host's two colors; without them both counts are plain text. |
 
 ## Code
 
