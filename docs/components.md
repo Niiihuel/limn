@@ -102,7 +102,7 @@ root element, since they cover the whole window.
 
 | Component | Purpose |
 | --- | --- |
-| `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text. `Text::eyebrow` is the small monospaced label above a group. It takes no size in pixels. |
+| `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text, wrapped. `Text::eyebrow` is the small monospaced label above a group. It takes no size in pixels. |
 
 `TextRole` is the scale, in logical pixels:
 

@@ -87,8 +87,9 @@ impl Text {
         self
     }
 
-    /// Show the whole value in a tooltip, for text that [`Text::truncate`]
-    /// may cut. `id` must be unique in the window. Ignored without `truncate`.
+    /// Show the whole value in a tooltip, wrapped over as many lines as it
+    /// needs, for text that [`Text::truncate`] may cut. `id` must be unique
+    /// in the window. Ignored without `truncate`.
     pub fn tooltip(mut self, id: impl Into<String>) -> Self {
         self.tooltip = Some(id.into());
         self
@@ -116,7 +117,9 @@ impl Component for Text {
             element = element.line_height(height);
         }
         match tooltip {
-            Some((id, value)) => Tooltip::new(element, id, value, self.palette)
+            // A tooltip title is one truncated line; only its description wraps.
+            Some((id, value)) => Tooltip::new(element, id, "", self.palette)
+                .description(value)
                 .max_width(320.0)
                 .render(),
             None => element,
@@ -127,7 +130,8 @@ impl Component for Text {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, ElementKind, HitKind, Size, UiTree};
+    use crate::{DrawCommand, ElementKind, HitKind, Point, Size, UiEvent, UiTree};
+    use std::time::Instant;
 
     const ROLES: [(TextRole, f32, FontFamily); 8] = [
         (TextRole::Display, 18.0, FontFamily::Sans),
@@ -214,5 +218,32 @@ mod tests {
             let region = frame.regions.iter().find(|region| region.id == "title").expect("hover region");
             assert_eq!(region.kind, HitKind::Hover);
         }
+    }
+
+    #[test]
+    fn the_tooltip_of_truncated_text_shows_the_end_of_a_value_wider_than_itself() {
+        let palette = ComponentPalette::neutral_dark();
+        // 480 px at 8 px per character: wider than the 320 px tooltip.
+        let value = "Un título bastante más largo que la columna que lo contiene fin";
+        let text = Text::new(value, palette).truncate().tooltip("title").render();
+        let filler = Element::column(vec![]).size(Some(280.0), None);
+        let mut tree = UiTree::new(Element::row(vec![text.flex(1.0), filler]));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 8.0);
+        let size = Size::new(400.0, 200.0);
+        tree.layout(size);
+        tree.handle_event(UiEvent::PointerMove(Point::new(40.0, 8.0)));
+        let frame = tree.layout_at(size, Instant::now() + crate::tree::TOOLTIP_HOVER_DELAY * 2);
+        let painted: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        // The anchor is cut; the tooltip wraps and loses nothing.
+        assert!(painted[0].ends_with('…'));
+        assert!(painted.len() > 2 && painted.last().unwrap().ends_with("fin"));
+        assert!(painted[1..].iter().all(|line| !line.contains('…')));
     }
 }
