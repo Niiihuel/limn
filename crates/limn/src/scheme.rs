@@ -14,10 +14,15 @@ const STEP: u8 = 8;
 /// button on a card.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ControlColors {
+    /// The control's fill at rest.
     pub surface: Color,
+    /// The fill under the pointer.
     pub hover: Color,
+    /// The fill while pressed.
     pub pressed: Color,
+    /// The control's outline.
     pub border: Color,
+    /// The label and icon on the fill.
     pub text: Color,
 }
 
@@ -48,7 +53,9 @@ pub struct Scheme {
     pub hover: Color,
     /// A pressed control or a chosen item.
     pub selected: Color,
+    /// Outlines and dividers, on every surface.
     pub border: Color,
+    /// Primary ink.
     pub text: Color,
     /// Secondary ink on a flat surface.
     pub muted: Color,
@@ -56,9 +63,13 @@ pub struct Scheme {
     pub muted_on_raised: Color,
     /// Floating menus and popovers.
     pub menu: Color,
+    /// The row under the pointer, and the chosen row, in a menu.
     pub menu_hover: Color,
+    /// Secondary ink in a menu.
     pub menu_muted: Color,
+    /// The shadow under anything that floats.
     pub shadow: Color,
+    /// Filled controls that sit on `raised`.
     pub control: ControlColors,
 }
 
