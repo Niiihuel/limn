@@ -13,7 +13,7 @@ A `Theme` is three colors. Every other color is derived from them, so no token
 can drift out of step with the rest.
 
 ```rust
-use lienzo::{Color, Theme};
+use limn::{Color, Theme};
 
 let theme = Theme {
     background: Color::rgb(255, 255, 255),
@@ -80,7 +80,7 @@ from sharing a window: a dark sidebar beside a light document, for instance.
 Corner radii and durations are set once:
 
 ```rust
-use lienzo::{set_tokens, Motion, Radius, Tokens};
+use limn::{set_tokens, Motion, Radius, Tokens};
 
 set_tokens(Tokens {
     radius: Radius::SQUARE,
@@ -94,7 +94,7 @@ every value.
 
 ## Fonts
 
-`lienzo_egui::install_fonts(&ctx)` installs Ubuntu Regular as the UI font.
+`limn_egui::install_fonts(&ctx)` installs Ubuntu Regular as the UI font.
 Call it once when the window is created. Without it egui's default
 proportional face, Ubuntu Light, is used, whose thin strokes look washed out
 at small sizes.

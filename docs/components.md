@@ -1,7 +1,7 @@
 # Components
 
 Every component in the library, by category, with what it is for. For the
-full list of builder methods on any of them, run `cargo doc -p lienzo --open`.
+full list of builder methods on any of them, run `cargo doc -p limn --open`.
 To see them running, open the [gallery](gallery.md).
 
 ## How every component works

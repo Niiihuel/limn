@@ -6,7 +6,7 @@ see [Theming](theming.md).
 ## Setting tokens
 
 ```rust
-use lienzo::{set_tokens, tokens, Motion, Radius, Tokens};
+use limn::{set_tokens, tokens, Motion, Radius, Tokens};
 
 set_tokens(Tokens {
     radius: Radius::DEFAULT.scaled(1.5),

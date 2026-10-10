@@ -1,0 +1,12 @@
+[package]
+name = "limn-editor"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Independent Unicode text buffer and viewport primitives"
+
+[dependencies]
+ropey = "1.6.1"
+unicode-segmentation = "1.13.3"
+unicode-width = "0.2.2"
+regex = "1.12"

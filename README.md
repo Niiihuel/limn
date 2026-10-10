@@ -1,7 +1,7 @@
-# lienzo
+# limn
 
 A native UI library for Rust. An application describes its window as a tree
-of elements; lienzo lays it out, keeps the state of every control by its ID,
+of elements; limn lays it out, keeps the state of every control by its ID,
 and produces drawing commands for a backend to paint.
 
 ```rust
@@ -27,10 +27,10 @@ fn view(state: &State, palette: ComponentPalette) -> Element {
 
 ```sh
 nix-shell                                               # compiler and window libraries
-cargo run -p lienzo-egui --example counter              # the smallest application
-cargo run -p lienzo-gallery                             # every component
-dx serve --hot-patch -p lienzo-gallery --features hot   # the gallery with hot reload
-cargo test -p lienzo -p lienzo-egui -p lienzo-gallery   # the tests
+cargo run -p limn-egui --example counter              # the smallest application
+cargo run -p limn-gallery                             # every component
+dx serve --hot-patch -p limn-gallery --features hot   # the gallery with hot reload
+cargo test -p limn -p limn-egui -p limn-gallery   # the tests
 ```
 
 ## Documentation
@@ -54,12 +54,12 @@ Everything is in [`docs/`](docs/README.md).
 
 | Crate | Purpose |
 | --- | --- |
-| `lienzo` | The library: elements, layout, events, animation and components. No backend dependency. |
-| `lienzo-egui` | Backend: paints a frame with egui and wgpu and translates its input. |
-| `lienzo-editor` | The text document behind the code editor: rope, selection, search. |
-| `lienzo-language` | Syntax highlighting with tree-sitter and an LSP client. Optional, behind the `syntax` feature. |
-| `lienzo-dnd` | Dragging files to and from other applications. |
-| `lienzo-gallery` | The component gallery. Not published. |
+| `limn` | The library: elements, layout, events, animation and components. No backend dependency. |
+| `limn-egui` | Backend: paints a frame with egui and wgpu and translates its input. |
+| `limn-editor` | The text document behind the code editor: rope, selection, search. |
+| `limn-language` | Syntax highlighting with tree-sitter and an LSP client. Optional, behind the `syntax` feature. |
+| `limn-dnd` | Dragging files to and from other applications. |
+| `limn-gallery` | The component gallery. Not published. |
 
 ## Status
 

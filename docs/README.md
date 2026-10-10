@@ -1,6 +1,6 @@
-# lienzo documentation
+# limn documentation
 
-lienzo is a native UI library for Rust. An application describes its window as
+limn is a native UI library for Rust. An application describes its window as
 a tree of elements; the library lays it out, keeps the state of every control,
 and produces drawing commands for a backend to paint.
 
@@ -40,11 +40,11 @@ Background that explains why the library behaves as it does.
 | [Tokens](tokens.md) | Every radius and duration, with defaults. |
 | [Components](components.md) | Every component, by category, with its purpose. |
 | [Backend contract](backend.md) | Draw commands, events and fonts, for writing a renderer. |
-| API reference | `cargo doc -p lienzo --open` lists every type and method. |
+| API reference | `cargo doc -p limn --open` lists every type and method. |
 
 ## Conventions used in these pages
 
 - Sizes are logical pixels. The backend applies the display's scale factor.
 - Durations are milliseconds.
 - "The host" is the application that owns a `UiTree`.
-- Code samples assume `use lienzo::*;` unless they show their own imports.
+- Code samples assume `use limn::*;` unless they show their own imports.

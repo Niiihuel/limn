@@ -1,7 +1,7 @@
 # Contributing a component
 
 The steps to add a component, and the conventions the existing ones follow.
-`crates/lienzo/src/progress.rs` is the shortest complete example: read it
+`crates/limn/src/progress.rs` is the shortest complete example: read it
 alongside this page.
 
 ## 1. Decide whether it is a component
@@ -15,7 +15,7 @@ are an option on something that exists.
 
 ## 2. Write it
 
-Create `crates/lienzo/src/<name>.rs`.
+Create `crates/limn/src/<name>.rs`.
 
 ```rust
 //! One line saying what this is for.
@@ -40,7 +40,7 @@ impl Component for Progress {
 }
 ```
 
-Then declare it in `crates/lienzo/src/lib.rs`: a `mod` line and a `pub use`.
+Then declare it in `crates/limn/src/lib.rs`: a `mod` line and a `pub use`.
 
 ### Conventions
 
@@ -85,7 +85,7 @@ See [Testing](testing.md).
 
 ## 4. Show it in the gallery
 
-Add it to an existing page in `crates/lienzo-gallery/src/pages/`, or add a
+Add it to an existing page in `crates/limn-gallery/src/pages/`, or add a
 page. Show each state, not one happy example: disabled, loading, empty, long
 text. See [Gallery and hot reload](gallery.md#adding-a-page).
 
@@ -140,6 +140,6 @@ Constraints and anything the host must do.
 
 - [ ] Module, `mod` and `pub use` added.
 - [ ] No literal colors, radii or durations.
-- [ ] Tests pass: `cargo test -p lienzo -p lienzo-egui -p lienzo-gallery`.
+- [ ] Tests pass: `cargo test -p limn -p limn-egui -p limn-gallery`.
 - [ ] Shown in the gallery, checked in both themes and with square corners.
 - [ ] Row in `docs/components.md`; doc comments on the public API.

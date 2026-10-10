@@ -4,12 +4,12 @@ The gallery is an application that shows every component in both themes. Use
 it to browse what exists, to develop a component with live reload, and to
 capture screenshots.
 
-It lives in `crates/lienzo-gallery`. Run everything from `nix-shell`.
+It lives in `crates/limn-gallery`. Run everything from `nix-shell`.
 
 ## Opening the gallery
 
 ```sh
-cargo run -p lienzo-gallery
+cargo run -p limn-gallery
 ```
 
 The sidebar lists the pages. "Tema claro" at the bottom switches theme, and
@@ -22,10 +22,10 @@ default or round corners, three paces, and a switch for reduced motion.
 ## Hot reload
 
 ```sh
-dx serve --hot-patch -p lienzo-gallery --features hot
+dx serve --hot-patch -p limn-gallery --features hot
 ```
 
-Save a file in `lienzo` or in the gallery and the running window updates in
+Save a file in `limn` or in the gallery and the running window updates in
 under a second. The page you were on, the scroll position, focus and every
 value you typed are kept.
 
@@ -66,11 +66,11 @@ lands on the same page with the same values. Passing `--page` starts clean.
 
 ## Adding a page
 
-1. Create `crates/lienzo-gallery/src/pages/<name>.rs` with one function:
+1. Create `crates/limn-gallery/src/pages/<name>.rs` with one function:
 
    ```rust
    use super::{row, section, Cx};
-   use lienzo::{Button, Component, Element};
+   use limn::{Button, Component, Element};
 
    pub fn view(cx: &Cx) -> Element {
        section(cx, "Buttons", vec![row(vec![
@@ -104,7 +104,7 @@ cx.state.flag("demo-switch"), cx.palette)`.
 ## Capturing a page
 
 ```sh
-cargo run -p lienzo-gallery -- --page overlays --set overlay-menu=open --screenshot menu.png
+cargo run -p limn-gallery -- --page overlays --set overlay-menu=open --screenshot menu.png
 ```
 
 | Option | Effect |

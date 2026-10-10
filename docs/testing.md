@@ -6,7 +6,7 @@ GPU: a test lays out a tree and inspects the frame.
 ## The basic test
 
 ```rust
-use lienzo::{Button, Component, ComponentPalette, Element, Size, UiAction, UiEvent, UiTree, Point};
+use limn::{Button, Component, ComponentPalette, Element, Size, UiAction, UiEvent, UiTree, Point};
 
 #[test]
 fn clicking_the_button_reports_its_id() {
@@ -85,7 +85,7 @@ every other test while it ran.
 
 Put token-changing tests in an integration test, which Cargo builds as its own
 executable, and keep them in a single test function so they run in order.
-`crates/lienzo/tests/tokens.rs` is the example.
+`crates/limn/tests/tokens.rs` is the example.
 
 ## Covering more than one size
 
@@ -101,7 +101,7 @@ for width in [180.0, 360.0, 900.0] {
 ## Running the tests
 
 ```sh
-cargo test -p lienzo -p lienzo-egui -p lienzo-gallery
+cargo test -p limn -p limn-egui -p limn-gallery
 ```
 
 The gallery's tests lay out every page in both themes at three widths and fail

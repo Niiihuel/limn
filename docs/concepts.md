@@ -1,12 +1,12 @@
 # Concepts
 
-This page explains the model behind lienzo: what an element is, what the tree
+This page explains the model behind limn: what an element is, what the tree
 remembers, and where your application's data lives. Read it once; the other
 pages assume it.
 
 ## The frame loop
 
-A lienzo application never mutates widgets. Every frame it describes the whole
+A limn application never mutates widgets. Every frame it describes the whole
 window again and hands that description to a `UiTree`:
 
 ```text
@@ -21,7 +21,7 @@ state ──view──▶ Element tree ──UiTree::layout──▶ Frame ─�
 | `Element` | A description of one thing on screen. Rebuilt every frame. | Nobody; it is discarded. |
 | `UiTree` | Lays out the elements and remembers interaction state between frames. | The host, one per window. |
 | `Frame` | Drawing commands and hit regions for one layout. | Returned by `layout`. |
-| Backend | Paints a frame and translates input. `lienzo-egui` is one. | A separate crate. |
+| Backend | Paints a frame and translates input. `limn-egui` is one. | A separate crate. |
 
 ## Elements and components
 

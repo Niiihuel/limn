@@ -1,6 +1,6 @@
 # Layout
 
-How to arrange and size elements. Layout in lienzo is rows and columns with
+How to arrange and size elements. Layout in limn is rows and columns with
 flexible children, which covers nearly every interface without a constraint
 solver.
 

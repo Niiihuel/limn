@@ -1,7 +1,7 @@
 # Backend contract
 
-What a renderer must do to host lienzo. Read this to write a backend for a
-toolkit other than egui, or to understand what `lienzo-egui` does.
+What a renderer must do to host limn. Read this to write a backend for a
+toolkit other than egui, or to understand what `limn-egui` does.
 
 The library has no dependency on any window system or graphics API. It turns
 an element tree into a `Frame`; a backend paints the frame and feeds input
@@ -29,7 +29,7 @@ tree.set_text_height_measurer(|size, family| line_height);
 ```
 
 Without a measurer the tree estimates from the calibrated metrics.
-`lienzo_egui::attach_fonts(&mut tree, &ctx)` does all of this for egui.
+`limn_egui::attach_fonts(&mut tree, &ctx)` does all of this for egui.
 
 ## Events
 
@@ -108,7 +108,7 @@ if let Some(after) = tree.animation_repaint_after() {
 }
 ```
 
-## `lienzo-egui`
+## `limn-egui`
 
 The egui backend exposes:
 

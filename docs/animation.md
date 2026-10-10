@@ -57,7 +57,7 @@ operating system's reduced-motion setting; the host passes it in.
 To change the pace instead of removing movement, scale the durations:
 
 ```rust
-use lienzo::{set_tokens, Motion, Tokens};
+use limn::{set_tokens, Motion, Tokens};
 
 set_tokens(Tokens { motion: Motion::DEFAULT.scaled(0.5), ..Tokens::DEFAULT });
 ```
@@ -124,7 +124,7 @@ in two states.
 ```rust
 Element::clickable("row", content)
     .hover_background(hover)
-    .transition_ms(lienzo::tokens().motion.hover_ms)
+    .transition_ms(limn::tokens().motion.hover_ms)
 ```
 
 The background cross-fades between its normal, hovered and pressed colors.
@@ -137,7 +137,7 @@ For a width, an offset or an opacity that your own state drives, keep a
 `ScalarTransition` in your state:
 
 ```rust
-use lienzo::{Easing, ScalarTransition};
+use limn::{Easing, ScalarTransition};
 use std::time::{Duration, Instant};
 
 // When the target changes:
@@ -182,7 +182,7 @@ released drag carries on instead of restarting from rest.
 ## Adding animation to a component
 
 1. Pick the duration by what kind of change it is, from
-   `lienzo::tokens().motion`. Do not write a number.
+   `limn::tokens().motion`. Do not write a number.
 2. Use the mechanism that already exists: a popover for anything anchored and
    dismissible, `animate_enter` or `animate_presence` for content,
    `transition_ms` for a fill, a tab strip's selection for an indicator that

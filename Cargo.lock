@@ -1554,18 +1554,18 @@ dependencies = [
 ]
 
 [[package]]
-name = "lienzo"
+name = "limn"
 version = "0.1.0"
 dependencies = [
- "lienzo-editor",
- "lienzo-language",
+ "limn-editor",
+ "limn-language",
  "unicode-linebreak",
  "unicode-segmentation",
  "unicode-width",
 ]
 
 [[package]]
-name = "lienzo-dnd"
+name = "limn-dnd"
 version = "0.1.0"
 dependencies = [
  "raw-window-handle",
@@ -1574,7 +1574,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "lienzo-editor"
+name = "limn-editor"
 version = "0.1.0"
 dependencies = [
  "regex",
@@ -1584,35 +1584,35 @@ dependencies = [
 ]
 
 [[package]]
-name = "lienzo-egui"
+name = "limn-egui"
 version = "0.1.0"
 dependencies = [
  "base64",
  "eframe",
  "image",
- "lienzo",
- "lienzo-editor",
+ "limn",
+ "limn-editor",
  "resvg",
  "sha2",
 ]
 
 [[package]]
-name = "lienzo-gallery"
+name = "limn-gallery"
 version = "0.1.0"
 dependencies = [
  "dioxus-devtools",
  "eframe",
  "image",
- "lienzo",
- "lienzo-egui",
+ "limn",
+ "limn-egui",
  "subsecond",
 ]
 
 [[package]]
-name = "lienzo-language"
+name = "limn-language"
 version = "0.1.0"
 dependencies = [
- "lienzo-editor",
+ "limn-editor",
  "pulldown-cmark",
  "serde",
  "serde_json",

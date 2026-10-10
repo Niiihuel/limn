@@ -1,15 +1,15 @@
 # Getting started
 
 This tutorial builds a window with a counter and two buttons. By the end you
-will have seen the whole loop a lienzo application runs: describe, lay out,
+will have seen the whole loop a limn application runs: describe, lay out,
 handle input, paint.
 
 The finished program is
-[`crates/lienzo-egui/examples/counter.rs`](../crates/lienzo-egui/examples/counter.rs).
+[`crates/limn-egui/examples/counter.rs`](../crates/limn-egui/examples/counter.rs).
 Run it at any point to compare:
 
 ```sh
-cargo run -p lienzo-egui --example counter
+cargo run -p limn-egui --example counter
 ```
 
 ## Before you begin
@@ -19,16 +19,16 @@ platform. On NixOS, `nix-shell` at the repository root provides all of them.
 
 ## 1. Add the dependencies
 
-lienzo is used from a checkout. Point your `Cargo.toml` at it:
+limn is used from a checkout. Point your `Cargo.toml` at it:
 
 ```toml
 [dependencies]
-lienzo = { path = "../lienzo/crates/lienzo" }
-lienzo-egui = { path = "../lienzo/crates/lienzo-egui" }
+limn = { path = "../limn/crates/limn" }
+limn-egui = { path = "../limn/crates/limn-egui" }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 ```
 
-`lienzo` is the library. `lienzo-egui` paints it and reads input through egui;
+`limn` is the library. `limn-egui` paints it and reads input through egui;
 `eframe` opens the window.
 
 ## 2. Hold the state
@@ -49,7 +49,7 @@ Write a function from the state to a tree of elements. It runs every frame, so
 it holds no state of its own.
 
 ```rust
-use lienzo::{Button, ButtonVariant, Component, Element, FontFamily, Size, Theme};
+use limn::{Button, ButtonVariant, Component, Element, FontFamily, Size, Theme};
 
 fn view(state: &State, window: Size) -> Element {
     let theme = Theme::DARK;
@@ -92,7 +92,7 @@ Three things to notice:
 Input comes back as `UiAction` values. A click carries the ID of the control:
 
 ```rust
-use lienzo::UiAction;
+use limn::UiAction;
 
 fn update(state: &mut State, action: &UiAction) {
     if let UiAction::Clicked { id } = action {
@@ -113,10 +113,10 @@ Keep one `UiTree` for the life of the window. Each frame does four things:
 fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     let ctx = ui.ctx().clone();
     if !self.fonts_attached {
-        lienzo_egui::attach_fonts(&mut self.tree, &ctx);
+        limn_egui::attach_fonts(&mut self.tree, &ctx);
         self.fonts_attached = true;
     }
-    lienzo_egui::normalize_keyboard_input(&ctx);
+    limn_egui::normalize_keyboard_input(&ctx);
     let area = ui.max_rect();
     let window = Size::new(area.width(), area.height());
 
@@ -124,7 +124,7 @@ fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     self.tree.set_root(view(&self.state, window));
     self.tree.layout(window);
     // 3. Deliver input and apply the actions it produces.
-    for event in lienzo_egui::events(&ctx, area.min) {
+    for event in limn_egui::events(&ctx, area.min) {
         for action in self.tree.handle_event(event) {
             update(&mut self.state, &action);
         }
@@ -132,7 +132,7 @@ fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     // 4. Describe the new state and paint it.
     self.tree.set_root(view(&self.state, window));
     let frame = self.tree.layout(window);
-    lienzo_egui::paint_at(ui, &frame, area.min);
+    limn_egui::paint_at(ui, &frame, area.min);
 
     // Keep painting while a transition is running, then go idle.
     if let Some(after) = self.tree.animation_repaint_after() {
@@ -158,7 +158,7 @@ fn main() -> eframe::Result {
         "counter",
         options,
         Box::new(|creation| {
-            lienzo_egui::install_fonts(&creation.egui_ctx);
+            limn_egui::install_fonts(&creation.egui_ctx);
             Ok(Box::new(App {
                 tree: UiTree::new(Element::spacer()),
                 state: State::default(),
