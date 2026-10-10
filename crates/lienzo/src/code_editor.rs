@@ -554,12 +554,141 @@ pub(crate) struct EditorView {
     breakpoint_pointer: Option<Point>,
     content_visible: Rect,
     minimap_cache: minimap::Cache,
+    highlight_index: HighlightIndex,
+    /// The diagnostic under the pointer and when the pointer reached it.
+    diagnostic_hover: Option<(std::ops::Range<usize>, Instant)>,
+    diagnostic_tooltip: Option<(Rect, String)>,
     minimap_hovered: bool,
     visual_map_generation: u64,
     vim: vim::VimState,
     review_layout: review::Layout,
     review_reveal: Option<(u64, u64, usize)>,
     review_interaction: review::Interaction,
+}
+/// Finds the spans of a document-wide highlight list that can colour one row.
+/// Spans keep their order, so the first span containing an offset is the same
+/// one a scan of the whole list would find.
+#[derive(Default)]
+struct HighlightIndex {
+    key: Option<(u64, u64, usize, usize)>,
+    /// Largest span end up to and including each position. Empty when the
+    /// list is not ordered by start, in which case every row gets all of it.
+    max_end: Vec<usize>,
+    /// The text the indexed spans describe.
+    source: Option<BufferSnapshot>,
+    /// A later revision the spans are carried onto, with its changed rows.
+    carried: Option<(u64, (usize, usize, usize))>,
+}
+impl HighlightIndex {
+    /// Whether the host's spans cover `snapshot`, exactly or carried over from
+    /// the revision they were computed for.
+    fn follow(&mut self, editor: &CodeEditor, snapshot: &BufferSnapshot) -> bool {
+        let document = snapshot.document_id();
+        let Some(revision) = editor
+            .highlight_revision
+            .filter(|_| editor.highlight_document_id == Some(document))
+        else {
+            self.carried = None;
+            return false;
+        };
+        let spans = &editor.highlights;
+        if revision == snapshot.revision() {
+            self.sync((document, revision), spans);
+            self.source = Some(snapshot.clone());
+            self.carried = None;
+            return true;
+        }
+        let indexed = self.key == Some((document, revision, spans.as_ptr() as usize, spans.len()));
+        let Some(source) = self.source.as_ref().filter(|_| indexed) else {
+            self.carried = None;
+            return false;
+        };
+        if self.carried.is_none_or(|(carried, _)| carried != snapshot.revision()) {
+            self.carried = lienzo_editor::changed_rows(source, snapshot)
+                .ok()
+                .map(|rows| (snapshot.revision(), rows));
+        }
+        self.carried.is_some()
+    }
+    /// Spans for one row of `snapshot`; `range` is the part of it being drawn.
+    fn lookup<'a>(
+        &'a self,
+        editor: &'a CodeEditor,
+        syntax: &'a crate::code_syntax::SyntaxCache,
+        snapshot: &BufferSnapshot,
+        row: usize,
+        range: std::ops::Range<usize>,
+    ) -> std::borrow::Cow<'a, [CodeHighlight]> {
+        use std::borrow::Cow;
+        let spans = editor.highlights.as_ref();
+        if editor.highlight_document_id == Some(snapshot.document_id())
+            && editor.highlight_revision == Some(snapshot.revision())
+        {
+            return Cow::Borrowed(self.row(spans, range));
+        }
+        let (Some(source), Some((_, (prefix, old_end, new_end)))) = (
+            &self.source,
+            self.carried
+                .filter(|(revision, _)| *revision == snapshot.revision()),
+        ) else {
+            return Cow::Borrowed(syntax.line(snapshot, editor.language, row));
+        };
+        if row < prefix {
+            return Cow::Borrowed(self.row(spans, range));
+        }
+        let old_row = if row >= new_end {
+            row - new_end + old_end
+        } else if row < old_end {
+            row
+        } else {
+            return Cow::Borrowed(&[]);
+        };
+        let (Ok(old), Ok(new)) = (source.line_range(old_row), snapshot.line_range(row)) else {
+            return Cow::Borrowed(&[]);
+        };
+        let moved = |offset: usize| (offset.clamp(old.start, old.end) - old.start + new.start).min(new.end);
+        Cow::Owned(
+            self.row(spans, old.clone())
+                .iter()
+                .map(|span| CodeHighlight {
+                    range: moved(span.range.start)..moved(span.range.end),
+                    color: span.color,
+                })
+                .filter(|span| span.range.start < span.range.end)
+                .collect(),
+        )
+    }
+    fn sync(&mut self, document: (u64, u64), spans: &Arc<[CodeHighlight]>) {
+        let key = (document.0, document.1, spans.as_ptr() as usize, spans.len());
+        if self.key == Some(key) {
+            return;
+        }
+        self.key = Some(key);
+        self.max_end.clear();
+        if spans
+            .windows(2)
+            .any(|pair| pair[0].range.start > pair[1].range.start)
+        {
+            return;
+        }
+        let mut furthest = 0;
+        self.max_end.extend(spans.iter().map(|span| {
+            furthest = furthest.max(span.range.end);
+            furthest
+        }));
+    }
+    fn row<'a>(
+        &self,
+        spans: &'a [CodeHighlight],
+        row: std::ops::Range<usize>,
+    ) -> &'a [CodeHighlight] {
+        if self.max_end.len() != spans.len() {
+            return spans;
+        }
+        let last = spans.partition_point(|span| span.range.start < row.end);
+        let first = self.max_end.partition_point(|end| *end <= row.start);
+        &spans[first.min(last)..last]
+    }
 }
 struct ModifiedDrag {
     point: Point,
@@ -601,6 +730,9 @@ impl EditorView {
             breakpoint_pointer: None,
             content_visible: Rect::new(0.0, 0.0, 0.0, 0.0),
             minimap_cache: Default::default(),
+            highlight_index: Default::default(),
+            diagnostic_hover: None,
+            diagnostic_tooltip: None,
             minimap_hovered: false,
             visual_map_generation: 0,
             vim: Default::default(),
@@ -678,7 +810,13 @@ impl EditorView {
         }
     }
     pub fn syntax_pending(&self) -> bool {
-        self.syntax.pending() || self.review_interaction.hover_pending()
+        self.syntax.pending()
+            || self.review_interaction.hover_pending()
+            || self.diagnostic_hover.is_some() && self.diagnostic_tooltip.is_none()
+    }
+    /// The message to show once the pointer has rested on a diagnostic.
+    pub fn diagnostic_tooltip(&self) -> Option<(Rect, String)> {
+        self.diagnostic_tooltip.clone()
     }
     fn navigation_target(
         &mut self,
@@ -1342,15 +1480,29 @@ impl EditorView {
                 .visual_map
                 .as_ref()
                 .zip(self.visual_snapshot.as_ref())
-                .filter(|((_, old_columns, tabs, old_folds, _), _)| {
-                    columns > 0
-                        && *old_columns == columns
-                        && *tabs == self.editor.tab_width
-                        && old_folds.is_empty()
-                        && folds.is_empty()
+                .filter(|((_, old_columns, tabs, _, _), _)| {
+                    *old_columns == columns && *tabs == self.editor.tab_width
                 });
-            let next_map = if let Some(((_, _, _, _, map), previous)) = cached {
-                map.update_unfolded(previous, snapshot, columns, self.editor.tab_width)
+            let next_map = if let Some(((_, _, _, old_folds, map), previous)) = cached {
+                let old_folds: Vec<_> = old_folds
+                    .iter()
+                    .filter(|fold| {
+                        !previous.selections().any(|s| {
+                            previous
+                                .position_of(s.head)
+                                .is_ok_and(|p| p.row > fold.start && p.row < fold.end)
+                        })
+                    })
+                    .cloned()
+                    .collect();
+                map.update(
+                    previous,
+                    snapshot,
+                    (columns > 0).then_some(columns),
+                    self.editor.tab_width,
+                    &old_folds,
+                    &folds,
+                )
             } else {
                 VisualMap::new(
                     snapshot,
@@ -1601,6 +1753,7 @@ impl EditorView {
         text_height: f32,
     ) -> Vec<DrawCommand> {
         self.ime_rects = None;
+        self.diagnostic_tooltip = None;
         self.structure_controls.clear();
         self.content_visible = Rect::new(rect.x, rect.y, 0.0, 0.0);
         let Ok((snapshot, selection)) = self.editor.controller.state() else {
@@ -1609,7 +1762,9 @@ impl EditorView {
         self.structure_cache.update(&self.editor, &snapshot);
         let external_syntax = self.editor.highlight_document_id == Some(snapshot.document_id())
             && self.editor.highlight_revision == Some(snapshot.revision());
-        if !external_syntax {
+        if self.highlight_index.follow(&self.editor, &snapshot) {
+            self.syntax.release();
+        } else {
             self.syntax.update(&snapshot, self.editor.language);
         }
         if self.composition.as_ref().is_some_and(|state| {
@@ -1895,6 +2050,8 @@ impl EditorView {
         } else {
             &[]
         };
+        let pointer = self.review_interaction.pointer();
+        let mut hovered_diagnostic = None;
         for (visual, (display, range, truncated, row, continuation, folded)) in visible_lines {
             if visual < first || visual >= end {
                 continue;
@@ -2061,6 +2218,14 @@ impl EditorView {
                         color: diagnostic.color,
                         radius: 2.5,
                     });
+                    let target = Rect::new(rect.x + breakpoint_lane, y, 11.0, LINE_HEIGHT);
+                    if hovered_diagnostic.is_none()
+                        && !diagnostic.message.is_empty()
+                        && pointer.is_some_and(|(point, _)| target.contains(point))
+                    {
+                        hovered_diagnostic =
+                            Some((diagnostic.range.clone(), target, &diagnostic.message));
+                    }
                 }
             }
             commands.push(DrawCommand::PushClip(
@@ -2124,20 +2289,20 @@ impl EditorView {
                     )),
                 ));
             }
-            let highlights = if self.editor.highlight_document_id == Some(snapshot.document_id())
-                && self.editor.highlight_revision == Some(snapshot.revision())
-            {
-                self.editor.highlights.as_ref()
-            } else {
-                self.syntax.line(&snapshot, self.editor.language, row)
-            };
+            let highlights = self.highlight_index.lookup(
+                &self.editor,
+                &self.syntax,
+                &snapshot,
+                row,
+                range.clone(),
+            );
             display.paint(
                 &mut commands,
                 Point::new(body.x - self.viewport.scroll_x, text_y),
                 (self.viewport.scroll_x, body.width),
                 self.editor.palette.text,
                 range.start,
-                highlights,
+                &highlights,
             );
             for diagnostic in row_diagnostics {
                 let left = diagnostic.range.start.max(range.start).min(range.end) - range.start;
@@ -2149,6 +2314,15 @@ impl EditorView {
                     color: diagnostic.color,
                     radius: 0.0,
                 });
+                let target = Rect::new(x, y, width, LINE_HEIGHT);
+                if hovered_diagnostic.is_none()
+                    && !diagnostic.message.is_empty()
+                    && pointer.is_some_and(|(point, _)| {
+                        target.contains(point) && visible_body.contains(point)
+                    })
+                {
+                    hovered_diagnostic = Some((diagnostic.range.clone(), target, &diagnostic.message));
+                }
             }
             for selected in &selections {
                 let block_cursor = self.editor.vim_mode && self.vim.mode != VimMode::Insert;
@@ -2253,6 +2427,20 @@ impl EditorView {
             commands.push(DrawCommand::PopClip);
             commands.push(DrawCommand::PopClip);
         }
+        let hovered_diagnostic = hovered_diagnostic
+            .zip(pointer)
+            .map(|((range, target, message), (_, now))| {
+                let since = self
+                    .diagnostic_hover
+                    .as_ref()
+                    .filter(|(hovered, _)| *hovered == range)
+                    .map_or(now, |(_, since)| *since);
+                let rested = now.saturating_duration_since(since) >= crate::tree::TOOLTIP_HOVER_DELAY;
+                ((range, since), rested.then(|| (target, message.clone())))
+            });
+        let (hover, tooltip) = hovered_diagnostic.unzip();
+        self.diagnostic_hover = hover;
+        self.diagnostic_tooltip = tooltip.flatten();
         self.paint_sticky_rows(
             &sticky_rows,
             &snapshot,
@@ -2957,6 +3145,148 @@ pub(crate) fn paint_diff(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn span(range: std::ops::Range<usize>, shade: u8) -> CodeHighlight {
+        CodeHighlight {
+            range,
+            color: Color::rgb(shade, shade, shade),
+        }
+    }
+
+    fn first_containing(spans: &[CodeHighlight], offset: usize) -> Option<Color> {
+        spans
+            .iter()
+            .find(|span| span.range.start <= offset && span.range.end > offset)
+            .map(|span| span.color)
+    }
+
+    #[test]
+    fn highlight_index_gives_every_offset_the_colour_a_full_scan_would() {
+        // Nested, overlapping, adjacent and empty spans, ordered by start.
+        let spans: Arc<[CodeHighlight]> = vec![
+            span(0..400, 1),
+            span(2..5, 2),
+            span(2..40, 3),
+            span(10..12, 4),
+            span(10..10, 5),
+            span(38..60, 6),
+            span(60..61, 7),
+            span(90..95, 8),
+            span(300..301, 9),
+            span(500..520, 10),
+            span(505..506, 11),
+            span(700..701, 12),
+        ]
+        .into();
+        let mut index = HighlightIndex::default();
+        index.sync((1, 1), &spans);
+        let mut narrowed = 0;
+        for start in (0..720).step_by(7) {
+            for len in [1, 3, 16, 80] {
+                let row = start..start + len;
+                let slice = index.row(&spans, row.clone());
+                narrowed += usize::from(slice.len() < spans.len());
+                for offset in row {
+                    assert_eq!(
+                        first_containing(slice, offset),
+                        first_containing(&spans, offset),
+                        "offset {offset} in row {start}+{len}"
+                    );
+                }
+            }
+        }
+        assert!(narrowed > 0);
+        // Past the long span, a row sees only what can reach it.
+        assert_eq!(index.row(&spans, 700..702).len(), 1);
+        assert!(index.row(&spans, 600..650).is_empty());
+        assert!(index.row(&spans, 9..9).len() <= spans.len());
+    }
+
+    #[test]
+    fn highlight_index_falls_back_to_the_whole_list_when_it_is_not_ordered() {
+        let spans: Arc<[CodeHighlight]> = vec![span(50..60, 1), span(0..5, 2), span(52..53, 3)].into();
+        let mut index = HighlightIndex::default();
+        index.sync((1, 1), &spans);
+        assert_eq!(index.row(&spans, 0..3).len(), spans.len());
+        assert_eq!(first_containing(index.row(&spans, 0..3), 1), first_containing(&spans, 1));
+    }
+
+    #[test]
+    fn highlight_index_is_rebuilt_for_another_revision_or_list() {
+        let first: Arc<[CodeHighlight]> = vec![span(0..5, 1), span(10..15, 2)].into();
+        let second: Arc<[CodeHighlight]> = vec![span(0..5, 1), span(100..150, 2)].into();
+        let mut index = HighlightIndex::default();
+        index.sync((1, 1), &first);
+        assert_eq!(index.row(&first, 10..12).len(), 1);
+        index.sync((1, 2), &second);
+        assert!(index.row(&second, 10..12).is_empty());
+        assert_eq!(index.row(&second, 120..121).len(), 1);
+        index.sync((1, 2), &Arc::from([]));
+        assert!(index.row(&[], 0..10).is_empty());
+    }
+
+    #[test]
+    fn highlights_are_carried_onto_an_edited_revision_until_new_ones_arrive() {
+        let text = "let a = 1;\nlet b = 2;\nlet c = 3;\n";
+        let mut buffer = TextBuffer::new(text).unwrap();
+        let before = buffer.snapshot();
+        let document = before.document_id();
+        let spans: Arc<[CodeHighlight]> = (0..3)
+            .flat_map(|row| [span(row * 11..row * 11 + 3, 1), span(row * 11 + 8..row * 11 + 9, 2)])
+            .collect::<Vec<_>>()
+            .into();
+        let editor = |revision| {
+            CodeEditor::new("editor", EditorController::new(TextBuffer::new("").unwrap()))
+                .highlights(document, revision, spans.clone())
+        };
+        let syntax = crate::code_syntax::SyntaxCache::new();
+        let mut index = HighlightIndex::default();
+        let analysed = editor(before.revision());
+
+        // Nothing to carry before the analysed revision has been seen.
+        buffer
+            .edit(11..11, "// note\n", Selection::caret(19), EditKind::Typing, 0)
+            .unwrap();
+        let inserted = buffer.snapshot();
+        assert!(!index.follow(&analysed, &inserted));
+        assert!(index.follow(&analysed, &before));
+        assert!(index.follow(&analysed, &inserted));
+
+        let row = |index: &HighlightIndex, snapshot: &BufferSnapshot, row: usize| {
+            let range = snapshot.line_range(row).unwrap();
+            index
+                .lookup(&analysed, &syntax, snapshot, row, range)
+                .iter()
+                .map(|span| (span.range.clone(), span.color))
+                .collect::<Vec<_>>()
+        };
+        let (keyword, number) = (Color::rgb(1, 1, 1), Color::rgb(2, 2, 2));
+        assert_eq!(row(&index, &inserted, 0), [(0..3, keyword), (8..9, number)]);
+        assert!(row(&index, &inserted, 1).is_empty());
+        assert_eq!(row(&index, &inserted, 2), [(19..22, keyword), (27..28, number)]);
+        assert_eq!(row(&index, &inserted, 3), [(30..33, keyword), (38..39, number)]);
+
+        // A row retyped in place keeps its colours, clipped to its new length.
+        buffer
+            .edit(4..10, "", Selection::caret(4), EditKind::Typing, 0)
+            .unwrap();
+        let shortened = buffer.snapshot();
+        assert_eq!(shortened.line_text(0).unwrap().trim_end_matches('\n'), "let ");
+        assert!(index.follow(&analysed, &shortened));
+        assert_eq!(row(&index, &shortened, 0), [(0..3, keyword)]);
+        assert!(row(&index, &shortened, 1).is_empty());
+        assert_eq!(row(&index, &shortened, 2), [(13..16, keyword), (21..22, number)]);
+        assert_eq!(row(&index, &shortened, 3), [(24..27, keyword), (32..33, number)]);
+
+        // Another list, or another document, is never carried.
+        let other: Arc<[CodeHighlight]> = spans.to_vec().into();
+        let replaced = CodeEditor::new("editor", EditorController::new(TextBuffer::new("").unwrap()))
+            .highlights(document, before.revision(), other);
+        assert!(!index.follow(&replaced, &shortened));
+        assert!(index.follow(&editor(shortened.revision()), &shortened));
+        let elsewhere = TextBuffer::new(text).unwrap().snapshot();
+        assert!(!index.follow(&analysed, &elsewhere));
+    }
     use crate::{CodeDiffLine, Frame, Size, UiTree};
 
     fn fixture(text: &str, width: f32) -> (EditorController, UiTree) {
@@ -3292,6 +3622,83 @@ mod tests {
                 |command| matches!(command,DrawCommand::Text {text,..} if text=="replacement")
             )
         );
+    }
+
+    #[test]
+    fn a_diagnostic_shows_its_message_once_the_pointer_rests_on_it() {
+        let controller = EditorController::new(TextBuffer::new("let total = missing;\nok").unwrap());
+        let snapshot = controller.snapshot().unwrap();
+        let mark = Color::rgb(250, 60, 70);
+        let message = "cannot find value `missing`";
+        let mut tree = UiTree::new(
+            CodeEditor::new("editor:diagnostic", controller.clone())
+                .height(140.0)
+                .diagnostics(
+                    snapshot.document_id(),
+                    snapshot.revision(),
+                    vec![CodeDiagnostic {
+                        range: 12..19,
+                        color: mark,
+                        message: message.into(),
+                    }],
+                )
+                .render(),
+        );
+        let size = Size::new(480.0, 140.0);
+        let start = Instant::now();
+        let shown = |frame: &Frame| {
+            frame
+                .commands
+                .iter()
+                .any(|command| matches!(command, DrawCommand::Text { text, .. } if text == message))
+        };
+        let frame = tree.layout_at(size, start);
+        let underline = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *color == mark && rect.height == 1.5 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert!(!shown(&frame));
+
+        let over = Point::new(underline.x + underline.width * 0.5, underline.y - 6.0);
+        tree.handle_event(UiEvent::PointerMove(over));
+        assert!(!shown(&tree.layout_at(size, start)));
+        assert!(tree.animation_repaint_after().is_some());
+        let rested = start + crate::tree::TOOLTIP_HOVER_DELAY;
+        assert!(shown(&tree.layout_at(size, rested)));
+
+        tree.handle_event(UiEvent::PointerMove(Point::new(over.x, over.y + LINE_HEIGHT)));
+        assert!(!shown(&tree.layout_at(size, rested)));
+        let dot = tree
+            .layout_at(size, rested)
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *color == mark && rect.height == 5.0 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .unwrap();
+        tree.handle_event(UiEvent::PointerMove(Point::new(dot.x + 2.0, dot.y + 2.0)));
+        assert!(!shown(&tree.layout_at(size, rested)));
+        assert!(shown(&tree.layout_at(size, rested + crate::tree::TOOLTIP_HOVER_DELAY)));
+        let later = rested + crate::tree::TOOLTIP_HOVER_DELAY;
+        tree.handle_event(UiEvent::PointerMove(Point::new(over.x, over.y + LINE_HEIGHT)));
+        assert!(!shown(&tree.layout_at(size, later)));
+        tree.handle_event(UiEvent::PointerMove(over));
+        assert!(!shown(&tree.layout_at(size, later)));
+        assert!(shown(&tree.layout_at(size, later + crate::tree::TOOLTIP_HOVER_DELAY)));
+
+        controller
+            .execute(EditorCommand::InsertText("x".into()))
+            .unwrap();
+        assert!(!shown(&tree.layout_at(size, later + crate::tree::TOOLTIP_HOVER_DELAY)));
     }
 
     #[test]

@@ -46,6 +46,19 @@ impl Language {
             _ => Self::Plain,
         }
     }
+    /// Opening and closing markers that comment out one line. The closing
+    /// marker is empty where the language has a line comment.
+    pub fn comment_markers(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::Plain => None,
+            Self::Rust | Self::Json | Self::JavaScript | Self::TypeScript | Self::Tsx => {
+                Some(("//", ""))
+            }
+            Self::Python | Self::Toml => Some(("#", "")),
+            Self::Css => Some(("/*", "*/")),
+            Self::Html | Self::Markdown => Some(("<!--", "-->")),
+        }
+    }
     pub fn lsp_id(self) -> &'static str {
         match self {
             Self::Plain => "plaintext",
@@ -236,10 +249,10 @@ impl Default for ParseLimits {
         Self {
             max_bytes: 8 * 1024 * 1024,
             max_line_bytes: 256 * 1024,
-            max_spans: 262_144,
-            max_nodes: 524_288,
-            max_folds: 16_384,
-            timeout: Duration::from_millis(250),
+            max_spans: 1_048_576,
+            max_nodes: 4_194_304,
+            max_folds: 65_536,
+            timeout: Duration::from_secs(4),
         }
     }
 }
@@ -248,6 +261,9 @@ struct CachedTree {
     language: Language,
     text: String,
     tree: Tree,
+    /// Every highlight of `text`, kept only when none was left out.
+    highlights: Option<Arc<[Highlight]>>,
+    chars: usize,
 }
 struct Grammar {
     language: Language,
@@ -334,9 +350,9 @@ impl ParserEngine {
                 tree.document_id == snapshot.document_id() && tree.language == language
             })
             .and_then(|index| self.trees.remove(index));
-        if let Some(previous) = &mut previous {
-            edit_tree(&mut previous.tree, &previous.text, &text);
-        }
+        let edit = previous
+            .as_mut()
+            .map(|previous| edit_tree(&mut previous.tree, &previous.text, &text));
         let grammar = self
             .grammars
             .iter_mut()
@@ -353,12 +369,54 @@ impl ParserEngine {
         );
         let Some(tree) = tree else {
             grammar.parser.reset();
+            // The edited tree still describes `text`, so the next attempt
+            // does not have to start over.
+            if let Some(previous) = previous {
+                self.remember(snapshot, language, text, previous.tree, None);
+            }
             result.truncated = true;
             return Ok(result);
         };
         result.has_errors = tree.root_node().has_error();
+        // Outside the bytes that were edited or parsed differently, the
+        // previous highlights still hold and only have to move with the text.
+        let reused = previous.as_ref().zip(edit).and_then(|(previous, edit)| {
+            let spans = previous.highlights.as_ref()?;
+            let (mut low, mut high) = (edit.start_byte, edit.new_end_byte);
+            for range in previous.tree.changed_ranges(&tree) {
+                low = low.min(range.start_byte);
+                high = high.max(range.end_byte);
+            }
+            // Whole lines, widened to every earlier highlight that touches
+            // them: a token next to the change can have new boundaries.
+            let first = snapshot.row_of(snapshot.byte_to_char(low).ok()?).ok()?;
+            let last = snapshot.row_of(snapshot.byte_to_char(high).ok()?).ok()?;
+            let mut start = snapshot.line_range(first).ok()?.start;
+            let end = snapshot.line_range(last).ok()?.end;
+            let mut old_end = (end + previous.chars).checked_sub(snapshot.char_count())?;
+            loop {
+                let (from, to) = (start, old_end);
+                for span in spans.iter() {
+                    if span.range.end >= from && span.range.start <= to {
+                        start = start.min(span.range.start);
+                        old_end = old_end.max(span.range.end);
+                    }
+                }
+                if (from, to) == (start, old_end) {
+                    break;
+                }
+            }
+            let chars = start..(old_end + snapshot.char_count()).checked_sub(previous.chars)?;
+            let bytes = snapshot.char_to_byte(chars.start).ok()?
+                ..snapshot.char_to_byte(chars.end).ok()?;
+            Some((spans.clone(), bytes, chars, old_end))
+        });
         let mut cursor = QueryCursor::new();
         cursor.set_match_limit(4096);
+        if let Some((_, bytes, _, _)) = &reused {
+            // One byte of slack so nodes that only touch the region are seen.
+            cursor.set_byte_range(bytes.start.saturating_sub(1)..bytes.end + 1);
+        }
         let mut query_cancelled = |_: &tree_sitter::QueryCursorState| {
             cancellation.is_cancelled() || Instant::now() >= deadline
         };
@@ -368,12 +426,23 @@ impl ParserEngine {
             text.as_bytes(),
             tree_sitter::QueryCursorOptions::new().progress_callback(&mut query_cancelled),
         );
+        let ascii = text.is_ascii();
         let mut highlights = Vec::new();
         while let Some((matched, index)) = captures.next() {
             let capture = matched.captures[*index];
             if let Some(kind) = capture_kind(grammar.query.capture_names()[capture.index as usize])
             {
-                if let Some(range) = char_range(snapshot, capture.node.byte_range()) {
+                let bytes = capture.node.byte_range();
+                let range = if ascii {
+                    Some(bytes)
+                } else {
+                    char_range(snapshot, bytes)
+                };
+                if let Some(range) = range.filter(|range| {
+                    reused.as_ref().is_none_or(|(_, _, chars, _)| {
+                        range.end >= chars.start && range.start <= chars.end
+                    })
+                }) {
                     highlights.push(Highlight { range, kind });
                 }
             }
@@ -386,19 +455,36 @@ impl ParserEngine {
             }
         }
         drop(captures);
+        let complete = !result.truncated && !cursor.did_exceed_match_limit();
         result.truncated |= cursor.did_exceed_match_limit()
             || cancellation.is_cancelled()
             || Instant::now() >= deadline;
+        if let Some((spans, _, chars, old_end)) = reused {
+            let shift = |offset: usize| offset - old_end + chars.end;
+            highlights.extend(spans.iter().filter_map(|span| {
+                if span.range.end < chars.start {
+                    Some(span.clone())
+                } else if span.range.start > old_end {
+                    Some(Highlight {
+                        range: shift(span.range.start)..shift(span.range.end),
+                        kind: span.kind,
+                    })
+                } else {
+                    None
+                }
+            }));
+        }
         // Prefer the most specific capture at a shared offset; rendering resolves overlaps by
         // first containing range. No scanning parser subtrees on the UI thread.
         highlights.sort_by_key(|span| (span.range.start, span.range.len()));
         highlights.dedup();
         result.highlights = highlights.into();
+        let kept = complete.then(|| result.highlights.clone());
         let mut symbols = Vec::new();
         let mut folds = Vec::new();
         let mut walk = tree.walk();
         let mut nodes = 0;
-        loop {
+        'walk: loop {
             let node = walk.node();
             nodes += 1;
             if nodes > self.limits.max_nodes
@@ -430,7 +516,7 @@ impl ParserEngine {
                                 char_range(snapshot, name.byte_range()),
                                 name.utf8_text(text.as_bytes()),
                             ) {
-                                if symbols.len() < 4096 {
+                                if symbols.len() < self.limits.max_folds {
                                     symbols.push(Symbol {
                                         name: label.into(),
                                         kind,
@@ -476,25 +562,35 @@ impl ParserEngine {
                     break;
                 }
                 if !walk.goto_parent() {
-                    drop(walk);
-                    result.symbols = symbols.into();
-                    folds.sort_by_key(|fold| (fold.rows.start, fold.rows.end));
-                    folds.dedup();
-                    result.folds = folds.into();
-                    self.trees.push_front(CachedTree {
-                        document_id: snapshot.document_id(),
-                        language,
-                        text,
-                        tree,
-                    });
-                    self.trees.truncate(4);
-                    return Ok(result);
+                    break 'walk;
                 }
             }
         }
+        drop(walk);
         result.symbols = symbols.into();
+        folds.sort_by_key(|fold| (fold.rows.start, fold.rows.end));
+        folds.dedup();
         result.folds = folds.into();
+        self.remember(snapshot, language, text, tree, kept);
         Ok(result)
+    }
+    fn remember(
+        &mut self,
+        snapshot: &BufferSnapshot,
+        language: Language,
+        text: String,
+        tree: Tree,
+        highlights: Option<Arc<[Highlight]>>,
+    ) {
+        self.trees.push_front(CachedTree {
+            document_id: snapshot.document_id(),
+            language,
+            text,
+            tree,
+            highlights,
+            chars: snapshot.char_count(),
+        });
+        self.trees.truncate(4);
     }
 }
 fn char_range(snapshot: &BufferSnapshot, bytes: Range<usize>) -> Option<Range<usize>> {
@@ -572,9 +668,17 @@ fn point_at(text: &str, byte: usize) -> Point {
             .map_or(byte, |index| byte - index - 1),
     }
 }
-fn edit_tree(tree: &mut Tree, previous: &str, next: &str) {
+fn edit_tree(tree: &mut Tree, previous: &str, next: &str) -> InputEdit {
     if previous == next {
-        return;
+        let origin = Point { row: 0, column: 0 };
+        return InputEdit {
+            start_byte: 0,
+            old_end_byte: 0,
+            new_end_byte: 0,
+            start_position: origin,
+            old_end_position: origin,
+            new_end_position: origin,
+        };
     }
     let mut start = previous
         .bytes()
@@ -597,14 +701,16 @@ fn edit_tree(tree: &mut Tree, previous: &str, next: &str) {
     }
     let old_end = previous.len() - suffix;
     let new_end = next.len() - suffix;
-    tree.edit(&InputEdit {
+    let edit = InputEdit {
         start_byte: start,
         old_end_byte: old_end,
         new_end_byte: new_end,
         start_position: point_at(previous, start),
         old_end_position: point_at(previous, old_end),
         new_end_position: point_at(next, new_end),
-    });
+    };
+    tree.edit(&edit);
+    edit
 }
 
 #[cfg(test)]

@@ -72,7 +72,7 @@ pub use chip::Chip;
 pub use code_diff::{CodeDiff, CodeDiffLine, CodeDiffLineKind};
 pub use code_editor::{CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
 pub use code_syntax::CodeLanguage;
-pub use collapsible::Collapsible;
+pub use collapsible::{collapse_footer, Collapsible};
 pub use components::{
     Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component, ComponentPalette,
     ControlSize, ControlState, DropdownList, DropdownOption, IconButton, Kbd, Link, Popover, Search,
@@ -92,7 +92,7 @@ pub use empty::Empty;
 pub use file_icons::{file_icon, folder_icon, language_icon, FileIcon};
 pub use geometry::{Color, Point, Rect, Size};
 pub use image_viewer::ImageViewer;
-pub use marker::{Marker, MarkerVariant};
+pub use marker::{thinking_highlight, Marker, MarkerVariant};
 pub use menu::{MenuItem, MenuSeparator};
 pub use modal::{DismissButton, Modal};
 pub use motion::{

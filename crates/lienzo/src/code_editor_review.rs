@@ -71,6 +71,11 @@ impl Interaction {
         }
     }
 
+    /// Where the pointer rests over this editor, and the time of that reading.
+    pub fn pointer(&self) -> Option<(Point, Instant)> {
+        self.pointer.map(|point| (point, self.now))
+    }
+
     pub fn hover_pending(&self) -> bool {
         self.hover.is_some_and(|(_, _, fired)| !fired)
     }

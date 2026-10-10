@@ -61,6 +61,8 @@ pub enum EditorCommand {
     DeleteLines,
     ToggleLineComment {
         prefix: String,
+        /// Closing marker for languages that only have block comments.
+        suffix: String,
     },
     Indent {
         reverse: bool,
@@ -507,8 +509,18 @@ impl TextBuffer {
             .collect();
         self.apply_transaction_selections(edits, after, kind, timestamp)
     }
-    fn toggle_comment(&mut self, prefix: &str, timestamp: u64) -> Result<bool, EditorError> {
-        if prefix.is_empty() || prefix.contains(['\r', '\n']) || prefix.len() > 16 {
+    fn toggle_comment(
+        &mut self,
+        prefix: &str,
+        suffix: &str,
+        timestamp: u64,
+    ) -> Result<bool, EditorError> {
+        if prefix.is_empty()
+            || prefix.contains(['\r', '\n'])
+            || prefix.len() > 16
+            || suffix.contains(['\r', '\n'])
+            || suffix.len() > 16
+        {
             return Err(EditorError::InvalidCommand(
                 "A nonempty single-line comment prefix is required".into(),
             ));
@@ -524,33 +536,57 @@ impl TextBuffer {
                 .chars()
                 .take_while(|c| matches!(c, ' ' | '\t'))
                 .count();
+            let trailing = snapshot
+                .rope
+                .slice(r.clone())
+                .chars_at(r.len())
+                .reversed()
+                .take_while(|c| matches!(c, ' ' | '\t'))
+                .count();
             if r.start + indent < r.end {
-                starts.push((r.start + indent, r.end));
+                starts.push((r.start + indent, r.end - trailing));
             }
         }
+        let markers = prefix.chars().count() + suffix.chars().count();
         let remove = starts.iter().all(|(start, end)| {
-            snapshot
-                .rope
-                .slice(*start..*end)
-                .to_string()
-                .starts_with(prefix)
+            let line = snapshot.rope.slice(*start..*end).to_string();
+            end - start >= markers && line.starts_with(prefix) && line.ends_with(suffix)
         });
         let mut edits = Vec::new();
         for (start, end) in starts {
             if remove {
                 let mut count = prefix.chars().count();
-                if start + count < end && snapshot.rope.char(start + count) == ' ' {
+                let mut closing = end - suffix.chars().count();
+                if start + count < closing && snapshot.rope.char(start + count) == ' ' {
                     count += 1;
+                }
+                if !suffix.is_empty()
+                    && closing > start + count
+                    && snapshot.rope.char(closing - 1) == ' '
+                {
+                    closing -= 1;
                 }
                 edits.push(TextEdit {
                     range: start..start + count,
                     replacement: String::new(),
                 });
+                if closing < end {
+                    edits.push(TextEdit {
+                        range: closing..end,
+                        replacement: String::new(),
+                    });
+                }
             } else {
                 edits.push(TextEdit {
                     range: start..start,
                     replacement: format!("{prefix} "),
                 });
+                if !suffix.is_empty() {
+                    edits.push(TextEdit {
+                        range: end..end,
+                        replacement: format!(" {suffix}"),
+                    });
+                }
             }
         }
         self.apply_preserving_selections(&edits, EditKind::Replace, timestamp)
@@ -780,7 +816,9 @@ impl TextBuffer {
             EditorCommand::Indent { reverse, style } => {
                 self.indent_with_style(reverse, style, timestamp)
             }
-            EditorCommand::ToggleLineComment { prefix } => self.toggle_comment(&prefix, timestamp),
+            EditorCommand::ToggleLineComment { prefix, suffix } => {
+                self.toggle_comment(&prefix, &suffix, timestamp)
+            }
             EditorCommand::DuplicateLines
             | EditorCommand::MoveLines { .. }
             | EditorCommand::DeleteLines => self.line_command(&command, timestamp),

@@ -281,7 +281,7 @@ fn minimap_cache_and_sampling_remain_bounded_for_large_and_pathological_document
 }
 
 #[test]
-fn minimap_paints_only_current_syntax_and_preserves_unicode_tabs_and_indentation() {
+fn minimap_carries_syntax_through_an_edit_and_preserves_unicode_tabs_and_indentation() {
     let controller =
         EditorController::new(TextBuffer::new("\t東京e\u{301} first second\nnext").unwrap());
     let snapshot = controller.snapshot().unwrap();
@@ -308,11 +308,19 @@ fn minimap_paints_only_current_syntax_and_preserves_unicode_tabs_and_indentation
         .execute(EditorCommand::InsertText("changed".into()))
         .unwrap();
     paint(&mut view, 700.0);
-    assert!(!view
-        .minimap_cache
-        .runs
-        .iter()
-        .any(|run| run.color == with_alpha(tint, 145)));
+    let tinted = |view: &EditorView| {
+        view.minimap_cache
+            .runs
+            .iter()
+            .any(|run| run.color == with_alpha(tint, 145))
+    };
+    assert!(tinted(&view));
+    view.editor.highlight_document_id = Some(TextBuffer::new("other").unwrap().document_id());
+    controller
+        .execute(EditorCommand::InsertText("again".into()))
+        .unwrap();
+    paint(&mut view, 700.0);
+    assert!(!tinted(&view));
 }
 
 #[test]
@@ -411,4 +419,136 @@ fn editor_scrollbars_share_scrollarea_ink_and_shape_without_changing_drag_geomet
     viewport.drag_scrollbar(Point::new(thumb_point.x, 1000.0), false);
     assert_eq!(viewport.scroll_y, viewport.max_y);
     assert!(viewport.scrollbar_drag.is_none());
+}
+
+#[test]
+#[ignore = "prints timings; run with --profile desktop -- --ignored --nocapture"]
+fn measure_highlight_cost_per_frame_by_document_size() {
+    for lines in [200usize, 5_000, 50_000, 150_000] {
+        let text: String = (0..lines)
+            .map(|row| format!("    let value_{row} = compute({row}, \"text\"); // note\n"))
+            .collect();
+        let controller = EditorController::new(TextBuffer::new(&text).unwrap());
+        let snapshot = controller.snapshot().unwrap();
+        let mut spans = Vec::with_capacity(lines * 6);
+        for row in 0..lines {
+            let start = snapshot.line_range(row).unwrap().start;
+            for (index, (from, len)) in [(4, 3), (8, 7), (18, 7), (26, 2), (30, 6), (39, 7)]
+                .into_iter()
+                .enumerate()
+            {
+                spans.push(CodeHighlight {
+                    range: start + from..start + from + len,
+                    color: Color::rgb(index as u8 + 1, 9, 9),
+                });
+            }
+        }
+        let spans: Arc<[CodeHighlight]> = spans.into();
+        let editor = CodeEditor::new("measure", controller.clone())
+            .minimap(true)
+            .highlights(snapshot.document_id(), snapshot.revision(), spans.clone());
+        let mut view = EditorView::new(editor, Instant::now());
+        let timed = |view: &mut EditorView| {
+            let started = Instant::now();
+            paint(view, 900.0);
+            started.elapsed()
+        };
+        let first = timed(&mut view);
+        let steady = (0..20).map(|_| timed(&mut view)).min().unwrap();
+        let mut edits = Vec::new();
+        for (name, row) in [("top", 0), ("middle", lines / 2), ("bottom", lines - 1)] {
+            let at = controller.snapshot().unwrap().line_range(row).unwrap().start;
+            controller
+                .execute(EditorCommand::SetSelection(Selection::caret(at)))
+                .unwrap();
+            controller
+                .execute(EditorCommand::InsertText("x".into()))
+                .unwrap();
+            let after_edit = timed(&mut view);
+            let carried = (0..20).map(|_| timed(&mut view)).min().unwrap();
+            edits.push(format!("{name}: edit {after_edit:.2?} then {carried:.2?}"));
+        }
+        let previous = snapshot.clone();
+        let next = controller.snapshot().unwrap();
+        let started = Instant::now();
+        let rows = lienzo_editor::changed_rows(&previous, &next).unwrap();
+        let located = started.elapsed();
+        println!(
+            "{lines:>7} lines | open {first:.2?} | frame {steady:.2?} | {} | locate {located:.2?} {rows:?}",
+            edits.join(" | ")
+        );
+    }
+}
+
+#[test]
+#[ignore = "prints timings; run with --profile desktop -- --ignored --nocapture"]
+fn measure_wrap_fold_and_search_cost_by_document_size() {
+    for lines in [200usize, 5_000, 50_000, 150_000] {
+        let text: String = (0..lines)
+            .map(|row| format!("    let value_{row} = compute({row}, \"text\"); // note\n"))
+            .collect();
+        let mut report = Vec::new();
+        for name in ["plain", "wrap", "fold", "wrap+fold", "header", "search"] {
+            let controller = EditorController::new(TextBuffer::new(&text).unwrap());
+            let snapshot = controller.snapshot().unwrap();
+            let mut editor = CodeEditor::new("measure", controller.clone()).minimap(true);
+            if name.contains("wrap") {
+                editor = editor.soft_wrap(true);
+            }
+            if name.contains("fold") {
+                editor = editor.folds(vec![lines / 4..lines / 4 + 20]);
+            }
+            let matches = |snapshot: &BufferSnapshot| -> Vec<std::ops::Range<usize>> {
+                (0..snapshot.line_count() - 1)
+                    .flat_map(|row| {
+                        let start = snapshot.line_range(row).unwrap().start;
+                        [start + 4..start + 7, start + 18..start + 25]
+                    })
+                    .collect()
+            };
+            if name == "header" {
+                editor = editor.soft_wrap(true).folds(vec![lines / 2..lines / 2 + 20]);
+            }
+            if name == "search" {
+                editor = editor.search_matches(snapshot.revision(), matches(&snapshot));
+            }
+            let mut view = EditorView::new(editor, Instant::now());
+            let timed = |view: &mut EditorView| {
+                let started = Instant::now();
+                paint(view, 900.0);
+                started.elapsed()
+            };
+            let first = timed(&mut view);
+            let steady = (0..10).map(|_| timed(&mut view)).min().unwrap();
+            let at = snapshot.line_range(lines / 2).unwrap().start;
+            controller
+                .execute(EditorCommand::SetSelection(Selection::caret(at)))
+                .unwrap();
+            timed(&mut view);
+            let mut typed = std::time::Duration::ZERO;
+            for _ in 0..5 {
+                controller
+                    .execute(EditorCommand::InsertText("x".into()))
+                    .unwrap();
+                if name == "search" {
+                    let now = controller.snapshot().unwrap();
+                    view.editor.search_revision = Some(now.revision());
+                    view.editor.search_matches = matches(&now).into();
+                }
+                typed = typed.max(timed(&mut view));
+            }
+            report.push(format!("{name}: open {first:.2?} frame {steady:.2?} key {typed:.2?}"));
+        }
+        let snapshot = TextBuffer::new(&text).unwrap().snapshot();
+        let started = Instant::now();
+        let rows = VisualMap::new(&snapshot, Some(102), 4, &[]).unwrap().rows.len();
+        let wrapped = started.elapsed();
+        let started = Instant::now();
+        VisualMap::new(&snapshot, None, 4, &[]).unwrap();
+        let unwrapped = started.elapsed();
+        println!(
+            "{lines:>7} lines | {} | map alone: wrap {wrapped:.2?} ({rows} rows) plain {unwrapped:.2?}",
+            report.join(" | ")
+        );
+    }
 }

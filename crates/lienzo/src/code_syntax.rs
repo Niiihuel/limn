@@ -112,6 +112,13 @@ impl SyntaxCache {
     pub fn update_diff(&mut self, lines: Arc<[crate::CodeDiffLine]>, language: CodeLanguage) {
         self.request(Source::Diff(lines), language);
     }
+    /// Abandons any analysis in flight; the caller has another source of rows.
+    pub fn release(&mut self) {
+        if self.desired.take().is_some() {
+            self.generation.fetch_add(1, Ordering::Release);
+            self.requested = None;
+        }
+    }
     pub fn invalidate_from(&mut self, row: usize) {
         self.invalid_from = Some(self.invalid_from.map_or(row, |previous| previous.min(row)));
     }

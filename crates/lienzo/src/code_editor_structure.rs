@@ -507,14 +507,13 @@ impl EditorView {
                 self.editor.tab_width,
                 measure,
             );
-            let highlights = if self.editor.highlight_document_id == Some(snapshot.document_id())
-                && self.editor.highlight_revision == Some(snapshot.revision())
-            {
-                self.editor.highlights.as_ref()
-            } else {
-                self.syntax
-                    .line(snapshot, self.editor.language, scope.start_row)
-            };
+            let highlights = self.highlight_index.lookup(
+                &self.editor,
+                &self.syntax,
+                snapshot,
+                scope.start_row,
+                range.clone(),
+            );
             commands.push(DrawCommand::PushClip(Rect::new(
                 body.x,
                 y,
@@ -527,7 +526,7 @@ impl EditorView {
                 (self.viewport.scroll_x, body.width),
                 self.editor.palette.text,
                 range.start,
-                highlights,
+                &highlights,
             );
             commands.push(DrawCommand::PopClip);
             commands.push(DrawCommand::PopClip);

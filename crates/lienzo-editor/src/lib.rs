@@ -8,6 +8,7 @@ mod commands;
 mod display;
 mod editing;
 mod grapheme;
+mod row_map;
 mod search;
 mod visual_map;
 
@@ -21,6 +22,7 @@ use std::sync::Arc;
 
 pub use display::{DisplayLine, Viewport, VisibleLine};
 pub use editing::{EditorCommand, IndentStyle};
+pub use row_map::{changed_rows, remap_rows};
 pub use search::{SearchError, SearchOptions, SearchResults};
 pub use visual_map::{VisualMap, VisualRow};
 
@@ -868,6 +870,12 @@ impl BufferSnapshot {
     }
 
     /// Offsets within a line terminator map to that line's final content column.
+    /// The row containing `offset`, without measuring its column.
+    pub fn row_of(&self, offset: usize) -> Result<usize, EditorError> {
+        validate_range(&(offset..offset), self.char_count())?;
+        Ok(self.rope.char_to_line(offset))
+    }
+
     pub fn position_of(&self, offset: usize) -> Result<Position, EditorError> {
         validate_range(&(offset..offset), self.char_count())?;
         let row = self.rope.char_to_line(offset);

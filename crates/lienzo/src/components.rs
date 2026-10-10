@@ -263,7 +263,7 @@ impl ComponentPalette {
         }
     }
 
-    fn tooltip_style(self) -> TooltipStyle {
+    pub(crate) fn tooltip_style(self) -> TooltipStyle {
         // Buttons may use an action palette with a light fill or muted ink.
         // The shared tooltip still belongs to the surrounding theme: its
         // border and muted text are stable semantic tokens across actions.

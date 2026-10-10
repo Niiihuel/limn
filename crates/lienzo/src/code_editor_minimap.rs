@@ -360,7 +360,13 @@ impl EditorView {
             else {
                 continue;
             };
-            let spans = self.syntax.line(snapshot, self.editor.language, physical);
+            let spans = self.highlight_index.lookup(
+                &self.editor,
+                &self.syntax,
+                snapshot,
+                physical,
+                range.clone(),
+            );
             let mut column = column_origin;
             let mut last: Option<Run> = None;
             let mut runs = 0;

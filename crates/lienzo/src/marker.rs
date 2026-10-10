@@ -10,7 +10,9 @@ pub enum MarkerVariant {
     Border,
 }
 
-pub(crate) fn thinking_highlight(palette: ComponentPalette) -> Color {
+/// The highlight that sweeps across "thinking" text. Public so a host's own
+/// activity rows can shimmer exactly like [`Marker`] and [`crate::Collapsible`].
+pub fn thinking_highlight(palette: ComponentPalette) -> Color {
     let blend = |base: u8, highlight: u8| ((u16::from(base) + u16::from(highlight)) / 2) as u8;
     let base = palette.muted;
     let highlight = palette.text;

@@ -194,7 +194,9 @@ impl Component for Collapsible {
 
 /// Common quiet footer for transcript disclosures. It dispatches the header's
 /// action so the host retains its session/request validation and scroll policy.
-pub(crate) fn collapse_footer(id: &str, palette: ComponentPalette) -> Element {
+/// Public so a host's own disclosures can end with the same control. `id` is
+/// the header's action ID.
+pub fn collapse_footer(id: &str, palette: ComponentPalette) -> Element {
     let button_id = format!("{id}:collapse");
     let button = IconButton::new(
         &button_id,

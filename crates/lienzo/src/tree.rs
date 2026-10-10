@@ -50,7 +50,7 @@ use crate::{
 
 const TOOLTIP_HEIGHT: f32 = 24.0;
 const TOOLTIP_PADDING: f32 = 8.0;
-const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
+pub(crate) const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
 const SLIDER_THUMB_INSET: f32 = 17.0;
 const SLIDER_SETTLE_DURATION: Duration = Duration::from_millis(220);
 const SLIDER_ULTRA_FADE_DURATION: Duration = Duration::from_millis(300);
@@ -8267,7 +8267,19 @@ impl LayoutBuilder<'_> {
                         &measure,
                         text_height,
                     ));
+                    let diagnostic = state.diagnostic_tooltip();
                     let controls = state.structure_controls().to_vec();
+                    if let Some((anchor, message)) = diagnostic {
+                        self.overlays.push_back(DeferredOverlay::Tooltip {
+                            anchor,
+                            title: String::new(),
+                            shortcut: None,
+                            sections: vec![TooltipSection::Description(message)],
+                            max_width: 420.0,
+                            placement: TooltipPlacement::Above,
+                            colors: editor.palette.tooltip_style(),
+                        });
+                    }
                     for control in controls {
                         self.place(&control.element, control.rect, Some(control.clip));
                     }

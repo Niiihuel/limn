@@ -86,6 +86,38 @@ fn autopairs_wrap_reverse_selections_skip_closing_and_delete_empty_pairs() {
     assert_eq!(b.selection().head, 4);
 }
 #[test]
+fn comments_with_a_closing_marker_wrap_each_line_and_unwrap_exactly() {
+    let source = "  <p>α</p>  \n\n\t<br>\nlast";
+    let mut b = TextBuffer::new(source).unwrap();
+    b.set_selection(Selection {
+        anchor: 0,
+        head: 19,
+    })
+    .unwrap();
+    let toggle = || EditorCommand::ToggleLineComment {
+        prefix: "<!--".into(),
+        suffix: "-->".into(),
+    };
+    b.execute_command(toggle(), 0).unwrap();
+    assert_eq!(text(&b), "  <!-- <p>α</p> -->  \n\n\t<!-- <br> -->\nlast");
+    b.execute_command(toggle(), 1).unwrap();
+    assert_eq!(text(&b), source);
+
+    // A line that only opens a comment is not treated as commented.
+    let mut b = TextBuffer::new("/* open\n").unwrap();
+    let css = || EditorCommand::ToggleLineComment {
+        prefix: "/*".into(),
+        suffix: "*/".into(),
+    };
+    b.execute_command(css(), 0).unwrap();
+    assert_eq!(text(&b), "/* /* open */\n");
+    b.execute_command(css(), 1).unwrap();
+    assert_eq!(text(&b), "/* open\n");
+    let mut b = TextBuffer::new("/*/\n").unwrap();
+    b.execute_command(css(), 0).unwrap();
+    assert_eq!(text(&b), "/* /*/ */\n");
+}
+#[test]
 fn hard_tabs_comments_line_moves_and_eol_are_undoable() {
     let mut b = TextBuffer::new("  α\r\n  β\r\nlast").unwrap();
     b.set_selection(Selection {
@@ -96,6 +128,7 @@ fn hard_tabs_comments_line_moves_and_eol_are_undoable() {
     b.execute_command(
         EditorCommand::ToggleLineComment {
             prefix: "//".into(),
+            suffix: String::new(),
         },
         0,
     )
@@ -104,6 +137,7 @@ fn hard_tabs_comments_line_moves_and_eol_are_undoable() {
     b.execute_command(
         EditorCommand::ToggleLineComment {
             prefix: "//".into(),
+            suffix: String::new(),
         },
         1,
     )
