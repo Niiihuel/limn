@@ -71,10 +71,10 @@ it.
 | `Spinner` | An indicator for work of unknown duration. |
 | `Skeleton` | A pulsing placeholder in the shape of content that is loading. |
 | `SkeletonGroup` | Placeholder rows for a list that is loading: `SkeletonGroup::rows(id, palette, count)`, with an optional leading icon square. `into_rows()` hands the rows to a host that places each one itself. |
-| `Empty` | The state of a page, pane or result list with nothing in it: an icon, a title, a reason and one next step. It has no frame of its own and sits on whatever surface it is given. |
+| `Empty` | The state of a page, pane or result list with nothing in it: an icon, a title, a reason and one next step. It has no frame of its own and sits on whatever surface it is given. `.framed()` sets it in a card of its own: the palette's surface, a hairline border and the card radius. |
 | `Marker` | A one-line event in a conversation or log, optionally as a separator. |
 | `TextShimmer` | Text with a moving highlight, for work in progress. |
-| `Chip` | A passive pill for a count or a label. |
+| `Chip` | A passive pill for a count or a label. `.outline()` draws the border only, with no fill. |
 | `Avatar` | An account photo, or the initial of a name when there is none. |
 
 Alert tones, shared by `Toast`: `Neutral`, `Info`, `Success`, `Warning`,
@@ -129,7 +129,8 @@ root element, since they cover the whole window.
 | `Separator` | A one-pixel rule in the border color. `Separator::horizontal` and `Separator::vertical` fill their axis unless given a `.length`; `.margin` adds space across the rule, `.centered_in` centers a vertical rule in a taller bar, and `.ink` takes a color the host owns. Margin and centering are off by default. |
 | `ScrollArea` | A scrolling viewport, or a virtualized list of uniform rows. |
 | `Attachment` | A file or image card, with an optional remove action. |
-| `PreferencesGroup`, `ActionRow` | A card of settings rows separated by hairlines, under a small muted label. Without a title it is just the card. A row takes an icon, a subtitle, a trailing control such as a switch or a button, and can itself be an action. |
+| `PreferencesGroup`, `ActionRow` | A card of settings rows separated by hairlines, under a small muted label. Without a title it is just the card. A row takes an icon, a subtitle, a `.trailing` control such as a switch or a button, or a read-only `.value` in muted text, and can itself be an action. `.wrap_title` wraps the title instead of cutting it, `.align_top` starts the icon and the copy at the top, `.icon_muted` quiets the icon for a note, and `.stacked` moves the trailing element under the copy, except one with a fixed width of 64 or less, which stays beside it. |
+| `ActionRowSizing` | The density of an `ActionRow`: the gap, the gap between title and subtitle, the icon column and the two minimum heights. `ActionRowSizing::DEFAULT` is the preferences row; pass another profile with `.sizing`. |
 
 Any element can be placed without a component:
 

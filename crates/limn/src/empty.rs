@@ -2,6 +2,7 @@
 
 use crate::{
     Button, ButtonSize, ButtonVariant, Component, ComponentPalette, Element, FontFamily, Icon,
+    RadiusRole,
 };
 
 pub struct Empty {
@@ -14,6 +15,7 @@ pub struct Empty {
     width: Option<f32>,
     requested_height: Option<f32>,
     compact: bool,
+    framed: bool,
 }
 
 impl Empty {
@@ -32,6 +34,7 @@ impl Empty {
             width: None,
             requested_height: None,
             compact: false,
+            framed: false,
         }
     }
 
@@ -72,6 +75,14 @@ impl Empty {
 
     pub fn compact(mut self) -> Self {
         self.compact = true;
+        self
+    }
+
+    /// Set the blank slate in a card of its own: the palette's surface, a
+    /// hairline border and the card radius. For a page of cards, where an
+    /// empty group should still read as one.
+    pub fn framed(mut self) -> Self {
+        self.framed = true;
         self
     }
 }
@@ -134,9 +145,16 @@ impl Component for Empty {
             content.push(center(Element::row(actions).gap(8.0)));
         }
         let body = Element::column(content).gap(if self.compact { 6.0 } else { 8.0 });
-        Element::panel(body.centered_y())
+        let slate = Element::panel(body.centered_y())
             .padding(if self.compact { 16.0 } else { 24.0 })
-            .min_size(0.0, height)
+            .min_size(0.0, height);
+        if !self.framed {
+            return slate.size(self.width, None);
+        }
+        Element::panel(slate)
+            .background(self.palette.surface)
+            .border(self.palette.border, 1.0)
+            .radius(RadiusRole::Card.px())
             .size(self.width, None)
     }
 }
@@ -223,6 +241,46 @@ mod tests {
                     }]
                 );
             }
+        }
+    }
+
+    #[test]
+    fn framed_empty_paints_a_card_around_the_same_content() {
+        let palette = ComponentPalette::neutral_dark();
+        for width in [220.0, 360.0, 900.0] {
+            let frame_of = |empty: Empty| {
+                let mut tree = UiTree::new(Element::column(vec![
+                    empty.icon(Icon::Grid).compact().render(),
+                    Element::spacer().flex(1.0),
+                ]));
+                tree.set_reduced_motion(true);
+                tree.layout(Size::new(width, 600.0))
+            };
+            let plain = frame_of(Empty::new("Sin plugins", "Instala uno para empezar.", palette));
+            let framed = frame_of(Empty::new("Sin plugins", "Instala uno para empezar.", palette).framed());
+            let radius = RadiusRole::Card.px();
+            let card = framed
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::StrokeRect { rect, color, width, radius: r }
+                        if *color == palette.border && *width == 1.0 && *r == radius =>
+                    {
+                        Some(*rect)
+                    }
+                    _ => None,
+                })
+                .expect("card border");
+            assert_eq!((card.x, card.y, card.width), (0.0, 0.0, width));
+            assert!(card.height >= 168.0);
+            assert!(framed.commands.iter().any(|command| matches!(
+                command,
+                DrawCommand::FillRect { rect, color, radius: r }
+                    if *rect == card && *color == palette.surface && *r == radius
+            )));
+            // The frame adds a fill and a stroke and moves nothing.
+            assert_eq!(framed.commands.len(), plain.commands.len() + 2);
+            assert_eq!(framed.text_layouts(), plain.text_layouts());
         }
     }
 

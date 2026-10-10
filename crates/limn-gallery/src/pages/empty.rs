@@ -30,6 +30,14 @@ pub fn view(cx: &Cx) -> Element {
                 .width(width.min(360.0))
                 .render(),
         ]),
+        section(cx, "Enmarcado", vec![
+            Empty::new("Todavía no hay plugins", "Elige una carpeta de plugin para instalarla.", cx.palette)
+                .icon(Icon::Puzzle)
+                .compact()
+                .framed()
+                .width(width)
+                .render(),
+        ]),
         section(cx, "Sólo título", vec![
             Empty::new("Nada por aquí", "", cx.palette).width(width.min(360.0)).render(),
         ]),

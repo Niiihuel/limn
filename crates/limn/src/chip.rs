@@ -9,6 +9,7 @@ pub struct Chip {
     label: String,
     palette: ComponentPalette,
     height: f32,
+    outline: bool,
 }
 
 impl Chip {
@@ -17,7 +18,15 @@ impl Chip {
             label: label.into(),
             palette,
             height: 22.0,
+            outline: false,
         }
+    }
+
+    /// Draw the border only, with no fill, for a label that should sit
+    /// quietly on its surface.
+    pub fn outline(mut self) -> Self {
+        self.outline = true;
+        self
     }
 
     /// Set the fixed height, in logical pixels (22 by default, at least 16).
@@ -50,8 +59,11 @@ impl Component for Chip {
                 Element::spacer().min_size(8.0, 0.0).flex(1.0),
             ])
         };
-        Element::panel(content)
-            .background(self.palette.selected)
+        let mut surface = Element::panel(content);
+        if !self.outline {
+            surface = surface.background(self.palette.selected);
+        }
+        surface
             .border(self.palette.border, 1.0)
             .radius(self.height / 2.0)
             .min_size(self.height, self.height)
@@ -175,6 +187,30 @@ mod tests {
                 )));
             }
         }
+    }
+
+    #[test]
+    fn outline_keeps_the_border_and_geometry_without_a_fill() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame_of = |chip: Chip| {
+            UiTree::new(Element::row(vec![chip.height(20.0).render()])).layout(Size::new(300.0, 32.0))
+        };
+        let filled = frame_of(Chip::new("Plan Pro", palette));
+        let outline = frame_of(Chip::new("Plan Pro", palette).outline());
+        assert!(!outline.commands.iter().any(|command| matches!(command, DrawCommand::FillRect { .. })));
+        let without_fill: Vec<_> = filled
+            .commands
+            .iter()
+            .filter(|command| !matches!(command, DrawCommand::FillRect { .. }))
+            .cloned()
+            .collect();
+        assert_eq!(outline.commands, without_fill);
+        assert!(outline.commands.iter().any(|command| matches!(
+            command,
+            DrawCommand::StrokeRect { rect, color, radius, .. }
+                if *color == palette.border && *radius == 10.0 && rect.height == 20.0
+        )));
+        assert!(outline.regions.is_empty());
     }
 
     #[test]

@@ -105,7 +105,7 @@ pub use modal::{DismissButton, Modal};
 pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
-pub use preferences::{ActionRow, PreferencesGroup};
+pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
 pub use raster_image::{RasterImage, RasterImageFormat};
 pub use scheme::{ControlColors, Scheme, Surface};

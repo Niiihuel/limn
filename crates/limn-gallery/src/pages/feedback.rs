@@ -91,6 +91,7 @@ pub fn view(cx: &Cx) -> Element {
         section(cx, "Etiquetas", vec![row(vec![
             Chip::new("rust", palette).render(),
             Chip::new("borrador", palette).render(),
+            Chip::new("Plan Pro", palette).outline().render(),
             Avatar::new("Ada Lovelace", palette).size(32.0).render(),
             Kbd::new("Ctrl+Shift+P", palette).render(),
         ])]),
