@@ -77,9 +77,10 @@ pub use code_editor::{CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeE
 pub use code_syntax::CodeLanguage;
 pub use collapsible::{collapse_footer, Collapsible};
 pub use components::{
-    Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component, ComponentPalette,
-    ControlSize, ControlState, DropdownList, DropdownOption, IconButton, Kbd, Link, Popover, Search,
-    SearchField, SegmentedControl, Switch, Tab, Tabs, TextArea, TextField, Tooltip,
+    ActiveHover, Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component,
+    ComponentPalette, ControlSize, ControlState, DropdownList, DropdownOption, IconButton, Kbd, Link,
+    Popover, Search, SearchField, SegmentedControl, Switch, Tab, Tabs, TextArea, TextField, Tooltip,
+    TooltipSpec,
 };
 pub use composer::Composer;
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};

@@ -84,6 +84,8 @@ pub enum Icon {
     PanelRightOpen,
     PanelRightClose,
     Add,
+    /// A horizontal dash: remove, collapse or unstage.
+    Minus,
     Microphone,
     Text,
     Image,

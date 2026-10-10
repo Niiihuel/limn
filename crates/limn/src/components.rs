@@ -150,6 +150,115 @@ impl Component for Tooltip {
     }
 }
 
+/// What the hint of a [`Button`] or an [`IconButton`] says and where it
+/// opens. The button supplies the anchor and its ID.
+#[derive(Clone, Debug)]
+pub struct TooltipSpec {
+    title: Option<String>,
+    description: Option<String>,
+    shortcut: Option<String>,
+    placement: TooltipPlacement,
+    palette: Option<ComponentPalette>,
+    max_width: Option<f32>,
+    suppressed: bool,
+}
+
+impl TooltipSpec {
+    /// A hint with this title, opening above its button.
+    pub fn new(title: impl Into<String>) -> Self {
+        Self {
+            title: Some(title.into()),
+            ..Self::none()
+        }
+    }
+
+    fn none() -> Self {
+        Self {
+            title: None,
+            description: None,
+            shortcut: None,
+            placement: TooltipPlacement::Above,
+            palette: None,
+            max_width: None,
+            suppressed: false,
+        }
+    }
+
+    /// Add a paragraph beneath the title.
+    pub fn description(mut self, text: impl Into<String>) -> Self {
+        self.description = Some(text.into());
+        self
+    }
+
+    /// Show the keys that trigger the action beside the title. An empty
+    /// shortcut, such as an unbound action, is ignored.
+    pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
+        let shortcut = shortcut.into();
+        if !shortcut.trim().is_empty() {
+            self.shortcut = Some(shortcut);
+        }
+        self
+    }
+
+    /// The side of the button the hint prefers.
+    pub fn placement(mut self, placement: TooltipPlacement) -> Self {
+        self.placement = placement;
+        self
+    }
+
+    /// Color the hint from this palette instead of the button's own, for a
+    /// button whose action palette differs from the surrounding theme.
+    pub fn palette(mut self, palette: ComponentPalette) -> Self {
+        self.palette = Some(palette);
+        self
+    }
+
+    /// Limit the hint's width. A value that is not finite is ignored.
+    pub fn max_width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.max_width = Some(width);
+        }
+        self
+    }
+
+    /// Render the button without its hint, for example while the menu it
+    /// opens is showing.
+    pub fn suppressed(mut self, suppressed: bool) -> Self {
+        self.suppressed = suppressed;
+        self
+    }
+
+    // Wrap a rendered button, enabled or passive, in the hint.
+    fn wrap(self, anchor: Element, id: String, button_palette: ComponentPalette) -> Element {
+        let Some(title) = self.title.filter(|_| !self.suppressed) else {
+            return anchor;
+        };
+        let mut tooltip = Tooltip::new(anchor, id, title, self.palette.unwrap_or(button_palette))
+            .placement(self.placement);
+        if let Some(shortcut) = self.shortcut {
+            tooltip = tooltip.shortcut(shortcut);
+        }
+        if let Some(text) = self.description {
+            tooltip = tooltip.description(text);
+        }
+        if let Some(width) = self.max_width {
+            tooltip = tooltip.max_width(width);
+        }
+        tooltip.render()
+    }
+}
+
+/// How an active [`Button`] without a persistent fill answers the pointer.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ActiveHover {
+    /// Hover and press lighten the selected fill.
+    #[default]
+    Lift,
+    /// Hover and press use the palette's own hover and selected colors, as
+    /// the inactive button does.
+    Palette,
+}
+
 /// Shared control heights in logical pixels.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ControlSize {
@@ -402,14 +511,14 @@ pub struct Button {
     button_size: Option<ButtonSize>,
     width: Option<f32>,
     active: bool,
+    active_hover: ActiveHover,
     state: ControlState,
     loading: bool,
     hover_ink: Option<Color>,
     pressed_ink: Option<Color>,
     palette: ComponentPalette,
-    tooltip_title: Option<String>,
-    tooltip_shortcut: Option<String>,
-    tooltip_placement: TooltipPlacement,
+    tooltip: TooltipSpec,
+    dispatch_as: Option<String>,
 }
 
 impl Button {
@@ -435,14 +544,14 @@ impl Button {
             button_size: None,
             width: None,
             active: false,
+            active_hover: ActiveHover::default(),
             state: ControlState::Enabled,
             loading: false,
             hover_ink: None,
             pressed_ink: None,
             palette,
-            tooltip_title: None,
-            tooltip_shortcut: None,
-            tooltip_placement: TooltipPlacement::Above,
+            tooltip: TooltipSpec::none(),
+            dispatch_as: None,
         }
     }
 
@@ -457,17 +566,30 @@ impl Button {
     }
 
     pub fn tooltip(mut self, title: impl Into<String>) -> Self {
-        self.tooltip_title = Some(title.into());
+        self.tooltip.title = Some(title.into());
         self
     }
 
     pub fn tooltip_shortcut(mut self, shortcut: impl Into<String>) -> Self {
-        self.tooltip_shortcut = Some(shortcut.into());
+        self.tooltip.shortcut = Some(shortcut.into());
         self
     }
 
     pub fn tooltip_placement(mut self, placement: TooltipPlacement) -> Self {
-        self.tooltip_placement = placement;
+        self.tooltip.placement = placement;
+        self
+    }
+
+    /// Set the whole hint at once. A disabled button keeps its hint.
+    pub fn tooltip_with(mut self, spec: TooltipSpec) -> Self {
+        self.tooltip = spec;
+        self
+    }
+
+    /// Report this action when activated, while the button keeps its own ID
+    /// for focus, hover and its hint.
+    pub fn dispatch_as(mut self, action_id: impl Into<String>) -> Self {
+        self.dispatch_as = Some(action_id.into());
         self
     }
 
@@ -501,6 +623,12 @@ impl Button {
 
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
+        self
+    }
+
+    /// Choose how an active Ghost, Subtle, Raised or Outline button hovers.
+    pub fn active_hover(mut self, active_hover: ActiveHover) -> Self {
+        self.active_hover = active_hover;
         self
     }
 
@@ -611,11 +739,14 @@ impl Button {
                     | ButtonVariant::Outline
                     | ButtonVariant::Ghost
             ) {
-            (
-                palette.selected,
-                lighter(palette.selected, 10),
-                lighter(palette.selected, 18),
-            )
+            match self.active_hover {
+                ActiveHover::Lift => (
+                    palette.selected,
+                    lighter(palette.selected, 10),
+                    lighter(palette.selected, 18),
+                ),
+                ActiveHover::Palette => (palette.selected, palette.hover, palette.selected),
+            }
         } else if self.active {
             (hover, pressed, pressed)
         } else {
@@ -756,7 +887,7 @@ impl Component for Button {
             if outline {
                 element = element.border(self.palette.border, 1.0);
             }
-            return element;
+            return self.tooltip.wrap(element, self.action_id, self.palette);
         }
 
         let mut element = if let Some(icon) = icon {
@@ -800,16 +931,10 @@ impl Component for Button {
         if outline {
             element = element.border(self.palette.border, 1.0);
         }
-        if let Some(title) = self.tooltip_title {
-            let mut tooltip = Tooltip::new(element, self.action_id, title, self.palette)
-                .placement(self.tooltip_placement);
-            if let Some(shortcut) = self.tooltip_shortcut {
-                tooltip = tooltip.shortcut(shortcut);
-            }
-            tooltip.render()
-        } else {
-            element
+        if let Some(action) = self.dispatch_as {
+            element = element.dispatch_as(action);
         }
+        self.tooltip.wrap(element, self.action_id, self.palette)
     }
 }
 
@@ -892,6 +1017,18 @@ impl IconButton {
         self
     }
 
+    /// Set the whole hint at once. A disabled button keeps its hint.
+    pub fn tooltip_with(mut self, spec: TooltipSpec) -> Self {
+        self.0 = self.0.tooltip_with(spec);
+        self
+    }
+
+    /// Report this action when activated, while the button keeps its own ID.
+    pub fn dispatch_as(mut self, action_id: impl Into<String>) -> Self {
+        self.0 = self.0.dispatch_as(action_id);
+        self
+    }
+
     pub fn trailing_icon(mut self, icon: Icon) -> Self {
         self.0.trailing_icon = Some(icon);
         self
@@ -919,6 +1056,12 @@ impl IconButton {
 
     pub fn active(mut self, active: bool) -> Self {
         self.0.active = active;
+        self
+    }
+
+    /// Choose how an active button without a persistent fill hovers.
+    pub fn active_hover(mut self, active_hover: ActiveHover) -> Self {
+        self.0.active_hover = active_hover;
         self
     }
 
@@ -2340,6 +2483,201 @@ mod tests {
     }
 
     #[test]
+    fn tooltip_spec_fields_reach_the_hint() {
+        let palette = ComponentPalette::neutral_dark();
+        let other = ComponentPalette {
+            border: Color::rgb(90, 90, 90),
+            ..palette
+        };
+        let spec = TooltipSpec::new("Guardar")
+            .description("Escribe el archivo")
+            .shortcut("Ctrl+S")
+            .shortcut(" ")
+            .placement(TooltipPlacement::Below)
+            .palette(other)
+            .max_width(f32::NAN)
+            .max_width(200.0);
+        let element = IconButton::new("save", Icon::Check, palette)
+            .tooltip_with(spec.clone())
+            .render();
+        let ElementKind::Tooltip {
+            anchor_id,
+            title,
+            shortcut,
+            sections,
+            max_width,
+            placement,
+            colors,
+            ..
+        } = &element.kind
+        else {
+            panic!("a button with a hint renders a tooltip");
+        };
+        assert_eq!((anchor_id.as_str(), title.as_str()), ("save", "Guardar"));
+        assert_eq!(shortcut.as_deref(), Some("Ctrl+S"));
+        assert_eq!(
+            sections,
+            &vec![crate::TooltipSection::Description("Escribe el archivo".into())]
+        );
+        assert_eq!(*max_width, 200.0);
+        assert_eq!(*placement, TooltipPlacement::Below);
+        assert_eq!(*colors, other.tooltip_style());
+        assert_ne!(*colors, palette.tooltip_style());
+
+        // Suppressed, the button is rendered bare.
+        let bare = Button::new("save", "Guardar", palette)
+            .tooltip_with(spec.suppressed(true))
+            .render();
+        assert!(matches!(bare.kind, ElementKind::Button { .. }));
+    }
+
+    #[test]
+    fn tooltip_shorthands_build_the_same_hint_as_a_spec() {
+        let palette = ComponentPalette::neutral_dark();
+        let short = Button::new("run", "Run", palette)
+            .tooltip_shortcut("F5")
+            .tooltip_placement(TooltipPlacement::Right)
+            .tooltip("Ejecutar")
+            .render();
+        let spec = Button::new("run", "Run", palette)
+            .tooltip_with(
+                TooltipSpec::new("Ejecutar")
+                    .shortcut("F5")
+                    .placement(TooltipPlacement::Right),
+            )
+            .render();
+        assert_eq!(format!("{short:?}"), format!("{spec:?}"));
+    }
+
+    #[test]
+    fn a_disabled_button_keeps_its_hint_without_a_click_target() {
+        let palette = ComponentPalette::neutral_dark();
+        for loading in [false, true] {
+            let element = IconButton::new("new", Icon::Add, palette)
+                .tooltip("Nueva tarea")
+                .enabled(loading)
+                .loading(loading)
+                .render();
+            let ElementKind::Tooltip { anchor, title, .. } = &element.kind else {
+                panic!("the passive button keeps its hint");
+            };
+            assert_eq!(title, "Nueva tarea");
+            assert!(matches!(anchor.kind, ElementKind::Panel { .. }));
+            let mut tree = UiTree::new(Element::row(vec![element]));
+            let frame = tree.layout(Size::new(120.0, 32.0));
+            assert_eq!(frame.regions.len(), 1);
+            assert_eq!(frame.regions[0].kind, crate::HitKind::Hover);
+            assert!(!tree.focus("new"));
+            let point = Point::new(16.0, 16.0);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        }
+    }
+
+    #[test]
+    fn dispatch_as_reports_the_action_and_keeps_the_widget_id() {
+        let palette = ComponentPalette::neutral_dark();
+        for with_hint in [false, true] {
+            let mut button = IconButton::new("toolbar_close", Icon::Close, palette).dispatch_as("close");
+            if with_hint {
+                button = button.tooltip("Cerrar");
+            }
+            let mut tree = UiTree::new(Element::row(vec![button.render()]));
+            let frame = tree.layout(Size::new(120.0, 32.0));
+            assert_eq!(frame.regions[0].id, "toolbar_close");
+            let point = Point::new(16.0, 16.0);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(
+                tree.handle_event(UiEvent::PointerUp(point)),
+                vec![UiAction::Clicked { id: "close".into() }]
+            );
+        }
+    }
+
+    #[test]
+    fn active_hover_lifts_by_default_and_can_follow_the_palette() {
+        let palette = ComponentPalette::neutral_dark();
+        for variant in [
+            ButtonVariant::Ghost,
+            ButtonVariant::Subtle,
+            ButtonVariant::Raised,
+            ButtonVariant::Outline,
+        ] {
+            let lift = IconButton::new("toggle", Icon::PanelLeft, palette)
+                .variant(variant)
+                .active(true)
+                .render();
+            assert_eq!(lift.style.background, Some(palette.selected));
+            assert_eq!(lift.style.hover_background, Some(lighter(palette.selected, 10)));
+            assert_eq!(lift.style.pressed_background, Some(lighter(palette.selected, 18)));
+
+            let flat = IconButton::new("toggle", Icon::PanelLeft, palette)
+                .variant(variant)
+                .active(true)
+                .active_hover(ActiveHover::Palette)
+                .render();
+            assert_eq!(flat.style.background, Some(palette.selected));
+            assert_eq!(flat.style.hover_background, Some(palette.hover));
+            assert_eq!(flat.style.pressed_background, Some(palette.selected));
+        }
+        // An inactive button is the same in both modes.
+        let idle = Button::new("a", "A", palette).variant(ButtonVariant::Ghost);
+        let idle_flat = Button::new("a", "A", palette)
+            .variant(ButtonVariant::Ghost)
+            .active_hover(ActiveHover::Palette);
+        assert_eq!(format!("{:?}", idle.render()), format!("{:?}", idle_flat.render()));
+    }
+
+    #[test]
+    fn icon_only_buttons_are_squares_with_a_centered_glyph() {
+        let palette = ComponentPalette::neutral_dark();
+        for (size, side) in [
+            (ControlSize::Dense, 24.0),
+            (ControlSize::Compact, 28.0),
+            (ControlSize::Regular, 32.0),
+        ] {
+            let element = IconButton::new("action", Icon::Add, palette)
+                .variant(ButtonVariant::Ghost)
+                .size(size)
+                .render();
+            assert_eq!(element.style.radius, control_radius());
+            let frame = UiTree::new(Element::row(vec![element])).layout(Size::new(100.0, side));
+            let region = frame.regions[0].rect;
+            assert_eq!((region.width, region.height), (side, side));
+            let icon = frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Icon { rect, .. } => Some(*rect),
+                    _ => None,
+                })
+                .expect("glyph");
+            assert_eq!((icon.width, icon.height), (ICON_SIZE, ICON_SIZE));
+            let inset = (side - ICON_SIZE) / 2.0;
+            assert_eq!((icon.x - region.x, icon.y - region.y), (inset, inset));
+        }
+    }
+
+    #[test]
+    fn a_ghost_icon_button_already_wears_the_interactive_surface() {
+        let palette = ComponentPalette::neutral_dark();
+        let plain = IconButton::new("action", Icon::Add, palette)
+            .variant(ButtonVariant::Ghost)
+            .size(ControlSize::Dense)
+            .tooltip("Nuevo")
+            .render();
+        let ElementKind::Tooltip { anchor, .. } = &plain.kind else {
+            panic!("tooltip");
+        };
+        assert_eq!(anchor.style.hover_background, Some(palette.hover));
+        assert_eq!(anchor.style.pressed_background, Some(palette.selected));
+        assert_eq!(anchor.style.radius, control_radius());
+        assert_eq!(anchor.style.transition_ms, hover_ms());
+        let wrapped = palette.interactive_surface(plain.clone());
+        assert_eq!(format!("{wrapped:?}"), format!("{plain:?}"));
+    }
+
+    #[test]
     fn reference_sizes_define_button_and_icon_hit_bounds() {
         let palette = ComponentPalette::neutral_dark();
         for (size, expected) in [
@@ -2820,19 +3158,6 @@ mod tests {
         assert_eq!(colors.background, palette.raised);
         assert_eq!(colors.border, palette.border);
         assert_eq!(colors.text, palette.text);
-    }
-
-    #[test]
-    fn disabled_button_with_tooltip_has_no_action() {
-        let button = Button::new("save", "Guardar", ComponentPalette::neutral_dark())
-            .tooltip("Guardar cambios")
-            .disabled()
-            .render();
-        assert!(!matches!(button.kind, ElementKind::Tooltip { .. }));
-        assert!(UiTree::new(button)
-            .layout(Size::new(200.0, 40.0))
-            .regions
-            .is_empty());
     }
 
     #[test]

@@ -1,5 +1,8 @@
 use super::{caption, row, section, Cx};
-use limn::{Button, ButtonSize, ButtonVariant, Component, Element, Icon, IconButton};
+use limn::{
+    ActiveHover, Button, ButtonSize, ButtonVariant, Component, ControlSize, Element, Icon, IconButton,
+    TooltipPlacement, TooltipSpec,
+};
 
 const VARIANTS: [(ButtonVariant, &str); 11] = [
     (ButtonVariant::Default, "Default"),
@@ -60,6 +63,48 @@ pub fn view(cx: &Cx) -> Element {
                 .tooltip("Eliminar")
                 .render(),
         ])]),
+        section(cx, "Barra de herramientas", vec![
+            row(vec![
+                IconButton::new("button-tool-dense", Icon::Add, palette)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ControlSize::Dense)
+                    .tooltip_with(
+                        TooltipSpec::new("Nuevo")
+                            .description("Crea un archivo en la carpeta abierta.")
+                            .shortcut("Ctrl+N")
+                            .placement(TooltipPlacement::Below),
+                    )
+                    .render(),
+                IconButton::new("button-tool-minus", Icon::Minus, palette)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ControlSize::Compact)
+                    .dispatch_as("button-tool-dense")
+                    .tooltip_with(TooltipSpec::new("Quitar").placement(TooltipPlacement::Below))
+                    .render(),
+                IconButton::new("button-tool-disabled", Icon::Trash, palette)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ControlSize::Regular)
+                    .disabled()
+                    .tooltip_with(
+                        TooltipSpec::new("Nada que eliminar").placement(TooltipPlacement::Below),
+                    )
+                    .render(),
+                IconButton::new("button-tool-lift", Icon::PanelLeft.filled(), palette)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ControlSize::Regular)
+                    .active(true)
+                    .tooltip("Activo: Lift")
+                    .render(),
+                IconButton::new("button-tool-palette", Icon::PanelRight.filled(), palette)
+                    .variant(ButtonVariant::Ghost)
+                    .size(ControlSize::Regular)
+                    .active(true)
+                    .active_hover(ActiveHover::Palette)
+                    .tooltip("Activo: Palette")
+                    .render(),
+            ]),
+            caption(cx, "Dense, Compact y Regular son cuadrados de 24, 28 y 32. El botón deshabilitado conserva su ayuda."),
+        ]),
         section(cx, "Activo", vec![
             row(vec![Button::new("button-toggle", "Alternar", palette)
                 .variant(ButtonVariant::Ghost)
