@@ -27,7 +27,7 @@ let element = Component::new(/* required arguments */, palette)
 | `IconButton` | A button whose icon is mandatory. Without a label it is square. |
 | `TooltipSpec` | The hint of a `Button` or `IconButton`, passed with `tooltip_with`: title, description, shortcut, placement, palette, width, and `suppressed` to hide it while a menu is open. A disabled button keeps its hint. |
 | `ActiveHover` | How an active button without a fill hovers: `Lift` lightens the selected fill, `Palette` keeps the palette's hover and selected colors. Set with `active_hover`. |
-| `ButtonGroup` | Rendered buttons 6 px apart: a row, or a full-width column with `stacked`. `align_end` pushes them to the far edge, `leading` keeps one element at the near edge, and `reverse_when_stacked` puts the primary action first in the column. |
+| `ButtonGroup` | Rendered buttons 6 px apart: a row, or a full-width column with `stacked`. `align_end` pushes them to the far edge, `leading` keeps one element at the near edge (first in the column), and `reverse_when_stacked` puts the primary action first among the actions in the column. |
 | `Link` | A text action: link ink, underlined under the pointer and keyboard focus, no hover fill. |
 | `Kbd` | Passive keycaps for a shortcut such as `Ctrl+Shift+P`. |
 

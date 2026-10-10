@@ -157,9 +157,14 @@ pub fn view(cx: &Cx) -> Element {
             ButtonGroup::new(group("button-group-stacked", palette))
                 .stacked(true)
                 .reverse_when_stacked(true)
+                .leading(
+                    Button::new("button-group-stacked-help", "Ayuda", palette)
+                        .variant(ButtonVariant::Ghost)
+                        .render(),
+                )
                 .render()
                 .size(Some(220.0), None),
-            caption(cx, "En fila, alineado al final con un elemento inicial, y apilado con la acción principal primero."),
+            caption(cx, "En fila, alineado al final con un elemento inicial, y apilado: el elemento inicial arriba y la acción principal primero."),
         ]),
         section(cx, "Activo", vec![
             row(vec![Button::new("button-toggle", "Alternar", palette)

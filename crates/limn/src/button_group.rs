@@ -40,13 +40,14 @@ impl ButtonGroup {
         self
     }
 
-    /// An element that stays at the near edge, before the actions.
+    /// An element that stays at the near edge, before the actions: at the
+    /// start of the row, and first in the column whatever the actions' order.
     pub fn leading(mut self, leading: Element) -> Self {
         self.leading = Some(leading);
         self
     }
 
-    /// Reverse the column so the primary action comes first.
+    /// Reverse the actions in the column so the primary one comes first.
     pub fn reverse_when_stacked(mut self, reverse: bool) -> Self {
         self.reverse_when_stacked = reverse;
         self
@@ -57,9 +58,11 @@ impl Component for ButtonGroup {
     fn render(self) -> Element {
         let mut children: Vec<Element> = self.leading.into_iter().collect();
         if self.stacked {
-            children.extend(self.buttons);
+            // Only the actions swap; `leading` stays before them.
             if self.reverse_when_stacked {
-                children.reverse();
+                children.extend(self.buttons.into_iter().rev());
+            } else {
+                children.extend(self.buttons);
             }
             return Element::column(children).gap(GAP);
         }
@@ -150,6 +153,24 @@ mod tests {
         // In a row the option does nothing.
         let row = rects(ButtonGroup::new(buttons()).reverse_when_stacked(true), 400.0);
         assert!(rect(&row, "cancel").x < rect(&row, "save").x);
+    }
+
+    #[test]
+    fn leading_stays_first_in_the_column_with_and_without_reverse() {
+        let palette = ComponentPalette::neutral_dark();
+        for reverse in [false, true] {
+            let group = ButtonGroup::new(fluid())
+                .stacked(true)
+                .reverse_when_stacked(reverse)
+                .leading(Button::new("help", "help", palette).render());
+            let rects = rects(group, 180.0);
+            let (help, cancel, save) =
+                (rect(&rects, "help"), rect(&rects, "cancel"), rect(&rects, "save"));
+            assert_eq!((help.x, help.y, help.width), (0.0, 0.0, 180.0));
+            let (first, second) = if reverse { (save, cancel) } else { (cancel, save) };
+            assert_eq!(first.y, help.y + help.height + 6.0);
+            assert_eq!(second.y, first.y + first.height + 6.0);
+        }
     }
 
     #[test]
