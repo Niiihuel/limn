@@ -1,0 +1,153 @@
+# Components
+
+Every component in the library, by category, with what it is for. For the
+full list of builder methods on any of them, run `cargo doc -p lienzo --open`.
+To see them running, open the [gallery](gallery.md).
+
+## How every component works
+
+```rust
+let element = Component::new(/* required arguments */, palette)
+    .option(value)   // optional builder methods
+    .render();       // an Element, ready for the tree
+```
+
+- Required arguments come first: an ID for anything interactive, then its
+  content, then the `ComponentPalette`.
+- Components are **controlled**. You pass the current value each frame and
+  handle the action the component reports. See
+  [Concepts](concepts.md#who-owns-state).
+- Unless noted, an interactive component reports `UiAction::Clicked { id }`.
+
+## Actions
+
+| Component | Purpose |
+| --- | --- |
+| `Button` | A labelled action. Eleven variants, several sizes, optional leading and trailing icons, disabled and loading states, optional tooltip. |
+| `IconButton` | A button whose icon is mandatory. Without a label it is square. |
+| `Link` | A text action: link ink, underlined under the pointer and keyboard focus, no hover fill. |
+| `Kbd` | Passive keycaps for a shortcut such as `Ctrl+Shift+P`. |
+
+Button variants: `Default`, `Secondary`, `Outline`, `Ghost`, `Subtle`,
+`Raised`, `Solid`, `Link`, `Success`, `Warning`, `Destructive`. `Subtle` is
+the navigation row and keeps its label at the left; the filled variants center
+it.
+
+## Inputs
+
+| Component | Purpose | Reports |
+| --- | --- | --- |
+| `TextField` | Single-line text. Optional password masking. | `InputChanged`, `Submitted` |
+| `TextArea` | Multi-line text. Enter adds a line; Ctrl+Enter submits. | `InputChanged`, `Submitted` |
+| `SearchField` | A text field with a magnifier and an optional shortcut hint. | `InputChanged`, `Submitted` |
+| `Switch` | An on/off control. | `Clicked` |
+| `DatePicker` | An ISO date field with a navigable month calendar. | `InputChanged`, and `Clicked` for navigation and days |
+| `TimePicker` | A 24-hour `HH:MM` field with step controls. | `InputChanged`, and `Clicked` for the steps |
+| `DateTimePicker` | The two above combined, each keeping its own state. | As above |
+| `Composer` | A message composition surface. The host owns the text and the actions around it. | The actions of the controls the host places in it |
+
+## Navigation
+
+| Component | Purpose |
+| --- | --- |
+| `Tabs` | A row of tabs with a selection that slides to the active one. |
+| `SegmentedControl` | Tabs in one rounded track, for choosing one of a few options. |
+| `Breadcrumb` | A path. Segments with an action are links; the last is the current resource. Middle segments collapse into a menu when space is short. |
+| `Stepper` | The steps of a short form: completed, active and pending. |
+| `Collapsible` | A header that shows or hides content beneath it. |
+| `TreeRow`, `TreeGuides` | Rows and indentation guides for file and project trees. |
+
+## Feedback and status
+
+| Component | Purpose |
+| --- | --- |
+| `Alert` | A persistent inline notice in one of five tones. |
+| `Toast` | A brief card in the corner of the window. The host decides when it leaves. |
+| `Progress` | A thin bar for work whose completed share is known. |
+| `Spinner` | An indicator for work of unknown duration. |
+| `Skeleton` | A pulsing placeholder in the shape of content that is loading. |
+| `Empty` | The state of a page, pane or result list with nothing in it. |
+| `Marker` | A one-line event in a conversation or log, optionally as a separator. |
+| `TextShimmer` | Text with a moving highlight, for work in progress. |
+| `Chip` | A passive pill for a count or a label. |
+| `Avatar` | An account photo, or the initial of a name when there is none. |
+
+Alert tones, shared by `Toast`: `Neutral`, `Info`, `Success`, `Warning`,
+`Error`. The tone colors the icon. An `Error` alert also tints its
+title and description; the other tones keep ordinary ink, so a page of
+notices stays calm. An alert takes an optional action, placed at its top
+right, and an optional dismiss button.
+
+## Overlays
+
+Floating surfaces. Each takes the element it is anchored to or laid over, and
+an `open` flag the host controls. See [Animation](animation.md#what-animates)
+for how they enter and leave.
+
+| Component | Purpose |
+| --- | --- |
+| `Tooltip` | A hint for a control, after a short hover or at once with keyboard focus. |
+| `Popover` | A floating slot anchored to any element, for arbitrary content. |
+| `DropdownMenu` | A menu of actions with headings, separators, shortcuts and submenus. |
+| `DropdownList` | A list for choosing one option, with the current one marked. |
+| `ContextMenu` | A menu opened by a secondary click on its child. |
+| `Modal` | A centered dialog for forms, with a title, a scrolling body and a footer. |
+| `AlertDialog` | A centered confirmation for consequential actions. |
+| `ImageViewer` | A full-window image gallery. |
+
+`Modal`, `AlertDialog`, `ImageViewer` and `Toast::layer` wrap the window's
+root element, since they cover the whole window.
+
+## Layout and grouping
+
+| Component | Purpose |
+| --- | --- |
+| `ScrollArea` | A scrolling viewport, or a virtualized list of uniform rows. |
+| `PreferencesGroup`, `ActionRow` | A titled card of settings rows, separated by rules. A row takes an icon, a subtitle, a trailing control such as a switch or a button, and can itself be an action. |
+
+## Data
+
+| Component | Purpose |
+| --- | --- |
+| `BarChart`, `ColumnChart` | Horizontal and vertical bar charts. |
+| `HeatmapChart` | A grid of cells colored by value. |
+| `ChartLegend` | A legend for any of the charts. |
+
+## Code
+
+| Component | Purpose |
+| --- | --- |
+| `CodeEditor` | An editor view over a host-owned text buffer: selection, folding, diagnostics, breakpoints, optional Vim mode. |
+| `CodeDiff` | A virtualized, read-only diff. |
+
+## Application-specific
+
+Built for a coding assistant's interface and kept in the library because they
+compose the same primitives. Useful as worked examples of larger components.
+
+| Component | Purpose |
+| --- | --- |
+| `ToolActivity` | One tool invocation: header, target, running state, collapsible output. |
+| `FileActivity` | A file operation with its state and inline content. |
+| `Attachment` | A file or image card. |
+| `ApprovalRequest` | A notice asking the user to review a request. |
+| `PermissionSelector` | A menu of permission levels. |
+| `ContextMeter`, `ContextUsage` | How much of a budget is used, as a meter and a breakdown. |
+
+## Icons
+
+The standard iconography is [Bootstrap Icons](https://icons.getbootstrap.com/).
+`Icon` names what an icon means, such as `Icon::Trash` or `Icon::Search`, and
+the backend maps each to a Bootstrap icon. Four have no Bootstrap equivalent
+and keep the library's own artwork: the brain, the context ring,
+find-and-replace and the debugger controls. Provider marks are brand artwork.
+
+`Element::icon(Icon::...)` paints a semantic icon at 16 px. `.large_icon(px)`
+draws a standalone icon larger, for empty states and thumbnails.
+`file_icon(path)`, `folder_icon(name, expanded)` and `language_icon(name)`
+return the artwork for a file type.
+
+## See also
+
+- [Gallery and hot reload](gallery.md) to see and try each component.
+- [Contributing a component](contributing.md) to add one.

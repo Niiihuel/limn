@@ -1,5 +1,8 @@
 # lienzo
 
+> The maintained documentation is in English under [`docs/`](../../docs/README.md).
+> This file is the earlier component-by-component reference, in Spanish.
+
 Motor de interfaz retenido y neutral al backend. La aplicación construye un árbol de
 `Element`, `UiTree` calcula el layout y conserva el estado de controles por ID,
 y el resultado es un `Frame` con comandos de dibujo y regiones interactivas.
@@ -40,9 +43,9 @@ al fondo como al borde. El trazo no modifica el tamaño calculado del elemento.
 Una etiqueta vacía produce un botón de sólo icono. Todos los iconos ocupan
 16 px lógicos; `icon_size` se conserva temporalmente por compatibilidad y no
 altera ese tamaño. `foreground(color)` aplica una sola tinta semántica.
-El motor emite `DrawCommand::Icon`; el backend elige el arte. En Agents Window,
-el backend usa un conjunto pequeño de Solar Icons Linear incluido en
-`apps/agents-window/assets/solar/`, con sus licencias y atribución.
+El motor emite `DrawCommand::Icon`; el backend elige el arte. `lienzo-egui`
+usa Bootstrap Icons, incluidos en `crates/lienzo-egui/assets/bootstrap/` con
+su licencia.
 
 Para recursos del proyecto, `file_icon("src/main.rs")`,
 `folder_icon("src", expanded)` y `language_icon("rust")` comparten el catálogo
@@ -316,7 +319,7 @@ let empty = Empty::new("Sin resultados", "Prueba otro término.", palette)
     .render();
 ```
 
-El borde discontinuo y la versión compacta sirven para páginas y paneles.
+El borde fino y la versión compacta sirven para páginas y paneles.
 `Kbd::new("Ctrl+Shift+M", palette)` muestra el atajo
 completo con una cápsula por tecla, siguiendo el estilo de GNOME/Adwaita:
 fuente Sans, esquinas de 6 px, superficie translúcida y relieve inferior.
@@ -747,3 +750,61 @@ transición. Un elemento en estado elegido (pestaña activa, fila seleccionada)
 usa `Theme::active(elemento, relleno)`, que conserva su relleno bajo el puntero.
 Los velos son translúcidos, así que la respuesta se ve igual sobre cualquier
 superficie.
+
+## Galería y hot reload
+
+`crates/lienzo-gallery` muestra los componentes en ambos temas. Todo se ejecuta
+dentro de `nix-shell`:
+
+```sh
+cargo run -p lienzo-gallery                                   # galería
+dx serve --hot-patch -p lienzo-gallery --features hot         # con hot reload
+cargo run -p lienzo-gallery -- --page empty --light --screenshot empty.png
+```
+
+Con `dx`, guardar un archivo de `lienzo` o de la galería parchea el proceso en
+ejecución en menos de un segundo y conserva página, scroll, foco y valores.
+Cambiar el layout de un struct vivo (`State`, `UiTree`) requiere reiniciar.
+Cada parche carga código nuevo sin descargar el anterior (unos pocos MB), así
+que una sesión muy larga se reinicia de vez en cuando.
+
+Para añadir una página: un módulo con `fn view(&Cx) -> Element` en
+`src/pages/` y una línea en `PAGES`. El estado de las demos vive en un mapa por
+ID: un clic en `grupo=valor` elige dentro del grupo y cualquier otro clic
+alterna la bandera con ese ID, así que las páginas no necesitan código de
+actualización.
+
+`Progress::new(fracción, palette).width(336.0)` dibuja una barra fina de 4 px
+para trabajo con avance conocido. El host conserva el valor (de 0 a 1) y lo
+pasa en cada reconstrucción; `.height(...)` cambia el grosor.
+
+`lienzo_egui::install_fonts(&ctx)` sustituye la fuente proporcional de egui
+(Ubuntu Light, de trazo fino) por Ubuntu Regular. Se llama una vez al crear la
+ventana, antes de `attach_fonts`.
+
+`Link::new(id, etiqueta, palette)` es una acción de texto: tinta azul
+(`ComponentPalette::link()`, con tono propio para tema claro y oscuro),
+subrayado bajo el puntero o el foco y sin relleno de hover. `.color(...)`
+cambia la tinta. `ButtonVariant::Link` usa la misma tinta, y los segmentos con
+acción de `Breadcrumb` siguen la misma regla. En un `Element::clickable`,
+`.underline_on_hover()` subraya el texto que contiene.
+
+El pulgar de `Switch` se desliza al cambiar `checked` y el círculo de cada paso
+de `Stepper` funde su color; ambos duran `move_ms` y respetan
+`set_reduced_motion(true)`. Las duraciones y la tabla de qué se anima están en
+el [README del repositorio](../../README.md#animación). `Element::indicator_slot(id)` marca
+un hijo pasivo de un `tab_strip` como posición de reposo de su indicador.
+
+`Toast::new(título, palette)` es una tarjeta breve con `.description(...)`,
+`.tone(...)`, `.action(id)` y `.dismissible(id)`. No tiene temporizador: el host
+decide cuándo aparece y cuándo se va. `Toast::layer(base, toasts, margen)` las
+apila sobre la esquina inferior derecha sin bloquear el resto de la ventana.
+
+En una fila, `Element::shrink_to_fit()` conserva el ancho natural de un hijo
+mientras haya sitio y lo hace envolver dentro de lo que queda cuando no; los
+hermanos flexibles conservan su ancho mínimo. El separador de `Marker` lo usa
+para que sus líneas abracen la etiqueta a cualquier ancho.
+
+`Collapsible` coloca el detalle justo después del título. Si el encabezado es
+estrecho, primero se recorta el título (hasta 48 px) y después el detalle. El
+cuerpo entra con la animación compartida al abrirse.
