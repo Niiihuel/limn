@@ -15,10 +15,12 @@ fn tool(cx: &Cx, id: &str, icon: Icon, hint: &str) -> Element {
         .render()
 }
 
-/// A header on a card, with a hairline under it to show its height.
+/// A header in an outline that shows its height.
 fn framed(cx: &Cx, width: f32, header: Element) -> Element {
-    Element::column(vec![header, Separator::horizontal(cx.palette).render()])
-        .background(cx.palette.raised)
+    // On the surface, not a card: the palette's border has the card's own color.
+    Element::panel(header)
+        .background(cx.palette.surface)
+        .border(cx.palette.border, 1.0)
         .radius(RadiusRole::Surface.px())
         .size(Some(width), None)
 }
