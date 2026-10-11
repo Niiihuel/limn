@@ -718,7 +718,7 @@ impl UiTree {
                                 target.layout_offset + target.rect.y - target.viewport.y,
                             )
                         });
-                    self.reveal_scroll_focus(&id);
+                    self.reveal_scroll_focus(&id, 0.0);
                     if let Some((scroll_id, offset)) = tall_row_top {
                         // A wrapped action taller than this low menu cannot
                         // fit at once. Start with its name, rather than only

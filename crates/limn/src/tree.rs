@@ -863,6 +863,9 @@ struct PopoverFocusScope {
     modal: bool,
 }
 
+/// Room [`UiTree::reveal`] leaves between a control and its viewport's edge.
+const REVEAL_MARGIN: f32 = 12.0;
+
 #[derive(Clone, Debug, PartialEq)]
 struct ScrollFocusTarget {
     scroll_id: String,
@@ -2079,6 +2082,7 @@ pub struct UiTree {
     caret_blink: crate::caret_blink::CaretBlink,
     modal_return_focus: Option<String>,
     pending_scroll_focus: Option<String>,
+    pending_reveal: Option<(String, f32)>,
     hovered: Option<String>,
     pointer: Option<Point>,
     tooltip_hover_since: Option<(String, Instant)>,
@@ -2141,6 +2145,7 @@ impl UiTree {
             caret_blink: crate::caret_blink::CaretBlink::default(),
             modal_return_focus: None,
             pending_scroll_focus: None,
+            pending_reveal: None,
             hovered: None,
             pointer: None,
             tooltip_hover_since: None,
@@ -2570,6 +2575,25 @@ impl UiTree {
         self.scroll_to_index.insert(id.to_owned(), index);
     }
 
+    /// Brings the control `id` into view on the next layout: every scroll
+    /// area around it scrolls just enough to show it whole, 12 px clear of
+    /// the edge. It needs no fixed row height, moves nothing when the
+    /// control is already in view, and does nothing when no control has
+    /// that ID. Focus does not move. Rows of a virtual list are not in the
+    /// tree until they are in view: use [`UiTree::scroll_to_index`] there.
+    pub fn reveal(&mut self, id: &str) {
+        self.reveal_with_margin(id, REVEAL_MARGIN);
+    }
+
+    /// As [`UiTree::reveal`], keeping `margin` clear of the edges instead:
+    /// more when a fade or a fixed header covers the viewport's edge, or to
+    /// show what follows a heading. A margin the viewport has no room for
+    /// shrinks until the control fits; one that is not finite is ignored.
+    pub fn reveal_with_margin(&mut self, id: &str, margin: f32) {
+        let margin = if margin.is_finite() { margin.max(0.0) } else { REVEAL_MARGIN };
+        self.pending_reveal = Some((id.to_owned(), margin));
+    }
+
     pub fn layout(&mut self, viewport: Size) -> Frame {
         self.layout_at(viewport, Instant::now())
     }
@@ -2603,8 +2627,13 @@ impl UiTree {
             &mut self.action_aliases,
             &mut menu_secondary_actions,
         );
+        // One control is located per layout: the focused one first.
+        let probe = self
+            .pending_scroll_focus
+            .as_deref()
+            .or(self.pending_reveal.as_ref().map(|(id, _)| id.as_str()));
         let mut focus_path = HashSet::new();
-        if let Some(id) = self.pending_scroll_focus.as_deref() {
+        if let Some(id) = probe {
             find_focus_path(&self.root, id, &mut focus_path);
         }
         let mut observed_buttons = HashSet::new();
@@ -2631,7 +2660,7 @@ impl UiTree {
                 overlays: VecDeque::new(),
                 scroll_focus_context: Vec::new(),
                 focus_path,
-                focus_probe: self.pending_scroll_focus.as_deref(),
+                focus_probe: probe,
                 drag_source: self
                     .pointer_drag
                     .as_ref()
@@ -3242,21 +3271,32 @@ impl UiTree {
             // paints its focused field without applying initial focus again.
             return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
         }
-        if let Some(id) = self.pending_scroll_focus.take() {
-            let previous_offset = self.frame.scroll_focus_targets.get(&id).map(|target| {
-                self.scroll_offsets
-                    .get(&target.scroll_id)
-                    .copied()
-                    .unwrap_or_default()
-            });
-            self.reveal_scroll_focus(&id);
-            if self.frame.scroll_focus_targets.get(&id).map(|target| {
-                self.scroll_offsets
-                    .get(&target.scroll_id)
-                    .copied()
-                    .unwrap_or_default()
-            }) != previous_offset
-            {
+        // A pending focus was this layout's probe; a reveal waits its turn.
+        let located = match self.pending_scroll_focus.take() {
+            Some(id) => Some((id, None)),
+            None => self.pending_reveal.take().map(|(id, margin)| (id, Some(margin))),
+        };
+        if let Some((id, margin)) = located {
+            let offsets = |tree: &Self| {
+                tree.frame.scroll_focus_targets.get(&id).map(|target| {
+                    target
+                        .ancestors
+                        .iter()
+                        .map(|(scroll_id, ..)| scroll_id)
+                        .chain([&target.scroll_id])
+                        .map(|scroll_id| tree.scroll_offsets.get(scroll_id).copied().unwrap_or_default())
+                        .collect::<Vec<_>>()
+                })
+            };
+            let previous = offsets(self);
+            self.reveal_scroll_focus(&id, margin.unwrap_or(0.0));
+            let moved = offsets(self) != previous;
+            if let Some(margin) = margin.filter(|_| moved) {
+                // A scroll area that was itself out of view only gives the
+                // control its place once the one around it has moved.
+                self.pending_reveal.get_or_insert((id, margin));
+            }
+            if moved || self.pending_reveal.is_some() {
                 return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
             }
         }
@@ -4528,7 +4568,7 @@ impl UiTree {
 
     fn request_scroll_focus(&mut self, id: &str) {
         if self.frame.scroll_focus_targets.contains_key(id) {
-            self.reveal_scroll_focus(id);
+            self.reveal_scroll_focus(id, 0.0);
             self.pending_scroll_focus = None;
         } else {
             self.pending_scroll_focus = Some(id.to_owned());
@@ -4650,7 +4690,9 @@ impl UiTree {
             .collect()
     }
 
-    fn reveal_scroll_focus(&mut self, id: &str) {
+    /// Scroll every area around the control so it shows whole, `margin`
+    /// clear of the viewport's edges where the control leaves that room.
+    fn reveal_scroll_focus(&mut self, id: &str, margin: f32) {
         let Some(target) = self.frame.scroll_focus_targets.get(id) else {
             return;
         };
@@ -4670,11 +4712,16 @@ impl UiTree {
             let offset = self.scroll_offsets.entry(scroll_id).or_default();
             let top = rect.y - (*offset - layout_offset);
             let bottom = top + rect.height;
-            let viewport_bottom = viewport.y + viewport.height;
-            if top < viewport.y {
-                *offset = (*offset - (viewport.y - top)).clamp(0.0, max_offset);
-            } else if bottom > viewport_bottom {
-                *offset = (*offset + bottom - viewport_bottom).clamp(0.0, max_offset);
+            let margin = margin.min(((viewport.height - rect.height) / 2.0).max(0.0));
+            let viewport_top = viewport.y + margin;
+            let viewport_bottom = viewport.y + viewport.height - margin;
+            // Half a pixel is in view: a second pass must find nothing to do.
+            if top < viewport_top - 0.5 {
+                *offset = (*offset - (viewport_top - top)).clamp(0.0, max_offset);
+            } else if bottom > viewport_bottom + 0.5 {
+                // A control taller than its viewport keeps its start in view.
+                let down = (bottom - viewport_bottom).min(top - viewport_top);
+                *offset = (*offset + down).clamp(0.0, max_offset);
             }
         }
     }
@@ -13301,6 +13348,95 @@ mod tests {
         assert!(revealed.regions.iter().any(|hit| hit.id == "action:6"));
         assert!(!revealed.regions.iter().any(|hit| hit.id == "action:0"));
         assert_eq!(revealed.hit_test(Point::new(80.0, 50.0)), Some("action:6"));
+    }
+
+    /// Rows of uneven heights, so no row's position follows from its index.
+    fn uneven_rows() -> Element {
+        Element::column(
+            (0..10)
+                .map(|index| {
+                    Element::button(format!("row:{index}"), "Row")
+                        .size(None, Some(20.0 + 10.0 * (index % 3) as f32))
+                })
+                .collect(),
+        )
+    }
+
+    #[test]
+    fn reveal_scrolls_a_control_of_any_height_into_view_with_a_margin() {
+        let viewport = Size::new(100.0, 100.0);
+        let mut tree = UiTree::new(Element::scroll("list", uneven_rows()));
+        tree.set_reduced_motion(true);
+        let initial = tree.layout(viewport);
+        assert!(!initial.regions.iter().any(|hit| hit.id == "row:7"));
+
+        // Rows 0..=6 are 200 tall and row 7 is 30: its end, with the margin
+        // under it, lands on the viewport's end.
+        tree.reveal("row:7");
+        let revealed = tree.layout(viewport);
+        assert_eq!(tree.scroll_offset("list"), 230.0 + REVEAL_MARGIN - 100.0);
+        let row = revealed.regions.iter().find(|hit| hit.id == "row:7").unwrap().rect;
+        assert_eq!((row.y + row.height, row.height), (100.0 - REVEAL_MARGIN, 30.0));
+        assert_eq!(tree.focused_id(), None, "revealing does not move focus");
+
+        // A control above the viewport comes down to the margin under its top.
+        tree.reveal("row:2");
+        let above = tree.layout(viewport);
+        assert_eq!(tree.scroll_offset("list"), 50.0 - REVEAL_MARGIN);
+        let row = above.regions.iter().find(|hit| hit.id == "row:2").unwrap().rect;
+        assert_eq!(row.y, REVEAL_MARGIN);
+
+        // In view already, or not in the tree: nothing moves, nothing lingers.
+        let offset = tree.scroll_offset("list");
+        for id in ["row:3", "missing"] {
+            tree.reveal(id);
+            tree.layout(viewport);
+            assert_eq!(tree.scroll_offset("list"), offset, "{id}");
+        }
+        tree.set_root(Element::scroll("list", uneven_rows()));
+        tree.layout(viewport);
+        assert_eq!(tree.scroll_offset("list"), offset);
+
+        // A margin of the host's own; one too large for the viewport shrinks
+        // to center the control, and a bad one falls back to the default.
+        tree.reveal_with_margin("row:7", 30.0);
+        tree.layout(viewport);
+        assert_eq!(tree.scroll_offset("list"), 230.0 + 30.0 - 100.0);
+        tree.reveal_with_margin("row:2", 500.0);
+        tree.layout(viewport);
+        assert_eq!(tree.scroll_offset("list"), 50.0 - (100.0 - 40.0) / 2.0);
+        tree.reveal_with_margin("row:7", f32::NAN);
+        tree.layout(viewport);
+        assert_eq!(tree.scroll_offset("list"), 230.0 + REVEAL_MARGIN - 100.0);
+    }
+
+    #[test]
+    fn reveal_scrolls_every_area_around_the_control_and_yields_to_focus() {
+        let viewport = Size::new(100.0, 100.0);
+        let root = || {
+            Element::scroll(
+                "page",
+                Element::column(vec![
+                    Element::button("top", "Top").size(None, Some(20.0)),
+                    Element::spacer().size(None, Some(300.0)),
+                    Element::scroll("inner", uneven_rows()).size(None, Some(60.0)),
+                ]),
+            )
+        };
+        let mut tree = UiTree::new(root());
+        tree.set_reduced_motion(true);
+        tree.layout(viewport);
+        // A focus request in the same frame is located first; the reveal
+        // still resolves in that layout call.
+        assert!(tree.focus("top"));
+        tree.reveal("row:9");
+        let frame = tree.layout(viewport);
+        assert_eq!(tree.focused_id(), Some("top"));
+        assert!(tree.scroll_offset("page") > 0.0);
+        assert!(tree.scroll_offset("inner") > 0.0);
+        let row = frame.regions.iter().find(|hit| hit.id == "row:9").unwrap().rect;
+        assert!(row.y >= 0.0 && row.y + row.height <= viewport.height, "{row:?}");
+        assert_eq!(row.height, 20.0);
     }
 
     #[test]

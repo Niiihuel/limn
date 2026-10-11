@@ -1,7 +1,8 @@
 use super::{caption, section, Cx};
 use limn::{
     AlertColors, AlertTone, Button, ButtonVariant, Component, ComponentPalette, ControlSize, DiffStat,
-    Element, Icon, IconButton, ListRow, RadiusRole, RowSizing, Tooltip, TooltipPlacement, TooltipSpec,
+    Element, Icon, IconButton, ListRow, RadiusRole, RowSizing, ScrollArea, Tooltip, TooltipPlacement,
+    TooltipSpec,
     TreeGuides, TreeRow,
 };
 
@@ -220,6 +221,30 @@ pub fn view(cx: &Cx) -> Element {
             Element::spacer().flex(1.0),
         ])
         .gap(16.0)]),
+        section(cx, "Llevar una fila a la vista", vec![
+            caption(cx, "UiTree::reveal(id) desplaza lo justo para mostrarla entera; las filas no miden lo mismo."),
+            Element::row(vec![
+                // The gallery's host calls `reveal` with what follows the prefix.
+                Button::new("reveal:list-reveal-17", "Mostrar la fila 18", cx.palette).variant(ButtonVariant::Subtle).render(),
+                Button::new("reveal:list-reveal-0", "Volver a la primera", cx.palette).variant(ButtonVariant::Ghost).render(),
+                Element::spacer().flex(1.0),
+            ])
+            .gap(8.0),
+            card(cx, width, vec![ScrollArea::new(
+                "list-reveal",
+                Element::column(
+                    (0..24)
+                        .map(|index| {
+                            let row = ListRow::new(format!("list-reveal-{index}"), format!("Fila {}", index + 1), on_card);
+                            if index % 3 == 0 { row.subtitle("Con una segunda línea") } else { row }.render()
+                        })
+                        .collect(),
+                )
+                .gap(2.0),
+            )
+            .render()
+            .size(None, Some(150.0))]),
+        ]),
     ])
     .gap(32.0)
 }

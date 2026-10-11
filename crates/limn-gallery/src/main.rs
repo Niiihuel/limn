@@ -117,6 +117,12 @@ impl eframe::App for Host {
                 if let UiAction::CopyRequested { text } = &action {
                     ctx.copy_text(text.clone());
                 }
+                // A demo asks for a control to be brought into view.
+                if let UiAction::Clicked { id } = &action {
+                    if let Some(target) = id.strip_prefix("reveal:") {
+                        self.tree.reveal(target);
+                    }
+                }
                 hot(|| app::update(&mut self.state, &action));
                 changed = true;
             }

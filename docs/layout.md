@@ -111,6 +111,22 @@ and a size with `.font_size(px)`.
 `.clip_children()` keeps a container's descendants, and their click targets,
 inside its bounds.
 
+### Scrolling from the host
+
+The tree keeps each scroll area's offset. The host moves it with a request
+that is resolved at the next layout, once sizes are known.
+
+| Method | Effect |
+| --- | --- |
+| `tree.scroll_to_start(id)`, `tree.scroll_to_end(id)` | Jump to either end of the scroll area `id`. |
+| `tree.scroll_to_index(id, index)` | Keep one row of a uniform list in view. |
+| `tree.reveal(control_id)` | Bring a button, a clickable or a field into view wherever it is: every scroll area around it scrolls just enough to show it whole, 12 px clear of the edge. Rows need no fixed height. Nothing moves when it is already in view, and nothing happens when no control has that ID. Focus stays where it was. |
+| `tree.reveal_with_margin(control_id, margin)` | The same with a margin of the host's own, for a viewport whose edge is covered by a fade or a fixed header. A margin with no room shrinks until the control fits. |
+
+`reveal` finds a control by its ID, so give the thing to reveal one: a row
+that is not otherwise interactive can be an `Element::clickable`. Rows of a
+uniform list exist only while in view; use `scroll_to_index` for those.
+
 ## The root
 
 The root element is given the whole window. To keep a component at its own
