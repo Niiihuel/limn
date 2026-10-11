@@ -47,6 +47,7 @@ pub enum TooltipSection {
 pub struct TooltipItem {
     pub label: String,
     pub icon: Option<Icon>,
+    pub icon_only: bool,
 }
 
 impl TooltipItem {
@@ -54,7 +55,16 @@ impl TooltipItem {
         Self {
             label: label.into(),
             icon: None,
+            icon_only: false,
         }
+    }
+
+    /// Draw only the icon, so a row of several stays on one line. The label
+    /// still names the item for hosts that describe it elsewhere, and is
+    /// drawn after all when the icon does not fit.
+    pub fn icon_only(mut self) -> Self {
+        self.icon_only = true;
+        self
     }
 
     pub fn icon(mut self, icon: Icon) -> Self {

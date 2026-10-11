@@ -266,4 +266,70 @@ mod tests {
         assert!(painted.len() > 2 && painted.last().unwrap().ends_with("fin"));
         assert!(painted[1..].iter().all(|line| !line.contains('…')));
     }
+    #[test]
+    fn icon_only_tooltip_items_stay_on_one_line_without_their_labels() {
+        let palette = ComponentPalette::neutral_dark();
+        let items = |bare: bool| {
+            ["Herramientas", "Visión", "Razonamiento", "Salida estructurada", "PDF"]
+                .into_iter()
+                .map(move |label| {
+                    let item = crate::TooltipItem::new(label).icon(crate::Icon::Code);
+                    if bare { item.icon_only() } else { item }
+                })
+        };
+        let painted = |bare: bool| {
+            let anchor = Element::clickable("anchor", Element::text("Modelo"))
+                .size(Some(80.0), Some(20.0));
+            let tooltip = crate::Tooltip::new(anchor, "anchor", "Modelo", palette)
+                .max_width(320.0)
+                .icon_row("Admite", items(bare))
+                .render();
+            let mut tree = UiTree::new(Element::column(vec![tooltip]));
+            tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 8.0);
+            let size = Size::new(600.0, 400.0);
+            tree.layout(size);
+            tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 10.0)));
+            let frame = tree.layout_at(size, Instant::now() + crate::tree::TOOLTIP_HOVER_DELAY * 2);
+            let icons: Vec<f32> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Icon { rect, .. } => Some(rect.y),
+                    _ => None,
+                })
+                .collect();
+            let labelled = frame.commands.iter().any(
+                |command| matches!(command, DrawCommand::Text { text, .. } if text == "Razonamiento"),
+            );
+            (icons, labelled)
+        };
+        let (labelled_rows, has_labels) = painted(false);
+        assert!(has_labels && labelled_rows.iter().any(|y| *y != labelled_rows[0]));
+        let (bare_rows, has_labels) = painted(true);
+        assert_eq!(bare_rows.len(), 5);
+        assert!(!has_labels && bare_rows.iter().all(|y| *y == bare_rows[0]));
+    }
+
+    #[test]
+    fn a_press_on_a_hinted_passive_child_reaches_the_control_under_it() {
+        let palette = ComponentPalette::neutral_dark();
+        let glyph = crate::Tooltip::new(
+            Element::icon(crate::Icon::Code).size(Some(16.0), Some(16.0)),
+            "glyph",
+            "Herramientas",
+            palette,
+        )
+        .render();
+        let row = Element::clickable("row", Element::row(vec![glyph])).size(Some(120.0), Some(24.0));
+        let mut tree = UiTree::new(Element::column(vec![row]));
+        let size = Size::new(200.0, 100.0);
+        let frame = tree.layout(size);
+        let point = Point::new(8.0, 8.0);
+        // The hint's anchor is what the pointer hovers; the press is the row's.
+        assert_eq!(frame.hit_test(point), Some("glyph"));
+        let mut actions = tree.handle_event(UiEvent::PointerDown(point));
+        actions.extend(tree.handle_event(UiEvent::PointerUp(point)));
+        assert_eq!(actions, vec![crate::UiAction::Clicked { id: "row".into() }]);
+    }
+
 }

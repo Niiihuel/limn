@@ -1450,8 +1450,27 @@ impl Frame {
     }
 
     pub fn hit_region(&self, point: Point) -> Option<&HitRegion> {
+        self.region_at(point, false)
+    }
+
+    /// The region a press at `point` belongs to. A passive hover target, such
+    /// as the anchor of a hint on an icon, shows its hint but lets the press
+    /// reach the control it sits on.
+    pub fn press_region(&self, point: Point) -> Option<&HitRegion> {
+        self.region_at(point, true)
+    }
+
+    fn region_at(&self, point: Point, pressing: bool) -> Option<&HitRegion> {
         for (index, region) in self.regions.iter().enumerate().rev() {
             if !region.rect.contains(point) {
+                continue;
+            }
+            if pressing
+                && region.kind == HitKind::Hover
+                && self.regions[..index].iter().any(|underneath| {
+                    underneath.rect.contains(point) && underneath.kind != HitKind::Hover
+                })
+            {
                 continue;
             }
             if region.kind == HitKind::Scrollbar
@@ -4155,7 +4174,7 @@ impl UiTree {
                 self.keyboard_focus = false;
                 self.keyboard_tooltip_focus = false;
                 self.tooltip_hover_since = None;
-                let hit = self.frame.hit_region(point).cloned();
+                let hit = self.frame.press_region(point).cloned();
                 let dismiss_scope = hit.as_ref().and_then(|region| {
                     self.frame
                         .popover_focus
@@ -4360,7 +4379,8 @@ impl UiTree {
                 }
                 let pressed_dispatch = self.pressed_dispatch.take();
                 if let Some(pressed) = self.pressed.take() {
-                    if self.frame.hit_test(point) == Some(pressed.as_str())
+                    if self.frame.press_region(point).map(|region| region.id.as_str())
+                        == Some(pressed.as_str())
                         && pressed_dispatch.as_deref() == Some(self.dispatch_id(&pressed).as_str())
                     {
                         actions.push(UiAction::Clicked {
@@ -5648,10 +5668,15 @@ impl LayoutBuilder<'_> {
         for item in items.iter().filter(|item| !item.label.trim().is_empty()) {
             // Very narrow viewports preserve the label when the icon cannot fit.
             let icon = item.icon.filter(|_| available >= ICON_SIZE + 8.0);
-            let decoration = icon.map_or(0.0, |_| ICON_SIZE + 12.0);
-            let text = truncate_measured(&item.label, (available - decoration).max(0.0), |text| {
-                self.text_width(text, style)
-            });
+            let bare = item.icon_only && icon.is_some();
+            let decoration = icon.map_or(0.0, |_| ICON_SIZE + if bare { 8.0 } else { 12.0 });
+            let text = if bare {
+                String::new()
+            } else {
+                truncate_measured(&item.label, (available - decoration).max(0.0), |text| {
+                    self.text_width(text, style)
+                })
+            };
             let item_width = (self.text_width(&text, style) + decoration).min(available);
             if x > start_x && x + item_width > width {
                 x = start_x;
