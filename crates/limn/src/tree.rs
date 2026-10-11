@@ -2766,6 +2766,7 @@ impl UiTree {
                 shimmer_started: &mut self.shimmer_started,
                 spinner_started: &mut self.spinner_started,
                 observed_buttons: &mut observed_buttons,
+                hover_surface_fill: None,
                 observed_popovers: &mut observed_popovers,
                 popover_snapshots: &mut current_popover_snapshots,
                 observed_tabs: &mut observed_tabs,
@@ -5236,6 +5237,8 @@ struct LayoutBuilder<'a> {
     shimmer_started: &'a mut HashMap<String, Instant>,
     spinner_started: &'a mut HashMap<String, Instant>,
     observed_buttons: &'a mut HashSet<String>,
+    /// The fill of the shared hover surface the pointer is over, if any.
+    hover_surface_fill: Option<Color>,
     observed_popovers: &'a mut HashSet<String>,
     popover_snapshots: &'a mut HashMap<String, PopoverSnapshot>,
     observed_tabs: &'a mut HashSet<String>,
@@ -7195,6 +7198,20 @@ impl LayoutBuilder<'_> {
             } else if hovered {
                 style.background = style.hover_background.or(style.background);
                 style.foreground = style.hover_foreground.unwrap_or(style.foreground);
+                // On a shared surface that is already lit with the same fill,
+                // the control's own hover would vanish: lift it one step.
+                if let (Some(fill), Some(surface)) = (style.background, self.hover_surface_fill) {
+                    if fill == surface && style.hover_background.is_some() {
+                        let ink = style.foreground;
+                        let lift = |a: u8, b: u8| ((u32::from(a) * 88 + u32::from(b) * 12 + 50) / 100) as u8;
+                        style.background = Some(Color::rgba(
+                            lift(fill.r, ink.r),
+                            lift(fill.g, ink.g),
+                            lift(fill.b, ink.b),
+                            fill.a,
+                        ));
+                    }
+                }
             }
             if self.focused == Some(id.as_str())
                 && matches!(
@@ -7213,6 +7230,7 @@ impl LayoutBuilder<'_> {
                 target.is_some_and(|target| actions.iter().any(|action| action == target))
             };
             if followed(self.hovered) {
+                self.hover_surface_fill = style.hover_background;
                 style.background = if followed(self.pressed) {
                     style
                         .pressed_background
@@ -12696,6 +12714,49 @@ mod tests {
             DrawCommand::FillRect { color, rect, .. }
                 if *color == row_hover && rect.width == 100.0
         )));
+    }
+
+    #[test]
+    fn a_control_hovered_on_a_lit_shared_surface_stands_out_from_it() {
+        let hover = Color::rgb(70, 70, 70);
+        let build = || {
+            Element::row(vec![
+                Element::clickable("open", Element::spacer())
+                    .hover_background(Color::TRANSPARENT)
+                    .size(Some(72.0), Some(28.0)),
+                Element::clickable("more", Element::spacer())
+                    .hover_background(hover)
+                    .foreground(Color::rgb(230, 230, 230))
+                    .size(Some(24.0), Some(24.0)),
+            ])
+            .size(Some(100.0), Some(28.0))
+            .hover_surface("row-surface", ["open", "more"])
+            .hover_background(hover)
+        };
+        let fills = |point: Point| {
+            let mut tree = UiTree::new(build());
+            tree.set_reduced_motion(true);
+            let viewport = Size::new(100.0, 28.0);
+            tree.layout(viewport);
+            tree.handle_event(UiEvent::PointerMove(point));
+            let frame = tree.layout(viewport);
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::FillRect { rect, color, .. } if color.a > 0 => Some((rect.width, *color)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        // Over the main part: the surface alone is lit.
+        assert_eq!(fills(Point::new(20.0, 14.0)), vec![(100.0, hover)]);
+        // Over the control: the surface stays lit and the control is lighter.
+        let over = fills(Point::new(84.0, 12.0));
+        assert_eq!(over[0], (100.0, hover));
+        let (width, lifted) = over[1];
+        assert_eq!(width, 24.0);
+        assert!(lifted.r > hover.r && lifted.g > hover.g && lifted.b > hover.b, "{lifted:?}");
     }
 
     #[test]
