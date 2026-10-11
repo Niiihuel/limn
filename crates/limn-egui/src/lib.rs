@@ -967,6 +967,21 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     Stroke::NONE,
                 ));
             }
+            DrawCommand::Polyline {
+                points,
+                color: ink,
+                width,
+                dashed,
+            } => {
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let path: Vec<egui::Pos2> = points.iter().map(|point| pos(origin, *point)).collect();
+                let stroke = Stroke::new(*width, color(*ink));
+                if *dashed {
+                    painter.extend(egui::Shape::dashed_line(&path, stroke, 3.0, 3.0));
+                } else {
+                    painter.add(egui::Shape::line(path, stroke));
+                }
+            }
             DrawCommand::Text {
                 position,
                 text,

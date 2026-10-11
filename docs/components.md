@@ -72,6 +72,7 @@ it.
 | `Card`, `CardDensity` | A raised surface that sets one group of content into the page: `Card::new(content, palette)` fills with the palette's `raised` under a hairline of its `border`. `.density` pads by 8 (`Compact`), 10 (`Regular`, the default) or 12 (`Roomy`), or not at all (`Flush`) for content whose rows run to the edge; `.border(false)` drops the hairline; `.radius(RadiusRole)` rounds it (`Card` unless set); `.width` fixes the width. It is passive and follows its content's height. The host picks the fill by passing a palette whose `raised` is the color it wants. |
 | `OutputBlock` | Read-only monospaced output of a command or a tool: `OutputBlock::new(id, text, palette)`. One clipped 17 px line per row, in a scroll area that builds only the rows in view; the text is cut to 48 KiB, 600 lines and 500 characters per line before it is shaped. `.max_height` bounds the lines before they scroll (200 unless set), `.ink(color)` paints them in a color the host owns, such as an error stream, `.truncation_note(text)` adds a muted line when text was cut, and `.width` fixes the width. The fill is the palette's `surface`. |
 | `CodeBlock`, `CodeBlockSizing` | The labelled card that holds code inside prose: `CodeBlock::new(text, palette)` wraps monospaced code on the palette's `raised` fill inside a hairline. `.label(text)` adds a muted line above it, in the case the host wrote; `.spans(spans)` paints text the host's highlighter already colored; `.width` fixes the width. `CodeBlockSizing::CHAT` (a 10 px monospaced label over 12 px code) and `DOCUMENT` (an 11 px sans label over 13 px code) are the presets. |
+| `Flowchart`, `FlowchartGraph` | A flowchart drawn by the engine from the common subset of Mermaid's `flowchart`/`graph` syntax: `Flowchart::parse(source, palette)?` is the chart at its natural size and `.scrollable(id)` puts it in a horizontal viewport that pans, with an edge fade, when it is wider than its container. Directions `TD`/`TB`/`BT`/`LR`/`RL`; nodes `A[rect]`, `A(rounded)`, `A([stadium])`, `A{decision}`, `A((circle))` and bare ids; connectors `-->`, `---`, `-.->`, `==>` with `-->|text|` or `-- text -->` labels, chains and `A & B --> C`; `subgraph … end` as a titled box when the box holds no other node; `%%` comments; `style`, `classDef`, `class`, `linkStyle` and `click` are read and ignored. Anything else is a `FlowchartError`, for the host to show the source instead. Nodes are ranked by longest path and ordered by barycenter; labels wrap at 220. Nodes fill with the palette's `surface` inside a `border` hairline, connectors and their labels are `muted`, and `.backdrop(color)` names the fill the chart sits on (`raised` unless set). `FlowchartGraph::parse` and `.layout(measure, line_height)` give the graph and its geometry without painting. More than 120 nodes or 240 edges is an error; an edge from a node to itself is not drawn. |
 
 ## Feedback and status
 
@@ -169,7 +170,9 @@ let preview = Markdown::new(source, palette).width(reading_width).render();
 | `.colors(MarkdownColors)` | The ten inks and fills: `text`, `strong`, `emphasis`, `link`, `code_ink`, `code_fill`, `muted`, `success`, `panel`, `border`. The default, `MarkdownColors::for_palette`, reads the palette and paints strong text like body text. |
 | `.streaming(bool)` | The source is still growing: an unclosed delimiter at its end already styles its text, a half-written fence is held back, and a web address at the end has no action until it is delimited. |
 | `.link_action_prefix(text)` | The start of every link action; `markdown_link:` unless set. |
-| `.labels(MarkdownLabels)` | `code_fallback`, the label of a code block with no language, and `truncated_note`, the muted line under a cut preview. English unless set. |
+| `.labels(MarkdownLabels)` | `code_fallback`, the label of a code block with no language; `truncated_note`, the muted line under a cut preview; `diagram`, the label of a drawn diagram; and `show_source` and `show_diagram`, the action that switches a diagram to its source and back. English unless set. |
+| `.diagram_action_prefix(text)` | Gives every drawn diagram that action; none unless set. |
+| `.diagram_sources(&[u64])` | The diagrams, by the id in their action, to show as source. |
 | `.limits(MarkdownLimits)` | `source_chars` and `blocks` rendered: 20,000 and 160 unless set. |
 | `.plain_with_autolinks(line_height)` | Keeps the source literal in one paragraph and only turns complete HTTP(S) addresses into links. Not cached and not cut. |
 
@@ -187,6 +190,12 @@ its link wears, for a host that draws a link of its own or receives an action.
 | Action | When |
 | --- | --- |
 | `Clicked { id }` with `id` = prefix, block hash, run index and URL, joined by colons | A link is activated. Only `http` and `https` destinations with a host and no credentials become links; anything else stays text. |
+
+| `Clicked { id }` with `id` = the diagram prefix and the diagram's id as sixteen hexadecimal digits | The switch on a diagram or on its source is activated. The host keeps the ids it was asked to show as source and passes them to `.diagram_sources`. |
+
+A closed `mermaid` fence that `Flowchart` can read is drawn as that chart in
+a card like a code block's. A fence still being written, another kind of
+Mermaid diagram or a source with an error stays a code block.
 
 The ID depends on the block's text and the link's position in it, so the same
 block rendered twice gives the same IDs. A host that shows a source more than

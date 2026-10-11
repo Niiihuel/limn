@@ -25,6 +25,7 @@ pub fn view(cx: &Cx) -> Element {
     let labels = MarkdownLabels {
         code_fallback: "CÓDIGO",
         truncated_note: "Texto extenso: vista limitada a los primeros bloques.",
+        ..MarkdownLabels::DEFAULT
     };
     let page = Markdown::source_page(COMPLETE, 0);
     Element::column(vec![

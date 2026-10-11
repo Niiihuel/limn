@@ -377,6 +377,14 @@ pub enum DrawCommand {
         points: [Point; 3],
         color: Color,
     },
+    /// An open stroked path through `points`, centered on them. A dashed
+    /// path alternates short marks and gaps along its length.
+    Polyline {
+        points: Arc<[Point]>,
+        color: Color,
+        width: f32,
+        dashed: bool,
+    },
     Text {
         position: Point,
         text: String,
@@ -466,7 +474,7 @@ impl DrawCommand {
                 shift(rect);
                 *opacity *= opacity_factor;
             }
-            Self::SelectionContour { points, color } => {
+            Self::SelectionContour { points, color } | Self::Polyline { points, color, .. } => {
                 *points = points
                     .iter()
                     .map(|point| Point::new(point.x + dx, point.y + dy))
@@ -664,6 +672,13 @@ fn animate_popover_command(
             for point in Arc::make_mut(points) {
                 scale_point(point, scale, origin, slide_y);
             }
+            fade(color, opacity);
+        }
+        DrawCommand::Polyline { points, color, width, .. } => {
+            for point in Arc::make_mut(points) {
+                scale_point(point, scale, origin, slide_y);
+            }
+            *width *= scale;
             fade(color, opacity);
         }
         DrawCommand::FillCornerRect { rect, color, radii }
@@ -5269,6 +5284,7 @@ fn collect_focus_order(
         | ElementKind::TextArea { .. }
         | ElementKind::CodeEditor(_)
         | ElementKind::CodeDiff(_)
+        | ElementKind::Flowchart(_)
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
@@ -5338,6 +5354,7 @@ fn collect_action_metadata(
         | ElementKind::TextArea { .. }
         | ElementKind::CodeEditor(_)
         | ElementKind::CodeDiff(_)
+        | ElementKind::Flowchart(_)
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
@@ -6756,6 +6773,15 @@ impl LayoutBuilder<'_> {
         width
     }
 
+    /// One line of interface text at `size`, for elements that place their
+    /// own labels.
+    fn sans_width(&self, value: &str, size: f32) -> f32 {
+        self.text_width(
+            value,
+            Style { font_size: size, font_family: FontFamily::Sans, ..Style::default() },
+        )
+    }
+
     fn wrapped_lines<'t>(&self, value: &'t str, width: f32, style: Style) -> Vec<&'t str> {
         wrap_measured(value, width, |part| self.text_width(part, style))
     }
@@ -7392,6 +7418,13 @@ impl LayoutBuilder<'_> {
             ),
             ElementKind::ProgressRing { .. } => {
                 Size::new(crate::ICON_SIZE + padding, crate::ICON_SIZE + padding)
+            }
+            ElementKind::Flowchart(flowchart) => {
+                let size = flowchart.layout(&|text, size| self.sans_width(text, size), &|size| {
+                    self.sans_metrics.at_size(size).line_height
+                })
+                .size;
+                Size::new(size.width + padding, size.height + padding)
             }
             ElementKind::Skeleton { .. } | ElementKind::Spinner { .. } | ElementKind::Spacer => {
                 Size::new(0.0, 0.0)
@@ -9386,6 +9419,16 @@ impl LayoutBuilder<'_> {
                         });
                     }
                 }
+            }
+            ElementKind::Flowchart(flowchart) => {
+                let mut commands = Vec::new();
+                flowchart.paint(
+                    content,
+                    &|text, size| self.sans_width(text, size),
+                    &|size| self.sans_metrics.at_size(size).line_height,
+                    &mut commands,
+                );
+                self.frame.commands.append(&mut commands);
             }
             ElementKind::ProgressRing {
                 fraction,

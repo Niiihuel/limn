@@ -25,6 +25,8 @@ pub(crate) enum Block {
     ListItem(usize, ListMarker, String),
     Quote(String),
     Code(String, String),
+    /// A fence the source has not closed: its content can still grow.
+    OpenCode(String, String),
     Rule,
 }
 
@@ -39,7 +41,9 @@ impl Block {
                         _ => 0,
                     }
             }
-            Self::Code(language, content) => language.capacity() + content.capacity(),
+            Self::Code(language, content) | Self::OpenCode(language, content) => {
+                language.capacity() + content.capacity()
+            }
             Self::Rule => 0,
         }
     }
@@ -260,7 +264,7 @@ pub(crate) fn parse_bounded_mode(
         }
     }
     if fence.is_some() {
-        blocks.push(Block::Code(language, code.join("\n")));
+        blocks.push(Block::OpenCode(language, code.join("\n")));
     }
     flush_paragraph(&mut blocks, &mut paragraph);
     if blocks.len() > max_blocks {

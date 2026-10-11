@@ -276,6 +276,13 @@ pub(crate) fn passive_heap_bytes(element: &Element) -> Option<usize> {
             },
         )),
         ElementKind::Spacer => Some(0),
+        // A diagram and the viewport it pans in hold no host state either.
+        ElementKind::Flowchart(flowchart) => Some(flowchart.heap_bytes()),
+        ElementKind::HorizontalScroll { id, child, .. } => Some(
+            size_of::<Element>()
+                .saturating_add(id.capacity())
+                .saturating_add(passive_heap_bytes(child)?),
+        ),
         _ => None,
     }
 }
