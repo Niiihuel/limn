@@ -31,6 +31,7 @@ own content, and how to switch movement off.
 | `Toast` | Fades in and settles. | Fades out where it was. | `enter_ms`, `exit_ms` |
 | `CoachMark`, `Tour` | Fades in and settles; its ring fades in on the target. On a new step both spring from the last target to the new one. | Fades out. | `enter_ms`, `exit_ms`, `move_ms` |
 | Body of a `Collapsible` | Fades in and settles. | Removed at once. | `enter_ms` |
+| An element with `reveal_on_hover`, such as a `MessageActions` row | Fades in where it already is. | Fades out. Its place in the layout is kept. | `enter_ms`, `exit_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `Switch` | The thumb springs across. | | `move_ms` |
@@ -162,6 +163,23 @@ When the key changes, the new line rises into place while the previous
 paint moves up and fades, and the slot keeps its height. `Ticker` clips the
 slot; `Element::animate_replace(id, key)` is the movement alone, for a parent
 that clips already.
+
+### Controls that appear under the pointer
+
+```rust
+let message = Element::column(vec![
+    content,
+    actions.reveal_on_hover("message-7-actions"),
+])
+.hover_region();
+```
+
+The actions are painted while the pointer is anywhere over the region
+around them, while one of their controls has keyboard focus, or while a
+popover inside them is open. They keep their place in the layout and in the
+Tab order, so nothing moves when they appear and Tab reaches them. The
+region is passive and the host mirrors no hover state. A pinned
+`sticky_top` child is a region where it is drawn.
 
 ### A control's fill
 

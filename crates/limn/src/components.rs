@@ -1198,6 +1198,12 @@ impl IconButton {
         self
     }
 
+    /// Draw the icon and label in this color at rest; see [`Button::ink`].
+    pub fn ink(mut self, color: Color) -> Self {
+        self.0.ink = Some(color);
+        self
+    }
+
     pub fn hover_ink(mut self, color: Color) -> Self {
         self.0.hover_ink = Some(color);
         self

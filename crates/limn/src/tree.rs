@@ -27,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::element::{CoachAlign, CoachAnchor, CoachSide, UniformList};
+use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, UniformList};
 use crate::motion::{
     skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
 };
@@ -2785,6 +2785,7 @@ impl UiTree {
                 dragging_scrollbar: self.scroll_drag.as_ref().map(|drag| drag.id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 pointer: self.pointer,
+                region_hovered: false,
                 slider_drag: self.slider_drag.as_ref(),
                 slider_motion: &mut self.slider_motion,
                 focused: self.focused.as_deref(),
@@ -5333,6 +5334,29 @@ fn focusable_id(element: &Element) -> Option<&str> {
     }
 }
 
+/// Whether a hover-revealed element must stay painted without the pointer:
+/// a popover inside it is open, or the keyboard focus is on one of its
+/// controls.
+fn holds_reveal(element: &Element, keyboard_focus: bool, focused: Option<&str>) -> bool {
+    if keyboard_focus && focused.is_some() && focusable_id(element) == focused {
+        return true;
+    }
+    let holds = |child: &Element| holds_reveal(child, keyboard_focus, focused);
+    match &element.kind {
+        ElementKind::Popover { .. } => true,
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. } => children.iter().any(holds),
+        ElementKind::Panel(child)
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. }
+        | ElementKind::Tooltip { anchor: child, .. } => holds(child),
+        ElementKind::Overlay { base, floating } => holds(base) || holds(floating),
+        _ => false,
+    }
+}
+
 /// Record only the ancestors of the requested control. The normal layout can
 /// skip every other clipped branch, even while locating an offscreen target.
 fn find_focus_path(element: &Element, id: &str, path: &mut HashSet<usize>) -> bool {
@@ -5402,6 +5426,8 @@ struct LayoutBuilder<'a> {
     dragging_scrollbar: Option<&'a str>,
     scroll_button_hold: Option<&'a ScrollButtonHold>,
     pointer: Option<Point>,
+    /// The pointer is over the `hover_region` being placed.
+    region_hovered: bool,
     slider_drag: Option<&'a SliderDrag>,
     slider_motion: &'a mut HashMap<String, SliderMotion>,
     focused: Option<&'a str>,
@@ -5881,6 +5907,34 @@ impl LayoutBuilder<'_> {
             let slide = (1.0 - progress) * slide_sign * 4.0;
             for command in &mut self.frame.commands[start..] {
                 animate_popover_command(command, progress, slide, 1.0, origin);
+            }
+        }
+    }
+
+    /// Paint only: fade what was painted since command `start` in or out
+    /// with the hover of the region around it. Layout, hit regions and the
+    /// focus order are the same either way.
+    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize) {
+        let shown = self.region_hovered || holds_reveal(element, self.keyboard_focus, self.focused);
+        let target = if shown { 1.0 } else { 0.0 };
+        let now = self.now;
+        self.observed_popovers.insert(id.to_owned());
+        // First seen at rest: a page does not open with its rows fading.
+        let transition = self
+            .popover_transitions
+            .entry(id.to_owned())
+            .or_insert_with(|| ScalarTransition::new(target, now));
+        if self.reduced_motion {
+            transition.snap_to(target, now);
+        } else if transition.target() != target {
+            let motion = crate::tokens().motion;
+            let ms = if shown { motion.enter_ms } else { motion.exit_ms };
+            transition.retarget(target, now, Duration::from_millis(u64::from(ms)));
+        }
+        let opacity = transition.value(now);
+        if opacity < 1.0 {
+            for command in &mut self.frame.commands[start..] {
+                animate_popover_command(command, opacity, 0.0, 1.0, Point::new(0.0, 0.0));
             }
         }
     }
@@ -7417,12 +7471,28 @@ impl LayoutBuilder<'_> {
             && self.drag_source.is_some()
             && focusable_id(element) == self.drag_source;
         let start = self.frame.commands.len();
+        let reveal = element.hover_reveal;
+        let around = self.region_hovered;
+        if reveal == HoverReveal::Region {
+            let visible = clip.map_or(Some(rect), |clip| rect.intersection(clip));
+            self.region_hovered = self
+                .pointer
+                .zip(visible)
+                .is_some_and(|(point, visible)| visible.contains(point));
+        }
         match (&element.presence, element.animate_height) {
             (Some((id, _)), Some(_)) => self.place_flow_height(element, id, rect, clip),
             _ => self.place_inner(element, rect, clip),
         }
-        if let Some((id, leaves)) = element.presence.as_ref().filter(|_| element.animate_height.is_none()) {
-            self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);
+        self.region_hovered = around;
+        match &element.presence {
+            Some((id, _)) if reveal == HoverReveal::Revealed => {
+                self.reveal_on_hover(element, id, start)
+            }
+            Some((id, leaves)) if element.animate_height.is_none() => {
+                self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);
+            }
+            _ => {}
         }
         if let Some(replacement) = &element.replacement {
             self.animate_replacement(&replacement.0, &replacement.1, start, rect);

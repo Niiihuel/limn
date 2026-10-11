@@ -49,6 +49,7 @@ mod notice;
 mod output_block;
 mod theme;
 mod page;
+mod message_actions;
 mod pager;
 mod panel_header;
 mod popover_panel;
@@ -143,6 +144,9 @@ pub use motion::{
 pub use notice::{Notice, NoticeSizing};
 pub use output_block::OutputBlock;
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
+pub use message_actions::{
+    MessageAction, MessageActionDone, MessageActions, MessageActionsVisibility,
+};
 pub use pager::{Pager, PagerSizing};
 pub use panel_header::{HeaderSizing, PanelHeader, SidebarPanel};
 pub use popover_panel::{PopoverPanel, PopoverPanelSizing};
