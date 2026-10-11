@@ -78,6 +78,7 @@ the regions of the last layout.
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
 | `Icon { icon, rect, tint }` | A semantic icon. The backend chooses the artwork. |
 | `RasterImage { .. }` | A decoded image. |
+| `Surface { rect, id, label, opacity }` | Pixels the host hands to the backend under `id`, outside the frame. They start at the rectangle's top-left corner, one pixel per physical pixel when rendered for this display, and are clipped to the rectangle, never stretched to it. |
 | `Spinner { .. }`, `ProgressRing { .. }` | Vector progress indicators. |
 | `SelectionContour { .. }`, `CornerMask { .. }` | Text selection outlines and rounded clipping of images. |
 | `EffortSlider { .. }` | A specialized slider track. |
@@ -121,6 +122,22 @@ The egui backend exposes:
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
 | `set_image_cache_entries(n)` | Size of the decoded image cache. |
+| `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
+| `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture; one larger than the GPU's textures is refused and returns `false`. |
+| `forget_surface(id)` | Frees a surface's texture. |
+
+### Host-fed surfaces
+
+`Element::surface(id, label)` reserves a rectangle for pixels that change
+without the tree: a remote screen, a video, an embedded page. The tree lays it
+out and names it; the host decodes frames on its own thread, builds a
+`SurfaceFrame` there, and calls `present_surface` on the UI thread followed by
+a repaint. The frame carries the display scale its pixels were rendered for.
+At the window's scale they are painted one to one from the top-left corner,
+snapped to the pixel grid; a frame a pixel larger or smaller than the
+rectangle is clipped or leaves a gap, and is not resampled. At another scale
+it keeps its logical size. Each side is at most 8192 pixels and a frame at
+most 16 megapixels. A surface holds its last frame until `forget_surface`.
 
 ## See also
 

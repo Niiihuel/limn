@@ -220,6 +220,142 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> Option<(egui::TextureId
     })
 }
 
+const MAX_SURFACE_SIDE: usize = 8192;
+const MAX_SURFACE_PIXELS: usize = 16 * 1024 * 1024;
+const SURFACE_TEXTURE: egui::TextureOptions = egui::TextureOptions::LINEAR;
+
+/// One frame of a [`DrawCommand::Surface`]. Build it where the pixels are
+/// decoded, away from the UI thread: converting them is the costly part.
+pub struct SurfaceFrame {
+    image: egui::ColorImage,
+    pixels_per_point: f32,
+}
+
+impl std::fmt::Debug for SurfaceFrame {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("SurfaceFrame")
+            .field("size", &self.image.size)
+            .field("pixels_per_point", &self.pixels_per_point)
+            .finish()
+    }
+}
+
+impl SurfaceFrame {
+    /// Rows of straight-alpha RGBA, top to bottom. `pixels_per_point` is the
+    /// display scale the pixels were rendered for.
+    pub fn from_rgba(size: [usize; 2], rgba: &[u8], pixels_per_point: f32) -> Option<Self> {
+        Self::bounded(size, rgba.len(), 4, pixels_per_point).then(|| Self {
+            image: egui::ColorImage::from_rgba_unmultiplied(size, rgba),
+            pixels_per_point,
+        })
+    }
+
+    /// Rows of opaque RGB, as a JPEG decodes: no alpha channel is carried.
+    pub fn from_rgb(size: [usize; 2], rgb: &[u8], pixels_per_point: f32) -> Option<Self> {
+        Self::bounded(size, rgb.len(), 3, pixels_per_point).then(|| Self {
+            image: egui::ColorImage::from_rgb(size, rgb),
+            pixels_per_point,
+        })
+    }
+
+    fn bounded(size: [usize; 2], bytes: usize, channels: usize, pixels_per_point: f32) -> bool {
+        let [width, height] = size;
+        (1..=MAX_SURFACE_SIDE).contains(&width)
+            && (1..=MAX_SURFACE_SIDE).contains(&height)
+            && width * height <= MAX_SURFACE_PIXELS
+            && bytes == width * height * channels
+            && pixels_per_point.is_finite()
+            && pixels_per_point > 0.0
+    }
+
+    /// Width and height in pixels.
+    pub fn size(&self) -> [usize; 2] {
+        self.image.size
+    }
+}
+
+struct SurfaceTexture {
+    texture: egui::TextureHandle,
+    pixels_per_point: f32,
+}
+
+#[derive(Default)]
+struct SurfaceCache {
+    context: Option<egui::Context>,
+    entries: HashMap<String, SurfaceTexture>,
+}
+
+thread_local! {
+    static SURFACE_CACHE: RefCell<SurfaceCache> = RefCell::new(SurfaceCache::default());
+}
+
+/// Show `frame` wherever a [`DrawCommand::Surface`] names `id`. Called on the
+/// UI thread; a frame of the size already shown is written into the texture
+/// the GPU has, so a stream of frames allocates nothing. The surface keeps
+/// its last frame until [`forget_surface`]. A frame wider or taller than the
+/// GPU's textures is refused, and `false` says so.
+pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bool {
+    let side = ctx.input(|input| input.max_texture_side);
+    if frame.image.size.iter().any(|pixels| *pixels > side) {
+        return false;
+    }
+    SURFACE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.context.as_ref() != Some(ctx) {
+            cache.entries.clear();
+            cache.context = Some(ctx.clone());
+        }
+        let SurfaceFrame { image, pixels_per_point } = frame;
+        match cache.entries.get_mut(id) {
+            Some(entry) => {
+                if entry.texture.size() == image.size {
+                    entry.texture.set_partial([0, 0], image, SURFACE_TEXTURE);
+                } else {
+                    entry.texture.set(image, SURFACE_TEXTURE);
+                }
+                entry.pixels_per_point = pixels_per_point;
+            }
+            None => {
+                let texture = ctx.load_texture(format!("surface:{id}"), image, SURFACE_TEXTURE);
+                cache.entries.insert(id.to_owned(), SurfaceTexture { texture, pixels_per_point });
+            }
+        }
+    });
+    true
+}
+
+/// Free the texture of a surface the host no longer shows.
+pub fn forget_surface(id: &str) {
+    SURFACE_CACHE.with(|cache| cache.borrow_mut().entries.remove(id));
+}
+
+fn surface_texture(ui: &egui::Ui, id: &str) -> Option<(egui::TextureId, [usize; 2], f32)> {
+    SURFACE_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        let entry = cache.entries.get(id).filter(|_| cache.context.as_ref() == Some(ui.ctx()))?;
+        Some((entry.texture.id(), entry.texture.size(), entry.pixels_per_point))
+    })
+}
+
+/// Where a surface's pixels meet the screen: from the area's top-left corner,
+/// snapped to the pixel grid, at the density they were rendered for. On the
+/// display they were rendered for each one covers exactly one physical pixel,
+/// whatever the area measures; on another they keep their logical size.
+fn surface_rect(area: EguiRect, pixels: [usize; 2], density: f32, pixels_per_point: f32) -> EguiRect {
+    let snap = |value: f32| (value * pixels_per_point).round() / pixels_per_point;
+    // A scale that crossed a process boundary as text is still this display.
+    let density = if (density - pixels_per_point).abs() < 0.01 {
+        pixels_per_point
+    } else {
+        density
+    };
+    EguiRect::from_min_size(
+        Pos2::new(snap(area.min.x), snap(area.min.y)),
+        egui::vec2(pixels[0] as f32 / density, pixels[1] as f32 / density),
+    )
+}
+
 fn fit_image(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
     let width = pixels[0] as f32;
     let height = pixels[1] as f32;
@@ -1081,6 +1217,34 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     );
                 }
             }
+            DrawCommand::Surface {
+                rect: area,
+                id,
+                label,
+                opacity,
+            } => {
+                let area = rect(origin, *area);
+                let response = ui.interact(
+                    area,
+                    egui::Id::new(("limn-surface", id)),
+                    egui::Sense::hover(),
+                );
+                response.widget_info(|| {
+                    egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label)
+                });
+                // Nothing is painted until the host presents a first frame.
+                if let Some((texture, pixels, density)) = surface_texture(ui, id) {
+                    let painter = ui
+                        .painter()
+                        .with_clip_rect(clips.last().unwrap().intersect(area));
+                    painter.image(
+                        texture,
+                        surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),
+                        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                        Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
+                    );
+                }
+            }
             DrawCommand::ProgressRing {
                 rect: area,
                 fraction,
@@ -1622,6 +1786,144 @@ mod tests {
             RasterImageFormat::Png,
         );
         assert!(decode_raster_thumbnail(&oversized).is_none());
+    }
+
+    #[test]
+    fn surface_pixels_land_one_to_one_on_the_pixel_grid_at_every_scale() {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            // A layout rectangle off the pixel grid, as fractional UI sizes give.
+            let area = EguiRect::from_min_size(Pos2::new(10.3, 33.7), egui::vec2(300.4, 200.2));
+            for extra in [-1_i32, 0, 1] {
+                // Chromium rounds a fractional surface up; the frame may differ
+                // from the area by a pixel and must not be stretched to it.
+                let pixels = [
+                    ((300.4 * scale).round() as i32 + extra) as usize,
+                    ((200.2 * scale).round() as i32 + extra) as usize,
+                ];
+                let painted = surface_rect(area, pixels, scale, scale);
+                for edge in [painted.min.x, painted.min.y, painted.max.x, painted.max.y] {
+                    let physical = edge * scale;
+                    assert!((physical - physical.round()).abs() < 1e-3, "{edge} at {scale}");
+                }
+                assert!((painted.width() * scale - pixels[0] as f32).abs() < 1e-3);
+                assert!((painted.height() * scale - pixels[1] as f32).abs() < 1e-3);
+                assert!((painted.min.x - area.min.x).abs() <= 0.5 / scale + 1e-4);
+                assert!((painted.min.y - area.min.y).abs() <= 0.5 / scale + 1e-4);
+            }
+            // The scale travelled as text: 1.1 against a display at 1.0999999.
+            let near = surface_rect(area, [330, 220], scale + 0.004, scale);
+            assert!((near.width() * scale - 330.0).abs() < 1e-3);
+        }
+        // Rendered for another display, a frame keeps its logical size.
+        let area = EguiRect::from_min_size(Pos2::new(8.0, 8.0), egui::vec2(640.0, 480.0));
+        assert_eq!(surface_rect(area, [640, 480], 1.0, 2.0).size(), egui::vec2(640.0, 480.0));
+        assert_eq!(surface_rect(area, [1280, 960], 2.0, 1.0).size(), egui::vec2(640.0, 480.0));
+    }
+
+    #[test]
+    fn a_painted_surface_is_a_quad_with_one_texel_per_physical_pixel() {
+        for scale in [1.0_f32, 1.5, 2.0] {
+            let ctx = egui::Context::default();
+            ctx.set_pixels_per_point(scale);
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+            // Layout puts the surface off the pixel grid, in a box a little
+            // smaller than the frame the host has for it.
+            let root = limn::Element::column(vec![
+                limn::Element::spacer().size(None, Some(33.7)),
+                limn::Element::row(vec![
+                    limn::Element::spacer().size(Some(10.3), None),
+                    limn::Element::surface("page", "Página").size(Some(300.4), Some(200.2)),
+                ]),
+            ]);
+            let frame = limn::UiTree::new(root).layout(limn::Size::new(400.0, 300.0));
+            let pixels = [(300.4 * scale).ceil() as usize, (200.2 * scale).ceil() as usize];
+            let mut texture = None;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let image = vec![120; pixels[0] * pixels[1] * 3];
+                assert!(present_surface(ui.ctx(), "page", SurfaceFrame::from_rgb(pixels, &image, scale).unwrap()));
+                texture = surface_texture(ui, "page").map(|(id, ..)| id);
+                paint_at(ui, &frame, Pos2::new(0.25, 0.4));
+            });
+            output.textures_delta.clear();
+            assert_eq!(output.pixels_per_point, scale);
+            let quads: Vec<_> = ctx
+                .tessellate(output.shapes, output.pixels_per_point)
+                .into_iter()
+                .filter_map(|clipped| match clipped.primitive {
+                    egui::epaint::Primitive::Mesh(mesh) if Some(mesh.texture_id) == texture => {
+                        Some((clipped.clip_rect, mesh))
+                    }
+                    _ => None,
+                })
+                .collect();
+            let [(clip, mesh)] = quads.as_slice() else {
+                panic!("one textured quad at {scale}");
+            };
+            let bounds = mesh.calc_bounds();
+            for edge in [bounds.min.x, bounds.min.y, bounds.max.x, bounds.max.y] {
+                let physical = edge * scale;
+                assert!((physical - physical.round()).abs() < 1e-3, "{edge} at {scale}");
+            }
+            assert!((bounds.width() * scale - pixels[0] as f32).abs() < 1e-3);
+            assert!((bounds.height() * scale - pixels[1] as f32).abs() < 1e-3);
+            let uv = mesh.vertices.iter().fold(EguiRect::NOTHING, |seen, vertex| seen.union(EguiRect::from_min_max(vertex.uv, vertex.uv)));
+            assert_eq!(uv, EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)));
+            // The pixel beyond the box is clipped away, not squeezed into it.
+            assert!(clip.width() <= 300.4 + 1e-3 && clip.height() <= 200.2 + 1e-3);
+            forget_surface("page");
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        }
+    }
+
+    #[test]
+    fn a_surface_reuses_one_texture_across_frames_and_bounds_what_it_accepts() {
+        let frame = |size: [usize; 2], value: u8| {
+            SurfaceFrame::from_rgb(size, &vec![value; size[0] * size[1] * 3], 2.0).unwrap()
+        };
+        let ctx = egui::Context::default();
+        // What reached the GPU in one pass: per texture, where and how large.
+        let writes = |ctx: &egui::Context| {
+            let mut delta = ctx.run_ui(Default::default(), |_| {}).textures_delta;
+            let set: HashMap<_, Vec<_>> = delta
+                .set
+                .iter()
+                .map(|(id, parts)| (*id, parts.iter().map(|part| (part.pos, part.image.size())).collect()))
+                .collect();
+            let free = delta.free.clone();
+            delta.clear();
+            (set, free)
+        };
+        writes(&ctx);
+        assert!(present_surface(&ctx, "page", frame([64, 48], 10)));
+        let id = SURFACE_CACHE.with(|cache| cache.borrow().entries["page"].texture.id());
+        assert_eq!(writes(&ctx).0[&id], [(None, [64, 48])]);
+        let allocated = ctx.tex_manager().read().num_allocated();
+
+        // Frames of the same size are written into that texture in place.
+        for value in [20, 30, 40] {
+            present_surface(&ctx, "page", frame([64, 48], value));
+            let (set, free) = writes(&ctx);
+            assert_eq!(set[&id], [(Some([0, 0]), [64, 48])]);
+            assert!(free.is_empty());
+        }
+        // A resized frame replaces the pixels and keeps the texture's identity.
+        present_surface(&ctx, "page", frame([80, 48], 50));
+        assert_eq!(writes(&ctx).0[&id], [(None, [80, 48])]);
+        assert_eq!(SURFACE_CACHE.with(|cache| cache.borrow().entries["page"].texture.id()), id);
+        assert_eq!(ctx.tex_manager().read().num_allocated(), allocated);
+
+        // A frame the GPU has no texture for is refused; the last one stays.
+        let side = ctx.input(|input| input.max_texture_side);
+        assert!(!present_surface(&ctx, "page", frame([side + 1, 1], 60)));
+        assert!(writes(&ctx).0.is_empty());
+
+        forget_surface("page");
+        assert!(writes(&ctx).1.contains(&id));
+        assert_eq!(SurfaceFrame::from_rgba([2, 1], &[0; 8], 1.0).unwrap().size(), [2, 1]);
+        assert!(SurfaceFrame::from_rgba([2, 1], &[0; 7], 1.0).is_none());
+        assert!(SurfaceFrame::from_rgb([0, 4], &[], 1.0).is_none());
+        assert!(SurfaceFrame::from_rgb([MAX_SURFACE_SIDE + 1, 1], &[], 1.0).is_none());
+        assert!(SurfaceFrame::from_rgb([1, 1], &[0; 3], f32::NAN).is_none());
     }
 
     #[test]
