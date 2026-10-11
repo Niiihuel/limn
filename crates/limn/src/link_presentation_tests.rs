@@ -112,6 +112,7 @@ fn editable_url_color_preserves_unicode_geometry_selection_copy_and_stale_edits(
                 vec![TextHighlight {
                     range: start..start + "https://github.com/a/b".len(),
                     color: blue,
+                    italic: false,
                 }]
             } else {
                 vec![]
@@ -187,4 +188,72 @@ fn editable_url_color_preserves_unicode_geometry_selection_copy_and_stale_edits(
         .commands
         .iter()
         .any(|cmd| matches!(cmd, DrawCommand::Text { color, .. } if *color == blue)));
+}
+
+#[test]
+fn a_slanted_highlight_replaces_the_upright_ink_under_it() {
+    let dim = Color::rgb(120, 120, 120);
+    let mut tree = UiTree::new(
+        Element::text_area("prompt", "hola dictado fin", "")
+            .text_area_highlights(vec![TextHighlight {
+                range: 5..12,
+                color: dim,
+                italic: true,
+            }])
+            .font_family(FontFamily::Sans)
+            .foreground(Color::WHITE)
+            .padding(0.0)
+            .size(Some(200.0), Some(40.0)),
+    );
+    tree.set_text_measurer(|text, _, _| text.graphemes(true).count() as f32 * 5.0);
+    let frame = tree.layout(Size::new(200.0, 40.0));
+    // Each text is painted through the clip pushed just before it.
+    let painted = |family: FontFamily| {
+        frame
+            .commands
+            .windows(2)
+            .filter_map(|pair| match (&pair[0], &pair[1]) {
+                (DrawCommand::PushClip(clip), DrawCommand::Text { font_family, .. })
+                    if *font_family == family =>
+                {
+                    Some((clip.x, clip.x + clip.width))
+                }
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(painted(FontFamily::SansItalic), vec![(25.0, 63.0)]);
+    assert_eq!(painted(FontFamily::Sans), vec![(0.0, 25.0), (60.0, 200.0)]);
+}
+
+#[test]
+fn a_text_area_shows_its_scrollbar_while_it_scrolls_and_then_hides_it() {
+    use std::time::{Duration, Instant};
+    let size = Size::new(200.0, 60.0);
+    let mut tree = UiTree::new(
+        Element::text_area("prompt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12", "")
+            .foreground(Color::WHITE)
+            .size(Some(200.0), Some(60.0)),
+    );
+    let start = Instant::now();
+    let bar = |frame: &crate::Frame| {
+        frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, .. } if rect.width == 4.0 => Some(*rect),
+            _ => None,
+        })
+    };
+    // The first frame scrolls to the caret at the end.
+    let bottom = bar(&tree.layout_at(size, start)).expect("scrolling shows the bar");
+    assert!(tree.animation_repaint_after().is_some());
+    let later = start + Duration::from_secs(2);
+    assert_eq!(bar(&tree.layout_at(size, later)), None);
+    tree.handle_event(UiEvent::Scroll {
+        position: Point::new(20.0, 20.0),
+        delta_y: 400.0,
+    });
+    let top = bar(&tree.layout_at(size, later)).expect("the wheel shows it again");
+    assert!(top.y < bottom.y);
+    // Resting the pointer on the text keeps it shown.
+    tree.handle_event(UiEvent::PointerMove(Point::new(20.0, 20.0)));
+    assert!(bar(&tree.layout_at(size, later + Duration::from_secs(5))).is_some());
 }

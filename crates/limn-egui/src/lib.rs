@@ -978,6 +978,18 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let font = match font_family {
                     FontFamily::Monospace => FontId::monospace(*font_size),
                     FontFamily::Sans => FontId::proportional(*font_size),
+                    FontFamily::SansItalic => {
+                        // egui slants the regular face, so advances match Sans.
+                        let format = egui::TextFormat {
+                            font_id: FontId::proportional(*font_size),
+                            color: color(*ink),
+                            italics: true,
+                            ..Default::default()
+                        };
+                        let job = egui::text::LayoutJob::single_section(text.clone(), format);
+                        painter.galley(pos(origin, *position), painter.layout_job(job), color(*ink));
+                        continue;
+                    }
                 };
                 painter.text(
                     pos(origin, *position),
@@ -1865,7 +1877,7 @@ pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
     fn family(family: FontFamily) -> egui::FontFamily {
         match family {
             FontFamily::Monospace => egui::FontFamily::Monospace,
-            FontFamily::Sans => egui::FontFamily::Proportional,
+            FontFamily::Sans | FontFamily::SansItalic => egui::FontFamily::Proportional,
         }
     }
     let mono = egui::FontId::monospace(14.0);

@@ -1040,7 +1040,7 @@ impl SelectableTextBlock {
             .unwrap_or(row);
         let char_width = match run.font_family {
             FontFamily::Monospace => metrics,
-            FontFamily::Sans => sans_metrics,
+            FontFamily::Sans | FontFamily::SansItalic => sans_metrics,
         }
         .at_size(run.font_size)
         .char_width;
@@ -1100,6 +1100,9 @@ impl StaticSelection {
             .then_some((self.anchor.min(self.cursor), self.anchor.max(self.cursor)))
     }
 }
+
+/// How long a text area's scrollbar stays after its last scroll.
+const TEXT_AREA_BAR_HOLD: Duration = Duration::from_millis(1200);
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct ScrollbarGeometry {
@@ -1758,6 +1761,10 @@ struct InputState {
     line_height: f32,
     visible_lines: usize,
     scroll_line: usize,
+    /// The scroll position last painted and when it last moved, for the
+    /// scrollbar that shows while a text area scrolls.
+    painted_scroll_line: usize,
+    scrolled_at: Option<Instant>,
     keep_cursor_visible: bool,
     desired_column: Option<usize>,
     preserve_line_endings: bool,
@@ -1782,6 +1789,8 @@ impl InputState {
             line_height: FontMetrics::default().line_height,
             visible_lines: 1,
             scroll_line: 0,
+            painted_scroll_line: 0,
+            scrolled_at: None,
             keep_cursor_visible: true,
             desired_column: None,
             preserve_line_endings: false,
@@ -2542,6 +2551,22 @@ impl UiTree {
     }
 
     fn visual_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
+        let animation = self.other_animation_repaint_after_at(now);
+        // A text area's scrollbar hides a moment after its last scroll.
+        let bar = self
+            .inputs
+            .values()
+            .filter_map(|input| input.scrolled_at)
+            .map(|at| (at + TEXT_AREA_BAR_HOLD).saturating_duration_since(now))
+            .filter(|left| !left.is_zero())
+            .min();
+        match (animation, bar) {
+            (Some(animation), Some(bar)) => Some(animation.min(bar)),
+            (animation, bar) => animation.or(bar),
+        }
+    }
+
+    fn other_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
         if self.frame.regions.iter().any(|region| match region.kind {
             HitKind::CodeEditor => self
                 .code_editors
@@ -6638,7 +6663,7 @@ impl LayoutBuilder<'_> {
     fn metrics_for(&self, style: Style) -> FontMetrics {
         match style.font_family {
             FontFamily::Monospace => self.metrics,
-            FontFamily::Sans => self.sans_metrics,
+            FontFamily::Sans | FontFamily::SansItalic => self.sans_metrics,
         }
         .at_size(style.font_size)
     }
@@ -9159,51 +9184,106 @@ impl LayoutBuilder<'_> {
                                 }
                             }
                         }
-                        self.frame.commands.push(DrawCommand::Text {
-                            position: Point::new(content.x, y),
-                            text: line.text.clone(),
-                            color: if is_placeholder {
-                                Color::rgba(
-                                    style.foreground.r,
-                                    style.foreground.g,
-                                    style.foreground.b,
-                                    110,
-                                )
+                        let ink = if is_placeholder {
+                            Color::rgba(
+                                style.foreground.r,
+                                style.foreground.g,
+                                style.foreground.b,
+                                110,
+                            )
+                        } else {
+                            style.foreground
+                        };
+                        // Highlights follow the host's text; a stale edit
+                        // paints plain until the host catches up.
+                        let spans: Vec<(f32, f32, &crate::TextHighlight)> =
+                            if !is_placeholder && state.value == *initial_value {
+                                highlights
+                                    .iter()
+                                    .filter_map(|highlight| {
+                                        let first =
+                                            highlight.range.start.max(line.start).min(line.end);
+                                        let last = highlight.range.end.min(line.end).max(first);
+                                        (first < last).then(|| {
+                                            (
+                                                state.width(char_range(
+                                                    &line.text,
+                                                    0,
+                                                    first - line.start,
+                                                )),
+                                                state.width(char_range(
+                                                    &line.text,
+                                                    0,
+                                                    last - line.start,
+                                                )),
+                                                highlight,
+                                            )
+                                        })
+                                    })
+                                    .collect()
                             } else {
-                                style.foreground
-                            },
-                            font_size: style.font_size,
-                            font_family: style.font_family,
-                        });
-                        if !is_placeholder && state.value == *initial_value {
-                            // Repaint the exact line through a colored clip. This
-                            // keeps shaping, wrapping and caret advances identical
-                            // to an unstyled editable buffer, including ligatures.
-                            for highlight in highlights {
-                                let first = highlight.range.start.max(line.start).min(line.end);
-                                let last = highlight.range.end.min(line.end).max(first);
-                                if first >= last {
-                                    continue;
+                                Vec::new()
+                            };
+                        let plain = |commands: &mut Vec<DrawCommand>| {
+                            commands.push(DrawCommand::Text {
+                                position: Point::new(content.x, y),
+                                text: line.text.clone(),
+                                color: ink,
+                                font_size: style.font_size,
+                                font_family: style.font_family,
+                            });
+                        };
+                        // Upright ink must not show under a slanted range, so
+                        // the line is painted around those ranges.
+                        let mut slanted: Vec<(f32, f32)> = spans
+                            .iter()
+                            .filter(|(_, _, highlight)| highlight.italic)
+                            .map(|(left, right, _)| (*left, *right))
+                            .collect();
+                        if slanted.is_empty() {
+                            plain(&mut self.frame.commands);
+                        } else {
+                            slanted.sort_by(|a, b| a.0.total_cmp(&b.0));
+                            slanted.push((content.width.max(0.0), f32::INFINITY));
+                            let mut from = 0.0_f32;
+                            for (left, right) in slanted {
+                                if left > from {
+                                    self.frame.commands.push(DrawCommand::PushClip(Rect::new(
+                                        content.x + from,
+                                        y,
+                                        left - from,
+                                        metrics.line_height,
+                                    )));
+                                    plain(&mut self.frame.commands);
+                                    self.frame.commands.push(DrawCommand::PopClip);
                                 }
-                                let left =
-                                    state.width(char_range(&line.text, 0, first - line.start));
-                                let right =
-                                    state.width(char_range(&line.text, 0, last - line.start));
-                                self.frame.commands.push(DrawCommand::PushClip(Rect::new(
-                                    content.x + left,
-                                    y,
-                                    right - left,
-                                    metrics.line_height,
-                                )));
-                                self.frame.commands.push(DrawCommand::Text {
-                                    position: Point::new(content.x, y),
-                                    text: line.text.clone(),
-                                    color: highlight.color,
-                                    font_size: style.font_size,
-                                    font_family: style.font_family,
-                                });
-                                self.frame.commands.push(DrawCommand::PopClip);
+                                from = from.max(right);
                             }
+                        }
+                        // Repaint the exact line through a colored clip. This
+                        // keeps shaping, wrapping and caret advances identical
+                        // to an unstyled editable buffer, including ligatures.
+                        for (left, right, highlight) in spans {
+                            // A slanted last glyph leans past its advance.
+                            let lean = if highlight.italic { 3.0 } else { 0.0 };
+                            self.frame.commands.push(DrawCommand::PushClip(Rect::new(
+                                content.x + left,
+                                y,
+                                right - left + lean,
+                                metrics.line_height,
+                            )));
+                            self.frame.commands.push(DrawCommand::Text {
+                                position: Point::new(content.x, y),
+                                text: line.text.clone(),
+                                color: highlight.color,
+                                font_size: style.font_size,
+                                font_family: if highlight.italic {
+                                    FontFamily::SansItalic
+                                } else {
+                                    style.font_family
+                                },
+                            });
+                            self.frame.commands.push(DrawCommand::PopClip);
                         }
                     }
                     if is_focused
@@ -9244,6 +9324,44 @@ impl LayoutBuilder<'_> {
                         }
                     }
                     self.frame.commands.push(DrawCommand::PopClip);
+                }
+                if state.scroll_line != state.painted_scroll_line {
+                    state.painted_scroll_line = state.scroll_line;
+                    state.scrolled_at = Some(self.now);
+                }
+                let scrolled = state
+                    .scrolled_at
+                    .is_some_and(|at| self.now.saturating_duration_since(at) < TEXT_AREA_BAR_HOLD);
+                if max_scroll > 0
+                    && !is_placeholder
+                    && (scrolled || self.pointer.is_some_and(|point| rect.contains(point)))
+                {
+                    // shortcut: the thumb shows the position but is not a
+                    // pointer target; give it the scroll area's drag when a
+                    // text area grows past a few dozen lines.
+                    let track = rect.inset(3.0);
+                    let height = (track.height * state.visible_lines as f32 / lines.len() as f32)
+                        .max(16.0)
+                        .min(track.height);
+                    let thumb = Rect::new(
+                        track.x + track.width - 4.0,
+                        track.y
+                            + (track.height - height) * state.scroll_line as f32
+                                / max_scroll as f32,
+                        4.0,
+                        height,
+                    );
+                    if clip.map_or(true, |clip| clip.intersection(thumb).is_some()) {
+                        self.frame.commands.push(DrawCommand::FillRect {
+                            rect: thumb,
+                            color: crate::ScrollbarAppearance::default().thumb_color(
+                                style.foreground,
+                                false,
+                                false,
+                            ),
+                            radius: 2.0,
+                        });
+                    }
                 }
             }
             ElementKind::ProgressRing {

@@ -276,6 +276,8 @@ pub enum FontFamily {
     #[default]
     Monospace,
     Sans,
+    /// Sans slanted by the host. It measures exactly as [`Self::Sans`].
+    SansItalic,
 }
 
 /// One inline style run in a paragraph. Width is measured by the same host
@@ -339,6 +341,8 @@ impl TextSpan {
 pub struct TextHighlight {
     pub range: std::ops::Range<usize>,
     pub color: Color,
+    /// Slant the range, as for text that is not committed yet.
+    pub italic: bool,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
