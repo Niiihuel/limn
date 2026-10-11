@@ -635,6 +635,12 @@ pub enum ElementKind {
     /// Bounded encoded raster image. The host validates its digest and format
     /// before decoding and exposes `alt` to its accessibility backend.
     RasterImage(RasterImage),
+    /// A rectangle whose pixels the host hands to the backend under `id`,
+    /// outside the frame: a remote screen, a video, an embedded page.
+    Surface {
+        id: String,
+        label: String,
+    },
     Icon(Icon),
     Button {
         id: String,
@@ -1450,6 +1456,16 @@ impl Element {
         Self::new(ElementKind::RasterImage(image))
     }
 
+    /// Reserve a rectangle for pixels the host presents to the backend under
+    /// `id` as they change, without rebuilding the tree. `label` names it for
+    /// assistive technology.
+    pub fn surface(id: impl Into<String>, label: impl Into<String>) -> Self {
+        Self::new(ElementKind::Surface {
+            id: id.into(),
+            label: label.into(),
+        })
+    }
+
     pub fn icon(icon: Icon) -> Self {
         Self::new(ElementKind::Icon(icon))
     }
@@ -2133,5 +2149,31 @@ mod faded_text_tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(text, [("Task", u8::MAX)]);
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::*;
+    use crate::{DrawCommand, Rect, Size, UiTree};
+
+    #[test]
+    fn a_surface_names_its_pixels_and_fills_the_rectangle_it_is_given() {
+        let root = Element::column(vec![
+            Element::spacer().size(None, Some(20.0)),
+            Element::clickable("page", Element::surface("page-pixels", "Página")).flex(1.0),
+        ]);
+        let frame = UiTree::new(root).layout(Size::new(300.0, 220.0));
+        let surfaces: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Surface { rect, id, label, opacity } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
+                _ => None,
+            })
+            .collect();
+        // The frame carries the name only: new pixels never rebuild the tree.
+        assert_eq!(surfaces, [(Rect::new(0.0, 20.0, 300.0, 200.0), "page-pixels", "Página", 1.0)]);
+        assert!(frame.regions.iter().any(|region| region.id == "page" && region.rect == surfaces[0].0));
     }
 }

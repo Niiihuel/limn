@@ -403,6 +403,15 @@ pub enum DrawCommand {
         opacity: f32,
         radius: f32,
     },
+    /// Pixels the host presents to the backend under `id`, outside the frame.
+    /// They start at the rectangle's top-left corner at their own density and
+    /// are clipped to the rectangle, never stretched to fill it.
+    Surface {
+        rect: Rect,
+        id: String,
+        label: String,
+        opacity: f32,
+    },
     Spinner {
         rect: Rect,
         color: Color,
@@ -470,7 +479,9 @@ impl DrawCommand {
                 fade(track);
                 fade(fill);
             }
-            Self::RasterImage { rect, opacity, .. } | Self::EffortSlider { rect, opacity, .. } => {
+            Self::RasterImage { rect, opacity, .. }
+            | Self::Surface { rect, opacity, .. }
+            | Self::EffortSlider { rect, opacity, .. } => {
                 shift(rect);
                 *opacity *= opacity_factor;
             }
@@ -761,13 +772,18 @@ fn animate_popover_command(
             fade(track, opacity);
             fade(fill, opacity);
         }
-        DrawCommand::EffortSlider {
+        DrawCommand::Surface {
             rect,
-            opacity: slider_opacity,
+            opacity: own_opacity,
+            ..
+        }
+        | DrawCommand::EffortSlider {
+            rect,
+            opacity: own_opacity,
             ..
         } => {
             scale_rect(rect, scale, origin, slide_y);
-            *slider_opacity *= opacity.clamp(0.0, 1.0);
+            *own_opacity *= opacity.clamp(0.0, 1.0);
         }
         DrawCommand::PushClip(rect) => scale_rect(rect, scale, origin, slide_y),
         DrawCommand::PopClip => {}
@@ -5303,6 +5319,7 @@ fn collect_focus_order(
         | ElementKind::TruncatedText(_)
         | ElementKind::FadedText { .. }
         | ElementKind::RasterImage(_)
+        | ElementKind::Surface { .. }
         | ElementKind::Icon(_)
         | ElementKind::Spacer => {}
     }
@@ -5355,6 +5372,7 @@ fn collect_action_metadata(
         | ElementKind::FadedText { .. }
         | ElementKind::FormattedText(_)
         | ElementKind::RasterImage(_)
+        | ElementKind::Surface { .. }
         | ElementKind::Icon(_)
         | ElementKind::Button { .. }
         | ElementKind::IconButton { .. }
@@ -7329,7 +7347,9 @@ impl LayoutBuilder<'_> {
                     lines.iter().map(|line| line.height).sum::<f32>() + padding,
                 )
             }
-            ElementKind::RasterImage(_) => Size::new(available.width.min(280.0), 180.0 + padding),
+            ElementKind::RasterImage(_) | ElementKind::Surface { .. } => {
+                Size::new(available.width.min(280.0), 180.0 + padding)
+            }
             ElementKind::Icon(_) => {
                 let side = style.icon_side.unwrap_or(ICON_SIZE);
                 Size::new(side + padding, side + padding)
@@ -8640,6 +8660,14 @@ impl LayoutBuilder<'_> {
                     image: image.clone(),
                     opacity: 1.0,
                     radius: style.radius,
+                });
+            }
+            ElementKind::Surface { id, label } => {
+                self.frame.commands.push(DrawCommand::Surface {
+                    rect: content,
+                    id: id.clone(),
+                    label: label.clone(),
+                    opacity: 1.0,
                 });
             }
             ElementKind::Icon(icon) => {
