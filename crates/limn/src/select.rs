@@ -1,8 +1,8 @@
 //! A button that shows the current choice and opens the list of the others.
 
 use crate::{
-    Button, ButtonVariant, Component, ComponentPalette, ControlSize, DropdownList, DropdownOption,
-    Element, Icon, PopoverPlacement, SelectorSizing,
+    Button, ButtonVariant, Component, ComponentPalette, ControlSize, ControlState, DropdownMenu,
+    DropdownMenuItem, DropdownOption, Element, Icon, PopoverPlacement, SelectorSizing,
 };
 
 /// A controlled choice among a few options. The host owns the selection and
@@ -115,22 +115,36 @@ impl Component for Select {
         if let Some(icon) = self.icon {
             trigger = trigger.icon(icon);
         }
-        let mut list = DropdownList::new(
+        // The list is the application's one menu: compact rows and a check
+        // on the choice, as in every other selector.
+        let entries = self
+            .options
+            .into_iter()
+            .map(|option| {
+                let mut item = DropdownMenuItem::new(option.action_id, option.label)
+                    .selected(option.selected)
+                    .enabled(option.state != ControlState::Disabled);
+                if let Some(icon) = option.icon {
+                    item = item.icon(icon);
+                }
+                item.into()
+            })
+            .collect();
+        let menu_width = self
+            .menu_width
+            .unwrap_or_else(|| self.sizing.map_or(width, |sizing| sizing.preferred_width));
+        DropdownMenu::new(
             trigger.render(),
-            self.options,
+            entries,
             self.open && self.enabled,
             self.dismiss_id,
             self.menu_palette.unwrap_or(self.palette),
-        );
-        let mut menu_width = width;
-        if let Some(sizing) = self.sizing {
-            list = list.sizing(sizing);
-            menu_width = sizing.preferred_width;
-        }
-        list.width(self.menu_width.unwrap_or(menu_width))
-            .placement(self.placement)
-            .render()
-            .size(Some(width), Some(ControlSize::Compact.height()))
+        )
+        .context_menu_style()
+        .width(menu_width)
+        .placement(self.placement)
+        .render()
+        .size(Some(width), Some(ControlSize::Compact.height()))
     }
 }
 
@@ -198,7 +212,8 @@ mod tests {
         assert!(surface.y >= trigger.y + trigger.height);
         assert!(rect(&frame, "shell:off").is_none(), "a disabled option is passive");
         let option = rect(&frame, "shell:zsh").unwrap();
-        assert_eq!(option.height, SelectorSizing::COMPACT.row_height);
+        // The standard menu's compact row.
+        assert_eq!(option.height, 26.0);
         let center = Point::new(option.x + 10.0, option.y + 10.0);
         tree.handle_event(UiEvent::PointerDown(center));
         assert_eq!(
