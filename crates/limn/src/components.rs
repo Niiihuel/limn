@@ -569,6 +569,7 @@ pub struct Button {
     pressed_ink: Option<Color>,
     gap: Option<f32>,
     radius: RadiusRole,
+    round: bool,
     palette: ComponentPalette,
     tooltip: TooltipSpec,
     dispatch_as: Option<String>,
@@ -606,6 +607,7 @@ impl Button {
             pressed_ink: None,
             gap: None,
             radius: RadiusRole::Control,
+            round: false,
             palette,
             tooltip: TooltipSpec::none(),
             dispatch_as: None,
@@ -752,6 +754,13 @@ impl Button {
         self
     }
 
+    /// Round the ends fully: an icon button becomes a circle and a labelled
+    /// one a pill, at any size. It takes precedence over `radius`.
+    pub fn round(mut self) -> Self {
+        self.round = true;
+        self
+    }
+
     fn colors(&self) -> (Color, Color, Color, Color, bool) {
         let palette = self.palette;
         let (base, hover, pressed, ink) = match self.variant {
@@ -889,7 +898,8 @@ impl Component for Button {
             padding
         };
         let height = sizing.height;
-        let radius = self.radius.px();
+        // Half the height is a shape, not a token.
+        let radius = if self.round { height / 2.0 } else { self.radius.px() };
 
         if self.state == ControlState::Disabled || self.loading {
             // The engine's Button element always registers a hit target. A
@@ -1148,6 +1158,12 @@ impl IconButton {
     /// Round the button with another radius token, as [`Button::radius`].
     pub fn radius(mut self, radius: RadiusRole) -> Self {
         self.0 = self.0.radius(radius);
+        self
+    }
+
+    /// A circle at any size, as [`Button::round`].
+    pub fn round(mut self) -> Self {
+        self.0 = self.0.round();
         self
     }
 
@@ -3046,6 +3062,21 @@ mod tests {
         for role in [RadiusRole::Surface, RadiusRole::Card, RadiusRole::Panel] {
             assert_eq!(button().radius(role).render().style.radius, role.px());
             assert_eq!(button().radius(role).disabled().render().style.radius, role.px());
+        }
+    }
+
+    #[test]
+    fn round_button_is_a_circle_or_a_pill_at_every_size_and_state() {
+        let palette = ComponentPalette::neutral_dark();
+        for size in [ControlSize::Compact, ControlSize::Regular] {
+            let height = size.button_sizing().height;
+            let icon = || IconButton::new("send", Icon::ArrowUp, palette).size(size).round();
+            for element in [icon().render(), icon().disabled().render()] {
+                assert_eq!(element.style.radius, height / 2.0);
+                assert_eq!((element.style.width, element.style.height), (Some(height), Some(height)));
+            }
+            let pill = Button::new("save", "Save", palette).size(size).radius(RadiusRole::Card).round();
+            assert_eq!(pill.render().style.radius, height / 2.0);
         }
     }
 

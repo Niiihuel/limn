@@ -147,6 +147,8 @@ pub enum Icon {
     ChevronRight,
     Search,
     Stop,
+    /// A solid rounded square: stop, on a filled button.
+    StopFill,
     Play,
     Pause,
     History,

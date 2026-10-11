@@ -188,7 +188,21 @@ pub fn view(cx: &Cx) -> Element {
                     .tooltip("Radio: Square")
                     .render(),
             ]),
-            caption(cx, "La tinta la pasa la aplicación; deshabilitado, el botón vuelve al tono apagado."),
+            row(vec![
+                IconButton::new("button-round-send", Icon::ArrowUp, palette)
+                    .round()
+                    .tooltip("round: enviar")
+                    .render(),
+                IconButton::new("button-round-stop", Icon::StopFill, palette)
+                    .round()
+                    .tooltip("round: detener")
+                    .render(),
+                Button::new("button-round-pill", "Píldora", palette)
+                    .variant(ButtonVariant::Secondary)
+                    .round()
+                    .render(),
+            ]),
+            caption(cx, "La tinta la pasa la aplicación; deshabilitado, el botón vuelve al tono apagado. round hace un círculo de un botón de icono y una píldora de uno con texto."),
         ]),
         section(cx, "Grupo de botones", vec![
             ButtonGroup::new(group("button-group-row", palette)).render(),

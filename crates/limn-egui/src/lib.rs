@@ -285,6 +285,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::ChevronRight => include_str!("../assets/bootstrap/chevron-right.svg"),
         Icon::Search => include_str!("../assets/bootstrap/search.svg"),
         Icon::Stop => include_str!("../assets/bootstrap/stop.svg"),
+        Icon::StopFill => include_str!("../assets/bootstrap/stop-fill.svg"),
         Icon::Play => include_str!("../assets/bootstrap/play.svg"),
         Icon::Pause => include_str!("../assets/bootstrap/pause.svg"),
 
@@ -1638,6 +1639,7 @@ mod tests {
             Icon::ChevronRight,
             Icon::Search,
             Icon::Stop,
+            Icon::StopFill,
             Icon::Play,
             Icon::Pause,
             Icon::History,
