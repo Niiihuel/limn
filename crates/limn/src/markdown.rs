@@ -22,13 +22,13 @@ use crate::markdown_parser::{
 };
 use crate::{
     AlertColors, AlertTone, CodeBlock, Color, Component, ComponentPalette, Element, ElementKind,
-    FontFamily, Icon, RadiusRole, TextSpan,
+    Flowchart, FontFamily, Icon, RadiusRole, TextRole, TextSpan,
 };
 
 const MAX_SOURCE_ROW_CHARS: usize = 512;
 const BODY_SIZE: f32 = 14.0;
 const BODY_LINE_HEIGHT: f32 = 22.0;
-const MARKDOWN_RENDER_VERSION: u16 = 5;
+const MARKDOWN_RENDER_VERSION: u16 = 6;
 
 /// The ten colors of rendered Markdown. [`MarkdownColors::for_palette`] is
 /// the default; a host with its own inks passes them with [`Markdown::colors`].
@@ -82,6 +82,12 @@ pub struct MarkdownLabels {
     pub code_fallback: &'static str,
     /// The muted line under a preview that was cut to its limits.
     pub truncated_note: &'static str,
+    /// The label of a fence drawn as a diagram.
+    pub diagram: &'static str,
+    /// The action on a diagram that shows the source it was drawn from.
+    pub show_source: &'static str,
+    /// The action on that source that shows the diagram again.
+    pub show_diagram: &'static str,
 }
 
 impl MarkdownLabels {
@@ -89,6 +95,9 @@ impl MarkdownLabels {
     pub const DEFAULT: Self = Self {
         code_fallback: "CODE",
         truncated_note: "Long text: only the first blocks are shown.",
+        diagram: "DIAGRAM",
+        show_source: "Source",
+        show_diagram: "Diagram",
     };
 }
 
@@ -119,6 +128,9 @@ pub(crate) struct MarkdownPresentation {
     palette: ComponentPalette,
     labels: MarkdownLabels,
     link_action_prefix: &'static str,
+    diagram_action_prefix: &'static str,
+    // A digest of the diagrams shown as source, which change the tree.
+    diagram_sources: u64,
     limits: MarkdownLimits,
     // Quotes and code blocks bake token radii into the tree; as bits to stay `Eq`.
     radius_bits: [u32; 4],
@@ -154,6 +166,7 @@ pub struct Markdown<'a> {
     presentation: MarkdownPresentation,
     streaming: bool,
     plain_line_height: Option<f32>,
+    diagram_sources: &'a [u64],
 }
 
 impl<'a> Markdown<'a> {
@@ -168,6 +181,8 @@ impl<'a> Markdown<'a> {
                 palette,
                 labels: MarkdownLabels::DEFAULT,
                 link_action_prefix: "markdown_link:",
+                diagram_action_prefix: "",
+                diagram_sources: 0,
                 limits: MarkdownLimits::DEFAULT,
                 radius_bits: {
                     let radius = crate::tokens().radius;
@@ -176,6 +191,7 @@ impl<'a> Markdown<'a> {
             },
             streaming: false,
             plain_line_height: None,
+            diagram_sources: &[],
         }
     }
 
@@ -203,6 +219,29 @@ impl<'a> Markdown<'a> {
     /// The start of every link action, `markdown_link:` unless set.
     pub fn link_action_prefix(mut self, prefix: &'static str) -> Self {
         self.presentation.link_action_prefix = prefix;
+        self
+    }
+
+    /// Give every diagram an action that switches between the drawing and
+    /// its source: `prefix` followed by the diagram's id as sixteen
+    /// hexadecimal digits. The host keeps the ids it was asked to show as
+    /// source and passes them to [`Markdown::diagram_sources`]. Without a
+    /// prefix a diagram has no such action.
+    pub fn diagram_action_prefix(mut self, prefix: &'static str) -> Self {
+        self.presentation.diagram_action_prefix = prefix;
+        self
+    }
+
+    /// The diagrams, by the id in their action, to show as source.
+    pub fn diagram_sources(mut self, ids: &'a [u64]) -> Self {
+        self.diagram_sources = ids;
+        self.presentation.diagram_sources = if ids.is_empty() {
+            0
+        } else {
+            let mut hash = DefaultHasher::new();
+            ids.hash(&mut hash);
+            hash.finish()
+        };
         self
     }
 
@@ -240,7 +279,12 @@ impl<'a> Markdown<'a> {
                 element: render_plain(self.source, &self.presentation, line_height),
                 limited: false,
             },
-            None => render_cached_markdown(self.source, self.presentation, self.streaming),
+            None => render_cached_markdown(
+                self.source,
+                self.presentation,
+                self.streaming,
+                self.diagram_sources,
+            ),
         }
     }
 
@@ -432,6 +476,54 @@ fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation
         .render()
 }
 
+/// A closed `mermaid` fence that is a flowchart, drawn; `None` leaves it a
+/// code block. The card matches [`CodeBlock`], with one quiet action in its
+/// label row that switches between the drawing and the source.
+fn diagram_block(
+    content: &str,
+    presentation: &MarkdownPresentation,
+    as_source: &[u64],
+) -> Option<Element> {
+    let palette = presentation.palette;
+    let chart = Flowchart::parse(content, palette).ok()?;
+    let id = source_hash(content);
+    let shows_source = as_source.contains(&id);
+    let labels = presentation.labels;
+    let mut header = vec![Element::text(if shows_source { "MERMAID" } else { labels.diagram })
+        .font_family(FontFamily::Monospace)
+        .font_size(TextRole::Micro.size())
+        .foreground(palette.muted)];
+    if !presentation.diagram_action_prefix.is_empty() {
+        header.push(Element::spacer().flex(1.0));
+        header.push(
+            Element::formatted_text(vec![TextSpan::new(
+                if shows_source { labels.show_diagram } else { labels.show_source },
+                palette.muted,
+                TextRole::Small.size(),
+                FontFamily::Sans,
+            )
+            .action(format!("{}{id:016x}", presentation.diagram_action_prefix))])
+            .font_family(FontFamily::Sans)
+            .font_size(TextRole::Small.size()),
+        );
+    }
+    let body = if shows_source {
+        Element::text(content)
+            .font_family(FontFamily::Monospace)
+            .font_size(TextRole::Caption.size())
+            .foreground(palette.text)
+    } else {
+        chart.scrollable(format!("markdown_diagram:{id:016x}"))
+    };
+    Some(
+        Element::panel(Element::column(vec![Element::row(header), body]).gap(8.0))
+            .padding(12.0)
+            .background(palette.raised)
+            .border(palette.border, 1.0)
+            .radius(RadiusRole::Card.px()),
+    )
+}
+
 /// One exact slice of the original Markdown source. Pagination limits only
 /// the presentation and never modifies, drops, or parses the retained source.
 /// Cursors are UTF-8 byte offsets into the original message, not character
@@ -490,6 +582,7 @@ fn render_cached_markdown(
     source: &str,
     presentation: MarkdownPresentation,
     streaming: bool,
+    diagram_sources: &[u64],
 ) -> MarkdownPreview {
     let (source, truncated) = bounded_source(source, presentation.limits.source_chars);
     let cached = MARKDOWN_CACHES.with(|caches| {
@@ -507,7 +600,9 @@ fn render_cached_markdown(
         (streaming && !limited && !pending_fence && !ends_with_blank_line(source))
             .then(|| blocks.len().checked_sub(1))
             .flatten()
-            .filter(|index| !matches!(blocks[*index], Block::Code(..) | Block::Rule));
+            .filter(|index| {
+                !matches!(blocks[*index], Block::Code(..) | Block::OpenCode(..) | Block::Rule)
+            });
     let mut preview = MARKDOWN_CACHES.with(|caches| {
         let caches = caches.borrow();
         let previous = streaming
@@ -524,6 +619,7 @@ fn render_cached_markdown(
             incomplete_block,
             source.ends_with(char::is_whitespace),
             previous,
+            diagram_sources,
         )
     });
     if truncated && !source.ends_with(char::is_whitespace) {
@@ -605,6 +701,7 @@ fn render_markdown_blocks(
     incomplete_block: Option<usize>,
     url_tail_complete: bool,
     previous: Option<&MarkdownCacheEntry>,
+    diagram_sources: &[u64],
 ) -> MarkdownPreview {
     let width = presentation.width();
     let colors = presentation.colors;
@@ -708,7 +805,15 @@ fn render_markdown_blocks(
             .padding(8.0)
             .background(colors.panel)
             .radius(RadiusRole::Surface.px()),
-            Block::Code(language, content) => code_block(language, content, presentation),
+            // Only a closed fence is drawn: a diagram still being written
+            // would redraw, or stop parsing, with every line that arrives.
+            Block::Code(language, content) if language.eq_ignore_ascii_case("mermaid") => {
+                diagram_block(content, presentation, diagram_sources)
+                    .unwrap_or_else(|| code_block(language, content, presentation))
+            }
+            Block::Code(language, content) | Block::OpenCode(language, content) => {
+                code_block(language, content, presentation)
+            }
             Block::Rule => Element::spacer()
                 .size(None, Some(1.0))
                 .background(colors.border),
@@ -1557,7 +1662,11 @@ mod tests {
             Markdown::new(source, palette())
                 .width(400.0)
                 .colors(colors)
-                .labels(MarkdownLabels { code_fallback: "CÓDIGO", truncated_note: "Cortado." })
+                .labels(MarkdownLabels {
+                    code_fallback: "CÓDIGO",
+                    truncated_note: "Cortado.",
+                    ..MarkdownLabels::DEFAULT
+                })
                 .link_action_prefix("open:")
                 .limits(MarkdownLimits { source_chars: 20_000, blocks: 8 })
         };
@@ -1625,6 +1734,77 @@ mod tests {
             command,
             DrawCommand::Icon { icon: Icon::Github, .. }
         )));
+    }
+
+    #[test]
+    fn a_closed_mermaid_flowchart_is_drawn_and_anything_else_stays_code() {
+        let chart = "```mermaid\nflowchart LR\n  A[Uno] --> B[Dos]\n```\n";
+        let lines = |commands: &[DrawCommand]| {
+            commands.iter().filter(|command| matches!(command, DrawCommand::Polyline { .. })).count()
+        };
+        let texts = |commands: &[DrawCommand]| {
+            commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, .. } => Some(text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("|")
+        };
+        let drawn = commands(render_markdown_at_width(chart, 480.0), 480.0);
+        assert_eq!(lines(&drawn), 1);
+        assert_eq!(texts(&drawn), "DIAGRAM|Uno|Dos");
+
+        // Still being written, of another kind, or not Mermaid at all.
+        for source in [
+            "```mermaid\nflowchart LR\n  A[Uno] --> B[Dos]",
+            "```mermaid\nsequenceDiagram\n  A->>B: hola\n```\n",
+            "```text\nflowchart LR\n  A --> B\n```\n",
+        ] {
+            for streaming in [false, true] {
+                let code = commands(render_cached_markdown(source, 480.0, streaming).element, 480.0);
+                assert_eq!(lines(&code), 0, "{source}");
+                assert!(texts(&code).contains("-->") || texts(&code).contains("->>"), "{source}");
+            }
+        }
+        // Two identical charts share an id and still lay out side by side.
+        let twice = commands(render_markdown_at_width(&format!("{chart}\n{chart}"), 480.0), 480.0);
+        assert_eq!(lines(&twice), 2);
+        // The same tree is reused once the fence closes mid-stream.
+        let streamed = commands(render_streaming_markdown_at_width(chart, 480.0), 480.0);
+        assert_eq!(lines(&streamed), 1);
+
+        // With a prefix the card carries the action; a listed id shows the source.
+        let id = source_hash("flowchart LR\n  A[Uno] --> B[Dos]");
+        let action = format!("diagram:{id:016x}");
+        let render = |ids: &[u64]| {
+            Markdown::new(chart, palette())
+                .width(480.0)
+                .diagram_action_prefix("diagram:")
+                .diagram_sources(ids)
+                .render()
+                .element
+        };
+        let actions = |element: Element| {
+            let regions = UiTree::new(element).layout(Size::new(640.0, 2000.0)).regions;
+            regions
+                .into_iter()
+                .filter_map(|region| region.id.starts_with("diagram:").then_some(region.id))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(actions(render(&[])), [action.clone()]);
+        let diagram = commands(render(&[]), 480.0);
+        assert_eq!((lines(&diagram), texts(&diagram).as_str()), (1, "DIAGRAM|Source|Uno|Dos"));
+        assert_eq!(actions(render(&[id])), [action]);
+        let source = commands(render(&[id]), 480.0);
+        assert_eq!(lines(&source), 0);
+        assert!(texts(&source).starts_with("MERMAID|Diagram|flowchart LR"));
+        // Both views are passive trees the cache keeps.
+        MARKDOWN_CACHES.with(|caches| {
+            let caches = caches.borrow();
+            assert!(caches.completed.entries.iter().filter(|entry| entry.source == chart).count() >= 2);
+        });
     }
 
     #[test]
