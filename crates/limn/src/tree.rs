@@ -905,7 +905,7 @@ struct PopoverFocusScope {
 /// A `sticky_top` child held back to be placed above its scroll area: the
 /// element, where it is drawn, the clip, and the fade under it with its
 /// strength.
-type PinnedChild = (Element, Rect, Option<Rect>, Option<(Rect, f32)>);
+type PinnedChild = (Element, Rect, Option<Rect>, Option<(Rect, Rect, f32)>);
 
 /// Height of the fade at the cut of a capped `sticky_top` child.
 const STICKY_FADE: f32 = 16.0;
@@ -9778,7 +9778,11 @@ impl LayoutBuilder<'_> {
         let below = (limit - rect.y - rect.height).min(fade);
         let fade = (below > 0.0).then(|| {
             let strength = ((top - rects[index].y) / fade).min(1.0);
-            (Rect::new(rect.x, rect.y + rect.height, rect.width, below), strength)
+            // The same color hides what would show over the child and
+            // through its rounded corners, so nothing scrolls around it.
+            let cover = Rect::new(rect.x, viewport.y, rect.width, rect.y + rect.height - viewport.y);
+            let under = Rect::new(rect.x, rect.y + rect.height, rect.width, below);
+            (cover, under, strength)
         });
         self.pinned.push((element, rect, clip, fade));
     }
@@ -9795,10 +9799,15 @@ impl LayoutBuilder<'_> {
             if let Some(clip) = clip {
                 self.frame.commands.push(DrawCommand::PushClip(clip));
             }
-            if let (Some((rect, strength)), Some(color)) = (fade, fade_color) {
+            if let (Some((cover, under, strength)), Some(color)) = (fade, fade_color) {
                 let top = Color { a: (f32::from(color.a) * strength).round() as u8, ..color };
+                self.frame.commands.push(DrawCommand::FillRect {
+                    rect: cover,
+                    color: top,
+                    radius: 0.0,
+                });
                 self.frame.commands.push(DrawCommand::FillVerticalGradient {
-                    rect,
+                    rect: under,
                     top,
                     bottom: Color { a: 0, ..color },
                 });

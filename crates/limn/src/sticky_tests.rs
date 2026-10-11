@@ -187,7 +187,11 @@ fn pinned_child_fades_the_rows_under_it_in_the_scroll_areas_fade_color() {
     let plain = scrolled(root(false, true), 50.0);
     assert_eq!(frame.regions, plain.regions);
     assert_eq!(frame.scroll_extents, plain.scroll_extents);
-    assert_eq!(frame.commands.len(), plain.commands.len() + 1);
+    // Behind the child the same color hides what scrolls around its corners.
+    assert!(frame.commands.iter().any(|command| matches!(command,
+        DrawCommand::FillRect { rect, color: fill, .. }
+            if *fill == color && (rect.y, rect.height) == (0.0, 20.0))));
+    assert_eq!(frame.commands.len(), plain.commands.len() + 2);
     // Not at its natural position, and it arrives with the first pixels.
     assert_eq!(scrolled(root(true, true), 0.0), scrolled(root(false, true), 0.0));
     let (_, top, _) = fade(&scrolled(root(true, true), 4.0)).unwrap();
