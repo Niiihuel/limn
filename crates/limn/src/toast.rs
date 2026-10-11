@@ -90,8 +90,10 @@ impl Component for Toast {
         // in place when the host drops it.
         let presence = format!("toast:{}", self.title);
         let colors = AlertColors::for_tone(self.tone, self.palette);
+        // Copy wraps inside the card's width and the card grows downward: a
+        // notice is never cut with an ellipsis.
         let line = |value: String, size: f32, color| {
-            Element::truncated_text(value)
+            Element::text(value)
                 .font_family(FontFamily::Sans)
                 .font_size(size)
                 .foreground(color)
@@ -207,6 +209,28 @@ mod tests {
                 [UiAction::Clicked { id: id.into() }]
             );
         }
+    }
+
+    #[test]
+    fn long_copy_wraps_and_the_card_grows_instead_of_cutting_it() {
+        let palette = ComponentPalette::neutral_dark();
+        let height = |title: &str| {
+            let toast = Toast::new(title, palette).dismissible("close").render();
+            let mut tree = UiTree::new(Element::column(vec![toast, Element::spacer().flex(1.0)]));
+            tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 8.0);
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(800.0, 600.0));
+            assert!(texts(&frame).iter().all(|text| !text.contains('…')), "{:?}", texts(&frame));
+            let painted: String = texts(&frame).join(" ");
+            assert!(painted.split_whitespace().eq(title.split_whitespace()), "{painted}");
+            // The dismiss button sits at the card's middle: it moves down as
+            // the card grows with its copy.
+            let close = frame.regions.iter().find(|region| region.id == "close").unwrap().rect;
+            close.y + close.height / 2.0
+        };
+        let short = height("Listo");
+        let long = height("Acceso completo habilitado para los próximos turnos de esta conversación en este proyecto");
+        assert!(long > short + 8.0, "{long} vs {short}");
     }
 
     #[test]
