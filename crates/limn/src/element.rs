@@ -1057,8 +1057,9 @@ impl Element {
     }
 
     /// Distance between the anchor and the floating surface, 5 unless set.
-    /// With 0 under a zero-height anchor the surface starts where the anchor
-    /// is, so it can stand in for the row that follows.
+    /// With 0 under a hairline anchor the surface starts where the anchor
+    /// is, so it can stand in for the row that follows. Give the anchor some
+    /// height: a scroll area does not place an element that has none.
     pub fn popover_gap(mut self, value: f32) -> Self {
         if let ElementKind::Popover { gap, .. } = &mut self.kind {
             if value.is_finite() && value >= 0.0 {
