@@ -1,8 +1,8 @@
 use super::{caption, row, section, Cx};
 use limn::{
     Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Collapsible, Color, Component, Composer,
-    ComponentPalette, ControlSize, Element, FindBar, FindIds, FindLabels, FindOptions, Icon,
-    IconButton, Marker,
+    ComponentPalette, ControlSize, DictationButton, DictationState, Element, FindBar, FindIds,
+    FindLabels, FindOptions, Icon, IconButton, Marker,
 };
 
 const DANGER: Color = Color::rgb(229, 83, 75);
@@ -88,8 +88,23 @@ fn composer(cx: &Cx, width: f32) -> Element {
     let tool = |id: &str, icon| {
         IconButton::new(id, icon, palette).variant(ButtonVariant::Ghost).size(ControlSize::Compact).render()
     };
+    // Each click moves the session on: idle, starting, listening,
+    // transcribing, idle.
+    let (state, next) = match cx.state.choice("editor-dictation", "idle") {
+        "starting" => (DictationState::Starting, "listening"),
+        "listening" => (DictationState::Listening, "transcribing"),
+        "transcribing" => (DictationState::Transcribing, "idle"),
+        _ => (DictationState::Idle, "starting"),
+    };
+    let trailing = Element::row(vec![
+        DictationButton::new(format!("editor-dictation={next}"), state, palette)
+            .size(ControlSize::Compact)
+            .render(),
+        tool("editor-composer-send", Icon::Send),
+    ])
+    .gap(4.0);
     Composer::new("editor-composer", cx.state.text("editor-composer"), "Describe una tarea", width, palette)
-        .pill_controls(tool("editor-composer-add", Icon::Add), tool("editor-composer-send", Icon::Send))
+        .pill_controls(tool("editor-composer-add", Icon::Add), trailing)
         .auto_grow(28.0, 120.0)
         .header_strip(strip, ComponentPalette { surface: palette.raised, ..palette })
         .render()
@@ -148,6 +163,19 @@ pub fn view(cx: &Cx) -> Element {
             vec![
                 caption(cx, "La franja lleva los metadatos del mensaje, unida al borde superior de la tarjeta."),
                 row(vec![composer(cx, cx.width.min(480.0))]),
+                caption(cx, "El micrófono del compositor avanza con cada clic: en reposo, iniciando, escuchando, transcribiendo."),
+                row(vec![
+                    DictationButton::new("editor-dictation-idle", DictationState::Idle, palette).render(),
+                    DictationButton::new("editor-dictation-starting", DictationState::Starting, palette).render(),
+                    DictationButton::new("editor-dictation-listening", DictationState::Listening, palette).render(),
+                    DictationButton::new("editor-dictation-accent", DictationState::Listening, palette)
+                        .live_palette(ComponentPalette { surface: DANGER, text: Color::WHITE, ..palette })
+                        .render(),
+                    DictationButton::new("editor-dictation-off", DictationState::Listening, palette)
+                        .enabled(false)
+                        .render(),
+                ]),
+                caption(cx, "DictationButton: reposo, iniciando, escuchando, escuchando con la paleta de la app, y sin dictado disponible."),
             ],
         ),
         section(

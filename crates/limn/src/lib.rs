@@ -27,6 +27,7 @@ mod composer;
 mod context_menu;
 mod date_picker;
 mod date_time_picker;
+mod dictation;
 mod dropdown_menu;
 mod element;
 mod empty;
@@ -116,6 +117,7 @@ pub use composer::Composer;
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
 pub use date_picker::DatePicker;
 pub use date_time_picker::DateTimePicker;
+pub use dictation::{DictationButton, DictationState};
 pub use dropdown_menu::{
     DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
 };
