@@ -157,6 +157,52 @@ fn pinned_child_keeps_its_inset_and_paints_above_the_scroll_fade() {
 }
 
 #[test]
+fn pinned_child_fades_the_rows_under_it_in_the_scroll_areas_fade_color() {
+    let color = Color::rgb(20, 20, 20);
+    let root = |fade: bool, top_fade: bool| {
+        let mut children = Vec::new();
+        for section in 0..2 {
+            let header = Element::text("Header").size(None, Some(20.0)).sticky_top();
+            children.push(if fade { header.sticky_top_fade(16.0) } else { header });
+            children.extend(
+                (0..5).map(|row| Element::button(format!("r{section}_{row}"), "Row").size(None, Some(20.0))),
+            );
+        }
+        let scroll = Element::scroll("list", Element::column(children));
+        if top_fade { scroll.top_fade(color, 4.0) } else { scroll }
+    };
+    // The gradient under the pinned child: the last one painted.
+    let fade = |frame: &Frame| {
+        frame.commands.iter().rev().find_map(|command| match command {
+            DrawCommand::FillVerticalGradient { rect, top, bottom } => Some((*rect, *top, *bottom)),
+            _ => None,
+        })
+    };
+    let frame = scrolled(root(true, true), 50.0);
+    let (rect, top, bottom) = fade(&frame).unwrap();
+    assert_eq!((rect.y, rect.height), (20.0, 16.0));
+    assert_eq!((top, bottom), (color, Color { a: 0, ..color }));
+    // Paint only: the row under the fade takes the click, and nothing moves.
+    assert_eq!(frame.hit_test(Point::new(5.0, 25.0)), Some("r0_2"));
+    let plain = scrolled(root(false, true), 50.0);
+    assert_eq!(frame.regions, plain.regions);
+    assert_eq!(frame.scroll_extents, plain.scroll_extents);
+    assert_eq!(frame.commands.len(), plain.commands.len() + 1);
+    // Not at its natural position, and it arrives with the first pixels.
+    assert_eq!(scrolled(root(true, true), 0.0), scrolled(root(false, true), 0.0));
+    let (_, top, _) = fade(&scrolled(root(true, true), 4.0)).unwrap();
+    assert_eq!(top.a, 64);
+    // The next sticky child takes the room: 6 px are left, then none.
+    let (rect, _, _) = fade(&scrolled(root(true, true), 94.0)).unwrap();
+    assert_eq!((rect.y, rect.height), (20.0, 6.0));
+    assert_eq!(scrolled(root(true, true), 110.0), scrolled(root(false, true), 110.0));
+    // The color is the scroll area's: without a top fade nothing is drawn.
+    assert_eq!(scrolled(root(true, false), 50.0), scrolled(root(false, false), 50.0));
+    assert_eq!(Element::spacer().sticky_top_fade(f32::NAN).sticky_top, None);
+    assert_eq!(Element::spacer().sticky_top_fade(0.0).sticky_top, None);
+}
+
+#[test]
 fn popover_with_no_gap_starts_at_its_zero_height_anchor() {
     let root = |gap: Option<f32>| {
         let popover = Element::popover(

@@ -642,11 +642,13 @@ pub(crate) struct StickyTop {
     /// `MAX` is no cap.
     pub(crate) max_height: std::num::NonZeroU16,
     pub(crate) inset: u8,
+    /// Height of the fade under it while pinned; zero is none.
+    pub(crate) fade: u8,
 }
 
 impl Default for StickyTop {
     fn default() -> Self {
-        Self { max_height: std::num::NonZeroU16::MAX, inset: 0 }
+        Self { max_height: std::num::NonZeroU16::MAX, inset: 0, fade: 0 }
     }
 }
 
@@ -972,6 +974,19 @@ impl Element {
     pub fn sticky_top_inset(mut self, inset: f32) -> Self {
         if inset.is_finite() && inset >= 0.0 {
             self.sticky_top.get_or_insert(StickyTop::default()).inset = inset.round() as u8;
+        }
+        self
+    }
+
+    /// A [`sticky_top`](Self::sticky_top) child with a fade under it while
+    /// pinned: the rows passing under it fade out over `height` below its
+    /// bottom edge, in the color of the scroll area's `top_fade`, instead of
+    /// being cut at the edge. It arrives as the child pins and gives way to
+    /// the next sticky child. It is paint only; without a `top_fade` on the
+    /// scroll area nothing is drawn.
+    pub fn sticky_top_fade(mut self, height: f32) -> Self {
+        if height.is_finite() && height >= 1.0 {
+            self.sticky_top.get_or_insert(StickyTop::default()).fade = height.round() as u8;
         }
         self
     }

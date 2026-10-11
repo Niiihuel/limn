@@ -866,6 +866,11 @@ struct PopoverFocusScope {
     modal: bool,
 }
 
+/// A `sticky_top` child held back to be placed above its scroll area: the
+/// element, where it is drawn, the clip, and the fade under it with its
+/// strength.
+type PinnedChild = (Element, Rect, Option<Rect>, Option<(Rect, f32)>);
+
 /// Height of the fade at the cut of a capped `sticky_top` child.
 const STICKY_FADE: f32 = 16.0;
 
@@ -5180,7 +5185,7 @@ struct LayoutBuilder<'a> {
     overlays: VecDeque<DeferredOverlay>,
     scroll_focus_context: Vec<ScrollFocusContext>,
     /// Sticky children the scroll area being placed draws last.
-    pinned: Vec<(Element, Rect, Option<Rect>)>,
+    pinned: Vec<PinnedChild>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
     /// Source of the active pointer drag and the commands it painted.
@@ -8944,7 +8949,7 @@ impl LayoutBuilder<'_> {
             }
         }
         if let ElementKind::Scroll { id, .. } = &element.kind {
-            self.place_pinned(id, pinned);
+            self.place_pinned(id, pinned, style.top_fade.map(|(color, _)| color));
         }
         if style.clip_children {
             self.frame.commands.push(DrawCommand::PopClip);
@@ -9199,13 +9204,21 @@ impl LayoutBuilder<'_> {
                 .bottom_fade
                 .or(element.style.background.map(|color| (color, STICKY_FADE)));
         }
-        self.pinned.push((element, rect, clip));
+        // The fade under it grows in as the child pins and shortens as the
+        // next sticky child arrives, so it never veils that one.
+        let fade = f32::from(sticky.fade);
+        let below = (limit - rect.y - rect.height).min(fade);
+        let fade = (below > 0.0).then(|| {
+            let strength = ((top - rects[index].y) / fade).min(1.0);
+            (Rect::new(rect.x, rect.y + rect.height, rect.width, below), strength)
+        });
+        self.pinned.push((element, rect, clip, fade));
     }
 
     /// Place what a scroll area's columns pinned, after its content and its
     /// fades, so it paints and hit-tests above both.
-    fn place_pinned(&mut self, scroll_id: &str, pinned: Vec<(Element, Rect, Option<Rect>)>) {
-        for (element, rect, clip) in pinned {
+    fn place_pinned(&mut self, scroll_id: &str, pinned: Vec<PinnedChild>, fade_color: Option<Color>) {
+        for (element, rect, clip, fade) in pinned {
             // Its passive parts must not let a click reach the rows under it.
             self.add_region(scroll_id, rect, HitKind::Scroll, clip);
             // The copy lives for this call only: keep its address out of the
@@ -9213,6 +9226,14 @@ impl LayoutBuilder<'_> {
             let previous_scope = self.enter_measurement_scope();
             if let Some(clip) = clip {
                 self.frame.commands.push(DrawCommand::PushClip(clip));
+            }
+            if let (Some((rect, strength)), Some(color)) = (fade, fade_color) {
+                let top = Color { a: (f32::from(color.a) * strength).round() as u8, ..color };
+                self.frame.commands.push(DrawCommand::FillVerticalGradient {
+                    rect,
+                    top,
+                    bottom: Color { a: 0, ..color },
+                });
             }
             self.place(&element, rect, clip);
             if clip.is_some() {

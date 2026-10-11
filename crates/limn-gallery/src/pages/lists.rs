@@ -246,7 +246,7 @@ pub fn view(cx: &Cx) -> Element {
             .size(None, Some(150.0))]),
         ]),
         section(cx, "Encabezado fijo al desplazar", vec![
-            caption(cx, "sticky_top deja el encabezado de su tramo arriba hasta que llega el siguiente; el largo cede altura hasta su tope."),
+            caption(cx, "sticky_top deja el encabezado de su tramo arriba hasta que llega el siguiente; el largo cede altura hasta su tope y sticky_top_fade desvanece las filas que pasan por debajo."),
             card(cx, width, vec![ScrollArea::new(
                 "list-sticky",
                 Element::column(
@@ -261,7 +261,8 @@ pub fn view(cx: &Cx) -> Element {
                                 .padding(8.0)
                                 .background(cx.palette.surface)
                                 .radius(limn::RadiusRole::Control.px())
-                                .sticky_top_max_height(36.0);
+                                .sticky_top_max_height(36.0)
+                                .sticky_top_fade(16.0);
                             std::iter::once(header).chain((0..8).map(move |index| {
                                 ListRow::new(format!("list-sticky-{group}-{index}"), format!("Fila {}", index + 1), on_card).render()
                             }))
@@ -271,6 +272,7 @@ pub fn view(cx: &Cx) -> Element {
                 .gap(2.0),
             )
             .render()
+            .top_fade(cx.palette.raised, 6.0)
             .size(None, Some(180.0))]),
         ]),
     ])

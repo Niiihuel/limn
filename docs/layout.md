@@ -121,6 +121,7 @@ after it scroll, like a section header.
 | `.sticky_top()` | Once scrolled past the top of the viewport, the child is drawn there until the next sticky child of the same column pushes it out, or its column ends. |
 | `.sticky_top_inset(px)` | Pins it that far below the top of the viewport. |
 | `.sticky_top_max_height(px)` | While pinned, its bottom edge follows the scroll until `px` of height is left. What no longer fits is clipped and fades into the child's `background`. |
+| `.sticky_top_fade(px)` | While pinned, the rows passing under it fade out over `px` below its bottom edge, in the color of the scroll area's `top_fade`. It grows in as the child pins and shortens as the next sticky child arrives. Paint only: no hit region, no layout. Nothing is drawn in a scroll area without a `top_fade`. |
 
 The pinned child paints above the content passing under it and above the
 scroll area's own fades, and takes clicks where it is drawn; its passive
