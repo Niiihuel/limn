@@ -6563,7 +6563,18 @@ impl LayoutBuilder<'_> {
             let key = match part {
                 shortcut::Part::Key(key) => key,
                 shortcut::Part::KeyGap => {
-                    x += shortcut::KEY_SPACING * 2.0;
+                    x += shortcut::KEY_SPACING;
+                    if let Some(separator) = shortcut::KEY_SEPARATOR {
+                        self.frame.commands.push(DrawCommand::Text {
+                            position: Point::new(x, y + (shortcut::HEIGHT - line_height) / 2.0),
+                            text: separator.to_owned(),
+                            color: shortcut::separator_ink(ink),
+                            font_size: shortcut::FONT_SIZE,
+                            font_family: FontFamily::Sans,
+                        });
+                        x += self.text_width(separator, text_style);
+                    }
+                    x += shortcut::KEY_SPACING;
                     continue;
                 }
                 shortcut::Part::ChordGap => {
@@ -6578,10 +6589,22 @@ impl LayoutBuilder<'_> {
                 self.text_width(key, text_style)
             };
             let cap = Rect::new(x, y, shortcut::cap_width(text_width), shortcut::HEIGHT);
+            let radius = shortcut::radius();
             self.frame.commands.push(DrawCommand::FillRect {
                 rect: cap,
                 color: fill,
-                radius: shortcut::radius(),
+                radius,
+            });
+            self.frame.commands.push(DrawCommand::StrokeRect {
+                rect: cap,
+                color: shortcut::cap_border(ink),
+                width: 1.0,
+                radius,
+            });
+            self.frame.commands.push(DrawCommand::FillRect {
+                rect: Rect::new(cap.x + radius, cap.y + cap.height - 1.0, cap.width - radius * 2.0, 1.0),
+                color: shortcut::cap_edge(ink),
+                radius: 0.0,
             });
             if let Some(icon) = icon {
                 self.frame.commands.push(DrawCommand::Icon {
@@ -11315,7 +11338,7 @@ mod tests {
         assert_eq!(caps[1].width, shortcut::cap_width(4.0));
         assert_eq!(
             caps[1].x - caps[0].x - caps[0].width,
-            shortcut::KEY_SPACING * 2.0
+            shortcut::key_gap(|separator| separator.len() as f32 * 2.0)
         );
         let labels: Vec<_> = frame
             .commands
@@ -11343,10 +11366,12 @@ mod tests {
             assert!((position.x + text_width / 2.0 - cap.x - cap.width / 2.0).abs() < 0.01);
             assert!((position.y + line_height / 2.0 - cap.y - cap.height / 2.0).abs() < 0.01);
         }
-        assert!(!frame
-            .commands
-            .iter()
-            .any(|command| matches!(command, DrawCommand::Text { text, .. } if text == "+")));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, color, .. }
+                if text == "+" && *color == shortcut::separator_ink(ink))));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::StrokeRect { rect, color, .. }
+                if *rect == caps[0] && *color == shortcut::cap_border(ink))));
         assert_eq!(frame.regions.len(), 1);
         assert_eq!(frame.regions[0].id, "next");
         assert_eq!(frame.regions[0].rect.x, caps[1].x + caps[1].width);
@@ -11355,10 +11380,6 @@ mod tests {
             frame.text_blocks.is_empty(),
             "decorative caps are not selectable text"
         );
-        assert!(!frame
-            .commands
-            .iter()
-            .any(|command| matches!(command, DrawCommand::StrokeRect { .. })));
     }
 
     #[test]
@@ -11391,7 +11412,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(labels, ["Ctrl", "+"]);
+        assert_eq!(labels, ["Ctrl", "+", "+"], "the joining plus, then the literal key");
         tree.set_root(shortcut("   ", None));
         let empty = tree.layout(Size::new(160.0, 30.0));
         assert!(empty.commands.is_empty());

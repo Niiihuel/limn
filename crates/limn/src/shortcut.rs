@@ -5,15 +5,24 @@ use crate::{Color, Icon};
 pub(crate) const FONT_SIZE: f32 = 11.0;
 pub(crate) const MENU_FONT_SIZE: f32 = 12.0;
 pub(crate) const HEIGHT: f32 = 18.0;
-pub(crate) const HORIZONTAL_PADDING: f32 = 4.0;
+/// Code OSS's keycap: 5 px of padding inside a 1 px outline.
+pub(crate) const HORIZONTAL_PADDING: f32 = 6.0;
 /// Three quarters of a control's radius: 3 px by default.
 pub(crate) fn radius() -> f32 {
     crate::tokens().radius.control * 0.75
 }
 pub(crate) const ICON_SIZE: f32 = 11.0;
-pub(crate) const KEY_SPACING: f32 = 1.5;
+pub(crate) const KEY_SPACING: f32 = 2.0;
 pub(crate) const CHORD_GAP: f32 = 8.0;
-pub(crate) const MIN_WIDTH: f32 = 18.0;
+pub(crate) const MIN_WIDTH: f32 = 20.0;
+/// Keys of one combination are joined by a plus, except on macOS, whose
+/// modifier symbols read as one group without it.
+pub(crate) const KEY_SEPARATOR: Option<&str> = if cfg!(target_os = "macos") { None } else { Some("+") };
+
+/// The room between two keys of one combination, given the separator's width.
+pub(crate) fn key_gap(measure: impl Fn(&str) -> f32) -> f32 {
+    KEY_SPACING * 2.0 + KEY_SEPARATOR.map_or(0.0, measure)
+}
 
 pub(crate) fn label(value: &str) -> &str {
     value.trim()
@@ -167,6 +176,7 @@ pub(crate) fn key_icon(key: &str) -> Option<Icon> {
 }
 
 pub(crate) fn width(value: &str, measure: impl Fn(&str) -> f32) -> f32 {
+    let measure = &measure;
     parts(value)
         .into_iter()
         .map(|part| match part {
@@ -175,15 +185,33 @@ pub(crate) fn width(value: &str, measure: impl Fn(&str) -> f32) -> f32 {
             } else {
                 measure(key)
             }),
-            Part::KeyGap => KEY_SPACING * 2.0,
+            Part::KeyGap => key_gap(measure),
             Part::ChordGap => CHORD_GAP,
         })
         .sum()
 }
 
-/// A flat, faint neutral chip: no outline, so a row of keys reads as one hint.
+/// A faint neutral chip, as Code OSS fills its keybinding labels.
 pub(crate) fn cap_fill(ink: Color) -> Color {
-    Color::rgba(128, 128, 128, ((u16::from(ink.a) * 14 + 50) / 100) as u8)
+    Color::rgba(128, 128, 128, ((u16::from(ink.a) * 17 + 50) / 100) as u8)
+}
+
+fn faded(ink: Color, percent: u16) -> Color {
+    Color::rgba(ink.r, ink.g, ink.b, ((u16::from(ink.a) * percent + 50) / 100) as u8)
+}
+
+/// The keycap's outline, drawn from its own ink so it holds on any surface.
+pub(crate) fn cap_border(ink: Color) -> Color {
+    faded(ink, 12)
+}
+
+/// A firmer bottom edge: the key's thickness.
+pub(crate) fn cap_edge(ink: Color) -> Color {
+    faded(ink, 20)
+}
+
+pub(crate) fn separator_ink(ink: Color) -> Color {
+    faded(ink, 60)
 }
 
 #[cfg(test)]

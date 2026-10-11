@@ -2476,10 +2476,10 @@ mod tests {
             DrawCommand::Text { text, .. } if text == "Ctrl+N"
         )));
         assert!(
-            !frame.commands.iter().any(|command| matches!(command,
+            frame.commands.iter().any(|command| matches!(command,
                 DrawCommand::Text { text, .. } if text == "+"
             )),
-            "keys of one combination sit side by side without a separator"
+            "a plus joins the keys of one combination"
         );
         assert!(frame.commands.iter().any(|command| matches!(command,
             DrawCommand::FillRect { color, radius, rect }

@@ -3190,6 +3190,9 @@ mod tests {
                 .commands
                 .iter()
                 .filter_map(|command| match command {
+                    // The plus joining two keys is drawn fainter than a key.
+                    DrawCommand::Text { color, .. }
+                        if *color == crate::shortcut::separator_ink(palette.text) => None,
                     DrawCommand::Text {
                         text, font_family, ..
                     } => {
