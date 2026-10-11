@@ -78,6 +78,36 @@ fn file_tabs(cx: &Cx, group: &str, count: usize) -> Element {
     .size(Some(width), None)
 }
 
+/// File tabs whose titles take the ink of a state the host knows, and one
+/// whose close slot holds the mark of unsaved changes.
+fn status_tabs(cx: &Cx) -> Element {
+    let palette = cx.palette;
+    let width = cx.width.min(640.0);
+    let ink = |tone| limn::AlertColors::for_tone(tone, palette).accent;
+    let dot = Element::spacer()
+        .background(palette.text)
+        .radius(4.0)
+        .size(Some(8.0), Some(8.0));
+    let items = vec![
+        TabItem::new("nav-status=0", "nav-status-extent-0", file_icon("lib.rs"), "lib.rs", 112.0)
+            .title_ink(ink(limn::AlertTone::Warning))
+            .tooltip("lib.rs · Modificado")
+            .active(true),
+        TabItem::new("nav-status=1", "nav-status-extent-1", file_icon("notes.md"), "notes.md", 112.0)
+            .title_ink(ink(limn::AlertTone::Success))
+            .tooltip("notes.md · Sin seguimiento"),
+        TabItem::new("nav-status=2", "nav-status-extent-2", file_icon("main.rs"), "main.rs", 112.0)
+            .tooltip("main.rs · Sin guardar")
+            .close(dot),
+    ];
+    let strip = TabStrip::new("nav-status", items, palette).render();
+    Element::column(vec![
+        TabStrip::header(strip, Element::spacer().size(Some(0.0), None), width, palette).render(),
+        Element::spacer().background(palette.surface).size(Some(width), Some(36.0)),
+    ])
+    .size(Some(width), None)
+}
+
 /// A bar of label-only and icon-only tabs, tight to its edges.
 fn section_tabs(cx: &Cx) -> Element {
     let palette = cx.palette;
@@ -166,6 +196,8 @@ pub fn view(cx: &Cx) -> Element {
             section_tabs(cx),
             single_tab(cx),
             caption(cx, "Pestañas de sólo texto o icono, y una pestaña suelta para un grupo de un solo recurso."),
+            status_tabs(cx),
+            caption(cx, "title_ink tiñe el título con un estado que conoce el anfitrión; el hueco de cierre puede llevar la marca de cambios sin guardar."),
         ]),
         section(cx, "Control segmentado", vec![row(vec![
             SegmentedControl::new(tabs("nav-segments"), palette).render(),

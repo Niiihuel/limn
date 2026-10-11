@@ -30,6 +30,7 @@ pub struct TabItem {
     active: bool,
     width: f32,
     close: Option<Element>,
+    title_ink: Option<Color>,
     tooltip_placement: TooltipPlacement,
 }
 
@@ -51,6 +52,7 @@ impl TabItem {
             active: false,
             width: dimension(width),
             close: None,
+            title_ink: None,
             tooltip_placement: TooltipPlacement::Above,
         }
     }
@@ -82,6 +84,14 @@ impl TabItem {
         self
     }
 
+    /// Ink of the title, active or not, for a state the host marks by color,
+    /// such as a file's status in version control. The icon keeps the
+    /// palette's ink. The default is `text` when active and `muted` otherwise.
+    pub fn title_ink(mut self, ink: Color) -> Self {
+        self.title_ink = Some(ink);
+        self
+    }
+
     /// The tab alone, for a group that shows a single resource. Colors follow
     /// the roles documented on [`TabStrip`].
     pub fn render(self, palette: ComponentPalette) -> Element {
@@ -97,7 +107,7 @@ impl TabItem {
             Element::faded_text(&self.title, 14.0)
                 .font_family(FontFamily::Sans)
                 .font_size(TextRole::Label.size())
-                .foreground(ink)
+                .foreground(self.title_ink.unwrap_or(ink))
                 .flex(1.0)
                 .size(None, Some(TabStrip::CLOSE_SIZE)),
             close,
@@ -435,6 +445,52 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn title_ink_colors_the_title_alone_whether_the_tab_is_active_or_not() {
+        let palette = palette();
+        let ink = Color::rgb(200, 150, 50);
+        let inks = |frame: &Frame| -> Vec<(String, Color)> {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, color, .. } => Some((text.clone(), *color)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let icons = |frame: &Frame| -> Vec<Color> {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Icon { tint, .. } => Some(*tint),
+                    _ => None,
+                })
+                .collect()
+        };
+        for active in [None, Some(0)] {
+            let frame_of = |tinted: bool| {
+                let mut items = items(2, active, 120.0);
+                if tinted {
+                    let first = items.remove(0);
+                    items.insert(0, first.title_ink(ink));
+                }
+                let mut tree = UiTree::new(TabStrip::new("tabs", items, palette).render());
+                tree.set_reduced_motion(true);
+                tree.layout(Size::new(420.0, 80.0))
+            };
+            let (plain, tinted) = (frame_of(false), frame_of(true));
+            let rest = if active == Some(0) { palette.text } else { palette.muted };
+            assert_eq!(inks(&plain)[0], (NAMES[0].to_owned(), rest));
+            assert_eq!(inks(&tinted)[0], (NAMES[0].to_owned(), ink));
+            // The other tab, every icon and every region stay as they were.
+            assert_eq!(inks(&plain)[1..], inks(&tinted)[1..]);
+            assert_eq!(icons(&plain), icons(&tinted));
+            assert_eq!(plain.regions, tinted.regions);
+        }
     }
 
     #[test]
