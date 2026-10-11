@@ -21,6 +21,7 @@ pub struct AlertDialog {
     destructive: Option<Color>,
     animation_ms: u16,
     body: Option<Element>,
+    alternative: Option<(String, String)>,
 }
 
 impl AlertDialog {
@@ -48,6 +49,7 @@ impl AlertDialog {
             destructive: None,
             animation_ms: crate::tokens().motion.enter_ms,
             body: None,
+            alternative: None,
         }
     }
 
@@ -81,6 +83,14 @@ impl AlertDialog {
 
     pub fn animation_ms(mut self, duration: u16) -> Self {
         self.animation_ms = duration;
+        self
+    }
+
+    /// A second way to go ahead, between Cancel and the confirm action: the
+    /// same step without its consequential part, such as "Don't revert". The
+    /// host receives `id` as it receives `confirm_id`.
+    pub fn alternative(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.alternative = Some((id.into(), label.into()));
         self
     }
 
@@ -123,10 +133,21 @@ impl Component for AlertDialog {
         .enabled(self.confirm_enabled)
         .render()
         .center_content();
+        let mut actions = vec![cancel];
+        if let Some((id, label)) = self.alternative {
+            actions.push(
+                Button::new(id, label, self.palette)
+                    .variant(ButtonVariant::Outline)
+                    .size(ControlSize::Compact)
+                    .render(),
+            );
+        }
+        actions.push(confirm);
         let footer = if self.width < 360.0 {
-            Element::column(vec![cancel, confirm]).gap(6.0)
+            Element::column(actions).gap(6.0)
         } else {
-            Element::row(vec![Element::spacer().flex(1.0), cancel, confirm])
+            actions.insert(0, Element::spacer().flex(1.0));
+            Element::row(actions)
                 .gap(6.0)
                 .size(None, Some(ControlSize::Compact.height()))
         };
@@ -169,6 +190,35 @@ impl Component for AlertDialog {
 mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn alternative_action_sits_between_cancel_and_confirm_and_reports_its_id() {
+        let palette = ComponentPalette::neutral_dark();
+        for (width, stacked) in [(440.0, false), (300.0, true)] {
+            let mut tree = UiTree::new(
+                AlertDialog::new(Element::spacer(), true, "¿Enviar?", "", "confirm", "cancel", palette)
+                    .alternative("keep", "No revertir")
+                    .width(width)
+                    .render(),
+            );
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(600.0, 400.0));
+            let rect = |id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+            let (cancel, keep, confirm) = (rect("cancel"), rect("keep"), rect("confirm"));
+            if stacked {
+                assert!(cancel.y < keep.y && keep.y < confirm.y);
+            } else {
+                assert!(cancel.x < keep.x && keep.x < confirm.x);
+                assert_eq!(keep.y, confirm.y);
+            }
+            let point = Point::new(keep.x + keep.width / 2.0, keep.y + keep.height / 2.0);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(
+                tree.handle_event(UiEvent::PointerUp(point)),
+                vec![UiAction::Clicked { id: "keep".into() }]
+            );
+        }
+    }
 
     #[test]
     fn modal_blocks_backdrop_and_traps_keyboard_until_dismissed() {

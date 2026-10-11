@@ -11,6 +11,9 @@ mod popover_initial_focus_tests;
 #[path = "drag_drop_tests.rs"]
 mod drag_drop_tests;
 #[cfg(test)]
+#[path = "sticky_tests.rs"]
+mod sticky_tests;
+#[cfg(test)]
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
 
@@ -862,6 +865,9 @@ struct PopoverFocusScope {
     submenu: bool,
     modal: bool,
 }
+
+/// Height of the fade at the cut of a capped `sticky_top` child.
+const STICKY_FADE: f32 = 16.0;
 
 /// Room [`UiTree::reveal`] leaves between a control and its viewport's edge.
 const REVEAL_MARGIN: f32 = 12.0;
@@ -2659,6 +2665,7 @@ impl UiTree {
                 action_aliases: &mut self.action_aliases,
                 overlays: VecDeque::new(),
                 scroll_focus_context: Vec::new(),
+                pinned: Vec::new(),
                 focus_path,
                 focus_probe: probe,
                 drag_source: self
@@ -5119,6 +5126,8 @@ struct LayoutBuilder<'a> {
     action_aliases: &'a mut HashMap<String, String>,
     overlays: VecDeque<DeferredOverlay>,
     scroll_focus_context: Vec<ScrollFocusContext>,
+    /// Sticky children the scroll area being placed draws last.
+    pinned: Vec<(Element, Rect, Option<Rect>)>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
     /// Source of the active pointer drag and the commands it painted.
@@ -7165,9 +7174,22 @@ impl LayoutBuilder<'_> {
         } else {
             clip
         };
+        let mut pinned = Vec::new();
         match &element.kind {
             ElementKind::Column(children) => {
-                self.place_flex(children, content, style.gap, false, clip);
+                let viewport = self
+                    .scroll_focus_context
+                    .last()
+                    .filter(|_| children.iter().any(|child| child.sticky_top.is_some()))
+                    .map(|scroll| scroll.viewport);
+                match viewport {
+                    Some(viewport) => {
+                        self.place_sticky_column(children, content, style.gap, clip, viewport)
+                    }
+                    None => {
+                        self.place_flex(children, content, style.gap, false, clip);
+                    }
+                }
             }
             ElementKind::Row(children) => {
                 self.place_flex(children, content, style.gap, true, clip);
@@ -7462,7 +7484,9 @@ impl LayoutBuilder<'_> {
                         viewport: new_clip,
                         offset: current_offset,
                     });
+                    let outer = std::mem::take(&mut self.pinned);
                     self.place(child, child_rect, Some(new_clip));
+                    pinned = std::mem::replace(&mut self.pinned, outer);
                     self.scroll_focus_context.pop();
                     self.frame.commands.push(DrawCommand::PopClip);
                 }
@@ -8753,6 +8777,9 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
+        if let ElementKind::Scroll { id, .. } = &element.kind {
+            self.place_pinned(id, pinned);
+        }
         if style.clip_children {
             self.frame.commands.push(DrawCommand::PopClip);
         }
@@ -8955,6 +8982,78 @@ impl LayoutBuilder<'_> {
             self.place(child, *rect, clip);
         }
         rects
+    }
+
+    /// A column with `sticky_top` children inside a scroll area. The last
+    /// one scrolled past the top is held back for [`Self::place_pinned`]
+    /// instead of being placed where the column has it.
+    fn place_sticky_column(
+        &mut self,
+        children: &[Element],
+        content: Rect,
+        gap: f32,
+        clip: Option<Rect>,
+        viewport: Rect,
+    ) {
+        let rects = self.flex_rects(children, content, gap, false);
+        let top = |child: &Element| child.sticky_top.map(|sticky| viewport.y + f32::from(sticky.inset));
+        let pinned = children
+            .iter()
+            .zip(&rects)
+            .rposition(|(child, rect)| top(child).is_some_and(|top| rect.y < top));
+        for (index, (child, rect)) in children.iter().zip(&rects).enumerate() {
+            if Some(index) != pinned {
+                self.place(child, *rect, clip);
+            }
+        }
+        let Some(index) = pinned else { return };
+        let (child, mut rect) = (&children[index], rects[index]);
+        let (Some(sticky), Some(top)) = (child.sticky_top, top(child)) else { return };
+        // The next sticky child pushes this one out; without one it leaves
+        // with the end of its column.
+        let limit = children[index + 1..]
+            .iter()
+            .zip(&rects[index + 1..])
+            .find(|(child, _)| child.sticky_top.is_some())
+            .map_or(content.y + content.height, |(_, next)| next.y - gap);
+        // A capped child keeps its bottom edge on the scroll until only the
+        // cap is left, so it shrinks instead of jumping.
+        let natural = rect.height;
+        let cap = match sticky.max_height.get() {
+            u16::MAX => natural,
+            cap => f32::from(cap).min(natural),
+        };
+        rect.height = (rect.y + natural - top).clamp(cap, natural);
+        rect.y = top.min(limit - rect.height).max(rect.y);
+        let mut element = child.clone();
+        if rect.height < natural {
+            element.style.clip_children = true;
+            element.style.bottom_fade = element
+                .style
+                .bottom_fade
+                .or(element.style.background.map(|color| (color, STICKY_FADE)));
+        }
+        self.pinned.push((element, rect, clip));
+    }
+
+    /// Place what a scroll area's columns pinned, after its content and its
+    /// fades, so it paints and hit-tests above both.
+    fn place_pinned(&mut self, scroll_id: &str, pinned: Vec<(Element, Rect, Option<Rect>)>) {
+        for (element, rect, clip) in pinned {
+            // Its passive parts must not let a click reach the rows under it.
+            self.add_region(scroll_id, rect, HitKind::Scroll, clip);
+            // The copy lives for this call only: keep its address out of the
+            // frame's measurements.
+            let previous_scope = self.enter_measurement_scope();
+            if let Some(clip) = clip {
+                self.frame.commands.push(DrawCommand::PushClip(clip));
+            }
+            self.place(&element, rect, clip);
+            if clip.is_some() {
+                self.frame.commands.push(DrawCommand::PopClip);
+            }
+            self.measurement_scope = previous_scope;
+        }
     }
 
     /// Re-measure a row's `shrink` children at the width the row can spare,

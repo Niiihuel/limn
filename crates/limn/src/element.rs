@@ -420,6 +420,7 @@ pub struct Element {
     pub action_alias: Option<String>,
     pub(crate) menu_secondary_action: bool,
     pub(crate) draggable: bool,
+    pub(crate) sticky_top: Option<StickyTop>,
     pub(crate) drop_target: bool,
     /// Arrow-key navigation for an inline menu. Its first focusable child is
     /// the trigger; subsequent buttons are options. This does not trap Tab.
@@ -621,6 +622,21 @@ pub enum ElementKind {
     Spacer,
 }
 
+/// How a `sticky_top` child of a column sits while pinned. Whole pixels, so
+/// the option fits in the padding `Element` already has.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct StickyTop {
+    /// `MAX` is no cap.
+    pub(crate) max_height: std::num::NonZeroU16,
+    pub(crate) inset: u8,
+}
+
+impl Default for StickyTop {
+    fn default() -> Self {
+        Self { max_height: std::num::NonZeroU16::MAX, inset: 0 }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Style {
     pub width: Option<f32>,
@@ -747,6 +763,7 @@ impl Element {
             action_alias: None,
             menu_secondary_action: false,
             draggable: false,
+            sticky_top: None,
             drop_target: false,
             menu_navigation: false,
             context_menu: None,
@@ -898,6 +915,39 @@ impl Element {
         self
     }
 
+    /// Keep this child of a column in view while its section scrolls. Once
+    /// the scroll area around the column has carried it past the top, it is
+    /// drawn at the top of the viewport, above the content passing under it
+    /// and above the scroll area's fades, until the next `sticky_top` child
+    /// of the same column pushes it out. It takes clicks where it is drawn.
+    /// The column's height and the scroll range do not change. Give it an
+    /// opaque `background`.
+    pub fn sticky_top(mut self) -> Self {
+        self.sticky_top.get_or_insert(StickyTop::default());
+        self
+    }
+
+    /// A [`sticky_top`](Self::sticky_top) child that gives up height while
+    /// pinned: its bottom edge follows the scroll until `height` is left,
+    /// so a long one cannot cover the viewport. What no longer fits is
+    /// clipped and fades into the element's `background`.
+    pub fn sticky_top_max_height(mut self, height: f32) -> Self {
+        // Whole pixels: a float-to-integer cast saturates, and zero is not a cap.
+        if let Some(height) = std::num::NonZeroU16::new(height.round() as u16) {
+            self.sticky_top.get_or_insert(StickyTop::default()).max_height = height;
+        }
+        self
+    }
+
+    /// A [`sticky_top`](Self::sticky_top) child pinned this far below the
+    /// top of the viewport instead of against it.
+    pub fn sticky_top_inset(mut self, inset: f32) -> Self {
+        if inset.is_finite() && inset >= 0.0 {
+            self.sticky_top.get_or_insert(StickyTop::default()).inset = inset.round() as u8;
+        }
+        self
+    }
+
     /// Accept drops. Applies to buttons, clickables and scroll surfaces
     /// (including virtual lists), which are the elements with a pointer region.
     pub fn drop_target(mut self) -> Self {
@@ -1002,6 +1052,19 @@ impl Element {
             *scrim = None;
             *initial_focus = None;
             *return_focus = None;
+        }
+        self
+    }
+
+    /// Distance between the anchor and the floating surface, 5 unless set.
+    /// With 0 under a hairline anchor the surface starts where the anchor
+    /// is, so it can stand in for the row that follows. Give the anchor some
+    /// height: a scroll area does not place an element that has none.
+    pub fn popover_gap(mut self, value: f32) -> Self {
+        if let ElementKind::Popover { gap, .. } = &mut self.kind {
+            if value.is_finite() && value >= 0.0 {
+                *gap = value;
+            }
         }
         self
     }

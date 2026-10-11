@@ -245,6 +245,34 @@ pub fn view(cx: &Cx) -> Element {
             .render()
             .size(None, Some(150.0))]),
         ]),
+        section(cx, "Encabezado fijo al desplazar", vec![
+            caption(cx, "sticky_top deja el encabezado de su tramo arriba hasta que llega el siguiente; el largo cede altura hasta su tope."),
+            card(cx, width, vec![ScrollArea::new(
+                "list-sticky",
+                Element::column(
+                    (0..3)
+                        .flat_map(|group| {
+                            let title = if group == 1 {
+                                "Grupo 2, con un encabezado largo que ocupa varias líneas cuando está en su sitio y cede altura mientras queda fijo arriba".to_owned()
+                            } else {
+                                format!("Grupo {}", group + 1)
+                            };
+                            let header = Element::panel(limn::Text::new(title, on_card).render())
+                                .padding(8.0)
+                                .background(cx.palette.surface)
+                                .radius(limn::RadiusRole::Control.px())
+                                .sticky_top_max_height(36.0);
+                            std::iter::once(header).chain((0..8).map(move |index| {
+                                ListRow::new(format!("list-sticky-{group}-{index}"), format!("Fila {}", index + 1), on_card).render()
+                            }))
+                        })
+                        .collect(),
+                )
+                .gap(2.0),
+            )
+            .render()
+            .size(None, Some(180.0))]),
+        ]),
     ])
     .gap(32.0)
 }
