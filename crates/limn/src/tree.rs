@@ -2172,6 +2172,8 @@ pub struct UiTree {
     scroll_to_end: HashSet<String>,
     scroll_to_index: HashMap<String, usize>,
     scroll_drag: Option<ScrollDrag>,
+    // The viewport being dragged sideways, and the pointer x plus offset it was grabbed at.
+    horizontal_pan: Option<(String, f32)>,
     scroll_button_hold: Option<ScrollButtonHold>,
     slider_drag: Option<SliderDrag>,
     slider_motion: HashMap<String, SliderMotion>,
@@ -2240,6 +2242,7 @@ impl UiTree {
             scroll_to_end: HashSet::new(),
             scroll_to_index: HashMap::new(),
             scroll_drag: None,
+            horizontal_pan: None,
             scroll_button_hold: None,
             slider_drag: None,
             slider_motion: HashMap::new(),
@@ -4312,6 +4315,7 @@ impl UiTree {
                     .hit_region(point)
                     .filter(|region| region.kind == HitKind::Scrollbar)
                     .map(|region| region.id.clone());
+                self.drag_horizontal_pan(point);
                 if let Some(drag) = self.scroll_drag.as_ref() {
                     if let Some(geometry) = self.frame.scrollbars.get(&drag.id) {
                         self.scroll_transitions.remove(&drag.id);
@@ -4439,6 +4443,10 @@ impl UiTree {
                         fraction,
                         committed: false,
                     });
+                    return actions;
+                }
+                if let Some(pan) = self.horizontal_pan_at(point) {
+                    self.horizontal_pan = Some(pan);
                     return actions;
                 }
                 if let Some(region) = hit
@@ -4589,7 +4597,7 @@ impl UiTree {
                     }
                     selection.dragging = false;
                 }
-                if self.scroll_drag.take().is_some() {
+                if self.scroll_drag.take().is_some() || self.horizontal_pan.take().is_some() {
                     return actions;
                 }
                 if self.scroll_button_hold.take().is_some() {
@@ -8135,6 +8143,7 @@ impl LayoutBuilder<'_> {
                 child,
                 reveal,
                 vertical_wheel,
+                drag_pan,
             } => {
                 self.paint_horizontal_scroll(
                     id,
@@ -8144,6 +8153,7 @@ impl LayoutBuilder<'_> {
                     clip,
                     style.horizontal_edge_fade,
                     *vertical_wheel,
+                    drag_pan.then_some(style.foreground),
                 );
             }
             ElementKind::Scroll {

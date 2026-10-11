@@ -88,6 +88,8 @@ pub struct MarkdownLabels {
     pub show_source: &'static str,
     /// The action on that source that shows the diagram again.
     pub show_diagram: &'static str,
+    /// The action on a diagram that asks the host to show it over the window.
+    pub expand: &'static str,
 }
 
 impl MarkdownLabels {
@@ -98,6 +100,7 @@ impl MarkdownLabels {
         diagram: "DIAGRAM",
         show_source: "Source",
         show_diagram: "Diagram",
+        expand: "Expand",
     };
 }
 
@@ -230,6 +233,15 @@ impl<'a> Markdown<'a> {
     pub fn diagram_action_prefix(mut self, prefix: &'static str) -> Self {
         self.presentation.diagram_action_prefix = prefix;
         self
+    }
+
+    /// The source of the diagram whose expand action, `prefix`, `expand:`
+    /// and sixteen hexadecimal digits, carries `id`: what a host draws in
+    /// a [`crate::DiagramViewer`].
+    pub fn diagram_source(id: u64) -> Option<std::sync::Arc<str>> {
+        DIAGRAMS.with_borrow(|diagrams| {
+            diagrams.iter().find(|(known, _)| *known == id).map(|(_, source)| source.clone())
+        })
     }
 
     /// The diagrams, by the id in their action, to show as source.
@@ -476,6 +488,23 @@ fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation
         .render()
 }
 
+thread_local! {
+    // shortcut: the last 64 diagrams drawn, so a host can open one from the
+    // id in its action; an older one no longer expands until it is drawn
+    // again. Keep the source with the cached tree if that is ever met.
+    static DIAGRAMS: std::cell::RefCell<Vec<(u64, std::sync::Arc<str>)>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+fn remember_diagram(id: u64, source: &str) {
+    DIAGRAMS.with_borrow_mut(|diagrams| {
+        diagrams.retain(|(known, _)| *known != id);
+        if diagrams.len() == 64 {
+            diagrams.remove(0);
+        }
+        diagrams.push((id, source.into()));
+    });
+}
+
 /// A closed `mermaid` fence that is a flowchart, drawn; `None` leaves it a
 /// code block. The card matches [`CodeBlock`], with one quiet action in its
 /// label row that switches between the drawing and the source.
@@ -494,18 +523,27 @@ fn diagram_block(
         .font_size(TextRole::Micro.size())
         .foreground(palette.muted)];
     if !presentation.diagram_action_prefix.is_empty() {
-        header.push(Element::spacer().flex(1.0));
-        header.push(
+        let prefix = presentation.diagram_action_prefix;
+        let action = |label: &str, action: String| {
             Element::formatted_text(vec![TextSpan::new(
-                if shows_source { labels.show_diagram } else { labels.show_source },
+                label,
                 palette.muted,
                 TextRole::Small.size(),
                 FontFamily::Sans,
             )
-            .action(format!("{}{id:016x}", presentation.diagram_action_prefix))])
+            .action(action)])
             .font_family(FontFamily::Sans)
-            .font_size(TextRole::Small.size()),
-        );
+            .font_size(TextRole::Small.size())
+        };
+        header.push(Element::spacer().flex(1.0));
+        if !shows_source {
+            remember_diagram(id, content);
+            header.push(action(labels.expand, format!("{prefix}expand:{id:016x}")));
+        }
+        header.push(action(
+            if shows_source { labels.show_diagram } else { labels.show_source },
+            format!("{prefix}{id:016x}"),
+        ));
     }
     let body = if shows_source {
         Element::text(content)
@@ -516,7 +554,7 @@ fn diagram_block(
         chart.scrollable(format!("markdown_diagram:{id:016x}"))
     };
     Some(
-        Element::panel(Element::column(vec![Element::row(header), body]).gap(8.0))
+        Element::panel(Element::column(vec![Element::row(header).gap(14.0), body]).gap(8.0))
             .padding(12.0)
             .background(palette.raised)
             .border(palette.border, 1.0)
@@ -1793,9 +1831,11 @@ mod tests {
                 .filter_map(|region| region.id.starts_with("diagram:").then_some(region.id))
                 .collect::<Vec<_>>()
         };
-        assert_eq!(actions(render(&[])), [action.clone()]);
+        // A drawn diagram can also be opened over the window, from its source.
+        assert_eq!(actions(render(&[])), [format!("diagram:expand:{id:016x}"), action.clone()]);
+        assert_eq!(Markdown::diagram_source(id).as_deref(), Some("flowchart LR\n  A[Uno] --> B[Dos]"));
         let diagram = commands(render(&[]), 480.0);
-        assert_eq!((lines(&diagram), texts(&diagram).as_str()), (1, "DIAGRAM|Source|Uno|Dos"));
+        assert_eq!((lines(&diagram), texts(&diagram).as_str()), (1, "DIAGRAM|Expand|Source|Uno|Dos"));
         assert_eq!(actions(render(&[id])), [action]);
         let source = commands(render(&[id]), 480.0);
         assert_eq!(lines(&source), 0);

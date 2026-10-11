@@ -36,6 +36,7 @@ mod find_bar;
 mod flowchart;
 mod form_field;
 mod geometry;
+mod diagram_viewer;
 mod image_viewer;
 mod list_row;
 mod markdown;
@@ -136,6 +137,7 @@ pub use flowchart::{
 pub use find_bar::{FindBar, FindIds, FindLabels, FindOptions};
 pub use file_icons::{file_icon, folder_icon, language_icon, FileIcon};
 pub use geometry::{Color, Point, Rect, Size};
+pub use diagram_viewer::DiagramViewer;
 pub use image_viewer::ImageViewer;
 pub use list_row::{DiffStat, ListRow, RowSizing};
 pub use markdown::{Markdown, MarkdownColors, MarkdownLabels, MarkdownLimits, MarkdownPreview, MarkdownSourcePage};

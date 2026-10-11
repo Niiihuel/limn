@@ -35,6 +35,8 @@ const TRACK: f32 = 10.0;
 const TAIL: f32 = 22.0;
 const ARROW: f32 = 7.0;
 const CORNER: f32 = 6.0;
+/// How far off its node a neighbour may sit and still be joined by a straight line.
+const SNAP: f32 = 16.0;
 const GROUP_PAD: f32 = 10.0;
 const MARGIN: f32 = 2.0;
 
@@ -818,6 +820,30 @@ impl FlowchartGraph {
                 }
             })
             .collect();
+        // A neighbour a few pixels off its node would bend the connector
+        // twice within those pixels. The node's port moves under or over
+        // that neighbour instead, so the line runs straight; every other
+        // connector of the node shares the port.
+        let snaps = |from: f32, to: f32| (0.5..SNAP).contains(&(from - to).abs());
+        let mut leaves: Vec<f32> = (0..count).map(|node| vertices[node].position).collect();
+        let mut arrives = leaves.clone();
+        for chain in chains.iter().filter(|chain| chain.len() > 1) {
+            let (first, next) = (chain[0], chain[1]);
+            if snaps(vertices[first].position, vertices[next].position)
+                && leaves[first] == vertices[first].position
+            {
+                leaves[first] = vertices[next].position;
+            }
+        }
+        for chain in chains.iter().filter(|chain| chain.len() > 1) {
+            let (last, before) = (chain[chain.len() - 1], chain[chain.len() - 2]);
+            let from = if chain.len() == 2 { leaves[before] } else { vertices[before].position };
+            // An arrowhead must touch the outline: only a box takes it off center.
+            let boxed = !matches!(self.nodes[last].shape, FlowNodeShape::Decision | FlowNodeShape::Circle);
+            if boxed && snaps(from, vertices[last].position) && arrives[last] == vertices[last].position {
+                arrives[last] = from;
+            }
+        }
         let mut edges: Vec<FlowEdgeLayout> = (0..self.edges.len())
             .map(|edge| {
                 let chain = &chains[edge];
@@ -826,18 +852,31 @@ impl FlowchartGraph {
                     // route a loop beside the node if it is ever needed.
                     return FlowEdgeLayout { points: Vec::new(), label: None };
                 };
+                // Off center, a diamond or a circle has no outline to leave
+                // from: the line starts under the node, which is drawn over it.
+                let pointed = matches!(self.nodes[first].shape, FlowNodeShape::Decision | FlowNodeShape::Circle);
+                // A connector drawn against the flow has its head at this end.
+                let mut cross = if pointed && reversed[edge] { vertices[first].position } else { leaves[first] };
+                let covered = pointed && cross != vertices[first].position;
                 let mut path = vec![to_screen(
-                    vertices[first].position,
-                    middle(first) + vertices[first].main / 2.0,
+                    cross,
+                    middle(first) + if covered { 0.0 } else { vertices[first].main / 2.0 },
                 )];
-                for pair in chain.windows(2) {
+                let mut label_cross = cross;
+                for (step, pair) in chain.windows(2).enumerate() {
                     let (from, to) = (&vertices[pair[0]], &vertices[pair[1]]);
-                    if (from.position - to.position).abs() >= 0.5 {
-                        let track = track_at(from.rank, tracks[from.rank][&pair[0]]);
-                        path.push(to_screen(from.position, track));
-                        path.push(to_screen(to.position, track));
+                    let target = if step + 2 == chain.len() { arrives[pair[1]] } else { to.position };
+                    if (cross - target).abs() >= 0.5 {
+                        // A bend that the node's own track cannot give falls on the first.
+                        let track = track_at(from.rank, tracks[from.rank].get(&pair[0]).copied().unwrap_or(0));
+                        path.push(to_screen(cross, track));
+                        path.push(to_screen(target, track));
+                        cross = target;
                     }
-                    path.push(to_screen(to.position, middle(pair[1]) - to.main / 2.0));
+                    if step == 0 {
+                        label_cross = cross;
+                    }
+                    path.push(to_screen(cross, middle(pair[1]) - to.main / 2.0));
                 }
                 if reversed[edge] {
                     path.reverse();
@@ -847,7 +886,7 @@ impl FlowchartGraph {
                     let along = track_at(layer, track_counts[layer].saturating_sub(1))
                         + 3.5
                         + if horizontal { size.width } else { size.height } / 2.0;
-                    let center = to_screen(vertices[chain[1]].position, along);
+                    let center = to_screen(label_cross, along);
                     (
                         Rect::new(
                             center.x - size.width / 2.0,
@@ -1064,8 +1103,13 @@ impl Flowchart {
     /// The chart in a horizontal viewport that fills the width it is given
     /// and pans when the chart is wider, with a fade at a cut edge.
     pub fn scrollable(self, id: impl Into<String>) -> Element {
-        let backdrop = self.backdrop;
-        Element::horizontal_scroll_2d(id, self.render()).horizontal_edge_fade(backdrop, 16.0)
+        let (backdrop, bar) = (self.backdrop, self.palette.muted);
+        // Room under the chart for the bar that shows where it sits.
+        let chart = Element::column(vec![self.render().flex(1.0), Element::spacer().size(None, Some(8.0))]);
+        Element::horizontal_scroll_2d(id, chart)
+            .horizontal_edge_fade(backdrop, 16.0)
+            .foreground(bar)
+            .drag_to_pan()
     }
 
     pub(crate) fn heap_bytes(&self) -> usize {
@@ -1100,7 +1144,7 @@ impl Flowchart {
         }
     }
 
-    /// Paint into `content`, centered when it is wider than the chart.
+    /// Paint into `content`, centered where it is larger than the chart.
     pub(crate) fn paint(
         &self,
         content: Rect,
@@ -1111,7 +1155,7 @@ impl Flowchart {
         let layout = self.layout(measure, line_height);
         let origin = Point::new(
             content.x + ((content.width - layout.size.width) / 2.0).max(0.0).floor(),
-            content.y,
+            content.y + ((content.height - layout.size.height) / 2.0).max(0.0).floor(),
         );
         let graph = &self.shared.graph;
         let palette = self.palette;

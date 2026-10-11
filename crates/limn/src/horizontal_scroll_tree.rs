@@ -9,9 +9,28 @@ pub(super) struct HorizontalScrollState {
     selected: Option<String>,
     focused: Option<String>,
     vertical_wheel: bool,
+    drag_pan: bool,
 }
 
 impl UiTree {
+    /// The `drag_to_pan` viewport a press at `point` would drag, with what
+    /// to remember of the grab, unless something inside it takes the press.
+    pub(super) fn horizontal_pan_at(&self, point: Point) -> Option<(String, f32)> {
+        let region = self.frame.regions.iter().rev().find(|region| region.rect.contains(point))?;
+        let state = self.horizontal_scrolls.get(&region.id).filter(|state| {
+            region.kind == HitKind::Scroll && state.drag_pan && state.extent > state.viewport
+        })?;
+        Some((region.id.clone(), point.x + state.offset))
+    }
+
+    pub(super) fn drag_horizontal_pan(&mut self, point: Point) {
+        if let Some((id, grab)) = &self.horizontal_pan {
+            if let Some(state) = self.horizontal_scrolls.get_mut(id) {
+                state.offset = (grab - point.x).clamp(0.0, (state.extent - state.viewport).max(0.0));
+            }
+        }
+    }
+
     /// Where a `horizontal_scroll` currently sits, including any wheel or
     /// trackpad panning since the last layout.
     pub fn horizontal_scroll_offset(&self, id: &str) -> f32 {
@@ -158,6 +177,7 @@ impl LayoutBuilder<'_> {
         clip: Option<Rect>,
         fade: Option<(Color, f32)>,
         vertical_wheel: bool,
+        pan_bar: Option<Color>,
     ) {
         self.add_region(id, content, HitKind::Scroll, clip);
         self.frame
@@ -206,6 +226,7 @@ impl LayoutBuilder<'_> {
         state.selected = reveal.map(str::to_owned);
         state.focused = focus.map(str::to_owned);
         state.vertical_wheel = vertical_wheel;
+        state.drag_pan = pan_bar.is_some();
         let offset = state.offset;
         let visible = clip.map_or(Some(content), |outer| outer.intersection(content));
         if let Some(visible) = visible {
@@ -251,6 +272,19 @@ impl LayoutBuilder<'_> {
                         });
                     }
                 }
+            }
+            if let Some(color) = pan_bar.filter(|_| width > content.width + 0.5) {
+                let scale = content.width / width;
+                self.frame.commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(
+                        content.x + offset * scale,
+                        content.y + content.height - 3.0,
+                        content.width * scale,
+                        3.0,
+                    ),
+                    color: Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45) as u8),
+                    radius: 1.5,
+                });
             }
             self.frame.commands.push(DrawCommand::PopClip);
         }

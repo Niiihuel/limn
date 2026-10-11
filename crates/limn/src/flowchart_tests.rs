@@ -73,7 +73,12 @@ fn assert_sound(source: &str) -> FlowchartLayout {
             continue;
         }
         let (first, last) = (path.points[0], path.points[path.points.len() - 1]);
-        assert!(on_border(first, layout.nodes[edge.from].rect), "{source}: {first:?} leaves no side");
+        // A diamond or a circle left off center hides the start under itself.
+        let source_rect = layout.nodes[edge.from].rect;
+        assert!(
+            on_border(first, source_rect) || source_rect.contains(first),
+            "{source}: {first:?} leaves no side"
+        );
         assert!(on_border(last, layout.nodes[edge.to].rect), "{source}: {last:?} reaches no side");
         assert!(path.points.iter().all(|point| point.x.is_finite() && point.y.is_finite()));
     }
@@ -254,4 +259,21 @@ fn the_tree_paints_every_node_and_a_narrow_container_pans_instead_of_overflowing
         })
         .expect("a wide chart is clipped by its viewport");
     assert!(clip.x >= 0.0 && clip.x + clip.width <= 320.0);
+}
+
+#[test]
+fn a_child_a_few_pixels_off_its_parent_is_joined_by_a_straight_line() {
+    // Proportional widths leave the middle child off the diamond's center.
+    let graph = FlowchartGraph::parse(
+        "flowchart TD\n D{¿Cómo?} -->|Pasa el puntero| E[Se destaca una capacidad]\n D -->|Usa el teclado| F[El foco]\n D -->|Hace clic| G[Selecciona]\n E --> H[Actualiza el énfasis]\n F --> H\n G --> H",
+    )
+    .unwrap();
+    for scale in [0.47, 0.5, 0.53, 0.56, 0.61] {
+        let layout = graph.layout(&|text, size| (text.chars().count() as f32 * size * scale).round(), &|size| size * 1.4);
+        for path in &layout.edges {
+            let (first, last) = (path.points[0], path.points[path.points.len() - 1]);
+            let across = (first.x - last.x).abs();
+            assert!(across < 0.01 || across >= 16.0, "a {across} px jog at scale {scale}: {:?}", path.points);
+        }
+    }
 }

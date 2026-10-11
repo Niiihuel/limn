@@ -85,7 +85,7 @@ impl ImageViewer {
     }
 }
 
-fn control(id: &str, icon: Icon, title: &str, enabled: bool, palette: ComponentPalette) -> Element {
+pub(crate) fn control(id: &str, icon: Icon, title: &str, enabled: bool, palette: ComponentPalette) -> Element {
     let button = IconButton::new(id, icon, palette)
         .variant(ButtonVariant::Subtle)
         .size(ControlSize::Spacious)

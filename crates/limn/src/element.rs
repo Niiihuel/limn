@@ -597,6 +597,7 @@ pub enum ElementKind {
         /// Tab strips translate a vertical wheel into horizontal motion;
         /// two-dimensional document canvases leave it to their vertical parent.
         vertical_wheel: bool,
+        drag_pan: bool,
     },
     UniformList(UniformList),
     CodeEditor(crate::CodeEditor),
@@ -1736,12 +1737,24 @@ impl Element {
         self
     }
 
+    /// Let the pointer drag a horizontal viewport's content sideways, and
+    /// show a thin bar where it sits while there is more than fits. The bar
+    /// takes the viewport's foreground; pressing a control inside still
+    /// presses that control.
+    pub fn drag_to_pan(mut self) -> Self {
+        if let ElementKind::HorizontalScroll { drag_pan, .. } = &mut self.kind {
+            *drag_pan = true;
+        }
+        self
+    }
+
     pub fn horizontal_scroll(id: impl Into<String>, child: Element) -> Self {
         Self::new(ElementKind::HorizontalScroll {
             id: id.into(),
             child: Box::new(child),
             reveal: None,
             vertical_wheel: true,
+            drag_pan: false,
         })
     }
 
@@ -1753,6 +1766,7 @@ impl Element {
             child: Box::new(child),
             reveal: None,
             vertical_wheel: false,
+            drag_pan: false,
         })
     }
 
