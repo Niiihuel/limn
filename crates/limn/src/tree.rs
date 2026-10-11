@@ -2815,6 +2815,7 @@ impl UiTree {
                 spinner_started: &mut self.spinner_started,
                 observed_buttons: &mut observed_buttons,
                 hover_surface_fill: None,
+                surface_gaps_lit: self.context_menu.is_none() && self.hovered.is_none(),
                 observed_popovers: &mut observed_popovers,
                 popover_snapshots: &mut current_popover_snapshots,
                 observed_tabs: &mut observed_tabs,
@@ -5454,6 +5455,9 @@ struct LayoutBuilder<'a> {
     observed_buttons: &'a mut HashSet<String>,
     /// The fill of the shared hover surface the pointer is over, if any.
     hover_surface_fill: Option<Color>,
+    /// The pointer is over no control: a shared surface under it stays lit,
+    /// so crossing the gap between two of its actions does not blink.
+    surface_gaps_lit: bool,
     observed_popovers: &'a mut HashSet<String>,
     popover_snapshots: &'a mut HashMap<String, PopoverSnapshot>,
     observed_tabs: &'a mut HashSet<String>,
@@ -7650,7 +7654,12 @@ impl LayoutBuilder<'_> {
             let followed = |target: Option<&str>| {
                 target.is_some_and(|target| actions.iter().any(|action| action == target))
             };
-            if followed(self.hovered) {
+            let in_gap = self.surface_gaps_lit
+                && !actions.is_empty()
+                && self.pointer.is_some_and(|point| {
+                    rect.contains(point) && clip.is_none_or(|clip| clip.contains(point))
+                });
+            if followed(self.hovered) || in_gap {
                 self.hover_surface_fill = style.hover_background;
                 style.background = if followed(self.pressed) {
                     style
@@ -13137,6 +13146,34 @@ mod tests {
             DrawCommand::FillRect { color, rect, .. }
                 if *color == row_hover && rect.width == 100.0
         )));
+    }
+
+    #[test]
+    fn a_shared_surface_stays_lit_in_the_gap_between_its_actions() {
+        let hover = Color::rgb(70, 70, 70);
+        let row = Element::row(vec![
+            Element::clickable("open", Element::spacer()).size(Some(60.0), Some(28.0)),
+            Element::spacer().size(Some(10.0), None),
+            Element::clickable("more", Element::spacer()).size(Some(24.0), Some(24.0)),
+        ])
+        .size(Some(100.0), Some(28.0))
+        .hover_surface("row-surface", ["open", "more"])
+        .hover_background(hover);
+        let mut tree = UiTree::new(Element::column(vec![row, Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let viewport = Size::new(100.0, 80.0);
+        tree.layout(viewport);
+        let lit = |tree: &mut UiTree, point: Point| {
+            tree.handle_event(UiEvent::PointerMove(point));
+            tree.layout(viewport).commands.iter().any(
+                |command| matches!(command, DrawCommand::FillRect { color, .. } if *color == hover),
+            )
+        };
+        // In the 10 px gap no control is under the pointer; the band holds.
+        assert_eq!(tree.layout(viewport).hit_test(Point::new(65.0, 14.0)), None);
+        assert!(lit(&mut tree, Point::new(65.0, 14.0)));
+        // Off the row it goes dark.
+        assert!(!lit(&mut tree, Point::new(65.0, 60.0)));
     }
 
     #[test]
