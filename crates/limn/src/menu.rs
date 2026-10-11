@@ -17,7 +17,7 @@ pub(crate) mod action_style {
     pub(crate) const ROW_HEIGHT: f32 = 26.0;
     pub(crate) const INSET: f32 = 4.0;
     pub(crate) const WIDTH: f32 = 352.0;
-    pub(crate) const MAX_HEIGHT: f32 = 384.0;
+    pub(crate) const MAX_HEIGHT: f32 = 480.0;
     pub(crate) const LABEL_FONT_SIZE: f32 = 13.0;
     pub(crate) const SHORTCUT_FONT_SIZE: f32 = 12.0;
     pub(crate) fn row_radius() -> f32 {
