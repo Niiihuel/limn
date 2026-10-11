@@ -421,6 +421,9 @@ pub struct Element {
     pub(crate) menu_secondary_action: bool,
     pub(crate) draggable: bool,
     pub(crate) sticky_top: Option<StickyTop>,
+    /// Set by [`Element::animate_height`]: the height follows `presence`'s
+    /// ID, and whether it also opens from zero. One byte of existing padding.
+    pub(crate) animate_height: Option<bool>,
     pub(crate) drop_target: bool,
     /// Arrow-key navigation for an inline menu. Its first focusable child is
     /// the trigger; subsequent buttons are options. This does not trap Tab.
@@ -764,6 +767,7 @@ impl Element {
             menu_secondary_action: false,
             draggable: false,
             sticky_top: None,
+            animate_height: None,
             drop_target: false,
             menu_navigation: false,
             context_menu: None,
@@ -852,6 +856,20 @@ impl Element {
     /// [`crate::Ticker`] does, so neither paint leaves the slot.
     pub fn animate_replace(mut self, id: impl Into<String>, key: impl Into<String>) -> Self {
         self.replacement = Some(Box::new((id.into(), key.into())));
+        self
+    }
+
+    /// Keep this element's slot in the flow while its content leaves. When
+    /// its natural height becomes zero, such as a column whose only child is
+    /// no longer rendered, the slot closes over `exit_ms` while the last
+    /// paint fades, clipped to what is left and taking no pointer input.
+    /// With `expand` it also opens from zero over `enter_ms` when content
+    /// arrives in a slot that was rendered empty. Siblings follow the height on every frame. The element must
+    /// stay in the tree, empty, for as long as it may animate: see
+    /// [`crate::Collapse`]. Replaces `animate_enter` on the same element.
+    pub fn animate_height(mut self, id: impl Into<String>, expand: bool) -> Self {
+        self.presence = Some((id.into(), false));
+        self.animate_height = Some(expand);
         self
     }
 

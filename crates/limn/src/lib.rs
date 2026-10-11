@@ -19,6 +19,7 @@ mod code_block;
 mod code_diff;
 mod code_editor;
 mod code_syntax;
+mod collapse;
 mod collapsible;
 mod components;
 mod composer;
@@ -100,6 +101,7 @@ pub use code_block::{CodeBlock, CodeBlockSizing};
 pub use code_diff::{CodeDiff, CodeDiffLine, CodeDiffLineKind};
 pub use code_editor::{CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
 pub use code_syntax::CodeLanguage;
+pub use collapse::Collapse;
 pub use collapsible::{collapse_footer, Collapsible};
 pub use components::{
     ActiveHover, Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component,

@@ -1,6 +1,6 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    Alert, AlertTone, Avatar, Chip, Component, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
+    Alert, AlertTone, Avatar, Chip, Collapse, Component, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
     Spinner, SpinnerVariant, Ticker,
 };
 
@@ -19,6 +19,7 @@ pub fn view(cx: &Cx) -> Element {
         "Listando src/componentes",
     ];
     let step: usize = cx.state.choice("feedback-ticker", "0").parse().unwrap_or(0) % STEPS.len();
+    let collapse_open = cx.state.choice("feedback-collapse", "open") == "open";
     Element::column(vec![
         section(cx, "Avisos", vec![
             alert(AlertTone::Neutral, "Nota", "Un aviso sin urgencia."),
@@ -116,6 +117,33 @@ pub fn view(cx: &Cx) -> Element {
                 .variant(ButtonVariant::Outline)
                 .render()]),
             caption(cx, "El hueco mide siempre dos líneas: lo de abajo no se mueve."),
+        ]),
+        section(cx, "Hueco que se cierra", vec![
+            // No gap around the slot: a gap would vanish in one frame at the end.
+            Element::column(vec![
+                Element::text("Explorando el proyecto").foreground(palette.text).font_family(FontFamily::Sans).font_size(13.0),
+                Collapse::new(
+                    "feedback-collapse-slot",
+                    collapse_open.then(|| {
+                        Element::text("Leyendo README.md\nListando src/componentes")
+                            .foreground(palette.muted)
+                            .font_family(FontFamily::Sans).font_size(13.0)
+                            .padding(6.0)
+                    }),
+                )
+                .expand()
+                .render(),
+                Element::text("Lo que sigue acompaña al hueco.").foreground(palette.text).font_family(FontFamily::Sans).font_size(13.0),
+            ])
+            .size(Some(width.min(336.0)), None),
+            row(vec![Button::new(
+                format!("feedback-collapse={}", if collapse_open { "closed" } else { "open" }),
+                if collapse_open { "Quitar el contenido" } else { "Mostrar el contenido" },
+                palette,
+            )
+            .variant(ButtonVariant::Outline)
+            .render()]),
+            caption(cx, "Al quitarlo, su última imagen se desvanece mientras el hueco se cierra."),
         ]),
         section(cx, "Etiquetas", vec![row(vec![
             Chip::new("rust", palette).render(),

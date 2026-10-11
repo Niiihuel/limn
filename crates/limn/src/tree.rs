@@ -929,6 +929,16 @@ struct Replacement {
     progress: ScalarTransition,
 }
 
+/// An `animate_height` slot: the share of its content's height it occupies,
+/// and the last paint of that content for when it has left.
+struct FlowHeight {
+    fraction: ScalarTransition,
+    natural: f32,
+    rect: Rect,
+    commands: Vec<DrawCommand>,
+    seen: Instant,
+}
+
 struct PopoverExit {
     paint: PopoverSnapshot,
     opacity: ScalarTransition,
@@ -2104,6 +2114,8 @@ pub struct UiTree {
     popover_snapshots: HashMap<String, PopoverSnapshot>,
     popover_exits: HashMap<String, PopoverExit>,
     replacements: HashMap<String, Replacement>,
+    // Measuring reads and starts these, and measuring borrows the tree shared.
+    flow_heights: RefCell<HashMap<String, FlowHeight>>,
     popover_view_transitions: HashMap<String, PopoverViewTransition>,
     tab_indicators: HashMap<String, TabIndicatorState>,
     skeleton_started: HashMap<String, Instant>,
@@ -2167,6 +2179,7 @@ impl UiTree {
             popover_snapshots: HashMap::new(),
             popover_exits: HashMap::new(),
             replacements: HashMap::new(),
+            flow_heights: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
             tab_indicators: HashMap::new(),
             skeleton_started: HashMap::new(),
@@ -2410,6 +2423,7 @@ impl UiTree {
             self.popover_snapshots.clear();
             self.popover_exits.clear();
             self.replacements.clear();
+            self.flow_heights.get_mut().clear();
             self.popover_view_transitions.clear();
             self.tab_indicators.clear();
             self.skeleton_started.clear();
@@ -2506,6 +2520,11 @@ impl UiTree {
                 .replacements
                 .values()
                 .any(|state| state.progress.is_active(now))
+            || self
+                .flow_heights
+                .borrow()
+                .values()
+                .any(|state| state.fraction.is_active(now))
             || self
                 .popover_view_transitions
                 .values()
@@ -2681,6 +2700,7 @@ impl UiTree {
                 width_cache: &self.width_cache,
                 formatted_cache: &self.formatted_cache,
                 measurement_cache: &self.measurement_cache,
+                flow_heights: &self.flow_heights,
                 measurement_scope: 0,
                 next_measurement_scope: 0,
                 horizontal_scrolls: &mut self.horizontal_scrolls,
@@ -2731,6 +2751,7 @@ impl UiTree {
                 observed_spinners: &mut observed_spinners,
                 observed_sliders: &mut observed_sliders,
                 reduced_motion: self.reduced_motion,
+                locating: probe.is_some(),
                 now,
             };
             builder.place(&self.root, viewport_rect, None);
@@ -3162,6 +3183,18 @@ impl UiTree {
             .retain(|id, _| observed_popovers.contains(id));
         self.replacements
             .retain(|id, _| observed_replacements.contains(id));
+        // A slot is remembered while it is rendered, empty or not: content
+        // that arrives in one seen empty is what `expand` opens.
+        self.flow_heights.get_mut().retain(|_, state| {
+            if !state.fraction.is_active(now) {
+                // At rest by this frame's clock, whatever clock is read later.
+                state.fraction = ScalarTransition::new(state.fraction.target(), now);
+                if state.fraction.target() <= 0.0 {
+                    state.commands.clear();
+                }
+            }
+            state.seen == now
+        });
         self.popover_view_transitions.retain(|id, state| {
             observed_popovers.contains(id)
                 && (state.opacity.is_active(now) || state.height.is_active(now))
@@ -5140,6 +5173,7 @@ struct LayoutBuilder<'a> {
     width_cache: &'a RefCell<TextWidthCache>,
     formatted_cache: &'a RefCell<FormattedTextCache>,
     measurement_cache: &'a RefCell<MeasurementCache>,
+    flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     measurement_scope: u64,
     next_measurement_scope: u64,
     horizontal_scrolls: &'a mut HashMap<String, HorizontalScrollState>,
@@ -5186,6 +5220,9 @@ struct LayoutBuilder<'a> {
     observed_spinners: &'a mut HashSet<String>,
     observed_sliders: &'a mut HashSet<String>,
     reduced_motion: bool,
+    /// A control is being scrolled into view, which needs the layout an
+    /// opening `animate_height` slot ends at.
+    locating: bool,
     now: Instant,
 }
 
@@ -6519,6 +6556,107 @@ impl LayoutBuilder<'_> {
     }
 
     fn measure(&self, element: &Element, available: Size) -> Size {
+        let mut size = self.measure_natural(element, available);
+        if let (Some(expand), Some((id, _))) = (element.animate_height, &element.presence) {
+            size.height = self.flow_height(id, expand, size.height);
+        }
+        size
+    }
+
+    /// The height an `animate_height` slot occupies now, given its content's.
+    /// Starts or reverses its transition when the content arrives or leaves.
+    fn flow_height(&self, id: &str, expand: bool, natural: f32) -> f32 {
+        if self.reduced_motion {
+            return natural;
+        }
+        let now = self.now;
+        let present = natural > 0.0;
+        let mut states = self.flow_heights.borrow_mut();
+        // Content already there when the slot is first seen is simply there.
+        let state = states.entry(id.to_owned()).or_insert_with(|| FlowHeight {
+            fraction: ScalarTransition::new(if present { 1.0 } else { 0.0 }, now),
+            natural,
+            rect: Rect::new(0.0, 0.0, 0.0, 0.0),
+            commands: Vec::new(),
+            seen: now,
+        });
+        state.seen = now;
+        let motion = crate::tokens().motion;
+        let (target, duration) = if present {
+            state.natural = natural;
+            (1.0, motion.enter_ms)
+        } else {
+            (0.0, motion.exit_ms)
+        };
+        if state.fraction.target() != target {
+            if present && (!expand || self.locating) && state.fraction.value(now) <= 0.0 {
+                state.fraction = ScalarTransition::new(1.0, now);
+            } else {
+                state
+                    .fraction
+                    .retarget(target, now, Duration::from_millis(u64::from(duration)));
+            }
+        }
+        state.natural * state.fraction.value(now)
+    }
+
+    /// Place an `animate_height` element in a slot that may be shorter than
+    /// its content: clipped to the slot and faded, or, once the content has
+    /// left, its last paint alone, with no regions.
+    fn place_flow_height(&mut self, element: &Element, id: &str, rect: Rect, clip: Option<Rect>) {
+        if self.reduced_motion {
+            return self.place_inner(element, rect, clip);
+        }
+        if self.flow_heights.borrow().get(id).is_none_or(|state| state.seen != self.now) {
+            // A parent that sizes its child without measuring it.
+            self.measure(element, Size::new(rect.width, rect.height));
+        }
+        let now = self.now;
+        let Some((fraction, natural, present)) = self.flow_heights.borrow().get(id).map(|state| {
+            (state.fraction.value(now), state.natural, state.fraction.target() > 0.0)
+        }) else {
+            return self.place_inner(element, rect, clip);
+        };
+        let start = self.frame.commands.len();
+        if present && fraction >= 1.0 {
+            self.place_inner(element, rect, clip);
+            if let Some(state) = self.flow_heights.borrow_mut().get_mut(id) {
+                state.rect = rect;
+                state.commands = self.frame.commands[start..].to_vec();
+            }
+            return;
+        }
+        let slot = clip
+            .map_or(Some(rect), |clip| rect.intersection(clip))
+            .filter(|slot| slot.height > 0.0);
+        let origin = Point::new(rect.x, rect.y);
+        if present {
+            let full = Rect::new(rect.x, rect.y, rect.width, natural);
+            self.frame.commands.push(DrawCommand::PushClip(slot.unwrap_or(Rect::new(rect.x, rect.y, 0.0, 0.0))));
+            let inner = self.frame.commands.len();
+            self.place_inner(element, full, slot.or(Some(Rect::new(rect.x, rect.y, 0.0, 0.0))));
+            if let Some(state) = self.flow_heights.borrow_mut().get_mut(id) {
+                state.rect = full;
+                state.commands = self.frame.commands[inner..].to_vec();
+            }
+            for command in &mut self.frame.commands[inner..] {
+                animate_popover_command(command, fraction, 0.0, 1.0, origin);
+            }
+            self.frame.commands.push(DrawCommand::PopClip);
+        } else if let (Some(slot), Some(state)) = (slot, self.flow_heights.borrow().get(id)) {
+            self.frame.commands.push(DrawCommand::PushClip(slot));
+            // The slot may have scrolled since the paint was recorded.
+            let slide = rect.y - state.rect.y;
+            for command in &state.commands {
+                let mut command = command.clone();
+                animate_popover_command(&mut command, fraction, slide, 1.0, origin);
+                self.frame.commands.push(command);
+            }
+            self.frame.commands.push(DrawCommand::PopClip);
+        }
+    }
+
+    fn measure_natural(&self, element: &Element, available: Size) -> Size {
         let style = element.style;
         // Explicit dimensions discard natural dimensions. Avoid recursively
         // measuring an entire toolbar/panel whose final size is already known.
@@ -6895,8 +7033,11 @@ impl LayoutBuilder<'_> {
             && self.drag_source.is_some()
             && focusable_id(element) == self.drag_source;
         let start = self.frame.commands.len();
-        self.place_inner(element, rect, clip);
-        if let Some((id, leaves)) = &element.presence {
+        match (&element.presence, element.animate_height) {
+            (Some((id, _)), Some(_)) => self.place_flow_height(element, id, rect, clip),
+            _ => self.place_inner(element, rect, clip),
+        }
+        if let Some((id, leaves)) = element.presence.as_ref().filter(|_| element.animate_height.is_none()) {
             self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);
         }
         if let Some(replacement) = &element.replacement {

@@ -13,7 +13,9 @@ own content, and how to switch movement off.
   not restarted by an unrelated change.
 - **Animation never changes behavior.** Layout, hit testing and focus use the
   final state at once. A closing menu stops receiving clicks the moment it
-  closes, while its picture is still fading.
+  closes, while its picture is still fading. The one exception is the height
+  of a [`Collapse`](#content-in-the-flow-that-leaves), which layout follows
+  while it closes; hit testing still ends at once.
 - **Four durations cover everything.** A component takes one of them instead
   of inventing a number, so the same kind of change always takes the same
   time. See [Tokens](tokens.md#motion).
@@ -32,6 +34,7 @@ own content, and how to switch movement off.
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `Switch` | The thumb springs across. | | `move_ms` |
 | `Stepper` | The badge cross-fades between active and inactive. | | `move_ms` |
+| Content of a `Collapse` | Takes its height at once, or with `.expand()` opens from zero and fades in. | The slot closes while the last paint fades, clipped to what is left. What follows moves with it. | `enter_ms`, `exit_ms` |
 | Line of a `Ticker` | Rises into place from its own height below. | Moves up by the same distance and fades, clipped by the slot. | `move_ms` |
 
 Continuous indicators run on fixed periods and are not transitions: `Spinner`,
@@ -39,7 +42,8 @@ Continuous indicators run on fixed periods and are not transitions: `Spinner`,
 
 ### Not animated
 
-- The height of a `Collapsible`. The content below it moves at once.
+- The height of a `Collapsible`. The content below it moves at once. Use a
+  `Collapse` where that matters.
 - A value changing in `Progress`. The fill jumps to the new fraction.
 
 ## Switching motion off
@@ -120,6 +124,33 @@ place at once, and a fading ghost on top of them looks wrong.
 Both take an ID. Give two elements the same ID only if they are the same thing
 in two states.
 
+### Content in the flow that leaves
+
+```rust
+let live = Collapse::new("run-live", running.then(|| ticker)).render();
+```
+
+Render the `Collapse` every frame and pass the content while there is any.
+When the content stops being passed, the slot stays in the flow and closes
+over `exit_ms`, so what follows glides up instead of jumping by the content's
+height. The last paint of the content fades, clipped to what is left of the
+slot. It is paint only: its controls stop taking input the moment it leaves.
+
+| | |
+| --- | --- |
+| `.expand()` | Also opens from zero over `enter_ms` when content arrives in a slot that was rendered empty, fading in, with its controls reachable where the slot shows them. Without it, arriving content takes its height at once. Content already there when the slot first appears, such as on the first frame of a page, is shown at its height either way. |
+| Content that returns while the slot is closing | Reopens from the height it has reached. |
+| Content that changes height while present | Followed at once. Only arriving and leaving animate. |
+| Reduced motion | The slot opens and closes at once. |
+| `reveal` or a focus that scrolls, in the same frame | An arriving slot opens at once, so the control is scrolled to where it ends up. |
+| A `gap` on the parent column | Still surrounds the empty slot. Put the spacing inside the content, where it closes with it. |
+| Inside a scroll area | The scroll offset is not changed. Content after the slot moves up by the closing height over `exit_ms`, also when the slot is above the viewport: what is on screen glides instead of jumping, and it ends where an immediate removal would have put it. An area scrolled to its end stays within its range on every frame. |
+
+`Element::animate_height(id, expand)` is the same for an element of your own
+whose natural height becomes zero, such as a column you empty. The element
+must stay in the tree while it closes; one that is removed outright is gone
+at once.
+
 ### An element that replaces another
 
 ```rust
@@ -196,7 +227,8 @@ released drag carries on instead of restarting from rest.
 1. Pick the duration by what kind of change it is, from
    `limn::tokens().motion`. Do not write a number.
 2. Use the mechanism that already exists: a popover for anything anchored and
-   dismissible, `animate_enter` or `animate_presence` for content,
+   dismissible, `animate_enter` or `animate_presence` for content, `Collapse`
+   for content in the flow whose leaving would make its neighbours jump,
    `transition_ms` for a fill, a tab strip's selection for an indicator that
    travels between positions.
 3. Check it under `set_reduced_motion(true)`: it must reach its final state on
