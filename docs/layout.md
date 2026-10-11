@@ -111,6 +111,26 @@ and a size with `.font_size(px)`.
 `.clip_children()` keeps a container's descendants, and their click targets,
 inside its bounds.
 
+### Sticky children
+
+A child of a column inside a scroll area can stay in view while the rows
+after it scroll, like a section header.
+
+| Builder | Effect |
+| --- | --- |
+| `.sticky_top()` | Once scrolled past the top of the viewport, the child is drawn there until the next sticky child of the same column pushes it out, or its column ends. |
+| `.sticky_top_inset(px)` | Pins it that far below the top of the viewport. |
+| `.sticky_top_max_height(px)` | While pinned, its bottom edge follows the scroll until `px` of height is left. What no longer fits is clipped and fades into the child's `background`. |
+
+The pinned child paints above the content passing under it and above the
+scroll area's own fades, and takes clicks where it is drawn; its passive
+parts block the rows beneath. The column's height and the scroll range do
+not change. Give the child an opaque `background`, or the rows show through.
+
+Limits: one child is pinned per column at a time. `reveal` does not account
+for a pinned child, so pass `reveal_with_margin` its height when a control
+could land under it. Uniform lists have no sticky rows.
+
 ### Scrolling from the host
 
 The tree keeps each scroll area's offset. The host moves it with a request

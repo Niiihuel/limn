@@ -1,0 +1,157 @@
+use super::*;
+
+const SIZE: Size = Size::new(100.0, 100.0);
+
+/// Three sections of a 20 px header and five 20 px rows.
+fn sections(sticky: bool, interactive: bool) -> Element {
+    let mut children = Vec::new();
+    for section in 0..3 {
+        let header = if interactive {
+            Element::button(format!("h{section}"), "Header").size(None, Some(20.0))
+        } else {
+            Element::text("Header").size(None, Some(20.0))
+        };
+        children.push(if sticky { header.sticky_top() } else { header });
+        for row in 0..5 {
+            children.push(Element::button(format!("r{section}_{row}"), "Row").size(None, Some(20.0)));
+        }
+    }
+    Element::scroll("list", Element::column(children))
+}
+
+fn scrolled(root: Element, offset: f32) -> Frame {
+    let mut tree = UiTree::new(root);
+    tree.set_reduced_motion(true);
+    tree.layout(SIZE);
+    tree.handle_event(UiEvent::ScrollDirect {
+        position: Point::new(5.0, 5.0),
+        delta_y: -offset,
+    });
+    tree.layout(SIZE)
+}
+
+fn top_of(frame: &Frame, id: &str) -> Option<f32> {
+    frame.regions.iter().rev().find(|region| region.id == id).map(|region| region.rect.y)
+}
+
+#[test]
+fn sticky_child_at_its_natural_position_changes_nothing() {
+    assert_eq!(scrolled(sections(true, true), 0.0), scrolled(sections(false, true), 0.0));
+}
+
+#[test]
+fn sticky_child_pins_to_the_viewport_top_and_takes_clicks_there() {
+    let frame = scrolled(sections(true, true), 50.0);
+    assert_eq!(top_of(&frame, "h0"), Some(0.0));
+    // The row passing under it is still laid out, but the header wins.
+    assert_eq!(frame.hit_test(Point::new(5.0, 5.0)), Some("h0"));
+    assert_eq!(frame.hit_test(Point::new(5.0, 25.0)), Some("r0_2"));
+    assert_eq!(frame.regions.iter().filter(|region| region.id == "h0").count(), 1);
+    // It is painted after every row, so it covers them.
+    let plain = scrolled(sections(false, true), 50.0);
+    assert!(frame.commands.len() > plain.commands.len());
+}
+
+#[test]
+fn next_sticky_child_pushes_the_pinned_one_out_then_takes_its_place() {
+    let frame = scrolled(sections(true, true), 110.0);
+    assert_eq!(top_of(&frame, "h1"), Some(10.0));
+    assert_eq!(frame.hit_test(Point::new(5.0, 5.0)), Some("h0"));
+    assert_eq!(frame.hit_test(Point::new(5.0, 15.0)), Some("h1"));
+
+    let frame = scrolled(sections(true, true), 130.0);
+    assert_eq!(top_of(&frame, "h1"), Some(0.0));
+    assert_eq!(top_of(&frame, "h0"), None);
+}
+
+#[test]
+fn passive_sticky_child_blocks_the_rows_under_it() {
+    let frame = scrolled(sections(true, false), 50.0);
+    assert_eq!(frame.hit_test(Point::new(5.0, 5.0)), Some("list"));
+    assert_eq!(frame.hit_test(Point::new(5.0, 25.0)), Some("r0_2"));
+}
+
+#[test]
+fn sticky_children_leave_the_scroll_range_alone() {
+    for offset in [0.0, 50.0, 130.0, 1000.0] {
+        let sticky = scrolled(sections(true, true), offset);
+        let plain = scrolled(sections(false, true), offset);
+        assert_eq!(sticky.scroll_extents, plain.scroll_extents);
+        assert_eq!(top_of(&sticky, "r2_4"), top_of(&plain, "r2_4"));
+    }
+}
+
+#[test]
+fn sticky_child_outside_a_scroll_area_is_an_ordinary_child() {
+    let column = |sticky: bool| {
+        let header = Element::button("h", "Header").size(None, Some(20.0));
+        Element::column(vec![if sticky { header.sticky_top() } else { header }])
+    };
+    let mut sticky = UiTree::new(column(true));
+    let mut plain = UiTree::new(column(false));
+    assert_eq!(sticky.layout(SIZE), plain.layout(SIZE));
+}
+
+#[test]
+fn capped_sticky_child_shrinks_with_the_scroll_down_to_its_cap() {
+    let root = || {
+        Element::scroll(
+            "list",
+            Element::column(vec![
+                Element::button("tall", "Tall")
+                    .size(None, Some(80.0))
+                    .background(Color::rgb(20, 20, 20))
+                    .sticky_top_max_height(30.0),
+                Element::button("rest", "Rest").size(None, Some(400.0)),
+            ]),
+        )
+    };
+    let rect = |offset| {
+        let frame = scrolled(root(), offset);
+        let region = frame.regions.iter().rev().find(|region| region.id == "tall").unwrap();
+        (region.rect.y, region.rect.height, frame)
+    };
+    let (y, height, frame) = rect(20.0);
+    assert_eq!((y, height), (0.0, 60.0));
+    assert_eq!(frame.hit_test(Point::new(5.0, 70.0)), Some("rest"));
+    assert!(frame
+        .commands
+        .iter()
+        .any(|command| matches!(command, DrawCommand::FillVerticalGradient { .. })));
+
+    let (y, height, frame) = rect(200.0);
+    assert_eq!((y, height), (0.0, 30.0));
+    assert_eq!(frame.hit_test(Point::new(5.0, 35.0)), Some("rest"));
+    // Invalid caps are ignored.
+    assert_eq!(Element::spacer().sticky_top_max_height(f32::NAN).sticky_top, None);
+    assert_eq!(Element::spacer().sticky_top_inset(-4.0).sticky_top, None);
+    assert_eq!(Element::spacer().sticky_top_max_height(-1.0).sticky_top, None);
+    assert_eq!(Element::spacer().sticky_top_max_height(0.2).sticky_top, None);
+}
+
+#[test]
+fn pinned_child_keeps_its_inset_and_paints_above_the_scroll_fade() {
+    let mut children = vec![Element::button("h", "Header").size(None, Some(20.0)).sticky_top_inset(6.0)];
+    children.extend((0..10).map(|row| Element::button(format!("r{row}"), "Row").size(None, Some(20.0))));
+    let root = Element::scroll("list", Element::column(children)).top_fade(Color::rgb(20, 20, 20), 12.0);
+    let frame = scrolled(root, 50.0);
+    assert_eq!(top_of(&frame, "h"), Some(6.0));
+    let fade = frame
+        .commands
+        .iter()
+        .position(|command| matches!(command, DrawCommand::FillVerticalGradient { .. }))
+        .expect("the scrolled area fades its top");
+    let header = frame
+        .commands
+        .iter()
+        .rposition(|command| matches!(command, DrawCommand::Text { text, .. } if text == "Header"))
+        .expect("the pinned header is painted");
+    assert!(header > fade);
+    // Pushes and pops stay balanced around the deferred child.
+    let depth = frame.commands.iter().fold(0_i32, |depth, command| match command {
+        DrawCommand::PushClip(_) => depth + 1,
+        DrawCommand::PopClip => depth - 1,
+        _ => depth,
+    });
+    assert_eq!(depth, 0);
+}
