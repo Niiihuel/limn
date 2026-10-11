@@ -22,6 +22,7 @@ mod preferences;
 mod scheme;
 mod tokens;
 mod tooltip;
+mod tour;
 mod typography;
 
 pub struct Page {
@@ -51,6 +52,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "overlays", group: "Superposiciones", title: "Menús y diálogos", view: overlays::view },
     Page { id: "menus", group: "Superposiciones", title: "Selectores y sugerencias", view: menus::view },
     Page { id: "tooltip", group: "Superposiciones", title: "Tooltip", view: tooltip::view },
+    Page { id: "tour", group: "Superposiciones", title: "Recorrido guiado", view: tour::view },
 ];
 
 /// The page with this ID, or the first one for an ID that no longer exists
@@ -59,7 +61,10 @@ pub fn find(id: &str) -> &'static Page {
     PAGES.iter().find(|page| page.id == id).unwrap_or(&PAGES[0])
 }
 
-pub use overlays::layers;
+/// Wrap the window in the layers the pages control.
+pub fn layers(cx: &Cx, base: Element) -> Element {
+    tour::layer(cx, overlays::layers(cx, base))
+}
 
 /// What a page needs to draw itself.
 pub struct Cx<'a> {

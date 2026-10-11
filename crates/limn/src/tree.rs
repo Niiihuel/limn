@@ -6,6 +6,9 @@ mod corner_mask_tree;
 #[cfg(test)]
 #[path = "popover_initial_focus_tests.rs"]
 mod popover_initial_focus_tests;
+#[cfg(test)]
+#[path = "coach_mark_tests.rs"]
+mod coach_mark_tests;
 
 #[cfg(test)]
 #[path = "drag_drop_tests.rs"]
@@ -24,7 +27,7 @@ use std::time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::element::UniformList;
+use crate::element::{CoachAlign, CoachAnchor, CoachSide, UniformList};
 use crate::motion::{
     skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
 };
@@ -420,14 +423,15 @@ pub enum DrawCommand {
 }
 
 impl DrawCommand {
-    /// A translated, slightly translucent copy for a drag preview.
-    fn ghost(&self, dx: f32, dy: f32) -> Self {
-        const OPACITY: f32 = 0.8;
-        let fade = |color: &mut Color| color.a = (f32::from(color.a) * OPACITY).round() as u8;
+    /// A translated copy at `opacity` of its own: a drag preview, or a
+    /// surface on its way to where it is laid out.
+    fn moved(&self, dx: f32, dy: f32, opacity: f32) -> Self {
+        let fade = |color: &mut Color| color.a = (f32::from(color.a) * opacity).round() as u8;
         let shift = |rect: &mut Rect| {
             rect.x += dx;
             rect.y += dy;
         };
+        let opacity_factor = opacity;
         let mut ghost = self.clone();
         match &mut ghost {
             Self::Shadow { rect, shadow, .. } => {
@@ -460,7 +464,7 @@ impl DrawCommand {
             }
             Self::RasterImage { rect, opacity, .. } | Self::EffortSlider { rect, opacity, .. } => {
                 shift(rect);
-                *opacity *= OPACITY;
+                *opacity *= opacity_factor;
             }
             Self::SelectionContour { points, color } => {
                 *points = points
@@ -824,6 +828,36 @@ pub struct Frame {
     inline_menu_focus: Vec<InlineMenuFocusScope>,
     virtual_lists: HashMap<String, VirtualListFocus>,
     context_menu_regions: Vec<ContextMenuRegion>,
+    coach: Option<CoachFrame>,
+}
+
+/// The coach mark rendered this frame, laid out or not.
+#[derive(Clone, Debug, PartialEq)]
+struct CoachFrame {
+    key: String,
+    target: String,
+    focus: Option<String>,
+    missing: bool,
+}
+
+/// Where a coach mark's ring and bubble are painted while they travel to a
+/// new step's target: the ring's rectangle and the bubble's origin.
+#[derive(Debug)]
+struct CoachMotion {
+    key: String,
+    values: [ScalarSpring; 6],
+}
+
+impl Frame {
+    /// The target of a coach mark that was rendered but could not be placed:
+    /// no control with that ID is laid out in view, so nothing was painted.
+    /// The host moves on to another step.
+    pub fn missing_coach_target(&self) -> Option<&str> {
+        self.coach
+            .as_ref()
+            .filter(|coach| coach.missing)
+            .map(|coach| coach.target.as_str())
+    }
 }
 
 /// Read-only diagnostic copy of laid-out text, including wrapped runs and
@@ -864,6 +898,8 @@ struct PopoverFocusScope {
     return_focus: Option<String>,
     submenu: bool,
     modal: bool,
+    /// A coach mark's actions for the Left and Right arrow keys.
+    arrows: Option<(Option<String>, Option<String>)>,
 }
 
 /// Height of the fade at the cut of a capped `sticky_top` child.
@@ -2136,6 +2172,9 @@ pub struct UiTree {
     // Measuring reads and starts these, and measuring borrows the tree shared.
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
     popover_view_transitions: HashMap<String, PopoverViewTransition>,
+    coach_motion: Option<CoachMotion>,
+    /// The coach mark step whose target has been revealed and focused.
+    coach_key: Option<String>,
     tab_indicators: HashMap<String, TabIndicatorState>,
     skeleton_started: HashMap<String, Instant>,
     shimmer_started: HashMap<String, Instant>,
@@ -2200,6 +2239,8 @@ impl UiTree {
             replacements: HashMap::new(),
             flow_heights: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
+            coach_motion: None,
+            coach_key: None,
             tab_indicators: HashMap::new(),
             skeleton_started: HashMap::new(),
             shimmer_started: HashMap::new(),
@@ -2444,6 +2485,7 @@ impl UiTree {
             self.replacements.clear();
             self.flow_heights.get_mut().clear();
             self.popover_view_transitions.clear();
+            self.coach_motion = None;
             self.tab_indicators.clear();
             self.skeleton_started.clear();
             self.shimmer_started.clear();
@@ -2548,6 +2590,10 @@ impl UiTree {
                 .popover_view_transitions
                 .values()
                 .any(|state| state.opacity.is_active(now) || state.height.is_active(now))
+            || self
+                .coach_motion
+                .as_ref()
+                .is_some_and(|state| state.values.iter().any(|value| value.is_active(now)))
             || self
                 .tab_indicators
                 .values()
@@ -2756,6 +2802,7 @@ impl UiTree {
                 observed_replacements: &mut observed_replacements,
                 previous_popover_snapshots: &self.popover_snapshots,
                 popover_view_transitions: &mut self.popover_view_transitions,
+                coach_motion: &mut self.coach_motion,
                 tab_indicators: &mut self.tab_indicators,
                 skeleton_started: &mut self.skeleton_started,
                 shimmer_started: &mut self.shimmer_started,
@@ -2791,7 +2838,7 @@ impl UiTree {
                     }
                     DeferredOverlay::Anchored {
                         mut floating,
-                        anchor,
+                        mut anchor,
                         dismiss_id,
                         placement,
                         gap,
@@ -2807,8 +2854,43 @@ impl UiTree {
                         scrim,
                         initial_focus,
                         return_focus,
+                        coach,
                     } => {
-                        let scrim_index = scrim.map(|color| {
+                        let coach = coach.as_deref();
+                        if let Some(coach) = coach {
+                            // Every control of the base tree is laid out by
+                            // now, wherever it was built.
+                            let target = builder
+                                .frame
+                                .regions
+                                .iter()
+                                .filter(|region| coach.targets.contains(&region.id))
+                                .filter_map(|region| region.rect.intersection(viewport_rect))
+                                .reduce(|a, b| {
+                                    let (x, y) = (a.x.min(b.x), a.y.min(b.y));
+                                    Rect::new(
+                                        x,
+                                        y,
+                                        (a.x + a.width).max(b.x + b.width) - x,
+                                        (a.y + a.height).max(b.y + b.height) - y,
+                                    )
+                                });
+                            builder.frame.coach = Some(CoachFrame {
+                                key: coach.key.clone(),
+                                target: coach.targets.first().cloned().unwrap_or_default(),
+                                focus: initial_focus.clone(),
+                                missing: target.is_none(),
+                            });
+                            let Some(target) = target else {
+                                // Nothing to point at: no bubble adrift in a
+                                // corner, and the window stays usable.
+                                builder.measurement_scope = previous_scope;
+                                continue;
+                            };
+                            anchor = target;
+                        }
+                        // A coach mark dims around its target, further down.
+                        let scrim_index = scrim.filter(|_| coach.is_none()).map(|color| {
                             builder.frame.commands.push(DrawCommand::FillRect {
                                 rect: viewport_rect,
                                 color,
@@ -2836,6 +2918,7 @@ impl UiTree {
                                 return_focus,
                                 submenu: !backdrop,
                                 modal: scrim.is_some(),
+                                arrows: coach.map(|coach| (coach.back.clone(), coach.next.clone())),
                             });
                         }
                         // Measure wrapped content at the width the viewport
@@ -2848,7 +2931,15 @@ impl UiTree {
                             &floating,
                             Size::new((viewport.width - 16.0).max(0.0), f32::INFINITY),
                         );
-                        let rect = place_popover(anchor, measured, viewport_rect, placement, gap);
+                        let (rect, coach_side) = match coach {
+                            Some(coach) => {
+                                place_coach(anchor, measured, viewport_rect, coach.side, coach.align)
+                            }
+                            None => (
+                                place_popover(anchor, measured, viewport_rect, placement, gap),
+                                None,
+                            ),
+                        };
                         builder.observed_popovers.insert(dismiss_id.clone());
                         builder.frame.regions.push(HitRegion {
                             id: format!("popover_surface:{dismiss_id}"),
@@ -2893,7 +2984,56 @@ impl UiTree {
                             find_focus_path(&floating, id, &mut floating_path);
                             builder.focus_path.extend(floating_path);
                         }
+                        let mut travel = (0.0, 0.0);
+                        if let Some(coach) = coach {
+                            let radius = coach
+                                .targets
+                                .iter()
+                                .find_map(|id| find_radius(&self.root, id))
+                                .unwrap_or(crate::tokens().radius.control);
+                            let ring = Rect::new(
+                                anchor.x - COACH_RING_GAP,
+                                anchor.y - COACH_RING_GAP,
+                                anchor.width + COACH_RING_GAP * 2.0,
+                                anchor.height + COACH_RING_GAP * 2.0,
+                            );
+                            let (ring, offset) = builder.coach_travel(&coach.key, ring, rect);
+                            travel = offset;
+                            if let Some(color) = coach.dim {
+                                let right = ring.x + ring.width;
+                                let bottom = ring.y + ring.height;
+                                // Four rectangles around the target: no mask
+                                // and no second pass over what is behind.
+                                for rect in [
+                                    Rect::new(0.0, 0.0, viewport.width, ring.y),
+                                    Rect::new(0.0, bottom, viewport.width, viewport.height - bottom),
+                                    Rect::new(0.0, ring.y, ring.x, ring.height),
+                                    Rect::new(right, ring.y, viewport.width - right, ring.height),
+                                ] {
+                                    if rect.width > 0.0 && rect.height > 0.0 {
+                                        builder.frame.commands.push(DrawCommand::FillRect {
+                                            rect,
+                                            color,
+                                            radius: 0.0,
+                                        });
+                                    }
+                                }
+                            }
+                            builder.frame.commands.push(DrawCommand::StrokeRect {
+                                rect: ring,
+                                color: coach.fill,
+                                width: COACH_RING_WIDTH,
+                                radius: radius + COACH_RING_GAP,
+                            });
+                        }
+                        let bubble_start = builder.frame.commands.len();
                         builder.place(&floating, rect, Some(viewport_rect));
+                        if let (Some(coach), Some(side)) = (coach, coach_side) {
+                            builder.frame.commands.push(DrawCommand::FillTriangle {
+                                points: coach_caret(anchor, rect, side),
+                                color: coach.fill,
+                            });
+                        }
                         let slide_sign = if rect.y >= anchor.y + anchor.height {
                             1.0
                         } else {
@@ -2932,7 +3072,9 @@ impl UiTree {
                                 view_key: view_key.clone(),
                                 rect,
                                 slide_sign,
-                                scrim: scrim.map(|color| (viewport_rect, color)),
+                                scrim: scrim
+                                    .filter(|_| coach.is_none())
+                                    .map(|color| (viewport_rect, color)),
                             },
                         );
                         if let Some(transition) = builder
@@ -3002,8 +3144,17 @@ impl UiTree {
                             let scale = open_scale + (1.0 - open_scale) * progress;
                             let origin =
                                 Point::new(rect.x + rect.width / 2.0, rect.y + rect.height);
-                            for command in &mut builder.frame.commands[command_start..] {
+                            for (index, command) in
+                                builder.frame.commands[command_start..].iter_mut().enumerate()
+                            {
+                                // A coach mark's ring stays on its target.
+                                let slide = if command_start + index < bubble_start { 0.0 } else { slide };
                                 animate_popover_command(command, progress, slide, scale, origin);
+                            }
+                        }
+                        if travel != (0.0, 0.0) {
+                            for command in &mut builder.frame.commands[bubble_start..] {
+                                *command = command.moved(travel.0, travel.1, 1.0);
                             }
                         }
                     }
@@ -3079,7 +3230,7 @@ impl UiTree {
             let (dx, dy) = (pointer.x - drag.origin.x, pointer.y - drag.origin.y);
             frame
                 .commands
-                .extend(drag.ghost.iter().map(|command| command.ghost(dx, dy)));
+                .extend(drag.ghost.iter().map(|command| command.moved(dx, dy, 0.8)));
         }
         // Stable focus IDs may represent different virtual results after an
         // asynchronous refresh. Keep focus, but do not transfer a held press
@@ -3214,6 +3365,9 @@ impl UiTree {
             }
             state.seen == now
         });
+        if frame.coach.as_ref().is_none_or(|coach| coach.missing) {
+            self.coach_motion = None;
+        }
         self.popover_view_transitions.retain(|id, state| {
             observed_popovers.contains(id)
                 && (state.opacity.is_active(now) || state.height.is_active(now))
@@ -3329,6 +3483,22 @@ impl UiTree {
             // The frame now records this scope, so the second layout
             // paints its focused field without applying initial focus again.
             return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
+        }
+        // A coach mark on a new step: scroll its target into view and put
+        // focus on the step's primary action, once.
+        let coach = self.frame.coach.as_ref();
+        if coach.map(|coach| &coach.key) != self.coach_key.as_ref() {
+            self.coach_key = coach.map(|coach| coach.key.clone());
+            if let Some(coach) = coach {
+                let focus = coach.focus.clone().filter(|id| {
+                    !coach.missing && self.focus_order.iter().any(|(candidate, _)| candidate == id)
+                });
+                self.pending_reveal = Some((coach.target.clone(), REVEAL_MARGIN));
+                if focus.is_some() {
+                    self.focused = focus;
+                }
+                return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
+            }
         }
         // A pending focus was this layout's probe; a reveal waits its turn.
         let located = match self.pending_scroll_focus.take() {
@@ -4461,6 +4631,12 @@ impl UiTree {
                     self.keyboard_tooltip_focus = true;
                 } else if !shift
                     && !ctrl
+                    && matches!(key, Key::ArrowLeft | Key::ArrowRight)
+                    && self.step_coach(key, &mut actions)
+                {
+                    self.keyboard_focus = true;
+                } else if !shift
+                    && !ctrl
                     && matches!(key, Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End)
                     && self.step_slider(key, &mut actions)
                 {
@@ -4865,6 +5041,18 @@ impl UiTree {
         true
     }
 
+    /// Left and Right walk a coach mark's steps, whichever of its buttons
+    /// has focus. A step with no action in that direction keeps the key.
+    fn step_coach(&mut self, key: Key, actions: &mut Vec<UiAction>) -> bool {
+        let Some((back, next)) = self.active_popover_scope().and_then(|scope| scope.arrows.clone())
+        else {
+            return false;
+        };
+        let id = if key == Key::ArrowLeft { back } else { next };
+        actions.extend(id.map(|id| UiAction::Clicked { id }));
+        true
+    }
+
     fn step_popover_option(&mut self, key: Key) -> bool {
         if key == Key::ArrowRight {
             if let Some((trigger, target)) = self.focused.as_ref().and_then(|id| {
@@ -5226,6 +5414,7 @@ struct LayoutBuilder<'a> {
     observed_replacements: &'a mut HashSet<String>,
     previous_popover_snapshots: &'a HashMap<String, PopoverSnapshot>,
     popover_view_transitions: &'a mut HashMap<String, PopoverViewTransition>,
+    coach_motion: &'a mut Option<CoachMotion>,
     tab_indicators: &'a mut HashMap<String, TabIndicatorState>,
     skeleton_started: &'a mut HashMap<String, Instant>,
     shimmer_started: &'a mut HashMap<String, Instant>,
@@ -5269,6 +5458,7 @@ enum DeferredOverlay {
         scrim: Option<Color>,
         initial_focus: Option<String>,
         return_focus: Option<String>,
+        coach: Option<Box<CoachAnchor>>,
     },
     Tooltip {
         anchor: Rect,
@@ -5372,6 +5562,132 @@ fn place_popover(
         (viewport.y + viewport.height - inset - height).max(viewport.y + inset),
     );
     Rect::new(x, y, width, height)
+}
+
+/// Space between a coach mark's target and the ring around it.
+const COACH_RING_GAP: f32 = 3.0;
+const COACH_RING_WIDTH: f32 = 2.0;
+/// How far the caret reaches from the bubble towards the ring.
+const COACH_CARET: f32 = 7.0;
+
+/// Where a coach mark sits against `target`, and on which side it ended up:
+/// the preferred side, else the opposite one, else the other axis. With room
+/// nowhere it stays on the roomiest side and overlaps the target, and has no
+/// side to point from.
+fn place_coach(
+    target: Rect,
+    desired: Size,
+    viewport: Rect,
+    side: CoachSide,
+    align: CoachAlign,
+) -> (Rect, Option<CoachSide>) {
+    let inset = 8.0;
+    let gap = COACH_RING_GAP + COACH_RING_WIDTH + COACH_CARET;
+    let width = desired.width.max(0.0).min((viewport.width - inset * 2.0).max(0.0));
+    let height = desired.height.max(0.0).min((viewport.height - inset * 2.0).max(0.0));
+    let room = |side| match side {
+        CoachSide::Above => target.y - viewport.y - inset - gap - height,
+        CoachSide::Below => viewport.y + viewport.height - inset - gap - height - target.y - target.height,
+        CoachSide::Left => target.x - viewport.x - inset - gap - width,
+        CoachSide::Right => viewport.x + viewport.width - inset - gap - width - target.x - target.width,
+    };
+    let (opposite, across) = match side {
+        CoachSide::Above => (CoachSide::Below, [CoachSide::Right, CoachSide::Left]),
+        CoachSide::Below => (CoachSide::Above, [CoachSide::Right, CoachSide::Left]),
+        CoachSide::Left => (CoachSide::Right, [CoachSide::Below, CoachSide::Above]),
+        CoachSide::Right => (CoachSide::Left, [CoachSide::Below, CoachSide::Above]),
+    };
+    let order = [side, opposite, across[0], across[1]];
+    let fitting = order.into_iter().find(|side| room(*side) >= 0.0);
+    let side = fitting.unwrap_or_else(|| {
+        order
+            .into_iter()
+            .max_by(|a, b| room(*a).total_cmp(&room(*b)))
+            .unwrap_or(side)
+    });
+    let along = |start: f32, length: f32, size: f32| match align {
+        CoachAlign::Start => start,
+        CoachAlign::Center => start + (length - size) / 2.0,
+        CoachAlign::End => start + length - size,
+    };
+    let (x, y) = match side {
+        CoachSide::Above => (along(target.x, target.width, width), target.y - gap - height),
+        CoachSide::Below => (along(target.x, target.width, width), target.y + target.height + gap),
+        CoachSide::Left => (target.x - gap - width, along(target.y, target.height, height)),
+        CoachSide::Right => (target.x + target.width + gap, along(target.y, target.height, height)),
+    };
+    let x = x.clamp(
+        viewport.x + inset,
+        (viewport.x + viewport.width - inset - width).max(viewport.x + inset),
+    );
+    let y = y.clamp(
+        viewport.y + inset,
+        (viewport.y + viewport.height - inset - height).max(viewport.y + inset),
+    );
+    (Rect::new(x, y, width, height), fitting.map(|_| side))
+}
+
+/// The caret from the bubble's edge towards the middle of its target, kept
+/// clear of the bubble's corners.
+fn coach_caret(target: Rect, bubble: Rect, side: CoachSide) -> [Point; 3] {
+    let half = COACH_CARET;
+    let margin = crate::tokens().radius.surface + half;
+    let clamp = |value: f32, start: f32, length: f32| {
+        value.clamp(start + margin, (start + length - margin).max(start + margin))
+    };
+    let x = clamp(target.x + target.width / 2.0, bubble.x, bubble.width);
+    let y = clamp(target.y + target.height / 2.0, bubble.y, bubble.height);
+    // The base sits one pixel inside the bubble so the join never shows.
+    let vertical = |edge: f32, sign: f32| {
+        [
+            Point::new(x - half, edge - sign),
+            Point::new(x + half, edge - sign),
+            Point::new(x, edge + sign * COACH_CARET),
+        ]
+    };
+    let horizontal = |edge: f32, sign: f32| {
+        [
+            Point::new(edge - sign, y - half),
+            Point::new(edge - sign, y + half),
+            Point::new(edge + sign * COACH_CARET, y),
+        ]
+    };
+    match side {
+        CoachSide::Above => vertical(bubble.y + bubble.height, 1.0),
+        CoachSide::Below => vertical(bubble.y, -1.0),
+        CoachSide::Left => horizontal(bubble.x + bubble.width, 1.0),
+        CoachSide::Right => horizontal(bubble.x, -1.0),
+    }
+}
+
+/// The corner radius of the control or scroll area `id`, for a ring that
+/// follows it. Rows of a virtual list are not in the static tree.
+fn find_radius(element: &Element, id: &str) -> Option<f32> {
+    let named = match &element.kind {
+        ElementKind::Scroll { id: scroll, .. } => Some(scroll.as_str()),
+        _ => focusable_id(element),
+    };
+    if named == Some(id) {
+        return Some(element.style.radius);
+    }
+    match &element.kind {
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. } => {
+            children.iter().find_map(|child| find_radius(child, id))
+        }
+        ElementKind::Panel(child)
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. } => find_radius(child, id),
+        ElementKind::Overlay { base, floating } => {
+            find_radius(base, id).or_else(|| find_radius(floating, id))
+        }
+        ElementKind::Popover { anchor, .. } | ElementKind::Tooltip { anchor, .. } => {
+            find_radius(anchor, id)
+        }
+        _ => None,
+    }
 }
 
 fn place_tooltip(
@@ -6718,6 +7034,41 @@ impl LayoutBuilder<'_> {
         measured
     }
 
+    /// Where to paint a coach mark's ring this frame, and how far its bubble
+    /// is from `bubble`, where it is laid out. Both spring to a new step's
+    /// place; anything else that moves the target, such as a resize, is
+    /// followed at once.
+    fn coach_travel(&mut self, key: &str, ring: Rect, bubble: Rect) -> (Rect, (f32, f32)) {
+        let now = self.now;
+        let targets = [ring.x, ring.y, ring.width, ring.height, bubble.x, bubble.y];
+        let state = self.coach_motion.get_or_insert_with(|| CoachMotion {
+            key: key.to_owned(),
+            values: targets.map(|value| ScalarSpring::new(value, now)),
+        });
+        let travels = state.key != key && !self.reduced_motion;
+        if travels {
+            let motion = crate::SpringMotion::settling_in(Duration::from_millis(u64::from(
+                crate::tokens().motion.move_ms,
+            )));
+            for (value, target) in state.values.iter_mut().zip(targets) {
+                *value = value.motion(motion);
+                value.retarget(target, now);
+            }
+        } else if state.key != key
+            || state.values.iter().zip(targets).any(|(value, target)| value.target() != target)
+        {
+            for (value, target) in state.values.iter_mut().zip(targets) {
+                value.snap_to(target, now);
+            }
+        }
+        state.key = key.to_owned();
+        let [x, y, width, height, bubble_x, bubble_y] = state.values.each_ref().map(|value| value.value(now));
+        (
+            Rect::new(x, y, width.max(0.0), height.max(0.0)),
+            (bubble_x - bubble.x, bubble_y - bubble.y),
+        )
+    }
+
     fn enter_measurement_scope(&mut self) -> u64 {
         let previous = self.measurement_scope;
         self.next_measurement_scope += 1;
@@ -7468,6 +7819,7 @@ impl LayoutBuilder<'_> {
                 scrim,
                 initial_focus,
                 return_focus,
+                coach,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -7547,6 +7899,7 @@ impl LayoutBuilder<'_> {
                     scrim: *scrim,
                     initial_focus: initial_focus.clone(),
                     return_focus: return_focus.clone(),
+                    coach: coach.clone(),
                 });
             }
             ElementKind::Tooltip {

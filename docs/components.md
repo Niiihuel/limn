@@ -118,9 +118,11 @@ for how they enter and leave.
 | `Modal` | A centered dialog for forms, with a title, a scrolling body and a footer. `Modal::fit_width(viewport_width, max)` is the width that keeps the window's margin clear, and `Modal::body_width(modal_width)` the width a body can count on: inside the padding and the rail reserved while it scrolls. |
 | `AlertDialog` | A centered confirmation for consequential actions. `.alternative(id, label)` adds a second way to go ahead between Cancel and the confirm action, for the same step without its consequential part. |
 | `ImageViewer` | A full-window image gallery. |
+| `CoachMark` | A teaching bubble with a caret towards a control that already exists, named by its ID, and a ring around it. It reports close, next, back and skip; the rest of the window takes no input while it shows. See [Guided tours](tours.md). |
+| `Tour`, `TourStep` | A sequence of coach marks with a step counter. The host owns the current step; the bubble travels from one target to the next. |
 
-`Modal`, `AlertDialog`, `ImageViewer` and `Toast::layer` wrap the window's
-root element, since they cover the whole window.
+`Modal`, `AlertDialog`, `ImageViewer`, `CoachMark`, `Tour` and `Toast::layer`
+wrap the window's root element, since they cover the whole window.
 
 ## Text
 

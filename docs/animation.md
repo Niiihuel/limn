@@ -29,6 +29,7 @@ own content, and how to switch movement off.
 | Tooltip | Fades in. | Fades out. Moving between neighbouring controls does not blink. | `enter_ms`, `exit_ms` |
 | Context menu | Fades in and settles. | Fades out. | `enter_ms`, `exit_ms` |
 | `Toast` | Fades in and settles. | Fades out where it was. | `enter_ms`, `exit_ms` |
+| `CoachMark`, `Tour` | Fades in and settles; its ring fades in on the target. On a new step both spring from the last target to the new one. | Fades out. | `enter_ms`, `exit_ms`, `move_ms` |
 | Body of a `Collapsible` | Fades in and settles. | Removed at once. | `enter_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |

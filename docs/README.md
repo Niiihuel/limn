@@ -29,6 +29,7 @@ Background that explains why the library behaves as it does.
 | --- | --- |
 | [Layout](layout.md) | Arrange, size, center and wrap elements. |
 | [Theming](theming.md) | Choose colors, corner radii and pace. |
+| [Guided tours](tours.md) | Point at existing controls and explain them step by step. |
 | [Testing](testing.md) | Test a component or a screen without a window. |
 | [Gallery and hot reload](gallery.md) | Browse components, edit them live, capture screenshots. |
 | [Contributing a component](contributing.md) | Add a component, its test, its demo and its documentation. |
