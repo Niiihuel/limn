@@ -405,6 +405,10 @@ pub struct Element {
     /// ID under which this element fades in when it is first placed, and
     /// whether its last paint is left behind to fade out once it is gone.
     pub presence: Option<(String, bool)>,
+    /// ID and content key under which this element rises into place when the
+    /// key changes, while its previous paint moves up and fades. Boxed: few
+    /// elements have one, and every element pays for the field's size.
+    pub replacement: Option<Box<(String, String)>>,
     /// A paint-only surface keyed independently from the actions it follows.
     /// It adds no pointer target or keyboard focus stop.
     pub hover_surface: Option<(String, Vec<String>)>,
@@ -737,6 +741,7 @@ impl Element {
             style: Style::default(),
             hover_peer: None,
             presence: None,
+            replacement: None,
             hover_surface: None,
             indicator_slot: None,
             action_alias: None,
@@ -820,6 +825,16 @@ impl Element {
     /// space it leaves, so its last paint can linger there.
     pub fn animate_presence(mut self, id: impl Into<String>) -> Self {
         self.presence = Some((id.into(), true));
+        self
+    }
+
+    /// Animate this element taking the place of an earlier one. When `key`
+    /// changes under the same `id`, it rises into place from its own height
+    /// below while the previous paint moves up by the same distance and
+    /// fades. Layout does not change. Place it in a parent that clips, as
+    /// [`crate::Ticker`] does, so neither paint leaves the slot.
+    pub fn animate_replace(mut self, id: impl Into<String>, key: impl Into<String>) -> Self {
+        self.replacement = Some(Box::new((id.into(), key.into())));
         self
     }
 

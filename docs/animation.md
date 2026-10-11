@@ -32,6 +32,7 @@ own content, and how to switch movement off.
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `Switch` | The thumb springs across. | | `move_ms` |
 | `Stepper` | The badge cross-fades between active and inactive. | | `move_ms` |
+| Line of a `Ticker` | Rises into place from its own height below. | Moves up by the same distance and fades, clipped by the slot. | `move_ms` |
 
 Continuous indicators run on fixed periods and are not transitions: `Spinner`,
 `Skeleton`, `TextShimmer` and the text caret.
@@ -118,6 +119,17 @@ place at once, and a fading ghost on top of them looks wrong.
 
 Both take an ID. Give two elements the same ID only if they are the same thing
 in two states.
+
+### An element that replaces another
+
+```rust
+let step = Ticker::new("step", &current, Element::truncated_text(&current)).render();
+```
+
+When the key changes, the new line rises into place while the previous
+paint moves up and fades, and the slot keeps its height. `Ticker` clips the
+slot; `Element::animate_replace(id, key)` is the movement alone, for a parent
+that clips already.
 
 ### A control's fill
 

@@ -85,6 +85,7 @@ it.
 | `Notice` | A left-aligned inline notice standing where content would be: an optional muted icon, a title, a reason, a caller-owned `.action(element)` under the copy and a `.trailing(element)` after it. `.stacked()` sets the icon over the copy instead of beside it. `.framed()` fills it with the palette's surface and the card radius, with no border. `.ink(color)` colors the title, for an error. `NoticeSizing::REGULAR` and `COMPACT` set its density; a profile with a `height` cuts each line of copy instead of wrapping it. |
 | `Marker` | A one-line event in a conversation or log, optionally as a separator. `.ink(color)` paints it in a status color from the host, such as a failure. |
 | `TextShimmer` | Text with a moving highlight, for work in progress. |
+| `Ticker` | A fixed-height, clipped slot for the latest of a series of lines, such as the current step of running work: `Ticker::new(id, key, line)`. When `key` changes the new line rises in from below while the one it replaces moves up and fades, over `move_ms`; with reduced motion it swaps. `.height` sets the slot (20 unless set), which never changes, so content below does not move. `Element::animate_replace(id, key)` is the same movement for a host that clips the slot itself. |
 | `Chip` | A passive pill for a count or a label. `.outline()` draws the border only, with no fill. |
 | `Avatar` | An account photo, or the initial of a name when there is none. |
 

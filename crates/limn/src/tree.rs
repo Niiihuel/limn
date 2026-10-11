@@ -910,6 +910,16 @@ struct PopoverSnapshot {
     scrim: Option<(Rect, Color)>,
 }
 
+/// The paint an `animate_replace` element had last frame, and the one it
+/// replaced while that is still leaving.
+struct Replacement {
+    key: String,
+    rect: Rect,
+    commands: Vec<DrawCommand>,
+    leaving: Option<(Rect, Vec<DrawCommand>)>,
+    progress: ScalarTransition,
+}
+
 struct PopoverExit {
     paint: PopoverSnapshot,
     opacity: ScalarTransition,
@@ -2083,6 +2093,7 @@ pub struct UiTree {
     popover_transitions: HashMap<String, ScalarTransition>,
     popover_snapshots: HashMap<String, PopoverSnapshot>,
     popover_exits: HashMap<String, PopoverExit>,
+    replacements: HashMap<String, Replacement>,
     popover_view_transitions: HashMap<String, PopoverViewTransition>,
     tab_indicators: HashMap<String, TabIndicatorState>,
     skeleton_started: HashMap<String, Instant>,
@@ -2144,6 +2155,7 @@ impl UiTree {
             popover_transitions: HashMap::new(),
             popover_snapshots: HashMap::new(),
             popover_exits: HashMap::new(),
+            replacements: HashMap::new(),
             popover_view_transitions: HashMap::new(),
             tab_indicators: HashMap::new(),
             skeleton_started: HashMap::new(),
@@ -2386,6 +2398,7 @@ impl UiTree {
             self.popover_transitions.clear();
             self.popover_snapshots.clear();
             self.popover_exits.clear();
+            self.replacements.clear();
             self.popover_view_transitions.clear();
             self.tab_indicators.clear();
             self.skeleton_started.clear();
@@ -2478,6 +2491,10 @@ impl UiTree {
                 .popover_exits
                 .values()
                 .any(|state| state.opacity.is_active(now))
+            || self
+                .replacements
+                .values()
+                .any(|state| state.progress.is_active(now))
             || self
                 .popover_view_transitions
                 .values()
@@ -2592,6 +2609,7 @@ impl UiTree {
         }
         let mut observed_buttons = HashSet::new();
         let mut observed_popovers = HashSet::new();
+        let mut observed_replacements = HashSet::new();
         let mut current_popover_snapshots = HashMap::new();
         let mut observed_tabs = HashSet::new();
         let mut observed_tooltips = HashSet::new();
@@ -2659,6 +2677,8 @@ impl UiTree {
                 transitions: &mut self.transitions,
                 popover_transitions: &mut self.popover_transitions,
                 popover_exits: &self.popover_exits,
+                replacements: &mut self.replacements,
+                observed_replacements: &mut observed_replacements,
                 previous_popover_snapshots: &self.popover_snapshots,
                 popover_view_transitions: &mut self.popover_view_transitions,
                 tab_indicators: &mut self.tab_indicators,
@@ -3104,6 +3124,8 @@ impl UiTree {
             .retain(|id, _| observed_buttons.contains(id));
         self.popover_transitions
             .retain(|id, _| observed_popovers.contains(id));
+        self.replacements
+            .retain(|id, _| observed_replacements.contains(id));
         self.popover_view_transitions.retain(|id, state| {
             observed_popovers.contains(id)
                 && (state.opacity.is_active(now) || state.height.is_active(now))
@@ -5090,6 +5112,8 @@ struct LayoutBuilder<'a> {
     transitions: &'a mut HashMap<String, ColorTransition>,
     popover_transitions: &'a mut HashMap<String, ScalarTransition>,
     popover_exits: &'a HashMap<String, PopoverExit>,
+    replacements: &'a mut HashMap<String, Replacement>,
+    observed_replacements: &'a mut HashSet<String>,
     previous_popover_snapshots: &'a HashMap<String, PopoverSnapshot>,
     popover_view_transitions: &'a mut HashMap<String, PopoverViewTransition>,
     tab_indicators: &'a mut HashMap<String, TabIndicatorState>,
@@ -5420,6 +5444,61 @@ impl LayoutBuilder<'_> {
             let slide = (1.0 - progress) * slide_sign * 4.0;
             for command in &mut self.frame.commands[start..] {
                 animate_popover_command(command, progress, slide, 1.0, origin);
+            }
+        }
+    }
+
+    /// Paint only: the new content travels up from one own-height below and
+    /// the paint it replaced leaves upwards by the same distance, fading.
+    fn animate_replacement(&mut self, id: &str, key: &str, start: usize, rect: Rect) {
+        if self.reduced_motion {
+            return;
+        }
+        let now = self.now;
+        self.observed_replacements.insert(id.to_owned());
+        let commands = self.frame.commands[start..].to_vec();
+        let Some(state) = self.replacements.get_mut(id) else {
+            // The first content is simply there; only a change travels.
+            self.replacements.insert(
+                id.to_owned(),
+                Replacement {
+                    key: key.to_owned(),
+                    rect,
+                    commands,
+                    leaving: None,
+                    progress: ScalarTransition::new(1.0, now),
+                },
+            );
+            return;
+        };
+        if state.key != key {
+            state.leaving = Some((state.rect, std::mem::take(&mut state.commands)));
+            state.key = key.to_owned();
+            state.progress = ScalarTransition::new(0.0, now);
+            state.progress.retarget(
+                1.0,
+                now,
+                Duration::from_millis(u64::from(crate::tokens().motion.move_ms)),
+            );
+        }
+        state.rect = rect;
+        state.commands = commands;
+        let progress = state.progress.value(now);
+        if progress >= 1.0 {
+            state.leaving = None;
+            return;
+        }
+        let origin = Point::new(rect.x, rect.y);
+        for command in &mut self.frame.commands[start..] {
+            animate_popover_command(command, progress, (1.0 - progress) * rect.height, 1.0, origin);
+        }
+        if let Some((from, leaving)) = &state.leaving {
+            // The slot may have scrolled since the leaving paint was recorded.
+            let slide = rect.y - from.y - progress * rect.height;
+            for command in leaving {
+                let mut command = command.clone();
+                animate_popover_command(&mut command, 1.0 - progress, slide, 1.0, origin);
+                self.frame.commands.push(command);
             }
         }
     }
@@ -6763,6 +6842,9 @@ impl LayoutBuilder<'_> {
         self.place_inner(element, rect, clip);
         if let Some((id, leaves)) = &element.presence {
             self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);
+        }
+        if let Some(replacement) = &element.replacement {
+            self.animate_replacement(&replacement.0, &replacement.1, start, rect);
         }
         if dragged {
             self.drag_ghost = Some(start..self.frame.commands.len());

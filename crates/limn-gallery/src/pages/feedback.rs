@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    Alert, AlertTone, Avatar, Chip, Component, Element, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
-    Spinner, SpinnerVariant,
+    Alert, AlertTone, Avatar, Chip, Component, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
+    Spinner, SpinnerVariant, Ticker,
 };
 
 pub fn view(cx: &Cx) -> Element {
@@ -12,6 +12,13 @@ pub fn view(cx: &Cx) -> Element {
     };
     let percent: u32 = cx.state.choice("feedback-progress", "66").parse().unwrap_or(66);
     let progress = percent as f32 / 100.0;
+    const STEPS: [&str; 4] = [
+        "Buscando **/*.{md,txt} en presupuestacion",
+        "Leyendo README.md",
+        "Leyendo un-archivo-con-un-nombre-muy-largo-que-no-entra-en-el-ancho-disponible.md",
+        "Listando src/componentes",
+    ];
+    let step: usize = cx.state.choice("feedback-ticker", "0").parse().unwrap_or(0) % STEPS.len();
     Element::column(vec![
         section(cx, "Avisos", vec![
             alert(AlertTone::Neutral, "Nota", "Un aviso sin urgencia."),
@@ -89,6 +96,26 @@ pub fn view(cx: &Cx) -> Element {
                     .render(),
             )
             .size(Some(width), None),
+        ]),
+        section(cx, "Teletipo", vec![
+            Element::panel(
+                Ticker::new(
+                    "feedback-ticker-line",
+                    STEPS[step],
+                    Element::truncated_text(STEPS[step])
+                        .foreground(palette.muted)
+                        .font_family(FontFamily::Sans)
+                        .font_size(13.0)
+                        .size(None, Some(20.0)),
+                )
+                .height(40.0)
+                .render(),
+            )
+            .size(Some(width.min(336.0)), None),
+            row(vec![Button::new(format!("feedback-ticker={}", (step + 1) % STEPS.len()), "Siguiente paso", palette)
+                .variant(ButtonVariant::Outline)
+                .render()]),
+            caption(cx, "El hueco mide siempre dos líneas: lo de abajo no se mueve."),
         ]),
         section(cx, "Etiquetas", vec![row(vec![
             Chip::new("rust", palette).render(),
