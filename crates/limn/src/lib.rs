@@ -15,6 +15,7 @@ mod card;
 mod caret_blink;
 mod charts;
 mod chip;
+mod coach_mark;
 mod code_block;
 mod code_diff;
 mod code_editor;
@@ -88,6 +89,7 @@ mod text_measurement_tests;
 
 pub use alert::{Alert, AlertColors, AlertTone};
 pub use alert_dialog::AlertDialog;
+pub use coach_mark::{CoachMark, Tour, TourStep};
 pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
@@ -117,7 +119,7 @@ pub use dropdown_menu::{
     DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
 };
 pub use element::{
-    Border, BoxShadow, CornerRadii, Element, ElementKind, FontFamily, Icon, PopoverPlacement,
+    Border, BoxShadow, CoachAlign, CoachSide, CornerRadii, Element, ElementKind, FontFamily, Icon, PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
     TooltipStyle, UniformList, DEFAULT_FONT_SIZE, ICON_SIZE,
 };

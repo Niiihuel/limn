@@ -19,6 +19,43 @@ pub enum PopoverPlacement {
     Center,
 }
 
+/// Side of its target a coach mark sits on. The engine takes the opposite
+/// side, then the other axis, when the preferred one has no room.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CoachSide {
+    Above,
+    Below,
+    Left,
+    Right,
+}
+
+/// Where a coach mark sits along its target's edge.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum CoachAlign {
+    Start,
+    Center,
+    End,
+}
+
+/// Ties a popover to controls that already exist in the tree, by their IDs,
+/// instead of to the element it wraps. Built by `CoachMark`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CoachAnchor {
+    /// The bubble points at the union of the regions with these IDs.
+    pub(crate) targets: Vec<String>,
+    pub(crate) side: CoachSide,
+    pub(crate) align: CoachAlign,
+    /// Names the step: when it changes the bubble travels to the new target.
+    pub(crate) key: String,
+    /// The bubble's fill, shared by its caret and the ring on the target.
+    pub(crate) fill: Color,
+    /// Dims everything but the target.
+    pub(crate) dim: Option<Color>,
+    /// Actions reported by the Left and Right arrow keys.
+    pub(crate) back: Option<String>,
+    pub(crate) next: Option<String>,
+}
+
 /// Preferred side of a non-interactive tooltip. The engine flips to the
 /// opposite side when the preferred one would leave the viewport.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -511,6 +548,8 @@ pub enum ElementKind {
         scrim: Option<Color>,
         initial_focus: Option<String>,
         return_focus: Option<String>,
+        /// Anchors the surface to existing controls instead of `anchor`.
+        coach: Option<Box<CoachAnchor>>,
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -1038,9 +1077,19 @@ impl Element {
                 scrim: None,
                 initial_focus: None,
                 return_focus: None,
+                coach: None,
             },
             layout,
         )
+    }
+
+    /// Place the surface against existing controls, found by their IDs once
+    /// the anchor has been laid out, with a caret and a ring on them.
+    pub(crate) fn popover_coach(mut self, value: CoachAnchor) -> Self {
+        if let ElementKind::Popover { coach, .. } = &mut self.kind {
+            *coach = Some(Box::new(value));
+        }
+        self
     }
 
     /// Prefer a control when a modal first opens. The target must be a

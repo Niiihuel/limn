@@ -17,7 +17,7 @@ pub struct Theme {
 /// Foreground share, in percent, of each surface level.
 const LEVELS: [u32; 7] = [5, 10, 15, 20, 40, 60, 90];
 
-const fn mix(base: Color, top: Color, percent: u32) -> Color {
+pub(crate) const fn mix(base: Color, top: Color, percent: u32) -> Color {
     const fn channel(base: u8, top: u8, percent: u32) -> u8 {
         ((base as u32 * (100 - percent) + top as u32 * percent + 50) / 100) as u8
     }
