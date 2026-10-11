@@ -1056,6 +1056,18 @@ impl Element {
         self
     }
 
+    /// Distance between the anchor and the floating surface, 5 unless set.
+    /// With 0 under a zero-height anchor the surface starts where the anchor
+    /// is, so it can stand in for the row that follows.
+    pub fn popover_gap(mut self, value: f32) -> Self {
+        if let ElementKind::Popover { gap, .. } = &mut self.kind {
+            if value.is_finite() && value >= 0.0 {
+                *gap = value;
+            }
+        }
+        self
+    }
+
     /// Dim the viewport behind an open modal surface.
     pub fn popover_scrim(mut self, color: Color) -> Self {
         if let ElementKind::Popover { scrim, .. } = &mut self.kind {

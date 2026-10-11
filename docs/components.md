@@ -104,7 +104,7 @@ for how they enter and leave.
 | Component | Purpose |
 | --- | --- |
 | `Tooltip` | A hint for a control, after a short hover or at once with keyboard focus. `Tooltip::for_path` names a file over the directory that holds it. |
-| `Popover` | A floating slot anchored to any element, for arbitrary content. |
+| `Popover` | A floating slot anchored to any element, for arbitrary content. On the element, `.popover_gap(px)` sets its distance from the anchor (5 unless set); 0 under a zero-height anchor makes it stand in for the row that follows. |
 | `DropdownMenu` | A menu of actions with headings, separators, shortcuts and submenus. `.header(element)` stays above the options and `.footer(element)` under them, below a hairline, while they scroll. Entries beyond items: `DropdownMenuEntry::Message(text)` (a muted sentence), `Loading { id, rows }` (skeleton rows) and `Error { id, text }` (a failure in a scroll area of 104). |
 | `DropdownMenuItem` | One action. `.enabled(bool)` or `.disabled()`, `.tooltip_with(TooltipSpec)` for a hint. With `.description(text)` it is a two-line row at `SelectorSizing::detail_row_height` (40): icon, label over a muted detail, and a check column filled when `selected`; `.detail_mono(true)` sets the detail in monospace, `.status(text)` puts short text at the end of the detail line (`.status_width(px)` fixes its slot) and `.chevron()` ends the row with a chevron instead of the check, for a row that opens another view. `.truncate()` cuts a long label to one line in a contextual menu, where it would otherwise wrap. |
 | `DropdownMenuSection` | The heading of a group the user folds: `::new(id, label)` with `.icon`, `.count(n)` and `.collapsed(bool)`; it converts into a `DropdownMenuEntry` and reports `id` when activated. The host leaves the group's items out while it is collapsed. `.width(px)` fixes its width. |
@@ -115,7 +115,7 @@ for how they enter and leave.
 | `DropdownList` | A list for choosing one option, with the current one marked. |
 | `ContextMenu` | A menu opened by a secondary click on its child. |
 | `Modal` | A centered dialog for forms, with a title, a scrolling body and a footer. `Modal::fit_width(viewport_width, max)` is the width that keeps the window's margin clear, and `Modal::body_width(modal_width)` the width a body can count on: inside the padding and the rail reserved while it scrolls. |
-| `AlertDialog` | A centered confirmation for consequential actions. |
+| `AlertDialog` | A centered confirmation for consequential actions. `.alternative(id, label)` adds a second way to go ahead between Cancel and the confirm action, for the same step without its consequential part. |
 | `ImageViewer` | A full-window image gallery. |
 
 `Modal`, `AlertDialog`, `ImageViewer` and `Toast::layer` wrap the window's

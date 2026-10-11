@@ -155,3 +155,32 @@ fn pinned_child_keeps_its_inset_and_paints_above_the_scroll_fade() {
     });
     assert_eq!(depth, 0);
 }
+
+#[test]
+fn popover_with_no_gap_starts_at_its_zero_height_anchor() {
+    let root = |gap: Option<f32>| {
+        let popover = Element::popover(
+            Element::spacer().size(Some(100.0), Some(0.0)),
+            Element::button("inside", "Inside").size(Some(100.0), Some(40.0)),
+            "dismiss",
+            PopoverPlacement::BottomStart,
+        );
+        Element::column(vec![
+            Element::spacer().size(None, Some(30.0)),
+            match gap {
+                Some(gap) => popover.popover_gap(gap),
+                None => popover,
+            },
+        ])
+    };
+    let top = |gap| {
+        let mut tree = UiTree::new(root(gap));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(200.0, 200.0));
+        top_of(&frame, "inside").unwrap()
+    };
+    assert_eq!(top(None), 35.0);
+    assert_eq!(top(Some(0.0)), 30.0);
+    assert_eq!(top(Some(f32::NAN)), 35.0);
+    assert_eq!(top(Some(-3.0)), 35.0);
+}
