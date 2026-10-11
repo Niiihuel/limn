@@ -14,6 +14,7 @@ mod inputs;
 mod lists;
 mod markdown;
 mod menus;
+mod messages;
 mod navigation;
 mod overlays;
 mod page;
@@ -44,6 +45,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "panels", group: "Controles", title: "Paneles y paginador", view: panels::view },
     Page { id: "blocks", group: "Controles", title: "Tarjetas y bloques", view: blocks::view },
     Page { id: "markdown", group: "Controles", title: "Markdown", view: markdown::view },
+    Page { id: "messages", group: "Controles", title: "Acciones de mensaje", view: messages::view },
     Page { id: "chrome", group: "Controles", title: "Barras de menús y de estado", view: chrome::view },
     Page { id: "editor", group: "Controles", title: "Editor y compositor", view: editor::view },
     Page { id: "empty", group: "Estados", title: "Estado vacío", view: empty::view },

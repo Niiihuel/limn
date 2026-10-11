@@ -163,6 +163,8 @@ pub enum Icon {
     ArchiveUp,
     Trash,
     Edit,
+    /// Two overlapping sheets: copy to the clipboard.
+    Copy,
     Unread,
     Filter,
     Sort,
@@ -406,6 +408,17 @@ impl BoxShadow {
     }
 }
 
+/// The part an element plays in revealing controls under the pointer.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum HoverReveal {
+    #[default]
+    None,
+    /// The pointer anywhere over this element reveals what it contains.
+    Region,
+    /// Painted only while revealed; `presence` holds its ID.
+    Revealed,
+}
+
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
 #[derive(Clone, Debug)]
 pub struct Element {
@@ -436,6 +449,9 @@ pub struct Element {
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
+    /// Set by [`Element::hover_region`] and [`Element::reveal_on_hover`];
+    /// the latter keeps its ID in `presence`. One byte of existing padding.
+    pub(crate) hover_reveal: HoverReveal,
     pub(crate) drop_target: bool,
     /// Arrow-key navigation for an inline menu. Its first focusable child is
     /// the trigger; subsequent buttons are options. This does not trap Tab.
@@ -782,6 +798,7 @@ impl Element {
             draggable: false,
             sticky_top: None,
             animate_height: None,
+            hover_reveal: HoverReveal::None,
             drop_target: false,
             menu_navigation: false,
             context_menu: None,
@@ -990,6 +1007,29 @@ impl Element {
         if height.is_finite() && height >= 1.0 {
             self.sticky_top.get_or_insert(StickyTop::default()).fade = height.round() as u8;
         }
+        self
+    }
+
+    /// Make this element the area whose hover reveals the
+    /// [`reveal_on_hover`](Self::reveal_on_hover) elements inside it: a
+    /// message around its row of actions. It is passive: it adds no pointer
+    /// target, no focus stop and no paint, and the host mirrors nothing.
+    pub fn hover_region(mut self) -> Self {
+        self.hover_reveal = HoverReveal::Region;
+        self
+    }
+
+    /// Paint this element only while the pointer is over the
+    /// [`hover_region`](Self::hover_region) around it, while one of its
+    /// controls has keyboard focus, or while a popover inside it is open.
+    /// It keeps its place in the layout and its controls stay in the Tab
+    /// order, so nothing moves when it appears and Tab reaches it. It fades
+    /// over `enter_ms` and `exit_ms`, or switches at once with reduced
+    /// motion. `id` must be unique in the window. It replaces
+    /// [`animate_enter`](Self::animate_enter) on the same element.
+    pub fn reveal_on_hover(mut self, id: impl Into<String>) -> Self {
+        self.presence = Some((id.into(), false));
+        self.hover_reveal = HoverReveal::Revealed;
         self
     }
 
