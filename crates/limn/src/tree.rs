@@ -8326,8 +8326,23 @@ impl LayoutBuilder<'_> {
                             && self.now.saturating_duration_since(*since) >= TOOLTIP_HOVER_DELAY
                     });
                 if keyboard_focused || hovered_long_enough {
+                    // The hint points at the control it describes. Inside a
+                    // larger anchor, such as a link in a paragraph, that is
+                    // the control's own bounds, and the part of them under
+                    // the pointer when it runs over several lines.
+                    let target = {
+                        let mut parts = self.frame.regions[region_start..]
+                            .iter()
+                            .filter(|region| region.id == *anchor_id)
+                            .map(|region| region.rect);
+                        let under = self
+                            .pointer
+                            .filter(|_| !keyboard_focused)
+                            .and_then(|pointer| parts.clone().find(|rect| rect.contains(pointer)));
+                        under.or_else(|| parts.next()).unwrap_or(content)
+                    };
                     self.overlays.push_back(DeferredOverlay::Tooltip {
-                        anchor: content,
+                        anchor: target,
                         title: title.clone(),
                         shortcut: shortcut.clone(),
                         sections: sections.clone(),
@@ -11991,6 +12006,37 @@ mod tests {
             .commands
             .iter()
             .any(|command| matches!(command, DrawCommand::FillTriangle { .. })));
+    }
+
+    #[test]
+    fn a_hint_for_a_control_inside_its_anchor_points_at_that_control() {
+        let palette = ComponentPalette::neutral_dark();
+        // A link at the start of a wide line, hinted on the whole line.
+        let line = Element::row(vec![
+            Element::clickable("link", Element::text("link")).size(Some(40.0), Some(20.0)),
+            Element::spacer().flex(1.0),
+        ])
+        .size(None, Some(20.0));
+        let size = Size::new(400.0, 200.0);
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::spacer().size(None, Some(100.0)),
+            Tooltip::new(line, "link", "Where it goes", palette).render(),
+        ]));
+        tree.layout(size);
+        tree.handle_event(UiEvent::PointerMove(Point::new(20.0, 110.0)));
+        let started = tree.tooltip_hover_since.as_ref().unwrap().1;
+        let frame = tree.layout_at(size, started + TOOLTIP_HOVER_DELAY);
+        let tip = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillTriangle { points, .. } => Some(*points),
+                _ => None,
+            })
+            .expect("the hint is open");
+        // Its arrow stands over the link, not over the middle of the line.
+        let center = tip.iter().map(|point| point.x).sum::<f32>() / 3.0;
+        assert!(center > 0.0 && center < 40.0, "{center}");
     }
 
     #[test]
