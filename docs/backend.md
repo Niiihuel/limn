@@ -123,7 +123,8 @@ The egui backend exposes:
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
 | `set_image_cache_entries(n)` | Size of the decoded image cache. |
 | `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
-| `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture; one larger than the GPU's textures is refused and returns `false`. |
+| `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
+| `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
 | `forget_surface(id)` | Frees a surface's texture. |
 
 ### Host-fed surfaces
@@ -138,6 +139,14 @@ snapped to the pixel grid; a frame a pixel larger or smaller than the
 rectangle is clipped or leaves a gap, and is not resampled. At another scale
 it keeps its logical size. Each side is at most 8192 pixels and a frame at
 most 16 megapixels. A surface holds its last frame until `forget_surface`.
+
+A source that knows what changed sends only that: `frame.within(size, at)`
+turns the pixels of one rectangle into a part of the frame of `size` pixels
+that the surface shows, and presenting it uploads that rectangle and leaves
+the rest of the texture as it was. A part is refused, with `false` and no
+effect, when the surface shows no frame, a frame of another size or one at
+another scale; the host then sends a whole frame, which always replaces
+everything. Parts are applied in the order they are presented.
 
 ## See also
 
