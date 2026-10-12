@@ -207,6 +207,8 @@ pub enum Icon {
     Sort,
     Collapse,
     Expand,
+    /// Two arrows closing on a line: making something take less room.
+    Compact,
     Clock,
     /// Filled counterparts, for the chosen item of a navigation list.
     FolderFill,

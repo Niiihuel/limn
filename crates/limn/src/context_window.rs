@@ -11,7 +11,11 @@ const COLUMNS: u16 = 36;
 const ROWS: u16 = 6;
 const GAP: f32 = 2.0;
 const INSET: f32 = 16.0;
-const ROW_HEIGHT: f32 = 28.0;
+const ROW_HEIGHT: f32 = 30.0;
+/// How far a row's fill reaches past its content, and the frame around the card.
+const ROW_PAD: f32 = 10.0;
+const FRAME: f32 = 4.0;
+const CARD_RADIUS: f32 = 12.0;
 const ITEM_HEIGHT: f32 = 24.0;
 const FOOTER_HEIGHT: f32 = 40.0;
 
@@ -80,7 +84,9 @@ pub struct ContextTones {
 
 /// The host owns every figure and passes them on each rebuild; the figures
 /// count and the cells move to a new state by themselves. It takes the width
-/// it is given and no surface of its own, so it sits in a popover or a card.
+/// it is given and draws its own card on a frame a shade apart, with the foot
+/// on the frame, so a host gives it a surface with rounded corners and no
+/// padding: a popover, or a panel.
 ///
 /// Actions: `"{id}:share:{share}"` for a share's row, which the host answers
 /// by opening or closing it, `"{id}:action:{share}"` for its action and
@@ -99,6 +105,8 @@ pub struct ContextWindow {
     status: String,
     status_done: bool,
     footer_action: Option<(String, String)>,
+    header_icons: Vec<(String, Icon, String)>,
+    status_lead: Option<String>,
     width: f32,
     format: fn(f32) -> String,
 }
@@ -128,6 +136,8 @@ impl ContextWindow {
             status: String::new(),
             status_done: false,
             footer_action: None,
+            header_icons: Vec::new(),
+            status_lead: None,
             width: 320.0,
             format: Self::tokens_text,
         }
@@ -179,6 +189,19 @@ impl ContextWindow {
         self
     }
 
+    /// A small action at the end of the header; `label` is its hint.
+    pub fn header_icon(mut self, id: impl Into<String>, icon: Icon, label: impl Into<String>) -> Self {
+        self.header_icons.push((id.into(), icon, label.into()));
+        self
+    }
+
+    /// The words the status opens with, which read stronger than the rest:
+    /// the share in focus, in "Files · 23% of the window".
+    pub fn status_lead(mut self, lead: impl Into<String>) -> Self {
+        self.status_lead = Some(lead.into());
+        self
+    }
+
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(200.0);
@@ -212,6 +235,10 @@ impl ContextWindow {
     }
 
     fn percent_text(percent: f32) -> String {
+        // A window that holds anything is never written as empty.
+        if percent > 0.0 && percent < 0.5 {
+            return "<1%".into();
+        }
         format!("{}%", percent.round() as i32)
     }
 
@@ -247,6 +274,11 @@ impl Component for ContextWindow {
                 .font_size(size)
                 .foreground(ink)
         };
+        // The card's sections keep to its inset; a row's fill reaches further out.
+        let inset = |element: Element, side: f32| {
+            let side = || Element::spacer().size(Some(side - FRAME), None);
+            Element::row(vec![side(), element.flex(1.0), side()])
+        };
         let used: u64 = self.shares.iter().map(|share| share.tokens).sum();
         let focus = self
             .focused
@@ -266,6 +298,16 @@ impl Component for ContextWindow {
                 .background(palette.hover)
                 .radius(control_radius())
                 .centered_y(),
+            );
+        }
+
+        for (action, icon, label) in &self.header_icons {
+            header.push(
+                palette
+                    .interactive_surface(Element::icon_button(action, *icon, label))
+                    .foreground(palette.muted)
+                    .size(Some(24.0), Some(24.0))
+                    .centered_y(),
             );
         }
 
@@ -334,9 +376,9 @@ impl Component for ContextWindow {
 
         let mut body = vec![
             Element::spacer().size(None, Some(8.0)),
-            Element::row(header).size(None, Some(28.0)),
-            Element::row(figure).gap(8.0).size(None, Some(40.0)),
-            grid,
+            inset(Element::row(header).gap(4.0).size(None, Some(28.0)), INSET),
+            inset(Element::row(figure).gap(8.0).size(None, Some(40.0)), INSET),
+            inset(grid, INSET),
             Element::spacer().size(None, Some(8.0)),
         ];
         for share in &self.shares {
@@ -369,13 +411,13 @@ impl Component for ContextWindow {
                     Element::clickable(
                         &action_id,
                         Element::row(vec![
-                            Element::icon(Icon::Collapse)
+                            Element::icon(Icon::Compact)
                                 .foreground(palette.muted)
                                 .size(Some(12.0), Some(12.0))
                                 .centered_y(),
                             sans(offer, 12.0, palette.muted).centered_y(),
                         ])
-                        .gap(4.0),
+                        .gap(5.0),
                     )
                     .hover_foreground(palette.text)
                     .size(None, Some(ROW_HEIGHT)),
@@ -388,7 +430,7 @@ impl Component for ContextWindow {
                             .centered_y(),
                         sans(busy, 12.0, palette.muted).centered_y(),
                     ])
-                    .gap(4.0),
+                    .gap(5.0),
                 ),
                 Some(ContextShareAction::Done(done)) => row.push(
                     Element::row(vec![
@@ -398,7 +440,7 @@ impl Component for ContextWindow {
                             .centered_y(),
                         sans(done, 12.0, self.tones.success).centered_y(),
                     ])
-                    .gap(4.0)
+                    .gap(5.0)
                     .animate_enter(format!("{action_id}:done")),
                 ),
                 None => {}
@@ -410,15 +452,14 @@ impl Component for ContextWindow {
                     .foreground(if receded { palette.muted } else { palette.text })
                     .centered_y(),
             );
-            body.push(
-                Element::row(row)
-                    .gap(10.0)
-                    .padding(0.0)
-                    .size(None, Some(ROW_HEIGHT))
-                    .radius(control_radius())
-                    .hover_background(palette.hover)
-                    .hover_surface(format!("{row_id}:surface"), [row_id.clone(), action_id.clone()]),
-            );
+            // The fill reaches past the row's content on both sides, as far
+            // as the content stands from the card's edge.
+            let pad = || Element::spacer().size(Some(ROW_PAD), None);
+            let row = Element::row(vec![pad(), Element::row(row).gap(10.0).flex(1.0), pad()])
+                .size(None, Some(ROW_HEIGHT))
+                .radius(control_radius())
+                .hover_background(palette.hover)
+                .hover_surface(format!("{row_id}:surface"), [row_id.clone(), action_id.clone()]);
             let items = open.then(|| {
                 Element::column(
                     share
@@ -426,7 +467,8 @@ impl Component for ContextWindow {
                         .iter()
                         .map(|item| {
                             let row = Element::row(vec![
-                                Element::spacer().size(Some(16.0), None),
+                                // Under the share's label, past its mark.
+                                Element::spacer().size(Some(ROW_PAD + 6.0), None),
                                 Element::truncated_text(&item.label)
                                     .font_family(FontFamily::Monospace)
                                     .font_size(12.0)
@@ -447,6 +489,7 @@ impl Component for ContextWindow {
                                     .foreground(palette.muted)
                                     .size(Some(20.0), Some(20.0))
                                     .centered_y(),
+                                Element::spacer().size(Some(ROW_PAD - 10.0), None),
                             ])
                             .gap(10.0)
                             .size(None, Some(ITEM_HEIGHT));
@@ -454,27 +497,57 @@ impl Component for ContextWindow {
                             Element::column(vec![row])
                                 .animate_height(format!("{id}:item:{}:{}", share.id, item.id), false)
                         })
+                        .chain([Element::spacer().size(None, Some(4.0))])
                         .collect(),
                 )
                 .keep_leaving(format!("{id}:items:{}:list", share.id))
             });
-            body.push(Collapse::new(format!("{id}:items:{}", share.id), items).expand().render());
+            // An open share and what it lists read as one block.
+            let mut block = Element::column(vec![
+                row,
+                Collapse::new(format!("{id}:items:{}", share.id), items).expand().render(),
+            ])
+            .radius(control_radius());
+            if open {
+                block = block.background(palette.hover);
+            }
+            body.push(inset(block, INSET - ROW_PAD));
         }
+        body.push(Element::spacer().size(None, Some(8.0)));
 
         let status_ink = if self.status_done { self.tones.success } else { palette.muted };
-        let mut footer = vec![Ticker::new(
-            format!("{id}:status"),
-            &self.status,
-            Element::truncated_text(&self.status)
+        // The words the status opens with read stronger, such as a share's name.
+        let lead = self
+            .status_lead
+            .as_deref()
+            .filter(|lead| !lead.is_empty() && self.status.starts_with(lead));
+        let rest = &self.status[lead.map_or(0, str::len)..];
+        let mut line = Vec::new();
+        if let Some(lead) = lead {
+            line.push(
+                Element::truncated_text(lead)
+                    .font_family(FontFamily::Sans)
+                    .font_size(12.0)
+                    .foreground(palette.text)
+                    .size(None, Some(18.0)),
+            );
+        }
+        line.push(
+            Element::truncated_text(rest)
                 .font_family(FontFamily::Sans)
                 .font_size(12.0)
                 .foreground(status_ink)
-                .size(None, Some(18.0)),
-        )
-        .height(18.0)
-        .render()
-        .flex(1.0)
-        .centered_y()];
+                .size(None, Some(18.0))
+                .flex(1.0),
+        );
+        let mut footer = vec![
+            Element::spacer().size(Some(INSET), None),
+            Ticker::new(format!("{id}:status"), &self.status, Element::row(line))
+                .height(18.0)
+                .render()
+                .flex(1.0)
+                .centered_y(),
+        ];
         if let Some((action, label)) = &self.footer_action {
             footer.push(
                 Element::clickable(
@@ -492,18 +565,24 @@ impl Component for ContextWindow {
                 .centered_y(),
             );
         }
-        let side = || Element::spacer().size(Some(INSET), None);
+        footer.push(Element::spacer().size(Some(INSET), None));
+        // The card stands on a frame a shade apart from it, which the foot shares.
+        let frame = || Element::spacer().size(Some(FRAME), Some(FRAME));
+        let hover = palette.hover;
         Element::column(vec![
+            frame(),
             Element::row(vec![
-                side(),
-                Element::column(body).size(Some(inner), None),
-                side(),
+                frame(),
+                Element::column(body)
+                    .background(palette.surface)
+                    .border(palette.border, 1.0)
+                    .radius(CARD_RADIUS)
+                    .flex(1.0),
+                frame(),
             ]),
-            Element::spacer().size(None, Some(10.0)),
-            Element::row(std::iter::once(side()).chain(footer).chain([side()]).collect())
-                .size(None, Some(FOOTER_HEIGHT))
-                .background(Color::rgba(palette.hover.r, palette.hover.g, palette.hover.b, palette.hover.a / 2)),
+            Element::row(footer).gap(6.0).size(None, Some(FOOTER_HEIGHT)),
         ])
+        .background(Color::rgba(hover.r, hover.g, hover.b, hover.a / 2))
         .size(Some(px(self.width)), None)
     }
 }

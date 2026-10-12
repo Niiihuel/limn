@@ -51,6 +51,7 @@ pub fn view(cx: &Cx) -> Element {
         None => format!("{} libres", ContextWindow::tokens_text(WINDOW.saturating_sub(used) as f32)),
     };
     let saved = compacted && in_focus.is_none();
+    let in_focus_label = in_focus.map(|share| share.label.clone());
     let mut card = ContextWindow::new(
         ID,
         "Ventana de contexto",
@@ -67,7 +68,11 @@ pub fn view(cx: &Cx) -> Element {
     .caption("de 200K tokens")
     .focused(focused)
     .expanded(cx.state.flag("context:share:archivos").then_some("archivos"))
+    .header_icon("context-copy", limn::Icon::Copy, "Copiar diagnóstico")
     .footer_action("context-new", "Nuevo chat");
+    if let Some(share) = in_focus_label.as_deref() {
+        card = card.status_lead(share);
+    }
     card = if saved { card.status_done(status) } else { card.status(status) };
     let reset = FILES.iter().fold(String::from("context:action:conversacion=off&context-busy=off"), |reset, (id, ..)| {
         format!("{reset}&{ID}:remove:archivos:{id}=off")
@@ -77,7 +82,7 @@ pub fn view(cx: &Cx) -> Element {
         row(vec![Element::column(vec![card.render()])
             .background(palette.surface)
             .border(palette.border, 1.0)
-            .radius(12.0)
+            .radius(16.0)
             .clip_children()]),
         row(vec![
             Button::new("context-busy", if busy { "Dejar de compactar" } else { "Simular compactación en curso" }, palette)
