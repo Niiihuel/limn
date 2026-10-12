@@ -224,11 +224,15 @@ const MAX_SURFACE_SIDE: usize = 8192;
 const MAX_SURFACE_PIXELS: usize = 16 * 1024 * 1024;
 const SURFACE_TEXTURE: egui::TextureOptions = egui::TextureOptions::LINEAR;
 
-/// One frame of a [`DrawCommand::Surface`]. Build it where the pixels are
-/// decoded, away from the UI thread: converting them is the costly part.
+/// One frame of a [`DrawCommand::Surface`], or the part of one that changed.
+/// Build it where the pixels are decoded, away from the UI thread: converting
+/// them is the costly part.
 pub struct SurfaceFrame {
     image: egui::ColorImage,
     pixels_per_point: f32,
+    /// The size of the frame these pixels are a part of and where they go in
+    /// it, when they are not all of it.
+    part: Option<([usize; 2], [usize; 2])>,
 }
 
 impl std::fmt::Debug for SurfaceFrame {
@@ -237,6 +241,7 @@ impl std::fmt::Debug for SurfaceFrame {
             .debug_struct("SurfaceFrame")
             .field("size", &self.image.size)
             .field("pixels_per_point", &self.pixels_per_point)
+            .field("part", &self.part)
             .finish()
     }
 }
@@ -248,6 +253,7 @@ impl SurfaceFrame {
         Self::bounded(size, rgba.len(), 4, pixels_per_point).then(|| Self {
             image: egui::ColorImage::from_rgba_unmultiplied(size, rgba),
             pixels_per_point,
+            part: None,
         })
     }
 
@@ -256,6 +262,7 @@ impl SurfaceFrame {
         Self::bounded(size, rgb.len(), 3, pixels_per_point).then(|| Self {
             image: egui::ColorImage::from_rgb(size, rgb),
             pixels_per_point,
+            part: None,
         })
     }
 
@@ -272,6 +279,21 @@ impl SurfaceFrame {
     /// Width and height in pixels.
     pub fn size(&self) -> [usize; 2] {
         self.image.size
+    }
+
+    /// Makes these pixels the rectangle at `at` of a frame of `frame` pixels
+    /// that a surface already shows: presenting them writes only that
+    /// rectangle of its texture. `None` when they do not fit in such a frame.
+    pub fn within(mut self, frame: [usize; 2], at: [usize; 2]) -> Option<Self> {
+        let fits = (0..2).all(|axis| at[axis].checked_add(self.image.size[axis]).is_some_and(|end| end <= frame[axis]));
+        self.part = Some((frame, at));
+        fits.then_some(self)
+    }
+
+    /// The size of the frame these pixels are a part of and where they go in
+    /// it. `None` for a whole frame.
+    pub fn part(&self) -> Option<([usize; 2], [usize; 2])> {
+        self.part
     }
 }
 
@@ -292,9 +314,12 @@ thread_local! {
 
 /// Show `frame` wherever a [`DrawCommand::Surface`] names `id`. Called on the
 /// UI thread; a frame of the size already shown is written into the texture
-/// the GPU has, so a stream of frames allocates nothing. The surface keeps
+/// the GPU has, so a stream of frames allocates nothing, and a part of one
+/// ([`SurfaceFrame::within`]) uploads only its own pixels. The surface keeps
 /// its last frame until [`forget_surface`]. A frame wider or taller than the
-/// GPU's textures is refused, and `false` says so.
+/// GPU's textures is refused, and so is a part of any frame but the one the
+/// surface shows, at its size and scale: `false` says so, and the surface is
+/// left as it was. The host makes up for a refused part with a whole frame.
 pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bool {
     let side = ctx.input(|input| input.max_texture_side);
     if frame.image.size.iter().any(|pixels| *pixels > side) {
@@ -306,9 +331,17 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
             cache.entries.clear();
             cache.context = Some(ctx.clone());
         }
-        let SurfaceFrame { image, pixels_per_point } = frame;
-        match cache.entries.get_mut(id) {
-            Some(entry) => {
+        let SurfaceFrame { image, pixels_per_point, part } = frame;
+        match (cache.entries.get_mut(id), part) {
+            (Some(entry), Some((frame, at))) => {
+                if entry.texture.size() != frame || entry.pixels_per_point != pixels_per_point {
+                    return false;
+                }
+                entry.texture.set_partial(at, image, SURFACE_TEXTURE);
+            }
+            // There is no frame for it to be a part of.
+            (None, Some(_)) => return false,
+            (Some(entry), None) => {
                 if entry.texture.size() == image.size {
                     entry.texture.set_partial([0, 0], image, SURFACE_TEXTURE);
                 } else {
@@ -316,13 +349,13 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
                 }
                 entry.pixels_per_point = pixels_per_point;
             }
-            None => {
+            (None, None) => {
                 let texture = ctx.load_texture(format!("surface:{id}"), image, SURFACE_TEXTURE);
                 cache.entries.insert(id.to_owned(), SurfaceTexture { texture, pixels_per_point });
             }
         }
-    });
-    true
+        true
+    })
 }
 
 /// Free the texture of a surface the host no longer shows.
@@ -1924,6 +1957,92 @@ mod tests {
         assert!(SurfaceFrame::from_rgb([0, 4], &[], 1.0).is_none());
         assert!(SurfaceFrame::from_rgb([MAX_SURFACE_SIDE + 1, 1], &[], 1.0).is_none());
         assert!(SurfaceFrame::from_rgb([1, 1], &[0; 3], f32::NAN).is_none());
+    }
+
+    #[test]
+    fn a_part_of_a_frame_is_written_over_the_frame_a_surface_shows_and_nowhere_else() {
+        let solid = |size: [usize; 2], value: u8| {
+            SurfaceFrame::from_rgb(size, &vec![value; size[0] * size[1] * 3], 2.0).unwrap()
+        };
+        let ctx = egui::Context::default();
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        // Nothing is shown yet: a part has no frame to be a part of.
+        assert!(!present_surface(&ctx, "page", solid([2, 2], 9).within([8, 6], [1, 1]).unwrap()));
+        assert!(SURFACE_CACHE.with(|cache| cache.borrow().entries.is_empty()));
+        assert!(present_surface(&ctx, "page", solid([8, 6], 10)));
+        let id = SURFACE_CACHE.with(|cache| cache.borrow().entries["page"].texture.id());
+
+        // What the GPU's texture holds: the writes of each pass, replayed in
+        // the order egui hands them to a renderer. Returns where they went.
+        let mut texture = egui::ColorImage::filled([0, 0], Color32::TRANSPARENT);
+        let upload = |texture: &mut egui::ColorImage| {
+            let mut delta = ctx.run_ui(Default::default(), |_| {}).textures_delta;
+            let mut written = Vec::new();
+            for write in delta.set.get(&id).into_iter().flatten() {
+                let egui::ImageData::Color(image) = &write.image;
+                written.push((write.pos, image.size));
+                match write.pos {
+                    None => *texture = (**image).clone(),
+                    Some([left, top]) => {
+                        for (row, pixels) in image.pixels.chunks_exact(image.size[0]).enumerate() {
+                            let start = (top + row) * texture.size[0] + left;
+                            texture.pixels[start..start + pixels.len()].copy_from_slice(pixels);
+                        }
+                    }
+                }
+            }
+            delta.clear();
+            written
+        };
+        let grey = |value: u8| Color32::from_gray(value);
+        assert_eq!(upload(&mut texture), [(None, [8, 6])]);
+
+        // Only the part reaches the GPU, and the rest of the frame stays.
+        let part = solid([3, 2], 200).within([8, 6], [4, 3]).unwrap();
+        assert_eq!((part.size(), part.part()), ([3, 2], Some(([8, 6], [4, 3]))));
+        assert!(present_surface(&ctx, "page", part));
+        assert_eq!(upload(&mut texture), [(Some([4, 3]), [3, 2])]);
+        for (index, pixel) in texture.pixels.iter().enumerate() {
+            let (x, y) = (index % 8, index / 8);
+            let inside = (4..7).contains(&x) && (3..5).contains(&y);
+            assert_eq!(*pixel, grey(if inside { 200 } else { 10 }), "({x}, {y})");
+        }
+        // Parts that touch the frame's edges fit; several in a pass all land.
+        assert!(present_surface(&ctx, "page", solid([8, 1], 30).within([8, 6], [0, 5]).unwrap()));
+        assert!(present_surface(&ctx, "page", solid([1, 1], 40).within([8, 6], [7, 0]).unwrap()));
+        assert_eq!(upload(&mut texture), [(Some([0, 5]), [8, 1]), (Some([7, 0]), [1, 1])]);
+        assert_eq!((texture[(0, 5)], texture[(7, 5)], texture[(7, 0)], texture[(6, 0)]), (grey(30), grey(30), grey(40), grey(10)));
+
+        // A part that would stick out of its frame is not one.
+        for (size, at) in [([3, 2], [6, 3]), ([3, 2], [4, 5]), ([9, 1], [0, 0]), ([1, 1], [8, 0]), ([1, 1], [usize::MAX, 0])] {
+            assert!(solid(size, 1).within([8, 6], at).is_none(), "{size:?} at {at:?}");
+        }
+        // Nor is one shown that belongs to a frame of another size or scale
+        // than the surface's, or to a surface that shows nothing.
+        let before = texture.clone();
+        assert!(!present_surface(&ctx, "page", solid([3, 2], 1).within([9, 6], [0, 0]).unwrap()));
+        assert!(!present_surface(&ctx, "page", solid([3, 2], 1).within([4, 3], [0, 0]).unwrap()));
+        let coarse = SurfaceFrame::from_rgb([1, 1], &[1; 3], 1.0).unwrap();
+        assert!(!present_surface(&ctx, "page", coarse.within([8, 6], [0, 0]).unwrap()));
+        assert!(!present_surface(&ctx, "other", solid([3, 2], 1).within([8, 6], [0, 0]).unwrap()));
+        assert!(upload(&mut texture).is_empty());
+        assert_eq!(texture, before);
+
+        // A whole frame after parts replaces every pixel, also one of another
+        // size, whose parts are then the ones that fit.
+        assert!(present_surface(&ctx, "page", solid([8, 6], 77)));
+        assert_eq!(upload(&mut texture), [(Some([0, 0]), [8, 6])]);
+        assert!(texture.pixels.iter().all(|pixel| *pixel == grey(77)));
+        assert!(present_surface(&ctx, "page", solid([4, 4], 90)));
+        assert!(!present_surface(&ctx, "page", solid([1, 1], 1).within([8, 6], [0, 0]).unwrap()));
+        assert!(present_surface(&ctx, "page", solid([1, 1], 5).within([4, 4], [3, 3]).unwrap()));
+        assert_eq!(upload(&mut texture), [(None, [4, 4]), (Some([3, 3]), [1, 1])]);
+        assert_eq!((texture.size, texture[(3, 3)], texture[(2, 3)]), ([4, 4], grey(5), grey(90)));
+
+        // Forgotten, the surface has no frame again.
+        forget_surface("page");
+        assert!(!present_surface(&ctx, "page", solid([1, 1], 1).within([4, 4], [0, 0]).unwrap()));
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
     }
 
     #[test]
