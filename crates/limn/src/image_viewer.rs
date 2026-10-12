@@ -19,6 +19,8 @@ pub struct ImageViewer {
     previous_action: Option<String>,
     next_action: Option<String>,
     return_focus: Option<String>,
+    zoom: f32,
+    zoom_actions: Option<[String; 3]>,
 }
 
 impl ImageViewer {
@@ -43,6 +45,8 @@ impl ImageViewer {
             previous_action: None,
             next_action: None,
             return_focus: None,
+            zoom: 1.0,
+            zoom_actions: None,
         }
     }
 
@@ -83,6 +87,31 @@ impl ImageViewer {
         self.return_focus = Some(id.into());
         self
     }
+
+    /// How many times larger than its fit to the window the picture is
+    /// shown, from 1 to [`ImageViewer::MAX_ZOOM`]. The host owns the level.
+    /// Past 1 the picture is panned: the wheel moves it down, a drag or a
+    /// sideways gesture moves it across.
+    pub fn zoom(mut self, zoom: f32) -> Self {
+        if zoom.is_finite() {
+            self.zoom = zoom.clamp(1.0, Self::MAX_ZOOM);
+        }
+        self
+    }
+
+    /// Controls in the header to zoom out, fit the window and zoom in. The
+    /// host answers them by passing another [`ImageViewer::zoom`].
+    pub fn zoom_actions(
+        mut self,
+        out: impl Into<String>,
+        fit: impl Into<String>,
+        zoom_in: impl Into<String>,
+    ) -> Self {
+        self.zoom_actions = Some([out.into(), fit.into(), zoom_in.into()]);
+        self
+    }
+
+    pub const MAX_ZOOM: f32 = 8.0;
 }
 
 pub(crate) fn control(id: &str, icon: Icon, title: &str, enabled: bool, palette: ComponentPalette) -> Element {
@@ -117,25 +146,50 @@ impl Component for ImageViewer {
         let height = (self.viewport.height - 16.0).max(0.0);
         let mut controls = self.palette;
         controls.surface = self.palette.raised;
-        let header = Element::row(vec![
-            Element::truncated_text(&self.title)
-                .font_family(FontFamily::Sans)
-                .font_size(14.0)
-                .foreground(self.palette.text)
-                .flex(1.0)
-                .size(None, Some(36.0)),
-            control(
-                &self.close_id,
-                Icon::Close,
-                "Cerrar imagen · Esc",
-                true,
-                controls,
-            ),
-        ])
-        .gap(12.0)
-        .size(None, Some(36.0));
+        let mut header = vec![Element::truncated_text(&self.title)
+            .font_family(FontFamily::Sans)
+            .font_size(14.0)
+            .foreground(self.palette.text)
+            .flex(1.0)
+            .size(None, Some(36.0))];
+        let zoomed = self.zoom > 1.0;
+        if let Some([out, fit, zoom_in]) = &self.zoom_actions {
+            header.push(control(out, Icon::Minus, "Alejar", zoomed, controls));
+            header.push(control(fit, Icon::Collapse, "Ajustar a la ventana", zoomed, controls));
+            header.push(control(zoom_in, Icon::Add, "Acercar", self.zoom < Self::MAX_ZOOM, controls));
+        }
+        header.push(control(
+            &self.close_id,
+            Icon::Close,
+            "Cerrar imagen · Esc",
+            true,
+            controls,
+        ));
+        let header = Element::row(header).gap(12.0).size(None, Some(36.0));
+        // What is left for the picture inside the panel's padding, between
+        // the header and the count, and between the gallery's arrows.
+        let arrows = if self.total > 1 { 2.0 * (36.0 + 12.0) } else { 0.0 };
+        let room = Size::new(
+            (width - 32.0 - arrows).max(0.0),
+            (height - 32.0 - 36.0 - 24.0 - 24.0).max(0.0),
+        );
         let image = if let Some(image) = self.image {
-            Element::raster_image(image.full_resolution())
+            let picture = Element::raster_image(image.full_resolution());
+            if zoomed {
+                // The picture fits a box this many times its room, and the
+                // box is panned both ways, as a diagram is.
+                Element::scroll(
+                    format!("{}:down", self.close_id),
+                    crate::diagram::pannable(
+                        picture.size(Some(room.width * self.zoom), Some(room.height * self.zoom)),
+                        format!("{}:across", self.close_id),
+                        self.palette.surface,
+                        self.palette.muted,
+                    ),
+                )
+            } else {
+                picture
+            }
         } else {
             let message = self.error.as_deref().unwrap_or("Cargando imagen…");
             let mut content = vec![Element::spacer().flex(1.0)];
@@ -221,5 +275,78 @@ impl Component for ImageViewer {
             popover = popover.popover_return_focus(id);
         }
         popover
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DrawCommand, Frame, Point, RasterImageFormat, Rect, UiAction, UiEvent, UiTree};
+    use std::sync::Arc;
+
+    const WINDOW: Size = Size::new(900.0, 620.0);
+
+    fn viewer(zoom: f32) -> Element {
+        let picture = RasterImage::new("a".repeat(64), RasterImageFormat::Png, 4, Arc::from("AAAA"), "A picture").unwrap();
+        ImageViewer::new(Element::spacer(), true, "picture.png", "close", ComponentPalette::neutral_dark())
+            .viewport(WINDOW)
+            .image(picture)
+            .zoom(zoom)
+            .zoom_actions("out", "fit", "in")
+            .render()
+    }
+
+    fn picture(frame: &Frame) -> Rect {
+        frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("the picture is drawn")
+    }
+
+    fn click(tree: &mut UiTree, frame: &Frame, id: &str) -> Vec<UiAction> {
+        let Some(region) = frame.regions.iter().find(|region| region.id == id) else {
+            return Vec::new();
+        };
+        let center = Point::new(region.rect.x + region.rect.width / 2.0, region.rect.y + region.rect.height / 2.0);
+        tree.handle_event(UiEvent::PointerMove(center));
+        tree.handle_event(UiEvent::PointerDown(center));
+        tree.handle_event(UiEvent::PointerUp(center))
+    }
+
+    #[test]
+    fn a_fitted_picture_offers_only_to_zoom_in() {
+        let mut tree = UiTree::new(viewer(1.0));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(WINDOW);
+        let fitted = picture(&frame);
+        assert!(fitted.width <= WINDOW.width && fitted.height <= WINDOW.height);
+        // Nothing to zoom out of or to fit again.
+        assert!(click(&mut tree, &frame, "out").is_empty());
+        assert!(click(&mut tree, &frame, "fit").is_empty());
+        assert_eq!(click(&mut tree, &frame, "in"), vec![UiAction::Clicked { id: "in".into() }]);
+    }
+
+    #[test]
+    fn a_zoomed_picture_is_larger_than_its_room_and_can_be_brought_back() {
+        let mut tree = UiTree::new(viewer(1.0));
+        tree.set_reduced_motion(true);
+        let fitted = picture(&tree.layout(WINDOW));
+        tree.set_root(viewer(2.0));
+        let frame = tree.layout(WINDOW);
+        let zoomed = picture(&frame);
+        // Twice its room both ways, so it no longer fits and is panned.
+        assert_eq!((zoomed.width, zoomed.height), (fitted.width * 2.0, fitted.height * 2.0));
+        assert_eq!(click(&mut tree, &frame, "out"), vec![UiAction::Clicked { id: "out".into() }]);
+        assert_eq!(click(&mut tree, &frame, "fit"), vec![UiAction::Clicked { id: "fit".into() }]);
+        // A level outside the range is brought into it.
+        tree.set_root(viewer(50.0));
+        let most = picture(&tree.layout(WINDOW));
+        assert_eq!(most.width, fitted.width * ImageViewer::MAX_ZOOM);
+        let frame = tree.layout(WINDOW);
+        assert!(click(&mut tree, &frame, "in").is_empty());
     }
 }

@@ -126,7 +126,7 @@ for how they enter and leave.
 | `ContextMenu` | A menu opened by a secondary click on its child. |
 | `Modal` | A centered dialog for forms, with a title, a scrolling body and a footer. `Modal::fit_width(viewport_width, max)` is the width that keeps the window's margin clear, and `Modal::body_width(modal_width)` the width a body can count on: inside the padding and the rail reserved while it scrolls. |
 | `AlertDialog` | A centered confirmation for consequential actions. `.alternative(id, label)` adds a second way to go ahead between Cancel and the confirm action, for the same step without its consequential part. |
-| `ImageViewer` | A full-window image gallery. |
+| `ImageViewer` | A full-window image gallery. `.zoom(level)` shows the picture that many times larger than its fit to the window (1 to `ImageViewer::MAX_ZOOM`), panned like a diagram: the wheel moves it down, a drag or a sideways gesture moves it across. `.zoom_actions(out, fit, in)` adds the three controls to the header; the host owns the level and answers them. |
 | `CoachMark` | A teaching bubble with a caret towards a control that already exists, named by its ID, and a ring around it. It reports close, next, back and skip; the rest of the window takes no input while it shows. See [Guided tours](tours.md). |
 | `Tour`, `TourStep` | A sequence of coach marks with a step counter. The host owns the current step; the bubble travels from one target to the next. |
 
