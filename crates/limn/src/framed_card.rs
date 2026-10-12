@@ -61,7 +61,10 @@ impl FramedCard {
             Element::row(vec![side(), foot.flex(1.0).centered_y(), side()])
                 .size(None, Some(Self::FOOT_HEIGHT))
         });
-        (Element::column(self.body).size(self.width.map(px), None), foot)
+        // The last row keeps clear of whatever the host puts under the body.
+        let mut body = self.body;
+        body.push(Element::spacer().size(None, Some(8.0)));
+        (Element::column(body).size(self.width.map(px), None), foot)
     }
 
     /// Without a width the card fills the space it is given.

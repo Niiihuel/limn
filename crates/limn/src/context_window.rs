@@ -444,6 +444,8 @@ impl ContextWindow {
                 .size(None, Some(ROW_HEIGHT))
                 .flex(1.0)];
             match &share.action {
+                // The action answers the pointer with a fill of its own, a
+                // shade over the row's, so it reads as a button inside the row.
                 Some(ContextShareAction::Offer(offer)) => row.push(
                     Element::clickable(
                         &action_id,
@@ -456,8 +458,12 @@ impl ContextWindow {
                         ])
                         .gap(5.0),
                     )
+                    .padding(5.0)
+                    .radius(control_radius())
+                    .hover_background(palette.selected)
                     .hover_foreground(palette.text)
-                    .size(None, Some(ROW_HEIGHT)),
+                    .size(None, Some(ROW_HEIGHT - 6.0))
+                    .centered_y(),
                 ),
                 Some(ContextShareAction::Busy(busy)) => row.push(
                     Element::row(vec![
@@ -888,6 +894,55 @@ mod tests {
             .count();
         assert_eq!(dashes, 2);
         assert!(has_text(&frame, "Tools") && !has_text(&frame, "0"));
+    }
+
+    #[test]
+    fn a_shares_action_lights_up_over_its_rows_own_fill() {
+        let palette = palette();
+        let card = ContextWindow::new(
+            "context",
+            "Context window",
+            vec![ContextShare::new("chat", "Conversation", 100_000, CHAT)
+                .action(ContextShareAction::Offer("Compact".into()))],
+            200_000,
+            palette,
+            ContextTones { warning: SYSTEM, danger: SYSTEM, success: SYSTEM },
+        )
+        .render();
+        let mut tree = UiTree::new(Element::row(vec![card, Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(SIZE);
+        let fills = |frame: &Frame, color: Color| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::FillRect { rect, color: ink, .. } if *ink == color && rect.height > 10.0 => Some(*rect),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert!(fills(&frame, palette.selected).is_empty());
+        let action = frame.regions.iter().find(|region| region.id == "context:action:chat").unwrap().rect;
+        let label = frame.regions.iter().find(|region| region.id == "context:share:chat").unwrap().rect;
+        // Over the row's label only the row answers.
+        tree.handle_event(crate::UiEvent::PointerMove(crate::Point::new(label.x + 4.0, label.y + 4.0)));
+        let frame = tree.layout(SIZE);
+        assert!(fills(&frame, palette.selected).is_empty());
+        // Over the action the row keeps its fill and the action adds its own, inside it.
+        tree.handle_event(crate::UiEvent::PointerMove(crate::Point::new(
+            action.x + action.width / 2.0,
+            action.y + action.height / 2.0,
+        )));
+        let frame = tree.layout(SIZE);
+        let button = fills(&frame, palette.selected);
+        assert_eq!(button.len(), 1, "{button:?}");
+        let row = fills(&frame, palette.hover)
+            .into_iter()
+            .find(|rect| rect.height == ROW_HEIGHT)
+            .expect("the row keeps its fill under the action");
+        assert!(button[0].y > row.y && button[0].y + button[0].height < row.y + row.height);
+        assert!(button[0].x > row.x && button[0].x + button[0].width < row.x + row.width);
     }
 
     #[test]
