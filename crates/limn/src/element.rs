@@ -209,6 +209,8 @@ pub enum Icon {
     Expand,
     /// Two arrows closing on a line: making something take less room.
     Compact,
+    /// Four corners: showing something over the whole window.
+    Fullscreen,
     Clock,
     /// Filled counterparts, for the chosen item of a navigation list.
     FolderFill,
