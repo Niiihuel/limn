@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx};
 use limn::{
     AlertColors, AlertTone, Button, ButtonVariant, Color, Component, ContextItem, ContextShare,
-    ContextShareAction, ContextTones, ContextWindow, Element,
+    ContextShareAction, ContextTones, ContextWindow, Element, FontFamily, FramedCard, Icon,
 };
 
 const ID: &str = "context";
@@ -77,7 +77,7 @@ pub fn view(cx: &Cx) -> Element {
     let reset = FILES.iter().fold(String::from("context:action:conversacion=off&context-busy=off"), |reset, (id, ..)| {
         format!("{reset}&{ID}:remove:archivos:{id}=off")
     });
-    Element::column(vec![section(cx, "Ventana de contexto", vec![
+    Element::column(vec![environment(cx), section(cx, "Ventana de contexto", vec![
         caption(cx, "Pasá el cursor por una categoría, abrí Archivos y quitá uno, o compactá la conversación: las cifras cuentan y las celdas se vacían solas."),
         row(vec![Element::column(vec![card.render()])
             .background(palette.surface)
@@ -91,4 +91,103 @@ pub fn view(cx: &Cx) -> Element {
             Button::new(reset, "Restablecer", palette).variant(ButtonVariant::Outline).render(),
         ]),
     ])])
+    .gap(28.0)
 }
+
+/// The same card, frame and rows around other content: a project's environment.
+fn environment(cx: &Cx) -> Element {
+    let palette = cx.palette;
+    let tone = |tone| AlertColors::for_tone(tone, palette).accent;
+    let text = |value: &str, size: f32, ink: Color| {
+        Element::truncated_text(value).font_family(FontFamily::Sans).font_size(size).foreground(ink)
+    };
+    let icon = |icon: Icon| Element::icon(icon).foreground(palette.muted).size(Some(14.0), Some(14.0)).centered_y();
+    let row = |id: &str, mark: Icon, label: &str, trailing: Element| {
+        FramedCard::row(
+            format!("{id}:fill"),
+            Element::clickable(
+                id,
+                Element::row(vec![icon(mark), text(label, 13.0, palette.text).flex(1.0).centered_y(), trailing]).gap(10.0),
+            ),
+            [id],
+            palette,
+        )
+    };
+    let open = cx.state.flag("environment-sources");
+    let listed = open.then(|| {
+        Element::column(
+            ["3 cambios del chat", "12 archivos consultados", "2 referencias"]
+                .into_iter()
+                .map(|line| {
+                    Element::row(vec![
+                        Element::spacer().size(Some(FramedCard::REACH + 24.0), None),
+                        text(line, 12.0, palette.muted).flex(1.0).centered_y(),
+                    ])
+                    .size(None, Some(24.0))
+                })
+                .chain([Element::spacer().size(None, Some(4.0))])
+                .collect(),
+        )
+    });
+    let header = Element::row(vec![
+        text("Entorno", 13.0, palette.text).flex(1.0).centered_y(),
+        palette
+            .interactive_surface(Element::icon_button("environment-refresh", Icon::Refresh, "Actualizar"))
+            .foreground(palette.muted)
+            .size(Some(24.0), Some(24.0))
+            .centered_y(),
+    ])
+    .size(None, Some(28.0));
+    let foot = Element::row(vec![
+        text("8 archivos", 12.0, palette.text).centered_y(),
+        text("+248", 12.0, tone(AlertTone::Success)).centered_y(),
+        text("−31", 12.0, tone(AlertTone::Error)).centered_y(),
+        Element::spacer().flex(1.0),
+        Element::clickable(
+            "environment-commit",
+            Element::row(vec![
+                text("Commit y push", 12.0, palette.text).centered_y(),
+                Element::icon(Icon::ArrowRight).foreground(palette.text).size(Some(12.0), Some(12.0)).centered_y(),
+            ])
+            .gap(4.0),
+        )
+        .size(None, Some(24.0))
+        .centered_y(),
+    ])
+    .gap(8.0);
+    let card = FramedCard::new(palette)
+        .width(320.0)
+        .section(header)
+        .rows(row("environment-project", Icon::Folder, "openADE", icon(Icon::ChevronDown)))
+        .rows(row("environment-local", Icon::Laptop, "Local", icon(Icon::ChevronDown)))
+        .rows(row("environment-branch", Icon::GitBranch, "feature/environment-layout", icon(Icon::ChevronDown)))
+        .space(6.0)
+        .rows(row("environment-compare", Icon::Code, "Comparar cambios", icon(Icon::ChevronRight)))
+        .rows(row("environment-actions", Icon::Play, "Acciones del proyecto", icon(Icon::ChevronRight)))
+        .rows(FramedCard::block(
+            "environment-sources-list",
+            row(
+                "environment-sources",
+                Icon::Book,
+                "Fuentes y herramientas",
+                icon(if open { Icon::ChevronDown } else { Icon::ChevronRight }),
+            ),
+            listed,
+            palette,
+        ))
+        .foot(foot)
+        .render();
+    section(cx, "El mismo patrón: Entorno", vec![
+        caption(cx, "La tarjeta, el marco y las filas son una pieza aparte (FramedCard); aquí rodean el entorno de un proyecto."),
+        row_of(vec![Element::column(vec![card])
+            .background(palette.surface)
+            .border(palette.border, 1.0)
+            .radius(16.0)
+            .clip_children()]),
+    ])
+}
+
+fn row_of(children: Vec<Element>) -> Element {
+    row(children)
+}
+

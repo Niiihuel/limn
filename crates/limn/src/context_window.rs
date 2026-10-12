@@ -3,21 +3,17 @@
 use crate::components::control_radius;
 use crate::page::px;
 use crate::{
-    Collapse, Color, Component, ComponentPalette, Element, FontFamily, Icon, Spinner, Ticker,
+    Color, Component, ComponentPalette, Element, FontFamily, FramedCard, Icon, Spinner, Ticker,
     UnitGrid, UnitGridPart,
 };
 
 const COLUMNS: u16 = 36;
 const ROWS: u16 = 6;
 const GAP: f32 = 2.0;
-const INSET: f32 = 16.0;
-const ROW_HEIGHT: f32 = 30.0;
-/// How far a row's fill reaches past its content, and the frame around the card.
-const ROW_PAD: f32 = 10.0;
-const FRAME: f32 = 4.0;
-const CARD_RADIUS: f32 = 12.0;
+const INSET: f32 = FramedCard::INSET;
+const ROW_HEIGHT: f32 = FramedCard::ROW_HEIGHT;
+const ROW_PAD: f32 = FramedCard::REACH;
 const ITEM_HEIGHT: f32 = 24.0;
-const FOOTER_HEIGHT: f32 = 40.0;
 
 /// One share of the window, such as the conversation or the tools.
 #[derive(Clone, Debug)]
@@ -274,11 +270,6 @@ impl Component for ContextWindow {
                 .font_size(size)
                 .foreground(ink)
         };
-        // The card's sections keep to its inset; a row's fill reaches further out.
-        let inset = |element: Element, side: f32| {
-            let side = || Element::spacer().size(Some(side - FRAME), None);
-            Element::row(vec![side(), element.flex(1.0), side()])
-        };
         let used: u64 = self.shares.iter().map(|share| share.tokens).sum();
         let focus = self
             .focused
@@ -374,13 +365,12 @@ impl Component for ContextWindow {
             focus,
         });
 
-        let mut body = vec![
-            Element::spacer().size(None, Some(8.0)),
-            inset(Element::row(header).gap(4.0).size(None, Some(28.0)), INSET),
-            inset(Element::row(figure).gap(8.0).size(None, Some(40.0)), INSET),
-            inset(grid, INSET),
-            Element::spacer().size(None, Some(8.0)),
-        ];
+        let mut card = FramedCard::new(palette)
+            .width(self.width)
+            .section(Element::row(header).gap(4.0).size(None, Some(28.0)))
+            .section(Element::row(figure).gap(8.0).size(None, Some(40.0)))
+            .section(grid)
+            .space(8.0);
         for share in &self.shares {
             let row_id = format!("{id}:share:{}", share.id);
             let action_id = format!("{id}:action:{}", share.id);
@@ -452,14 +442,12 @@ impl Component for ContextWindow {
                     .foreground(if receded { palette.muted } else { palette.text })
                     .centered_y(),
             );
-            // The fill reaches past the row's content on both sides, as far
-            // as the content stands from the card's edge.
-            let pad = || Element::spacer().size(Some(ROW_PAD), None);
-            let row = Element::row(vec![pad(), Element::row(row).gap(10.0).flex(1.0), pad()])
-                .size(None, Some(ROW_HEIGHT))
-                .radius(control_radius())
-                .hover_background(palette.hover)
-                .hover_surface(format!("{row_id}:surface"), [row_id.clone(), action_id.clone()]);
+            let row = FramedCard::row(
+                format!("{row_id}:surface"),
+                Element::row(row).gap(10.0),
+                [row_id.clone(), action_id.clone()],
+                palette,
+            );
             let items = open.then(|| {
                 Element::column(
                     share
@@ -503,17 +491,8 @@ impl Component for ContextWindow {
                 .keep_leaving(format!("{id}:items:{}:list", share.id))
             });
             // An open share and what it lists read as one block.
-            let mut block = Element::column(vec![
-                row,
-                Collapse::new(format!("{id}:items:{}", share.id), items).expand().render(),
-            ])
-            .radius(control_radius());
-            if open {
-                block = block.background(palette.hover);
-            }
-            body.push(inset(block, INSET - ROW_PAD));
+            card = card.rows(FramedCard::block(format!("{id}:items:{}", share.id), row, items, palette));
         }
-        body.push(Element::spacer().size(None, Some(8.0)));
 
         let status_ink = if self.status_done { self.tones.success } else { palette.muted };
         // The words the status opens with read stronger, such as a share's name.
@@ -541,7 +520,6 @@ impl Component for ContextWindow {
                 .flex(1.0),
         );
         let mut footer = vec![
-            Element::spacer().size(Some(INSET), None),
             Ticker::new(format!("{id}:status"), &self.status, Element::row(line))
                 .height(18.0)
                 .render()
@@ -565,25 +543,7 @@ impl Component for ContextWindow {
                 .centered_y(),
             );
         }
-        footer.push(Element::spacer().size(Some(INSET), None));
-        // The card stands on a frame a shade apart from it, which the foot shares.
-        let frame = || Element::spacer().size(Some(FRAME), Some(FRAME));
-        let hover = palette.hover;
-        Element::column(vec![
-            frame(),
-            Element::row(vec![
-                frame(),
-                Element::column(body)
-                    .background(palette.surface)
-                    .border(palette.border, 1.0)
-                    .radius(CARD_RADIUS)
-                    .flex(1.0),
-                frame(),
-            ]),
-            Element::row(footer).gap(6.0).size(None, Some(FOOTER_HEIGHT)),
-        ])
-        .background(Color::rgba(hover.r, hover.g, hover.b, hover.a / 2))
-        .size(Some(px(self.width)), None)
+        card.foot(Element::row(footer).gap(6.0)).render()
     }
 }
 

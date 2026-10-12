@@ -37,6 +37,7 @@ mod file_icons;
 mod find_bar;
 mod flowchart;
 mod form_field;
+mod framed_card;
 mod geometry;
 mod diagram_viewer;
 mod image_viewer;
@@ -122,6 +123,7 @@ pub use composer::Composer;
 pub use context_window::{
     ContextItem, ContextShare, ContextShareAction, ContextTones, ContextWindow,
 };
+pub use framed_card::FramedCard;
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
 pub use date_picker::DatePicker;
 pub use date_time_picker::DateTimePicker;
