@@ -116,6 +116,7 @@ pub struct ContextWindow {
     footer_action: Option<(String, String)>,
     header_icons: Vec<(String, Icon, String)>,
     status_lead: Option<String>,
+    flat: bool,
     width: f32,
     format: fn(f32) -> String,
 }
@@ -147,6 +148,7 @@ impl ContextWindow {
             footer_action: None,
             header_icons: Vec::new(),
             status_lead: None,
+            flat: false,
             width: 320.0,
             format: Self::tokens_text,
         }
@@ -218,6 +220,20 @@ impl ContextWindow {
         self
     }
 
+    /// For a host whose surface already is the card, such as a popover: the
+    /// content stands on that surface, with no frame and no card around it.
+    pub fn flat(mut self) -> Self {
+        self.flat = true;
+        self
+    }
+
+    /// The content and the foot apart, for a host that scrolls one and pins
+    /// the other under it. Use it with [`ContextWindow::flat`].
+    pub fn parts(self) -> (Element, Element) {
+        let (body, foot) = self.card().into_parts();
+        (body, foot.unwrap_or_else(Element::spacer))
+    }
+
     /// How a count of tokens is written, also while it counts.
     pub fn format(mut self, format: fn(f32) -> String) -> Self {
         self.format = format;
@@ -274,6 +290,12 @@ impl ContextWindow {
 
 impl Component for ContextWindow {
     fn render(self) -> Element {
+        self.card().render()
+    }
+}
+
+impl ContextWindow {
+    fn card(self) -> FramedCard {
         let palette = self.palette;
         let id = self.id.as_str();
         let inner = px(self.width - INSET * 2.0);
@@ -386,7 +408,11 @@ impl Component for ContextWindow {
             focus,
         });
 
-        let mut card = FramedCard::new(palette)
+        let mut card = FramedCard::new(palette);
+        if self.flat {
+            card = card.flat();
+        }
+        let mut card = card
             .width(self.width)
             .section(Element::row(header).gap(4.0).size(None, Some(28.0)))
             .section(Element::row(figure).gap(8.0).size(None, Some(40.0)))
@@ -553,22 +579,24 @@ impl Component for ContextWindow {
         ];
         if let Some((action, label)) = &self.footer_action {
             footer.push(
-                Element::clickable(
-                    action,
-                    Element::row(vec![
-                        sans(label, 12.0, palette.text).centered_y(),
-                        Element::icon(Icon::ArrowRight)
-                            .foreground(palette.text)
-                            .size(Some(12.0), Some(12.0))
-                            .centered_y(),
-                    ])
-                    .gap(4.0),
-                )
-                .size(None, Some(24.0))
-                .centered_y(),
+                palette
+                    .interactive_surface(Element::clickable(
+                        action,
+                        Element::row(vec![
+                            sans(label, 12.0, palette.text).centered_y(),
+                            Element::icon(Icon::ArrowRight)
+                                .foreground(palette.text)
+                                .size(Some(12.0), Some(12.0))
+                                .centered_y(),
+                        ])
+                        .gap(4.0),
+                    ))
+                    .padding(6.0)
+                    .size(None, Some(26.0))
+                    .centered_y(),
             );
         }
-        card.foot(Element::row(footer).gap(6.0)).render()
+        card.foot(Element::row(footer).gap(6.0))
     }
 }
 

@@ -14,6 +14,7 @@ pub struct FramedCard {
     /// Whether the last part is a row, which the next row keeps apart from.
     after_row: bool,
     foot: Option<Element>,
+    flat: bool,
 }
 
 impl FramedCard {
@@ -39,7 +40,28 @@ impl FramedCard {
             body: vec![Element::spacer().size(None, Some(8.0))],
             after_row: false,
             foot: None,
+            flat: false,
         }
+    }
+
+    /// For a host whose surface already is the card, such as a popover: no
+    /// frame and no card are drawn, and the parts keep the same insets from
+    /// the host's edge. Call it before adding parts.
+    pub fn flat(mut self) -> Self {
+        self.flat = true;
+        self
+    }
+
+    /// The body and the foot apart, for a host that scrolls one and pins the
+    /// other. Only for a [`FramedCard::flat`] card, which draws nothing
+    /// around them.
+    pub fn into_parts(self) -> (Element, Option<Element>) {
+        let side = || Element::spacer().size(Some(Self::INSET), None);
+        let foot = self.foot.map(|foot| {
+            Element::row(vec![side(), foot.flex(1.0).centered_y(), side()])
+                .size(None, Some(Self::FOOT_HEIGHT))
+        });
+        (Element::column(self.body).size(self.width.map(px), None), foot)
     }
 
     /// Without a width the card fills the space it is given.
@@ -52,7 +74,7 @@ impl FramedCard {
 
     /// Content that keeps to the card's inset: a header, a figure, a paragraph.
     pub fn section(mut self, content: Element) -> Self {
-        self.body.push(Self::inset(content, Self::INSET));
+        self.body.push(self.inset(content, Self::INSET));
         self.after_row = false;
         self
     }
@@ -65,7 +87,7 @@ impl FramedCard {
         if self.after_row {
             self.body.push(Element::spacer().size(None, Some(Self::ROW_GAP)));
         }
-        self.body.push(Self::inset(rows, Self::INSET - Self::REACH));
+        self.body.push(self.inset(rows, Self::INSET - Self::REACH));
         self.after_row = true;
         self
     }
@@ -128,14 +150,19 @@ impl FramedCard {
         (Self::card_radius() - Self::MARGIN).max(0.0)
     }
 
-    fn inset(element: Element, side: f32) -> Element {
-        let side = || Element::spacer().size(Some(side - Self::FRAME), None);
+    fn inset(&self, element: Element, side: f32) -> Element {
+        let frame = if self.flat { 0.0 } else { Self::FRAME };
+        let side = || Element::spacer().size(Some(side - frame), None);
         Element::row(vec![side(), element.flex(1.0), side()])
     }
 }
 
 impl Component for FramedCard {
     fn render(self) -> Element {
+        if self.flat {
+            let (body, foot) = self.into_parts();
+            return Element::column(std::iter::once(body).chain(foot).collect());
+        }
         let palette = self.palette;
         let frame = || Element::spacer().size(Some(Self::FRAME), Some(Self::FRAME));
         let mut body = self.body;
@@ -249,5 +276,45 @@ mod tests {
         assert_eq!(fill.x, FramedCard::INSET - FramedCard::REACH);
         assert_eq!(fill.x + fill.width, 320.0 - (FramedCard::INSET - FramedCard::REACH));
         assert_eq!(fill.height, FramedCard::ROW_HEIGHT);
+    }
+
+    #[test]
+    fn a_flat_card_draws_no_card_of_its_own_and_gives_its_foot_apart() {
+        let card = || {
+            FramedCard::new(palette())
+                .flat()
+                .width(320.0)
+                .section(label("Header"))
+                .rows(FramedCard::row(
+                    "row:fill",
+                    Element::clickable("row", Element::row(vec![label("Row")])),
+                    ["row"],
+                    palette(),
+                ))
+                .foot(label("Foot"))
+        };
+        let (body, foot) = card().into_parts();
+        let foot = foot.expect("the foot comes apart from the body");
+        let size = Size::new(400.0, 300.0);
+        // The host places each part itself: here the body, then the foot.
+        let mut tree = UiTree::new(Element::row(vec![
+            Element::column(vec![body, foot]).size(Some(320.0), None),
+            Element::spacer().flex(1.0),
+        ]));
+        let frame = tree.layout(size);
+        let x = |wanted: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, position, .. } if text == wanted => Some(position.x),
+                _ => None,
+            })
+        };
+        // The same insets as on a frame, now from the host's own edge.
+        assert_eq!((x("Header"), x("Row"), x("Foot")), (Some(16.0), Some(16.0), Some(16.0)));
+        // Nothing is painted around the content: no card and no frame.
+        assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::FillRect { .. })));
+        // Rendered whole, it is the body with the foot under it.
+        let mut whole = UiTree::new(Element::row(vec![card().render(), Element::spacer().flex(1.0)]));
+        let frame = whole.layout(size);
+        assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::FillRect { .. })));
     }
 }
