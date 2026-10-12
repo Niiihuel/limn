@@ -11,6 +11,8 @@ pub struct FramedCard {
     palette: ComponentPalette,
     width: Option<f32>,
     body: Vec<Element>,
+    /// Whether the last part is a row, which the next row keeps apart from.
+    after_row: bool,
     foot: Option<Element>,
 }
 
@@ -24,6 +26,8 @@ impl FramedCard {
     /// its foot, so a fill in a corner follows the corner.
     pub const REACH: f32 = 6.0;
     pub const ROW_HEIGHT: f32 = 30.0;
+    /// Between two rows, so their fills stay apart.
+    pub const ROW_GAP: f32 = 2.0;
     /// Between a row's fill and the card's edge, on every side.
     const MARGIN: f32 = Self::INSET - Self::REACH - Self::FRAME;
     const FOOT_HEIGHT: f32 = 40.0;
@@ -33,6 +37,7 @@ impl FramedCard {
             palette,
             width: None,
             body: vec![Element::spacer().size(None, Some(8.0))],
+            after_row: false,
             foot: None,
         }
     }
@@ -48,19 +53,27 @@ impl FramedCard {
     /// Content that keeps to the card's inset: a header, a figure, a paragraph.
     pub fn section(mut self, content: Element) -> Self {
         self.body.push(Self::inset(content, Self::INSET));
+        self.after_row = false;
         self
     }
 
     /// A row from [`FramedCard::row`], or a block of them: its fill reaches
     /// past the inset on both sides while its content keeps to it.
     pub fn rows(mut self, rows: Element) -> Self {
+        // Two fills never touch: the fill of a row under the pointer and of
+        // an open block beside it stay two shapes.
+        if self.after_row {
+            self.body.push(Element::spacer().size(None, Some(Self::ROW_GAP)));
+        }
         self.body.push(Self::inset(rows, Self::INSET - Self::REACH));
+        self.after_row = true;
         self
     }
 
     /// Room between two parts.
     pub fn space(mut self, height: f32) -> Self {
         self.body.push(Element::spacer().size(None, Some(px(height))));
+        self.after_row = false;
         self
     }
 
