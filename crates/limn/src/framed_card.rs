@@ -194,8 +194,11 @@ impl Component for FramedCard {
         }
         // The frame is the host's surface under a veil of the hover shade.
         let hover = palette.hover;
+        // The frame has corners of its own, a frame's width outside the
+        // card's, so it is a shape whatever the host does around it.
         Element::column(parts)
             .background(Color::rgba(hover.r, hover.g, hover.b, hover.a / 2))
+            .radius(Self::card_radius() + Self::FRAME)
             .size(self.width.map(px), None)
     }
 }
@@ -261,6 +264,16 @@ mod tests {
             })
             .expect("the card paints its surface");
         assert_eq!((card.x, card.width), (FramedCard::FRAME, 320.0 - FramedCard::FRAME * 2.0));
+        // The frame is a shape of its own: its corners stand a frame's width outside the card's.
+        let frame_radius = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, radius, .. } if rect.x == 0.0 && rect.width == 320.0 => Some(*radius),
+                _ => None,
+            })
+            .expect("the frame paints its tint");
+        assert_eq!(frame_radius, crate::tokens().radius.panel + FramedCard::FRAME);
         assert!(foot.y > card.y + card.height, "foot {foot:?} card {card:?}");
 
         // Under the pointer the row's fill reaches past its content on both sides.

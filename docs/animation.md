@@ -30,13 +30,13 @@ own content, and how to switch movement off.
 | Context menu | Fades in and settles. | Fades out. | `enter_ms`, `exit_ms` |
 | `Toast` | Fades in and settles. | Fades out where it was. | `enter_ms`, `exit_ms` |
 | `CoachMark`, `Tour` | Fades in and settles; its ring fades in on the target. On a new step both spring from the last target to the new one. | Fades out. | `enter_ms`, `exit_ms`, `move_ms` |
-| Body of a `Collapsible` | Opens from zero height under its header and fades in. | Closes in place while its last paint fades; what follows moves with it. | `enter_ms`, `exit_ms` |
+| Body of a `Collapsible` | Opens from zero height under its header and fades in. | Closes in place while its last paint fades; what follows moves with it. | a spring, one and a half `move_ms` |
 | An element with `reveal_on_hover`, such as a `MessageActions` row | Fades in where it already is. | Fades out. Its place in the layout is kept. | `enter_ms`, `exit_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `Switch` | The thumb springs across. | | `move_ms` |
 | `Stepper` | The badge cross-fades between active and inactive. | | `move_ms` |
-| Content of a `Collapse` | Takes its height at once, or with `.expand()` opens from zero and fades in. | The slot closes while the last paint fades, clipped to what is left. What follows moves with it. | `enter_ms`, `exit_ms` |
+| Content of a `Collapse` | Takes its height at once, or with `.expand()` opens from zero and fades in. | The slot closes while the last paint fades, clipped to what is left. What follows moves with it. | a spring, one and a half `move_ms` |
 | Line of a `Ticker` | Rises into place from its own height below. | Moves up by the same distance and fades, clipped by the slot. | `move_ms` |
 | `Element::rolling_number`, the figures of a `ContextWindow` | Shown as given. A new value is counted to from the one shown. | | three times `move_ms` |
 | `Element::unit_grid`, the cells of a `ContextWindow` | Shown as given. A part's new count is moved to cell by cell, and the parts after it follow; a part in focus makes the others recede. | | three times `move_ms` |
@@ -134,19 +134,19 @@ let live = Collapse::new("run-live", running.then(|| ticker)).render();
 
 Render the `Collapse` every frame and pass the content while there is any.
 When the content stops being passed, the slot stays in the flow and closes
-over `exit_ms`, so what follows glides up instead of jumping by the content's
+on a spring, so what follows glides up instead of jumping by the content's
 height. The last paint of the content fades, clipped to what is left of the
 slot. It is paint only: its controls stop taking input the moment it leaves.
 
 | | |
 | --- | --- |
-| `.expand()` | Also opens from zero over `enter_ms` when content arrives in a slot that was rendered empty, fading in, with its controls reachable where the slot shows them. Without it, arriving content takes its height at once. Content already there when the slot first appears, such as on the first frame of a page, is shown at its height either way. |
+| `.expand()` | Also opens from zero, on the same spring, when content arrives in a slot that was rendered empty, fading in, with its controls reachable where the slot shows them. Without it, arriving content takes its height at once. Content already there when the slot first appears, such as on the first frame of a page, is shown at its height either way. |
 | Content that returns while the slot is closing | Reopens from the height it has reached. |
 | Content that changes height while present | Followed at once. Only arriving and leaving animate. |
 | Reduced motion | The slot opens and closes at once. |
 | `reveal` or a focus that scrolls, in the same frame | An arriving slot opens at once, so the control is scrolled to where it ends up. |
 | A `gap` on the parent column | Still surrounds the empty slot. Put the spacing inside the content, where it closes with it. |
-| Inside a scroll area | The scroll offset is not changed. Content after the slot moves up by the closing height over `exit_ms`, also when the slot is above the viewport: what is on screen glides instead of jumping, and it ends where an immediate removal would have put it. An area scrolled to its end stays within its range on every frame. |
+| Inside a scroll area | The scroll offset is not changed. Content after the slot moves up by the closing height as the slot closes, also when the slot is above the viewport: what is on screen glides instead of jumping, and it ends where an immediate removal would have put it. An area scrolled to its end stays within its range on every frame. |
 
 `Element::animate_height(id, expand)` is the same for an element of your own
 whose natural height becomes zero, such as a column you empty. The element
@@ -167,7 +167,7 @@ let rows = Element::column(
 
 A `Collapse` closes only while the host keeps rendering it empty. A column
 with `keep_leaving` does that for its children: one with `animate_height`
-that stops being passed keeps its slot where it was, closing over `exit_ms`
+that stops being passed keeps its slot where it was, closing on the slot's spring
 while its last paint fades, and the rows after it glide up. Each child's own
 ID names it, so it must stay the same across rebuilds. With reduced motion the
 row is gone at once.
@@ -263,6 +263,7 @@ released drag carries on instead of restarting from rest.
   than both ends.
 - **Curves are fixed.** Fills and surfaces ease out: quick to start, soft to
   finish.
+- **A slot that opens or closes is a spring too.** It has no overshoot and covers 99% of its way in one and a half `move_ms`. Toggled midway it keeps its speed and turns back instead of starting again from rest.
 - **Things that travel are springs.** A tab indicator or a switch thumb moves
   on a spring with no overshoot. Redirect it mid-flight, by choosing a third
   tab before it reaches the second, and it keeps its speed and bends towards

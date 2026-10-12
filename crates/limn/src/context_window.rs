@@ -835,7 +835,7 @@ mod tests {
             })
         };
         let start = Instant::now() - Duration::from_secs(10);
-        let exit = Duration::from_millis(u64::from(crate::tokens().motion.exit_ms));
+        let exit = crate::tree::slot_settle();
         let mut tree = UiTree::new(files(&["first", "second"]));
         let before = tree.layout_at(SIZE, start);
         let (second, foot) = (y(&before, "second.sql").unwrap(), y(&before, "left").unwrap());

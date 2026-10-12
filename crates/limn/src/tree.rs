@@ -1022,8 +1022,24 @@ struct AnimatedScalar {
     seen: Instant,
 }
 
+/// A slot fully open, in the units its spring moves in. A spring is at rest
+/// once both what is left of the way and its speed are under a hundredth of
+/// a unit: in hundredths of the height, that is far under a pixel.
+const SLOT_OPEN: f32 = 100.0;
+
+/// A slot opens and closes on a spring with no overshoot: toggled midway it
+/// keeps its speed and turns back instead of starting again from rest.
+fn slot_spring(value: f32, now: Instant) -> ScalarSpring {
+    ScalarSpring::new(value, now).motion(crate::SpringMotion::settling_in(slot_settle()))
+}
+
+/// The time in which a slot covers 99% of its way: one and a half moves.
+pub(crate) fn slot_settle() -> Duration {
+    Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3 / 2)
+}
+
 struct FlowHeight {
-    fraction: ScalarTransition,
+    fraction: ScalarSpring,
     natural: f32,
     rect: Rect,
     commands: Vec<DrawCommand>,
@@ -3470,7 +3486,7 @@ impl UiTree {
         self.flow_heights.get_mut().retain(|_, state| {
             if !state.fraction.is_active(now) {
                 // At rest by this frame's clock, whatever clock is read later.
-                state.fraction = ScalarTransition::new(state.fraction.target(), now);
+                state.fraction = slot_spring(state.fraction.target(), now);
                 if state.fraction.target() <= 0.0 {
                     state.commands.clear();
                 }
@@ -7138,30 +7154,27 @@ impl LayoutBuilder<'_> {
         let mut states = self.flow_heights.borrow_mut();
         // Content already there when the slot is first seen is simply there.
         let state = states.entry(id.to_owned()).or_insert_with(|| FlowHeight {
-            fraction: ScalarTransition::new(if present { 1.0 } else { 0.0 }, now),
+            fraction: slot_spring(if present { SLOT_OPEN } else { 0.0 }, now),
             natural,
             rect: Rect::new(0.0, 0.0, 0.0, 0.0),
             commands: Vec::new(),
             seen: now,
         });
         state.seen = now;
-        let motion = crate::tokens().motion;
-        let (target, duration) = if present {
+        let target = if present {
             state.natural = natural;
-            (1.0, motion.enter_ms)
+            SLOT_OPEN
         } else {
-            (0.0, motion.exit_ms)
+            0.0
         };
         if state.fraction.target() != target {
             if present && (!expand || self.locating) && state.fraction.value(now) <= 0.0 {
-                state.fraction = ScalarTransition::new(1.0, now);
+                state.fraction = slot_spring(SLOT_OPEN, now);
             } else {
-                state
-                    .fraction
-                    .retarget(target, now, Duration::from_millis(u64::from(duration)));
+                state.fraction.retarget(target, now);
             }
         }
-        state.natural * state.fraction.value(now)
+        state.natural * (state.fraction.value(now) / SLOT_OPEN).clamp(0.0, 1.0)
     }
 
     /// Place an `animate_height` element in a slot that may be shorter than
@@ -7177,7 +7190,11 @@ impl LayoutBuilder<'_> {
         }
         let now = self.now;
         let Some((fraction, natural, present)) = self.flow_heights.borrow().get(id).map(|state| {
-            (state.fraction.value(now), state.natural, state.fraction.target() > 0.0)
+            (
+                (state.fraction.value(now) / SLOT_OPEN).clamp(0.0, 1.0),
+                state.natural,
+                state.fraction.target() > 0.0,
+            )
         }) else {
             return self.place_inner(element, rect, clip);
         };

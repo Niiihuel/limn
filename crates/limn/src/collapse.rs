@@ -70,7 +70,8 @@ mod tests {
     }
 
     fn exit() -> Duration {
-        Duration::from_millis(u64::from(crate::tokens().motion.exit_ms))
+        // The slot moves on a spring; this is the time it takes to all but arrive.
+        crate::tree::slot_settle()
     }
 
     #[test]
@@ -105,7 +106,7 @@ mod tests {
         tree.handle_event(UiEvent::PointerDown(inside));
         assert_eq!(tree.handle_event(UiEvent::PointerUp(inside)), Vec::<UiAction>::new());
 
-        let frame = tree.layout_at(SIZE, start + exit() * 2);
+        let frame = tree.layout_at(SIZE, start + exit() * 3);
         assert_eq!(painted(&frame, "below").unwrap().0, below_open - 40.0);
         assert_eq!(painted(&frame, "content"), None);
         assert!(!tree.is_animating());
@@ -132,14 +133,14 @@ mod tests {
         tree.layout_at(SIZE, start);
         tree.set_root(root(slot(true).expand()));
         assert_eq!(painted(&tree.layout_at(SIZE, start), "below").unwrap().0, closed);
-        let enter = Duration::from_millis(u64::from(crate::tokens().motion.enter_ms));
+        let enter = crate::tree::slot_settle();
         let frame = tree.layout_at(SIZE, start + enter / 2);
         let below = painted(&frame, "below").unwrap().0;
         assert!(below > closed && below < closed + 40.0, "{below}");
         // The control inside is reachable only where the slot shows it.
         let region = frame.regions.iter().find(|region| region.id == "inside").unwrap().rect;
         assert!((region.height - (below - closed)).abs() < 0.01, "{region:?}");
-        let frame = tree.layout_at(SIZE, start + enter * 2);
+        let frame = tree.layout_at(SIZE, start + enter * 3);
         assert_eq!(painted(&frame, "below").unwrap().0, closed + 40.0);
         assert!(!tree.is_animating());
 
@@ -221,7 +222,7 @@ mod tests {
         tree.layout_at(SIZE, start);
         let half = row(&tree.layout_at(SIZE, start + exit() / 2));
         assert!(half < before && half > before - 40.0, "{half}");
-        assert_eq!(row(&tree.layout_at(SIZE, start + exit() * 2)), before - 40.0);
+        assert_eq!(row(&tree.layout_at(SIZE, start + exit() * 3)), before - 40.0);
         assert_eq!(tree.scroll_offset("page"), offset);
     }
 }
