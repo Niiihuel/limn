@@ -285,7 +285,7 @@ impl Component for ContextWindow {
                 focused.map_or(used, |share| share.tokens) as f32,
                 self.format,
             )
-            .font_family(FontFamily::Sans)
+            .font_family(FontFamily::SansMedium)
             .font_size(28.0)
             .foreground(palette.text),
             Ticker::new(
@@ -304,6 +304,7 @@ impl Component for ContextWindow {
                     .font_family(FontFamily::Sans)
                     .font_size(13.0)
                     .foreground(percent_ink)
+                    .animate_foreground(format!("{id}:percent:ink"))
                     .centered_y(),
             );
         }
@@ -424,7 +425,7 @@ impl Component for ContextWindow {
                         .items
                         .iter()
                         .map(|item| {
-                            Element::row(vec![
+                            let row = Element::row(vec![
                                 Element::spacer().size(Some(16.0), None),
                                 Element::truncated_text(&item.label)
                                     .font_family(FontFamily::Monospace)
@@ -448,10 +449,14 @@ impl Component for ContextWindow {
                                     .centered_y(),
                             ])
                             .gap(10.0)
-                            .size(None, Some(ITEM_HEIGHT))
+                            .size(None, Some(ITEM_HEIGHT));
+                            // A slot of its own, so a removed item closes where it was.
+                            Element::column(vec![row])
+                                .animate_height(format!("{id}:item:{}:{}", share.id, item.id), false)
                         })
                         .collect(),
                 )
+                .keep_leaving(format!("{id}:items:{}:list", share.id))
             });
             body.push(Collapse::new(format!("{id}:items:{}", share.id), items).expand().render());
         }
@@ -674,6 +679,89 @@ mod tests {
         let frame = tree.layout(SIZE);
         assert!(has_text(&frame, "schema.sql") && has_text(&frame, "9.4K"));
         assert!(frame.regions.iter().any(|region| region.id == "context:remove:files:a"));
+    }
+
+    /// The colour of the first text that `wanted` accepts.
+    fn ink(frame: &Frame, wanted: impl Fn(&str) -> bool) -> Option<Color> {
+        frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Text { text, color, .. } if wanted(text) => Some(*color),
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn the_figure_is_set_in_a_heavier_face_and_the_percentage_fades_to_its_new_colour() {
+        let start = Instant::now() - Duration::from_secs(10);
+        let fade = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
+        // 160K of 200K is the warning's threshold; the tones here are all SYSTEM.
+        let mut tree = UiTree::new(card(140_000, None));
+        let frame = tree.layout_at(SIZE, start);
+        assert!(frame.commands.iter().any(|command| matches!(
+            command,
+            DrawCommand::Text { text, font_family: FontFamily::SansMedium, .. } if text == "160.0K"
+        )));
+        assert_eq!(ink(&frame, |text| text.ends_with('%')), Some(SYSTEM));
+        tree.set_root(card(40_000, None));
+        tree.layout_at(SIZE, start);
+        let midway = ink(&tree.layout_at(SIZE, start + fade / 3), |text| text.ends_with('%')).unwrap();
+        assert!(midway.r > SYSTEM.r && midway.r < palette().muted.r, "{midway:?}");
+        let frame = tree.layout_at(SIZE, start + fade * 4);
+        assert_eq!(ink(&frame, |text| text == "30%"), Some(palette().muted));
+        assert!(!tree.is_animating());
+    }
+
+    #[test]
+    fn an_item_that_is_removed_closes_where_it_was() {
+        let files = |names: &[&str]| {
+            ContextWindow::new(
+                "context",
+                "Context window",
+                vec![ContextShare::new("files", "Files", 30_000, CHAT).items(
+                    names
+                        .iter()
+                        .map(|name| ContextItem { id: (*name).into(), label: format!("{name}.sql"), tokens: 9_400 })
+                        .collect(),
+                )],
+                200_000,
+                palette(),
+                ContextTones { warning: SYSTEM, danger: SYSTEM, success: SYSTEM },
+            )
+            .expanded(["files"])
+            .status("left")
+            .render()
+        };
+        let y = |frame: &Frame, wanted: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, position, .. } if text == wanted => Some(position.y),
+                _ => None,
+            })
+        };
+        let start = Instant::now() - Duration::from_secs(10);
+        let exit = Duration::from_millis(u64::from(crate::tokens().motion.exit_ms));
+        let mut tree = UiTree::new(files(&["first", "second"]));
+        let before = tree.layout_at(SIZE, start);
+        let (second, foot) = (y(&before, "second.sql").unwrap(), y(&before, "left").unwrap());
+        tree.set_root(files(&["second"]));
+        tree.layout_at(SIZE, start);
+        // Midway the removed row still shows, fading, and what follows has moved part of the way.
+        let frame = tree.layout_at(SIZE, start + exit / 2);
+        let leaving = ink(&frame, |text| text == "first.sql").expect("the removed row is still closing");
+        assert!(leaving.a < palette().text.a, "{leaving:?}");
+        let moving = y(&frame, "second.sql").unwrap();
+        assert!(moving < second && moving > second - ITEM_HEIGHT, "{moving}");
+        assert!(!frame.regions.iter().any(|region| region.id == "context:remove:files:first"));
+
+        let frame = tree.layout_at(SIZE, start + exit * 3);
+        assert!(!has_text(&frame, "first.sql"));
+        assert_eq!(y(&frame, "second.sql"), Some(second - ITEM_HEIGHT));
+        assert_eq!(y(&frame, "left"), Some(foot - ITEM_HEIGHT));
+        assert!(!tree.is_animating());
+        // With reduced motion the row is gone at once.
+        let mut still = UiTree::new(files(&["first", "second"]));
+        still.set_reduced_motion(true);
+        still.layout(SIZE);
+        still.set_root(files(&["second"]));
+        assert!(!has_text(&still.layout(SIZE), "first.sql"));
     }
 
     #[test]

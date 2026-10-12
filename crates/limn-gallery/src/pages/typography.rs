@@ -45,6 +45,16 @@ pub fn view(cx: &Cx) -> Element {
             Text::new("Tinta semántica con ink()", palette).ink(AlertColors::for_tone(AlertTone::Error, palette).accent).render(),
             Text::new("cargo test -p limn", palette).mono().render(),
         ]),
+        section(cx, "Pesos", [
+            ("Regular", limn::FontFamily::Sans),
+            ("Medium", limn::FontFamily::SansMedium),
+            ("Bold", limn::FontFamily::SansBold),
+        ].into_iter().map(|(name, family)| {
+            Element::text(format!("{name} · 175.6K de 200K tokens"))
+                .font_family(family)
+                .font_size(15.0)
+                .foreground(palette.text)
+        }).collect()),
         section(cx, "Texto largo", vec![
             Element::column(vec![
                 caption(cx, "truncate() con tooltip()"),

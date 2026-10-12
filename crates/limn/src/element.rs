@@ -278,6 +278,10 @@ pub enum FontFamily {
     Sans,
     /// Sans slanted by the host. It measures exactly as [`Self::Sans`].
     SansItalic,
+    /// The medium and bold faces of the sans family: real faces the host
+    /// provides, each measured as itself. A host without one paints Sans.
+    SansMedium,
+    SansBold,
 }
 
 /// One inline style run in a paragraph. Width is measured by the same host
@@ -460,6 +464,14 @@ pub(crate) enum HoverReveal {
     Revealed,
 }
 
+/// The IDs under which the tree keeps an element's ink and a column's
+/// children across rebuilds.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct Kept {
+    pub(crate) foreground: Option<String>,
+    pub(crate) leaving: Option<String>,
+}
+
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
 #[derive(Clone, Debug)]
 pub struct Element {
@@ -477,7 +489,8 @@ pub struct Element {
     pub replacement: Option<Box<(String, String)>>,
     /// A paint-only surface keyed independently from the actions it follows.
     /// It adds no pointer target or keyboard focus stop.
-    pub hover_surface: Option<(String, Vec<String>)>,
+    /// Boxed: few elements have one, and every element pays for the field.
+    pub hover_surface: Option<Box<(String, Vec<String>)>>,
     /// Names this passive child of a tab strip as a place where the strip's
     /// selection indicator can rest, such as either end of a switch.
     pub indicator_slot: Option<String>,
@@ -490,6 +503,10 @@ pub struct Element {
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
+    /// Set by [`Element::animate_foreground`] and [`Element::keep_leaving`].
+    /// Boxed together: few elements have either, and every element pays for
+    /// the field in the caches that hold built trees.
+    pub(crate) kept: Option<Box<Kept>>,
     /// Set by [`Element::hover_region`] and [`Element::reveal_on_hover`];
     /// the latter keeps its ID in `presence`. One byte of existing padding.
     pub(crate) hover_reveal: HoverReveal,
@@ -904,6 +921,7 @@ impl Element {
             draggable: false,
             sticky_top: None,
             animate_height: None,
+            kept: None,
             hover_reveal: HoverReveal::None,
             drop_target: false,
             menu_navigation: false,
@@ -1010,6 +1028,23 @@ impl Element {
         self
     }
 
+    /// Cross-fade the foreground when the colour given under `id` changes,
+    /// over `move_ms`. For a text or an icon whose colour carries a state.
+    pub fn animate_foreground(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().foreground = Some(id.into());
+        self
+    }
+
+    /// On a column: a child with [`Element::animate_height`] that stops being
+    /// passed closes where it was, its last paint fading, instead of
+    /// vanishing with a jump. The tree remembers the children under `id`
+    /// and keeps the slot of one that left until it has closed. The child's
+    /// own ID names it, so it must stay the same across rebuilds.
+    pub fn keep_leaving(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().leaving = Some(id.into());
+        self
+    }
+
     /// Let a tab strip's selection rest on this child when `id` is selected.
     pub fn indicator_slot(mut self, id: impl Into<String>) -> Self {
         self.indicator_slot = Some(id.into());
@@ -1043,7 +1078,7 @@ impl Element {
         id: impl Into<String>,
         actions: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
-        self.hover_surface = Some((id.into(), actions.into_iter().map(Into::into).collect()));
+        self.hover_surface = Some(Box::new((id.into(), actions.into_iter().map(Into::into).collect())));
         self
     }
 

@@ -20,6 +20,7 @@ mod sticky_tests;
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
 
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -1089,7 +1090,10 @@ impl SelectableTextBlock {
             .unwrap_or(row);
         let char_width = match run.font_family {
             FontFamily::Monospace => metrics,
-            FontFamily::Sans | FontFamily::SansItalic => sans_metrics,
+            FontFamily::Sans
+            | FontFamily::SansItalic
+            | FontFamily::SansMedium
+            | FontFamily::SansBold => sans_metrics,
         }
         .at_size(run.font_size)
         .char_width;
@@ -2237,6 +2241,10 @@ pub struct UiTree {
     // Measuring reads and starts these, and measuring borrows the tree shared.
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
     scalars: RefCell<HashMap<String, AnimatedScalar>>,
+    /// The ink of each `animate_foreground` element and when it was seen.
+    inks: RefCell<HashMap<String, (ColorTransition, Instant)>>,
+    /// The slots each `keep_leaving` column last laid out, in order.
+    leaving: RefCell<HashMap<String, (Vec<String>, Instant)>>,
     popover_view_transitions: HashMap<String, PopoverViewTransition>,
     coach_motion: Option<CoachMotion>,
     /// The coach mark step whose target has been revealed and focused.
@@ -2306,6 +2314,8 @@ impl UiTree {
             replacements: HashMap::new(),
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
+            inks: RefCell::new(HashMap::new()),
+            leaving: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
             coach_motion: None,
             coach_key: None,
@@ -2553,6 +2563,8 @@ impl UiTree {
             self.replacements.clear();
             self.flow_heights.get_mut().clear();
             self.scalars.get_mut().clear();
+            self.inks.get_mut().clear();
+            self.leaving.get_mut().clear();
             self.popover_view_transitions.clear();
             self.coach_motion = None;
             self.tab_indicators.clear();
@@ -2676,6 +2688,7 @@ impl UiTree {
                 .borrow()
                 .values()
                 .any(|state| state.value.is_active(now))
+            || self.inks.borrow().values().any(|(ink, _)| ink.is_active(now))
             || self
                 .popover_view_transitions
                 .values()
@@ -2857,6 +2870,8 @@ impl UiTree {
                 measurement_cache: &self.measurement_cache,
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
+                inks: &self.inks,
+                leaving: &self.leaving,
                 measurement_scope: 0,
                 next_measurement_scope: 0,
                 horizontal_scrolls: &mut self.horizontal_scrolls,
@@ -3450,6 +3465,8 @@ impl UiTree {
         // A slot is remembered while it is rendered, empty or not: content
         // that arrives in one seen empty is what `expand` opens.
         self.scalars.get_mut().retain(|_, state| state.seen == now);
+        self.inks.get_mut().retain(|_, (_, seen)| *seen == now);
+        self.leaving.get_mut().retain(|_, (_, seen)| *seen == now);
         self.flow_heights.get_mut().retain(|_, state| {
             if !state.fraction.is_active(now) {
                 // At rest by this frame's clock, whatever clock is read later.
@@ -5516,6 +5533,8 @@ struct LayoutBuilder<'a> {
     measurement_cache: &'a RefCell<MeasurementCache>,
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
+    inks: &'a RefCell<HashMap<String, (ColorTransition, Instant)>>,
+    leaving: &'a RefCell<HashMap<String, (Vec<String>, Instant)>>,
     measurement_scope: u64,
     next_measurement_scope: u64,
     horizontal_scrolls: &'a mut HashMap<String, HorizontalScrollState>,
@@ -6764,7 +6783,10 @@ impl LayoutBuilder<'_> {
     fn metrics_for(&self, style: Style) -> FontMetrics {
         match style.font_family {
             FontFamily::Monospace => self.metrics,
-            FontFamily::Sans | FontFamily::SansItalic => self.sans_metrics,
+            FontFamily::Sans
+            | FontFamily::SansItalic
+            | FontFamily::SansMedium
+            | FontFamily::SansBold => self.sans_metrics,
         }
         .at_size(style.font_size)
     }
@@ -7337,6 +7359,52 @@ impl LayoutBuilder<'_> {
         state.value.value(self.now)
     }
 
+    /// The slot a child of a `keep_leaving` column answers to, if it has one.
+    fn slot_id(child: &Element) -> Option<&str> {
+        child
+            .animate_height
+            .and(child.presence.as_ref())
+            .map(|(id, _)| id.as_str())
+    }
+
+    /// A `keep_leaving` column's children with, where each one was, an empty
+    /// slot for every child that left and has not closed yet.
+    fn with_leaving<'e>(&self, element: &'e Element, children: &'e [Element]) -> Cow<'e, [Element]> {
+        let leaving = element.kept.as_ref().and_then(|kept| kept.leaving.as_deref());
+        let Some(list) = leaving.filter(|_| !self.reduced_motion) else {
+            return Cow::Borrowed(children);
+        };
+        let leaving = self.leaving.borrow();
+        let Some((previous, _)) = leaving.get(list) else {
+            return Cow::Borrowed(children);
+        };
+        let present = |id: &str| children.iter().any(|child| Self::slot_id(child) == Some(id));
+        let closing = |id: &str| {
+            self.flow_heights
+                .borrow()
+                .get(id)
+                .is_some_and(|state| state.fraction.value(self.now) > 0.0)
+        };
+        if !previous.iter().any(|id| !present(id) && closing(id)) {
+            return Cow::Borrowed(children);
+        }
+        let mut kept = children.to_vec();
+        // Each one goes back after the slot it used to follow.
+        let mut after: Option<&str> = None;
+        for id in previous {
+            if !present(id) && closing(id) {
+                let index = after
+                    .and_then(|after| kept.iter().position(|child| Self::slot_id(child) == Some(after)))
+                    .map_or(0, |index| index + 1);
+                kept.insert(index, Element::column(Vec::new()).animate_height(id.clone(), false));
+            }
+            if present(id) || closing(id) {
+                after = Some(id);
+            }
+        }
+        Cow::Owned(kept)
+    }
+
     /// The text a rolling number reads as on this frame.
     fn rolling_text(&self, element: &Element) -> Option<Element> {
         let ElementKind::RollingNumber { id, value, format } = &element.kind else {
@@ -7590,6 +7658,7 @@ impl LayoutBuilder<'_> {
                 Size::new(available.width, height)
             }
             ElementKind::Column(children) => {
+                let children = self.with_leaving(element, children);
                 let sizes: Vec<_> = children
                     .iter()
                     .map(|child| self.measure(child, Size::new(inner.width, f32::INFINITY)))
@@ -7698,6 +7767,27 @@ impl LayoutBuilder<'_> {
     fn place_inner(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         if let Some(text) = self.rolling_text(element) {
             return self.place_inner(&text, rect, clip);
+        }
+        let foreground = element.kept.as_ref().and_then(|kept| kept.foreground.as_deref());
+        if let Some(id) = foreground.filter(|_| !self.reduced_motion) {
+            let given = element.style.foreground;
+            let ink = {
+                let mut inks = self.inks.borrow_mut();
+                let (ink, seen) = inks
+                    .entry(id.to_owned())
+                    .or_insert_with(|| (ColorTransition::new(given, self.now), self.now));
+                *seen = self.now;
+                let duration = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
+                ink.retarget(given, self.now, duration);
+                ink.color(self.now)
+            };
+            if ink != given {
+                let mut fading = element.clone();
+                // A column keeps its children under the same box.
+                fading.kept.as_mut().unwrap().foreground = None;
+                fading.style.foreground = ink;
+                return self.place_inner(&fading, rect, clip);
+            }
         }
         // Retain the un-clipped bounds of directly laid-out controls in a
         // scroll area. A menu can then focus its next option and reveal it,
@@ -7839,7 +7929,7 @@ impl LayoutBuilder<'_> {
                 style.border = style.focus_border.or(style.border);
             }
             transition_id = Some(id);
-        } else if let Some((id, actions)) = &element.hover_surface {
+        } else if let Some((id, actions)) = element.hover_surface.as_deref() {
             // Decoration only: the child actions still own all hit testing,
             // focus and disabled behavior. One transition avoids a seam when
             // moving between the primary action and a secondary icon.
@@ -7988,6 +8078,12 @@ impl LayoutBuilder<'_> {
         let mut pinned = Vec::new();
         match &element.kind {
             ElementKind::Column(children) => {
+                let kept = self.with_leaving(element, children);
+                let children = kept.as_ref();
+                if let Some(list) = element.kept.as_ref().and_then(|kept| kept.leaving.as_deref()) {
+                    let slots = children.iter().filter_map(Self::slot_id).map(str::to_owned).collect();
+                    self.leaving.borrow_mut().insert(list.to_owned(), (slots, self.now));
+                }
                 let viewport = self
                     .scroll_focus_context
                     .last()

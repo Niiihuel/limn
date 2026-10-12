@@ -97,6 +97,13 @@ a text element or the label of a button horizontally within that element.
 Text is monospace by default. UI text sets `.font_family(FontFamily::Sans)`
 and a size with `.font_size(px)`.
 
+A heavier text names its face: `FontFamily::SansMedium` or
+`FontFamily::SansBold`. They are real faces that the host provides and each is
+measured as itself, never a regular face drawn thicker. `limn-egui` ships
+Ubuntu Medium and Bold for them; a host that sets its own fonts without those
+faces paints the regular one. `FontFamily::SansItalic` is the regular face
+slanted by the host.
+
 ## Containers
 
 | Constructor | Use |

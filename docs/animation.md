@@ -49,7 +49,6 @@ Continuous indicators run on fixed periods and are not transitions: `Spinner`,
 - The height of a `Collapsible`. The content below it moves at once. Use a
   `Collapse` where that matters.
 - A value changing in `Progress`. The fill jumps to the new fraction.
-- The height of a `ContextWindow` when an item is removed from an open share. The list is followed at once; opening and closing the share animate.
 
 ## Switching motion off
 
@@ -155,6 +154,34 @@ slot. It is paint only: its controls stop taking input the moment it leaves.
 whose natural height becomes zero, such as a column you empty. The element
 must stay in the tree while it closes; one that is removed outright is gone
 at once.
+
+### A row that leaves a list
+
+```rust
+let rows = Element::column(
+    files
+        .iter()
+        .map(|file| Element::column(vec![row(file)]).animate_height(format!("file-{}", file.id), false))
+        .collect(),
+)
+.keep_leaving("files");
+```
+
+A `Collapse` closes only while the host keeps rendering it empty. A column
+with `keep_leaving` does that for its children: one with `animate_height`
+that stops being passed keeps its slot where it was, closing over `exit_ms`
+while its last paint fades, and the rows after it glide up. Each child's own
+ID names it, so it must stay the same across rebuilds. With reduced motion the
+row is gone at once.
+
+### A colour that carries a state
+
+```rust
+let percent = Element::text("88%").foreground(ink).animate_foreground("usage-ink");
+```
+
+When the colour given under the same ID changes, the ink cross-fades over
+`move_ms` instead of switching. For a text or an icon.
 
 ### An element that replaces another
 

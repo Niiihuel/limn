@@ -1162,6 +1162,9 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let font = match font_family {
                     FontFamily::Monospace => FontId::monospace(*font_size),
                     FontFamily::Sans => FontId::proportional(*font_size),
+                    FontFamily::SansMedium | FontFamily::SansBold => {
+                        FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
+                    }
                     FontFamily::SansItalic => {
                         // egui slants the regular face, so advances match Sans.
                         let format = egui::TextFormat {
@@ -2299,6 +2302,23 @@ pub fn install_fonts(ctx: &egui::Context) {
         name.clone(),
         egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
     );
+    // The weights are faces of their own, with the same fallbacks behind them.
+    let fallbacks = fonts
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .cloned()
+        .unwrap_or_default();
+    for (family, face, bytes) in [
+        (SANS_MEDIUM, "Ubuntu-Medium", &include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")[..]),
+        (SANS_BOLD, "Ubuntu-Bold", &include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")[..]),
+    ] {
+        fonts
+            .font_data
+            .insert(face.to_owned(), egui::FontData::from_static(bytes).into());
+        let mut faces = vec![face.to_owned()];
+        faces.extend(fallbacks.iter().cloned());
+        fonts.families.insert(egui::FontFamily::Name(family.into()), faces);
+    }
     fonts
         .families
         .entry(egui::FontFamily::Proportional)
@@ -2307,15 +2327,29 @@ pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(fonts);
 }
 
+const SANS_MEDIUM: &str = "limn-sans-medium";
+const SANS_BOLD: &str = "limn-sans-bold";
+
+/// The egui family a limn family is painted and measured with. A host that
+/// set its own fonts without the weighted faces gets the regular one.
+fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
+    let weighted = match family {
+        FontFamily::Monospace => return egui::FontFamily::Monospace,
+        FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
+        FontFamily::SansMedium => SANS_MEDIUM,
+        FontFamily::SansBold => SANS_BOLD,
+    };
+    let named = egui::FontFamily::Name(weighted.into());
+    if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {
+        named
+    } else {
+        egui::FontFamily::Proportional
+    }
+}
+
 /// Make a tree measure text with the fonts egui paints with. Call once per
 /// tree, and again after changing the context's fonts.
 pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
-    fn family(family: FontFamily) -> egui::FontFamily {
-        match family {
-            FontFamily::Monospace => egui::FontFamily::Monospace,
-            FontFamily::Sans | FontFamily::SansItalic => egui::FontFamily::Proportional,
-        }
-    }
     let mono = egui::FontId::monospace(14.0);
     let sans = egui::FontId::proportional(14.0);
     let (metrics, sans_metrics) = ctx.fonts_mut(|fonts| {
@@ -2336,16 +2370,19 @@ pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
     tree.set_metrics(metrics);
     tree.set_sans_metrics(sans_metrics);
     let heights = ctx.clone();
+    // The family is resolved before the fonts are locked to measure with it.
     tree.set_text_height_measurer(move |size, font| {
-        heights.fonts_mut(|fonts| fonts.row_height(&egui::FontId::new(size, family(font))))
+        let family = egui_family(&heights, font);
+        heights.fonts_mut(|fonts| fonts.row_height(&egui::FontId::new(size, family)))
     });
     let widths = ctx.clone();
     tree.set_text_measurer(move |text, size, font| {
+        let family = egui_family(&widths, font);
         widths.fonts_mut(|fonts| {
             fonts
                 .layout_no_wrap(
                     text.to_owned(),
-                    egui::FontId::new(size, family(font)),
+                    egui::FontId::new(size, family),
                     Color32::WHITE,
                 )
                 .size()
