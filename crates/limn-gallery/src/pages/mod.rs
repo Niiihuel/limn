@@ -7,6 +7,7 @@ use limn::{ComponentPalette, Element, FontFamily};
 mod blocks;
 mod buttons;
 mod chrome;
+mod context;
 mod diagrams;
 mod editor;
 mod empty;
@@ -53,6 +54,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "editor", group: "Controles", title: "Editor y compositor", view: editor::view },
     Page { id: "empty", group: "Estados", title: "Estado vacío", view: empty::view },
     Page { id: "feedback", group: "Estados", title: "Avisos y carga", view: feedback::view },
+    Page { id: "context", group: "Estados", title: "Ventana de contexto", view: context::view },
     Page { id: "overlays", group: "Superposiciones", title: "Menús y diálogos", view: overlays::view },
     Page { id: "menus", group: "Superposiciones", title: "Selectores y sugerencias", view: menus::view },
     Page { id: "tooltip", group: "Superposiciones", title: "Tooltip", view: tooltip::view },

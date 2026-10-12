@@ -109,6 +109,14 @@ impl eframe::App for Host {
         let area = ui.max_rect();
         let window = Size::new(area.width(), area.height());
 
+        // A page may answer the control under the pointer, as a host mirrors
+        // it; a screenshot keeps the one it was given with `--set`.
+        if self.screenshot.is_none() {
+            let hovered = self.tree.hovered_id().unwrap_or_default().to_owned();
+            if self.state.text("hovered") != hovered {
+                self.state.set("hovered", &hovered);
+            }
+        }
         self.tree.set_root(hot(|| app::view(&self.state, window)));
         self.tree.layout(window);
         let mut changed = false;

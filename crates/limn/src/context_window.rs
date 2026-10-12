@@ -1,0 +1,685 @@
+//! What fills a model's context window, share by share.
+
+use crate::components::control_radius;
+use crate::page::px;
+use crate::{
+    Collapse, Color, Component, ComponentPalette, Element, FontFamily, Icon, Spinner, Ticker,
+    UnitGrid, UnitGridPart,
+};
+
+const COLUMNS: u16 = 36;
+const ROWS: u16 = 6;
+const GAP: f32 = 2.0;
+const INSET: f32 = 16.0;
+const ROW_HEIGHT: f32 = 28.0;
+const ITEM_HEIGHT: f32 = 24.0;
+const FOOTER_HEIGHT: f32 = 40.0;
+
+/// One share of the window, such as the conversation or the tools.
+#[derive(Clone, Debug)]
+pub struct ContextShare {
+    pub id: String,
+    pub label: String,
+    pub tokens: u64,
+    pub color: Color,
+    /// What the share is made of. A share with items opens to list them.
+    pub items: Vec<ContextItem>,
+    pub action: Option<ContextShareAction>,
+}
+
+impl ContextShare {
+    pub fn new(id: impl Into<String>, label: impl Into<String>, tokens: u64, color: Color) -> Self {
+        Self {
+            id: id.into(),
+            label: label.into(),
+            tokens,
+            color,
+            items: Vec::new(),
+            action: None,
+        }
+    }
+
+    pub fn items(mut self, items: Vec<ContextItem>) -> Self {
+        self.items = items;
+        self
+    }
+
+    pub fn action(mut self, action: ContextShareAction) -> Self {
+        self.action = Some(action);
+        self
+    }
+}
+
+/// One thing inside a share, such as an attached file. It can be removed.
+#[derive(Clone, Debug)]
+pub struct ContextItem {
+    pub id: String,
+    pub label: String,
+    pub tokens: u64,
+}
+
+/// What a share offers to make it smaller, and how that is going.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ContextShareAction {
+    /// The label of an action that can be chosen.
+    Offer(String),
+    /// The label while the host carries it out.
+    Busy(String),
+    /// The label once it is done.
+    Done(String),
+}
+
+/// The colours that carry meaning: a window that is filling up, one that is
+/// full, and a share that was made smaller.
+#[derive(Clone, Copy, Debug)]
+pub struct ContextTones {
+    pub warning: Color,
+    pub danger: Color,
+    pub success: Color,
+}
+
+/// The host owns every figure and passes them on each rebuild; the figures
+/// count and the cells move to a new state by themselves. It takes the width
+/// it is given and no surface of its own, so it sits in a popover or a card.
+///
+/// Actions: `"{id}:share:{share}"` for a share's row, which the host answers
+/// by opening or closing it, `"{id}:action:{share}"` for its action and
+/// `"{id}:remove:{share}:{item}"` for an item's removal.
+pub struct ContextWindow {
+    id: String,
+    title: String,
+    badge: Option<String>,
+    shares: Vec<ContextShare>,
+    capacity: u64,
+    palette: ComponentPalette,
+    tones: ContextTones,
+    focused: Option<String>,
+    expanded: Vec<String>,
+    caption: String,
+    status: String,
+    status_done: bool,
+    footer_action: Option<(String, String)>,
+    width: f32,
+    format: fn(f32) -> String,
+}
+
+impl ContextWindow {
+    /// `capacity` is the size of the window in tokens; zero is a window of
+    /// unknown size, which the shares then fill between them.
+    pub fn new(
+        id: impl Into<String>,
+        title: impl Into<String>,
+        shares: Vec<ContextShare>,
+        capacity: u64,
+        palette: ComponentPalette,
+        tones: ContextTones,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            title: title.into(),
+            badge: None,
+            shares,
+            capacity,
+            palette,
+            tones,
+            focused: None,
+            expanded: Vec::new(),
+            caption: String::new(),
+            status: String::new(),
+            status_done: false,
+            footer_action: None,
+            width: 320.0,
+            format: Self::tokens_text,
+        }
+    }
+
+    /// A short name beside the title, such as the model's.
+    pub fn badge(mut self, badge: impl Into<String>) -> Self {
+        self.badge = Some(badge.into());
+        self
+    }
+
+    /// The share that stands out: the figure becomes its own and the other
+    /// shares recede. Pass [`ContextWindow::share_under`] of the hovered ID.
+    pub fn focused(mut self, share: Option<&str>) -> Self {
+        self.focused = share.map(str::to_owned);
+        self
+    }
+
+    /// The shares whose items are listed.
+    pub fn expanded(mut self, shares: impl IntoIterator<Item = impl Into<String>>) -> Self {
+        self.expanded = shares.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// The words after the figure while no share is in focus, such as
+    /// "of 200K tokens". A share in focus puts its label there.
+    pub fn caption(mut self, caption: impl Into<String>) -> Self {
+        self.caption = caption.into();
+        self
+    }
+
+    /// The line at the foot, such as what is left of the window.
+    pub fn status(mut self, status: impl Into<String>) -> Self {
+        self.status = status.into();
+        self.status_done = false;
+        self
+    }
+
+    /// As [`ContextWindow::status`], in the colour of something achieved.
+    pub fn status_done(mut self, status: impl Into<String>) -> Self {
+        self.status = status.into();
+        self.status_done = true;
+        self
+    }
+
+    /// An action at the foot, opposite the status.
+    pub fn footer_action(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.footer_action = Some((id.into(), label.into()));
+        self
+    }
+
+    pub fn width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.width = width.max(200.0);
+        }
+        self
+    }
+
+    /// How a count of tokens is written, also while it counts.
+    pub fn format(mut self, format: fn(f32) -> String) -> Self {
+        self.format = format;
+        self
+    }
+
+    /// The share whose row or action `control` is, for a card with this `id`.
+    pub fn share_under<'a>(id: &str, control: &'a str) -> Option<&'a str> {
+        let rest = control.strip_prefix(id)?;
+        rest.strip_prefix(":share:")
+            .or_else(|| rest.strip_prefix(":action:"))
+    }
+
+    /// "950", "4.2K", "175.6K", "1.25M".
+    pub fn tokens_text(tokens: f32) -> String {
+        let tokens = tokens.max(0.0);
+        if tokens >= 999_950.0 {
+            format!("{:.2}M", tokens / 1_000_000.0)
+        } else if tokens >= 1_000.0 {
+            format!("{:.1}K", tokens / 1_000.0)
+        } else {
+            format!("{}", tokens.round() as u32)
+        }
+    }
+
+    fn percent_text(percent: f32) -> String {
+        format!("{}%", percent.round() as i32)
+    }
+
+    /// Cells each share takes of `total`: its part of the window, and never
+    /// none for a share that holds anything.
+    fn cells(&self, total: f32) -> Vec<f32> {
+        let used: u64 = self.shares.iter().map(|share| share.tokens).sum();
+        let window = self.capacity.max(used).max(1) as f32;
+        let mut left = total;
+        self.shares
+            .iter()
+            .map(|share| {
+                let cells = if share.tokens == 0 {
+                    0.0
+                } else {
+                    (share.tokens as f32 / window * total).round().max(1.0).min(left)
+                };
+                left -= cells;
+                cells
+            })
+            .collect()
+    }
+}
+
+impl Component for ContextWindow {
+    fn render(self) -> Element {
+        let palette = self.palette;
+        let id = self.id.as_str();
+        let inner = px(self.width - INSET * 2.0);
+        let sans = |text: &str, size: f32, ink: Color| {
+            Element::text(text)
+                .font_family(FontFamily::Sans)
+                .font_size(size)
+                .foreground(ink)
+        };
+        let used: u64 = self.shares.iter().map(|share| share.tokens).sum();
+        let focus = self
+            .focused
+            .as_deref()
+            .and_then(|focused| self.shares.iter().position(|share| share.id == focused));
+        let focused = focus.map(|index| &self.shares[index]);
+
+        let mut header = vec![sans(&self.title, 13.0, palette.text).centered_y(), Element::spacer().flex(1.0)];
+        if let Some(badge) = &self.badge {
+            header.push(
+                Element::row(vec![Element::text(badge)
+                    .font_family(FontFamily::Monospace)
+                    .font_size(11.0)
+                    .foreground(palette.muted)
+                    .centered_y()])
+                .padding(6.0)
+                .background(palette.hover)
+                .radius(control_radius())
+                .centered_y(),
+            );
+        }
+
+        // The figure is the window's, or the share's in focus.
+        let fraction = if self.capacity == 0 { 0.0 } else { used as f32 / self.capacity as f32 };
+        let percent_ink = if fraction >= 0.95 {
+            self.tones.danger
+        } else if fraction >= 0.8 {
+            self.tones.warning
+        } else {
+            palette.muted
+        };
+        let caption = focused.map_or(self.caption.as_str(), |share| share.label.as_str());
+        let mut figure = vec![
+            Element::rolling_number(
+                format!("{id}:figure"),
+                focused.map_or(used, |share| share.tokens) as f32,
+                self.format,
+            )
+            .font_family(FontFamily::Sans)
+            .font_size(28.0)
+            .foreground(palette.text),
+            Ticker::new(
+                format!("{id}:caption"),
+                focused.map_or("", |share| share.id.as_str()),
+                sans(caption, 13.0, palette.muted).size(None, Some(18.0)),
+            )
+            .height(18.0)
+            .render()
+            .flex(1.0)
+            .centered_y(),
+        ];
+        if self.capacity > 0 {
+            figure.push(
+                Element::rolling_number(format!("{id}:percent"), fraction * 100.0, Self::percent_text)
+                    .font_family(FontFamily::Sans)
+                    .font_size(13.0)
+                    .foreground(percent_ink)
+                    .centered_y(),
+            );
+        }
+
+        let cell = ((inner - f32::from(COLUMNS - 1) * GAP) / f32::from(COLUMNS)).floor().max(2.0);
+        let cells = self.cells(f32::from(COLUMNS * ROWS));
+        let grid = Element::unit_grid(UnitGrid {
+            id: format!("{id}:grid"),
+            columns: COLUMNS,
+            rows: ROWS,
+            cell,
+            gap: GAP,
+            radius: (cell / 4.0).floor(),
+            parts: self
+                .shares
+                .iter()
+                .zip(cells)
+                .map(|(share, cells)| UnitGridPart {
+                    key: share.id.clone(),
+                    cells,
+                    color: share.color,
+                })
+                .collect(),
+            empty: palette.hover,
+            focus,
+        });
+
+        let mut body = vec![
+            Element::spacer().size(None, Some(8.0)),
+            Element::row(header).size(None, Some(28.0)),
+            Element::row(figure).gap(8.0).size(None, Some(40.0)),
+            grid,
+            Element::spacer().size(None, Some(8.0)),
+        ];
+        for share in &self.shares {
+            let row_id = format!("{id}:share:{}", share.id);
+            let action_id = format!("{id}:action:{}", share.id);
+            let open = !share.items.is_empty() && self.expanded.contains(&share.id);
+            let receded = focus.is_some() && focused.is_some_and(|focused| focused.id != share.id);
+            let mut label = vec![
+                Element::spacer()
+                    .size(Some(8.0), Some(8.0))
+                    .background(share.color)
+                    .radius(2.0)
+                    .centered_y(),
+                sans(&share.label, 13.0, if receded { palette.muted } else { palette.text }).centered_y(),
+            ];
+            if !share.items.is_empty() {
+                label.push(
+                    Element::icon(if open { Icon::ChevronDown } else { Icon::ChevronRight })
+                        .foreground(palette.muted)
+                        .size(Some(12.0), Some(12.0))
+                        .centered_y(),
+                );
+            }
+            label.push(Element::spacer().flex(1.0));
+            let mut row = vec![Element::clickable(&row_id, Element::row(label).gap(8.0))
+                .size(None, Some(ROW_HEIGHT))
+                .flex(1.0)];
+            match &share.action {
+                Some(ContextShareAction::Offer(offer)) => row.push(
+                    Element::clickable(
+                        &action_id,
+                        Element::row(vec![
+                            Element::icon(Icon::Collapse)
+                                .foreground(palette.muted)
+                                .size(Some(12.0), Some(12.0))
+                                .centered_y(),
+                            sans(offer, 12.0, palette.muted).centered_y(),
+                        ])
+                        .gap(4.0),
+                    )
+                    .hover_foreground(palette.text)
+                    .size(None, Some(ROW_HEIGHT)),
+                ),
+                Some(ContextShareAction::Busy(busy)) => row.push(
+                    Element::row(vec![
+                        Spinner::new(format!("{action_id}:busy"), palette.muted)
+                            .size(12.0)
+                            .render()
+                            .centered_y(),
+                        sans(busy, 12.0, palette.muted).centered_y(),
+                    ])
+                    .gap(4.0),
+                ),
+                Some(ContextShareAction::Done(done)) => row.push(
+                    Element::row(vec![
+                        Element::icon(Icon::Check)
+                            .foreground(self.tones.success)
+                            .size(Some(12.0), Some(12.0))
+                            .centered_y(),
+                        sans(done, 12.0, self.tones.success).centered_y(),
+                    ])
+                    .gap(4.0)
+                    .animate_enter(format!("{action_id}:done")),
+                ),
+                None => {}
+            }
+            row.push(
+                Element::rolling_number(format!("{id}:tokens:{}", share.id), share.tokens as f32, self.format)
+                    .font_family(FontFamily::Sans)
+                    .font_size(13.0)
+                    .foreground(if receded { palette.muted } else { palette.text })
+                    .centered_y(),
+            );
+            body.push(
+                Element::row(row)
+                    .gap(10.0)
+                    .padding(0.0)
+                    .size(None, Some(ROW_HEIGHT))
+                    .radius(control_radius())
+                    .hover_background(palette.hover)
+                    .hover_surface(format!("{row_id}:surface"), [row_id.clone(), action_id.clone()]),
+            );
+            let items = open.then(|| {
+                Element::column(
+                    share
+                        .items
+                        .iter()
+                        .map(|item| {
+                            Element::row(vec![
+                                Element::spacer().size(Some(16.0), None),
+                                Element::truncated_text(&item.label)
+                                    .font_family(FontFamily::Monospace)
+                                    .font_size(12.0)
+                                    .foreground(palette.text)
+                                    .flex(1.0)
+                                    .centered_y(),
+                                Element::text((self.format)(item.tokens as f32))
+                                    .font_family(FontFamily::Sans)
+                                    .font_size(12.0)
+                                    .foreground(palette.muted)
+                                    .centered_y(),
+                                palette
+                                    .interactive_surface(Element::icon_button(
+                                        format!("{id}:remove:{}:{}", share.id, item.id),
+                                        Icon::Close,
+                                        &item.label,
+                                    ))
+                                    .foreground(palette.muted)
+                                    .size(Some(20.0), Some(20.0))
+                                    .centered_y(),
+                            ])
+                            .gap(10.0)
+                            .size(None, Some(ITEM_HEIGHT))
+                        })
+                        .collect(),
+                )
+            });
+            body.push(Collapse::new(format!("{id}:items:{}", share.id), items).expand().render());
+        }
+
+        let status_ink = if self.status_done { self.tones.success } else { palette.muted };
+        let mut footer = vec![Ticker::new(
+            format!("{id}:status"),
+            &self.status,
+            Element::truncated_text(&self.status)
+                .font_family(FontFamily::Sans)
+                .font_size(12.0)
+                .foreground(status_ink)
+                .size(None, Some(18.0)),
+        )
+        .height(18.0)
+        .render()
+        .flex(1.0)
+        .centered_y()];
+        if let Some((action, label)) = &self.footer_action {
+            footer.push(
+                Element::clickable(
+                    action,
+                    Element::row(vec![
+                        sans(label, 12.0, palette.text).centered_y(),
+                        Element::icon(Icon::ArrowRight)
+                            .foreground(palette.text)
+                            .size(Some(12.0), Some(12.0))
+                            .centered_y(),
+                    ])
+                    .gap(4.0),
+                )
+                .size(None, Some(24.0))
+                .centered_y(),
+            );
+        }
+        let side = || Element::spacer().size(Some(INSET), None);
+        Element::column(vec![
+            Element::row(vec![
+                side(),
+                Element::column(body).size(Some(inner), None),
+                side(),
+            ]),
+            Element::spacer().size(None, Some(10.0)),
+            Element::row(std::iter::once(side()).chain(footer).chain([side()]).collect())
+                .size(None, Some(FOOTER_HEIGHT))
+                .background(Color::rgba(palette.hover.r, palette.hover.g, palette.hover.b, palette.hover.a / 2)),
+        ])
+        .size(Some(px(self.width)), None)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DrawCommand, Frame, Rect, Size, UiTree};
+    use std::time::{Duration, Instant};
+
+    const SIZE: Size = Size::new(400.0, 600.0);
+    const SYSTEM: Color = Color::rgba(40, 40, 40, 255);
+    const CHAT: Color = Color::rgba(40, 90, 240, 255);
+    const EMPTY: Color = Color::rgba(230, 230, 230, 255);
+
+    fn palette() -> ComponentPalette {
+        ComponentPalette {
+            surface: Color::rgba(255, 255, 255, 255),
+            raised: Color::rgba(250, 250, 250, 255),
+            hover: EMPTY,
+            selected: Color::rgba(220, 220, 220, 255),
+            border: Color::rgba(200, 200, 200, 255),
+            text: Color::rgba(20, 20, 20, 255),
+            muted: Color::rgba(120, 120, 120, 255),
+            shadow: Color::rgba(0, 0, 0, 40),
+        }
+    }
+
+    fn card(chat: u64, focused: Option<&str>) -> Element {
+        ContextWindow::new(
+            "context",
+            "Context window",
+            vec![
+                ContextShare::new("system", "System", 20_000, SYSTEM),
+                ContextShare::new("chat", "Conversation", chat, CHAT),
+            ],
+            200_000,
+            palette(),
+            ContextTones { warning: SYSTEM, danger: SYSTEM, success: SYSTEM },
+        )
+        .caption("of 200K tokens")
+        .focused(focused)
+        .render()
+    }
+
+    fn has_text(frame: &Frame, wanted: &str) -> bool {
+        frame
+            .commands
+            .iter()
+            .any(|command| matches!(command, DrawCommand::Text { text, .. } if text == wanted))
+    }
+
+    /// The cells of the grid, in reading order.
+    fn cells(frame: &Frame) -> Vec<(Rect, Color)> {
+        let cells: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if rect.width == rect.height && rect.width < 8.0 => {
+                    Some((*rect, *color))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(cells.len(), usize::from(COLUMNS * ROWS));
+        cells
+    }
+
+    fn count(frame: &Frame, color: Color) -> usize {
+        cells(frame).iter().filter(|(_, ink)| *ink == color).count()
+    }
+
+    #[test]
+    fn each_share_takes_its_part_of_the_cells_and_the_rest_stay_empty() {
+        let mut tree = UiTree::new(card(100_000, None));
+        let frame = tree.layout(SIZE);
+        // 216 cells for 200K: a tenth is 22 of them, a half 108.
+        assert_eq!(count(&frame, SYSTEM), 22);
+        assert_eq!(count(&frame, CHAT), 108);
+        assert_eq!(count(&frame, EMPTY), 86);
+        assert!(has_text(&frame, "120.0K") && has_text(&frame, "60%") && has_text(&frame, "of 200K tokens"));
+        assert!(!tree.is_animating());
+        // The cells stay inside the card's inset on both sides.
+        let cells = cells(&frame);
+        assert!(cells[0].0.x >= INSET && cells[35].0.x + cells[35].0.width <= 320.0 - INSET);
+        assert_eq!(cells[0].0.y, cells[35].0.y);
+        assert!(cells[36].0.y > cells[0].0.y);
+    }
+
+    #[test]
+    fn a_share_that_shrinks_counts_down_and_gives_its_cells_up_from_the_end() {
+        let start = Instant::now() - Duration::from_secs(10);
+        let roll = Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3);
+        let mut tree = UiTree::new(card(100_000, None));
+        tree.layout_at(SIZE, start);
+        tree.set_root(card(40_000, None));
+        tree.layout_at(SIZE, start);
+        let frame = tree.layout_at(SIZE, start + roll / 3);
+        // Midway the figures read values in between and the tail has emptied.
+        assert!(!has_text(&frame, "120.0K") && !has_text(&frame, "60.0K"));
+        let chat = count(&frame, CHAT);
+        assert!(chat < 108 && chat > 43, "{chat}");
+        let cells_now = cells(&frame);
+        assert_eq!(cells_now[22].1, CHAT, "the share keeps its first cells");
+        assert_eq!(cells_now[129].1, EMPTY, "and gives up its last ones");
+
+        let frame = tree.layout_at(SIZE, start + roll * 2);
+        assert_eq!(count(&frame, CHAT), 43);
+        assert!(has_text(&frame, "60.0K") && has_text(&frame, "40.0K") && has_text(&frame, "30%"));
+        assert!(!tree.is_animating());
+    }
+
+    #[test]
+    fn a_share_in_focus_lends_the_figure_its_count_and_the_others_recede() {
+        let start = Instant::now() - Duration::from_secs(10);
+        let roll = Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3);
+        let mut tree = UiTree::new(card(100_000, None));
+        tree.layout_at(SIZE, start);
+        tree.set_root(card(100_000, Some("system")));
+        tree.layout_at(SIZE, start);
+        let frame = tree.layout_at(SIZE, start + roll * 2);
+        assert!(has_text(&frame, "System") && !has_text(&frame, "of 200K tokens"));
+        assert_eq!(count(&frame, SYSTEM), 22);
+        assert_eq!(count(&frame, CHAT), 0, "the other share has receded");
+        // The share's own row and the figure both read its count; the percentage stays the window's.
+        let figures = frame
+            .commands
+            .iter()
+            .filter(|command| matches!(command, DrawCommand::Text { text, .. } if text == "20.0K"))
+            .count();
+        assert_eq!(figures, 2);
+        assert!(has_text(&frame, "60%"));
+    }
+
+    #[test]
+    fn reduced_motion_shows_the_new_state_at_once() {
+        let mut tree = UiTree::new(card(100_000, None));
+        tree.set_reduced_motion(true);
+        tree.layout(SIZE);
+        tree.set_root(card(40_000, None));
+        let frame = tree.layout(SIZE);
+        assert_eq!(count(&frame, CHAT), 43);
+        assert!(has_text(&frame, "60.0K"));
+        assert!(!tree.is_animating());
+    }
+
+    #[test]
+    fn rows_report_their_share_and_items_open_under_it() {
+        assert_eq!(ContextWindow::share_under("context", "context:share:chat"), Some("chat"));
+        assert_eq!(ContextWindow::share_under("context", "context:action:chat"), Some("chat"));
+        assert_eq!(ContextWindow::share_under("context", "context:remove:files:a"), None);
+        assert_eq!(ContextWindow::share_under("other", "context:share:chat"), None);
+        let files = |expanded: bool| {
+            ContextWindow::new(
+                "context",
+                "Context window",
+                vec![ContextShare::new("files", "Files", 30_000, CHAT).items(vec![ContextItem {
+                    id: "a".into(),
+                    label: "schema.sql".into(),
+                    tokens: 9_400,
+                }])],
+                200_000,
+                palette(),
+                ContextTones { warning: SYSTEM, danger: SYSTEM, success: SYSTEM },
+            )
+            .expanded(expanded.then_some("files"))
+            .render()
+        };
+        let mut tree = UiTree::new(files(false));
+        assert!(!has_text(&tree.layout(SIZE), "schema.sql"));
+        tree.set_reduced_motion(true);
+        tree.set_root(files(true));
+        let frame = tree.layout(SIZE);
+        assert!(has_text(&frame, "schema.sql") && has_text(&frame, "9.4K"));
+        assert!(frame.regions.iter().any(|region| region.id == "context:remove:files:a"));
+    }
+
+    #[test]
+    fn counts_are_written_short() {
+        for (tokens, text) in [(0.0, "0"), (950.0, "950"), (4_200.0, "4.2K"), (175_600.0, "175.6K"), (1_250_000.0, "1.25M")] {
+            assert_eq!(ContextWindow::tokens_text(tokens), text);
+        }
+    }
+}

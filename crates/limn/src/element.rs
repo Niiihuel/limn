@@ -1,4 +1,4 @@
-use crate::{Color, Point, RasterImage, ScrollMotion, ScrollbarAppearance};
+use crate::{Color, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 pub const DEFAULT_FONT_SIZE: f32 = 14.0;
@@ -524,6 +524,44 @@ impl std::fmt::Debug for UniformList {
     }
 }
 
+/// A field of equal cells shared out among parts, read in rows from the top
+/// left: each part takes as many cells as its `cells`, one part after
+/// another, and the rest stay `empty`. UiTree keeps each part's count by
+/// stable ID and moves it to a new one, so a part that shrinks gives its
+/// cells up from its end and the parts after it follow. With `focus`, the
+/// other parts recede towards `empty`.
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnitGrid {
+    pub id: String,
+    pub columns: u16,
+    pub rows: u16,
+    /// Side of a cell and the space between two.
+    pub cell: f32,
+    pub gap: f32,
+    pub radius: f32,
+    pub parts: Vec<UnitGridPart>,
+    pub empty: Color,
+    /// Index of the part that stands out, if one does.
+    pub focus: Option<usize>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UnitGridPart {
+    /// Names the part across rebuilds, whatever its position.
+    pub key: String,
+    pub cells: f32,
+    pub color: Color,
+}
+
+impl UnitGrid {
+    pub(crate) fn size(&self) -> Size {
+        let side = |count: u16| {
+            f32::from(count) * self.cell + f32::from(count.saturating_sub(1)) * self.gap
+        };
+        Size::new(side(self.columns), side(self.rows))
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum ElementKind {
     Column(Vec<Element>),
@@ -703,6 +741,15 @@ pub enum ElementKind {
         /// High or Max without receiving the Ultra treatment.
         ultra_available: bool,
     },
+    /// A figure that counts from the value it showed to the one it is given.
+    /// UiTree keeps the shown value by stable ID and lays the text out as it
+    /// reads on each frame, so what follows it keeps to its side.
+    RollingNumber {
+        id: String,
+        value: f32,
+        format: fn(f32) -> String,
+    },
+    UnitGrid(UnitGrid),
     Spacer,
 }
 
@@ -1638,6 +1685,23 @@ impl Element {
 
     pub fn spacer() -> Self {
         Self::new(ElementKind::Spacer)
+    }
+
+    /// A figure that counts to `value` from the one it showed under the same
+    /// `id`, written by `format` on every frame. The first value is simply
+    /// shown. Style it as a text.
+    pub fn rolling_number(id: impl Into<String>, value: f32, format: fn(f32) -> String) -> Self {
+        Self::new(ElementKind::RollingNumber {
+            id: id.into(),
+            value: if value.is_finite() { value } else { 0.0 },
+            format,
+        })
+    }
+
+    /// A field of cells shared out among parts. It takes the size of its
+    /// cells; see [`UnitGrid`].
+    pub fn unit_grid(grid: UnitGrid) -> Self {
+        Self::new(ElementKind::UnitGrid(grid))
     }
 
     /// A non-interactive loading surface with paint-only motion.

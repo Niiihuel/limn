@@ -38,6 +38,8 @@ own content, and how to switch movement off.
 | `Stepper` | The badge cross-fades between active and inactive. | | `move_ms` |
 | Content of a `Collapse` | Takes its height at once, or with `.expand()` opens from zero and fades in. | The slot closes while the last paint fades, clipped to what is left. What follows moves with it. | `enter_ms`, `exit_ms` |
 | Line of a `Ticker` | Rises into place from its own height below. | Moves up by the same distance and fades, clipped by the slot. | `move_ms` |
+| `Element::rolling_number`, the figures of a `ContextWindow` | Shown as given. A new value is counted to from the one shown. | | three times `move_ms` |
+| `Element::unit_grid`, the cells of a `ContextWindow` | Shown as given. A part's new count is moved to cell by cell, and the parts after it follow; a part in focus makes the others recede. | | three times `move_ms` |
 
 Continuous indicators run on fixed periods and are not transitions: `Spinner`,
 `Skeleton`, `TextShimmer` and the text caret.
@@ -47,6 +49,7 @@ Continuous indicators run on fixed periods and are not transitions: `Spinner`,
 - The height of a `Collapsible`. The content below it moves at once. Use a
   `Collapse` where that matters.
 - A value changing in `Progress`. The fill jumps to the new fraction.
+- The height of a `ContextWindow` when an item is removed from an open share. The list is followed at once; opening and closing the share animate.
 
 ## Switching motion off
 

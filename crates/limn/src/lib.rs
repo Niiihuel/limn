@@ -24,6 +24,7 @@ mod collapse;
 mod collapsible;
 mod components;
 mod composer;
+mod context_window;
 mod context_menu;
 mod date_picker;
 mod date_time_picker;
@@ -118,6 +119,9 @@ pub use components::{
     TooltipSpec,
 };
 pub use composer::Composer;
+pub use context_window::{
+    ContextItem, ContextShare, ContextShareAction, ContextTones, ContextWindow,
+};
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
 pub use date_picker::DatePicker;
 pub use date_time_picker::DateTimePicker;
@@ -128,7 +132,7 @@ pub use dropdown_menu::{
 pub use element::{
     Border, BoxShadow, CoachAlign, CoachSide, CornerRadii, Element, ElementKind, FontFamily, Icon, PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
-    TooltipStyle, UniformList, DEFAULT_FONT_SIZE, ICON_SIZE,
+    TooltipStyle, UniformList, UnitGrid, UnitGridPart, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};

@@ -511,6 +511,18 @@ impl DrawCommand {
     }
 }
 
+/// `from` with `amount` of the way to `to`, channel by channel.
+fn mix(from: Color, to: Color, amount: f32) -> Color {
+    let amount = amount.clamp(0.0, 1.0);
+    let channel = |from: u8, to: u8| (f32::from(from) + (f32::from(to) - f32::from(from)) * amount).round() as u8;
+    Color::rgba(
+        channel(from.r, to.r),
+        channel(from.g, to.g),
+        channel(from.b, to.b),
+        channel(from.a, to.a),
+    )
+}
+
 fn paint_spinner(
     commands: &mut Vec<DrawCommand>,
     rect: Rect,
@@ -1003,6 +1015,12 @@ struct Replacement {
 
 /// An `animate_height` slot: the share of its content's height it occupies,
 /// and the last paint of that content for when it has left.
+/// A value the tree moves for a `RollingNumber` or a part of a `UnitGrid`.
+struct AnimatedScalar {
+    value: ScalarTransition,
+    seen: Instant,
+}
+
 struct FlowHeight {
     fraction: ScalarTransition,
     natural: f32,
@@ -2218,6 +2236,7 @@ pub struct UiTree {
     replacements: HashMap<String, Replacement>,
     // Measuring reads and starts these, and measuring borrows the tree shared.
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
+    scalars: RefCell<HashMap<String, AnimatedScalar>>,
     popover_view_transitions: HashMap<String, PopoverViewTransition>,
     coach_motion: Option<CoachMotion>,
     /// The coach mark step whose target has been revealed and focused.
@@ -2286,6 +2305,7 @@ impl UiTree {
             popover_exits: HashMap::new(),
             replacements: HashMap::new(),
             flow_heights: RefCell::new(HashMap::new()),
+            scalars: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
             coach_motion: None,
             coach_key: None,
@@ -2532,6 +2552,7 @@ impl UiTree {
             self.popover_exits.clear();
             self.replacements.clear();
             self.flow_heights.get_mut().clear();
+            self.scalars.get_mut().clear();
             self.popover_view_transitions.clear();
             self.coach_motion = None;
             self.tab_indicators.clear();
@@ -2650,6 +2671,11 @@ impl UiTree {
                 .borrow()
                 .values()
                 .any(|state| state.fraction.is_active(now))
+            || self
+                .scalars
+                .borrow()
+                .values()
+                .any(|state| state.value.is_active(now))
             || self
                 .popover_view_transitions
                 .values()
@@ -2830,6 +2856,7 @@ impl UiTree {
                 formatted_cache: &self.formatted_cache,
                 measurement_cache: &self.measurement_cache,
                 flow_heights: &self.flow_heights,
+                scalars: &self.scalars,
                 measurement_scope: 0,
                 next_measurement_scope: 0,
                 horizontal_scrolls: &mut self.horizontal_scrolls,
@@ -3422,6 +3449,7 @@ impl UiTree {
             .retain(|id, _| observed_replacements.contains(id));
         // A slot is remembered while it is rendered, empty or not: content
         // that arrives in one seen empty is what `expand` opens.
+        self.scalars.get_mut().retain(|_, state| state.seen == now);
         self.flow_heights.get_mut().retain(|_, state| {
             if !state.fraction.is_active(now) {
                 // At rest by this frame's clock, whatever clock is read later.
@@ -5314,6 +5342,8 @@ fn collect_focus_order(
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
         | ElementKind::ProgressRing { .. }
+        | ElementKind::RollingNumber { .. }
+        | ElementKind::UnitGrid(_)
         | ElementKind::Text(_)
         | ElementKind::ShimmerText { .. }
         | ElementKind::KeyboardShortcut { .. }
@@ -5387,6 +5417,8 @@ fn collect_action_metadata(
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
         | ElementKind::ProgressRing { .. }
+        | ElementKind::RollingNumber { .. }
+        | ElementKind::UnitGrid(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -5483,6 +5515,7 @@ struct LayoutBuilder<'a> {
     formatted_cache: &'a RefCell<FormattedTextCache>,
     measurement_cache: &'a RefCell<MeasurementCache>,
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
+    scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
     measurement_scope: u64,
     next_measurement_scope: u64,
     horizontal_scrolls: &'a mut HashMap<String, HorizontalScrollState>,
@@ -7285,7 +7318,39 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// Where the value kept under `key` stands on this frame, heading for
+    /// `target`. A key seen for the first time rests on its target.
+    fn scalar(&self, key: &str, target: f32) -> f32 {
+        let mut scalars = self.scalars.borrow_mut();
+        let state = scalars.entry(key.to_owned()).or_insert_with(|| AnimatedScalar {
+            value: ScalarTransition::new(target, self.now),
+            seen: self.now,
+        });
+        state.seen = self.now;
+        if state.value.target() != target {
+            // A count is read, not followed: it takes three moves.
+            let duration = Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3);
+            state
+                .value
+                .retarget_with_motion(target, self.now, duration, self.reduced_motion);
+        }
+        state.value.value(self.now)
+    }
+
+    /// The text a rolling number reads as on this frame.
+    fn rolling_text(&self, element: &Element) -> Option<Element> {
+        let ElementKind::RollingNumber { id, value, format } = &element.kind else {
+            return None;
+        };
+        let mut text = element.clone();
+        text.kind = ElementKind::Text(format(self.scalar(id, *value)));
+        Some(text)
+    }
+
     fn measure_uncached(&self, element: &Element, available: Size) -> Size {
+        if let Some(text) = self.rolling_text(element) {
+            return self.measure_uncached(&text, available);
+        }
         let style = element.style;
         let metrics = self.metrics_for(style);
         let padding = style.padding * 2.0;
@@ -7449,6 +7514,10 @@ impl LayoutBuilder<'_> {
             ElementKind::ProgressRing { .. } => {
                 Size::new(crate::ICON_SIZE + padding, crate::ICON_SIZE + padding)
             }
+            ElementKind::UnitGrid(grid) => {
+                let size = grid.size();
+                Size::new(size.width + padding, size.height + padding)
+            }
             ElementKind::Flowchart(flowchart) => {
                 let size = flowchart.layout(&|text, size| self.sans_width(text, size), &|size| {
                     self.sans_metrics.at_size(size).line_height
@@ -7463,9 +7532,11 @@ impl LayoutBuilder<'_> {
                 .size;
                 Size::new(size.width + padding, size.height + padding)
             }
-            ElementKind::Skeleton { .. } | ElementKind::Spinner { .. } | ElementKind::Spacer => {
-                Size::new(0.0, 0.0)
-            }
+            // A rolling number was measured as its text above.
+            ElementKind::Skeleton { .. }
+            | ElementKind::Spinner { .. }
+            | ElementKind::RollingNumber { .. }
+            | ElementKind::Spacer => Size::new(0.0, 0.0),
             ElementKind::Panel(child) | ElementKind::Clickable { child, .. } => {
                 let child = self.measure(child, inner);
                 Size::new(child.width + padding, child.height + padding)
@@ -7625,6 +7696,9 @@ impl LayoutBuilder<'_> {
     }
 
     fn place_inner(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        if let Some(text) = self.rolling_text(element) {
+            return self.place_inner(&text, rect, clip);
+        }
         // Retain the un-clipped bounds of directly laid-out controls in a
         // scroll area. A menu can then focus its next option and reveal it,
         // even when that option has no visible hit region yet.
@@ -9487,6 +9561,46 @@ impl LayoutBuilder<'_> {
                 );
                 self.frame.commands.append(&mut commands);
             }
+            ElementKind::UnitGrid(grid) => {
+                // Each part's cells follow those of the parts before it.
+                let focused = grid.focus.filter(|focus| *focus < grid.parts.len());
+                let mut end = 0.0;
+                let spans: Vec<(f32, f32, Color)> = grid
+                    .parts
+                    .iter()
+                    .enumerate()
+                    .map(|(index, part)| {
+                        let key = format!("{}/{}", grid.id, part.key);
+                        let cells = self.scalar(&key, part.cells.max(0.0)).max(0.0);
+                        let receded = focused.is_some_and(|focus| focus != index);
+                        let recede = self.scalar(&format!("{key}/recede"), f32::from(u8::from(receded)));
+                        let start = end;
+                        end += cells;
+                        (start, end, mix(part.color, grid.empty, recede * 0.78))
+                    })
+                    .collect();
+                let pitch = grid.cell + grid.gap;
+                for row in 0..grid.rows {
+                    for column in 0..grid.columns {
+                        let cell = f32::from(row) * f32::from(grid.columns) + f32::from(column);
+                        // A cell a part covers in part shows that share of its colour.
+                        let color = spans.iter().fold(grid.empty, |color, (start, end, ink)| {
+                            let cover = (end.min(cell + 1.0) - start.max(cell)).clamp(0.0, 1.0);
+                            if cover > 0.0 { mix(color, *ink, cover) } else { color }
+                        });
+                        self.frame.commands.push(DrawCommand::FillRect {
+                            rect: Rect::new(
+                                content.x + f32::from(column) * pitch,
+                                content.y + f32::from(row) * pitch,
+                                grid.cell,
+                                grid.cell,
+                            ),
+                            color,
+                            radius: grid.radius,
+                        });
+                    }
+                }
+            }
             ElementKind::ProgressRing {
                 fraction,
                 track,
@@ -9565,7 +9679,10 @@ impl LayoutBuilder<'_> {
                     );
                 }
             }
-            ElementKind::Skeleton { .. } | ElementKind::Spacer => {}
+            // A rolling number was placed as its text above.
+            ElementKind::Skeleton { .. }
+            | ElementKind::RollingNumber { .. }
+            | ElementKind::Spacer => {}
         }
         if let Some((color, height)) = style.top_fade {
             let scroll_area = |id: &str| {
