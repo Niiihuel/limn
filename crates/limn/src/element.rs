@@ -604,6 +604,7 @@ pub enum ElementKind {
     CodeDiff(crate::CodeDiff),
     /// A passive diagram at its natural size, measured with the tree's text.
     Flowchart(crate::Flowchart),
+    SequenceDiagram(crate::SequenceDiagram),
     Text(String),
     /// Passive, individually measured key caps. A bounded shortcut is omitted
     /// as a group when it cannot fit; a partial chord would be misleading.
@@ -838,6 +839,9 @@ impl Element {
     }
     pub fn flowchart(flowchart: crate::Flowchart) -> Self {
         Self::new(ElementKind::Flowchart(flowchart))
+    }
+    pub fn sequence_diagram(diagram: crate::SequenceDiagram) -> Self {
+        Self::new(ElementKind::SequenceDiagram(diagram))
     }
     fn new(kind: ElementKind) -> Self {
         Self {

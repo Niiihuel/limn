@@ -27,6 +27,7 @@ mod composer;
 mod context_menu;
 mod date_picker;
 mod date_time_picker;
+mod diagram;
 mod dictation;
 mod dropdown_menu;
 mod element;
@@ -64,6 +65,7 @@ mod scroll_area;
 mod select;
 mod selector_sizing;
 mod separator;
+mod sequence;
 mod shortcut;
 mod skeleton;
 mod spinner;
@@ -130,6 +132,7 @@ pub use element::{
 };
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};
+pub use diagram::{Diagram, DiagramError};
 pub use flowchart::{
     FlowDirection, FlowEdge, FlowEdgeLayout, FlowEdgeLine, FlowGroup, FlowGroupLayout, FlowNode,
     FlowNodeLayout, FlowNodeShape, Flowchart, FlowchartError, FlowchartGraph, FlowchartLayout,
@@ -167,6 +170,11 @@ pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement};
 pub use select::Select;
 pub use selector_sizing::SelectorSizing;
 pub use separator::Separator;
+pub use sequence::{
+    SequenceArrow, SequenceBlockKind, SequenceBlockLayout, SequenceDiagram, SequenceEvent, SequenceGraph,
+    SequenceLayout, SequenceMessage, SequenceMessageLayout, SequenceNoteLayout, SequenceNotePlace,
+    SequenceParticipant, SequenceParticipantLayout,
+};
 pub use skeleton::{Skeleton, SkeletonGroup};
 pub use spinner::Spinner;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};

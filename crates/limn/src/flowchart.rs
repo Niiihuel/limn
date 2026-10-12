@@ -8,14 +8,14 @@
 
 use std::{
     collections::{hash_map::DefaultHasher, HashMap},
-    fmt,
     hash::{Hash, Hasher},
-    sync::{Arc, Mutex, PoisonError},
+    sync::Arc,
 };
 
 use crate::{
-    typography::wrap_measured, Color, Component, ComponentPalette, DrawCommand, Element, FontFamily,
-    Point, RadiusRole, Rect, Size, TextRole,
+    diagram::{arrowhead, error, odd, pannable, rounded, statements, text, unescape, LayoutCache, ARROW},
+    typography::wrap_measured,
+    Color, Component, ComponentPalette, DrawCommand, Element, Point, RadiusRole, Rect, Size, TextRole,
 };
 
 const MAX_NODES: usize = 120;
@@ -33,8 +33,6 @@ const DUMMY_GAP: f32 = 14.0;
 const LEAD: f32 = 18.0;
 const TRACK: f32 = 10.0;
 const TAIL: f32 = 22.0;
-const ARROW: f32 = 7.0;
-const CORNER: f32 = 6.0;
 /// How far off its node a neighbour may sit and still be joined by a straight line.
 const SNAP: f32 = 16.0;
 const GROUP_PAD: f32 = 10.0;
@@ -95,20 +93,7 @@ pub struct FlowGroup {
 }
 
 /// Why a source is not a flowchart this module can draw.
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct FlowchartError(String);
-
-impl fmt::Display for FlowchartError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for FlowchartError {}
-
-fn error<T>(message: impl Into<String>) -> Result<T, FlowchartError> {
-    Err(FlowchartError(message.into()))
-}
+pub type FlowchartError = crate::DiagramError;
 
 /// A parsed flowchart: what to draw, before any measurement.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -138,23 +123,7 @@ const SHAPES: [(&str, &str, FlowNodeShape); 8] = [
 ];
 
 fn clean_label(text: &str) -> String {
-    let mut text = text.trim().trim_matches('"').to_owned();
-    for (from, to) in [
-        ("<br/>", "\n"),
-        ("<br />", "\n"),
-        ("<br>", "\n"),
-        ("<BR/>", "\n"),
-        ("<BR>", "\n"),
-        ("\\n", "\n"),
-        ("#quot;", "\""),
-        ("&quot;", "\""),
-        ("&amp;", "&"),
-        ("&lt;", "<"),
-        ("&gt;", ">"),
-    ] {
-        text = text.replace(from, to);
-    }
-    text.lines().map(str::trim).collect::<Vec<_>>().join("\n")
+    unescape(text.trim().trim_matches('"'))
 }
 
 impl Parser {
@@ -342,12 +311,7 @@ impl FlowchartGraph {
             ids: HashMap::new(),
             open_groups: Vec::new(),
         };
-        let mut lines = source.lines().map(str::trim).filter(|line| !line.is_empty()).peekable();
-        if lines.peek() == Some(&"---") {
-            lines.next();
-            lines.by_ref().find(|line| *line == "---");
-        }
-        let mut lines = lines.filter(|line| !line.starts_with("%%"));
+        let mut lines = statements(source);
         let header = lines.next().unwrap_or_default().trim_end_matches(';');
         let mut words = header.split_whitespace();
         if !matches!(words.next(), Some("flowchart" | "graph")) {
@@ -408,16 +372,6 @@ impl FlowchartGraph {
         let horizontal = matches!(self.direction, FlowDirection::Right | FlowDirection::Left);
         let node_line = line_height(NODE_TEXT).ceil();
         let label_line = line_height(EDGE_TEXT).ceil();
-        // Odd sizes put the middle of a side on a half pixel, where a
-        // one-pixel connector is sharp.
-        let odd = |value: f32| {
-            let value = value.ceil();
-            if value % 2.0 == 0.0 {
-                value + 1.0
-            } else {
-                value
-            }
-        };
         let count = self.nodes.len();
 
         let mut node_lines = Vec::with_capacity(count);
@@ -977,53 +931,6 @@ impl FlowchartGraph {
     }
 }
 
-/// Drop repeated and collinear points, then turn each corner into a short
-/// curve so a right-angle connector reads as one line.
-fn rounded(path: &[Point]) -> Vec<Point> {
-    let mut corners: Vec<Point> = Vec::with_capacity(path.len());
-    for &point in path {
-        if corners.last().is_some_and(|last| (last.x - point.x).abs() < 0.01 && (last.y - point.y).abs() < 0.01) {
-            continue;
-        }
-        if let [.., before, last] = corners[..] {
-            let straight = ((before.x - last.x).abs() < 0.01 && (last.x - point.x).abs() < 0.01)
-                || ((before.y - last.y).abs() < 0.01 && (last.y - point.y).abs() < 0.01);
-            if straight {
-                corners.pop();
-            }
-        }
-        corners.push(point);
-    }
-    let mut points = Vec::with_capacity(corners.len() * 4);
-    for (index, &corner) in corners.iter().enumerate() {
-        let (Some(&before), Some(&after)) =
-            (index.checked_sub(1).and_then(|at| corners.get(at)), corners.get(index + 1))
-        else {
-            points.push(corner);
-            continue;
-        };
-        let toward = |other: Point, radius: f32| {
-            let length = (other.x - corner.x).hypot(other.y - corner.y);
-            Point::new(
-                corner.x + (other.x - corner.x) / length * radius,
-                corner.y + (other.y - corner.y) / length * radius,
-            )
-        };
-        let radius = CORNER
-            .min((before.x - corner.x).hypot(before.y - corner.y) / 2.0)
-            .min((after.x - corner.x).hypot(after.y - corner.y) / 2.0);
-        let (from, to) = (toward(before, radius), toward(after, radius));
-        for step in 0..=4 {
-            let t = step as f32 / 4.0;
-            let blend = |from: f32, corner: f32, to: f32| {
-                (1.0 - t) * (1.0 - t) * from + 2.0 * (1.0 - t) * t * corner + t * t * to
-            };
-            points.push(Point::new(blend(from.x, corner.x, to.x), blend(from.y, corner.y, to.y)));
-        }
-    }
-    points
-}
-
 /// One node's box and its wrapped label.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowNodeLayout {
@@ -1060,8 +967,7 @@ pub struct FlowchartLayout {
 #[derive(Debug)]
 struct Shared {
     graph: FlowchartGraph,
-    // The layout for one set of measurements; a new font replaces it.
-    layout: Mutex<Option<(u64, Arc<FlowchartLayout>)>>,
+    layout: LayoutCache<FlowchartLayout>,
 }
 
 /// A flowchart at its natural size, in the palette's own inks: nodes on
@@ -1078,7 +984,7 @@ impl Flowchart {
     /// `graph` drawn on the palette's `raised` fill, as inside a card.
     pub fn new(graph: FlowchartGraph, palette: ComponentPalette) -> Self {
         Self {
-            shared: Arc::new(Shared { graph, layout: Mutex::new(None) }),
+            shared: Arc::new(Shared { graph, layout: LayoutCache::new() }),
             palette,
             backdrop: palette.raised,
         }
@@ -1104,12 +1010,11 @@ impl Flowchart {
     /// and pans when the chart is wider, with a fade at a cut edge.
     pub fn scrollable(self, id: impl Into<String>) -> Element {
         let (backdrop, bar) = (self.backdrop, self.palette.muted);
-        // Room under the chart for the bar that shows where it sits.
-        let chart = Element::column(vec![self.render().flex(1.0), Element::spacer().size(None, Some(8.0))]);
-        Element::horizontal_scroll_2d(id, chart)
-            .horizontal_edge_fade(backdrop, 16.0)
-            .foreground(bar)
-            .drag_to_pan()
+        pannable(self.render(), id, backdrop, bar)
+    }
+
+    pub(crate) fn palette(&self) -> ComponentPalette {
+        self.palette
     }
 
     pub(crate) fn heap_bytes(&self) -> usize {
@@ -1132,16 +1037,7 @@ impl Flowchart {
             measure(&edge.label, EDGE_TEXT).to_bits().hash(&mut key);
         }
         (line_height(NODE_TEXT).to_bits(), line_height(EDGE_TEXT).to_bits()).hash(&mut key);
-        let key = key.finish();
-        let mut cached = self.shared.layout.lock().unwrap_or_else(PoisonError::into_inner);
-        match &*cached {
-            Some((cached_key, layout)) if *cached_key == key => layout.clone(),
-            _ => {
-                let layout = Arc::new(graph.layout(measure, line_height));
-                *cached = Some((key, layout.clone()));
-                layout
-            }
-        }
+        self.shared.layout.get(key.finish(), || graph.layout(measure, line_height))
     }
 
     /// Paint into `content`, centered where it is larger than the chart.
@@ -1161,15 +1057,6 @@ impl Flowchart {
         let palette = self.palette;
         let at = |point: Point| Point::new(origin.x + point.x, origin.y + point.y);
         let moved = |rect: Rect| Rect::new(origin.x + rect.x, origin.y + rect.y, rect.width, rect.height);
-        let text = |commands: &mut Vec<DrawCommand>, value: &str, x: f32, y: f32, size: f32, color| {
-            commands.push(DrawCommand::Text {
-                position: Point::new(x.round(), y.round()),
-                text: value.to_owned(),
-                color,
-                font_size: size,
-                font_family: FontFamily::Sans,
-            });
-        };
         let label_line = line_height(EDGE_TEXT).ceil();
         for group in &layout.groups {
             let rect = moved(group.rect);
@@ -1192,15 +1079,7 @@ impl Flowchart {
                 // The line stops inside the head so the tip stays pointed.
                 let last = points.len() - 1;
                 points[last] = at(Point::new(tip.x - dx * ARROW / 2.0, tip.y - dy * ARROW / 2.0));
-                let base = Point::new(tip.x - dx * ARROW, tip.y - dy * ARROW);
-                commands.push(DrawCommand::FillTriangle {
-                    points: [
-                        at(tip),
-                        at(Point::new(base.x - dy * 3.5, base.y + dx * 3.5)),
-                        at(Point::new(base.x + dy * 3.5, base.y - dx * 3.5)),
-                    ],
-                    color: palette.muted,
-                });
+                arrowhead(commands, at(tip), (dx, dy), palette.muted);
             }
             commands.push(DrawCommand::Polyline {
                 points: points.into(),

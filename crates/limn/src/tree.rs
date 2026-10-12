@@ -5309,6 +5309,7 @@ fn collect_focus_order(
         | ElementKind::CodeEditor(_)
         | ElementKind::CodeDiff(_)
         | ElementKind::Flowchart(_)
+        | ElementKind::SequenceDiagram(_)
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
@@ -5381,6 +5382,7 @@ fn collect_action_metadata(
         | ElementKind::CodeEditor(_)
         | ElementKind::CodeDiff(_)
         | ElementKind::Flowchart(_)
+        | ElementKind::SequenceDiagram(_)
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
@@ -7454,6 +7456,13 @@ impl LayoutBuilder<'_> {
                 .size;
                 Size::new(size.width + padding, size.height + padding)
             }
+            ElementKind::SequenceDiagram(diagram) => {
+                let size = diagram.layout(&|text, size| self.sans_width(text, size), &|size| {
+                    self.sans_metrics.at_size(size).line_height
+                })
+                .size;
+                Size::new(size.width + padding, size.height + padding)
+            }
             ElementKind::Skeleton { .. } | ElementKind::Spinner { .. } | ElementKind::Spacer => {
                 Size::new(0.0, 0.0)
             }
@@ -9461,6 +9470,16 @@ impl LayoutBuilder<'_> {
             ElementKind::Flowchart(flowchart) => {
                 let mut commands = Vec::new();
                 flowchart.paint(
+                    content,
+                    &|text, size| self.sans_width(text, size),
+                    &|size| self.sans_metrics.at_size(size).line_height,
+                    &mut commands,
+                );
+                self.frame.commands.append(&mut commands);
+            }
+            ElementKind::SequenceDiagram(diagram) => {
+                let mut commands = Vec::new();
+                diagram.paint(
                     content,
                     &|text, size| self.sans_width(text, size),
                     &|size| self.sans_metrics.at_size(size).line_height,

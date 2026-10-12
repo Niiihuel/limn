@@ -1,11 +1,12 @@
-//! A flowchart over the whole window, panned in both directions.
+//! A diagram over the whole window, panned in both directions.
 
-use crate::{Color, Component, ComponentPalette, Element, Flowchart, FontFamily, Icon, PopoverPlacement, Size};
+use crate::{Color, Component, ComponentPalette, Diagram, Element, FontFamily, Icon, PopoverPlacement, Size};
 
-/// `chart` at its natural size in a panel that covers the window, as
-/// [`crate::ImageViewer`] shows a picture: the wheel moves it down, a drag or
-/// a sideways gesture moves it across. The host opens it by rendering it
-/// and closes it on `close_id`, which Escape and the backdrop also send.
+/// `chart`, a flowchart or a sequence diagram, at its natural size in a
+/// panel that covers the window, as [`crate::ImageViewer`] shows a picture:
+/// the wheel moves it down, a drag or a sideways gesture moves it across.
+/// The host opens it by rendering it and closes it on `close_id`, which
+/// Escape and the backdrop also send.
 pub struct DiagramViewer {
     base: Element,
     title: String,
@@ -13,7 +14,7 @@ pub struct DiagramViewer {
     close_id: String,
     palette: ComponentPalette,
     viewport: Size,
-    chart: Flowchart,
+    chart: Diagram,
 }
 
 impl DiagramViewer {
@@ -22,7 +23,7 @@ impl DiagramViewer {
         title: impl Into<String>,
         close_id: impl Into<String>,
         palette: ComponentPalette,
-        chart: Flowchart,
+        chart: impl Into<Diagram>,
     ) -> Self {
         Self {
             base,
@@ -31,7 +32,7 @@ impl DiagramViewer {
             close_id: close_id.into(),
             palette,
             viewport: Size::new(900.0, 620.0),
-            chart,
+            chart: chart.into(),
         }
     }
 
@@ -90,7 +91,7 @@ impl Component for DiagramViewer {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, Point, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, Flowchart, Point, UiAction, UiEvent, UiTree};
 
     #[test]
     fn a_wide_chart_is_dragged_across_and_the_close_control_closes() {
