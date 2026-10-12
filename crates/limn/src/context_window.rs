@@ -14,6 +14,8 @@ const INSET: f32 = FramedCard::INSET;
 const ROW_HEIGHT: f32 = FramedCard::ROW_HEIGHT;
 const ROW_PAD: f32 = FramedCard::REACH;
 const ITEM_HEIGHT: f32 = 24.0;
+/// What stands where the count of an unmeasured share would be.
+const UNMEASURED: &str = "–";
 
 /// One share of the window, such as the conversation or the tools.
 #[derive(Clone, Debug)]
@@ -25,6 +27,9 @@ pub struct ContextShare {
     /// What the share is made of. A share with items opens to list them.
     pub items: Vec<ContextItem>,
     pub action: Option<ContextShareAction>,
+    /// Whether `tokens` was measured. A share that was not reads "–" where
+    /// its count would be, and takes no cells.
+    pub measured: bool,
 }
 
 impl ContextShare {
@@ -36,7 +41,15 @@ impl ContextShare {
             color,
             items: Vec::new(),
             action: None,
+            measured: true,
         }
+    }
+
+    /// A share the host could not measure: it is listed, without a count.
+    pub fn unmeasured(mut self) -> Self {
+        self.measured = false;
+        self.tokens = 0;
+        self
     }
 
     pub fn items(mut self, items: Vec<ContextItem>) -> Self {
@@ -312,15 +325,23 @@ impl Component for ContextWindow {
             palette.muted
         };
         let caption = focused.map_or(self.caption.as_str(), |share| share.label.as_str());
+        let figure_text = |element: Element| {
+            element
+                .font_family(FontFamily::SansMedium)
+                .font_size(28.0)
+                .foreground(palette.text)
+        };
         let mut figure = vec![
-            Element::rolling_number(
-                format!("{id}:figure"),
-                focused.map_or(used, |share| share.tokens) as f32,
-                self.format,
-            )
-            .font_family(FontFamily::SansMedium)
-            .font_size(28.0)
-            .foreground(palette.text),
+            // A share that was not measured has no count to lend the figure.
+            if focused.is_some_and(|share| !share.measured) {
+                figure_text(Element::text(UNMEASURED))
+            } else {
+                figure_text(Element::rolling_number(
+                    format!("{id}:figure"),
+                    focused.map_or(used, |share| share.tokens) as f32,
+                    self.format,
+                ))
+            },
             Ticker::new(
                 format!("{id}:caption"),
                 focused.map_or("", |share| share.id.as_str()),
@@ -436,11 +457,15 @@ impl Component for ContextWindow {
                 None => {}
             }
             row.push(
-                Element::rolling_number(format!("{id}:tokens:{}", share.id), share.tokens as f32, self.format)
-                    .font_family(FontFamily::Sans)
-                    .font_size(13.0)
-                    .foreground(if receded { palette.muted } else { palette.text })
-                    .centered_y(),
+                if share.measured {
+                    Element::rolling_number(format!("{id}:tokens:{}", share.id), share.tokens as f32, self.format)
+                        .foreground(if receded { palette.muted } else { palette.text })
+                } else {
+                    Element::text(UNMEASURED).foreground(palette.muted)
+                }
+                .font_family(FontFamily::Sans)
+                .font_size(13.0)
+                .centered_y(),
             );
             let row = FramedCard::row(
                 format!("{row_id}:surface"),
@@ -801,6 +826,40 @@ mod tests {
         still.layout(SIZE);
         still.set_root(files(&["second"]));
         assert!(!has_text(&still.layout(SIZE), "first.sql"));
+    }
+
+    #[test]
+    fn an_unmeasured_share_is_listed_with_a_dash_and_takes_no_cells() {
+        let card = |focused: Option<&str>| {
+            ContextWindow::new(
+                "context",
+                "Context window",
+                vec![
+                    ContextShare::new("system", "System", 20_000, SYSTEM),
+                    ContextShare::new("tools", "Tools", 5_000, CHAT).unmeasured(),
+                ],
+                200_000,
+                palette(),
+                ContextTones { warning: SYSTEM, danger: SYSTEM, success: SYSTEM },
+            )
+            .focused(focused)
+            .render()
+        };
+        let mut tree = UiTree::new(card(None));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(SIZE);
+        assert_eq!(count(&frame, CHAT), 0);
+        assert!(has_text(&frame, "–") && has_text(&frame, "10%"));
+        // In focus it lends the figure no count either.
+        tree.set_root(card(Some("tools")));
+        let frame = tree.layout(SIZE);
+        let dashes = frame
+            .commands
+            .iter()
+            .filter(|command| matches!(command, DrawCommand::Text { text, .. } if text == "–"))
+            .count();
+        assert_eq!(dashes, 2);
+        assert!(has_text(&frame, "Tools") && !has_text(&frame, "0"));
     }
 
     #[test]
