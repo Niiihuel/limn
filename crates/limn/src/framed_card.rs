@@ -1,6 +1,5 @@
 //! A card that stands on a frame a shade apart from it.
 
-use crate::components::control_radius;
 use crate::page::px;
 use crate::{Collapse, Color, Component, ComponentPalette, Element};
 
@@ -20,10 +19,13 @@ impl FramedCard {
     /// the component's edge.
     pub const FRAME: f32 = 4.0;
     pub const INSET: f32 = 16.0;
-    /// How far a row's fill reaches past its content on each side.
-    pub const REACH: f32 = 10.0;
+    /// How far a row's fill reaches past its content on each side. It leaves
+    /// the fill as far from the card's edge as the card's last row is from
+    /// its foot, so a fill in a corner follows the corner.
+    pub const REACH: f32 = 6.0;
     pub const ROW_HEIGHT: f32 = 30.0;
-    const RADIUS: f32 = 12.0;
+    /// Between a row's fill and the card's edge, on every side.
+    const MARGIN: f32 = Self::INSET - Self::REACH - Self::FRAME;
     const FOOT_HEIGHT: f32 = 40.0;
 
     pub fn new(palette: ComponentPalette) -> Self {
@@ -80,7 +82,7 @@ impl FramedCard {
         let pad = || Element::spacer().size(Some(Self::REACH), None);
         Element::row(vec![pad(), content.flex(1.0), pad()])
             .size(None, Some(Self::ROW_HEIGHT))
-            .radius(control_radius())
+            .radius(Self::fill_radius())
             .hover_background(palette.hover)
             .hover_surface(id, actions)
     }
@@ -96,12 +98,21 @@ impl FramedCard {
     ) -> Element {
         let open = listed.is_some();
         let block = Element::column(vec![row, Collapse::new(id, listed).expand().render()])
-            .radius(control_radius());
+            .radius(Self::fill_radius());
         if open {
             block.background(palette.hover)
         } else {
             block
         }
+    }
+
+    fn card_radius() -> f32 {
+        crate::tokens().radius.panel
+    }
+
+    /// A fill's corner follows the card's from its margin inside it.
+    fn fill_radius() -> f32 {
+        (Self::card_radius() - Self::MARGIN).max(0.0)
     }
 
     fn inset(element: Element, side: f32) -> Element {
@@ -115,7 +126,7 @@ impl Component for FramedCard {
         let palette = self.palette;
         let frame = || Element::spacer().size(Some(Self::FRAME), Some(Self::FRAME));
         let mut body = self.body;
-        body.push(Element::spacer().size(None, Some(8.0)));
+        body.push(Element::spacer().size(None, Some(Self::MARGIN)));
         let mut parts = vec![
             frame(),
             Element::row(vec![
@@ -123,7 +134,7 @@ impl Component for FramedCard {
                 Element::column(body)
                     .background(palette.surface)
                     .border(palette.border, 1.0)
-                    .radius(Self::RADIUS)
+                    .radius(Self::card_radius())
                     .flex(1.0),
                 frame(),
             ]),

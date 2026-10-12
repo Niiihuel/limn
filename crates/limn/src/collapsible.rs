@@ -5,12 +5,14 @@
 //! represented by its content.
 
 use crate::{
-    ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon,
-    IconButton, Spinner, Tooltip, TooltipPlacement,
+    ButtonVariant, Collapse, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
+    Icon, IconButton, Spinner, Tooltip, TooltipPlacement,
 };
 
 const HEADER_HEIGHT: f32 = 28.0;
 const HEADER_PADDING: f32 = 6.0;
+/// Where the body starts: under the title, past the leading icon.
+const BODY_INDENT: f32 = 33.0;
 const ICON_SIDE: f32 = 14.0;
 const FOOTER_INSET: f32 = 2.0;
 const FOOTER_HEIGHT: f32 = 28.0;
@@ -177,31 +179,43 @@ impl Component for Collapsible {
             ))
             .padding(HEADER_PADDING)
             .size(None, Some(HEADER_HEIGHT));
-        if !self.expanded {
-            return header;
-        }
-        let mut content = vec![Element::spacer().size(None, Some(4.0)), self.content];
-        if !self.collapse_footer {
-            content.push(Element::spacer().size(None, Some(4.0)));
-        }
-        // The footer owns its vertical inset; do not add another bottom
-        // spacer and inter-item gap between the last line and its control.
-        let content = Element::column(content).gap(4.0).flex(1.0);
         let body_id = format!("{}:body", self.id);
-        let body = Element::row(vec![
-            Element::spacer().size(Some(24.0), Some(1.0)),
-            Element::spacer()
-                .size(Some(1.0), None)
-                .background(self.palette.border),
-            Element::spacer().size(Some(8.0), Some(1.0)),
-            content,
-        ])
-        .animate_enter(body_id);
-        let mut rows = vec![header, body];
-        if self.collapse_footer {
-            rows.push(collapse_footer(&self.id, self.palette));
+        let footer = self.collapse_footer;
+        let (id, palette) = (self.id, self.palette);
+        let content = self.content;
+        let body = self.expanded.then(|| {
+            let mut content = vec![Element::spacer().size(None, Some(4.0)), content];
+            if !footer {
+                content.push(Element::spacer().size(None, Some(4.0)));
+            }
+            // The footer owns its vertical inset; do not add another bottom
+            // spacer and inter-item gap between the last line and its control.
+            let content = Element::column(content).gap(4.0).flex(1.0);
+            let mut rows = vec![
+                Element::spacer().size(None, Some(2.0)),
+                Element::row(vec![
+                    // Under the title, past the leading icon.
+                    Element::spacer().size(Some(BODY_INDENT), Some(1.0)),
+                    content,
+                    Element::spacer().size(Some(HEADER_PADDING), Some(1.0)),
+                ]),
+            ];
+            if footer {
+                rows.push(Element::spacer().size(None, Some(2.0)));
+                rows.push(collapse_footer(&id, palette));
+            }
+            Element::column(rows)
+        });
+        // The header and what it discloses read as one block while open, and
+        // the body opens and closes in place instead of appearing at once.
+        let expanded = body.is_some();
+        let block = Element::column(vec![header, Collapse::new(body_id, body).expand().render()])
+            .radius(crate::components::surface_radius());
+        if expanded {
+            block.background(palette.hover)
+        } else {
+            block
         }
-        Element::column(rows).gap(2.0)
     }
 }
 
@@ -396,14 +410,20 @@ mod tests {
 
             let side = Point::new(8.0, button.y + button.height / 2.0);
             assert_ne!(frame.hit_test(side), Some("details:collapse"));
+            // The open block is filled; the footer's empty side adds no fill of its own.
+            let fills = |frame: &crate::Frame| {
+                frame
+                    .commands
+                    .iter()
+                    .filter(|command| matches!(command,
+                        DrawCommand::FillRect { color, .. } if *color == palette.hover
+                    ))
+                    .count()
+            };
+            let resting = fills(&frame);
             tree.handle_event(UiEvent::PointerMove(side));
             let side_hover = tree.layout(size);
-            assert!(
-                !side_hover.commands.iter().any(|command| matches!(command,
-                    DrawCommand::FillRect { color, .. } if *color == palette.hover
-                )),
-                "the empty footer is not a hover surface"
-            );
+            assert_eq!(fills(&side_hover), resting, "the empty footer is not a hover surface");
             tree.handle_event(UiEvent::PointerDown(side));
             assert!(tree.handle_event(UiEvent::PointerUp(side)).is_empty());
 
@@ -411,10 +431,9 @@ mod tests {
             assert_ne!(frame.hit_test(below), Some("details:collapse"));
             tree.handle_event(UiEvent::PointerMove(below));
             let bottom_hover = tree.layout(size);
-            assert!(
-                !bottom_hover.commands.iter().any(|command| matches!(command,
-                    DrawCommand::FillRect { color, .. } if *color == palette.hover
-                )),
+            assert_eq!(
+                fills(&bottom_hover),
+                resting,
                 "the bottom inset stays passive instead of extending hover to the border"
             );
 
@@ -424,17 +443,21 @@ mod tests {
             );
             tree.handle_event(UiEvent::PointerMove(center));
             let hovered = tree.layout(size);
+            // Besides the open block's own fill, only the button is lit.
             let highlights: Vec<_> = hovered
                 .commands
                 .iter()
                 .filter_map(|command| match command {
-                    DrawCommand::FillRect { rect, color, .. } if *color == palette.hover => {
+                    DrawCommand::FillRect { rect, color, .. }
+                        if *color == palette.hover && rect.width <= button.width =>
+                    {
                         Some(*rect)
                     }
                     _ => None,
                 })
                 .collect();
             assert_eq!(highlights, vec![button]);
+            assert_eq!(fills(&hovered), resting + 1);
             tree.handle_event(UiEvent::PointerDown(center));
             assert_eq!(
                 tree.handle_event(UiEvent::PointerUp(center)),
@@ -498,7 +521,6 @@ mod tests {
                 .detail("En curso")
                 .render()
             };
-            assert_eq!(make().style.height, Some(HEADER_HEIGHT));
             let mut tree = UiTree::new(make());
             tree.set_text_measurer(move |text, _, _| measure(text));
             let size = Size::new(width, HEADER_HEIGHT);

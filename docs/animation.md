@@ -30,7 +30,7 @@ own content, and how to switch movement off.
 | Context menu | Fades in and settles. | Fades out. | `enter_ms`, `exit_ms` |
 | `Toast` | Fades in and settles. | Fades out where it was. | `enter_ms`, `exit_ms` |
 | `CoachMark`, `Tour` | Fades in and settles; its ring fades in on the target. On a new step both spring from the last target to the new one. | Fades out. | `enter_ms`, `exit_ms`, `move_ms` |
-| Body of a `Collapsible` | Fades in and settles. | Removed at once. | `enter_ms` |
+| Body of a `Collapsible` | Opens from zero height under its header and fades in. | Closes in place while its last paint fades; what follows moves with it. | `enter_ms`, `exit_ms` |
 | An element with `reveal_on_hover`, such as a `MessageActions` row | Fades in where it already is. | Fades out. Its place in the layout is kept. | `enter_ms`, `exit_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
@@ -46,8 +46,6 @@ Continuous indicators run on fixed periods and are not transitions: `Spinner`,
 
 ### Not animated
 
-- The height of a `Collapsible`. The content below it moves at once. Use a
-  `Collapse` where that matters.
 - A value changing in `Progress`. The fill jumps to the new fraction.
 
 ## Switching motion off
