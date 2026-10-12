@@ -21,8 +21,8 @@ use crate::markdown_parser::{
     MAX_SOURCE_CHARS,
 };
 use crate::{
-    AlertColors, AlertTone, CodeBlock, Color, Component, ComponentPalette, Element, ElementKind,
-    Flowchart, FontFamily, Icon, RadiusRole, TextRole, TextSpan,
+    AlertColors, AlertTone, CodeBlock, Color, Component, ComponentPalette, Diagram, Element,
+    ElementKind, FontFamily, Icon, RadiusRole, TextRole, TextSpan,
 };
 
 const MAX_SOURCE_ROW_CHARS: usize = 512;
@@ -236,12 +236,20 @@ impl<'a> Markdown<'a> {
     }
 
     /// The source of the diagram whose expand action, `prefix`, `expand:`
-    /// and sixteen hexadecimal digits, carries `id`: what a host draws in
-    /// a [`crate::DiagramViewer`].
+    /// and sixteen hexadecimal digits, carries `id`: what a host parses
+    /// with [`Diagram::parse`] and draws in a [`crate::DiagramViewer`].
     pub fn diagram_source(id: u64) -> Option<std::sync::Arc<str>> {
         DIAGRAMS.with_borrow(|diagrams| {
-            diagrams.iter().find(|(known, _)| *known == id).map(|(_, source)| source.clone())
+            diagrams.iter().find(|(known, ..)| *known == id).map(|(_, source, _)| source.clone())
         })
+    }
+
+    /// The source as what a `mermaid` fence holds: the card a closed fence
+    /// is drawn as, with the labels, the action prefix and the diagrams
+    /// shown as source given here, or `None` when it is not a diagram the
+    /// engine draws. For a host that renders its documents itself.
+    pub fn diagram(self) -> Option<Element> {
+        diagram_block(self.source, &self.presentation, self.diagram_sources)
     }
 
     /// The diagrams, by the id in their action, to show as source.
@@ -491,31 +499,49 @@ fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation
 thread_local! {
     // shortcut: the last 64 diagrams drawn, so a host can open one from the
     // id in its action; an older one no longer expands until it is drawn
-    // again. Keep the source with the cached tree if that is ever met.
-    static DIAGRAMS: std::cell::RefCell<Vec<(u64, std::sync::Arc<str>)>> = const { std::cell::RefCell::new(Vec::new()) };
+    // again, and is parsed again by a host that builds its tree every
+    // frame. Keep the source with the cached tree if that is ever met.
+    static DIAGRAMS: std::cell::RefCell<Vec<(u64, std::sync::Arc<str>, Diagram)>> =
+        const { std::cell::RefCell::new(Vec::new()) };
 }
 
-fn remember_diagram(id: u64, source: &str) {
+/// The diagram `source` draws, parsed once: a host that builds its tree
+/// again every frame gets the same chart, and with it the same layout.
+fn drawn_diagram(id: u64, source: &str, palette: ComponentPalette) -> Option<Diagram> {
     DIAGRAMS.with_borrow_mut(|diagrams| {
-        diagrams.retain(|(known, _)| *known != id);
+        let known = diagrams
+            .iter()
+            .find(|(known, text, diagram)| *known == id && **text == *source && diagram.palette() == palette);
+        if let Some((.., diagram)) = known {
+            return Some(diagram.clone());
+        }
+        let diagram = Diagram::parse(source, palette).ok()?;
+        diagrams.retain(|(known, ..)| *known != id);
         if diagrams.len() == 64 {
             diagrams.remove(0);
         }
-        diagrams.push((id, source.into()));
-    });
+        diagrams.push((id, source.into(), diagram.clone()));
+        Some(diagram)
+    })
 }
 
-/// A closed `mermaid` fence that is a flowchart, drawn; `None` leaves it a
-/// code block. The card matches [`CodeBlock`], with one quiet action in its
-/// label row that switches between the drawing and the source.
+/// A closed `mermaid` fence that is a flowchart or a sequence diagram,
+/// drawn; `None` leaves it a code block. The card matches [`CodeBlock`],
+/// with one quiet action in its label row that switches between the
+/// drawing and the source.
 fn diagram_block(
     content: &str,
     presentation: &MarkdownPresentation,
     as_source: &[u64],
 ) -> Option<Element> {
+    // Before anything reads it: a host may hand over a fence of any size,
+    // on every frame.
+    if content.len() > crate::diagram::MAX_SOURCE_BYTES {
+        return None;
+    }
     let palette = presentation.palette;
-    let chart = Flowchart::parse(content, palette).ok()?;
     let id = source_hash(content);
+    let chart = drawn_diagram(id, content, palette)?;
     let shows_source = as_source.contains(&id);
     let labels = presentation.labels;
     let mut header = vec![Element::text(if shows_source { "MERMAID" } else { labels.diagram })
@@ -537,7 +563,6 @@ fn diagram_block(
         };
         header.push(Element::spacer().flex(1.0));
         if !shows_source {
-            remember_diagram(id, content);
             header.push(action(labels.expand, format!("{prefix}expand:{id:016x}")));
         }
         header.push(action(
@@ -1797,7 +1822,8 @@ mod tests {
         // Still being written, of another kind, or not Mermaid at all.
         for source in [
             "```mermaid\nflowchart LR\n  A[Uno] --> B[Dos]",
-            "```mermaid\nsequenceDiagram\n  A->>B: hola\n```\n",
+            "```mermaid\nsequenceDiagram\n  A->>B: hola",
+            "```mermaid\nstateDiagram-v2\n  [*] --> Activo\n```\n",
             "```text\nflowchart LR\n  A --> B\n```\n",
         ] {
             for streaming in [false, true] {
@@ -1845,6 +1871,35 @@ mod tests {
             let caches = caches.borrow();
             assert!(caches.completed.entries.iter().filter(|entry| entry.source == chart).count() >= 2);
         });
+    }
+
+    #[test]
+    fn a_closed_mermaid_sequence_diagram_is_drawn_in_the_same_card_and_alone_for_a_host() {
+        let source = "sequenceDiagram\n  A->>B: hola\n  B-->>A: chau";
+        let fence = format!("```mermaid\n{source}\n```\n");
+        let texts = |element: Element| {
+            commands(element, 480.0)
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("|")
+        };
+        let markdown = |source| Markdown::new(source, palette()).width(480.0).diagram_action_prefix("diagram:");
+        let drawn = texts(markdown(&fence).render().element);
+        assert_eq!(drawn, "DIAGRAM|Expand|Source|hola|chau|A|A|B|B");
+        assert_eq!(Markdown::diagram_source(source_hash(source)).as_deref(), Some(source));
+        // What the fence holds gives the same card to a host that reads its documents itself.
+        assert_eq!(texts(markdown(source).diagram().expect("a sequence diagram")), drawn);
+        let id = [source_hash(source)];
+        let as_source = texts(markdown(source).diagram_sources(&id).diagram().unwrap());
+        assert!(as_source.starts_with("MERMAID|Diagram|sequenceDiagram"), "{as_source}");
+        assert!(texts(markdown("flowchart LR\n  A[Uno] --> B[Dos]").diagram().unwrap()).ends_with("Uno|Dos"));
+        for other in ["", "texto", "classDiagram\n  A <|-- B", "sequenceDiagram\n  A->>B"] {
+            assert!(markdown(other).diagram().is_none(), "{other:?} was drawn");
+        }
     }
 
     #[test]
