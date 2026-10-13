@@ -108,6 +108,8 @@ you do not know to a group, so the node keeps its name.
   selection for the platform to follow.
 - Only "activate" and "focus" are carried out. A slider cannot be stepped
   from a screen reader; it can from the keyboard.
-- limn does not read the platform's preference for reduced motion or
-  contrast; the host sets `UiTree::set_reduced_motion`.
+- The preference for reduced motion is read only in a browser, with
+  `limn_egui::prefers_reduced_motion()`. On the desktop it is `None` and the
+  host sets `UiTree::set_reduced_motion` from its own setting. The preference
+  for contrast is not read anywhere.
 - It is published on desktop. In a browser the canvas says nothing.

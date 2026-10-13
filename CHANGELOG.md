@@ -5,6 +5,7 @@ in any release.
 
 ## 0.1.39 — unreleased
 
+- Keyboard: Page Up and Page Down scroll what the wheel scrolls, the image viewer steps with the arrow keys, and a popover takes them with `Element::popover_arrows`; `limn_egui::prefers_reduced_motion` reads the browser's preference for less motion
 - Renamed, with the old names kept and marked deprecated: `RowSizing` is `ListRowSizing`, `HeaderSizing` is `PanelHeaderSizing`, `SectionSizing` is `SectionHeaderSizing`, `Link::color` is `Link::ink`, `Text::size` is `Text::font_size`
 - Accessibility: every frame lists its controls for the platform (`Frame::access`) with a role, a name and a state; `Element::accessible` and `accessibility_label` say what the tree cannot work out, and `limn-egui` publishes it through AccessKit and carries out what a screen reader asks with `apply_access_requests`
 - Sixteen more components can be disabled: `Link`, `Clipboard`, `DismissButton`, `Marker`, `Collapsible`, `DatePicker`, `TimePicker`, `DateTimePicker`, `Step`, `ActionRow`, `ResizeHandle`, `TabItem`, `MenuBarMenu`, `SuggestionItem`, `BreadcrumbItem` and `Composer`

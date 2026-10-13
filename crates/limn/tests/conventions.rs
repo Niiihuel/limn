@@ -129,3 +129,32 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         lays_out_with_real_numbers("Slider::width", Slider::new("s", 0.5, palette).width(bad).render());
     }
 }
+
+/// What can be scrolled with the wheel can be scrolled from the keyboard.
+#[test]
+fn page_down_and_page_up_scroll_what_the_wheel_scrolls() {
+    use limn::{Key, ScrollArea, UiEvent};
+    let palette = palette();
+    let rows: Vec<Element> = (0..60).map(|row| Button::new(format!("row-{row}"), format!("Row {row}"), palette).render()).collect();
+    let window = Size::new(320.0, 240.0);
+    let mut tree = UiTree::new(ScrollArea::new("list", Element::column(rows)).render().size(Some(window.width), Some(window.height)));
+    let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+    let settle = |tree: &mut UiTree| {
+        // A smooth scroll arrives over a few frames.
+        let start = web_time::Instant::now();
+        for frame in 0..40 {
+            tree.layout_at(window, start + web_time::Duration::from_millis(16 * frame));
+        }
+        tree.scroll_offset("list")
+    };
+    tree.layout(window);
+    assert_eq!(tree.scroll_offset("list"), 0.0);
+    tree.handle_event(key(Key::PageDown));
+    let down = settle(&mut tree);
+    assert!(down > window.height * 0.5 && down < window.height, "a page down went {down}");
+    tree.handle_event(key(Key::PageDown));
+    assert!(settle(&mut tree) > down);
+    tree.handle_event(key(Key::PageUp));
+    tree.handle_event(key(Key::PageUp));
+    assert_eq!(settle(&mut tree), 0.0);
+}
