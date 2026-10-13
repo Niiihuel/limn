@@ -131,13 +131,14 @@ pub use framed_card::FramedCard;
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
 pub use date_picker::DatePicker;
 pub use date_time_picker::DateTimePicker;
-pub use dictation::{DictationButton, DictationState};
+pub use dictation::{DictationButton, DictationState, DictationWaveform};
 pub use dropdown_menu::{
     DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
 };
 pub use element::{
     Cursor,
-    Border, BoxShadow, CoachAlign, CoachSide, CornerRadii, Element, ElementKind, FontFamily, Icon, PopoverPlacement,
+    Border, BoxShadow, CoachAlign, CoachSide, CornerRadii, Element, ElementKind, FontFamily, Icon, LevelBars,
+    PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
     TooltipStyle, UniformList, UnitGrid, UnitGridPart, DEFAULT_FONT_SIZE, ICON_SIZE,
 };

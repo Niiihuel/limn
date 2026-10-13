@@ -1085,6 +1085,15 @@ struct AnimatedScalar {
     seen: Instant,
 }
 
+/// A value the tree follows for a slot of `LevelBars`.
+struct AnimatedSpring {
+    value: ScalarSpring,
+    seen: Instant,
+}
+
+/// The most slots a `LevelBars` draws, whatever width it is given.
+const MAX_LEVEL_SLOTS: u16 = 512;
+
 /// A slot fully open, in the units its spring moves in. A spring is at rest
 /// once both what is left of the way and its speed are under a hundredth of
 /// a unit: in hundredths of the height, that is far under a pixel.
@@ -2330,6 +2339,7 @@ pub struct UiTree {
     // Measuring reads and starts these, and measuring borrows the tree shared.
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
     scalars: RefCell<HashMap<String, AnimatedScalar>>,
+    springs: RefCell<HashMap<String, AnimatedSpring>>,
     /// The ink of each `animate_foreground` element and when it was seen.
     inks: RefCell<HashMap<String, (ColorTransition, Instant)>>,
     /// The slots each `keep_leaving` column last laid out, in order.
@@ -2404,6 +2414,7 @@ impl UiTree {
             replacements: HashMap::new(),
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
+            springs: RefCell::new(HashMap::new()),
             inks: RefCell::new(HashMap::new()),
             leaving: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
@@ -2662,6 +2673,7 @@ impl UiTree {
             self.replacements.clear();
             self.flow_heights.get_mut().clear();
             self.scalars.get_mut().clear();
+            self.springs.get_mut().clear();
             self.inks.get_mut().clear();
             self.leaving.get_mut().clear();
             self.popover_view_transitions.clear();
@@ -2786,6 +2798,11 @@ impl UiTree {
                 .any(|state| state.fraction.is_active(now))
             || self
                 .scalars
+                .borrow()
+                .values()
+                .any(|state| state.value.is_active(now))
+            || self
+                .springs
                 .borrow()
                 .values()
                 .any(|state| state.value.is_active(now))
@@ -2972,6 +2989,7 @@ impl UiTree {
                 measurement_cache: &self.measurement_cache,
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
+                springs: &self.springs,
                 inks: &self.inks,
                 leaving: &self.leaving,
                 measurement_scope: 0,
@@ -3569,6 +3587,7 @@ impl UiTree {
         // A slot is remembered while it is rendered, empty or not: content
         // that arrives in one seen empty is what `expand` opens.
         self.scalars.get_mut().retain(|_, state| state.seen == now);
+        self.springs.get_mut().retain(|_, state| state.seen == now);
         self.inks.get_mut().retain(|_, (_, seen)| *seen == now);
         self.leaving.get_mut().retain(|_, (_, seen)| *seen == now);
         self.flow_heights.get_mut().retain(|_, state| {
@@ -5488,6 +5507,7 @@ fn collect_focus_order(
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
         | ElementKind::UnitGrid(_)
+        | ElementKind::LevelBars(_)
         | ElementKind::Text(_)
         | ElementKind::ShimmerText { .. }
         | ElementKind::KeyboardShortcut { .. }
@@ -5564,6 +5584,7 @@ fn collect_action_metadata(
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
         | ElementKind::UnitGrid(_)
+        | ElementKind::LevelBars(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -5661,6 +5682,7 @@ struct LayoutBuilder<'a> {
     measurement_cache: &'a RefCell<MeasurementCache>,
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
+    springs: &'a RefCell<HashMap<String, AnimatedSpring>>,
     inks: &'a RefCell<HashMap<String, (ColorTransition, Instant)>>,
     leaving: &'a RefCell<HashMap<String, (Vec<String>, Instant)>>,
     measurement_scope: u64,
@@ -7490,6 +7512,27 @@ impl LayoutBuilder<'_> {
         state.value.value(self.now)
     }
 
+    /// As `scalar`, on a spring that covers its way in one move: for a value
+    /// that is followed, and redirected before it arrives.
+    fn spring(&self, key: &str, target: f32) -> f32 {
+        let rest = |value| {
+            let settle = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
+            ScalarSpring::new(value, self.now).motion(crate::SpringMotion::settling_in(settle))
+        };
+        let mut springs = self.springs.borrow_mut();
+        let state = springs.entry(key.to_owned()).or_insert_with(|| AnimatedSpring {
+            value: rest(target),
+            seen: self.now,
+        });
+        state.seen = self.now;
+        if self.reduced_motion {
+            state.value = rest(target);
+        } else {
+            state.value.retarget(target, self.now);
+        }
+        state.value.value(self.now)
+    }
+
     /// The slot a child of a `keep_leaving` column answers to, if it has one.
     fn slot_id(child: &Element) -> Option<&str> {
         child
@@ -7717,6 +7760,8 @@ impl LayoutBuilder<'_> {
                 let size = grid.size();
                 Size::new(size.width + padding, size.height + padding)
             }
+            // The caller sizes it; left alone it is one dot.
+            ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
             ElementKind::Flowchart(flowchart) => {
                 let size = flowchart.layout(&|text, size| self.sans_width(text, size), &|size| {
                     self.sans_metrics.at_size(size).line_height
@@ -9860,6 +9905,37 @@ impl LayoutBuilder<'_> {
                             radius: grid.radius,
                         });
                     }
+                }
+            }
+            ElementKind::LevelBars(bars) => {
+                let pitch = bars.bar + bars.gap;
+                let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };
+                let slots = fit.clamp(0.0, f32::from(MAX_LEVEL_SLOTS)) as usize;
+                // The newest level takes the last slot; the levels that do
+                // not fit are the oldest, and slots without one stay dots.
+                let skipped = bars.levels.len().saturating_sub(slots);
+                let empty = slots.saturating_sub(bars.levels.len());
+                let left = content.x + content.width - (slots as f32 * pitch - bars.gap).max(0.0);
+                for slot in 0..slots {
+                    let level = slot
+                        .checked_sub(empty)
+                        .and_then(|index| bars.levels.get(skipped + index))
+                        .filter(|level| level.is_finite())
+                        .map_or(0.0, |level| level.clamp(0.0, 1.0));
+                    let shown = self.spring(&format!("{}/{slot}", bars.id), level).clamp(0.0, 1.0);
+                    let height = bars.bar + (content.height - bars.bar).max(0.0) * shown;
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect: Rect::new(
+                            left + slot as f32 * pitch,
+                            content.y + (content.height - height) / 2.0,
+                            bars.bar,
+                            height,
+                        ),
+                        // A dot takes the bars' ink as soon as it stands up.
+                        color: mix(bars.rest, bars.color, shown * 4.0),
+                        // Half the width is a shape, not a token.
+                        radius: bars.bar / 2.0,
+                    });
                 }
             }
             ElementKind::ProgressRing {

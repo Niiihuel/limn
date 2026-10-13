@@ -36,6 +36,7 @@ own content, and how to switch movement off.
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `Switch` | The thumb springs across. | | `move_ms` |
 | `Stepper` | The badge cross-fades between active and inactive. | | `move_ms` |
+| `DictationWaveform`, `Element::level_bars` | Shown as given. A bar springs to a new level, and a level that moves on to the next slot is followed there. | | `move_ms` |
 | Content of a `Collapse` | Takes its height at once, or with `.expand()` opens from zero and fades in. | The slot closes while the last paint fades, clipped to what is left. What follows moves with it. | a spring, one and a half `move_ms` |
 | Line of a `Ticker` | Rises into place from its own height below. | Moves up by the same distance and fades, clipped by the slot. | `move_ms` |
 | `Element::rolling_number`, the figures of a `ContextWindow` | Shown as given. A new value is counted to from the one shown. | | three times `move_ms` |

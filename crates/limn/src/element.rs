@@ -623,6 +623,24 @@ impl UnitGrid {
     }
 }
 
+/// A row of level bars, as many as fit its width: one slot per `bar + gap`,
+/// the newest level in the last slot and the ones before it in the slots
+/// before. A slot without a level, or with a level of zero, is a dot `bar`
+/// wide in `rest`; a level of one stands the element's whole height in
+/// `color`. UiTree keeps each slot's height by `id` and springs it to a new
+/// level, so a level that moves on to the next slot is followed there.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LevelBars {
+    pub id: String,
+    /// From 0 to 1, oldest first.
+    pub levels: Vec<f32>,
+    /// Width of a bar and the space between two.
+    pub bar: f32,
+    pub gap: f32,
+    pub color: Color,
+    pub rest: Color,
+}
+
 #[derive(Clone, Debug)]
 pub enum ElementKind {
     Column(Vec<Element>),
@@ -821,6 +839,7 @@ pub enum ElementKind {
         format: fn(f32) -> String,
     },
     UnitGrid(UnitGrid),
+    LevelBars(LevelBars),
     Spacer,
 }
 
@@ -1816,6 +1835,12 @@ impl Element {
     /// cells; see [`UnitGrid`].
     pub fn unit_grid(grid: UnitGrid) -> Self {
         Self::new(ElementKind::UnitGrid(grid))
+    }
+
+    /// Levels as bars that spring to their height; see [`LevelBars`]. Give
+    /// it the size it draws in.
+    pub fn level_bars(bars: LevelBars) -> Self {
+        Self::new(ElementKind::LevelBars(bars))
     }
 
     /// A non-interactive loading surface with paint-only motion.
