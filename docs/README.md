@@ -32,6 +32,7 @@ Background that explains why the library behaves as it does.
 | [Theming](theming.md) | Choose colors, corner radii and pace. |
 | [Guided tours](tours.md) | Point at existing controls and explain them step by step. |
 | [Testing](testing.md) | Test a component or a screen without a window. |
+| [Hot reload](hot-reload.md) | Edit your application while it runs, with its state kept. |
 | [Gallery and hot reload](gallery.md) | Browse components, edit them live, capture screenshots. |
 | [Contributing a component](contributing.md) | Add a component, its test, its demo and its documentation. |
 

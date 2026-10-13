@@ -45,6 +45,14 @@ fn effort_palette() -> EffortPalette {
     EFFORT_PALETTE.with(std::cell::Cell::get)
 }
 
+/// Paint again when a hot patch lands, so an idle window shows the new code
+/// at once. Call it once, when the window is created. It does nothing in a
+/// build without the `hot` feature; see [`limn::hot`].
+pub fn repaint_on_patch(ctx: &egui::Context) {
+    let ctx = ctx.clone();
+    limn::hot::on_patch(move || ctx.request_repaint());
+}
+
 /// The artwork of another icon set: the source of an SVG drawn with
 /// `currentColor` for each icon it has, and `None` for the ones it leaves to
 /// Bootstrap Icons.

@@ -17,6 +17,9 @@ workspace = true
 default = ["syntax"]
 # Tree-sitter highlighting. Without it code views fall back to the line lexer.
 syntax = ["dep:limn-language"]
+# Hot reload under `dx serve --hot-patch`; see `limn::hot`. Development only:
+# these two must be the version of the `dx` binary, so they are pinned.
+hot = ["dep:subsecond", "dep:dioxus-devtools"]
 
 [dependencies]
 # The standard clock everywhere but a browser, where std's panics.
@@ -28,3 +31,8 @@ unicode-segmentation = "1.12"
 unicode-width = "0.2"
 # Parses link destinations; nothing is ever fetched.
 url = "2"
+
+# Only where a process can be patched: not in a browser.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+subsecond = { version = "=0.7.9", optional = true }
+dioxus-devtools = { version = "=0.7.9", optional = true }

@@ -49,6 +49,7 @@ Everything is in [`docs/`](docs/README.md).
 | Change colors, corners and pace | [Theming](docs/theming.md), [Tokens](docs/tokens.md) |
 | Know what animates and how to stop it | [Animation](docs/animation.md) |
 | Test without a window | [Testing](docs/testing.md) |
+| Edit your application while it runs | [Hot reload](docs/hot-reload.md) |
 | Browse and edit components live | [Gallery and hot reload](docs/gallery.md) |
 | Add a component | [Contributing a component](docs/contributing.md) |
 | Write a renderer | [Backend contract](docs/backend.md) |

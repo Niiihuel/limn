@@ -62,23 +62,26 @@ impl eframe::App for App {
         if !self.fonts_attached {
             // Measure text with the fonts egui paints with.
             limn_egui::attach_fonts(&mut self.tree, &ctx);
+            // Under hot reload, paint again when new code arrives.
+            limn_egui::repaint_on_patch(&ctx);
             self.fonts_attached = true;
         }
         limn_egui::normalize_keyboard_input(&ctx);
         let area = ui.max_rect();
         let window = Size::new(area.width(), area.height());
 
-        // 1. Describe, 2. lay out.
-        self.tree.set_root(view(&self.state, window));
+        // 1. Describe, 2. lay out. `hot::call` runs the code as last saved
+        // under hot reload, and is a plain call otherwise.
+        self.tree.set_root(limn::hot::call(|| view(&self.state, window)));
         self.tree.layout(window);
         // 3. Deliver input and apply the actions it produces.
         for event in limn_egui::events(&ctx, area.min) {
             for action in self.tree.handle_event(event) {
-                update(&mut self.state, &action);
+                limn::hot::call(|| update(&mut self.state, &action));
             }
         }
         // 4. Describe the new state and paint it.
-        self.tree.set_root(view(&self.state, window));
+        self.tree.set_root(limn::hot::call(|| view(&self.state, window)));
         let frame = self.tree.layout(window);
         limn_egui::paint_at(ui, &frame, area.min);
 
@@ -90,6 +93,8 @@ impl eframe::App for App {
 }
 
 fn main() -> eframe::Result {
+    // Does nothing unless the `hot` feature is on and `dx` is serving.
+    limn::hot::connect();
     let options = eframe::NativeOptions {
         renderer: eframe::Renderer::Wgpu,
         viewport: egui::ViewportBuilder::default().with_inner_size([420.0, 240.0]),

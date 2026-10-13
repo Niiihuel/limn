@@ -16,6 +16,8 @@ workspace = true
 [features]
 default = ["syntax"]
 syntax = ["limn/syntax"]
+# Hot reload under `dx serve --hot-patch`; see `limn::hot`.
+hot = ["limn/hot"]
 
 [dependencies]
 limn = { version = "0.1.39", path = "../limn", default-features = false }

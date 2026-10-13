@@ -1557,8 +1557,10 @@ dependencies = [
 name = "limn"
 version = "0.1.39"
 dependencies = [
+ "dioxus-devtools",
  "limn-editor",
  "limn-language",
+ "subsecond",
  "unicode-linebreak",
  "unicode-segmentation",
  "unicode-width",
@@ -1603,12 +1605,10 @@ dependencies = [
 name = "limn-gallery"
 version = "0.1.39"
 dependencies = [
- "dioxus-devtools",
  "eframe",
  "image",
  "limn",
  "limn-egui",
- "subsecond",
  "wasm-bindgen-futures",
  "web-time",
  "wgpu",
