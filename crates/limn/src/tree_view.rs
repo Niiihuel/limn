@@ -134,8 +134,12 @@ impl<F: FnOnce(Element) -> Element> TreeRow<F> {
         self
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is
+    /// ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
-        self.width = Some(width.max(0.0));
+        if width.is_finite() {
+            self.width = Some(width.max(0.0));
+        }
         self
     }
 

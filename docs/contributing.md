@@ -49,10 +49,15 @@ Then declare it in `crates/limn/src/lib.rs`: a `mod` line and a `pub use`.
 | `new` takes what is required: an ID if interactive, the content, the palette last. | Every component reads the same way. |
 | Everything optional is a builder method returning `Self`. | Callers set only what they need. |
 | The component is controlled. It takes its value and reports actions; it stores nothing between frames. | The window stays a function of the host's state. |
-| Validate numbers in builders: ignore values that are not finite, clamp ranges. | A bad value from a caller must not reach a renderer. |
+| Validate numbers in builders: ignore values that are not finite, clamp ranges. A profile struct passes each number through `crate::page::px` where it is used. | A bad value from a caller must not reach a renderer. |
 | Derive every ID the component creates from the caller's ID, such as `format!("{id}:body")`. | IDs must be unique across the window. |
 | Take colors from the palette, radii and durations from `crate::tokens()`. Never write a color, a radius or a duration as a literal. | Themes and tokens must reach every component. |
 | A disabled state renders passive elements, not a button that ignores clicks. | It must be unreachable by keyboard as well as pointer. |
+| What can be disabled has both `disabled()` and `enabled(bool)`. | The first reads well for a fixed case, the second takes a state the host computes; a caller should not have to remember which one a component has. |
+
+`crates/limn/tests/conventions.rs` holds the components to the rules that can
+be checked across all of them: both spellings of disabling, and sizes that
+are not numbers. A component that joins a family joins its row there.
 
 Pills and circles are the exception to the radius rule: a radius of half the
 height is a shape, not a token.

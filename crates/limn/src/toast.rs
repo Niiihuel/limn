@@ -79,6 +79,8 @@ impl Toast {
         if toasts.is_empty() {
             return base;
         }
+        // An inset that is not a number is none.
+        let bottom_inset = crate::page::px(bottom_inset);
         Element::overlay(
             base,
             Element::column(vec![

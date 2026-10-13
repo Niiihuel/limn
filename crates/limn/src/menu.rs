@@ -289,6 +289,11 @@ impl MenuItem {
         self
     }
 
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
+
     /// A hint for the row itself.
     pub fn tooltip_with(mut self, tooltip: TooltipSpec) -> Self {
         self.tooltip = Some(tooltip);
@@ -478,8 +483,10 @@ pub struct MenuSeparator {
 }
 
 impl MenuSeparator {
+    /// A rule of this width and color between two groups of rows. A width
+    /// that is not finite or is negative is zero.
     pub fn new(width: f32, color: Color) -> Self {
-        Self { width, color }
+        Self { width: crate::page::px(width), color }
     }
 }
 

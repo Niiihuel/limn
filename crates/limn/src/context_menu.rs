@@ -38,6 +38,11 @@ impl ContextMenuItem {
         self.enabled = enabled;
         self
     }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

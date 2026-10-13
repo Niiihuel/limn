@@ -521,7 +521,7 @@ pub struct ButtonSizing {
 impl ButtonSizing {
     // A profile is plain data from the host; a bad number stops here.
     fn sanitized(self) -> Self {
-        let px = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        let px = crate::page::px;
         Self {
             height: px(self.height),
             font_size: px(self.font_size),
@@ -1889,7 +1889,8 @@ impl Tab {
             label: label.into(),
             icon: None,
             active: false,
-            width: width.max(40.0),
+            // Never under 40, and 40 when it is not a number.
+            width: if width.is_finite() { width.max(40.0) } else { 40.0 },
             state: ControlState::Enabled,
         }
     }
@@ -1909,6 +1910,13 @@ impl Tab {
     /// Disable the tab: it keeps its place and cannot be chosen.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
+        self
+    }
+
+    /// Enable or disable it; the counterpart of [`disabled`](Self::disabled) for a
+    /// state the host computes.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.state = if enabled { ControlState::Enabled } else { ControlState::Disabled };
         self
     }
 }
@@ -1957,9 +1965,12 @@ impl Tabs {
         self
     }
 
-    /// Set the height, in logical pixels, never below 24.
+    /// Set the height, in logical pixels, never below 24. A height that is
+    /// not finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
-        self.height = height.max(24.0);
+        if height.is_finite() {
+            self.height = height.max(24.0);
+        }
         self
     }
 
@@ -2107,9 +2118,12 @@ impl SegmentedControl {
         }
     }
 
-    /// Set the height, in logical pixels, never below 28.
+    /// Set the height, in logical pixels, never below 28. A height that is
+    /// not finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
-        self.height = height.max(28.0);
+        if height.is_finite() {
+            self.height = height.max(28.0);
+        }
         self
     }
 }
@@ -2261,6 +2275,13 @@ impl DropdownOption {
 
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
+        self
+    }
+
+    /// Enable or disable it; the counterpart of [`disabled`](Self::disabled) for a
+    /// state the host computes.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.state = if enabled { ControlState::Enabled } else { ControlState::Disabled };
         self
     }
 }

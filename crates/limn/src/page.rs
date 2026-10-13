@@ -231,7 +231,7 @@ impl PageColumn {
     /// wide, `wide` from there on (14 and 28 at 640 by default).
     pub fn gutter(mut self, narrow: f32, wide: f32, breakpoint: f32) -> Self {
         if narrow.is_finite() && wide.is_finite() && breakpoint.is_finite() {
-            self.gutter = (narrow.max(0.0), wide.max(0.0), breakpoint);
+            self.gutter = (narrow.max(0.0), wide.max(0.0), breakpoint.max(0.0));
         }
         self
     }

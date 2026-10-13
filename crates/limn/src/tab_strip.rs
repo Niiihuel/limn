@@ -1,18 +1,12 @@
 //! Folder tabs for open resources: a scrolling strip whose active tab opens
 //! onto the body beneath it, and the bar that holds the strip and its tools.
 
+use crate::page::px;
 use crate::{
     tokens, Color, Component, ComponentPalette, CornerRadii, Element, FontFamily, Icon,
     RadiusRole, Separator, TextRole, Tooltip, TooltipPlacement, ICON_SIZE,
 };
 
-fn dimension(value: f32) -> f32 {
-    if value.is_finite() {
-        value.max(0.0)
-    } else {
-        0.0
-    }
-}
 
 /// One tab of a [`TabStrip`]: an icon, a title that fades when it does not
 /// fit, and a trailing slot for the host's own close button.
@@ -50,7 +44,7 @@ impl TabItem {
             tooltip: None,
             icon,
             active: false,
-            width: dimension(width),
+            width: px(width),
             close: None,
             title_ink: None,
             tooltip_placement: TooltipPlacement::Above,
@@ -234,7 +228,7 @@ impl TabStrip {
         .pressed_background(palette.surface)
         .transition_ms(tokens().motion.hover_ms)
         .corner_radii(CornerRadii::top(RadiusRole::Card.px()))
-        .size(Some(dimension(width)), Some(Self::TAB_HEIGHT))
+        .size(Some(px(width)), Some(Self::TAB_HEIGHT))
     }
 
     /// Set a row of tabs on the bottom of a [`TabStrip::HEADER_HEIGHT`] bar.
@@ -257,7 +251,7 @@ impl TabStrip {
         TabStripHeader {
             leading,
             trailing,
-            width: dimension(width),
+            width: px(width),
             side_inset: Self::HEADER_SIDE_INSET,
             gap: 8.0,
             palette,

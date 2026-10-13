@@ -56,6 +56,11 @@ impl Slider {
         self
     }
 
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
+
     /// Color of the filled part and the thumb, in place of `palette.text`.
     pub fn ink(mut self, color: Color) -> Self {
         self.ink = Some(color);

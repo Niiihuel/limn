@@ -50,6 +50,11 @@ impl NavigationWorkspace {
         self.disabled = disabled;
         self
     }
+
+    /// Enable or disable it; the opposite of [`disabled`](Self::disabled).
+    pub fn enabled(self, enabled: bool) -> Self {
+        self.disabled(!enabled)
+    }
 }
 
 /// A status icon that reports an action, optionally followed by a short value.
@@ -92,6 +97,11 @@ impl NavigationAction {
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
         self
+    }
+
+    /// Enable or disable it; the opposite of [`disabled`](Self::disabled).
+    pub fn enabled(self, enabled: bool) -> Self {
+        self.disabled(!enabled)
     }
 
     fn width(&self, compact: bool) -> f32 {
