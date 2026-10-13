@@ -143,6 +143,8 @@ pub fn update(state: &mut State, action: &UiAction) {
 pub fn view(state: &State, window: Size) -> Element {
     // Before anything is built: elements read the tokens as they are made.
     limn::set_tokens(state.tokens());
+    // The gallery speaks Spanish; the library does unless told.
+    limn::set_labels(limn::Labels::SPANISH);
     let theme = state.theme();
     let palette = theme.palette();
     let current = pages::find(state.choice("page", pages::PAGES[0].id));

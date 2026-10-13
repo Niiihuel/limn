@@ -775,23 +775,23 @@ fn shortcut_matches(shortcut: &str, key: Key, shift: bool, ctrl: bool) -> bool {
 fn text_entries(copy: bool, cut: bool, paste: bool, select_all: bool) -> Vec<ContextMenuEntry> {
     vec![
         ContextMenuEntry::Item(
-            ContextMenuItem::new("cut", "Cortar")
+            ContextMenuItem::new("cut", crate::labels().cut)
                 .shortcut("Ctrl+X")
                 .enabled(cut),
         ),
         ContextMenuEntry::Item(
-            ContextMenuItem::new("copy", "Copiar")
+            ContextMenuItem::new("copy", crate::labels().copy)
                 .shortcut("Ctrl+C")
                 .enabled(copy),
         ),
         ContextMenuEntry::Item(
-            ContextMenuItem::new("paste", "Pegar")
+            ContextMenuItem::new("paste", crate::labels().paste)
                 .shortcut("Ctrl+V")
                 .enabled(paste),
         ),
         ContextMenuEntry::Separator,
         ContextMenuEntry::Item(
-            ContextMenuItem::new("select_all", "Seleccionar todo")
+            ContextMenuItem::new("select_all", crate::labels().select_all)
                 .shortcut("Ctrl+A")
                 .enabled(select_all),
         ),

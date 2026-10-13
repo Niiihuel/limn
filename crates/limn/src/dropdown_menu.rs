@@ -86,7 +86,6 @@ impl DropdownMenuItem {
         self
     }
 
-    /// Opens a second menu beside this row on pointer hover or keyboard focus.
     /// Enable or disable the item; the counterpart of [`disabled`](Self::disabled)
     /// for a state the host computes.
     pub fn enabled(mut self, enabled: bool) -> Self {
@@ -147,6 +146,7 @@ impl DropdownMenuItem {
         self
     }
 
+    /// Opens a second menu beside this row on pointer hover or keyboard focus.
     pub fn submenu(mut self, entries: Vec<DropdownMenuEntry>) -> Self {
         self.submenu = Some(entries);
         self

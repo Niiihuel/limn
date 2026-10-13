@@ -90,8 +90,8 @@ impl Component for TimePicker {
             .width(92.0)
             .render();
         let controls = Element::row(vec![
-            self.unit("Hora", hour, "hour_down", "hour_up"),
-            self.unit("Minuto", minute, "minute_down", "minute_up"),
+            self.unit(crate::labels().hour, hour, "hour_down", "hour_up"),
+            self.unit(crate::labels().minute, minute, "minute_down", "minute_up"),
         ])
         .gap(10.0);
         Element::column(vec![input, controls]).gap(6.0)

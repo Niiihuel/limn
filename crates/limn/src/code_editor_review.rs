@@ -648,11 +648,11 @@ impl EditorView {
                 clip: visible,
             });
             for (id, icon, hint, left, enabled) in [
-                (previous, Icon::ArrowUp, "Cambio anterior", x, index > 0),
+                (previous, Icon::ArrowUp, crate::labels().previous_change, x, index > 0),
                 (
                     next,
                     Icon::ArrowDown,
-                    "Cambio siguiente",
+                    crate::labels().next_change,
                     x + height + count_width,
                     index + 1 < self.editor.review_hunks.len(),
                 ),
@@ -676,7 +676,7 @@ impl EditorView {
         for (id, label, enabled, left, button_width, variant) in [
             (
                 &actions.reject_id,
-                "Deshacer",
+                crate::labels().undo,
                 actions.reject_enabled,
                 decisions_x,
                 reject_width,
@@ -684,7 +684,7 @@ impl EditorView {
             ),
             (
                 &actions.accept_id,
-                "Conservar",
+                crate::labels().keep,
                 actions.enabled,
                 decisions_x + reject_width + gap,
                 accept_width,
@@ -697,7 +697,7 @@ impl EditorView {
                 actions
                     .disabled_reason
                     .clone()
-                    .unwrap_or_else(|| "La revisión no está disponible para esta versión.".into())
+                    .unwrap_or_else(|| crate::labels().review_unavailable.into())
             };
             let rect = Rect::new(left, y, button_width, height);
             let element = Button::new(id, label, self.editor.palette)

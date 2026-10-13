@@ -70,8 +70,10 @@ impl Card {
         self
     }
 
-    /// Fix the width, in logical pixels. Without it the card fills the width
-    /// it is given. Values that are negative or not finite are ignored.
+    /// Fix the width, in logical pixels. Without it the card takes the width
+    /// its parent gives it: all of it in a parent that stretches its
+    /// children, its content's in one that hugs them. Values that are
+    /// negative or not finite are ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() && width >= 0.0 {
             self.width = Some(width);

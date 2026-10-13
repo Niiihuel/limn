@@ -76,9 +76,9 @@ impl CoachMark {
             width: 320.0,
             accent: None,
             dim: None,
-            next_label: "Siguiente".into(),
-            done_label: "Entendido".into(),
-            back_label: "Atrás".into(),
+            next_label: crate::labels().next.into(),
+            done_label: crate::labels().done.into(),
+            back_label: crate::labels().back.into(),
             skip_label: None,
             key: None,
             next_action: None,
@@ -270,7 +270,7 @@ impl Component for CoachMark {
         let mut footer = Vec::with_capacity(5);
         let counter = self
             .counter
-            .or_else(|| self.step.map(|_| format!("{} de {count}", index + 1)));
+            .or_else(|| self.step.map(|_| format!("{} {} {count}", index + 1, crate::labels().of)));
         if let Some(counter) = counter {
             footer.push(Text::new(counter, bubble).muted().render().centered_y());
         }

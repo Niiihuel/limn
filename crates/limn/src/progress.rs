@@ -38,8 +38,9 @@ impl Progress {
         self
     }
 
-    /// Square ends and no track under the fill: the meter of a dense list,
-    /// where a rounded cap would read as a control. The fill takes
+    /// Square ends, with the fill and the rest side by side as two pieces
+    /// instead of a fill over a track: the meter of a dense list, where a
+    /// rounded cap would read as a control. The fill takes
     /// `palette.text` and the rest `palette.selected`, so a host passes a
     /// status color by naming it in the palette.
     pub fn flat(mut self) -> Self {

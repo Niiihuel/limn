@@ -65,8 +65,13 @@ one click target. Both only report: the host removes the toast.
 
 A card fades in and settles when it appears, and fades out where it was once
 the host drops it; see [Animation](../animation.md). With reduced motion it
-appears and goes at once. A card is identified by its title, so two cards
-shown together need different titles to animate apart.
+appears and goes at once. A card is known between frames by its title, so
+two cards shown together with the same title need an ID each to appear and
+leave apart:
+
+```rust
+Toast::new("Saved", palette).id("saved:notes.md").render()
+```
 
 ## Actions
 

@@ -1428,7 +1428,7 @@ fn paint_at_impl(
                     painter.text(
                         area.center(),
                         Align2::CENTER_CENTER,
-                        "Vista previa no disponible",
+                        limn::labels().preview_unavailable,
                         FontId::proportional(12.0),
                         Color32::from_gray(190),
                     );

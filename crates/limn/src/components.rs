@@ -1048,6 +1048,7 @@ pub struct Link {
 }
 
 impl Link {
+    /// A text action that reports `Clicked` with this ID.
     pub fn new(
         action_id: impl Into<String>,
         label: impl Into<String>,
@@ -1061,13 +1062,18 @@ impl Link {
         }
     }
 
+    /// Draw the link in this color, in place of the palette's link ink.
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
 
+    /// Set the size of the text. A size that is not finite or not above
+    /// zero is ignored.
     pub fn font_size(mut self, size: f32) -> Self {
-        self.font_size = size;
+        if size.is_finite() && size > 0.0 {
+            self.font_size = size;
+        }
         self
     }
 }
@@ -1286,7 +1292,8 @@ impl Component for Kbd {
                 if !parts.is_empty() {
                     parts.push(Element::text("/").font_size(small).foreground(palette.muted));
                 }
-                parts.push(Kbd { keys, ..Kbd::new("", palette) }.render());
+                // Each key is drawn as the whole would be: as an accelerator, within its budget.
+                parts.push(Kbd { keys, menu: self.menu, max_width: self.max_width, ..Kbd::new("", palette) }.render());
             }
             if let Some(caption) = caption {
                 parts.push(
@@ -1340,6 +1347,8 @@ pub struct TextField {
 }
 
 impl TextField {
+    /// A field with its current value and the placeholder shown while it is
+    /// empty. The host stores what `InputChanged` reports under this ID.
     pub fn new(
         id: impl Into<String>,
         value: impl Into<String>,
@@ -1361,6 +1370,7 @@ impl TextField {
         }
     }
 
+    /// Take the height and text size of a control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
         self
@@ -1373,6 +1383,7 @@ impl TextField {
         self
     }
 
+    /// Mask what is typed when `hidden`, as a password field does.
     pub fn password(mut self, hidden: bool) -> Self {
         self.password = hidden;
         self
@@ -1384,6 +1395,7 @@ impl TextField {
         self
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
@@ -1401,11 +1413,14 @@ impl TextField {
         self
     }
 
+    /// Disable it: it keeps its place and its value and cannot be used.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
     }
 
+    /// Enable or disable it; the counterpart of [`disabled`](Self::disabled) for a
+    /// state the host computes.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.state = if enabled {
             ControlState::Enabled
@@ -1473,6 +1488,8 @@ pub struct TextArea {
 }
 
 impl TextArea {
+    /// A multi-line field with its current value and the placeholder shown
+    /// while it is empty. The host stores what `InputChanged` reports under this ID.
     pub fn new(
         id: impl Into<String>,
         value: impl Into<String>,
@@ -1492,6 +1509,7 @@ impl TextArea {
         }
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
@@ -1499,6 +1517,8 @@ impl TextArea {
         self
     }
 
+    /// Set the height, in logical pixels, never below 64. A height that is not
+    /// finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.height = height.max(64.0);
@@ -1518,11 +1538,14 @@ impl TextArea {
         self
     }
 
+    /// Disable it: it keeps its place and its value and cannot be used.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
     }
 
+    /// Enable or disable it; the counterpart of [`disabled`](Self::disabled) for a
+    /// state the host computes.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.state = if enabled {
             ControlState::Enabled
@@ -1614,6 +1637,8 @@ pub struct SearchField {
 pub type Search = SearchField;
 
 impl SearchField {
+    /// A search field with its current query and the placeholder shown while
+    /// it is empty. The host stores what `InputChanged` reports under this ID.
     pub fn new(
         id: impl Into<String>,
         value: impl Into<String>,
@@ -1632,11 +1657,13 @@ impl SearchField {
         }
     }
 
+    /// Take the height and text size of a control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
         self
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
@@ -1644,16 +1671,21 @@ impl SearchField {
         self
     }
 
+    /// Show the keys of a shortcut in the field, as a hint. The field does
+    /// not bind them: the host does.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self
     }
 
+    /// Disable it: it keeps its place and its value and cannot be used.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
     }
 
+    /// Enable or disable it; the counterpart of [`disabled`](Self::disabled) for a
+    /// state the host computes.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.state = if enabled {
             ControlState::Enabled
@@ -1736,6 +1768,8 @@ pub struct Switch {
 }
 
 impl Switch {
+    /// An on/off control that shows `checked` and reports `Clicked` with this
+    /// ID. The host flips its own value.
     pub fn new(action_id: impl Into<String>, checked: bool, palette: ComponentPalette) -> Self {
         Self {
             action_id: action_id.into(),
@@ -1745,11 +1779,14 @@ impl Switch {
         }
     }
 
+    /// Disable it: it keeps its place and its value and cannot be used.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
     }
 
+    /// Enable or disable it; the counterpart of [`disabled`](Self::disabled) for a
+    /// state the host computes.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.state = if enabled {
             ControlState::Enabled
@@ -1844,6 +1881,7 @@ pub struct Tab {
 }
 
 impl Tab {
+    /// A tab of this width that reports `Clicked` with this ID.
     pub fn new(action_id: impl Into<String>, label: impl Into<String>, width: f32) -> Self {
         Self {
             action_id: action_id.into(),
@@ -1855,16 +1893,19 @@ impl Tab {
         }
     }
 
+    /// Show an icon before the label.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// Mark this tab as the chosen one.
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
         self
     }
 
+    /// Disable the tab: it keeps its place and cannot be chosen.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
@@ -1878,6 +1919,7 @@ const TAB_ITEM_PADDING: f32 = 4.0;
 const TAB_ICON_GAP: f32 = 4.0;
 const TAB_FONT_SIZE: f32 = 11.5;
 
+/// A row of [`Tab`]s with a selection that slides to the active one.
 pub struct Tabs {
     pub items: Vec<Tab>,
     pub palette: ComponentPalette,
@@ -1888,6 +1930,7 @@ pub struct Tabs {
 }
 
 impl Tabs {
+    /// A row of these tabs, in order.
     pub fn new(items: Vec<Tab>, palette: ComponentPalette) -> Self {
         Self {
             items,
@@ -1906,16 +1949,20 @@ impl Tabs {
         self
     }
 
+    /// How long the selection takes to slide to another tab, in milliseconds,
+    /// in place of the `move_ms` token.
     pub fn animation_ms(mut self, duration: u16) -> Self {
         self.animation_ms = duration;
         self
     }
 
+    /// Set the height, in logical pixels, never below 24.
     pub fn height(mut self, height: f32) -> Self {
         self.height = height.max(24.0);
         self
     }
 
+    /// Take the height of a control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.height = size.height();
         self
@@ -2050,6 +2097,7 @@ pub struct SegmentedControl {
 }
 
 impl SegmentedControl {
+    /// A control of these segments, in order. Each is a [`Tab`].
     pub fn new(items: Vec<Tab>, palette: ComponentPalette) -> Self {
         Self {
             items,
@@ -2058,6 +2106,7 @@ impl SegmentedControl {
         }
     }
 
+    /// Set the height, in logical pixels, never below 28.
     pub fn height(mut self, height: f32) -> Self {
         self.height = height.max(28.0);
         self
@@ -2318,6 +2367,15 @@ impl Component for DropdownList {
 mod tests {
     use super::*;
     use crate::{DrawCommand, ElementKind, Point, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn a_keycap_with_a_caption_keeps_its_style_and_its_budget() {
+        let palette = ComponentPalette::neutral_dark();
+        let plain = Kbd::new("Ctrl+K", palette).menu().max_width(80.0).render();
+        let captioned = Kbd::new("Ctrl+K", palette).menu().max_width(80.0).caption("Open").render();
+        let ElementKind::Row(parts) = captioned.kind else { panic!("keys and caption are a row") };
+        assert_eq!(format!("{:?}", parts[0]), format!("{plain:?}"));
+    }
 
     #[test]
     fn a_transition_asks_for_the_next_refresh_and_a_spinner_for_a_slower_cadence() {

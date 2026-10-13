@@ -14,8 +14,8 @@ const MIN_THICKNESS: f32 = 2.0;
 /// far the pointer has travelled to the size the pane had when the drag
 /// began. Nothing follows the pointer: the handle is where the host's panes
 /// put it and stays filled through the drag, so a boundary that has reached
-/// its limit shows where it stopped. A press
-/// released without moving is a `Clicked` the host may ignore.
+/// its limit shows where it stopped. A press released without moving, or
+/// Enter on the focused handle, is a `Clicked` the host may ignore.
 pub struct ResizeHandle {
     id: String,
     vertical: bool,

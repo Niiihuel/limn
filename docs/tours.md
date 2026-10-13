@@ -29,13 +29,13 @@ place where the control is built does not change.
 | --- | --- |
 | `.title(text)`, `.body(text)` | The heading and one or two sentences. The body wraps and is never cut. |
 | `.illustration(element)` | A picture above the title. |
-| `.step(index, count)` | Counts from zero. Shows "2 de 5", hides the secondary action on the first step and labels the primary action "Entendido" on the last. |
+| `.step(index, count)` | Counts from zero. Shows "2 of 5", hides the secondary action on the first step and labels the primary action "Got it" on the last. |
 | `.placement(side, align)` | `CoachSide::{Above, Below, Left, Right}` and `CoachAlign::{Start, Center, End}`. Below and start unless set. |
 | `.also(id)` | Rings the area the targets cover together, such as a group of buttons. |
 | `.accent(fill, ink)` | Paints the bubble, the caret and the ring in a statement color of the host. |
 | `.dim(color)` | Dims the window around the target. |
 | `.skip(label)` | Adds an action to leave the tour, on every step but the last. |
-| `.next_label`, `.done_label`, `.back_label`, `.counter(text)` | Replace "Siguiente", "Entendido", "Atrás" and the counter. |
+| `.next_label`, `.done_label`, `.back_label`, `.counter(text)` | Replace "Next", "Got it", "Back" and the counter. Without them the words come from the library's [labels](theming.md#language). |
 | `.on_next(action)`, `.on_back(action)`, `.on_skip(action)` | Report another action. The controls keep their own IDs. |
 | `.width(px)` | 320 unless set, never under 220. |
 | `.key(text)` | Names the step when two steps share a target. |

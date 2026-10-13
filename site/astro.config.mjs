@@ -22,9 +22,27 @@ function guideLinks() {
   };
 }
 
+// In a table of keys, each key is a keycap: `Left, Right` and `Ctrl+Enter`.
+function keycaps() {
+  const text = (node) => node.value ?? node.children?.map(text).join('') ?? '';
+  const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const visit = (node) => {
+    if (node.type === 'table' && /^keys?$/i.test(text(node.children[0]?.children[0] ?? {}).trim())) {
+      for (const row of node.children.slice(1)) {
+        const cell = row.children[0];
+        const keys = text(cell).split(/(\s*,\s*|\s+or\s+|\s*\/\s*|\+)/);
+        const html = keys.map((part, index) => (index % 2 ? escape(part) : part.trim() && `<kbd>${escape(part.trim())}</kbd>`)).join('');
+        cell.children = [{ type: 'html', value: html }];
+      }
+    }
+    node.children?.forEach(visit);
+  };
+  return visit;
+}
+
 export default defineConfig({
   markdown: {
-    remarkPlugins: [guideLinks],
+    remarkPlugins: [guideLinks, keycaps],
     shikiConfig: { themes: { light: 'github-light', dark: 'github-dark-default' } },
   },
 });

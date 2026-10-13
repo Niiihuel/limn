@@ -9,6 +9,8 @@ fn group_radius() -> f32 {
     crate::tokens().radius.card
 }
 
+/// A card of settings rows separated by hairlines, under a small muted
+/// title. Without a title it is only the card.
 pub struct PreferencesGroup {
     title: String,
     description: Option<String>,
@@ -16,6 +18,7 @@ pub struct PreferencesGroup {
     palette: ComponentPalette,
 }
 impl PreferencesGroup {
+    /// A group of these rows, in order, each usually an [`ActionRow`].
     pub fn new(title: impl Into<String>, rows: Vec<Element>, palette: ComponentPalette) -> Self {
         Self {
             title: title.into(),
@@ -24,6 +27,7 @@ impl PreferencesGroup {
             palette,
         }
     }
+    /// A line of muted text under the title, saying what the group is for.
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self

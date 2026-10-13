@@ -16,6 +16,7 @@ const COPY_GAP: f32 = 8.0;
 const LABEL_SIZE: f32 = 12.0;
 const LABEL_LINE: f32 = 16.0;
 
+/// One step of a [`Stepper`]: its label, and what it reports when chosen.
 pub struct Step {
     id: String,
     label: String,
@@ -24,6 +25,7 @@ pub struct Step {
 }
 
 impl Step {
+    /// A step with this label. Its ID is reported as `Clicked` when it is chosen.
     pub fn new(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -33,6 +35,7 @@ impl Step {
         }
     }
 
+    /// A line of muted text under the label.
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = Some(description.into());
         self
@@ -59,6 +62,8 @@ pub struct Stepper {
 }
 
 impl Stepper {
+    /// The steps of a short form, with the one being filled in. Steps before
+    /// it are done; steps after it are still to come.
     pub fn new(steps: Vec<Step>, active_index: usize, palette: ComponentPalette) -> Self {
         Self {
             steps,
@@ -69,6 +74,7 @@ impl Stepper {
         }
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
@@ -83,6 +89,7 @@ impl Stepper {
         self
     }
 
+    /// The stepper as an element. An empty list of steps renders nothing.
     pub fn render(self) -> Element {
         if self.steps.is_empty() {
             return Element::spacer();

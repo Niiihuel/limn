@@ -423,7 +423,7 @@ fn active_hunk_buttons_are_real_clipped_controls_and_never_edit_or_drag_the_sour
             .unwrap()
             .rect;
         let before = controller.snapshot().unwrap().selection();
-        for (operation, label) in [("reject_hunk", "Deshacer"), ("accept_hunk", "Conservar")] {
+        for (operation, label) in [("reject_hunk", "Undo"), ("accept_hunk", "Keep")] {
             let id = format!("editor_review:{operation}:owner-version:0");
             let region = frame
                 .regions

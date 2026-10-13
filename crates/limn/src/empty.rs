@@ -5,6 +5,8 @@ use crate::{
     RadiusRole,
 };
 
+/// The state of a page, pane or list with nothing in it: an icon, a title,
+/// a reason and a next step.
 pub struct Empty {
     title: String,
     description: String,
@@ -19,6 +21,7 @@ pub struct Empty {
 }
 
 impl Empty {
+    /// An empty state with its title and the reason there is nothing here.
     pub fn new(
         title: impl Into<String>,
         description: impl Into<String>,
@@ -38,11 +41,14 @@ impl Empty {
         }
     }
 
+    /// Show an icon over the title.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// Add a button that reports `Clicked` with this ID. Called again, it adds
+    /// another beside the first.
     pub fn action(
         mut self,
         id: impl Into<String>,
@@ -60,8 +66,11 @@ impl Empty {
         self
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
-        self.width = Some(width.max(0.0));
+        if width.is_finite() {
+            self.width = Some(width.max(0.0));
+        }
         self
     }
 
@@ -73,6 +82,7 @@ impl Empty {
         self
     }
 
+    /// Use the smaller spacing and text of a pane or a list, in place of a page's.
     pub fn compact(mut self) -> Self {
         self.compact = true;
         self

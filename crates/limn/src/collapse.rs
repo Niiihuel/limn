@@ -4,8 +4,8 @@ use crate::{Component, Element};
 
 /// The host renders this every frame and passes the content while there is
 /// any. When the content stops being passed, the slot keeps its place and
-/// closes over `exit_ms` while the last paint fades, so what follows glides
-/// up instead of jumping. The closing paint takes no pointer input.
+/// closes on a spring, in one and a half `move_ms`, while the last paint
+/// fades, so what follows glides up instead of jumping. The closing paint takes no pointer input.
 pub struct Collapse {
     id: String,
     content: Option<Element>,
@@ -21,7 +21,7 @@ impl Collapse {
         }
     }
 
-    /// Also open from zero height over `enter_ms` when content arrives in a
+    /// Also open from zero height, on the same spring, when content arrives in a
     /// slot that was rendered empty. Without this, arriving content takes its
     /// height at once. Content there when the slot first appears never opens.
     pub fn expand(mut self) -> Self {
@@ -75,7 +75,7 @@ mod tests {
     }
 
     #[test]
-    fn the_slot_closes_over_exit_ms_and_what_follows_moves_with_it() {
+    fn the_slot_closes_on_its_spring_and_what_follows_moves_with_it() {
         // In the past, so the wall clock `is_animating` reads is after the end.
         let start = Instant::now() - Duration::from_secs(10);
         let mut tree = UiTree::new(root(slot(true)));

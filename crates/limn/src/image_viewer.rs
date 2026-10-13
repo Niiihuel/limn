@@ -154,14 +154,14 @@ impl Component for ImageViewer {
             .size(None, Some(36.0))];
         let zoomed = self.zoom > 1.0;
         if let Some([out, fit, zoom_in]) = &self.zoom_actions {
-            header.push(control(out, Icon::Minus, "Alejar", zoomed, controls));
-            header.push(control(fit, Icon::Collapse, "Ajustar a la ventana", zoomed, controls));
-            header.push(control(zoom_in, Icon::Add, "Acercar", self.zoom < Self::MAX_ZOOM, controls));
+            header.push(control(out, Icon::Minus, crate::labels().zoom_out, zoomed, controls));
+            header.push(control(fit, Icon::Collapse, crate::labels().fit_to_window, zoomed, controls));
+            header.push(control(zoom_in, Icon::Add, crate::labels().zoom_in, self.zoom < Self::MAX_ZOOM, controls));
         }
         header.push(control(
             &self.close_id,
             Icon::Close,
-            "Cerrar imagen · Esc",
+            &format!("{} · Esc", crate::labels().close_image),
             true,
             controls,
         ));
@@ -191,7 +191,7 @@ impl Component for ImageViewer {
                 picture
             }
         } else {
-            let message = self.error.as_deref().unwrap_or("Cargando imagen…");
+            let message = self.error.as_deref().unwrap_or(crate::labels().loading_image);
             let mut content = vec![Element::spacer().flex(1.0)];
             if self.error.is_none() {
                 content.push(centered(
@@ -222,7 +222,7 @@ impl Component for ImageViewer {
                         control(
                             id,
                             Icon::ArrowLeft,
-                            "Imagen anterior · ←",
+                            &format!("{} · ←", crate::labels().previous_image),
                             self.index > 0,
                             controls,
                         ),
@@ -241,7 +241,7 @@ impl Component for ImageViewer {
                         control(
                             id,
                             Icon::ArrowRight,
-                            "Imagen siguiente · →",
+                            &format!("{} · →", crate::labels().next_image),
                             self.index + 1 < self.total,
                             controls,
                         ),
@@ -251,7 +251,7 @@ impl Component for ImageViewer {
                 );
             }
         }
-        let footer = Element::truncated_text(format!("{} de {}", self.index + 1, self.total))
+        let footer = Element::truncated_text(format!("{} {} {}", self.index + 1, crate::labels().of, self.total))
             .font_family(FontFamily::Sans)
             .font_size(12.0)
             .foreground(self.palette.muted)

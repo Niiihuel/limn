@@ -248,7 +248,7 @@ impl Wire {
     fn send(&self, value: Value) -> Result<(), LspError> {
         let bytes = serde_json::to_vec(&value).map_err(|error| self::error(error.to_string()))?;
         if bytes.len() > MAX_FRAME {
-            return Err(error("El mensaje LSP supera el límite de tamaño"));
+            return Err(error("The LSP message exceeds the size limit"));
         }
         let len = bytes.len();
         if self
@@ -260,7 +260,7 @@ impl Wire {
             })
             .is_err()
         {
-            return Err(error("La cola LSP está llena"));
+            return Err(error("The LSP queue is full"));
         }
         if self
             .sender
@@ -271,7 +271,7 @@ impl Wire {
             .is_err()
         {
             self.bytes.fetch_sub(len, Ordering::Release);
-            return Err(error("La cola LSP no está disponible"));
+            return Err(error("The LSP queue is not available"));
         }
         Ok(())
     }
@@ -291,7 +291,7 @@ impl Wire {
             })
             .is_err()
         {
-            return Err(error("La cola LSP está llena"));
+            return Err(error("The LSP queue is full"));
         }
         let outgoing = Outgoing {
             payload: Payload::Document {
@@ -303,7 +303,7 @@ impl Wire {
         };
         if self.sender.try_send(outgoing).is_err() {
             self.bytes.fetch_sub(charge, Ordering::Release);
-            return Err(error("La cola LSP no está disponible"));
+            return Err(error("The LSP queue is not available"));
         }
         Ok(())
     }
@@ -418,7 +418,7 @@ impl LanguageServer {
                     if let Err(source) = result {
                         writer_stopped.store(true, Ordering::Release);
                         let _ = writer_events.send(Event::Stopped {
-                            reason: format!("Falló la escritura LSP: {source}"),
+                            reason: format!("Writing to the language server failed: {source}"),
                         });
                         break;
                     }
@@ -446,14 +446,14 @@ impl LanguageServer {
                         Ok(None) => {
                             reader_stopped.store(true, Ordering::Release);
                             let _ = event_sender.send(Event::Stopped {
-                                reason: "El servidor de lenguaje cerró la conexión".into(),
+                                reason: "The language server closed the connection".into(),
                             });
                             break;
                         }
                         Err(source) => {
                             reader_stopped.store(true, Ordering::Release);
                             let _ = event_sender.send(Event::Stopped {
-                                reason: format!("Respuesta LSP inválida: {source}"),
+                                reason: format!("Invalid LSP response: {source}"),
                             });
                             break;
                         }
@@ -522,15 +522,15 @@ impl LanguageServer {
             .map_err(|_| error("Estado LSP no disponible"))?;
         self.require_ready(&state)?;
         if state.documents.contains_key(&uri) {
-            return Err(error("El documento ya está abierto en LSP"));
+            return Err(error("The document is already open in the language server"));
         }
         if state.documents.len() >= MAX_DOCUMENTS {
-            return Err(error("Se alcanzó el límite de documentos LSP"));
+            return Err(error("The limit of open LSP documents was reached"));
         }
         let version = state
             .next_version
             .checked_add(1)
-            .ok_or_else(|| error("Versión LSP agotada"))?;
+            .ok_or_else(|| error("The LSP document version is exhausted"))?;
         let document = DocumentVersion {
             uri: uri.clone(),
             document_id: snapshot.document_id(),
@@ -564,19 +564,19 @@ impl LanguageServer {
             .ok_or_else(|| error("Documento LSP cerrado"))?;
         if prior.document_id != snapshot.document_id() {
             return Err(error(
-                "La identidad del documento cambió: cerrar y abrir de nuevo",
+                "The document's identity changed: close it and open it again",
             ));
         }
         if prior.revision == snapshot.revision() {
             return Ok(prior.clone());
         }
         if prior.revision > snapshot.revision() {
-            return Err(error("No se puede sincronizar una revisión anterior"));
+            return Err(error("An earlier revision cannot be synchronized"));
         }
         let version = state
             .next_version
             .checked_add(1)
-            .ok_or_else(|| error("Versión LSP agotada"))?;
+            .ok_or_else(|| error("The LSP document version is exhausted"))?;
         let document = DocumentVersion {
             uri: uri.clone(),
             document_id: snapshot.document_id(),
@@ -627,7 +627,7 @@ impl LanguageServer {
                     && document.revision == snapshot.revision()
             })
             .cloned()
-            .ok_or_else(|| error("Sincroniza la revisión actual antes de solicitar LSP"))?;
+            .ok_or_else(|| error("Synchronize the current revision before making an LSP request"))?;
         if state.pending.len() >= MAX_REQUESTS {
             return Err(error("Demasiadas solicitudes LSP pendientes"));
         }
@@ -650,7 +650,7 @@ impl LanguageServer {
             Request::Rename { position, new_name } => {
                 validate_position(snapshot, *position)?;
                 if new_name.is_empty() || new_name.len() > 1024 {
-                    return Err(error("Nombre de símbolo inválido"));
+                    return Err(error("Invalid symbol name"));
                 }
                 params["position"] = json!(position);
                 params["newName"] = json!(new_name);
@@ -703,7 +703,7 @@ impl LanguageServer {
             if state.capabilities.is_none() && Instant::now() >= self.initialize_deadline {
                 self.stopped.store(true, Ordering::Release);
                 return Some(Event::Stopped {
-                    reason: "El servidor no completó initialize a tiempo".into(),
+                    reason: "The server did not complete initialize in time".into(),
                 });
             }
             let expired = state
@@ -720,7 +720,7 @@ impl LanguageServer {
                     id,
                     document: pending.document,
                     kind: pending.kind,
-                    result: Err(error("La solicitud LSP superó el tiempo de espera")),
+                    result: Err(error("The LSP request timed out")),
                 });
             }
         }
@@ -750,10 +750,10 @@ impl LanguageServer {
     }
     fn require_ready(&self, state: &State) -> Result<(), LspError> {
         if self.stopped.load(Ordering::Acquire) {
-            return Err(error("El servidor de lenguaje se detuvo"));
+            return Err(error("The language server stopped"));
         }
         if state.capabilities.is_none() {
-            return Err(error("El servidor de lenguaje se está iniciando"));
+            return Err(error("The language server is starting"));
         }
         Ok(())
     }
@@ -779,9 +779,9 @@ pub fn file_uri(path: &Path) -> Result<String, LspError> {
         .map_err(|_| error("LSP requiere una ruta absoluta"))
 }
 pub fn uri_path(uri: &str) -> Result<PathBuf, LspError> {
-    let url = url::Url::parse(uri).map_err(|_| error("URI LSP inválida"))?;
+    let url = url::Url::parse(uri).map_err(|_| error("Invalid LSP URI"))?;
     if url.scheme() != "file" {
-        return Err(error("La ubicación LSP no es un archivo local"));
+        return Err(error("The LSP location is not a local file"));
     }
     url.to_file_path()
         .map_err(|_| error("La URI LSP no identifica una ruta local"))
@@ -795,7 +795,7 @@ pub fn text_edits(
 ) -> Result<Vec<limn_editor::TextEdit>, LspError> {
     let items = value
         .as_array()
-        .ok_or_else(|| error("La respuesta no contiene una lista de cambios"))?;
+        .ok_or_else(|| error("The response has no list of changes"))?;
     if items.len() > 4096 {
         return Err(error("Demasiados cambios en una respuesta LSP"));
     }
@@ -803,20 +803,20 @@ pub fn text_edits(
     let mut bytes = 0usize;
     for item in items {
         let range: Range = serde_json::from_value(item["range"].clone())
-            .map_err(|_| error("Rango LSP inválido"))?;
+            .map_err(|_| error("Invalid LSP range"))?;
         let start = crate::utf16_to_offset(snapshot, range.start)
-            .ok_or_else(|| error("Inicio UTF-16 inválido"))?;
+            .ok_or_else(|| error("Invalid UTF-16 start"))?;
         let end = crate::utf16_to_offset(snapshot, range.end)
-            .ok_or_else(|| error("Fin UTF-16 inválido"))?;
+            .ok_or_else(|| error("Invalid UTF-16 end"))?;
         if start > end {
-            return Err(error("El rango LSP está invertido"));
+            return Err(error("The LSP range is reversed"));
         }
         let replacement = item["newText"]
             .as_str()
-            .ok_or_else(|| error("Falta el texto de reemplazo"))?;
+            .ok_or_else(|| error("The replacement text is missing"))?;
         bytes = bytes.saturating_add(replacement.len());
         if bytes > 8 * 1024 * 1024 {
-            return Err(error("Los cambios LSP superan el límite de tamaño"));
+            return Err(error("The LSP changes exceed the size limit"));
         }
         edits.push(limn_editor::TextEdit {
             range: start..end,
@@ -898,7 +898,7 @@ pub fn stdio_args(executable: &Path) -> Vec<String> {
 fn validate_position(snapshot: &BufferSnapshot, position: Position) -> Result<(), LspError> {
     crate::utf16_to_offset(snapshot, position)
         .map(|_| ())
-        .ok_or_else(|| error("Posición UTF-16 fuera del documento"))
+        .ok_or_else(|| error("UTF-16 position outside the document"))
 }
 fn cancel_document_requests(state: &mut State, wire: &Wire, uri: &str) {
     state.pending.retain(|id, pending| {
@@ -958,7 +958,7 @@ fn receive(
     events: &EventSink,
 ) -> Result<(), String> {
     if message["jsonrpc"] != "2.0" {
-        return Err("El servidor no envió JSON-RPC 2.0".into());
+        return Err("The server did not send JSON-RPC 2.0".into());
     }
     if let Some(method) = message["method"].as_str() {
         if let Some(id) = message.get("id") {
@@ -971,14 +971,14 @@ fn receive(
                     .unwrap_or_default())),
                 "window/workDoneProgress/create" => Some(Value::Null),
                 "workspace/applyEdit" => Some(
-                    json!({"applied":false,"failureReason":"OpenIDE requiere revisar los cambios antes de aplicarlos"}),
+                    json!({"applied":false,"failureReason":"The host reviews changes before applying them"}),
                 ),
                 _ => None,
             };
             let reply = match result {
                 Some(result) => json!({"jsonrpc":"2.0","id":id,"result":result}),
                 None => {
-                    json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Método no soportado"}})
+                    json!({"jsonrpc":"2.0","id":id,"error":{"code":-32601,"message":"Method not supported"}})
                 }
             };
             wire.send(reply).map_err(|error| error.to_string())?;
@@ -1029,20 +1029,20 @@ fn receive(
         if let Some(failure) = message.get("error") {
             return Err(failure["message"]
                 .as_str()
-                .unwrap_or("initialize falló")
+                .unwrap_or("initialize failed")
                 .into());
         }
         let result = &message["result"];
         let capabilities = result["capabilities"].clone();
         if !capabilities.is_object() {
-            return Err("initialize no devolvió capabilities".into());
+            return Err("initialize returned no capabilities".into());
         }
         if capabilities
             .get("positionEncoding")
             .and_then(Value::as_str)
             .is_some_and(|encoding| encoding != "utf-16")
         {
-            return Err("El servidor eligió una codificación de posiciones no admitida".into());
+            return Err("The server chose a position encoding that is not supported".into());
         }
         wire.send(json!({"jsonrpc":"2.0","method":"initialized","params":{}}))
             .map_err(|error| error.to_string())?;
@@ -1118,7 +1118,7 @@ pub fn probe(executable: &Path, args: &[&str]) -> Result<String, LspError> {
                 let _ = child.kill();
                 let _ = child.wait();
                 return Err(error(
-                    "El servidor no respondió a la comprobación de versión",
+                    "The server did not answer the version check",
                 ));
             }
         }

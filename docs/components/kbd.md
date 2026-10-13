@@ -69,5 +69,5 @@ Kbd::new("Ctrl+Shift+M", palette).max_width(80.0).render()
 With `max_width`, a hint whose keys do not fit is left out whole. It is
 never cut, because a truncated combination would read as another shortcut.
 
-A hint with a caption or an alternative always draws outlined keycaps at
-their full width: `menu` and `max_width` do not apply to it.
+A hint with a caption or an alternative draws each of its keys the same
+way: as an accelerator with `menu`, and within the budget of `max_width`.

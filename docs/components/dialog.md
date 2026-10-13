@@ -97,7 +97,8 @@ AlertDialog::new(
 .render()
 ```
 
-The labels are "Continuar" and "Cancelar" unless set. `destructive(color)`
+The labels are "Continue" and "Cancel" unless set, or the `confirm` and
+`cancel` of the library's [labels](../theming.md#language). `destructive(color)`
 fills the confirm button with that color. `confirm_enabled(false)` keeps the
 button in view and passive while the action is being prepared.
 `alternative(id, label)` adds a second way to go ahead between the two, and

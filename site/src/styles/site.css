@@ -100,8 +100,9 @@ footer { padding: 28px clamp(16px, 5vw, 80px); border-top: 1px solid var(--line)
 /* Bootstrap icons sit on the text's line and take its color. */
 svg.bi { flex: none; vertical-align: -0.125em; }
 .bar nav a, .bar .end a, .button, .grid h3, .cargo { display: inline-flex; align-items: center; gap: 7px; }
-.bar button { display: inline-flex; padding: 7px 9px; border: 0; border-radius: 8px; }
-.bar button:hover { background: var(--hover); }
+/* The theme switch is its icon: it lights up, with no box around it. */
+.bar button { display: inline-flex; padding: 4px; border: 0; border-radius: 6px; color: var(--muted); transition: color 140ms; }
+.bar button:hover, .bar button:focus-visible { color: var(--fg); }
 :root[data-theme="light"] .when-dark, :root:not([data-theme="light"]) .when-light { display: none; }
 .code { position: relative; }
 .copy { all: unset; position: absolute; top: 8px; right: 8px; display: inline-flex; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 120ms; }
@@ -133,3 +134,5 @@ svg.bi { flex: none; vertical-align: -0.125em; }
 .side h2:not(:first-child) { margin-top: 20px; }
 .side a { margin: 0; padding: 4px 8px; border-radius: 6px; font-size: 13.5px; line-height: 1.5; transition: color 140ms, background 140ms; }
 .side a[aria-current="page"] { font-weight: 650; }
+/* A key is a keycap. */
+kbd { display: inline-block; min-width: 1.7em; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--card); color: var(--fg); font: 600 12px/1.5 var(--mono); text-align: center; white-space: nowrap; }
