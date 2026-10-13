@@ -74,8 +74,30 @@ function called outside it keeps running as it was compiled at launch.
 | Code that runs once at startup, such as `install_fonts` | It has already run. |
 | A dependency, or a `Cargo.toml` | It is not part of what is patched. |
 
-`dx` restarts the application by itself when it cannot patch. To make that
-restart land where you were, keep your state across it:
+`dx` does not know the first of these. Add a field to your state while the
+window is open and it patches the code all the same; the state in memory is
+still the old size, and the new code reads past it. Nothing warns you: the
+application shows nonsense, or crashes.
+
+`limn::hot_shape!` tells you. Take the shape of your state at launch and
+compare it each frame:
+
+```rust
+let launched = limn::hot_shape!(State);
+
+// Every frame, before the state is used:
+if limn::hot_shape!(State) != launched {
+    // The state in memory is not a `State` any more: show a notice, and
+    // restart with `r` in `dx`.
+    return;
+}
+```
+
+It sees a change of size or alignment, which adding, removing or retyping a
+field nearly always is. Two fields swapped, or one replaced by another of the
+same size, it cannot see; restart after those yourself.
+
+To make a restart land where you were, keep your state across it:
 
 ```rust
 // After each action:
@@ -103,6 +125,8 @@ without changing a struct, so adding a control never needs a restart.
   each time. Restart after a long session.
 - The first build under `dx` is a full build, in a target directory of its
   own.
+- A window that is not on screen takes a patch and shows it when it is next
+  painted: on Wayland a hidden window is not asked to paint.
 - It works on desktop targets. In a browser build the feature compiles to
   nothing.
 - Dioxus is only this development tool. Nothing depends on it without the

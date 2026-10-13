@@ -16,8 +16,9 @@
 //! let root = limn::hot::call(|| view(&state));
 //! ```
 //!
-//! What cannot be patched, such as a new field on a live struct, restarts
-//! the application. [`remember`] and [`restore`] carry its state over that.
+//! A patch replaces functions, not values: a new field on a live struct
+//! needs a restart, which [`hot_shape!`](crate::hot_shape) tells you about
+//! and [`remember`] and [`restore`] carry the state over.
 
 /// Whether this build can be patched: the `hot` feature, on a desktop target.
 pub const ENABLED: bool = cfg!(all(feature = "hot", not(target_arch = "wasm32")));
@@ -53,6 +54,53 @@ pub fn on_patch(wake: impl Fn() + Send + Sync + 'static) {
     let _ = wake;
 }
 
+/// The size and alignment of a type, to tell whether a patch changed them.
+/// Take it with [`hot_shape!`](crate::hot_shape).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shape {
+    size: usize,
+    align: usize,
+}
+
+impl Shape {
+    /// The shape of `T` where this is compiled. Use [`hot_shape!`](crate::hot_shape),
+    /// which asks the code that runs now.
+    #[inline(always)]
+    pub const fn of<T>() -> Self {
+        Self { size: std::mem::size_of::<T>(), align: std::mem::align_of::<T>() }
+    }
+}
+
+/// The [`Shape`](crate::hot::Shape) a type has in the code that runs now:
+/// after a patch, the patched code's.
+///
+/// A patch replaces functions and leaves values as they are. Add a field to
+/// your state while the window is open and `dx` patches the code all the
+/// same: the state in memory is still the old size, and the new code reads
+/// past it. Take the shape at launch and compare it each frame; when they
+/// differ, stop using the state and restart (`r` in `dx`).
+///
+/// ```no_run
+/// # struct State;
+/// let launched = limn::hot_shape!(State);
+/// // ... every frame:
+/// if limn::hot_shape!(State) != launched {
+///     // The state in memory is not a `State` any more.
+/// }
+/// ```
+///
+/// It is a macro because the question has to be asked from your crate: a
+/// patch carries your code, not the library's. It sees a change of size or
+/// alignment, which adding, removing or retyping a field nearly always is.
+/// Two fields swapped, or one replaced by another of the same size, it
+/// cannot see.
+#[macro_export]
+macro_rules! hot_shape {
+    ($state:ty) => {
+        $crate::hot::call(|| $crate::hot::Shape::of::<$state>())
+    };
+}
+
 /// Keep `state` for the next launch of the application `name`, so a restart
 /// lands where the last run was. Call it after each action. It writes a file
 /// in the system's temporary directory, and only in a build that can be
@@ -85,6 +133,13 @@ mod tests {
         let mut runs = 0;
         assert_eq!(call(|| { runs += 1; runs * 21 }), 21);
         assert_eq!(runs, 1);
+    }
+
+    #[test]
+    fn a_shape_tells_types_of_another_size_apart() {
+        assert_eq!(crate::hot_shape!(u32), crate::hot_shape!(i32));
+        assert_ne!(crate::hot_shape!(u32), crate::hot_shape!(u64));
+        assert_ne!(crate::hot_shape!([u8; 8]), crate::hot_shape!(u64));
     }
 
     #[test]
