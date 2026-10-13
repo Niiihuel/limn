@@ -32,11 +32,11 @@ fn pager(cx: &Cx, group: &str, sizing: PagerSizing, vertical: bool) -> Element {
         .previous(format!("{group}={}", page.saturating_sub(1).max(1)), page > 1)
         .next(format!("{group}={}", (page + 1).min(PAGES)), page < PAGES)
         .tooltips(
-            TooltipSpec::new("Página anterior").shortcut("Shift+F7").placement(TooltipPlacement::Below),
-            TooltipSpec::new("Página siguiente").shortcut("F7").placement(TooltipPlacement::Below),
+            TooltipSpec::new("Previous page").shortcut("Shift+F7").placement(TooltipPlacement::Below),
+            TooltipSpec::new("Next page").shortcut("F7").placement(TooltipPlacement::Below),
         )
         .label_width(52.0)
-        .label_tooltip(format!("{group}-where"), TooltipSpec::new(format!("Página {page} de {PAGES}")))
+        .label_tooltip(format!("{group}-where"), TooltipSpec::new(format!("Page {page} of {PAGES}")))
         .sizing(sizing);
     if vertical {
         pager.icons(Icon::ArrowUp, Icon::ArrowDown).render()
@@ -56,68 +56,68 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     ];
     let mut headers = Vec::new();
     for (name, sizing) in profiles {
-        headers.push(caption(cx, &format!("HeaderSizing::{name}: {} de alto", sizing.height)));
+        headers.push(caption(cx, &format!("HeaderSizing::{name}: {} px high", sizing.height)));
         headers.push(framed(
             cx,
             width,
-            PanelHeader::new("Control de versiones", palette)
+            PanelHeader::new("Source control", palette)
                 .trailing(vec![
-                    tool(cx, &format!("panel-{name}-refresh"), Icon::Refresh, "Actualizar"),
-                    tool(cx, &format!("panel-{name}-more"), Icon::More, "Más acciones"),
+                    tool(cx, &format!("panel-{name}-refresh"), Icon::Refresh, "Refresh"),
+                    tool(cx, &format!("panel-{name}-more"), Icon::More, "More actions"),
                 ])
                 .sizing(sizing)
                 .render(),
         ));
     }
     vec![
-        section(cx, "Cabecera de panel", headers),
-        section(cx, "Volver, cerrar y título largo", vec![
+        section(cx, "Panel header", headers),
+        section(cx, "Back, close, and long title", vec![
             framed(
                 cx,
                 width,
-                PanelHeader::new("Un título demasiado largo para caber junto a sus herramientas", palette)
-                    .back("panel-back", "Volver a los cambios")
+                PanelHeader::new("A title too long to fit alongside its tools", palette)
+                    .back("panel-back", "Back to changes")
                     .trailing(vec![
-                        tool(cx, "panel-long-refresh", Icon::Refresh, "Actualizar"),
+                        tool(cx, "panel-long-refresh", Icon::Refresh, "Refresh"),
                         Separator::vertical(palette).length(14.0).centered_in(24.0).margin(4.0).render(),
-                        tool(cx, "panel-long-add", Icon::Add, "Añadir"),
+                        tool(cx, "panel-long-add", Icon::Add, "Add"),
                     ])
-                    .dismiss("panel-dismiss", "Cerrar")
+                    .dismiss("panel-dismiss", "Close")
                     .sizing(HeaderSizing::CARD)
                     .render(),
             ),
-            caption(cx, "Sólo título, y herramientas colgadas del borde superior (center_tools: false):"),
-            framed(cx, width, PanelHeader::new("Depuración", palette).render()),
+            caption(cx, "Title only, and tools aligned to the top edge (center_tools: false):"),
+            framed(cx, width, PanelHeader::new("Debugging", palette).render()),
             framed(
                 cx,
                 width,
-                PanelHeader::new("Depuración", palette)
-                    .trailing(vec![tool(cx, "panel-top-refresh", Icon::Refresh, "Actualizar")])
+                PanelHeader::new("Debugging", palette)
+                    .trailing(vec![tool(cx, "panel-top-refresh", Icon::Refresh, "Refresh")])
                     .sizing(HeaderSizing { center_tools: false, ..HeaderSizing::SIDEBAR })
                     .render(),
             ),
         ]),
-        section(cx, "Un campo en lugar del título", vec![framed(
+        section(cx, "A field in place of the title", vec![framed(
             cx,
             width,
             PanelHeader::with_leading(
-                TextField::new("panel-address", cx.state.text("panel-address"), "Dirección…", palette)
+                TextField::new("panel-address", cx.state.text("panel-address"), "Address…", palette)
                     .size(ControlSize::Compact)
                     .render(),
                 palette,
             )
-                .trailing(vec![tool(cx, "panel-field-more", Icon::More, "Más acciones")])
+                .trailing(vec![tool(cx, "panel-field-more", Icon::More, "More actions")])
                 // A profile of the host's own: room for a 28 px field.
                 .sizing(HeaderSizing { height: 36.0, ..HeaderSizing::PANE })
                 .render(),
         )]),
-        section(cx, "Panel lateral", vec![
+        section(cx, "Sidebar panel", vec![
             SidebarPanel::new(
                 vec![
-                    PanelHeader::new("Buscar", palette)
-                        .trailing(vec![tool(cx, "panel-side-refresh", Icon::Refresh, "Actualizar")])
+                    PanelHeader::new("Search", palette)
+                        .trailing(vec![tool(cx, "panel-side-refresh", Icon::Refresh, "Refresh")])
                         .render(),
-                    SearchField::new("panel-side-query", cx.state.text("panel-side-query"), "Buscar en el proyecto…", palette)
+                    SearchField::new("panel-side-query", cx.state.text("panel-side-query"), "Search the project…", palette)
                         .size(ControlSize::Compact)
                         .render(),
                     Element::column(
@@ -132,40 +132,40 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             )
             .size(width, 190.0)
             .render(),
-            caption(cx, "Margen y separación de 6 sobre la superficie de la paleta."),
+            caption(cx, "6 px padding and gaps on the palette surface."),
         ]),
-        section(cx, "Tirador entre paneles", vec![
-            caption(cx, "La franja entre dos paneles es el tirador: se ilumina bajo el puntero y el anfitrión mueve el límite con el arrastre."),
+        section(cx, "Resize handle between panels", vec![
+            caption(cx, "The strip between two panels is the resize handle: it lights up on hover, and the host moves the boundary while dragging."),
             {
                 let pane = |label: &str| {
                     Element::panel(caption(cx, label)).padding(12.0).background(palette.surface).radius(RadiusRole::Surface.px()).size(Some(180.0), Some(96.0))
                 };
                 row(vec![Element::row(vec![
-                    pane("Biblioteca"),
+                    pane("Library"),
                     ResizeHandle::vertical("panel-resize-demo", palette).render(),
-                    pane("Contenido"),
+                    pane("Content"),
                 ])])
             },
         ]),
-        section(cx, "Paginador", vec![
+        section(cx, "Pager", vec![
             row(vec![
                 pager(cx, "panel-pager", PagerSizing::DEFAULT, false),
                 pager(cx, "panel-pager-tight", PagerSizing { gap: 0.0 }, true),
             ]),
-            caption(cx, "El extremo que no se puede tomar es pasivo y conserva su pista."),
+            caption(cx, "An unavailable direction stays inactive and keeps its tooltip."),
             row(vec![Pager::new("PDF", palette)
                 .previous("panel-pager-off-prev", false)
                 .next("panel-pager-off-next", false)
                 .label_width(52.0)
                 .render()]),
         ]),
-        section(cx, "Un tinte detrás del encabezado", vec![
+        section(cx, "A tint behind the header", vec![
             framed(
                 cx,
                 width,
                 Element::column(vec![
-                    Text::new("Un álbum", palette).role(TextRole::Heading).render(),
-                    Text::new("El color de su tapa baja desde el borde y se pierde en la superficie.", palette).muted().render(),
+                    Text::new("An album", palette).role(TextRole::Heading).render(),
+                    Text::new("The cover color fades down from the edge into the surface.", palette).muted().render(),
                     Element::spacer().size(None, Some(72.0)),
                 ])
                 .gap(4.0)
@@ -173,7 +173,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .top_background_fade(AlertColors::for_tone(AlertTone::Info, palette).accent, 96.0),
             )
             .clip_children(),
-            caption(cx, "top_background_fade(color, alto): solo pintura, detrás de lo que el contenedor tiene dentro. bottom_background_fade hace lo mismo desde abajo."),
+            caption(cx, "top_background_fade(color, height): paint only, behind the container's content. bottom_background_fade does the same from below."),
         ]),
     ]
 }

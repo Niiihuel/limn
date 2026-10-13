@@ -42,63 +42,63 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let state = cx.state;
     let width = cx.width.min(360.0);
     vec![
-        section(cx, "Campo de texto", vec![
-            TextField::new("input-name", state.text("input-name"), "Nombre del proyecto", palette)
+        section(cx, "Text field", vec![
+            TextField::new("input-name", state.text("input-name"), "Project name", palette)
                 .width(width)
                 .render(),
-            caption(cx, &format!("Valor: {}", state.text("input-name"))),
-            TextField::new("input-password", state.text("input-password"), "Contraseña", palette)
+            caption(cx, &format!("Value: {}", state.text("input-name"))),
+            TextField::new("input-password", state.text("input-password"), "Password", palette)
                 .password(true)
                 .width(width)
                 .render(),
-            TextField::new("input-disabled", "No editable", "", palette).disabled().width(width).render(),
+            TextField::new("input-disabled", "Read-only", "", palette).disabled().width(width).render(),
             TextField::new("input-path", state.text("input-path"), "src/main.rs", palette)
                 .monospace(true)
                 .width(width)
                 .render(),
-            caption(cx, "Monoespaciado, para rutas e identificadores."),
-            TextField::new("input-tall", state.text("input-tall"), "ej. filesystem", palette)
+            caption(cx, "Monospaced, for paths and identifiers."),
+            TextField::new("input-tall", state.text("input-tall"), "e.g. filesystem", palette)
                 .size(ControlSize::Compact)
                 .width(width)
                 .height(40.0)
                 .render(),
-            caption(cx, "Con la altura del formulario: 40 sobre un control compacto."),
+            caption(cx, "Form height: 40 px on a compact control."),
         ]),
-        section(cx, "Campo de formulario", vec![
+        section(cx, "Form field", vec![
             Element::column(vec![
                 FormField::new(
-                    "Nombre",
-                    TextField::new("field-name", state.text("field-name"), "Mi proyecto", palette).render(),
+                    "Name",
+                    TextField::new("field-name", state.text("field-name"), "My project", palette).render(),
                     palette,
                 )
                 .render(),
                 FormField::new(
-                    "Ejecutable",
+                    "Executable",
                     TextField::new("field-program", state.text("field-program"), "/usr/bin/env", palette)
                         .monospace(true)
                         .render(),
                     palette,
                 )
-                .hint("Ruta absoluta a un archivo existente. Se ejecuta sin shell.")
-                .hint("El agente no puede cambiar esta ruta.")
+                .hint("Absolute path to an existing file. Runs without a shell.")
+                .hint("The agent cannot change this path.")
                 .hint_above(true)
                 .render(),
                 FormField::new(
-                    "Ruta dentro del proyecto",
-                    TextField::new("field-path", state.text("field-path"), "src/nuevo.rs", palette).render(),
+                    "Path within the project",
+                    TextField::new("field-path", state.text("field-path"), "src/new.rs", palette).render(),
                     palette,
                 )
-                .hint("Las carpetas que falten se crean.")
-                .error("Ya existe un archivo con esa ruta.", Color::rgb(229, 83, 75))
+                .hint("Missing folders are created.")
+                .error("A file already exists at this path.", Color::rgb(229, 83, 75))
                 .render(),
                 FormField::new(
-                    "Instrucciones",
-                    TextArea::new("field-notes", state.text("field-notes"), "Describe la tarea", palette)
+                    "Instructions",
+                    TextArea::new("field-notes", state.text("field-notes"), "Describe the task", palette)
                         .height(72.0)
                         .render(),
                     palette,
                 )
-                .hint("Etiqueta apagada sobre una línea de 18, como en un asistente por pasos.")
+                .hint("Muted label on an 18 px line, as in a setup wizard.")
                 .sizing(FormFieldSizing {
                     label_muted: true,
                     label_height: 18.0,
@@ -110,20 +110,20 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ])
             .gap(16.0)
             .size(Some(width), None),
-            caption(cx, "Con `rows`, las líneas de dos campos en la columna del formulario, que pone la distancia."),
+            caption(cx, "With `rows`, two fields share the form column, which sets their spacing."),
             Element::column({
                 let mut rows = FormField::new(
-                    "Programa",
-                    TextField::new("flat-program", state.text("flat-program"), "ej. npx", palette).render(),
+                    "Program",
+                    TextField::new("flat-program", state.text("flat-program"), "e.g. npx", palette).render(),
                     palette,
                 )
-                .hint("Se inicia sin shell.")
+                .hint("Starts without a shell.")
                 .hint_above(true)
                 .rows();
                 rows.extend(
                     FormField::new(
-                        "Directorio de trabajo",
-                        TextField::new("flat-cwd", state.text("flat-cwd"), "ej. tools/mcp", palette).render(),
+                        "Working directory",
+                        TextField::new("flat-cwd", state.text("flat-cwd"), "e.g. tools/mcp", palette).render(),
                         palette,
                     )
                     .rows(),
@@ -133,62 +133,62 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .gap(7.0)
             .size(Some(width), None),
         ]),
-        section(cx, "Selector", vec![
+        section(cx, "Select", vec![
             row(vec![
                 shell_select(cx, "select-plain").render(),
                 shell_select(cx, "select-off").enabled(false).render(),
             ]),
-            caption(cx, "La lista toma el ancho del botón. Desactivado no se abre ni recibe el foco."),
+            caption(cx, "The list matches the button width. When disabled, it cannot open or receive focus."),
             row(vec![shell_select(cx, "select-compact")
                 .sizing(SelectorSizing::COMPACT)
                 .icon(Icon::Terminal)
                 .placement(PopoverPlacement::BottomStart)
                 .render()]),
-            caption(cx, "Con un perfil: filas compactas y la lista en su ancho preferido, con icono."),
+            caption(cx, "With a sizing profile: compact rows and an icon, with the list at its preferred width."),
             shell_select(cx, "select-wide")
                 .width(width)
                 .placement(PopoverPlacement::BottomStart)
                 .render(),
-            caption(cx, "Tan ancho como su formulario, con la lista bajo el borde inicial."),
+            caption(cx, "As wide as the form, with the list aligned below the leading edge."),
         ]),
-        section(cx, "Búsqueda", vec![
-            SearchField::new("input-search", state.text("input-search"), "Buscar", palette)
+        section(cx, "Search", vec![
+            SearchField::new("input-search", state.text("input-search"), "Search", palette)
                 .shortcut("Ctrl+K")
                 .width(width)
                 .render(),
         ]),
-        section(cx, "Área de texto", vec![
-            TextArea::new("input-notes", state.text("input-notes"), "Notas", palette)
+        section(cx, "Text area", vec![
+            TextArea::new("input-notes", state.text("input-notes"), "Notes", palette)
                 .width(width)
                 .height(120.0)
                 .render(),
-            caption(cx, ".radius(RadiusRole::Surface), y deshabilitada"),
-            TextArea::new("input-notes-surface", state.text("input-notes-surface"), "Mensaje", palette)
+            caption(cx, ".radius(RadiusRole::Surface), and disabled"),
+            TextArea::new("input-notes-surface", state.text("input-notes-surface"), "Message", palette)
                 .width(width)
                 .height(64.0)
                 .radius(RadiusRole::Surface)
                 .render(),
-            TextArea::new("input-notes-disabled", "", "Sin permiso para escribir", palette)
+            TextArea::new("input-notes-disabled", "", "No permission to write", palette)
                 .width(width)
                 .height(64.0)
                 .radius(RadiusRole::Surface)
                 .disabled()
                 .render(),
         ]),
-        section(cx, "Interruptor", vec![row(vec![
+        section(cx, "Switch", vec![row(vec![
             Switch::new("input-switch", state.flag("input-switch"), palette).render(),
             Switch::new("input-switch-disabled", true, palette).disabled().render(),
         ])]),
-        section(cx, "Deslizador", vec![
+        section(cx, "Slider", vec![
             Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette).width(280.0).render(),
-            caption(cx, &format!("Continuo: {:.0} %", fraction(cx, "input-slider", 0.35) * 100.0)),
+            caption(cx, &format!("Continuous: {:.0} %", fraction(cx, "input-slider", 0.35) * 100.0)),
             Slider::new("input-slider-steps", fraction(cx, "input-slider-steps", 0.5), palette)
                 .steps(5)
                 .width(280.0)
                 .render(),
-            caption(cx, ".steps(5): al soltar queda en una de cinco paradas."),
+            caption(cx, ".steps(5): snaps to one of five stops on release."),
             Slider::new("input-slider-disabled", 0.6, palette).enabled(false).width(280.0).render(),
-            caption(cx, "Deshabilitado: muestra el valor y no recibe puntero ni foco."),
+            caption(cx, "Disabled: shows the value without pointer input or focus."),
         ]),
     ]
 }

@@ -77,7 +77,7 @@ fn change(cx: &Cx, palette: ComponentPalette, id: &str, name: &str, status: &str
             Element::clickable(&stage, Element::icon(Icon::Add).foreground(cx.palette.muted))
                 .size(Some(24.0), None),
         )
-        .tooltip_with(TooltipSpec::new(format!("Abrir {name}")).placement(TooltipPlacement::Right))
+        .tooltip_with(TooltipSpec::new(format!("Open {name}")).placement(TooltipPlacement::Right))
         .width(width)
         .render()
 }
@@ -104,24 +104,24 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         over(Element::icon(Icon::PauseFill).foreground(palette.text)).reveal_on_hover("lists-stack-does"),
     ])
     .size(Some(40.0), Some(40.0));
-    let stacked_row = ListRow::new("lists-stack-row", "Una fila con su tapa", palette)
-        .subtitle("La marca cede su lugar bajo el puntero")
+    let stacked_row = ListRow::new("lists-stack-row", "A row with cover art", palette)
+        .subtitle("The mark makes way on hover")
         .leading(stacked)
         .render()
         .hover_region();
     vec![
-        section(cx, "Capas en un mismo lugar", vec![
+        section(cx, "Layers in the same space", vec![
             card(cx, width, vec![stacked_row]),
-            caption(cx, "Element::stack con conceal_on_hover y reveal_on_hover: en reposo la marca, bajo el puntero lo que haría un clic."),
+            caption(cx, "Element::stack with conceal_on_hover and reveal_on_hover: the mark at rest, the click action on hover."),
         ]),
-        section(cx, "Compacta", vec![card(cx, width, vec![
+        section(cx, "Compact", vec![card(cx, width, vec![
             ListRow::new("list-branch", "ui-separation", on_card)
                 .icon(Icon::GitBranch)
                 .trailing_icon(Icon::ChevronDown)
-                .tooltip_with(hint("Cambiar de rama"))
+                .tooltip_with(hint("Switch branch"))
                 .width(inner)
                 .render(),
-            ListRow::new("list-changes", "12 archivos", on_card)
+            ListRow::new("list-changes", "12 files", on_card)
                 .icon(Icon::Code)
                 .trailing(stat())
                 .width(inner)
@@ -130,25 +130,25 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .icon(Icon::File)
                 .subtitle("crates/limn/src/list_row.rs")
                 .subtitle_mono(true)
-                .meta("hace 2 min")
+                .meta("2 min ago")
                 .trailing_icon(Icon::ChevronRight)
                 .width(inner)
                 .render(),
-            ListRow::new("list-long", "Un título demasiado largo para caber en el ancho de esta lista", on_card)
+            ListRow::new("list-long", "A title too long to fit the width of this list", on_card)
                 .icon(Icon::Book)
-                .subtitle("Y una segunda línea que tampoco cabe y se corta con puntos suspensivos")
+                .subtitle("And a second line that also overflows and ends with an ellipsis")
                 .meta_element(stat())
                 .width(inner)
                 .render(),
-            ListRow::new("list-locked", "Bloqueada mientras se guarda", on_card)
+            ListRow::new("list-locked", "Locked while saving", on_card)
                 .icon(Icon::Folder)
-                .subtitle("Sin región de clic ni foco")
+                .subtitle("No click target or focus")
                 .trailing_icon(Icon::ChevronDown)
                 .enabled(false)
                 .width(inner)
                 .render(),
         ])]),
-        section(cx, "Densa", vec![card(
+        section(cx, "Dense", vec![card(
             cx,
             width,
             FRAMES
@@ -164,17 +164,17 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 })
                 .collect(),
         )]),
-        section(cx, "Con elemento inicial, rellena y sin ancho fijo", vec![
-            caption(cx, "El elemento inicial ocupa un cuadrado arriba; la fila toma el ancho que le dan."),
+        section(cx, "Leading element, filled, with no fixed width", vec![
+            caption(cx, "The leading element occupies a square at the top; the row takes the available width."),
             Element::row(vec![
-                ListRow::new("list-run", "Ejecutar el proyecto", cx.palette)
+                ListRow::new("list-run", "Run the project", cx.palette)
                     .leading(Element::spacer().background(cx.palette.selected).radius(limn::RadiusRole::Control.px()))
                     .subtitle("cargo run -p limn-gallery")
                     .subtitle_mono(true)
                     .filled()
                     .render()
                     .flex(1.0),
-                Button::new("list-run-edit", "Editar", cx.palette)
+                Button::new("list-run-edit", "Edit", cx.palette)
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Compact)
                     .render(),
@@ -182,17 +182,17 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .gap(8.0)
             .size(Some(width), None),
         ]),
-        section(cx, "Tinta de la segunda línea, contorno y texto de ancho fijo", vec![
-            caption(cx, "La segunda línea lleva un color de estado; la fila contorneada es una tarjeta; la última guarda 160 px para su texto."),
-            ListRow::new("list-account", "Cuenta y uso", cx.palette)
+        section(cx, "Subtitle color, outline, and fixed text width", vec![
+            caption(cx, "The subtitle uses a status color; the outlined row is a card; the last reserves 160 px for text."),
+            ListRow::new("list-account", "Account and usage", cx.palette)
                 .icon(Icon::Chat)
-                .subtitle("Proveedor · Sin actualizar")
+                .subtitle("Provider · Not updated")
                 .subtitle_ink(colors(AlertTone::Warning))
                 .trailing_icon(Icon::ChevronRight)
                 .filled()
                 .width(width)
                 .render(),
-            ListRow::new("list-citation", "Documentación de limn", cx.palette)
+            ListRow::new("list-citation", "limn documentation", cx.palette)
                 .icon(Icon::Search)
                 .subtitle("https://example.com/limn/list-row")
                 .subtitle_mono(true)
@@ -200,33 +200,33 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .outlined()
                 .width(width)
                 .render(),
-            ListRow::new("list-budget", "Un título que se corta a los 160 px que la fila le reserva", on_card)
+            ListRow::new("list-budget", "A title cut to the 160 px reserved by the row", on_card)
                 .icon(Icon::Folder)
-                .subtitle("El resto de la fila queda libre")
+                .subtitle("The rest of the row remains available")
                 .trailing_icon(Icon::ChevronDown)
                 .copy_width(160.0)
                 .filled()
                 .width(width)
                 .render(),
         ]),
-        section(cx, "Barra lateral", vec![
-            caption(cx, "Cabeceras con recuento y pliegue; títulos que se desvanecen; el botón Más mantiene el hover de su fila."),
+        section(cx, "Sidebar", vec![
+            caption(cx, "Headers with counts and disclosure controls; fading titles; the More button shares its row's hover."),
             card(cx, width, vec![
                 tree_header(cx, on_card, "list-tree-open", "limn", 3, true, inner),
-                task(cx, on_card, "list-task-a", "Separar la presentación de la aplicación en componentes", false, inner),
-                task(cx, selected(cx), "list-task-b", "Filas de la barra lateral", true, inner),
-                tree_header(cx, on_card, "list-tree-folded", "documentos", 128, false, inner),
+                task(cx, on_card, "list-task-a", "Split the application view into components", false, inner),
+                task(cx, selected(cx), "list-task-b", "Sidebar rows", true, inner),
+                tree_header(cx, on_card, "list-tree-folded", "documents", 128, false, inner),
             ]),
         ]),
-        section(cx, "Acciones propias bajo un mismo hover", vec![
-            caption(cx, "Abrir y preparar son dos destinos; el relleno es uno solo."),
+        section(cx, "Separate actions sharing one hover", vec![
+            caption(cx, "Open and stage are separate targets sharing one fill."),
             card(cx, width, vec![
                 change(cx, on_card, "list-change-a", "list_row.rs", "M", true, inner),
                 change(cx, on_card, "list-change-b", "tree_view.rs", "A", true, inner),
-                change(cx, on_card, "list-change-c", "bloqueada.rs", "D", false, inner),
+                change(cx, on_card, "list-change-c", "locked.rs", "D", false, inner),
             ]),
         ]),
-        section(cx, "Recuento de cambios y pista de ruta", vec![Element::row(vec![
+        section(cx, "Change counts and path tooltip", vec![Element::row(vec![
             stat(),
             DiffStat::new(3, 0, cx.palette).render(),
             Tooltip::for_path(
@@ -240,12 +240,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             Element::spacer().flex(1.0),
         ])
         .gap(16.0)]),
-        section(cx, "Llevar una fila a la vista", vec![
-            caption(cx, "UiTree::reveal(id) desplaza lo justo para mostrarla entera; las filas no miden lo mismo."),
+        section(cx, "Bring a row into view", vec![
+            caption(cx, "UiTree::reveal(id) scrolls just enough to show the whole row; the rows have different heights."),
             Element::row(vec![
                 // The gallery's host calls `reveal` with what follows the prefix.
-                Button::new("reveal:list-reveal-17", "Mostrar la fila 18", cx.palette).variant(ButtonVariant::Subtle).render(),
-                Button::new("reveal:list-reveal-0", "Volver a la primera", cx.palette).variant(ButtonVariant::Ghost).render(),
+                Button::new("reveal:list-reveal-17", "Show row 18", cx.palette).variant(ButtonVariant::Subtle).render(),
+                Button::new("reveal:list-reveal-0", "Back to the first", cx.palette).variant(ButtonVariant::Ghost).render(),
                 Element::spacer().flex(1.0),
             ])
             .gap(8.0),
@@ -254,8 +254,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 Element::column(
                     (0..24)
                         .map(|index| {
-                            let row = ListRow::new(format!("list-reveal-{index}"), format!("Fila {}", index + 1), on_card);
-                            if index % 3 == 0 { row.subtitle("Con una segunda línea") } else { row }.render()
+                            let row = ListRow::new(format!("list-reveal-{index}"), format!("Row {}", index + 1), on_card);
+                            if index % 3 == 0 { row.subtitle("With a second line") } else { row }.render()
                         })
                         .collect(),
                 )
@@ -264,17 +264,17 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .render()
             .size(None, Some(150.0))]),
         ]),
-        section(cx, "Encabezado fijo al desplazar", vec![
-            caption(cx, "sticky_top deja el encabezado de su tramo arriba hasta que llega el siguiente; el largo cede altura hasta su tope y sticky_top_fade desvanece las filas que pasan por debajo."),
+        section(cx, "Sticky header while scrolling", vec![
+            caption(cx, "sticky_top keeps each group's header at the top until the next arrives; a tall header shrinks to its limit, and sticky_top_fade fades rows passing beneath it."),
             card(cx, width, vec![ScrollArea::new(
                 "list-sticky",
                 Element::column(
                     (0..3)
                         .flat_map(|group| {
                             let title = if group == 1 {
-                                "Grupo 2, con un encabezado largo que ocupa varias líneas cuando está en su sitio y cede altura mientras queda fijo arriba".to_owned()
+                                "Group 2, with a long header that spans several lines in place and shrinks while pinned to the top".to_owned()
                             } else {
-                                format!("Grupo {}", group + 1)
+                                format!("Group {}", group + 1)
                             };
                             let header = Element::panel(limn::Text::new(title, on_card).render())
                                 .padding(8.0)
@@ -283,7 +283,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                                 .sticky_top_max_height(36.0)
                                 .sticky_top_fade(16.0);
                             std::iter::once(header).chain((0..8).map(move |index| {
-                                ListRow::new(format!("list-sticky-{group}-{index}"), format!("Fila {}", index + 1), on_card).render()
+                                ListRow::new(format!("list-sticky-{group}-{index}"), format!("Row {}", index + 1), on_card).render()
                             }))
                         })
                         .collect(),

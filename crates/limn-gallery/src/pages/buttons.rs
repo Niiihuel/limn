@@ -42,10 +42,10 @@ const DANGER: Color = Color::rgb(255, 92, 92);
 
 fn group(prefix: &str, palette: limn::ComponentPalette) -> Vec<Element> {
     vec![
-        Button::new(format!("{prefix}-cancel"), "Cancelar", palette)
+        Button::new(format!("{prefix}-cancel"), "Cancel", palette)
             .variant(ButtonVariant::Outline)
             .render(),
-        Button::new(format!("{prefix}-save"), "Guardar", palette).render(),
+        Button::new(format!("{prefix}-save"), "Save", palette).render(),
     ]
 }
 
@@ -70,11 +70,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         .gap(12.0)
     };
     vec![
-        section(cx, "Variantes", vec![variants("button", |button| button)]),
-        section(cx, "Deshabilitados", vec![variants("button-disabled", Button::disabled)]),
-        section(cx, "Cargando", vec![variants("button-loading", |button| button.loading(true))]),
-        section(cx, "Tamaños", vec![row(vec![
-            Button::new("button-mini", "Más", palette)
+        section(cx, "Variants", vec![variants("button", |button| button)]),
+        section(cx, "Disabled", vec![variants("button-disabled", Button::disabled)]),
+        section(cx, "Loading", vec![variants("button-loading", |button| button.loading(true))]),
+        section(cx, "Sizes", vec![row(vec![
+            Button::new("button-mini", "More", palette)
                 .variant(ButtonVariant::Ghost)
                 .button_size(ButtonSize::Mini)
                 .render(),
@@ -85,7 +85,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .button_size(ButtonSize::Large)
                 .render(),
         ])]),
-        section(cx, "Perfil de la aplicación", vec![
+        section(cx, "Application sizing", vec![
             row(vec![
                 Button::new("button-sizing", "Panel", palette)
                     .variant(ButtonVariant::Subtle)
@@ -105,42 +105,42 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .sizing(TAB_CLOSE)
                     .render(),
             ]),
-            caption(cx, "Un perfil propio en lugar de un tamaño con nombre: 32 px con texto de 14, y un cierre de 20 px."),
+            caption(cx, "Custom sizing instead of a named size: 32 px with 14 px text, and a 20 px close button."),
         ]),
-        section(cx, "Con icono", vec![row(vec![
-            Button::new("button-icon", "Nuevo", palette).icon(Icon::Add).render(),
-            Button::new("button-trailing", "Rama", palette)
+        section(cx, "With icon", vec![row(vec![
+            Button::new("button-icon", "New", palette).icon(Icon::Add).render(),
+            Button::new("button-trailing", "Branch", palette)
                 .variant(ButtonVariant::Outline)
                 .icon(Icon::GitBranch)
                 .trailing_icon(Icon::ChevronDown)
                 .render(),
-            IconButton::new("button-settings", Icon::Settings, palette).tooltip("Ajustes").render(),
+            IconButton::new("button-settings", Icon::Settings, palette).tooltip("Settings").render(),
             IconButton::new("button-trash", Icon::Trash, palette)
                 .variant(ButtonVariant::Destructive)
-                .tooltip("Eliminar")
+                .tooltip("Delete")
                 .render(),
         ])]),
-        section(cx, "Portapapeles", vec![
-            caption(cx, "El icono pasa a un visto mientras el anfitrión lo indica (1,5 s con `ClipboardCopied`) y un toast lo anuncia. Acá un clic lo alterna."),
+        section(cx, "Clipboard", vec![
+            caption(cx, "The icon becomes a checkmark while the host reports it (1.5 s with `ClipboardCopied`), and a toast announces it. Clicking here toggles it."),
             row(vec![
-                Clipboard::new("button-clipboard-link", "Copiar enlace", palette)
+                Clipboard::new("button-clipboard-link", "Copy link", palette)
                     .copied(cx.state.flag("button-clipboard-link"))
                     .render(),
-                Clipboard::new("button-clipboard-label", "Copiar enlace", palette)
-                    .label(if cx.state.flag("button-clipboard-label") { "Enlace copiado" } else { "Copiar enlace" })
+                Clipboard::new("button-clipboard-label", "Copy link", palette)
+                    .label(if cx.state.flag("button-clipboard-label") { "Link copied" } else { "Copy link" })
                     .variant(ButtonVariant::Outline)
                     .copied(cx.state.flag("button-clipboard-label"))
                     .render(),
             ]),
         ]),
-        section(cx, "Barra de herramientas", vec![
+        section(cx, "Toolbar", vec![
             row(vec![
                 IconButton::new("button-tool-dense", Icon::Add, palette)
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Dense)
                     .tooltip_with(
-                        TooltipSpec::new("Nuevo")
-                            .description("Crea un archivo en la carpeta abierta.")
+                        TooltipSpec::new("New")
+                            .description("Creates a file in the open folder.")
                             .shortcut("Ctrl+N")
                             .placement(TooltipPlacement::Below),
                     )
@@ -149,80 +149,80 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Compact)
                     .dispatch_as("button-tool-dense")
-                    .tooltip_with(TooltipSpec::new("Quitar").placement(TooltipPlacement::Below))
+                    .tooltip_with(TooltipSpec::new("Remove").placement(TooltipPlacement::Below))
                     .render(),
                 IconButton::new("button-tool-disabled", Icon::Trash, palette)
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Regular)
                     .disabled()
                     .tooltip_with(
-                        TooltipSpec::new("Nada que eliminar").placement(TooltipPlacement::Below),
+                        TooltipSpec::new("Nothing to delete").placement(TooltipPlacement::Below),
                     )
                     .render(),
                 IconButton::new("button-tool-lift", Icon::PanelLeft.filled(), palette)
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Regular)
                     .active(true)
-                    .tooltip("Activo: Lift")
+                    .tooltip("Active: Lift")
                     .render(),
                 IconButton::new("button-tool-palette", Icon::PanelRight.filled(), palette)
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Regular)
                     .active(true)
                     .active_hover(ActiveHover::Palette)
-                    .tooltip("Activo: Palette")
+                    .tooltip("Active: Palette")
                     .render(),
             ]),
-            caption(cx, "Dense, Compact y Regular son cuadrados de 24, 28 y 32. El botón deshabilitado conserva su ayuda."),
+            caption(cx, "Dense, Compact and Regular are 24, 28 and 32 px squares. The disabled button keeps its tooltip."),
         ]),
-        section(cx, "Tinta, separación y radio", vec![
+        section(cx, "Ink, spacing and radius", vec![
             row(vec![
-                Button::new("button-ink", "Descartar", palette)
+                Button::new("button-ink", "Discard", palette)
                     .variant(ButtonVariant::Ghost)
                     .ink(DANGER)
                     .render(),
-                Button::new("button-ink-disabled", "Descartar", palette)
+                Button::new("button-ink-disabled", "Discard", palette)
                     .variant(ButtonVariant::Ghost)
                     .ink(DANGER)
                     .disabled()
                     .render(),
-                Button::new("button-gap", "Conectar", palette)
+                Button::new("button-gap", "Connect", palette)
                     .variant(ButtonVariant::Outline)
                     .icon(Icon::Github)
                     .gap(12.0)
                     .render(),
-                Button::new("button-radius", "Tarjeta", palette)
+                Button::new("button-radius", "Card", palette)
                     .variant(ButtonVariant::Outline)
                     .radius(RadiusRole::Card)
                     .render(),
                 IconButton::new("button-radius-square", Icon::Add, palette)
                     .variant(ButtonVariant::Outline)
                     .radius(RadiusRole::Square)
-                    .tooltip("Radio: Square")
+                    .tooltip("Radius: Square")
                     .render(),
             ]),
             row(vec![
                 IconButton::new("button-round-send", Icon::ArrowUp, palette)
                     .round()
-                    .tooltip("round: enviar")
+                    .tooltip("round: send")
                     .render(),
                 IconButton::new("button-round-stop", Icon::StopFill, palette)
                     .round()
-                    .tooltip("round: detener")
+                    .tooltip("round: stop")
                     .render(),
-                Button::new("button-round-pill", "Píldora", palette)
+                Button::new("button-round-pill", "Pill", palette)
                     .variant(ButtonVariant::Secondary)
                     .round()
                     .render(),
             ]),
-            caption(cx, "La tinta la pasa la aplicación; deshabilitado, el botón vuelve al tono apagado. round hace un círculo de un botón de icono y una píldora de uno con texto."),
+            caption(cx, "The application supplies the ink; when disabled, the button returns to its muted tone. round makes an icon button circular and a text button pill-shaped."),
         ]),
-        section(cx, "Grupo de botones", vec![
+        section(cx, "Button group", vec![
             ButtonGroup::new(group("button-group-row", palette)).render(),
             ButtonGroup::new(group("button-group-end", palette))
                 .align_end()
                 .leading(
-                    Button::new("button-group-help", "Ayuda", palette)
+                    Button::new("button-group-help", "Help", palette)
                         .variant(ButtonVariant::Ghost)
                         .render(),
                 )
@@ -231,27 +231,27 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .stacked(true)
                 .reverse_when_stacked(true)
                 .leading(
-                    Button::new("button-group-stacked-help", "Ayuda", palette)
+                    Button::new("button-group-stacked-help", "Help", palette)
                         .variant(ButtonVariant::Ghost)
                         .render(),
                 )
                 .render()
                 .size(Some(220.0), None),
-            caption(cx, "En fila, alineado al final con un elemento inicial, y apilado: el elemento inicial arriba y la acción principal primero."),
+            caption(cx, "In a row, aligned at the end with a leading element, and stacked: the leading element goes above and the primary action comes first."),
             ButtonGroup::new(group("button-group-wide", palette)).sizing(WIDE_GROUP).render(),
             ButtonGroup::new(group("button-group-wide-stacked", palette))
                 .sizing(WIDE_GROUP)
                 .stacked(true)
                 .render()
                 .size(Some(220.0), None),
-            caption(cx, "Con un perfil: 12 px entre acciones en fila y 10 en columna."),
+            caption(cx, "With custom sizing: 12 px between actions in a row and 10 in a column."),
         ]),
-        section(cx, "Activo", vec![
-            row(vec![Button::new("button-toggle", "Alternar", palette)
+        section(cx, "Active", vec![
+            row(vec![Button::new("button-toggle", "Toggle", palette)
                 .variant(ButtonVariant::Ghost)
                 .active(cx.state.flag("button-toggle"))
                 .render()]),
-            caption(cx, "El botón conserva su relleno mientras el estado está activo."),
+            caption(cx, "The button keeps its fill while its state is active."),
         ]),
     ]
 }

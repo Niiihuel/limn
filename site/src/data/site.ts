@@ -28,27 +28,12 @@ export const GUIDES = [
 
 import pages from './pages.json';
 
-/** The gallery's groups, which are in Spanish like the rest of its text. */
-const GROUPS: Record<string, string> = {
-  Sistema: 'System',
-  Acciones: 'Actions',
-  Entradas: 'Inputs',
-  Navegación: 'Navigation',
-  Datos: 'Data',
-  Estructura: 'Layout',
-  Estados: 'States',
-  Superposiciones: 'Overlays',
-};
-
 /**
  * One entry per gallery page: the gallery's own list, printed by
  * `limn-gallery --pages` into pages.json. `id` is the page there, the address
  * here and the name of the guide in docs/components.
  */
-export const COMPONENTS = (pages as { id: string; group: string; title: string; source: string }[]).map((page) => ({
-  ...page,
-  group: GROUPS[page.group] ?? page.group,
-}));
+export const COMPONENTS = pages;
 
 export const groups = <T extends { group: string }>(items: readonly T[]) =>
   [...new Set(items.map((item) => item.group))].map((group) => ({

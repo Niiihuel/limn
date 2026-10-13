@@ -13,38 +13,38 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let percent: u32 = cx.state.choice("feedback-progress", "66").parse().unwrap_or(66);
     let progress = percent as f32 / 100.0;
     const STEPS: [&str; 4] = [
-        "Buscando **/*.{md,txt} en presupuestacion",
-        "Leyendo README.md",
-        "Leyendo un-archivo-con-un-nombre-muy-largo-que-no-entra-en-el-ancho-disponible.md",
-        "Listando src/componentes",
+        "Searching **/*.{md,txt} in budgeting",
+        "Reading README.md",
+        "Reading a-file-with-a-very-long-name-that-does-not-fit-in-the-available-width.md",
+        "Listing src/components",
     ];
     let step: usize = cx.state.choice("feedback-ticker", "0").parse().unwrap_or(0) % STEPS.len();
     let collapse_open = cx.state.choice("feedback-collapse", "open") == "open";
     vec![
-        section(cx, "Avisos", vec![
-            alert(AlertTone::Neutral, "Nota", "Un aviso sin urgencia."),
-            alert(AlertTone::Info, "Información", "Hay una versión nueva disponible."),
-            alert(AlertTone::Success, "Listo", "Los cambios se guardaron."),
-            alert(AlertTone::Warning, "Atención", "Quedan cambios sin guardar."),
-            alert(AlertTone::Error, "Pago rechazado", "No se pudo procesar el pago. Revisa el método de pago e inténtalo de nuevo."),
+        section(cx, "Alerts", vec![
+            alert(AlertTone::Neutral, "Note", "A notice without urgency."),
+            alert(AlertTone::Info, "Information", "A new version is available."),
+            alert(AlertTone::Success, "Done", "Changes were saved."),
+            alert(AlertTone::Warning, "Warning", "There are unsaved changes."),
+            alert(AlertTone::Error, "Payment declined", "The payment could not be processed. Check your payment method and try again."),
         ]),
-        section(cx, "Avisos con acción", vec![
+        section(cx, "Alerts with actions", vec![
             Element::panel(
-                Alert::new("El modo oscuro ya está disponible", "Actívalo desde la configuración del perfil.", palette)
-                    .action(Button::new("feedback-alert-enable", "Activar", palette).variant(ButtonVariant::Outline).render())
+                Alert::new("Dark mode is now available", "Enable it in your profile settings.", palette)
+                    .action(Button::new("feedback-alert-enable", "Enable", palette).variant(ButtonVariant::Outline).render())
                     .render(),
             )
             .size(Some(width), None),
             if cx.state.flag("feedback-alert-dismiss") {
                 Element::row(vec![
-                    Button::new("feedback-alert-dismiss", "Volver a mostrar", palette)
+                    Button::new("feedback-alert-dismiss", "Show again", palette)
                         .variant(ButtonVariant::Outline)
                         .render(),
                     Element::spacer().flex(1.0),
                 ])
             } else {
                 Element::panel(
-                    Alert::new("La suscripción vence en 3 días", "Renuévala para no perder el acceso.", palette)
+                    Alert::new("Your subscription expires in 3 days", "Renew it to keep access.", palette)
                         .tone(AlertTone::Warning)
                         .dismiss("feedback-alert-dismiss")
                         .render(),
@@ -52,21 +52,21 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .size(Some(width), None)
             },
         ]),
-        section(cx, "Progreso", vec![
+        section(cx, "Progress", vec![
             Progress::new(progress, palette).width(width.min(336.0)).render(),
             row(vec![
-                Button::new(format!("feedback-progress={}", (percent + 85) % 100), "Retroceder", palette)
+                Button::new(format!("feedback-progress={}", (percent + 85) % 100), "Back", palette)
                     .variant(ButtonVariant::Outline)
                     .render(),
-                Button::new(format!("feedback-progress={}", (percent + 15).min(100)), "Avanzar", palette)
+                Button::new(format!("feedback-progress={}", (percent + 15).min(100)), "Forward", palette)
                     .variant(ButtonVariant::Outline)
                     .render(),
             ]),
             Progress::new(1.0, palette).width(width.min(336.0)).height(8.0).render(),
             Progress::new(progress, palette).width(width.min(336.0)).flat().render(),
-            caption(cx, "Plana: extremos rectos, para el medidor de una lista densa."),
+            caption(cx, "Flat: square ends for a meter in a dense list."),
         ]),
-        section(cx, "Carga", vec![
+        section(cx, "Loading", vec![
             row(vec![
                 Spinner::new("feedback-spinner", palette.text).size(24.0).render(),
                 Spinner::new("feedback-spokes", palette.text)
@@ -87,18 +87,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             )
             .size(Some(width.min(336.0)), None),
         ]),
-        section(cx, "Marcadores", vec![
-            Marker::new("feedback-marker", "Rama creada", palette).icon(Icon::GitBranch).render(),
-            Marker::new("feedback-marker-loading", "Ejecutando pruebas", palette).loading(true).render(),
-            Marker::new("feedback-marker-thinking", "Pensando", palette).thinking(true).render(),
+        section(cx, "Markers", vec![
+            Marker::new("feedback-marker", "Branch created", palette).icon(Icon::GitBranch).render(),
+            Marker::new("feedback-marker-loading", "Running tests", palette).loading(true).render(),
+            Marker::new("feedback-marker-thinking", "Thinking", palette).thinking(true).render(),
             Element::panel(
-                Marker::new("feedback-marker-separator", "Hoy", palette)
+                Marker::new("feedback-marker-separator", "Today", palette)
                     .variant(MarkerVariant::Separator)
                     .render(),
             )
             .size(Some(width), None),
         ]),
-        section(cx, "Teletipo", vec![
+        section(cx, "Ticker", vec![
             Element::panel(
                 Ticker::new(
                     "feedback-ticker-line",
@@ -113,19 +113,19 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render(),
             )
             .size(Some(width.min(336.0)), None),
-            row(vec![Button::new(format!("feedback-ticker={}", (step + 1) % STEPS.len()), "Siguiente paso", palette)
+            row(vec![Button::new(format!("feedback-ticker={}", (step + 1) % STEPS.len()), "Next step", palette)
                 .variant(ButtonVariant::Outline)
                 .render()]),
-            caption(cx, "El hueco mide siempre dos líneas: lo de abajo no se mueve."),
+            caption(cx, "The slot always measures two lines: content below it stays in place."),
         ]),
-        section(cx, "Hueco que se cierra", vec![
+        section(cx, "Closing slot", vec![
             // No gap around the slot: a gap would vanish in one frame at the end.
             Element::column(vec![
-                Element::text("Explorando el proyecto").foreground(palette.text).font_family(FontFamily::Sans).font_size(13.0),
+                Element::text("Exploring the project").foreground(palette.text).font_family(FontFamily::Sans).font_size(13.0),
                 Collapse::new(
                     "feedback-collapse-slot",
                     collapse_open.then(|| {
-                        Element::text("Leyendo README.md\nListando src/componentes")
+                        Element::text("Reading README.md\nListing src/components")
                             .foreground(palette.muted)
                             .font_family(FontFamily::Sans).font_size(13.0)
                             .padding(6.0)
@@ -133,22 +133,22 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 )
                 .expand()
                 .render(),
-                Element::text("Lo que sigue acompaña al hueco.").foreground(palette.text).font_family(FontFamily::Sans).font_size(13.0),
+                Element::text("Following content moves with the slot.").foreground(palette.text).font_family(FontFamily::Sans).font_size(13.0),
             ])
             .size(Some(width.min(336.0)), None),
             row(vec![Button::new(
                 format!("feedback-collapse={}", if collapse_open { "closed" } else { "open" }),
-                if collapse_open { "Quitar el contenido" } else { "Mostrar el contenido" },
+                if collapse_open { "Remove content" } else { "Show content" },
                 palette,
             )
             .variant(ButtonVariant::Outline)
             .render()]),
-            caption(cx, "Al quitarlo, su última imagen se desvanece mientras el hueco se cierra."),
+            caption(cx, "When removed, its last image fades while the slot closes."),
         ]),
-        section(cx, "Etiquetas", vec![row(vec![
+        section(cx, "Labels", vec![row(vec![
             Chip::new("rust", palette).render(),
-            Chip::new("borrador", palette).render(),
-            Chip::new("Plan Pro", palette).outline().render(),
+            Chip::new("draft", palette).render(),
+            Chip::new("Pro plan", palette).outline().render(),
             Avatar::new("Ada Lovelace", palette).size(32.0).render(),
             Kbd::new("Ctrl+Shift+P", palette).render(),
         ])]),

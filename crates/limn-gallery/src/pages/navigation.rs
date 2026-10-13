@@ -6,9 +6,9 @@ use limn::{
 };
 
 const VIEWS: [(&str, &str, Icon); 3] = [
-    ("files", "Archivos", Icon::Folder),
-    ("changes", "Cambios", Icon::GitBranch),
-    ("history", "Historial", Icon::History),
+    ("files", "Files", Icon::Folder),
+    ("changes", "Changes", Icon::GitBranch),
+    ("history", "History", Icon::History),
 ];
 
 const FILES: [&str; 12] = [
@@ -45,7 +45,7 @@ fn file_tabs(cx: &Cx, group: &str, count: usize) -> Element {
                     horizontal_padding: 2.0,
                     ..ControlSize::Dense.button_sizing()
                 })
-                .tooltip(format!("Cerrar {name}"))
+                .tooltip(format!("Close {name}"))
                 .render();
             TabItem::new(
                 format!("{group}={index}"),
@@ -63,11 +63,11 @@ fn file_tabs(cx: &Cx, group: &str, count: usize) -> Element {
     let tools = IconButton::new(format!("{group}-menu"), Icon::Menu, palette)
         .variant(ButtonVariant::Ghost)
         .size(ControlSize::Dense)
-        .tooltip("Todas las pestañas")
+        .tooltip("All tabs")
         .render();
     let strip = TabStrip::new(group, items, palette).each_tab(|index, tab| {
         let entries = vec![ContextMenuEntry::Item(
-            ContextMenuItem::new(format!("{group}-close-{index}"), "Cerrar").icon(Icon::Close),
+            ContextMenuItem::new(format!("{group}-close-{index}"), "Close").icon(Icon::Close),
         )];
         ContextMenu::new(format!("{group}-context-{index}"), tab, entries, palette).render()
     });
@@ -91,13 +91,13 @@ fn status_tabs(cx: &Cx) -> Element {
     let items = vec![
         TabItem::new("nav-status=0", "nav-status-extent-0", file_icon("lib.rs"), "lib.rs", 112.0)
             .title_ink(ink(limn::AlertTone::Warning))
-            .tooltip("lib.rs · Modificado")
+            .tooltip("lib.rs · Modified")
             .active(true),
         TabItem::new("nav-status=1", "nav-status-extent-1", file_icon("notes.md"), "notes.md", 112.0)
             .title_ink(ink(limn::AlertTone::Success))
-            .tooltip("notes.md · Sin seguimiento"),
+            .tooltip("notes.md · Untracked"),
         TabItem::new("nav-status=2", "nav-status-extent-2", file_icon("main.rs"), "main.rs", 112.0)
-            .tooltip("main.rs · Sin guardar")
+            .tooltip("main.rs · Unsaved")
             .close(dot),
     ];
     let strip = TabStrip::new("nav-status", items, palette).render();
@@ -127,8 +127,8 @@ fn section_tabs(cx: &Cx) -> Element {
         tab(id, text, 96.0)
     };
     let tabs = Element::row(vec![
-        label("problems", "Problemas"),
-        label("output", "Salida"),
+        label("problems", "Problems"),
+        label("output", "Output"),
         label("terminal", "Terminal"),
         tab("history", Element::icon(Icon::History).foreground(palette.muted).centered(), 32.0),
     ])
@@ -137,7 +137,7 @@ fn section_tabs(cx: &Cx) -> Element {
     let tools = IconButton::new("nav-sections-close", Icon::Close, palette)
         .variant(ButtonVariant::Ghost)
         .size(ControlSize::Dense)
-        .tooltip("Cerrar panel")
+        .tooltip("Close panel")
         .render();
     bar(TabStrip::header(leading, tools, width, palette).side_inset(2.0).gap(2.0).render(), cx)
 }
@@ -146,7 +146,7 @@ fn section_tabs(cx: &Cx) -> Element {
 fn single_tab(cx: &Cx) -> Element {
     let palette = cx.palette;
     let width = cx.width.min(640.0);
-    let tab = TabItem::new("nav-single", "nav-single-extent", Icon::File, "Vista previa · README.md", 208.0)
+    let tab = TabItem::new("nav-single", "nav-single-extent", Icon::File, "Preview · README.md", 208.0)
         .tooltip("docs/README.md")
         .tooltip_placement(TooltipPlacement::Below)
         .active(true)
@@ -180,36 +180,36 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     };
     let step = state.choice("nav-step", "0").parse().unwrap_or(0);
     vec![
-        section(cx, "Pestañas", vec![
+        section(cx, "Tabs", vec![
             row(vec![Tabs::new(tabs("nav-tabs"), palette).id("nav-tabs").render()]),
             row(vec![Tabs::new(tabs("nav-fill"), palette)
                 .id("nav-fill")
                 .fill_width(cx.width.min(520.0))
                 .render()]),
-            caption(cx, "Con fill_width las pestañas se reparten el ancho que da el anfitrión."),
+            caption(cx, "With fill_width, the tabs share the width supplied by the host."),
         ]),
-        section(cx, "Pestañas de recursos", vec![
+        section(cx, "Resource tabs", vec![
             file_tabs(cx, "nav-files-1", 1),
             file_tabs(cx, "nav-files-3", 3),
             file_tabs(cx, "nav-files-12", 12),
-            caption(cx, "La pestaña activa se abre sobre el cuerpo; la franja se desplaza hasta mostrarla. Clic derecho en una pestaña abre su menú."),
+            caption(cx, "The active tab opens above the body; the strip scrolls to reveal it. Right-click a tab to open its menu."),
             section_tabs(cx),
             single_tab(cx),
-            caption(cx, "Pestañas de sólo texto o icono, y una pestaña suelta para un grupo de un solo recurso."),
+            caption(cx, "Text-only or icon-only tabs, and a single tab for a group containing one resource."),
             status_tabs(cx),
-            caption(cx, "title_ink tiñe el título con un estado que conoce el anfitrión; el hueco de cierre puede llevar la marca de cambios sin guardar."),
+            caption(cx, "title_ink colors the title with a status supplied by the host; the close slot can hold an unsaved-changes mark."),
         ]),
-        section(cx, "Control segmentado", vec![row(vec![
+        section(cx, "Segmented control", vec![row(vec![
             SegmentedControl::new(tabs("nav-segments"), palette).render(),
         ])]),
-        section(cx, "Pasos", vec![
-            caption(cx, "Los pasos hasta el activo tienen la insignia y la línea llenas; los que faltan, apagadas. Un clic en un paso lo informa."),
+        section(cx, "Steps", vec![
+            caption(cx, "Badges and lines are filled up to the active step; remaining steps are muted. Clicking a step reports it."),
             Stepper::new(
                 vec![
-                    Step::new("nav-step=0", "Contenido").icon(Icon::File),
-                    Step::new("nav-step=1", "Horario").icon(Icon::Clock),
-                    Step::new("nav-step=2", "Agente").icon(Icon::Settings),
-                    Step::new("nav-step=3", "Resumen").icon(Icon::InfoCircle),
+                    Step::new("nav-step=0", "Content").icon(Icon::File),
+                    Step::new("nav-step=1", "Schedule").icon(Icon::Clock),
+                    Step::new("nav-step=2", "Agent").icon(Icon::Settings),
+                    Step::new("nav-step=3", "Summary").icon(Icon::InfoCircle),
                 ],
                 step,
                 palette,
@@ -217,15 +217,15 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .width(cx.width.min(520.0))
             .render(),
             // Its own ID: sharing the step's would share its hover and fill.
-            row(vec![limn::Button::new("nav-next", "Siguiente", palette)
+            row(vec![limn::Button::new("nav-next", "Next", palette)
                 .render()
                 .dispatch_as(format!("nav-step={}", (step + 1) % 4))]),
-            caption(cx, "En columna, con la descripción al lado; sin icono, la insignia lleva el número del paso."),
+            caption(cx, "In a column, with the description alongside; without an icon, the badge shows the step number."),
             Stepper::new(
                 (0..4)
                     .map(|index| {
-                        let step = Step::new(format!("nav-column-step={index}"), format!("Paso {}", index + 1))
-                            .description(format!("Descripción del paso {}.", index + 1));
+                        let step = Step::new(format!("nav-column-step={index}"), format!("Step {}", index + 1))
+                            .description(format!("Description of step {}.", index + 1));
                         if index == 3 { step.icon(Icon::CheckCircle) } else { step }
                     })
                     .collect(),
@@ -236,11 +236,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .width(cx.width.min(280.0))
             .render(),
         ]),
-        section(cx, "Enlaces", vec![row(vec![
-            Link::new("nav-link", "Ver documentación", palette).render(),
-            Link::new("nav-link-muted", "Color propio", palette).color(palette.muted).render(),
+        section(cx, "Links", vec![row(vec![
+            Link::new("nav-link", "View documentation", palette).render(),
+            Link::new("nav-link-muted", "Custom color", palette).color(palette.muted).render(),
         ])]),
-        section(cx, "Ruta", vec![Breadcrumb::new(
+        section(cx, "Path", vec![Breadcrumb::new(
             "nav-path",
             vec![
                 BreadcrumbItem::new("limn").action("nav-crumb=root").icon(Icon::Folder),
@@ -253,10 +253,10 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         )
         .width(cx.width.min(420.0))
         .render()]),
-        section(cx, "Plegable", vec![
+        section(cx, "Collapsible", vec![
             Collapsible::new(
                 "nav-collapsible",
-                "Archivos modificados",
+                "Modified files",
                 Element::column(
                     ["crates/limn/src/empty.rs", "crates/limn/src/stepper.rs", "crates/limn/README.md"]
                         .into_iter()
@@ -267,19 +267,19 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 palette,
             )
             .icon(Icon::Folder)
-            .detail("3 archivos")
+            .detail("3 files")
             .expanded(state.flag("nav-collapsible"))
             .render(),
             Collapsible::new(
                 "nav-collapsible-plain",
-                "Sin icono ni detalle",
-                caption(cx, "El cuerpo sólo se monta mientras está abierto."),
+                "No icon or detail",
+                caption(cx, "The body is mounted only while open."),
                 palette,
             )
             .expanded(state.flag("nav-collapsible-plain"))
             .render(),
         ]),
-        section(cx, "Icono del elemento elegido", vec![
+        section(cx, "Selected item icon", vec![
             row(
                 [Icon::Folder, Icon::Settings, Icon::Chat, Icon::Bell, Icon::Search]
                     .into_iter()
@@ -290,7 +290,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     ])
                     .collect(),
             ),
-            caption(cx, "Icon::filled() da la forma sólida; un icono sin ella, como la lupa, queda igual."),
+            caption(cx, "Icon::filled() returns the solid variant; icons without one, such as the magnifier, stay the same."),
         ]),
     ]
 }

@@ -11,7 +11,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let bar = |status: &str, failed: bool| {
         let notice = Notice::new(status, raised)
             .trailing(
-                Button::new(format!("notice-restart-{failed}"), "Reiniciar", cx.palette)
+                Button::new(format!("notice-restart-{failed}"), "Restart", cx.palette)
                     .variant(ButtonVariant::Ghost)
                     .render(),
             )
@@ -25,49 +25,49 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         }
     };
     vec![
-        section(cx, "Con icono y acción", vec![
+        section(cx, "With icon and action", vec![
             Empty::new(
-                "Bienvenido a la wiki",
-                "Las wikis ordenan la hoja de ruta del proyecto, muestran su estado y documentan el software.",
+                "Welcome to the wiki",
+                "Wikis organize the project roadmap, show its status and document the software.",
                 cx.palette,
             )
             .icon(Icon::Book)
-            .action("empty-create", "Crear la primera página", ButtonVariant::Default)
+            .action("empty-create", "Create the first page", ButtonVariant::Default)
             .width(width)
             .render(),
         ]),
-        section(cx, "Dos acciones", vec![
-            Empty::new("Sin proyectos", "Crea un proyecto o importa uno existente.", cx.palette)
+        section(cx, "Two actions", vec![
+            Empty::new("No projects", "Create a project or import an existing one.", cx.palette)
                 .icon(Icon::Folder)
-                .action("empty-new", "Crear proyecto", ButtonVariant::Default)
-                .action("empty-import", "Importar", ButtonVariant::Outline)
+                .action("empty-new", "Create project", ButtonVariant::Default)
+                .action("empty-import", "Import", ButtonVariant::Outline)
                 .width(width)
                 .render(),
         ]),
-        section(cx, "Compacto", vec![
-            Empty::new("Sin resultados", "Prueba otro término.", cx.palette)
+        section(cx, "Compact", vec![
+            Empty::new("No results", "Try another term.", cx.palette)
                 .icon(Icon::Search)
                 .compact()
                 .width(width.min(360.0))
                 .render(),
         ]),
-        section(cx, "Enmarcado", vec![
-            Empty::new("Todavía no hay plugins", "Elige una carpeta de plugin para instalarla.", cx.palette)
+        section(cx, "Framed", vec![
+            Empty::new("No plugins yet", "Choose a plugin folder to install.", cx.palette)
                 .icon(Icon::Puzzle)
                 .compact()
                 .framed()
                 .width(width)
                 .render(),
         ]),
-        section(cx, "Sólo título", vec![
-            Empty::new("Nada por aquí", "", cx.palette).width(width.min(360.0)).render(),
+        section(cx, "Title only", vec![
+            Empty::new("Nothing here", "", cx.palette).width(width.min(360.0)).render(),
         ]),
-        section(cx, "Aviso en línea", vec![
-            Notice::new("Todavía no instalaste skills", raised)
+        section(cx, "Inline notice", vec![
+            Notice::new("No skills installed yet", raised)
                 .icon(Icon::Grid)
-                .description("Elige una del catálogo y dónde instalarla.")
+                .description("Choose one from the catalog and where to install it.")
                 .action(Element::row(vec![
-                    Button::new("notice-explore", "Explorar catálogo", cx.palette)
+                    Button::new("notice-explore", "Explore catalog", cx.palette)
                         .variant(ButtonVariant::Outline)
                         .button_size(ButtonSize::Small)
                         .render(),
@@ -76,31 +76,31 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .framed()
                 .width(width)
                 .render(),
-            Notice::new("Sin resultados", cx.palette)
+            Notice::new("No results", cx.palette)
                 .icon(Icon::Search)
-                .description("Prueba otra búsqueda o cambia el filtro.")
+                .description("Try another search or change the filter.")
                 .width(width)
                 .render(),
         ]),
-        section(cx, "Aviso apilado", vec![
-            Notice::new("Tu agente, junto al código", cx.palette)
+        section(cx, "Stacked notice", vec![
+            Notice::new("Your agent, beside your code", cx.palette)
                 .icon(Icon::Chat)
-                .description("Explora el proyecto, pide cambios o resuelve una tarea.")
+                .description("Explore the project, request changes or complete a task.")
                 .stacked()
                 .width(width.min(360.0))
                 .render(),
         ]),
-        section(cx, "Aviso compacto", vec![
-            Notice::new("Sin problemas en este archivo", cx.palette)
+        section(cx, "Compact notice", vec![
+            Notice::new("No problems in this file", cx.palette)
                 .icon(Icon::CheckCircle)
-                .description("Los diagnósticos están actualizados.")
+                .description("Diagnostics are up to date.")
                 .sizing(NoticeSizing::COMPACT)
                 .width(width.min(360.0))
                 .render(),
-            Notice::new("Carpeta vacía", cx.palette)
-                .description("Abre un proyecto para ver sus archivos. El texto se parte en varias líneas cuando el panel es estrecho.")
+            Notice::new("Empty folder", cx.palette)
+                .description("Open a project to see its files. Text wraps across multiple lines when the panel is narrow.")
                 .action(
-                    Button::new("notice-reload", "Volver a cargar", cx.palette)
+                    Button::new("notice-reload", "Reload", cx.palette)
                         .variant(ButtonVariant::Ghost)
                         .button_size(ButtonSize::Small)
                         .render(),
@@ -109,9 +109,9 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(width.min(240.0))
                 .render(),
         ]),
-        section(cx, "Aviso de alto fijo", vec![
-            bar("El proceso terminó con un error que no cabe en una sola línea y se corta con puntos suspensivos", true),
-            bar("Proceso finalizado · código 0", false),
+        section(cx, "Fixed-height notice", vec![
+            bar("The process ended with an error that does not fit on one line and is truncated with an ellipsis", true),
+            bar("Process finished · exit code 0", false),
         ]),
     ]
 }

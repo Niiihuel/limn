@@ -19,32 +19,32 @@ fn menus(group: &str) -> Vec<MenuBarMenu> {
     vec![
         menu(
             "file",
-            "Archivo",
+            "File",
             60.0,
             vec![
-                DropdownMenuItem::new(format!("{group}-file-revert"), "Revertir").disabled().into(),
-                DropdownMenuItem::new(format!("{group}-file-new"), "Nuevo archivo…").shortcut("Ctrl+N").into(),
-                DropdownMenuItem::new(format!("{group}-file-open"), "Abrir…").shortcut("Ctrl+O").into(),
+                DropdownMenuItem::new(format!("{group}-file-revert"), "Revert").disabled().into(),
+                DropdownMenuItem::new(format!("{group}-file-new"), "New file…").shortcut("Ctrl+N").into(),
+                DropdownMenuItem::new(format!("{group}-file-open"), "Open…").shortcut("Ctrl+O").into(),
                 DropdownMenuEntry::Separator,
-                DropdownMenuItem::new(format!("{group}-file-save"), "Guardar").shortcut("Ctrl+S").into(),
+                DropdownMenuItem::new(format!("{group}-file-save"), "Save").shortcut("Ctrl+S").into(),
             ],
         ),
         menu(
             "edit",
-            "Editar",
+            "Edit",
             52.0,
             vec![
-                DropdownMenuItem::new(format!("{group}-edit-undo"), "Deshacer").shortcut("Ctrl+Z").into(),
-                DropdownMenuItem::new(format!("{group}-edit-redo"), "Rehacer").shortcut("Ctrl+Shift+Z").into(),
+                DropdownMenuItem::new(format!("{group}-edit-undo"), "Undo").shortcut("Ctrl+Z").into(),
+                DropdownMenuItem::new(format!("{group}-edit-redo"), "Redo").shortcut("Ctrl+Shift+Z").into(),
             ],
         ),
         menu(
             "view",
-            "Ver",
+            "View",
             36.0,
             vec![
-                DropdownMenuItem::new(format!("{group}-view-wrap"), "Ajuste de línea").selected(true).into(),
-                item(&format!("{group}-view-zoom"), "Ampliar"),
+                DropdownMenuItem::new(format!("{group}-view-wrap"), "Word wrap").selected(true).into(),
+                item(&format!("{group}-view-zoom"), "Zoom in"),
             ],
         ),
     ]
@@ -75,7 +75,7 @@ fn status(cx: &Cx, prefix: &str, width: f32) -> StatusBar {
                 .label("main")
                 .strong()
                 .ink(palette.text)
-                .tooltip_with(TooltipSpec::new("main · Ramas del repositorio")),
+                .tooltip_with(TooltipSpec::new("main · Repository branches")),
             StatusBarItem::divider(id("rule"), palette),
             StatusBarItem::new(id("problems"), 56.0, palette)
                 .tinted_icon(Icon::ErrorCircle, limn::Color::rgb(229, 83, 75))
@@ -83,16 +83,16 @@ fn status(cx: &Cx, prefix: &str, width: f32) -> StatusBar {
                 .tinted_icon(Icon::WarningTriangle, limn::Color::rgb(224, 179, 106))
                 .count(7)
                 .sizing(StatusBarItemSizing::COUNTS)
-                .tooltip_with(TooltipSpec::new("2 errores · 7 advertencias")),
+                .tooltip_with(TooltipSpec::new("2 errors · 7 warnings")),
         ],
         vec![
-            cell("saved", "Guardado", 60.0, "Guardado · Guardar archivo").passive().priority(1),
-            cell("cursor", "Ln 12, Col 4", 76.0, "Ir a línea y columna").priority(6),
-            cell("indent", "Espacios: 4", 72.0, "Sangría").priority(4),
-            cell("encoding", "UTF-8", 44.0, "Codificación del archivo").passive().priority(2),
-            cell("ending", "LF", 24.0, "Finales de línea").priority(3).menu(
+            cell("saved", "Saved", 60.0, "Saved · Save file").passive().priority(1),
+            cell("cursor", "Ln 12, Col 4", 76.0, "Go to line and column").priority(6),
+            cell("indent", "Spaces: 4", 72.0, "Indentation").priority(4),
+            cell("encoding", "UTF-8", 44.0, "File encoding").passive().priority(2),
+            cell("ending", "LF", 24.0, "Line endings").priority(3).menu(
                 vec![
-                    DropdownMenuEntry::Heading("Finales de línea".into()),
+                    DropdownMenuEntry::Heading("Line endings".into()),
                     DropdownMenuItem::new(format!("{ending}=lf"), "LF · Unix").selected(true).into(),
                     item(&format!("{ending}=crlf"), "CRLF · Windows"),
                 ],
@@ -100,7 +100,7 @@ fn status(cx: &Cx, prefix: &str, width: f32) -> StatusBar {
                 format!("{ending}=closed"),
                 palette,
             ),
-            cell("language", "Rust", 40.0, "Modo de lenguaje").priority(5),
+            cell("language", "Rust", 40.0, "Language mode").priority(5),
         ],
         palette,
     )
@@ -108,9 +108,9 @@ fn status(cx: &Cx, prefix: &str, width: f32) -> StatusBar {
     .overflow(
         StatusBarItem::new(format!("{more}=open"), 20.0, palette)
             .icon(Icon::More)
-            .tooltip_with(TooltipSpec::new("Más estado"))
+            .tooltip_with(TooltipSpec::new("More status"))
             .menu(
-                vec![item(&id("more-cursor"), "Ln 12, Col 4"), item(&id("more-indent"), "Espacios: 4")],
+                vec![item(&id("more-cursor"), "Ln 12, Col 4"), item(&id("more-indent"), "Spaces: 4")],
                 cx.state.text(&more) == "open",
                 format!("{more}=closed"),
                 palette,
@@ -128,7 +128,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let compact = MenuBar::new(menus("chrome-compact"), open_id("chrome-compact").as_deref(), palette).compact(
         "chrome-compact=all",
         "chrome-compact=none",
-        TooltipSpec::new("Menú principal").placement(TooltipPlacement::Below),
+        TooltipSpec::new("Main menu").placement(TooltipPlacement::Below),
     );
 
     let chosen = cx.state.choice("chrome-width", "420");
@@ -148,29 +148,29 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         .ink(palette.text)
         .centered()
         .sizing(StatusBarItemSizing::COUNTS)
-        .tooltip_with(TooltipSpec::new("3 notificaciones nuevas"));
+        .tooltip_with(TooltipSpec::new("3 new notifications"));
 
     vec![
         section(
             cx,
-            "Barra de menús",
+            "Menu bar",
             vec![
-                caption(cx, "Cada menú recibe su ancho; el abierto enfoca su primera acción disponible."),
+                caption(cx, "Each menu receives its width; the open menu focuses its first available action."),
                 row(vec![menu_bar.render()]),
-                caption(cx, "Compacta: los mismos menús como submenús de un botón."),
+                caption(cx, "Compact: the same menus appear as submenus of one button."),
                 row(vec![compact.render()]),
             ],
         ),
         section(
             cx,
-            "Barra de estado",
+            "Status bar",
             vec![
-                caption(cx, "Las celdas finales ceden por prioridad; lo que no entra queda tras «Más»."),
+                caption(cx, "Trailing cells yield by priority; items that do not fit move behind “More”."),
                 row(widths),
                 framed(cx, width, status(cx, "chrome-status", width).render()),
-                caption(cx, "Con filete superior y superficie propia, para cerrar un panel."),
+                caption(cx, "With a top hairline and its own surface, for the bottom of a panel."),
                 status(cx, "chrome-ruled", width).top_hairline(true).render(),
-                caption(cx, "Celda centrada con tinta propia en el glifo."),
+                caption(cx, "Centered cell with custom glyph ink."),
                 row(vec![bell.render()]),
             ],
         ),

@@ -7,41 +7,41 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         Button::new(id, label, palette).variant(ButtonVariant::Outline).render()
     };
     vec![
-        caption(cx, "Aparecen tras 350 ms de puntero quieto, o al instante con el foco del teclado.").into(),
-        section(cx, "Título y atajo", vec![row(vec![
-            Button::new("tooltip-plain", "Sólo título", palette)
+        caption(cx, "They appear after the pointer stays still for 350 ms, or immediately on keyboard focus.").into(),
+        section(cx, "Title and shortcut", vec![row(vec![
+            Button::new("tooltip-plain", "Title only", palette)
                 .variant(ButtonVariant::Outline)
-                .tooltip("Guardar cambios")
+                .tooltip("Save changes")
                 .render(),
-            Button::new("tooltip-shortcut", "Con atajo", palette)
+            Button::new("tooltip-shortcut", "With shortcut", palette)
                 .variant(ButtonVariant::Outline)
-                .tooltip("Guardar cambios")
+                .tooltip("Save changes")
                 .tooltip_shortcut("Ctrl+S")
                 .render(),
             IconButton::new("tooltip-icon", Icon::Refresh, palette)
-                .tooltip("Actualizar")
+                .tooltip("Refresh")
                 .tooltip_shortcut("F5")
                 .render(),
         ])]),
-        section(cx, "Con descripción", vec![row(vec![
-            Tooltip::new(anchor("tooltip-rich", "Descripción"), "tooltip-rich", "Modo plan", palette)
+        section(cx, "With description", vec![row(vec![
+            Tooltip::new(anchor("tooltip-rich", "Description"), "tooltip-rich", "Plan mode", palette)
                 .shortcut("Shift+Tab")
-                .description("El agente propone los pasos y espera tu aprobación antes de editar archivos.")
+                .description("The agent proposes steps and waits for your approval before editing files.")
                 .separator()
-                .footer("Disponible en cualquier conversación")
+                .footer("Available in any conversation")
                 .render(),
         ])]),
-        section(cx, "Posición", vec![row(vec![
-            Tooltip::new(anchor("tooltip-above", "Arriba"), "tooltip-above", "Arriba", palette)
+        section(cx, "Placement", vec![row(vec![
+            Tooltip::new(anchor("tooltip-above", "Above"), "tooltip-above", "Above", palette)
                 .placement(TooltipPlacement::Above)
                 .render(),
-            Tooltip::new(anchor("tooltip-below", "Abajo"), "tooltip-below", "Abajo", palette)
+            Tooltip::new(anchor("tooltip-below", "Below"), "tooltip-below", "Below", palette)
                 .placement(TooltipPlacement::Below)
                 .render(),
-            Tooltip::new(anchor("tooltip-left", "Izquierda"), "tooltip-left", "Izquierda", palette)
+            Tooltip::new(anchor("tooltip-left", "Left"), "tooltip-left", "Left", palette)
                 .placement(TooltipPlacement::Left)
                 .render(),
-            Tooltip::new(anchor("tooltip-right", "Derecha"), "tooltip-right", "Derecha", palette)
+            Tooltip::new(anchor("tooltip-right", "Right"), "tooltip-right", "Right", palette)
                 .placement(TooltipPlacement::Right)
                 .render(),
         ])]),

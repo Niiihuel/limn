@@ -5,6 +5,7 @@ in any release.
 
 ## 0.1.39 — unreleased
 
+- Gallery: English labels, captions, menus, tooltips and sample content throughout
 - Kbd: width budgets cover alternatives and captions together; narrow rows omit the whole hint
 - Built-in labels default to English and can be replaced with `set_labels`; `Labels::SPANISH` preserves the earlier Spanish copy
 - Toast cards can use explicit IDs; breadcrumb search hints accept a custom shortcut

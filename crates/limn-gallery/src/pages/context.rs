@@ -7,9 +7,9 @@ use limn::{
 const ID: &str = "context";
 const WINDOW: u64 = 200_000;
 const FILES: [(&str, &str, u64); 3] = [
-    ("esquema", "esquema.sql", 9_400),
-    ("facturacion", "facturacion.rs", 21_300),
-    ("notas", "notas-de-reunion.md", 15_400),
+    ("esquema", "schema.sql", 9_400),
+    ("facturacion", "billing.rs", 21_300),
+    ("notas", "meeting-notes.md", 15_400),
 ];
 
 pub fn view(cx: &Cx) -> Vec<Section> {
@@ -25,36 +25,36 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let compacted = cx.state.flag("context:action:conversacion");
     let busy = cx.state.flag("context-busy") && !compacted;
     let shares = vec![
-        ContextShare::new("sistema", "Sistema", 4_200, palette.text),
-        ContextShare::new("herramientas", "Herramientas", 12_800, palette.muted),
-        ContextShare::new("archivos", "Archivos", files.iter().map(|file| file.tokens).sum(), faded(palette.muted, 150))
+        ContextShare::new("sistema", "System", 4_200, palette.text),
+        ContextShare::new("herramientas", "Tools", 12_800, palette.muted),
+        ContextShare::new("archivos", "Files", files.iter().map(|file| file.tokens).sum(), faded(palette.muted, 150))
             .items(files),
-        ContextShare::new("conversacion", "Conversación", if compacted { 30_400 } else { 108_600 }, accent).action(
+        ContextShare::new("conversacion", "Conversation", if compacted { 30_400 } else { 108_600 }, accent).action(
             if compacted {
-                ContextShareAction::Done("Compactada".into())
+                ContextShareAction::Done("Compacted".into())
             } else if busy {
-                ContextShareAction::Busy("Compactando".into())
+                ContextShareAction::Busy("Compacting".into())
             } else {
-                ContextShareAction::Offer("Compactar".into())
+                ContextShareAction::Offer("Compact".into())
             },
         ),
-        ContextShare::new("memoria", "Memoria", 3_900, faded(accent, 120)),
+        ContextShare::new("memoria", "Memory", 3_900, faded(accent, 120)),
     ];
     let used: u64 = shares.iter().map(|share| share.tokens).sum();
     // The host mirrors the control under the pointer, as the tree reports it.
     let focused = ContextWindow::share_under(ID, cx.state.text("hovered"));
     let in_focus = focused.and_then(|id| shares.iter().find(|share| share.id == id));
     let status = match in_focus {
-        Some(share) => format!("{} · {}% de la ventana", share.label, (share.tokens * 100 + WINDOW / 2) / WINDOW),
-        None if busy => "Compactando…".into(),
-        None if compacted => "78.2K tokens liberados".into(),
-        None => format!("{} libres", ContextWindow::tokens_text(WINDOW.saturating_sub(used) as f32)),
+        Some(share) => format!("{} · {}% of the window", share.label, (share.tokens * 100 + WINDOW / 2) / WINDOW),
+        None if busy => "Compacting…".into(),
+        None if compacted => "78.2K tokens freed".into(),
+        None => format!("{} free", ContextWindow::tokens_text(WINDOW.saturating_sub(used) as f32)),
     };
     let saved = compacted && in_focus.is_none();
     let in_focus_label = in_focus.map(|share| share.label.clone());
     let mut card = ContextWindow::new(
         ID,
-        "Ventana de contexto",
+        "Context window",
         shares,
         WINDOW,
         palette,
@@ -65,11 +65,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         },
     )
     .badge("claude-opus-5-5")
-    .caption("de 200K tokens")
+    .caption("of 200K tokens")
     .focused(focused)
     .expanded(cx.state.flag("context:share:archivos").then_some("archivos"))
-    .header_icon("context-copy", limn::Icon::Copy, "Copiar diagnóstico")
-    .footer_action("context-new", "Nuevo chat");
+    .header_icon("context-copy", limn::Icon::Copy, "Copy diagnostics")
+    .footer_action("context-new", "New chat");
     if let Some(share) = in_focus_label.as_deref() {
         card = card.status_lead(share);
     }
@@ -77,18 +77,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let reset = FILES.iter().fold(String::from("context:action:conversacion=off&context-busy=off"), |reset, (id, ..)| {
         format!("{reset}&{ID}:remove:archivos:{id}=off")
     });
-    vec![environment(cx), section(cx, "Ventana de contexto", vec![
-        caption(cx, "Pasá el cursor por una categoría, abrí Archivos y quitá uno, o compactá la conversación: las cifras cuentan y las celdas se vacían solas."),
+    vec![environment(cx), section(cx, "Context window", vec![
+        caption(cx, "Hover over a category, open Files and remove one, or compact the conversation: numbers update and cells empty themselves."),
         row(vec![Element::column(vec![card.render()])
             .background(palette.surface)
             .border(palette.border, 1.0)
             .radius(16.0)
             .clip_children()]),
         row(vec![
-            Button::new("context-busy", if busy { "Dejar de compactar" } else { "Simular compactación en curso" }, palette)
+            Button::new("context-busy", if busy { "Stop compacting" } else { "Simulate compaction in progress" }, palette)
                 .variant(ButtonVariant::Outline)
                 .render(),
-            Button::new(reset, "Restablecer", palette).variant(ButtonVariant::Outline).render(),
+            Button::new(reset, "Reset", palette).variant(ButtonVariant::Outline).render(),
         ]),
     ])]
 }
@@ -115,7 +115,7 @@ fn environment(cx: &Cx) -> Section {
     let open = cx.state.flag("environment-sources");
     let listed = open.then(|| {
         Element::column(
-            ["3 cambios del chat", "12 archivos consultados", "2 referencias"]
+            ["3 changes from chat", "12 files consulted", "2 references"]
                 .into_iter()
                 .map(|line| {
                     Element::row(vec![
@@ -129,23 +129,23 @@ fn environment(cx: &Cx) -> Section {
         )
     });
     let header = Element::row(vec![
-        text("Entorno", 13.0, palette.text).flex(1.0).centered_y(),
+        text("Environment", 13.0, palette.text).flex(1.0).centered_y(),
         palette
-            .interactive_surface(Element::icon_button("environment-refresh", Icon::Refresh, "Actualizar"))
+            .interactive_surface(Element::icon_button("environment-refresh", Icon::Refresh, "Refresh"))
             .foreground(palette.muted)
             .size(Some(24.0), Some(24.0))
             .centered_y(),
     ])
     .size(None, Some(28.0));
     let foot = Element::row(vec![
-        text("8 archivos", 12.0, palette.text).centered_y(),
+        text("8 files", 12.0, palette.text).centered_y(),
         text("+248", 12.0, tone(AlertTone::Success)).centered_y(),
         text("−31", 12.0, tone(AlertTone::Error)).centered_y(),
         Element::spacer().flex(1.0),
         Element::clickable(
             "environment-commit",
             Element::row(vec![
-                text("Commit y push", 12.0, palette.text).centered_y(),
+                text("Commit and push", 12.0, palette.text).centered_y(),
                 Element::icon(Icon::ArrowRight).foreground(palette.text).size(Some(12.0), Some(12.0)).centered_y(),
             ])
             .gap(4.0),
@@ -161,14 +161,14 @@ fn environment(cx: &Cx) -> Section {
         .rows(row("environment-local", Icon::Laptop, "Local", icon(Icon::ChevronDown)))
         .rows(row("environment-branch", Icon::GitBranch, "feature/environment-layout", icon(Icon::ChevronDown)))
         .space(6.0)
-        .rows(row("environment-compare", Icon::Code, "Comparar cambios", icon(Icon::ChevronRight)))
-        .rows(row("environment-actions", Icon::Play, "Acciones del proyecto", icon(Icon::ChevronRight)))
+        .rows(row("environment-compare", Icon::Code, "Compare changes", icon(Icon::ChevronRight)))
+        .rows(row("environment-actions", Icon::Play, "Project actions", icon(Icon::ChevronRight)))
         .rows(FramedCard::block(
             "environment-sources-list",
             row(
                 "environment-sources",
                 Icon::Book,
-                "Fuentes y herramientas",
+                "Sources and tools",
                 icon(if open { Icon::ChevronDown } else { Icon::ChevronRight }),
             ),
             listed,
@@ -176,8 +176,8 @@ fn environment(cx: &Cx) -> Section {
         ))
         .foot(foot)
         .render();
-    section(cx, "El mismo patrón: Entorno", vec![
-        caption(cx, "La tarjeta, el marco y las filas son una pieza aparte (FramedCard); aquí rodean el entorno de un proyecto."),
+    section(cx, "The same pattern: Environment", vec![
+        caption(cx, "The card, frame and rows are a separate component (FramedCard); here they surround a project environment."),
         row_of(vec![Element::column(vec![card])
             .background(palette.surface)
             .border(palette.border, 1.0)

@@ -22,40 +22,40 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let tokens = limn::tokens();
     let width = cx.width.min(520.0);
     vec![
-        caption(cx, "Una llamada a set_tokens cambia la forma y el ritmo de toda la biblioteca.").into(),
-        section(cx, "Esquinas", vec![
-            row(vec![choice(cx, "tokens-radius", &[("square", "Rectas"), ("default", "Normales"), ("round", "Redondas")])]),
+        caption(cx, "One call to set_tokens changes the shape and pace of the whole library.").into(),
+        section(cx, "Corners", vec![
+            row(vec![choice(cx, "tokens-radius", &[("square", "Square"), ("default", "Default"), ("round", "Round")])]),
             caption(cx, &format!(
-                "control {} · superficie {} · tarjeta {} · panel {}",
+                "control {} · surface {} · card {} · panel {}",
                 tokens.radius.control, tokens.radius.surface, tokens.radius.card, tokens.radius.panel
             )),
         ]),
-        section(cx, "Ritmo", vec![
-            row(vec![choice(cx, "tokens-motion", &[("fast", "Rápido"), ("default", "Normal"), ("slow", "Lento")])]),
+        section(cx, "Motion", vec![
+            row(vec![choice(cx, "tokens-motion", &[("fast", "Fast"), ("default", "Normal"), ("slow", "Slow")])]),
             caption(cx, &format!(
-                "hover {} ms · entrada {} ms · salida {} ms · movimiento {} ms",
+                "hover {} ms · enter {} ms · exit {} ms · move {} ms",
                 tokens.motion.hover_ms, tokens.motion.enter_ms, tokens.motion.exit_ms, tokens.motion.move_ms
             )),
             row(vec![
                 Switch::new("tokens-reduced", cx.state.flag("tokens-reduced"), palette).render(),
-                caption(cx, "Sin animaciones (set_reduced_motion)"),
+                caption(cx, "No animations (set_reduced_motion)"),
             ]),
         ]),
-        section(cx, "Muestra", vec![
+        section(cx, "Sample", vec![
             row(vec![
-                Button::new("tokens-primary", "Guardar", palette).icon(Icon::Check).render(),
-                Button::new("tokens-outline", "Cancelar", palette).variant(ButtonVariant::Outline).render(),
-                TextField::new("tokens-field", cx.state.text("tokens-field"), "Nombre", palette)
+                Button::new("tokens-primary", "Save", palette).icon(Icon::Check).render(),
+                Button::new("tokens-outline", "Cancel", palette).variant(ButtonVariant::Outline).render(),
+                TextField::new("tokens-field", cx.state.text("tokens-field"), "Name", palette)
                     .width(180.0)
                     .render(),
             ]),
             Element::panel(
-                Alert::new("Tarjeta", "Los avisos usan el radio de tarjeta.", palette)
+                Alert::new("Card", "Alerts use the card radius.", palette)
                     .tone(AlertTone::Info)
                     .render(),
             )
             .size(Some(width), None),
-            Element::panel(caption(cx, "Panel: los diálogos y las vistas previas usan el radio de panel."))
+            Element::panel(caption(cx, "Panel: dialogs and previews use the panel radius."))
                 .padding(32.0)
                 .background(palette.surface)
                 .border(palette.border, 1.0)

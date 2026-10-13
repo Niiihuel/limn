@@ -15,12 +15,12 @@ fn text(value: &str, size: f32, color: Color) -> Element {
 
 fn page() -> Element {
     let apps = [
-        ("Archivos", Icon::Folder, Color::rgb(45, 116, 238)),
-        ("Fotos", Icon::Image, Color::rgb(222, 73, 128)),
-        ("Música", Icon::Audio, Color::rgb(146, 84, 225)),
-        ("Mensajes", Icon::Chat, Color::rgb(30, 167, 115)),
+        ("Files", Icon::Folder, Color::rgb(45, 116, 238)),
+        ("Photos", Icon::Image, Color::rgb(222, 73, 128)),
+        ("Music", Icon::Audio, Color::rgb(146, 84, 225)),
+        ("Messages", Icon::Chat, Color::rgb(30, 167, 115)),
         ("Ideas", Icon::Bolt, Color::rgb(230, 145, 34)),
-        ("Ajustes", Icon::Settings, Color::rgb(92, 111, 139)),
+        ("Settings", Icon::Settings, Color::rgb(92, 111, 139)),
     ];
     let tiles = apps
         .into_iter()
@@ -42,27 +42,27 @@ fn page() -> Element {
         })
         .collect();
     let article = Element::column(vec![
-        text("DISEÑO / 01", 11.0, Color::rgb(104, 93, 80)),
-        text("Un día para crear", 25.0, INK),
-        text("Las ideas toman forma al moverse.\nLuz, color y pequeños detalles\nconstruyen una experiencia clara.", 15.0, INK),
-        Element::row(vec![Element::icon(Icon::Book).foreground(INK), text("Leer la historia", 14.0, INK)]).gap(8.0),
+        text("DESIGN / 01", 11.0, Color::rgb(104, 93, 80)),
+        text("A day to create", 25.0, INK),
+        text("Ideas take shape through motion.\nLight, color and small details\nmake an experience clear.", 15.0, INK),
+        Element::row(vec![Element::icon(Icon::Book).foreground(INK), text("Read the story", 14.0, INK)]).gap(8.0),
     ]).gap(12.0).padding(20.0).background(Color::rgb(249, 230, 205)).radius(18.0).flex(1.0);
     let projects = Element::column(vec![
-        text("TU ESPACIO", 11.0, Color::rgb(81, 111, 132)),
-        text("Todo conectado", 25.0, INK),
-        text("Biblioteca      24 elementos\nProyectos       8 en progreso\nFavoritos       12 guardados", 15.0, INK),
-        Element::row(vec![Element::icon(Icon::Globe).foreground(INK), text("Explorar colecciones", 14.0, INK)]).gap(8.0),
+        text("YOUR SPACE", 11.0, Color::rgb(81, 111, 132)),
+        text("Everything connected", 25.0, INK),
+        text("Library        24 items\nProjects       8 in progress\nFavorites      12 saved", 15.0, INK),
+        Element::row(vec![Element::icon(Icon::Globe).foreground(INK), text("Explore collections", 14.0, INK)]).gap(8.0),
     ]).gap(12.0).padding(20.0).background(Color::rgb(207, 229, 239)).radius(18.0).flex(1.0);
     Element::column(vec![
         Element::row(vec![
-            text("Tu biblioteca", 30.0, INK),
+            text("Your library", 30.0, INK),
             Element::spacer().flex(1.0),
-            text("MARTES 13 · 11:06", 12.0, Color::rgb(104, 113, 132)),
+            text("TUESDAY 13 · 11:06", 12.0, Color::rgb(104, 113, 132)),
         ]),
         Element::row(vec![
-            text("Recientes", 15.0, Color::rgb(41, 108, 210)),
-            text("Colecciones", 15.0, INK),
-            text("Compartido", 15.0, INK),
+            text("Recent", 15.0, Color::rgb(41, 108, 210)),
+            text("Collections", 15.0, INK),
+            text("Shared", 15.0, INK),
         ])
         .gap(26.0)
         .padding(8.0),
@@ -180,8 +180,8 @@ mod tests {
             .filter(|command| matches!(command, limn::DrawCommand::Icon { .. }))
             .count();
         assert_eq!(icons, 8);
-        assert!(frame.commands.iter().any(|command| matches!(command, limn::DrawCommand::Text { text, .. } if text == "Tu biblioteca")));
-        assert!(frame.commands.iter().any(|command| matches!(command, limn::DrawCommand::Text { text, .. } if text.contains("Las ideas toman forma"))));
+        assert!(frame.commands.iter().any(|command| matches!(command, limn::DrawCommand::Text { text, .. } if text == "Your library")));
+        assert!(frame.commands.iter().any(|command| matches!(command, limn::DrawCommand::Text { text, .. } if text.contains("Ideas take shape"))));
     }
 
     #[test]

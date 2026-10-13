@@ -143,8 +143,6 @@ pub fn update(state: &mut State, action: &UiAction) {
 pub fn view(state: &State, window: Size) -> Element {
     // Before anything is built: elements read the tokens as they are made.
     limn::set_tokens(state.tokens());
-    // The gallery speaks Spanish; the library does unless told.
-    limn::set_labels(limn::Labels::SPANISH);
     let theme = state.theme();
     let palette = theme.palette();
     let current = pages::find(state.choice("page", pages::PAGES[0].id));
@@ -183,7 +181,7 @@ pub fn view(state: &State, window: Size) -> Element {
     // A page for each component is more than a window's height of them.
     let mut sidebar = vec![ScrollArea::new("sidebar-scroll", Element::column(sidebar).gap(2.0)).render().flex(1.0)];
     sidebar.push(
-        Button::new("light", if state.flag("light") { "Tema oscuro" } else { "Tema claro" }, palette)
+        Button::new("light", if state.flag("light") { "Dark theme" } else { "Light theme" }, palette)
             .variant(ButtonVariant::Outline)
             .button_size(ButtonSize::Small)
             .width(SIDEBAR_WIDTH - 24.0)
@@ -240,6 +238,14 @@ mod tests {
     use super::*;
     use limn::UiTree;
     use std::collections::HashSet;
+
+    #[test]
+    fn the_gallery_keeps_english_library_labels() {
+        let window = Size::new(700.0, 200.0);
+        view(&State::starting_at("button"), window);
+        assert_eq!(limn::labels().close, "Close");
+        assert_eq!(limn::labels().cancel, "Cancel");
+    }
 
     #[test]
     fn every_page_lays_out_in_both_themes_at_several_widths() {
