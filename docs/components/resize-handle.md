@@ -104,3 +104,14 @@ move. It cannot be dragged or focused, and the pointer keeps its shape.
 | `UiAction::Clicked { id }` | A press is released without moving. The host may ignore it. |
 
 The handle has no keyboard resize.
+
+## Accessibility
+
+The handle is a button known by its ID. It shows no text, so it has no name
+until the host gives it one; disabled, it is still there as disabled.
+
+```rust
+ResizeHandle::vertical("sidebar-split", palette)
+    .accessibility_label("Resize sidebar")
+    .render()
+```

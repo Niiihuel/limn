@@ -150,3 +150,14 @@ own as its focus target.
 | --- | --- |
 | `UiAction::Clicked { id }` with a cell's ID, or the one given to `dispatch_as` | A cell that is not passive is activated. |
 | `UiAction::Clicked { id }` with a menu's `dismiss_id` | The cell's open menu is left. |
+
+## Accessibility
+
+A cell that is not passive is a button named by its label and counts. A cell
+that shows only a glyph has no name until the host gives it one.
+
+```rust
+StatusBarItem::new("sync", 24.0, palette)
+    .icon(Icon::Refresh)
+    .accessibility_label("Sync")
+```

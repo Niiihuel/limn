@@ -8,7 +8,7 @@
 use web_time::{SystemTime, UNIX_EPOCH};
 
 use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
-use crate::{Color, Element, FontFamily, Icon};
+use crate::{Access, Color, Element, FontFamily, Icon, Role};
 
 // Seven columns plus gaps and panel padding stay within a 248 px modal body.
 const CELL_WIDTH: f32 = 30.0;
@@ -125,11 +125,14 @@ impl DatePicker {
             .foreground(ink)
             .font_family(FontFamily::Sans)
             .font_size(12.0);
+        // Named by its number; the chosen day says so.
+        let id = format!("{}:day:{date}", self.id);
+        let said = Access::new(Role::Button).name(day.to_string()).selected(selected);
         let cell = if self.enabled {
             self.palette
-                .interactive_surface(Element::clickable(format!("{}:day:{date}", self.id), label))
+                .interactive_surface(Element::clickable(id, label).accessible(said))
         } else {
-            Element::panel(label)
+            Element::panel(label).accessible(said.id(id).disabled(true))
         }
         .size(Some(CELL_WIDTH), Some(CELL_HEIGHT))
         .center_content()
@@ -154,24 +157,32 @@ impl Component for DatePicker {
     fn render(self) -> Element {
         let first_weekday = weekday_monday_zero(self.display_year, self.display_month, 1);
         let month_days = days_in_month(self.display_year, self.display_month);
-        let previous = IconButton::new(
-            format!("{}:month_prev", self.id),
+        // An arrow alone is named by the month it goes to. Drawn disabled it
+        // is passive, and still there for the platform.
+        let month = |suffix: &str, icon: Icon, delta: i32, enabled: bool| {
+            let id = format!("{}:{suffix}", self.id);
+            let (year, month) = Self::shift_month(self.display_year, self.display_month, delta);
+            let said = Access::new(Role::Button)
+                .name(format!("{} {year}", crate::labels().months[month as usize - 1]));
+            IconButton::new(&id, icon, self.palette)
+                .size(ControlSize::Compact)
+                .variant(crate::ButtonVariant::Ghost)
+                .enabled(enabled)
+                .render()
+                .accessible(if enabled { said } else { said.id(id).disabled(true) })
+        };
+        let previous = month(
+            "month_prev",
             Icon::ArrowLeft,
-            self.palette,
-        )
-        .size(ControlSize::Compact)
-        .variant(crate::ButtonVariant::Ghost)
-        .enabled(self.enabled && !(self.display_year == 1 && self.display_month == 1))
-        .render();
-        let next = IconButton::new(
-            format!("{}:month_next", self.id),
+            -1,
+            self.enabled && !(self.display_year == 1 && self.display_month == 1),
+        );
+        let next = month(
+            "month_next",
             Icon::ArrowRight,
-            self.palette,
-        )
-        .size(ControlSize::Compact)
-        .variant(crate::ButtonVariant::Ghost)
-        .enabled(self.enabled && !(self.display_year == 9999 && self.display_month == 12))
-        .render();
+            1,
+            self.enabled && !(self.display_year == 9999 && self.display_month == 12),
+        );
         let title = Element::text(format!(
             "{} {}",
             crate::labels().months[self.display_month as usize - 1],
@@ -304,6 +315,25 @@ fn current_utc_month() -> (i32, u32) {
 mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn the_arrows_are_named_by_the_month_they_go_to_and_the_chosen_day_says_so() {
+        let labels = crate::labels();
+        for enabled in [true, false] {
+            let picker = DatePicker::new("date", "2025-01-15", ComponentPalette::neutral_dark()).enabled(enabled);
+            let frame = UiTree::new(picker.render()).layout(Size::new(260.0, 320.0));
+            let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+            let previous = node("date:month_prev");
+            assert_eq!((previous.role, previous.name.clone()), (Role::Button, format!("{} 2024", labels.months[11])));
+            assert_eq!(node("date:month_next").name, format!("{} 2025", labels.months[1]));
+            let chosen = node("date:day:2025-01-15");
+            assert_eq!((chosen.role, chosen.name.as_str(), chosen.selected), (Role::Button, "15", Some(true)));
+            assert_eq!(node("date:day:2025-01-16").selected, Some(false));
+            for said in [previous, chosen] {
+                assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+            }
+        }
+    }
 
     #[test]
     fn validates_gregorian_dates_and_strict_iso_text() {

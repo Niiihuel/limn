@@ -48,3 +48,16 @@ the palette, so name a status color as its `text`.
 ## Motion
 
 A value that changes is not animated: the fill jumps to the new fraction.
+
+## Accessibility
+
+With an `id` the bar is a progress indicator the platform knows by that ID,
+with its fraction as the value. It shows no text, so the host names what it
+renders. Without an `id` the platform is told nothing.
+
+```rust
+Progress::new(state.uploaded, palette)
+    .id("upload")
+    .render()
+    .accessibility_label("Uploading")
+```

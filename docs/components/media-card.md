@@ -90,3 +90,9 @@ reduced motion a playing record shows out and holds still.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | The sleeve is clicked. `id` is the card's ID. |
+
+## Accessibility
+
+The sleeve is a button known by the card's ID, named by the title and
+described by the artist, and toggled while the track plays. A disabled card
+keeps it there as disabled.

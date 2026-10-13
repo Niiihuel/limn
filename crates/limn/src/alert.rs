@@ -1,8 +1,8 @@
 //! Persistent, caller-controlled inline feedback with optional actions.
 
 use crate::{
-    ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon,
-    IconButton,
+    Access, ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
+    Icon, IconButton, Role,
 };
 
 /// The icon, status label and accent communicate the message's meaning together.
@@ -88,6 +88,7 @@ impl AlertColors {
 /// Action IDs stay caller-owned. A dismiss click emits its ID; the caller hides
 /// the alert when appropriate.
 pub struct Alert {
+    id: Option<String>,
     title: String,
     description: String,
     palette: ComponentPalette,
@@ -105,6 +106,7 @@ impl Alert {
         palette: ComponentPalette,
     ) -> Self {
         Self {
+            id: None,
             title: title.into(),
             description: description.into(),
             palette,
@@ -118,6 +120,14 @@ impl Alert {
 
     pub fn tone(mut self, tone: AlertTone) -> Self {
         self.tone = tone;
+        self
+    }
+
+    /// Make the alert known to the platform by this ID, as an alert named
+    /// by its title and described by its description. Without one only its
+    /// controls are known.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
         self
     }
 
@@ -154,6 +164,14 @@ impl Component for Alert {
         } else {
             self.title
         };
+        let said = self.id.map(|id| {
+            let said = Access::new(Role::Alert).id(id).name(title.clone());
+            if self.description.trim().is_empty() {
+                said
+            } else {
+                said.description(self.description.clone())
+            }
+        });
         let mut copy = vec![Element::text(title)
             .foreground(colors.title)
             .font_family(FontFamily::Sans)
@@ -206,6 +224,7 @@ impl Component for Alert {
                     // The tooltip is the direct row child. Its own square
                     // bounds keep a long message from stretching the button.
                     .render()
+                    .accessibility_label(crate::labels().dismiss_notice)
                     .size(Some(28.0), Some(28.0)),
             );
         }
@@ -217,12 +236,16 @@ impl Component for Alert {
             Element::spacer().size(Some(4.0), None),
         ])
         .padding(12.0);
-        Element::panel(padded)
+        let alert = Element::panel(padded)
             .background(colors.surface)
             .border(colors.border, 1.0)
             .radius(crate::tokens().radius.card)
             .min_size(0.0, 48.0)
-            .clip_children()
+            .clip_children();
+        match said {
+            Some(said) => alert.accessible(said),
+            None => alert,
+        }
     }
 }
 
@@ -304,6 +327,30 @@ mod tests {
             muted: Color::rgb(100, 100, 100),
             shadow: Color::rgba(0, 0, 0, 40),
         }
+    }
+
+    #[test]
+    fn an_alert_with_an_id_is_an_alert_named_by_its_title_and_its_dismiss_button_has_a_name() {
+        let palette = ComponentPalette::neutral_dark();
+        let alert = Alert::new("Sin conexión", "Reintenta en un momento.", palette)
+            .id("offline")
+            .action(Button::new("retry", "Reintentar", palette).render())
+            .dismiss("dismiss");
+        let frame = UiTree::new(alert.render()).layout(Size::new(480.0, 200.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let said = node("offline");
+        assert_eq!((said.role, said.name.as_str()), (Role::Alert, "Sin conexión"));
+        assert_eq!(said.description.as_deref(), Some("Reintenta en un momento."));
+        assert!(!said.actionable);
+        assert_eq!((node("retry").role, node("retry").name.as_str()), (Role::Button, "Reintentar"));
+        assert_eq!((node("dismiss").role, node("dismiss").name.as_str()), (Role::Button, crate::labels().dismiss_notice));
+        // An alert without a title is named by its tone, as it is drawn; without an ID only its controls are there.
+        let bare = UiTree::new(Alert::new("", "", palette).tone(AlertTone::Error).id("failed").render())
+            .layout(Size::new(480.0, 200.0));
+        assert_eq!((bare.access[0].name.as_str(), bare.access[0].description.as_deref()), ("Error", None));
+        let unknown = UiTree::new(Alert::new("Listo", "", palette).dismiss("dismiss").render())
+            .layout(Size::new(480.0, 200.0));
+        assert_eq!(unknown.access.iter().map(|node| node.id.as_str()).collect::<Vec<_>>(), ["dismiss"]);
     }
 
     fn contains(outer: Rect, inner: Rect) -> bool {

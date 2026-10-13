@@ -90,3 +90,9 @@ token when the active step changes.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | A step is clicked, on its badge, its rule or its label. The ID is the step's. |
+
+## Accessibility
+
+A step is a button named by its label, with its description said after it.
+It says whether it is the selected one, the active step, and a disabled step
+is there and cannot be used.

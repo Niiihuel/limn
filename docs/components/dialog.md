@@ -131,3 +131,11 @@ the entrance.
 | `UiAction::Clicked { id }` with the alternative's ID | The alternative button. |
 
 Controls the host puts in the body or the footer report their own actions.
+
+## Accessibility
+
+A `Modal` is a dialog named by its title and described by its description,
+known as `{close_id}:dialog`. An `AlertDialog` is an alert dialog named and
+described the same way, known as `{cancel_id}:dialog`. The close button is a
+button named by `labels().close`, and a disabled `DismissButton` is still
+there, as disabled.

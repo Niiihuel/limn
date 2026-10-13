@@ -96,3 +96,9 @@ takes no pointer or focus and reports nothing.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | The button is activated by pointer, Enter or Space. |
+
+## Accessibility
+
+The platform is told a button named by its title, or by its label when it has
+one, with the title as its description. The check is not told: announce the
+copy with a `Toast`.

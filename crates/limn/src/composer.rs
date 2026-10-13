@@ -245,7 +245,15 @@ impl Composer {
         let editor = move |padding: f32| {
             if !enabled {
                 // Text in the editor's box, as a disabled `TextArea` is: no
-                // region, so no focus, caret or typing.
+                // region, so no focus, caret or typing. It is still there for
+                // the platform, as the editor is: named by its placeholder.
+                let mut said = crate::Access::new(crate::Role::MultilineTextInput)
+                    .id(id)
+                    .value_text(prompt.clone())
+                    .disabled(true);
+                if !placeholder.is_empty() {
+                    said = said.name(placeholder.clone());
+                }
                 let mut text = Element::panel(
                     Element::text(if prompt.is_empty() { placeholder } else { prompt })
                         .foreground(palette.muted)
@@ -256,7 +264,8 @@ impl Composer {
                 .padding(padding)
                 .radius(crate::tokens().radius.surface)
                 .clip_children()
-                .size(None, Some(height));
+                .size(None, Some(height))
+                .accessible(said);
                 if let Some((minimum, maximum)) = auto_grow {
                     text = text.size(None, None).min_size(0.0, minimum);
                     text.style.max_height = Some(maximum);
@@ -356,6 +365,21 @@ impl Composer {
 mod tests {
     use super::*;
     use crate::{Key, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn the_editor_is_named_by_its_placeholder_and_gives_its_draft_enabled_or_not() {
+        for enabled in [true, false] {
+            let composer = Composer::new("prompt", "Borrador", "Escribe una tarea", 480.0, ComponentPalette::neutral_dark())
+                .footer(Element::button("send", "Enviar"))
+                .enabled(enabled)
+                .render();
+            let frame = UiTree::new(composer).layout(Size::new(480.0, 250.0));
+            let said = frame.access.iter().find(|node| node.id == "prompt").unwrap();
+            assert_eq!((said.role, said.name.as_str()), (crate::Role::MultilineTextInput, "Escribe una tarea"));
+            assert_eq!(said.value_text.as_deref(), Some("Borrador"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
+    }
 
     #[test]
     fn composer_keeps_context_outside_editor_and_routes_text_to_one_id() {

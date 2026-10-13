@@ -94,3 +94,9 @@ how long the surface and a row's feedback take.
 | --- | --- |
 | `UiAction::Clicked { id }` with an option's ID | The option is activated. |
 | `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the list. |
+
+## Accessibility
+
+Each option is told to the platform as a menu item named by its label, and
+says whether it is the selected one. A disabled option is still there and
+says it cannot be used.

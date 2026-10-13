@@ -60,6 +60,7 @@ pub struct StatusBarItem {
     strong: bool,
     ink: Option<Color>,
     tooltip: Option<TooltipSpec>,
+    label: Option<String>,
     action: Option<String>,
     menu: Option<Menu>,
     hosted: Option<Element>,
@@ -80,6 +81,7 @@ impl StatusBarItem {
             strong: false,
             ink: None,
             tooltip: None,
+            label: None,
             action: None,
             menu: None,
             hosted: None,
@@ -166,6 +168,13 @@ impl StatusBarItem {
         self
     }
 
+    /// What the platform calls the cell, for one that shows only a glyph:
+    /// without text it has no name. A cell with a label is called by it.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.label = Some(name.into());
+        self
+    }
+
     /// Report `action` instead of the cell's own ID, which stays its focus
     /// target.
     pub fn dispatch_as(mut self, action: impl Into<String>) -> Self {
@@ -243,6 +252,10 @@ impl Component for StatusBarItem {
             Element::panel(content)
         } else {
             let target = Element::clickable(&self.id, content);
+            let target = match self.label {
+                Some(name) => target.accessibility_label(name),
+                None => target,
+            };
             palette.bar_item_surface(match self.action {
                 Some(action) => target.dispatch_as(action),
                 None => target,
@@ -407,6 +420,21 @@ mod tests {
 
     fn palette() -> ComponentPalette {
         ComponentPalette::neutral_dark()
+    }
+
+    #[test]
+    fn a_cell_is_named_by_its_text_and_a_glyph_alone_by_the_name_the_host_gives() {
+        let node = |item: StatusBarItem, id: &str| {
+            let frame = tree_of(item.render()).layout(Size::new(200.0, 40.0));
+            frame.access.iter().find(|node| node.id == id).cloned().unwrap()
+        };
+        let branch = node(StatusBarItem::new("branch", 80.0, palette()).icon(Icon::Folder).label("main").count(3), "branch");
+        assert_eq!((branch.role, branch.name.as_str()), (crate::Role::Button, "main 3"));
+        let glyph = || StatusBarItem::new("sync", 24.0, palette()).icon(Icon::Refresh).tooltip_with(TooltipSpec::new("Sincronizar"));
+        assert_eq!(node(glyph(), "sync").name, "");
+        let named = node(glyph().accessibility_label("Sincronizar"), "sync");
+        assert_eq!((named.role, named.name.as_str()), (crate::Role::Button, "Sincronizar"));
+        assert!(named.actionable);
     }
 
     fn tree_of(bar: Element) -> UiTree {

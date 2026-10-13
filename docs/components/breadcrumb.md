@@ -129,3 +129,10 @@ segments. It keeps its place and its hint.
 | `UiAction::Clicked { id }` with `{id}:overflow_dismiss` | The menu of collapsed segments is dismissed. |
 | `UiAction::Clicked { id }` with the search action | The search button is activated. |
 | `UiAction::InputChanged`, `UiAction::Submitted` with the input ID | The field shown by `editing` changes or is submitted. |
+
+## Accessibility
+
+A segment with an action is a link named by its label; disabled, it is there
+and cannot be followed. A segment without one is text. The ellipsis is named
+by the `full_path` label and says whether its menu is expanded, and the search
+button is named by the `search` label.

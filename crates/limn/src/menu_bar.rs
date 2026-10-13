@@ -1,9 +1,9 @@
 //! The application menus across the top of a window, or behind one button.
 
 use crate::{
-    components::control_radius, page::px, ActiveHover, Button, ButtonSize, ButtonVariant,
+    components::control_radius, page::px, Access, ActiveHover, Button, ButtonSize, ButtonVariant,
     Component, ComponentPalette, ControlSize, ControlState, DropdownMenu, DropdownMenuEntry,
-    DropdownMenuItem, Element, FontFamily, Icon, IconButton, TooltipSpec,
+    DropdownMenuItem, Element, FontFamily, Icon, IconButton, Role, TooltipSpec,
 };
 
 const FONT_SIZE: f32 = 12.0;
@@ -153,6 +153,8 @@ impl Component for MenuBar {
                 .active_hover(ActiveHover::Palette)
                 .tooltip_with(compact.tooltip)
                 .render();
+            // The glyph is named by its hint; the menu says whether it is open.
+            let button = crate::menu::named_by_hint(button);
             return DropdownMenu::new(
                 Element::panel(button).size(Some(width), Some(Self::HEIGHT)),
                 items,
@@ -169,8 +171,10 @@ impl Component for MenuBar {
             .into_iter()
             .map(|menu| {
                 if !menu.enabled {
+                    let access = Access::new(Role::Button).id(menu.id).name(&menu.label);
                     // The label where the button draws its own, and nothing to press.
                     return Element::text(menu.label)
+                        .accessible(access.expanded(false).disabled(true))
                         .font_family(FontFamily::Sans)
                         .font_size(FONT_SIZE)
                         .foreground(palette.muted)
@@ -267,6 +271,29 @@ mod tests {
 
     fn key(tree: &mut UiTree, key: Key) -> Vec<UiAction> {
         tree.handle_event(UiEvent::Key { key, ctrl: false, shift: false })
+    }
+
+    #[test]
+    fn a_trigger_tells_the_platform_whether_its_menu_is_open() {
+        let mut menus = bar(Some("edit"));
+        menus.menus[2].enabled = false;
+        let frame = tree_of(menus).layout(SIZE);
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (file, edit, view) = (node("file"), node("edit"), node("view"));
+        assert_eq!((file.role, file.name.as_str(), file.expanded), (Role::Button, "File", Some(false)));
+        assert_eq!((edit.role, edit.name.as_str(), edit.expanded), (Role::Button, "Edit", Some(true)));
+        assert!(edit.actionable && !edit.disabled);
+        assert_eq!((view.role, view.name.as_str(), view.expanded), (Role::Button, "View", Some(false)));
+        assert!(view.disabled && !view.actionable);
+        assert_eq!((node("undo").role, node("undo").name.as_str()), (Role::MenuItem, "Undo"));
+
+        // Folded into one button, the glyph is named by its hint.
+        for open in [None, Some("file")] {
+            let frame = tree_of(bar(open).compact("menu", "menu:dismiss", TooltipSpec::new("Menu"))).layout(SIZE);
+            let button = frame.access.iter().find(|node| node.id == "menu").unwrap();
+            assert_eq!((button.role, button.name.as_str(), button.expanded), (Role::Button, "Menu", Some(open.is_some())));
+        }
     }
 
     #[test]

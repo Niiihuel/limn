@@ -61,6 +61,7 @@ impl NoticeSizing {
 /// a reason, and controls the host owns. Use [`crate::Empty`] for a centered
 /// blank slate and [`crate::Alert`] for a toned banner.
 pub struct Notice {
+    id: Option<String>,
     title: String,
     description: String,
     icon: Option<Icon>,
@@ -78,6 +79,7 @@ impl Notice {
     /// A title alone, in the [`NoticeSizing::REGULAR`] profile.
     pub fn new(title: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
+            id: None,
             title: title.into(),
             description: String::new(),
             icon: None,
@@ -90,6 +92,14 @@ impl Notice {
             sizing: NoticeSizing::REGULAR,
             palette,
         }
+    }
+
+    /// Make the notice known to the platform by this ID, as a status named
+    /// by its title and described by its description. Without one only the
+    /// controls in it are known.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// A muted icon before the copy, level with its first line.
@@ -170,6 +180,14 @@ impl Component for Notice {
                 None => text,
             }
         };
+        let said = self.id.map(|id| {
+            let said = crate::Access::new(crate::Role::Status).id(id).name(self.title.clone());
+            if self.description.is_empty() {
+                said
+            } else {
+                said.description(self.description.clone())
+            }
+        });
         let mut copy = vec![line(
             self.title,
             sizing.title_role,
@@ -203,6 +221,10 @@ impl Component for Notice {
             .gap(px(sizing.gap))
             .padding(px(sizing.padding))
             .size(self.width, height);
+        let notice = match said {
+            Some(said) => notice.accessible(said),
+            None => notice,
+        };
         if self.framed {
             notice
                 .background(palette.surface)
@@ -223,6 +245,21 @@ mod tests {
 
     fn palette() -> ComponentPalette {
         ComponentPalette::neutral_dark()
+    }
+
+    #[test]
+    fn a_notice_with_an_id_is_a_status_named_by_its_title_and_described_by_its_reason() {
+        let notice = || Notice::new(TITLE, palette()).action(Button::new("install", "Instalar", palette()).render());
+        let frame = tree_of(notice().id("no-skills").description(WHY).framed()).layout(Size::new(480.0, 240.0));
+        let said = frame.access.iter().find(|node| node.id == "no-skills").unwrap();
+        assert_eq!((said.role, said.name.as_str(), said.description.as_deref()), (crate::Role::Status, TITLE, Some(WHY)));
+        assert!(!said.actionable);
+        // What it says is its own: the button inside stays a button.
+        let button = frame.access.iter().find(|node| node.id == "install").unwrap();
+        assert_eq!((button.role, button.name.as_str()), (crate::Role::Button, "Instalar"));
+        // Without an ID only its controls are there.
+        let frame = tree_of(notice()).layout(Size::new(480.0, 240.0));
+        assert_eq!(frame.access.iter().map(|node| node.id.as_str()).collect::<Vec<_>>(), ["install", "after"]);
     }
 
     fn tree_of(notice: Notice) -> UiTree {

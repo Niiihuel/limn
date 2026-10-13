@@ -3065,6 +3065,7 @@ impl UiTree {
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 pointer: self.pointer,
                 region_hovered: false,
+                access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
                 slider_motion: &mut self.slider_motion,
                 focused: self.focused.as_deref(),
@@ -5875,6 +5876,8 @@ struct LayoutBuilder<'a> {
     pointer: Option<Point>,
     /// The pointer is over the `hover_region` being placed.
     region_hovered: bool,
+    /// What a wrapper said of the control inside it, until that control takes it.
+    access_above: Option<crate::Access>,
     slider_drag: Option<&'a SliderDrag>,
     slider_motion: &'a mut HashMap<String, SliderMotion>,
     focused: Option<&'a str>,
@@ -8163,10 +8166,26 @@ impl LayoutBuilder<'_> {
                 .zip(visible)
                 .is_some_and(|(point, visible)| visible.contains(point));
         }
+        // A wrapper that is not itself a control speaks for the control inside
+        // it: a field in its frame, a switch in its row.
+        let hands_down = element.access.as_deref().filter(|said| said.id.is_none() && focusable_id(element).is_none());
+        // The outermost control inside a wrapper is the one it spoke for: it
+        // takes what was said before anything inside it can.
+        let known = focusable_id(element).is_some() || element.access.as_deref().is_some_and(|said| said.id.is_some());
+        let for_this = if known { self.access_above.take() } else { None };
+        let above = self.access_above.take();
+        self.access_above = match (hands_down, &above) {
+            (Some(said), Some(outer)) => Some(outer.clone().over(said.clone())),
+            (Some(said), None) => Some(said.clone()),
+            (None, _) => above.clone(),
+        };
         match (&element.presence, element.animate_height) {
             (Some((id, _)), Some(_)) => self.place_flow_height(element, id, rect, clip),
             _ => self.place_inner(element, rect, clip),
         }
+        // Whoever was inside took it, or nobody was: either way it goes no further.
+        let taken = self.access_above.is_none();
+        self.access_above = if taken || known { None } else { above };
         self.region_hovered = around;
         if let Some((id, radius)) = element.kept.as_ref().and_then(|kept| kept.soft.as_ref()) {
             self.soften(id, *radius, start);
@@ -8186,21 +8205,27 @@ impl LayoutBuilder<'_> {
         if dragged {
             self.drag_ghost = Some(start..self.frame.commands.len());
         }
-        self.note_access(element, rect, clip);
+        self.note_access(element, rect, clip, for_this);
     }
 
     /// Record what the platform should know of `element`: what it says of
     /// itself over what its kind tells.
-    fn note_access(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+    fn note_access(&mut self, element: &Element, rect: Rect, clip: Option<Rect>, above: Option<crate::Access>) {
         let own = focusable_id(element);
         if own.is_none() && element.access.is_none() {
             return;
         }
-        let said = element.access.as_deref().cloned().unwrap_or_default();
+        let mut said = element.access.as_deref().cloned().unwrap_or_default();
         let Some(id) = said.id.clone().or_else(|| own.map(str::to_owned)) else {
-            // Something described without a name to know it by.
+            // Something described without a name to know it by: what it said
+            // was for the control inside it.
             return;
         };
+        // What a wrapper said is for the control inside it, whether that is a
+        // control or one drawn disabled and known by the ID it was given.
+        if let Some(above) = above {
+            said = above.over(said);
+        }
         let Some(rect) = clip.map_or(Some(rect), |clip| rect.intersection(clip)) else {
             return;
         };
@@ -8215,8 +8240,9 @@ impl LayoutBuilder<'_> {
             id,
             rect,
             role: access.role.unwrap_or(crate::Role::Group),
-            name: access.name.unwrap_or_default(),
-            description: access.description,
+            // A hint names what nothing else names, and describes what has a name.
+            description: access.description.or_else(|| access.name.as_ref().and(access.hint.clone())).filter(|said| Some(said) != access.name.as_ref()),
+            name: access.name.or(access.hint).unwrap_or_default(),
             disabled: access.disabled,
             toggled: access.toggled,
             selected: access.selected,

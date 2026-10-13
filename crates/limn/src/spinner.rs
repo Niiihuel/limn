@@ -1,6 +1,6 @@
 //! A centered, passive progress indicator with a stable animation phase.
 
-use crate::{Color, Component, Element, SpinnerVariant};
+use crate::{Access, Color, Component, Element, Role, SpinnerVariant};
 
 /// A rotating outlined icon marks ongoing work without implying a completion time.
 /// Reuse the ID while rebuilding the tree so the animation does not restart.
@@ -36,7 +36,11 @@ impl Spinner {
 
 impl Component for Spinner {
     fn render(self) -> Element {
-        Element::spinner(self.id, self.color, self.variant).size(Some(self.side), Some(self.side))
+        // Work without a known end: a progress indicator with no value.
+        let said = Access::new(Role::ProgressIndicator).id(self.id.clone());
+        Element::spinner(self.id, self.color, self.variant)
+            .size(Some(self.side), Some(self.side))
+            .accessible(said)
     }
 }
 
@@ -83,6 +87,16 @@ mod tests {
                 DrawCommand::Spinner { variant: painted, .. } if *painted == variant
             )));
         }
+    }
+
+    #[test]
+    fn spinner_is_a_progress_indicator_without_a_value_named_by_the_host() {
+        let layout = |element: Element| UiTree::new(element).layout(Size::new(16.0, 16.0)).access;
+        let bare = layout(Spinner::new("loading", Color::WHITE).render());
+        assert_eq!((bare[0].id.as_str(), bare[0].role, bare[0].name.as_str()), ("loading", Role::ProgressIndicator, ""));
+        assert!(bare[0].value.is_none() && !bare[0].actionable);
+        let named = layout(Spinner::new("loading", Color::WHITE).render().accessibility_label("Searching"));
+        assert_eq!(named[0].name, "Searching");
     }
 
     fn spinners(frame: &crate::Frame) -> Vec<f32> {

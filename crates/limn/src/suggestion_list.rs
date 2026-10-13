@@ -3,8 +3,8 @@
 use std::sync::Arc;
 
 use crate::{
-    Component, ComponentPalette, Element, FontFamily, Icon, Popover, PopoverPlacement,
-    ScrollArea, ScrollbarAppearance, SelectorSizing, Separator, TextSpan,
+    Access, Component, ComponentPalette, Element, FontFamily, Icon, Popover, PopoverPlacement,
+    Role, ScrollArea, ScrollbarAppearance, SelectorSizing, Separator, TextSpan,
 };
 
 // Two lines and their padding; taller than a catalog row because the list
@@ -278,11 +278,20 @@ impl Component for SuggestionList {
                                 .flex(1.0),
                             );
                             let row = Element::row(row).gap(sizing.gap).padding(sizing.padding);
+                            let mut access = Access::new(Role::ListItem).name(&item.label);
+                            if !item.description.is_empty() {
+                                access = access.description(&item.description);
+                            }
                             if !item.enabled {
-                                return Element::panel(row).size(Some(row_width), Some(ROW_HEIGHT));
+                                return Element::panel(row)
+                                    .size(Some(row_width), Some(ROW_HEIGHT))
+                                    .accessible(access.id(&item.id).disabled(true));
                             }
                             palette
-                                .interactive_surface(Element::clickable(&item.id, row))
+                                .interactive_surface(
+                                    Element::clickable(&item.id, row)
+                                        .accessible(access.selected(index == selected)),
+                                )
                                 // The host's selection, not the pointer, owns
                                 // the highlight: it follows the arrow keys.
                                 .background(if index == selected {
@@ -404,6 +413,22 @@ mod tests {
     fn has_text(frame: &Frame, label: &str) -> bool {
         frame.commands.iter().any(|command| matches!(command,
             DrawCommand::Text { text, .. } if text == label))
+    }
+
+    #[test]
+    fn a_suggestion_tells_the_platform_its_label_and_which_one_is_highlighted() {
+        let mut items = commands(3);
+        items[2] = items[2].clone().disabled();
+        let frame = list(items, 1, 600.0).layout(Size::new(600.0, 400.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (first, chosen, off) = (node("pick:0"), node("pick:1"), node("pick:2"));
+        assert_eq!((first.role, first.name.as_str(), first.selected), (Role::ListItem, "/command-0", Some(false)));
+        assert_eq!(first.description.as_deref(), Some("Runs command 0"));
+        assert_eq!((chosen.name.as_str(), chosen.selected), ("/command-1", Some(true)));
+        assert!(chosen.actionable && !chosen.disabled);
+        assert_eq!((off.role, off.name.as_str(), off.selected), (Role::ListItem, "/command-2", None));
+        assert!(off.disabled && !off.actionable);
     }
 
     #[test]

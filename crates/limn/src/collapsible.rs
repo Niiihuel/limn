@@ -5,8 +5,8 @@
 //! represented by its content.
 
 use crate::{
-    ButtonVariant, Collapse, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
-    Icon, IconButton, Spinner, Tooltip, TooltipPlacement,
+    Access, ButtonVariant, Collapse, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
+    Icon, IconButton, Role, Spinner, Tooltip, TooltipPlacement,
 };
 
 const HEADER_HEIGHT: f32 = 28.0;
@@ -134,6 +134,11 @@ impl Component for Collapsible {
         if let Some(ink) = self.ink {
             self.palette.muted = ink;
         }
+        // The header opens what is under it; the detail beside the title describes it.
+        let mut said = Access::new(Role::Button).name(self.title.clone()).expanded(self.expanded);
+        if let Some(detail) = self.detail.as_deref().filter(|detail| !detail.is_empty()) {
+            said = said.description(detail);
+        }
         let leading = if self.thinking {
             Element::icon(Icon::Brain).foreground(self.palette.muted)
         } else if self.loading {
@@ -189,9 +194,9 @@ impl Component for Collapsible {
         ));
         let header = Element::row(header).gap(6.0).clip_children();
         let header = if self.enabled {
-            self.palette.interactive_surface(Element::clickable(&self.id, header))
+            self.palette.interactive_surface(Element::clickable(&self.id, header).accessible(said))
         } else {
-            Element::panel(header)
+            Element::panel(header).accessible(said.id(self.id.clone()).disabled(true))
         }
         .padding(HEADER_PADDING)
         .size(None, Some(HEADER_HEIGHT));
@@ -258,8 +263,14 @@ fn footer_row(id: &str, palette: ComponentPalette, enabled: bool) -> Element {
     .size(ControlSize::Dense)
     .enabled(enabled)
     .render();
+    // An icon alone: its hint is its name.
+    let said = Access::new(Role::Button).name(crate::labels().collapse);
     // A disabled footer is passive content and has nothing to dispatch.
-    let button = if enabled { button.dispatch_as(id) } else { button };
+    let button = if enabled {
+        button.dispatch_as(id).accessible(said)
+    } else {
+        button.accessible(said.id(button_id.clone()).disabled(true))
+    };
     Element::row(vec![
         Element::spacer().flex(1.0),
         Tooltip::new(button, button_id, crate::labels().collapse, palette)
@@ -283,6 +294,35 @@ mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
     use web_time::{Duration, Instant};
+
+    #[test]
+    fn the_header_says_whether_it_is_open_and_the_footer_has_a_name_enabled_or_not() {
+        let make = |expanded: bool, enabled: bool| {
+            let element = Collapsible::new("details", "Actividad", Element::text("Contenido"), ComponentPalette::neutral_dark())
+                .detail("3 pasos")
+                .expanded(expanded)
+                .collapse_footer(true)
+                .enabled(enabled)
+                .render();
+            let mut tree = UiTree::new(element);
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(360.0, 400.0)).access
+        };
+        for (expanded, enabled) in [(false, true), (true, true), (true, false), (false, false)] {
+            let nodes = make(expanded, enabled);
+            let header = nodes.iter().find(|node| node.id == "details").unwrap();
+            assert_eq!((header.role, header.name.as_str()), (Role::Button, "Actividad"));
+            assert_eq!(header.description.as_deref(), Some("3 pasos"));
+            assert_eq!(header.expanded, Some(expanded));
+            assert_eq!((header.disabled, header.actionable), (!enabled, enabled));
+            let footer = nodes.iter().find(|node| node.id == "details:collapse");
+            assert_eq!(footer.is_some(), expanded);
+            if let Some(footer) = footer {
+                assert_eq!((footer.role, footer.name.as_str()), (Role::Button, crate::labels().collapse));
+                assert_eq!((footer.disabled, footer.actionable), (!enabled, enabled));
+            }
+        }
+    }
 
     #[test]
     fn footer_collapses_the_same_disclosure_and_does_not_duplicate_its_identity() {

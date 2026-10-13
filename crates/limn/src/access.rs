@@ -53,6 +53,8 @@ pub struct Access {
     pub(crate) id: Option<String>,
     pub(crate) role: Option<Role>,
     pub(crate) name: Option<String>,
+    /// A name for a control that nothing else names: its hint's title.
+    pub(crate) hint: Option<String>,
     pub(crate) description: Option<String>,
     pub(crate) disabled: bool,
     pub(crate) toggled: Option<bool>,
@@ -72,6 +74,12 @@ impl Access {
     /// icon button, a field without a placeholder.
     pub fn named(name: impl Into<String>) -> Self {
         Self { name: Some(name.into()), ..Self::default() }
+    }
+
+    /// What a hint says of the control it is on: its name if the control has
+    /// no other, and otherwise its description.
+    pub(crate) fn hinted(title: impl Into<String>) -> Self {
+        Self { hint: Some(title.into()), ..Self::default() }
     }
 
     /// The ID the node is known by, for an element that has none of its own:
@@ -138,6 +146,7 @@ impl Access {
             id: self.id.or(under.id),
             role: self.role.or(under.role),
             name: self.name.or(under.name),
+            hint: self.hint.or(under.hint),
             description: self.description.or(under.description),
             disabled: self.disabled || under.disabled,
             toggled: self.toggled.or(under.toggled),

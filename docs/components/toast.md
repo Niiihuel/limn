@@ -79,3 +79,10 @@ Toast::new("Saved", palette).id("saved:notes.md").render()
 | --- | --- |
 | `UiAction::Clicked { id }` with the `action` ID | The card's copy is clicked. |
 | `UiAction::Clicked { id }` with the `dismissible` ID | The close button is activated. |
+
+## Accessibility
+
+The platform is told of an alert named by the card's title and described by
+its description, known by the card's `id`, or by `toast:` and its title
+without one. Copy with an `action` is a button named by that copy, and the
+close button is named by `labels().dismiss_notice`.

@@ -4,7 +4,10 @@
 //! The arrangement follows Spell UI's Spotify card (MIT, Copyright (c) 2025
 //! Spell UI, github.com/xxtomm/spell-ui).
 
-use crate::{Color, Component, ComponentPalette, Element, FontFamily, RadiusRole, RasterImage, Text, TextRole, RECORD_REACH};
+use crate::{
+    Access, Color, Component, ComponentPalette, Element, FontFamily, RadiusRole, RasterImage, Role, Text,
+    TextRole, RECORD_REACH,
+};
 
 const DEFAULT_WIDTH: f32 = 325.0;
 const MIN_WIDTH: f32 = 220.0;
@@ -110,11 +113,17 @@ impl Component for MediaCard {
             .background(palette.selected)
             .radius(RadiusRole::Control.px())
             .size(Some(SLEEVE), Some(SLEEVE));
+        // A picture alone: the sleeve is named by the title, described by the
+        // artist, and on while the track plays.
+        let mut said = Access::new(Role::Button).name(self.title.clone()).toggled(self.playing);
+        if !self.artist.is_empty() {
+            said = said.description(self.artist.clone());
+        }
         let sleeve = if self.enabled {
             // The sleeve is the control; the record peeks out under the pointer.
-            Element::clickable(&self.id, record.record_peek(&self.id))
+            Element::clickable(&self.id, record.record_peek(&self.id)).accessible(said)
         } else {
-            Element::panel(record)
+            Element::panel(record).accessible(said.id(self.id.clone()).disabled(true))
         }
         .size(Some(SLEEVE), Some(SLEEVE));
 
@@ -153,6 +162,17 @@ mod tests {
 
     fn palette() -> ComponentPalette {
         ComponentPalette::neutral_dark()
+    }
+
+    #[test]
+    fn the_sleeve_is_a_button_named_by_the_title_that_says_whether_it_plays() {
+        for (playing, enabled) in [(false, true), (true, true), (true, false)] {
+            let frame = UiTree::new(card().playing(playing).enabled(enabled).render()).layout(SIZE);
+            let said = frame.access.iter().find(|node| node.id == "card").unwrap();
+            assert_eq!((said.role, said.name.as_str()), (Role::Button, "Past Won't Leave My Bed"));
+            assert_eq!((said.description.as_deref(), said.toggled), (Some("Joji"), Some(playing)));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
     }
 
     fn card() -> MediaCard {

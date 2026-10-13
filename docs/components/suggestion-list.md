@@ -121,3 +121,9 @@ The list appears and leaves with the motion tokens' `enter_ms` and `exit_ms`.
 | --- | --- |
 | `UiAction::Clicked { id }` with an item's ID | The item is clicked. |
 | `UiAction::Clicked { id }` with the dismiss ID | The pointer is pressed outside the list. |
+
+## Accessibility
+
+A suggestion is an item of a list named by its label, with its description
+said after it. It says whether it is the selected one, the row under the
+host's highlight, and a disabled suggestion is there and cannot be used.

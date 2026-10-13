@@ -60,6 +60,7 @@ impl HeaderSizing {
 /// the panel's tools and a dismiss button. The header decides the height,
 /// the inset, the gap and where the tools stand; it paints no fill.
 pub struct PanelHeader {
+    id: Option<String>,
     title: String,
     leading: Option<Element>,
     back: Option<(String, String)>,
@@ -74,6 +75,7 @@ impl PanelHeader {
     /// A title cut to one line, in the [`HeaderSizing::SIDEBAR`] profile.
     pub fn new(title: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
+            id: None,
             title: title.into(),
             leading: None,
             back: None,
@@ -83,6 +85,13 @@ impl PanelHeader {
             sizing: HeaderSizing::SIDEBAR,
             palette,
         }
+    }
+
+    /// Make the title known to the platform by this ID, as a heading.
+    /// Without one only the header's buttons are known.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// A header that holds this element where a title would be, such as a
@@ -158,10 +167,19 @@ impl Component for PanelHeader {
         children.push(
             match self.leading.take() {
                 Some(element) => element,
-                None => Text::new(std::mem::take(&mut self.title), self.palette)
-                    .role(sizing.title_role)
-                    .truncate()
-                    .render(),
+                None => {
+                    let said = self.id.take().map(|id| {
+                        crate::Access::new(crate::Role::Heading).id(id).name(self.title.clone())
+                    });
+                    let title = Text::new(std::mem::take(&mut self.title), self.palette)
+                        .role(sizing.title_role)
+                        .truncate()
+                        .render();
+                    match said {
+                        Some(said) => title.accessible(said),
+                        None => title,
+                    }
+                }
             }
             .flex(1.0),
         );
@@ -223,6 +241,20 @@ mod tests {
             .variant(ButtonVariant::Ghost)
             .size(ControlSize::Dense)
             .render()
+    }
+
+    #[test]
+    fn the_title_with_an_id_is_a_heading_and_back_and_dismiss_are_named_by_their_hints() {
+        let header = || PanelHeader::new("Archivos", ComponentPalette::neutral_dark()).back("back", "Volver").dismiss("close", "");
+        let frame = tree(header().id("files").width(240.0).render()).layout(Size::new(240.0, 200.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        assert_eq!((node("files").role, node("files").name.as_str()), (crate::Role::Heading, "Archivos"));
+        assert!(!node("files").actionable);
+        assert_eq!((node("back").role, node("back").name.as_str()), (crate::Role::Button, "Volver"));
+        // A hint the host left empty names nothing.
+        assert_eq!(node("close").name, "");
+        let frame = tree(header().render()).layout(Size::new(240.0, 200.0));
+        assert_eq!(frame.access.iter().map(|node| node.id.as_str()).collect::<Vec<_>>(), ["back", "close"]);
     }
 
     // The header at the top of a taller window, at its own height.

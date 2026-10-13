@@ -231,6 +231,12 @@ impl Component for ActionRow {
         } else {
             sizing.min_height
         });
+        // With an action the row is a button named by its title and
+        // described by its subtitle, whatever else sits in it.
+        let mut said = crate::Access::new(crate::Role::Button).name(self.title.clone());
+        if let Some(subtitle) = &self.subtitle {
+            said = said.description(subtitle.clone());
+        }
         let title = if self.wrap_title {
             Element::text(self.title)
         } else {
@@ -286,11 +292,12 @@ impl Component for ActionRow {
             Element::row(children).gap(px(sizing.gap)).min_size(0.0, minimum_height)
         }
         .padding(PADDING);
-        if let Some(id) = self.action.filter(|_| self.enabled) {
-            self.palette
-                .interactive_surface(Element::clickable(id, content))
-        } else {
-            content
+        match self.action {
+            Some(id) if self.enabled => self
+                .palette
+                .interactive_surface(Element::clickable(id, content).accessible(said)),
+            Some(id) => content.accessible(said.id(id).disabled(true)),
+            None => content,
         }
     }
 }
@@ -299,6 +306,21 @@ impl Component for ActionRow {
 mod tests {
     use super::*;
     use crate::{DrawCommand, Frame, Key, Point, Rect, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn a_row_with_an_action_is_a_button_named_by_its_title_and_described_by_its_subtitle() {
+        let palette = ComponentPalette::neutral_dark();
+        let row = || ActionRow::new("Idioma", palette).subtitle("Español").value("es");
+        for enabled in [true, false] {
+            let frame = UiTree::new(row().action("language").enabled(enabled).render()).layout(Size::new(320.0, 80.0));
+            let said = frame.access.iter().find(|node| node.id == "language").unwrap();
+            assert_eq!((said.role, said.name.as_str()), (crate::Role::Button, "Idioma"));
+            assert_eq!(said.description.as_deref(), Some("Español"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
+        // Without an action it is copy, not a control.
+        assert!(UiTree::new(row().render()).layout(Size::new(320.0, 80.0)).access.is_empty());
+    }
 
     fn same_bounds(rect: Rect, bounds: Rect) -> bool {
         (rect.x - bounds.x).abs() < 0.001

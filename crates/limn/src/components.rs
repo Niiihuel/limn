@@ -4,10 +4,10 @@
 //! these controls are rebuilt on every frame.
 
 use crate::{
-    Color, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement, TooltipItem,
+    Access, Color, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement, TooltipItem,
     RadiusRole, TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
 };
-use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion};
+use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion, Role};
 
 /// A component can render to an ordinary [`Element`] and be used anywhere in
 /// the tree. App-specific views and generic controls follow the same contract.
@@ -41,6 +41,7 @@ pub struct Tooltip {
     max_width: f32,
     placement: TooltipPlacement,
     palette: ComponentPalette,
+    described: bool,
 }
 
 impl Tooltip {
@@ -59,6 +60,7 @@ impl Tooltip {
             max_width: 360.0,
             placement: TooltipPlacement::Above,
             palette,
+            described: true,
         }
     }
 
@@ -156,8 +158,15 @@ impl Tooltip {
 
 impl Component for Tooltip {
     fn render(self) -> Element {
+        // A hint is not seen by who cannot hover: its title describes the
+        // control it is anchored to.
+        let anchor = if self.described && !self.title.trim().is_empty() {
+            self.anchor.accessible(Access::hinted(self.title.clone()))
+        } else {
+            self.anchor
+        };
         let mut element = Element::tooltip(
-            self.anchor,
+            anchor,
             self.anchor_id,
             self.title,
             self.shortcut,
@@ -174,6 +183,13 @@ impl Component for Tooltip {
             *max_width = self.max_width;
         }
         element
+    }
+}
+
+impl Tooltip {
+    // The hint alone, for a button that has already said what its hint says.
+    fn hint(self) -> Element {
+        Component::render(Tooltip { described: false, ..self })
     }
 }
 
@@ -271,7 +287,7 @@ impl TooltipSpec {
         if let Some(width) = self.max_width {
             tooltip = tooltip.max_width(width);
         }
-        tooltip.render()
+        tooltip.hint()
     }
 }
 
@@ -573,6 +589,7 @@ pub struct Button {
     palette: ComponentPalette,
     tooltip: TooltipSpec,
     dispatch_as: Option<String>,
+    accessibility_label: Option<String>,
 }
 
 impl Button {
@@ -611,6 +628,34 @@ impl Button {
             palette,
             tooltip: TooltipSpec::none(),
             dispatch_as: None,
+            accessibility_label: None,
+        }
+    }
+
+    /// What the button is called to the platform, in place of its label. A
+    /// button of an icon alone is called by its hint's title without one.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
+    }
+
+    // What the platform is told: the name of an icon alone, and the hint's
+    // title as a description where it is not already the name.
+    fn access(&self) -> Access {
+        let (_, label) = self.content.clone().parts();
+        let title = self.tooltip.title.clone().filter(|title| !title.trim().is_empty());
+        let name = self
+            .accessibility_label
+            .clone()
+            .or_else(|| if label.is_empty() { title.clone() } else { None });
+        let spoken = name.clone().unwrap_or(label);
+        let mut access = Access::default();
+        if let Some(name) = name {
+            access = access.name(name);
+        }
+        match title {
+            Some(title) if title != spoken => access.description(title),
+            _ => access,
         }
     }
 
@@ -882,6 +927,7 @@ impl Button {
 impl Component for Button {
     fn render(self) -> Element {
         let (base, hover, pressed, ink, outline) = self.colors();
+        let access = self.access();
         let sizing = self
             .sizing
             .or(self.button_size.map(ButtonSize::sizing))
@@ -906,6 +952,9 @@ impl Component for Button {
             // disabled action is instead ordinary painted content: it remains
             // visible, but cannot be focused or activated by any input path.
             let has_label = !label.is_empty();
+            // Passive content has no name of its own: the label is said.
+            let access = Access::new(Role::Button).id(self.action_id.clone()).disabled(true).over(access);
+            let access = if has_label { access.over(Access::named(label.clone())) } else { access };
             let icon_space = if icon.is_some() || self.loading {
                 sizing.icon_size + spacing
             } else {
@@ -987,7 +1036,7 @@ impl Component for Button {
             if outline {
                 element = element.border(self.palette.border, 1.0);
             }
-            return self.tooltip.wrap(element, self.action_id, self.palette);
+            return self.tooltip.wrap(element.accessible(access), self.action_id, self.palette);
         }
 
         let mut element = if let Some(icon) = icon {
@@ -1033,6 +1082,9 @@ impl Component for Button {
         }
         if let Some(action) = self.dispatch_as {
             element = element.dispatch_as(action);
+        }
+        if access != Access::default() {
+            element = element.accessible(access);
         }
         self.tooltip.wrap(element, self.action_id, self.palette)
     }
@@ -1099,10 +1151,12 @@ impl Component for Link {
         if !self.enabled {
             // The engine's Button element always registers a hit target, so
             // a disabled link is its label alone, on one line as a button's.
+            let access = Access::new(Role::Link).id(self.action_id).name(self.label.clone()).disabled(true);
             return Element::truncated_text(self.label)
                 .foreground(self.muted)
                 .font_family(FontFamily::Sans)
-                .font_size(self.font_size);
+                .font_size(self.font_size)
+                .accessible(access);
         }
         Element::button(self.action_id, self.label)
             .foreground(self.color)
@@ -1110,6 +1164,7 @@ impl Component for Link {
             .font_size(self.font_size)
             .padding(0.0)
             .underline_on_hover()
+            .accessible(Access::new(Role::Link))
     }
 }
 
@@ -1156,6 +1211,14 @@ impl IconButton {
     /// Report this action when activated, while the button keeps its own ID.
     pub fn dispatch_as(mut self, action_id: impl Into<String>) -> Self {
         self.0 = self.0.dispatch_as(action_id);
+        self
+    }
+
+    /// What the button is called to the platform. An icon alone has no name:
+    /// without this it is called by its hint's title, and by nothing without
+    /// a hint.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.0 = self.0.accessibility_label(name);
         self
     }
 
@@ -1369,6 +1432,7 @@ pub struct TextField {
     state: ControlState,
     password: bool,
     monospace: bool,
+    accessibility_label: Option<String>,
 }
 
 impl TextField {
@@ -1392,7 +1456,15 @@ impl TextField {
             state: ControlState::Enabled,
             password: false,
             monospace: false,
+            accessibility_label: None,
         }
+    }
+
+    /// What the field is called to the platform, in place of its
+    /// placeholder: an example of what to type is not a name.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
     }
 
     /// Take the height and text size of a control size.
@@ -1466,6 +1538,14 @@ impl Component for TextField {
             FontFamily::Sans
         };
         if self.state == ControlState::Disabled {
+            let access = disabled_field(
+                if self.password { Role::PasswordInput } else { Role::TextInput },
+                self.id,
+                self.accessibility_label,
+                &self.placeholder,
+                // What is typed into a password field is nobody's to read out.
+                (!self.password).then(|| self.value.clone()),
+            );
             let text = if self.password && !self.value.is_empty() {
                 "•".repeat(self.value.chars().count())
             } else if self.value.is_empty() {
@@ -1483,9 +1563,10 @@ impl Component for TextField {
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
             .radius(input_radius(self.size))
-            .size(self.width, Some(height));
+            .size(self.width, Some(height))
+            .accessible(access);
         }
-        input_surface(
+        let input = input_surface(
             Element::text_input(self.id, self.value, self.placeholder)
                 .password(self.password)
                 .persistent_placeholder(self.persistent_placeholder),
@@ -1494,7 +1575,11 @@ impl Component for TextField {
             self.width,
         )
         .size(self.width, Some(height))
-        .font_family(family)
+        .font_family(family);
+        match self.accessibility_label {
+            Some(name) => input.accessibility_label(name),
+            None => input,
+        }
     }
 }
 
@@ -1510,6 +1595,7 @@ pub struct TextArea {
     radius: RadiusRole,
     state: ControlState,
     preserve_line_endings: bool,
+    accessibility_label: Option<String>,
 }
 
 impl TextArea {
@@ -1531,7 +1617,15 @@ impl TextArea {
             radius: RadiusRole::Control,
             state: ControlState::Enabled,
             preserve_line_endings: false,
+            accessibility_label: None,
         }
+    }
+
+    /// What the field is called to the platform, in place of its
+    /// placeholder: an example of what to type is not a name.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
     }
 
     /// Fix the width, in logical pixels. A width that is not finite is ignored and a negative one is zero.
@@ -1584,6 +1678,13 @@ impl TextArea {
 impl Component for TextArea {
     fn render(self) -> Element {
         if self.state == ControlState::Disabled {
+            let access = disabled_field(
+                Role::MultilineTextInput,
+                self.id,
+                self.accessibility_label,
+                &self.placeholder,
+                Some(self.value.clone()),
+            );
             let text = if self.value.is_empty() {
                 self.placeholder
             } else {
@@ -1599,9 +1700,10 @@ impl Component for TextArea {
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
             .radius(self.radius.px())
-            .size(self.width, Some(self.height));
+            .size(self.width, Some(self.height))
+            .accessible(access);
         }
-        Element::text_area(self.id, self.value, self.placeholder)
+        let area = Element::text_area(self.id, self.value, self.placeholder)
             .text_area_preserve_line_endings(self.preserve_line_endings)
             .background(self.palette.raised)
             .hover_background(lighter(self.palette.raised, 5))
@@ -1613,7 +1715,29 @@ impl Component for TextArea {
             .padding(8.0)
             .radius(self.radius.px())
             .min_size(80.0, self.height)
-            .size(self.width, Some(self.height))
+            .size(self.width, Some(self.height));
+        match self.accessibility_label {
+            Some(name) => area.accessibility_label(name),
+            None => area,
+        }
+    }
+}
+
+// What a field drawn disabled still says: the node its input would have been.
+fn disabled_field(
+    role: Role,
+    id: String,
+    name: Option<String>,
+    placeholder: &str,
+    value: Option<String>,
+) -> Access {
+    let mut access = Access::new(role).id(id).disabled(true);
+    if let Some(name) = name.or_else(|| (!placeholder.is_empty()).then(|| placeholder.to_owned())) {
+        access = access.name(name);
+    }
+    match value {
+        Some(value) => access.value_text(value),
+        None => access,
     }
 }
 
@@ -1655,6 +1779,7 @@ pub struct SearchField {
     width: Option<f32>,
     state: ControlState,
     shortcut: Option<String>,
+    accessibility_label: Option<String>,
 }
 
 /// The application's shared search input; the existing `SearchField` name
@@ -1679,7 +1804,15 @@ impl SearchField {
             width: None,
             state: ControlState::Enabled,
             shortcut: None,
+            accessibility_label: None,
         }
+    }
+
+    /// What the field is called to the platform, in place of its
+    /// placeholder: an example of what to type is not a name.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
     }
 
     /// Take the height and text size of a control size.
@@ -1727,6 +1860,13 @@ impl Component for SearchField {
         let radius = input_radius(self.size);
         let surface = self.palette.raised;
         if self.state == ControlState::Disabled {
+            let access = disabled_field(
+                Role::SearchInput,
+                self.id,
+                self.accessibility_label,
+                &self.placeholder,
+                Some(self.value.clone()),
+            );
             let (value, ink) = if self.value.is_empty() {
                 (self.placeholder, self.palette.muted)
             } else {
@@ -1763,7 +1903,12 @@ impl Component for SearchField {
             .background(surface)
             .border(self.palette.border, 1.0)
             .radius(radius)
-            .size(self.width, Some(height));
+            .size(self.width, Some(height))
+            .accessible(access);
+        }
+        let mut access = Access::new(Role::SearchInput);
+        if let Some(name) = self.accessibility_label {
+            access = access.name(name);
         }
         let mut input = input_surface(
             Element::text_input(self.id, self.value, self.placeholder)
@@ -1778,7 +1923,7 @@ impl Component for SearchField {
                 .input_shortcut(shortcut)
                 .input_shortcut_fill(crate::shortcut::cap_fill(self.palette.text));
         }
-        input
+        input.accessible(access)
     }
 }
 
@@ -1790,6 +1935,7 @@ pub struct Switch {
     checked: bool,
     state: ControlState,
     palette: ComponentPalette,
+    accessibility_label: Option<String>,
 }
 
 impl Switch {
@@ -1801,7 +1947,15 @@ impl Switch {
             checked,
             state: ControlState::Enabled,
             palette,
+            accessibility_label: None,
         }
+    }
+
+    /// What the switch is called to the platform. It shows no text of its
+    /// own, so without this, or a `FormField` around it, it has no name.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
     }
 
     /// Disable it: it keeps its place and its value and cannot be used.
@@ -1860,6 +2014,14 @@ impl Component for Switch {
             crate::tokens().motion.move_ms,
         );
         let enabled = self.state == ControlState::Enabled;
+        // Drawn disabled it is passive, and known by the ID it would have had.
+        let mut access = Access::new(Role::Switch)
+            .id(self.action_id.clone())
+            .toggled(self.checked)
+            .disabled(!enabled);
+        if let Some(name) = self.accessibility_label {
+            access = access.name(name);
+        }
         let track = if enabled {
             Element::clickable(self.action_id, contents)
                 .hover_background(lighter(track_color, 10))
@@ -1873,6 +2035,7 @@ impl Component for Switch {
             .padding(3.0)
             .radius(TRACK_HEIGHT / 2.0)
             .size(Some(TRACK_WIDTH), Some(TRACK_HEIGHT))
+            .accessible(access)
     }
 }
 
@@ -2060,7 +2223,9 @@ impl Component for Tabs {
                 } else {
                     self.palette.text
                 };
+                let access = Access::new(Role::Tab).selected(item.active);
                 if item.state == ControlState::Disabled {
+                    let access = access.id(item.action_id).name(item.label.clone()).disabled(true);
                     let label = Element::text(item.label)
                         .foreground(self.palette.muted)
                         .font_family(FontFamily::Sans)
@@ -2082,7 +2247,8 @@ impl Component for Tabs {
                     .padding(TAB_ITEM_PADDING)
                     .background(Color::TRANSPARENT)
                     .radius(control_radius())
-                    .size(Some(item.width), Some(self.height));
+                    .size(Some(item.width), Some(self.height))
+                    .accessible(access);
                 }
                 let button = if let Some(icon) = item.icon {
                     Element::icon_button(item.action_id, icon, item.label)
@@ -2101,6 +2267,7 @@ impl Component for Tabs {
                     .radius(control_radius())
                     .center_content()
                     .size(Some(item.width), Some(self.height))
+                    .accessible(access)
             })
             .collect();
         let strip = Element::tab_strip(items, enabled_ids)
@@ -2244,8 +2411,11 @@ impl Popover {
 
 impl Component for Popover {
     fn render(self) -> Element {
+        // What the anchor opens is open or it is not; said of the anchor
+        // alone, so it cannot reach a control of the content.
+        let anchor = self.anchor.accessible(Access::default().expanded(self.open));
         if !self.open {
-            return self.anchor;
+            return anchor;
         }
         let floating = Element::panel(self.content)
             .padding(6.0)
@@ -2254,7 +2424,7 @@ impl Component for Popover {
             .border(self.palette.border, 1.0)
             .radius(surface_radius())
             .shadow(self.palette.shadow, Point::new(0.0, 9.0), 22.0, 0.0);
-        let mut popover = Element::popover(self.anchor, floating, self.dismiss_id, self.placement)
+        let mut popover = Element::popover(anchor, floating, self.dismiss_id, self.placement)
             .popover_animation_ms(self.animation_ms)
             .popover_open_scale(self.open_scale);
         if let Some(duration) = self.close_animation_ms {
@@ -2412,7 +2582,203 @@ impl Component for DropdownList {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, ElementKind, Point, Size, UiAction, UiEvent, UiTree};
+    use crate::{AccessNode, DrawCommand, ElementKind, Point, Size, UiAction, UiEvent, UiTree};
+
+    fn access_node(element: Element, id: &str) -> AccessNode {
+        let nodes = UiTree::new(Element::column(vec![element, Element::spacer().flex(1.0)]))
+            .layout(Size::new(480.0, 320.0))
+            .access;
+        nodes.iter().find(|node| node.id == id).cloned().unwrap_or_else(|| panic!("no node {id} among {nodes:?}"))
+    }
+
+    #[test]
+    fn a_button_is_named_by_its_label_and_described_by_its_hint_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        for enabled in [true, false] {
+            let save = Button::new("save", "Save", palette).tooltip("Save every open file").enabled(enabled);
+            let said = access_node(save.render(), "save");
+            assert_eq!((said.role, said.name.as_str()), (Role::Button, "Save"));
+            assert_eq!(said.description.as_deref(), Some("Save every open file"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+            // A hint that repeats the label is not said twice.
+            let same = access_node(Button::new("save", "Save", palette).tooltip("Save").enabled(enabled).render(), "save");
+            assert_eq!((same.name.as_str(), same.description), ("Save", None));
+            let named = Button::new("save", "Save", palette).accessibility_label("Save the file").enabled(enabled);
+            assert_eq!(access_node(named.render(), "save").name, "Save the file");
+        }
+        let busy = access_node(Button::new("save", "Save", palette).loading(true).render(), "save");
+        assert!(busy.disabled && !busy.actionable, "a busy button cannot be used");
+    }
+
+    #[test]
+    fn an_icon_button_is_named_by_its_hint_or_by_the_name_it_is_given() {
+        let palette = ComponentPalette::neutral_dark();
+        for enabled in [true, false] {
+            let button = || IconButton::new("close", Icon::Close, palette).enabled(enabled);
+            let bare = access_node(button().render(), "close");
+            assert_eq!((bare.role, bare.name.as_str(), bare.disabled), (Role::Button, "", !enabled));
+            let hinted = access_node(button().tooltip("Close").render(), "close");
+            assert_eq!((hinted.name.as_str(), hinted.description), ("Close", None));
+            // A suppressed hint is not drawn; it still names the button.
+            let quiet = button().tooltip_with(TooltipSpec::new("Close").suppressed(true));
+            assert_eq!(access_node(quiet.render(), "close").name, "Close");
+            let named = access_node(button().tooltip("Esc").accessibility_label("Close").render(), "close");
+            assert_eq!((named.name.as_str(), named.description.as_deref()), ("Close", Some("Esc")));
+            let labelled = access_node(button().label("Close tab").render(), "close");
+            assert_eq!(labelled.name, "Close tab");
+        }
+    }
+
+    #[test]
+    fn a_link_is_a_link_named_by_its_label_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        for enabled in [true, false] {
+            let said = access_node(Link::new("docs", "Read the docs", palette).enabled(enabled).render(), "docs");
+            assert_eq!((said.role, said.name.as_str()), (Role::Link, "Read the docs"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
+    }
+
+    #[test]
+    fn a_switch_says_whether_it_is_on_and_takes_its_name_from_the_host() {
+        let palette = ComponentPalette::neutral_dark();
+        for (checked, enabled) in [(true, true), (false, true), (true, false), (false, false)] {
+            let switch = Switch::new("wifi", checked, palette).enabled(enabled).accessibility_label("Wi-Fi");
+            let said = access_node(switch.render(), "wifi");
+            assert_eq!((said.role, said.name.as_str(), said.toggled), (Role::Switch, "Wi-Fi", Some(checked)));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
+        assert_eq!(access_node(Switch::new("wifi", true, palette).render(), "wifi").name, "");
+    }
+
+    #[test]
+    fn a_text_field_is_named_by_its_placeholder_or_the_name_it_is_given_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        for enabled in [true, false] {
+            let field = || TextField::new("name", "limn", "e.g. my-project", palette).enabled(enabled);
+            let said = access_node(field().render(), "name");
+            assert_eq!((said.role, said.name.as_str()), (Role::TextInput, "e.g. my-project"));
+            assert_eq!(said.value_text.as_deref(), Some("limn"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+            assert_eq!(access_node(field().accessibility_label("Project name").render(), "name").name, "Project name");
+            let secret = access_node(field().password(true).render(), "name");
+            assert_eq!((secret.role, secret.value_text), (Role::PasswordInput, None));
+        }
+    }
+
+    #[test]
+    fn a_text_area_is_a_multiline_field_with_its_name_and_value_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        for enabled in [true, false] {
+            let area = || TextArea::new("notes", "First line", "Notes", palette).enabled(enabled);
+            let said = access_node(area().render(), "notes");
+            assert_eq!((said.role, said.name.as_str()), (Role::MultilineTextInput, "Notes"));
+            assert_eq!(said.value_text.as_deref(), Some("First line"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+            assert_eq!(access_node(area().accessibility_label("Release notes").render(), "notes").name, "Release notes");
+        }
+    }
+
+    #[test]
+    fn a_search_field_is_a_search_input_with_its_name_and_query_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        for enabled in [true, false] {
+            let field = || SearchField::new("search", "tabs", "Search", palette).shortcut("Ctrl+K").enabled(enabled);
+            let said = access_node(field().render(), "search");
+            assert_eq!((said.role, said.name.as_str()), (Role::SearchInput, "Search"));
+            assert_eq!(said.value_text.as_deref(), Some("tabs"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+            assert_eq!(access_node(field().accessibility_label("Search files").render(), "search").name, "Search files");
+        }
+    }
+
+    #[test]
+    fn tabs_and_segments_are_tabs_and_the_chosen_one_says_so() {
+        let palette = ComponentPalette::neutral_dark();
+        let items = || {
+            vec![
+                Tab::new("files", "Files", 80.0).active(true),
+                Tab::new("search", "Search", 80.0).icon(Icon::Search),
+                Tab::new("git", "Git", 80.0).disabled(),
+            ]
+        };
+        for strip in [Tabs::new(items(), palette).render(), SegmentedControl::new(items(), palette).render()] {
+            let row = Element::row(vec![strip, Element::spacer().flex(1.0)]);
+            let nodes = UiTree::new(row).layout(Size::new(480.0, 60.0)).access;
+            let said: Vec<_> = nodes
+                .iter()
+                .map(|node| (node.id.as_str(), node.role, node.name.as_str(), node.selected, node.disabled))
+                .collect();
+            assert_eq!(
+                said,
+                [
+                    ("files", Role::Tab, "Files", Some(true), false),
+                    ("search", Role::Tab, "Search", Some(false), false),
+                    ("git", Role::Tab, "Git", Some(false), true),
+                ]
+            );
+            assert!(nodes[0].actionable && !nodes[2].actionable);
+        }
+    }
+
+    #[test]
+    fn a_popover_tells_its_anchor_whether_it_is_open() {
+        let palette = ComponentPalette::neutral_dark();
+        for open in [false, true] {
+            let popover = Popover::new(
+                Element::panel(Button::new("more", "More", palette).render()),
+                Button::new("inside", "Inside", palette).render(),
+                open,
+                "dismiss",
+                palette,
+            );
+            let nodes = UiTree::new(Element::column(vec![popover.render(), Element::spacer().flex(1.0)]))
+                .layout(Size::new(480.0, 320.0))
+                .access;
+            let anchor = nodes.iter().find(|node| node.id == "more").expect("the anchor");
+            assert_eq!((anchor.role, anchor.name.as_str(), anchor.expanded), (Role::Button, "More", Some(open)));
+            // What is said of the anchor is not said of what it opens.
+            let inside = nodes.iter().find(|node| node.id == "inside");
+            assert_eq!(inside.map(|node| node.expanded), open.then_some(None));
+        }
+    }
+
+    #[test]
+    fn a_tooltip_describes_the_control_it_is_anchored_to() {
+        let palette = ComponentPalette::neutral_dark();
+        let hinted = Tooltip::new(Button::new("run", "Run", palette).render(), "run", "Run the tests", palette);
+        let said = access_node(hinted.render(), "run");
+        assert_eq!((said.name.as_str(), said.description.as_deref()), ("Run", Some("Run the tests")));
+        // A passive anchor is not made a node by its hint.
+        let passive = Tooltip::new(Element::text("12 files"), "count", "In this folder", palette).render();
+        assert!(UiTree::new(passive).layout(Size::new(200.0, 60.0)).access.is_empty());
+    }
+
+    #[test]
+    fn a_dropdown_list_says_which_option_is_the_chosen_one() {
+        let palette = ComponentPalette::neutral_dark();
+        let list = DropdownList::new(
+            Button::new("open", "Shell", palette).render(),
+            vec![
+                DropdownOption::new("bash", "Bash").selected(true),
+                DropdownOption::new("zsh", "Zsh"),
+                DropdownOption::new("off", "Off").disabled(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        );
+        let mut tree = UiTree::new(Element::column(vec![list.render(), Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let nodes = tree.layout(Size::new(480.0, 320.0)).access;
+        let said = |id: &str| {
+            let node = nodes.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id} among {nodes:?}"));
+            (node.role, node.name.as_str(), node.selected, node.disabled)
+        };
+        assert_eq!(said("bash"), (Role::MenuItem, "Bash", Some(true), false));
+        assert_eq!(said("zsh"), (Role::MenuItem, "Zsh", Some(false), false));
+        assert_eq!(said("off"), (Role::MenuItem, "Off", Some(false), true));
+    }
 
     #[test]
     fn a_captioned_shortcut_uses_one_budget_for_keys_separators_and_caption() {

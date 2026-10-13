@@ -2,8 +2,8 @@
 //! The host searches; this bar shows the query, the options and the count.
 
 use crate::{
-    ActiveHover, Button, ButtonSize, ButtonVariant, Color, Component, ComponentPalette,
-    ControlSize, Element, FontFamily, Icon, IconButton, Point, PopoverPlacement, TextField,
+    Access, ActiveHover, Button, ButtonSize, ButtonVariant, Color, Component, ComponentPalette,
+    ControlSize, Element, FontFamily, Icon, IconButton, Point, PopoverPlacement, Role, TextField,
     Tooltip, TooltipPlacement, TooltipSpec,
 };
 
@@ -327,11 +327,12 @@ impl Component for FindBar {
         let Self { palette, surface, labels, ids, width, .. } = self;
         let options_below = options_below(width, self.replace_open);
         let count = Tooltip::new(
-            Element::truncated_text(self.count_label)
+            Element::truncated_text(self.count_label.clone())
                 .font_family(FontFamily::Sans)
                 .font_size(11.0)
                 .foreground(self.ink.filter(|_| self.no_matches).unwrap_or(palette.muted))
-                .size(Some(72.0), Some(ROW)),
+                .size(Some(72.0), Some(ROW))
+                .accessible(Access::new(Role::Status).id(ids.count.clone()).name(self.count_label)),
             ids.count,
             labels.count,
             palette,
@@ -344,15 +345,19 @@ impl Component for FindBar {
                 .render()
                 .flex(1.0)
         };
-        let option = |id, glyph, tip, active| {
+        // Two letters are a glyph, not a name: an option is called by its
+        // hint, and says whether it is on.
+        let option = |id, glyph, tip: String, active| {
             Button::new(id, glyph, palette)
                 .variant(ButtonVariant::Ghost)
                 .button_size(ButtonSize::IconExtraSmall)
                 .width(ROW)
                 .active(active)
                 .active_hover(ActiveHover::Palette)
+                .accessibility_label(tip.clone())
                 .tooltip(tip)
                 .render()
+                .accessible(Access::default().toggled(active))
         };
         let tool = |id, icon, tip: TooltipSpec| {
             IconButton::new(id, icon, palette)
@@ -367,7 +372,8 @@ impl Component for FindBar {
             tool(ids.in_selection, Icon::Filter, TooltipSpec::new(labels.in_selection))
                 .active(self.options.in_selection)
                 .active_hover(ActiveHover::Palette)
-                .render(),
+                .render()
+                .accessible(Access::default().toggled(self.options.in_selection)),
         ])
         .gap(2.0)
         .size(None, Some(ROW));
@@ -383,7 +389,8 @@ impl Component for FindBar {
             )
             .active(self.replace_open)
             .active_hover(ActiveHover::Palette)
-            .render(),
+            .render()
+            .accessible(Access::default().expanded(self.replace_open)),
             field(ids.query, &self.query, labels.query),
         ];
         if !options_below {
@@ -460,7 +467,8 @@ impl Component for FindBar {
                         .font_family(FontFamily::Sans)
                         .font_size(12.0)
                         .foreground(self.ink.unwrap_or(palette.text))
-                        .size(None, Some(ERROR_ROW)),
+                        .size(None, Some(ERROR_ROW))
+                        .accessible(Access::new(Role::Alert).id(ids.error.clone()).name(error)),
                     ids.error,
                     error,
                     palette,
@@ -500,6 +508,39 @@ mod tests {
             .error(error.then_some("unclosed\n  group"))
             .ink(INK)
             .width(width)
+    }
+
+    #[test]
+    fn the_icons_are_named_by_their_labels_and_the_options_say_whether_they_are_on() {
+        let labels = FindLabels::default();
+        let options = FindOptions { case: true, in_selection: true, ..FindOptions::default() };
+        let frame = frame_of(bar(520.0, true, true).options(options).has_matches(false));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+        for (id, name, on) in [
+            ("find:case", &labels.case, true),
+            ("find:word", &labels.word, false),
+            ("find:regex", &labels.regex, false),
+            ("find:in_selection", &labels.in_selection, true),
+        ] {
+            let said = node(id);
+            assert_eq!((said.role, &said.name, said.toggled), (Role::Button, name, Some(on)), "{id}");
+        }
+        let replace = node("find:toggle_replace");
+        assert_eq!((&replace.name, replace.expanded), (&labels.toggle_replace, Some(true)));
+        for (id, name, enabled) in [
+            ("find:previous", &labels.previous, false),
+            ("find:next", &labels.next, false),
+            ("find:dismiss", &labels.dismiss, true),
+            ("find:replace_one", &labels.replace_one, true),
+            ("find:replace_all", &labels.replace_all, false),
+        ] {
+            let said = node(id);
+            assert_eq!((said.role, &said.name), (Role::Button, name), "{id}");
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled), "{id}");
+        }
+        assert_eq!((node("find:query").role, &node("find:query").name), (Role::TextInput, &labels.query));
+        assert_eq!((node("find:count").role, node("find:count").name.as_str()), (Role::Status, "2 / 14"));
+        assert_eq!((node("find:error").role, node("find:error").name.as_str()), (Role::Alert, "unclosed\n  group"));
     }
 
     // The bar at its own size in the corner of a larger window.

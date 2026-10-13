@@ -65,7 +65,14 @@ impl Component for DiagramViewer {
                 .foreground(self.palette.text)
                 .flex(1.0)
                 .size(None, Some(36.0)),
-            crate::image_viewer::control(&self.close_id, Icon::Close, &self.close_title, true, controls),
+            crate::image_viewer::control(
+                &self.close_id,
+                Icon::Close,
+                &self.close_title,
+                &self.close_title,
+                true,
+                controls,
+            ),
         ])
         .gap(12.0)
         .size(None, Some(36.0));
@@ -83,6 +90,12 @@ impl Component for DiagramViewer {
             .size(
                 Some((self.viewport.width - 16.0).max(0.0)),
                 Some((self.viewport.height - 16.0).max(0.0)),
+            )
+            // Known by an ID of its own: `close_id` is its close control's.
+            .accessible(
+                crate::Access::new(crate::Role::Dialog)
+                    .id(format!("{}:dialog", self.close_id))
+                    .name(&self.title),
             );
         Element::popover(self.base, viewer, &self.close_id, PopoverPlacement::Center)
             .popover_scrim(Color::rgba(0, 0, 0, 230))
@@ -96,6 +109,24 @@ impl Component for DiagramViewer {
 mod tests {
     use super::*;
     use crate::{DrawCommand, Flowchart, Point, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn the_viewer_is_a_dialog_named_by_its_title_and_its_close_control_by_its_hint() {
+        let palette = ComponentPalette::neutral_dark();
+        let chart = Flowchart::parse("flowchart LR\n A[Uno] --> B[Dos]", palette).unwrap();
+        let viewer = DiagramViewer::new(Element::spacer(), "Diagrama", "viewer_close", palette, chart)
+            .close_title("Cerrar")
+            .render();
+        let mut tree = UiTree::new(viewer);
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(900.0, 620.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let dialog = node("viewer_close:dialog");
+        assert_eq!((dialog.role, dialog.name.as_str()), (crate::Role::Dialog, "Diagrama"));
+        let close = node("viewer_close");
+        assert_eq!((close.role, close.name.as_str()), (crate::Role::Button, "Cerrar"));
+        assert!(close.actionable && !dialog.actionable);
+    }
 
     #[test]
     fn a_wide_chart_is_dragged_across_and_the_close_control_closes() {

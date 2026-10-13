@@ -166,3 +166,13 @@ token. `animation_ms` takes another duration.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | A tab is chosen by pointer or keyboard. The ID is the tab's. |
+
+## Accessibility
+
+A `TabItem` of a `TabStrip` is a tab named by its title, not by its tooltip nor
+its close control, and says whether it is the selected one, the active tab. A
+disabled tab is there and cannot be used. A tab built with `TabStrip::surface`
+is named by the text in its content.
+
+A `Tab` of `Tabs` is a tab named by its label, and says whether it is the
+active one. A disabled tab is there and cannot be used.

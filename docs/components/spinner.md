@@ -47,3 +47,14 @@ The rotation is continuous, not a transition, and keeps the tree animating
 while the spinner is in it. With reduced motion it holds still. See
 [Animation](../animation.md#keeping-the-window-painting) for how the host
 keeps the window painting.
+
+## Accessibility
+
+The platform is told of a progress indicator without a value, known by the
+spinner's ID. It has no name unless the host gives one to what it renders.
+
+```rust
+Spinner::new("search-progress", palette.muted)
+    .render()
+    .accessibility_label("Searching")
+```

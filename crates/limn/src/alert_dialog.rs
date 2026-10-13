@@ -154,7 +154,7 @@ impl Component for AlertDialog {
         let mut content = Vec::new();
         if !self.description.is_empty() {
             content.push(Element::formatted_text(vec![TextSpan::new(
-                self.description,
+                self.description.clone(),
                 self.palette.muted,
                 12.0,
                 FontFamily::Sans,
@@ -174,6 +174,7 @@ impl Component for AlertDialog {
             self.cancel_id.clone(),
             self.palette,
         )
+        .alert(&self.description)
         .width(self.width)
         .footer(footer)
         .initial_focus(self.cancel_id)
@@ -190,6 +191,26 @@ impl Component for AlertDialog {
 mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn an_alert_dialog_says_it_is_one_named_by_its_title_and_described_by_its_description() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = UiTree::new(
+            AlertDialog::new(Element::spacer(), true, "¿Borrar?", "No se puede deshacer.", "confirm", "cancel", palette)
+                .confirm_label("Borrar")
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(600.0, 400.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let dialog = node("cancel:dialog");
+        assert_eq!((dialog.role, dialog.name.as_str()), (crate::Role::AlertDialog, "¿Borrar?"));
+        assert_eq!(dialog.description.as_deref(), Some("No se puede deshacer."));
+        assert!(!dialog.actionable);
+        assert_eq!(node("confirm").name, "Borrar");
+        assert_eq!(node("cancel").name, crate::labels().cancel);
+        assert_eq!(node("cancel:close").name, crate::labels().close);
+    }
 
     #[test]
     fn alternative_action_sits_between_cancel_and_confirm_and_reports_its_id() {

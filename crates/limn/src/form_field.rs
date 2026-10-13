@@ -1,6 +1,6 @@
 //! A control under its label, with the hint and the error that belong to it.
 
-use crate::{page::px, Color, Component, ComponentPalette, Element, Text, TextRole};
+use crate::{page::px, Access, Color, Component, ComponentPalette, Element, Text, TextRole};
 
 /// Density of a [`FormField`], in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -84,6 +84,8 @@ impl FormField {
     /// card sized from that column measures it in one sum.
     pub fn rows(self) -> Vec<Element> {
         let sizing = self.sizing;
+        // The label names the control, and the copy around it describes it.
+        let mut access = Access::named(self.label.clone());
         let mut label = Text::new(self.label, self.palette).role(sizing.label_role);
         if sizing.label_muted {
             label = label.muted();
@@ -92,6 +94,12 @@ impl FormField {
         if px(sizing.label_height) > 0.0 {
             label = label.min_size(0.0, sizing.label_height);
         }
+        let described: Vec<_> =
+            self.hints.iter().chain(self.error.iter().map(|(error, _)| error)).cloned().collect();
+        if !described.is_empty() {
+            access = access.description(described.join(" "));
+        }
+        let control = self.control.accessible(access);
         let hints = self
             .hints
             .into_iter()
@@ -99,9 +107,9 @@ impl FormField {
         let mut children = vec![label];
         if self.hint_above {
             children.extend(hints);
-            children.push(self.control);
+            children.push(control);
         } else {
-            children.push(self.control);
+            children.push(control);
             children.extend(hints);
         }
         if let Some((error, ink)) = self.error {
@@ -197,6 +205,25 @@ mod tests {
         assert_eq!(paint(&custom, "Hint"), (palette.muted, 12.0));
         let control = custom.regions.iter().find(|region| region.id == "name").unwrap().rect;
         assert_eq!(control.y, 38.0, "label line of 30 and a gap of 8");
+    }
+
+    #[test]
+    fn the_label_names_the_control_and_the_hint_and_the_error_describe_it() {
+        let palette = ComponentPalette::neutral_dark();
+        let node = |field: FormField, id: &str| {
+            let frame = frame(field, 300.0);
+            frame.access.iter().find(|node| node.id == id).cloned().expect("a node")
+        };
+        let plain = node(field(palette), "name");
+        assert_eq!((plain.role, plain.name.as_str(), plain.description), (crate::Role::TextInput, "Name", None));
+        let said = node(field(palette).hint("Hint").hint("More").error("Wrong", DANGER), "name");
+        assert_eq!(said.description.as_deref(), Some("Hint More Wrong"));
+        // The label goes over a placeholder, and reaches a control inside what the host passed.
+        let wrapped = Element::panel(TextField::new("name", "", "e.g. limn", palette).render());
+        assert_eq!(node(FormField::new("Name", wrapped, palette), "name").name, "Name");
+        let switch = crate::Switch::new("wifi", true, palette).disabled().render();
+        let off = node(FormField::new("Wi-Fi", switch, palette), "wifi");
+        assert_eq!((off.name.as_str(), off.toggled, off.disabled), ("Wi-Fi", Some(true), true));
     }
 
     #[test]

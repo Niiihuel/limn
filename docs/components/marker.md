@@ -111,3 +111,9 @@ label is drawn in its plain color.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | A marker with `action` is activated by pointer or Enter, with the ID given to `action`. |
+
+## Accessibility
+
+A marker with an `action` is a button named by its label, and stays there as
+disabled when it is disabled. Without an action it is text and the platform is
+told nothing more.

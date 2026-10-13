@@ -107,3 +107,10 @@ reduced motion the title and the icon of `thinking` stay static.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | The header, or the footer's button, is activated by pointer or keyboard. |
+
+## Accessibility
+
+The header is a button named by the title and described by the `detail`, and
+says whether it is expanded. The footer's button is named by
+`labels().collapse`. Disabled, both are still there for the platform, as
+disabled.

@@ -3,8 +3,8 @@
 
 use crate::page::px;
 use crate::{
-    tokens, Color, Component, ComponentPalette, CornerRadii, Element, FontFamily, Icon,
-    RadiusRole, Separator, TextRole, Tooltip, TooltipPlacement, ICON_SIZE,
+    tokens, Access, Color, Component, ComponentPalette, CornerRadii, Element, FontFamily, Icon,
+    RadiusRole, Role, Separator, TextRole, Tooltip, TooltipPlacement, ICON_SIZE,
 };
 
 
@@ -132,9 +132,12 @@ impl TabItem {
             Element::spacer().size(Some(2.0), None),
         ])
         .size(None, Some(TabStrip::TOOL_SIZE));
+        // The title names the tab, not the close control it holds.
+        let access = Access::new(Role::Tab).name(&self.title).selected(self.active);
         let tooltip = self.tooltip.unwrap_or(self.title);
         let select = if self.enabled {
-            let select = TabStrip::surface(&self.id, content, self.active, self.width, palette);
+            let select = TabStrip::surface(&self.id, content, self.active, self.width, palette)
+                .accessible(access);
             Tooltip::new(select, self.id, &tooltip, palette)
                 .placement(self.tooltip_placement)
                 .render()
@@ -144,6 +147,7 @@ impl TabItem {
                 .background(if self.active { palette.surface } else { Color::TRANSPARENT })
                 .corner_radii(CornerRadii::top(RadiusRole::Card.px()))
                 .size(Some(self.width), Some(TabStrip::TAB_HEIGHT))
+                .accessible(access.id(&self.id).disabled(true))
         };
         // Passive full-width extent includes the independently clickable close.
         Tooltip::new(select, self.extent_id, tooltip, palette)
@@ -235,6 +239,7 @@ impl TabStrip {
         palette: ComponentPalette,
     ) -> Element {
         Element::clickable(id, Self::surface_content(content, active, palette))
+            .accessible(Access::new(Role::Tab).selected(active))
             .background(if active { palette.surface } else { Color::TRANSPARENT })
             .hover_background(if active { palette.surface } else { palette.hover })
             .pressed_background(palette.surface)
@@ -467,6 +472,29 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_tab_tells_the_platform_its_title_and_whether_it_is_the_chosen_one() {
+        let mut tabs = items(3, Some(1), 120.0);
+        let last = tabs.pop().unwrap().close(Element::icon_button("close:2", Icon::Close, "")).disabled();
+        tabs.push(last);
+        let frame = UiTree::new(TabStrip::new("tabs", tabs, palette()).render()).layout(Size::new(480.0, 60.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (first, chosen, off) = (node("tab:0"), node("tab:1"), node("tab:2"));
+        assert_eq!((first.role, first.name.as_str(), first.selected), (Role::Tab, NAMES[0], Some(false)));
+        assert_eq!((chosen.role, chosen.name.as_str(), chosen.selected), (Role::Tab, NAMES[1], Some(true)));
+        assert!(chosen.actionable && !chosen.disabled);
+        assert_eq!((off.role, off.name.as_str(), off.selected), (Role::Tab, NAMES[2], Some(false)));
+        assert!(off.disabled && !off.actionable);
+        // The host's close control stays its own, and does not take the tab's name.
+        assert_eq!((node("close:2").role, node("close:2").name.as_str()), (Role::Button, ""));
+        // A tab that is only the host's content says as much.
+        let bare = TabStrip::surface("bare", Element::text("Notes"), true, 80.0, palette());
+        let frame = UiTree::new(bare).layout(Size::new(200.0, 60.0));
+        let bare = &frame.access[0];
+        assert_eq!((bare.role, bare.name.as_str(), bare.selected), (Role::Tab, "Notes", Some(true)));
     }
 
     #[test]

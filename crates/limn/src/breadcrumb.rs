@@ -2,8 +2,8 @@
 //! Reference: <https://rust-ui.com/docs/components/breadcrumb>
 //! Labels and actions are supplied by the host; no navigation is inferred.
 use crate::{
-    Component, ComponentPalette, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, Element,
-    FontFamily, Icon, Tooltip,
+    Access, Component, ComponentPalette, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
+    Element, FontFamily, Icon, Role, Tooltip,
 };
 use std::path::{Path, PathBuf};
 use unicode_width::UnicodeWidthStr;
@@ -262,6 +262,7 @@ impl Component for Breadcrumb {
             let (width, height, palette) = (self.width, self.height, self.palette);
             let button = palette
                 .interactive_surface(Element::icon_button(action.clone(), Icon::Search, ""))
+                .accessibility_label(crate::labels().search)
                 .foreground(palette.muted)
                 .size(Some(height), Some(height));
             let button = Tooltip::new(button, action, crate::labels().search, palette)
@@ -359,10 +360,12 @@ impl Component for Breadcrumb {
                     .font_size(FONT_SIZE)
                     .foreground(self.palette.muted);
                 let anchor = if navigable {
+                    // An ellipsis is no name: the hint's title is. The menu says whether it is open.
                     self.palette.interactive_surface(Element::clickable(
                         format!("{}:overflow_toggle", self.id),
                         visual,
                     ))
+                    .accessibility_label(crate::labels().full_path)
                 } else {
                     Element::panel(visual)
                 };
@@ -445,7 +448,13 @@ impl Component for Breadcrumb {
                 .unwrap_or_else(|| format!("{}:item:{index}", self.id));
             let anchor = if let Some(action) = action {
                 // A link, not a button: underlined under the pointer, no fill.
-                Element::clickable(action, visual).underline_on_hover()
+                Element::clickable(action, visual)
+                    .underline_on_hover()
+                    .accessible(Access::new(Role::Link))
+            } else if let Some(action) = &item.action {
+                // A disabled link is still a link, one that cannot be followed.
+                Element::panel(visual)
+                    .accessible(Access::new(Role::Link).id(action).name(&item.label).disabled(true))
             } else {
                 Element::panel(visual)
             }
@@ -485,6 +494,38 @@ impl Component for Breadcrumb {
 mod tests {
     use super::*;
     use crate::{Color, DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn a_segment_with_an_action_is_a_link_and_the_overflow_says_whether_it_is_open() {
+        let palette = ComponentPalette::neutral_dark();
+        let items = |count: usize| {
+            (0..count)
+                .map(|index| BreadcrumbItem::new(format!("carpeta-numero-{index}")).action(format!("go:{index}")))
+                .collect::<Vec<_>>()
+        };
+        let mut short = items(2);
+        short[0] = short[0].clone().disabled();
+        short.push(BreadcrumbItem::new("main.rs"));
+        let frame = UiTree::new(Breadcrumb::new("path", short, palette).width(480.0).search_action("find").render())
+            .layout(Size::new(500.0, 160.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (off, link, find) = (node("go:0"), node("go:1"), node("find"));
+        assert_eq!((off.role, off.name.as_str()), (Role::Link, "carpeta-numero-0"));
+        assert!(off.disabled && !off.actionable);
+        assert_eq!((link.role, link.name.as_str()), (Role::Link, "carpeta-numero-1"));
+        assert!(link.actionable && !link.disabled);
+        assert_eq!((find.role, find.name.as_str()), (Role::Button, crate::labels().search));
+        assert_eq!(frame.access.len(), 3, "a segment without an action is text");
+
+        for open in [false, true] {
+            let frame = UiTree::new(Breadcrumb::new("path", items(8), palette).width(300.0).overflow_open(open).render())
+                .layout(Size::new(500.0, 300.0));
+            let toggle = frame.access.iter().find(|node| node.id == "path:overflow_toggle").unwrap();
+            assert_eq!((toggle.role, toggle.name.as_str()), (Role::Button, crate::labels().full_path));
+            assert_eq!(toggle.expanded, Some(open));
+        }
+    }
 
     #[test]
     fn search_shortcut_changes_the_hint_without_binding_keys() {

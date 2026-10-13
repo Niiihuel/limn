@@ -1,7 +1,7 @@
 //! A tile of a grid or a shelf of albums and artists: square artwork over a
 //! title and a second line, all under one hover surface.
 
-use crate::{Component, ComponentPalette, Element, Icon, RadiusRole, Text, TextRole};
+use crate::{Access, Component, ComponentPalette, Element, Icon, RadiusRole, Role, Text, TextRole};
 
 const DEFAULT_WIDTH: f32 = 160.0;
 const MIN_WIDTH: f32 = 48.0;
@@ -104,6 +104,11 @@ impl Component for MediaTile {
             let line = text.truncate().render();
             if round { line.center_content() } else { line }
         };
+        // Named by the title, described by the line under it.
+        let mut said = Access::new(Role::Button).name(self.title.clone());
+        if !self.subtitle.is_empty() {
+            said = said.description(self.subtitle.clone());
+        }
         let ink = if self.enabled { palette.text } else { palette.muted };
         let mut copy = vec![line(Text::new(self.title, palette).role(TextRole::Label).ink(ink))];
         if !self.subtitle.is_empty() {
@@ -114,9 +119,9 @@ impl Component for MediaTile {
             Element::column(copy).gap(COPY_GAP).padding(COPY_PADDING),
         ]);
         if self.enabled {
-            palette.interactive_surface(Element::clickable(self.id, content))
+            palette.interactive_surface(Element::clickable(self.id, content).accessible(said))
         } else {
-            Element::panel(content)
+            Element::panel(content).accessible(said.id(self.id).disabled(true))
         }
         .size(Some(side), None)
         .radius(RADIUS.px())
@@ -137,6 +142,17 @@ mod tests {
 
     fn palette() -> ComponentPalette {
         ComponentPalette::neutral_dark()
+    }
+
+    #[test]
+    fn a_tile_is_a_button_named_by_its_title_and_described_by_its_second_line() {
+        for enabled in [true, false] {
+            let tile = MediaTile::new("album", TITLE, palette()).subtitle(ARTIST).enabled(enabled);
+            let frame = tree_of(tile).layout(window());
+            let said = frame.access.iter().find(|node| node.id == "album").unwrap();
+            assert_eq!((said.role, said.name.as_str(), said.description.as_deref()), (Role::Button, TITLE, Some(ARTIST)));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
     }
 
     fn window() -> Size {

@@ -156,6 +156,27 @@ mod tests {
     }
 
     #[test]
+    fn the_platform_is_told_a_button_named_by_what_it_copies() {
+        let palette = ComponentPalette::neutral_dark();
+        let node = |button: Clipboard| {
+            let frame = UiTree::new(Element::row(vec![button.render(), Element::spacer().flex(1.0)])).layout(SIZE);
+            frame.access.iter().find(|node| node.id == "copy-link").cloned().expect("a node")
+        };
+        // The icon alone is named by its hint; a label names it and the hint describes it.
+        for copied in [false, true] {
+            let bare = node(Clipboard::new("copy-link", "Copy link", palette).copied(copied));
+            assert_eq!((bare.role, bare.name.as_str(), bare.description), (crate::Role::Button, "Copy link", None));
+            assert!(bare.actionable && !bare.disabled);
+        }
+        let labelled = node(Clipboard::new("copy-link", "Copy the link to this page", palette).label("Copy"));
+        assert_eq!(labelled.name, "Copy");
+        assert_eq!(labelled.description.as_deref(), Some("Copy the link to this page"));
+        let disabled = node(Clipboard::new("copy-link", "Copy link", palette).disabled());
+        assert_eq!((disabled.role, disabled.name.as_str()), (crate::Role::Button, "Copy link"));
+        assert!(disabled.disabled && !disabled.actionable);
+    }
+
+    #[test]
     fn a_disabled_one_is_muted_takes_no_pointer_or_focus_and_keeps_its_place() {
         let palette = ComponentPalette::neutral_dark();
         let tree_of = |enabled| {

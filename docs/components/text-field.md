@@ -96,3 +96,15 @@ the value is empty, and is not an input: it reports nothing.
 | --- | --- |
 | `UiAction::InputChanged { id, value }` | The text changes. |
 | `UiAction::Submitted { id, value }` | Enter is pressed in the field. |
+
+## Accessibility
+
+The platform is told a text field, or a password field, named by its
+placeholder, and the text it holds; what is typed into a password field is
+never told. A placeholder that is an example is not a name: give one with
+`accessibility_label`, or with the label of a [Form field](form-field.md).
+A disabled field is still there and says it cannot be used.
+
+```rust
+TextField::new("project", value, "e.g. my-project", palette).accessibility_label("Project name")
+```

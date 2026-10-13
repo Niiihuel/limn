@@ -149,3 +149,9 @@ padding is not part of it: every row in a card shares one inset.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | A row with `action(id)` is clicked. |
+
+## Accessibility
+
+An `ActionRow` with an `action` is a button named by its title and described
+by its subtitle, and stays there as disabled when it is disabled. A row
+without an action is copy: a control in `trailing` is named by the host.

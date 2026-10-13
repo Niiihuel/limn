@@ -1,6 +1,6 @@
 //! The strip between two panes that the pointer drags to move their boundary.
 
-use crate::{Component, ComponentPalette, Cursor, Element};
+use crate::{Access, Component, ComponentPalette, Cursor, Element, Role};
 
 const DEFAULT_THICKNESS: f32 = 8.0;
 const MIN_THICKNESS: f32 = 2.0;
@@ -21,6 +21,7 @@ pub struct ResizeHandle {
     vertical: bool,
     thickness: f32,
     enabled: bool,
+    label: Option<String>,
     palette: ComponentPalette,
 }
 
@@ -38,7 +39,7 @@ impl ResizeHandle {
     }
 
     fn new(id: impl Into<String>, vertical: bool, palette: ComponentPalette) -> Self {
-        Self { id: id.into(), vertical, thickness: DEFAULT_THICKNESS, enabled: true, palette }
+        Self { id: id.into(), vertical, thickness: DEFAULT_THICKNESS, enabled: true, label: None, palette }
     }
 
     /// How much room the handle takes across the boundary, which is also its
@@ -48,6 +49,13 @@ impl ResizeHandle {
         if thickness.is_finite() {
             self.thickness = thickness.max(MIN_THICKNESS);
         }
+        self
+    }
+
+    /// What the platform calls the handle, such as "Resize sidebar". It
+    /// shows no text, so without this it has no name.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.label = Some(name.into());
         self
     }
 
@@ -69,11 +77,14 @@ impl Component for ResizeHandle {
     fn render(self) -> Element {
         let across = Some(self.thickness);
         let (width, height) = if self.vertical { (across, None) } else { (None, across) };
+        let said = Access { name: self.label, ..Access::new(Role::Button) };
         if !self.enabled {
-            return Element::spacer().size(width, height);
+            return Element::spacer()
+                .size(width, height)
+                .accessible(said.id(self.id).disabled(true));
         }
         self.palette
-            .interactive_surface(Element::clickable(self.id, Element::spacer()))
+            .interactive_surface(Element::clickable(self.id, Element::spacer()).accessible(said))
             .draggable_in_place()
             .cursor(if self.vertical { Cursor::ResizeColumn } else { Cursor::ResizeRow })
             .size(width, height)
@@ -89,6 +100,23 @@ mod tests {
 
     fn palette() -> ComponentPalette {
         ComponentPalette::neutral_dark()
+    }
+
+    #[test]
+    fn a_handle_has_the_name_the_host_gives_it_enabled_or_not() {
+        for enabled in [true, false] {
+            let handle = || ResizeHandle::vertical("split", palette()).enabled(enabled);
+            let node = |handle: ResizeHandle| {
+                let frame = columns(handle).layout(Size::new(208.0, 60.0));
+                frame.access.iter().find(|node| node.id == "split").cloned().unwrap()
+            };
+            let bare = node(handle());
+            assert_eq!((bare.role, bare.name.as_str()), (Role::Button, ""));
+            let named = node(handle().accessibility_label("Cambiar el ancho del panel"));
+            assert_eq!(named.name, "Cambiar el ancho del panel");
+            assert_eq!((named.disabled, named.actionable), (!enabled, enabled));
+            assert_eq!((named.rect.x, named.rect.width), (100.0, 8.0));
+        }
     }
 
     /// Two panes 100 wide with a handle between them, in a window 60 tall.

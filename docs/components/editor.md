@@ -177,3 +177,12 @@ the palette's muted. `Collapsible` takes the same `ink`.
 | `UiAction::InputChanged { id, value }` | The find bar's query or replacement changes, or the composer's text. |
 | `UiAction::Clicked { id }` | A button of the find bar is activated: an option, the replace toggle, previous, next, replace, replace all or close. |
 | `UiAction::Clicked { id }` | The dictation button is activated, in any state. |
+
+## Accessibility
+
+The composer's editor is a multiline field named by its placeholder, with the
+draft as its value; disabled, it is still there as disabled. The find bar's
+buttons are named by their `FindLabels`: the case, word, regular expression
+and selection options say whether they are toggled, the replace toggle whether
+it is expanded, and a button that cannot be used is disabled. The count is a
+status and the error an alert.

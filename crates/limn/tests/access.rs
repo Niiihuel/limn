@@ -69,6 +69,62 @@ fn what_a_component_says_goes_over_what_the_tree_works_out() {
 }
 
 #[test]
+fn a_wrapper_speaks_for_the_control_inside_it() {
+    // What a component renders is often a control in a frame: naming the whole names the control.
+    let framed = Element::panel(Element::row(vec![
+        Element::text("decoration"),
+        Element::clickable("wifi", Element::spacer().size(Some(36.0), Some(20.0))),
+    ]))
+    .accessible(Access::new(Role::Switch).name("Wi-Fi").toggled(false));
+    let said = node(framed, "wifi");
+    assert_eq!((said.role, said.name.as_str(), said.toggled), (Role::Switch, "Wi-Fi", Some(false)));
+    // The outer control takes it, not one nested in it: a card with a remove button in its corner.
+    let nested = Element::panel(Element::clickable(
+        "open",
+        Element::row(vec![Element::text("report.pdf"), Element::clickable("remove", Element::text("x"))]),
+    ))
+    .accessibility_label("Open report");
+    let nodes_of = nodes(nested);
+    let name = |id: &str| nodes_of.iter().find(|node| node.id == id).unwrap().name.clone();
+    assert_eq!((name("open").as_str(), name("remove").as_str()), ("Open report", "x"));
+    // One control takes it, not the next.
+    let two = Element::column(vec![
+        Element::clickable("first", Element::text("First")),
+        Element::clickable("second", Element::text("Second")),
+    ])
+    .accessibility_label("Named");
+    let nodes = nodes(two);
+    assert_eq!(nodes.iter().map(|node| node.name.as_str()).collect::<Vec<_>>(), ["Named", "Second"]);
+    // And what a sibling was told does not reach a control beside it.
+    let beside = Element::row(vec![
+        Element::text("label").accessibility_label("Not for the button"),
+        Element::clickable("go", Element::text("Go")),
+    ]);
+    assert_eq!(node(beside, "go").name, "Go");
+}
+
+#[test]
+fn a_hint_names_what_nothing_else_names_and_describes_what_has_a_name() {
+    use limn::Tooltip;
+    let bare = Tooltip::new(IconButton::new("close", Icon::Close, palette()).render(), "close", "Close", palette()).render();
+    let said = node(bare, "close");
+    assert_eq!((said.name.as_str(), said.description), ("Close", None));
+    let named = Tooltip::new(Button::new("save", "Save", palette()).render(), "save", "Write to disk", palette()).render();
+    let said = node(named, "save");
+    assert_eq!((said.name.as_str(), said.description.as_deref()), ("Save", Some("Write to disk")));
+}
+
+#[test]
+fn a_wrapper_speaks_for_a_control_drawn_disabled_too() {
+    let disabled = Element::panel(
+        Element::text("Bash").accessible(Access::new(Role::ComboBox).id("shell").disabled(true)),
+    )
+    .accessibility_label("Shell");
+    let said = node(disabled, "shell");
+    assert_eq!((said.name.as_str(), said.disabled), ("Shell", true));
+}
+
+#[test]
 fn a_passive_thing_is_there_when_it_has_a_name_to_be_known_by() {
     let bar = Element::spacer()
         .size(Some(120.0), Some(4.0))

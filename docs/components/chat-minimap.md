@@ -59,3 +59,8 @@ each frame as the conversation scrolls.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` with a mark's ID | A mark is clicked, or reached with the keyboard. |
+
+## Accessibility
+
+The marks are drawn by the tree, not built as controls, so the platform is
+told nothing of them yet.

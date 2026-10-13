@@ -41,3 +41,13 @@ A disabled switch shows its value and takes no pointer or focus.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | The switch is flipped by pointer, Enter or Space. |
+
+## Accessibility
+
+The platform is told a switch and whether it is on, disabled or not. A switch
+shows no text, so the host names it, or puts it in a
+[Form field](form-field.md), whose label names it.
+
+```rust
+Switch::new("wifi", wifi_on, palette).accessibility_label("Wi-Fi")
+```

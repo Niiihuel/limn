@@ -61,3 +61,8 @@ in the same place. It takes no pointer or focus and reports nothing.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | The link is activated by pointer, Enter or Space. |
+
+## Accessibility
+
+The platform is told a link named by its label. A disabled link is still
+there and says it cannot be used.

@@ -1,7 +1,7 @@
 //! Compact controlled selector for a local 24-hour time of day.
 
 use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
-use crate::{Element, FontFamily, Icon};
+use crate::{Access, Element, FontFamily, Icon, Role};
 
 /// An editable `HH:MM` field plus keyboard-reachable hour and minute controls.
 ///
@@ -61,12 +61,23 @@ impl TimePicker {
         Some(format!("{:02}:{:02}", adjusted / 60, adjusted % 60))
     }
 
-    fn adjustment(&self, suffix: &str, icon: Icon) -> Element {
-        IconButton::new(format!("{}:{suffix}", self.id), icon, self.palette)
+    fn adjustment(&self, label: &str, suffix: &str, icon: Icon) -> Element {
+        let id = format!("{}:{suffix}", self.id);
+        // An arrow alone is named by its unit and the value it goes to:
+        // "Hour 10". With no valid time to step from, by its unit.
+        let name = match Self::adjusted_value(&id, &self.id, &self.value) {
+            Some(time) if suffix.starts_with("hour") => format!("{label} {}", &time[..2]),
+            Some(time) => format!("{label} {}", &time[3..]),
+            None => label.to_owned(),
+        };
+        let said = Access::new(Role::Button).name(name);
+        IconButton::new(&id, icon, self.palette)
             .size(ControlSize::Compact)
             .variant(crate::ButtonVariant::Ghost)
             .enabled(self.enabled)
             .render()
+            // Drawn disabled it is passive, and still there for the platform.
+            .accessible(if self.enabled { said } else { said.id(id).disabled(true) })
     }
 
     fn unit(&self, label: &str, display: String, down: &str, up: &str) -> Element {
@@ -77,14 +88,14 @@ impl TimePicker {
                 .font_size(11.0)
                 .foreground(self.palette.muted),
             Element::row(vec![
-                self.adjustment(down, Icon::ArrowDown),
+                self.adjustment(label, down, Icon::ArrowDown),
                 Element::text(display)
                     .font_family(FontFamily::Sans)
                     .font_size(13.0)
                     .foreground(ink)
                     .size(Some(28.0), Some(28.0))
                     .center_content(),
-                self.adjustment(up, Icon::ArrowUp),
+                self.adjustment(label, up, Icon::ArrowUp),
             ])
             .gap(2.0),
         ])
@@ -135,6 +146,28 @@ fn parse_time(value: &str) -> Option<(u8, u8)> {
 mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Rect, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn each_arrow_is_named_by_its_unit_and_the_value_it_goes_to() {
+        let labels = crate::labels();
+        let nodes = |value: &str, enabled: bool| {
+            let picker = TimePicker::new("time", value, ComponentPalette::neutral_dark()).enabled(enabled);
+            UiTree::new(picker.render()).layout(Size::new(240.0, 120.0)).access
+        };
+        for enabled in [true, false] {
+            let nodes = nodes("09:59", enabled);
+            let node = |id: &str| nodes.iter().find(|node| node.id == id).unwrap();
+            assert_eq!(node("time:hour_up").name, format!("{} 10", labels.hour));
+            assert_eq!(node("time:hour_down").name, format!("{} 08", labels.hour));
+            assert_eq!(node("time:minute_up").name, format!("{} 00", labels.minute));
+            assert_eq!(node("time:minute_down").name, format!("{} 58", labels.minute));
+            let up = node("time:hour_up");
+            assert_eq!((up.role, up.disabled, up.actionable), (Role::Button, !enabled, enabled));
+        }
+        // A time that cannot be stepped names the arrow by its unit alone.
+        let nodes = nodes("9:5", true);
+        assert_eq!(nodes.iter().find(|node| node.id == "time:minute_up").unwrap().name, labels.minute);
+    }
 
     #[test]
     fn validates_exact_24_hour_times() {

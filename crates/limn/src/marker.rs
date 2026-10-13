@@ -1,6 +1,8 @@
 //! Conversation event rows. The caller supplies the observed state and label.
 
-use crate::{Color, Component, ComponentPalette, Element, FontFamily, Icon, Spinner, TextShimmer};
+use crate::{
+    Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Role, Spinner, TextShimmer,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MarkerVariant {
@@ -117,6 +119,7 @@ impl Component for Marker {
         if let Some(ink) = self.ink {
             self.palette.muted = ink;
         }
+        let said = Access::new(Role::Button).name(self.label.clone());
         let label = if self.thinking || self.loading || self.shimmer {
             let highlight = if self.thinking {
                 thinking_highlight(self.palette)
@@ -200,11 +203,14 @@ impl Component for Marker {
         match self.action {
             Some(action) if self.enabled => self
                 .palette
-                .interactive_surface(Element::clickable(action, body))
+                .interactive_surface(Element::clickable(action, body).accessible(said))
                 .padding(6.0)
                 .min_size(0.0, 32.0),
             // The row is muted as it is; only the control goes.
-            Some(_) => Element::panel(body).padding(6.0).min_size(0.0, 32.0),
+            Some(action) => Element::panel(body)
+                .padding(6.0)
+                .min_size(0.0, 32.0)
+                .accessible(said.id(action).disabled(true)),
             None => body,
         }
     }
@@ -215,6 +221,23 @@ mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
     use web_time::{Duration, Instant};
+
+    #[test]
+    fn a_marker_with_an_action_is_a_button_named_by_its_label_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let nodes = |marker: Marker| UiTree::new(marker.render()).layout(Size::new(240.0, 40.0)).access;
+        for shimmer in [false, true] {
+            let marker = || Marker::new("event", "Revisar cambios", palette).shimmer(shimmer).action("review");
+            let enabled = nodes(marker());
+            assert_eq!((enabled[0].id.as_str(), enabled[0].role, enabled[0].name.as_str()), ("review", Role::Button, "Revisar cambios"));
+            assert!(enabled[0].actionable && !enabled[0].disabled);
+            let disabled = nodes(marker().disabled());
+            assert_eq!((disabled[0].id.as_str(), disabled[0].role, disabled[0].name.as_str()), ("review", Role::Button, "Revisar cambios"));
+            assert!(disabled[0].disabled && !disabled[0].actionable);
+        }
+        // Without an action it is text, not a control.
+        assert!(nodes(Marker::new("event", "Revisar cambios", palette)).is_empty());
+    }
 
     #[test]
     fn thinking_marker_keeps_the_brain_static_and_only_shimmers_the_text() {

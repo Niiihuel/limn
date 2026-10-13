@@ -1,8 +1,8 @@
 //! A button that shows the current choice and opens the list of the others.
 
 use crate::{
-    Button, ButtonVariant, Component, ComponentPalette, ControlSize, ControlState, DropdownMenu,
-    DropdownMenuItem, DropdownOption, Element, Icon, PopoverPlacement, SelectorSizing,
+    Access, Button, ButtonVariant, Component, ComponentPalette, ControlSize, ControlState, DropdownMenu,
+    DropdownMenuItem, DropdownOption, Element, Icon, PopoverPlacement, Role, SelectorSizing,
 };
 
 /// A controlled choice among a few options. The host owns the selection and
@@ -22,6 +22,7 @@ pub struct Select {
     menu_width: Option<f32>,
     icon: Option<Icon>,
     enabled: bool,
+    accessibility_label: Option<String>,
 }
 
 impl Select {
@@ -48,7 +49,16 @@ impl Select {
             menu_width: None,
             icon: None,
             enabled: true,
+            accessibility_label: None,
         }
+    }
+
+    /// What the select is called to the platform. Its trigger shows the
+    /// current choice, which is its value: without this, or a `FormField`
+    /// around it, that choice is also its name.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
     }
 
     /// Paint the list with another palette than the trigger's.
@@ -111,6 +121,12 @@ impl Component for Select {
         let width = self
             .width
             .unwrap_or(self.sizing.unwrap_or(SelectorSizing::COMPACT).min_width);
+        let open = self.open && self.enabled;
+        let mut access =
+            Access::new(Role::ComboBox).expanded(open).value_text(self.current_label.clone());
+        if let Some(name) = self.accessibility_label {
+            access = access.name(name);
+        }
         let mut trigger = Button::new(self.id, self.current_label, self.palette)
             .variant(ButtonVariant::Outline)
             .size(ControlSize::Compact)
@@ -139,9 +155,10 @@ impl Component for Select {
             .menu_width
             .unwrap_or_else(|| self.sizing.map_or(width, |sizing| sizing.preferred_width));
         DropdownMenu::new(
-            trigger.render(),
+            // Over what the button says of itself, disabled or not.
+            trigger.render().accessible(access),
             entries,
-            self.open && self.enabled,
+            open,
             self.dismiss_id,
             self.menu_palette.unwrap_or(self.palette),
         )
@@ -258,6 +275,31 @@ mod tests {
             tree.handle_event(key(Key::Escape)),
             vec![UiAction::Clicked { id: "dismiss".into() }]
         );
+    }
+
+    #[test]
+    fn the_platform_is_told_a_combo_box_its_choice_and_whether_it_is_open() {
+        let node = |select: Select| {
+            let frame = tree(select).layout(VIEWPORT);
+            frame.access.iter().find(|node| node.id == "toggle").cloned().expect("a node")
+        };
+        for open in [false, true] {
+            let said = node(select(open).accessibility_label("Shell"));
+            assert_eq!((said.role, said.name.as_str()), (Role::ComboBox, "Shell"));
+            assert_eq!((said.expanded, said.value_text.as_deref()), (Some(open), Some("Bash")));
+            assert!(said.actionable && !said.disabled);
+        }
+        // The options are the menu's rows, and the chosen one says so.
+        let frame = tree(select(true)).layout(VIEWPORT);
+        let option = |id: &str| frame.access.iter().find(|node| node.id == id).map(|node| (node.role, node.selected));
+        assert_eq!(option("shell:bash"), Some((Role::MenuItem, Some(true))));
+        assert_eq!(option("shell:zsh"), Some((Role::MenuItem, Some(false))));
+        // Without a name of its own the choice it shows is all there is.
+        assert_eq!(node(select(false)).name, "Bash");
+        let disabled = node(select(true).accessibility_label("Shell").enabled(false));
+        assert_eq!((disabled.role, disabled.name.as_str()), (Role::ComboBox, "Shell"));
+        assert_eq!((disabled.expanded, disabled.value_text.as_deref()), (Some(false), Some("Bash")));
+        assert!(disabled.disabled && !disabled.actionable);
     }
 
     #[test]

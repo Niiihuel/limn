@@ -1,6 +1,6 @@
 //! A controlled navigation strip for short, ordered forms.
 
-use crate::{Component, ComponentPalette, Element, FontFamily, Icon};
+use crate::{Access, Component, ComponentPalette, Element, FontFamily, Icon, Role};
 
 /// Diameter of a step's badge.
 const BADGE: f32 = 24.0;
@@ -160,6 +160,11 @@ impl Stepper {
                     .transition_ms(crate::tokens().motion.move_ms)
                     .radius(RULE / 2.0)
             });
+            // The label names the step, not the number in its badge.
+            let mut access = Access::new(Role::Button).name(&step.label).selected(index == active_index);
+            if let Some(description) = &step.description {
+                access = access.description(description);
+            }
             let mut copy = vec![Element::text(step.label)
                 .foreground(quiet)
                 .font_family(FontFamily::Sans)
@@ -205,8 +210,12 @@ impl Stepper {
                 };
                 Element::column(vec![head, copy]).gap(COPY_GAP)
             };
-            let item = if enabled { Element::clickable(step.id, content) } else { Element::panel(content) }
-                .radius(crate::RadiusRole::Control.px());
+            let item = if enabled {
+                Element::clickable(step.id, content).accessible(access)
+            } else {
+                Element::panel(content).accessible(access.id(step.id).disabled(true))
+            }
+            .radius(crate::RadiusRole::Control.px());
             // Every step but the last takes an equal share, rule included.
             items.push(if vertical || last { item } else { item.flex(1.0) });
         }
@@ -271,6 +280,23 @@ mod tests {
             .find(|region| region.id == id && region.kind == HitKind::Button)
             .unwrap()
             .rect
+    }
+
+    #[test]
+    fn a_step_tells_the_platform_its_label_and_whether_it_is_the_active_one() {
+        let mut steps = steps();
+        let last = steps.pop().unwrap().disabled();
+        steps.push(last);
+        let frame = UiTree::new(Stepper::new(steps, 1, palette()).width(360.0).render()).layout(Size::new(360.0, 120.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (one, two, three) = (node("one"), node("two"), node("three"));
+        assert_eq!((one.role, one.name.as_str(), one.selected), (Role::Button, "Contenido", Some(false)));
+        assert_eq!(one.description.as_deref(), Some("Define la tarea"));
+        assert_eq!((two.name.as_str(), two.selected), ("Horario", Some(true)));
+        assert!(two.actionable && !two.disabled);
+        assert_eq!((three.role, three.name.as_str(), three.selected), (Role::Button, "Agente", Some(false)));
+        assert!(three.disabled && !three.actionable);
     }
 
     #[test]

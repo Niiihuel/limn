@@ -1478,12 +1478,18 @@ impl Element {
     /// Show a submenu while its trigger or content is hovered or focused.
     pub fn popover_on_hover(mut self) -> Self {
         if let ElementKind::Popover {
+            anchor,
             hover_open,
             backdrop,
             gap,
             ..
         } = &mut self.kind
         {
+            // It opens under the pointer, which only the tree knows: whoever
+            // built it cannot say whether it is open.
+            if let Some(said) = anchor.access.as_mut() {
+                said.expanded = None;
+            }
             *hover_open = true;
             *backdrop = false;
             *gap = 0.0;

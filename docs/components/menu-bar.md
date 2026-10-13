@@ -106,3 +106,10 @@ opened, even when `open_id` names it. In the compact bar it is a disabled row.
 | `UiAction::Clicked { id }` with a menu's `dismiss_id` | The open menu is left. |
 | `UiAction::Clicked { id }` with an item's ID | An item of the open menu is activated. |
 | `UiAction::Clicked { id }` with the IDs given to `compact` | The compact button is activated; its menu is left. |
+
+## Accessibility
+
+Each trigger is a button named by its label that says whether its menu is
+expanded; a disabled one is there and cannot be used. The compact button is
+named by the title of its hint. The items are those of a
+[dropdown menu](dropdown-menu.md).
