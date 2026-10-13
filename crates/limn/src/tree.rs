@@ -8265,6 +8265,15 @@ impl LayoutBuilder<'_> {
                 });
             }
         }
+        if let Some((color, height)) = style.top_background_fade {
+            if rect.width > 0.0 && rect.height > 0.0 {
+                self.frame.commands.push(DrawCommand::FillVerticalGradient {
+                    rect: Rect::new(rect.x, rect.y, rect.width, height.min(rect.height)),
+                    top: color,
+                    bottom: Color { a: 0, ..color },
+                });
+            }
+        }
         if let Some(border) = style
             .border
             .filter(|_| style.corner_mask.is_none() || style.dashed_border)
@@ -15987,6 +15996,23 @@ mod tests {
                 top: Color { a: 255, .. },
                 bottom: Color { a: 0, .. },
             }
+        ));
+    }
+
+    #[test]
+    fn a_top_background_fade_is_painted_behind_the_children_from_the_top_edge_down() {
+        let tint = Color::rgb(90, 40, 120);
+        let content = || Element::column(vec![Element::text("Título")]).size(None, Some(200.0));
+        let plain = UiTree::new(content()).layout(Size::new(220.0, 200.0));
+        let washed = UiTree::new(content().top_background_fade(tint, 500.0)).layout(Size::new(220.0, 200.0));
+        assert_eq!(plain.regions, washed.regions);
+        let wash = washed.commands.iter().position(|command| matches!(command, DrawCommand::FillVerticalGradient { .. })).unwrap();
+        let text = washed.commands.iter().position(|command| matches!(command, DrawCommand::Text { .. })).unwrap();
+        assert!(wash < text, "behind what the element holds");
+        assert!(matches!(
+            washed.commands[wash],
+            // No taller than the element it is behind.
+            DrawCommand::FillVerticalGradient { rect: Rect { y: 0.0, height: 200.0, .. }, top, bottom: Color { a: 0, .. } } if top == tint
         ));
     }
 

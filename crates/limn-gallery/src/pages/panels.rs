@@ -1,8 +1,8 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    ButtonVariant, Component, ControlSize, Element, HeaderSizing, Icon, IconButton, ListRow, Pager,
-    PagerSizing, PanelHeader, RadiusRole, ResizeHandle, SearchField, Separator, SidebarPanel, TextField,
-    TooltipPlacement, TooltipSpec,
+    AlertColors, AlertTone, ButtonVariant, Component, ControlSize, Element, HeaderSizing, Icon, IconButton, ListRow, Pager,
+    PagerSizing, PanelHeader, RadiusRole, ResizeHandle, SearchField, Separator, SidebarPanel, Text, TextField,
+    TextRole, TooltipPlacement, TooltipSpec,
 };
 
 const PAGES: usize = 12;
@@ -158,6 +158,22 @@ pub fn view(cx: &Cx) -> Element {
                 .next("panel-pager-off-next", false)
                 .label_width(52.0)
                 .render()]),
+        ]),
+        section(cx, "Un tinte detrás del encabezado", vec![
+            framed(
+                cx,
+                width,
+                Element::column(vec![
+                    Text::new("Un álbum", palette).role(TextRole::Heading).render(),
+                    Text::new("El color de su tapa baja desde el borde y se pierde en la superficie.", palette).muted().render(),
+                    Element::spacer().size(None, Some(72.0)),
+                ])
+                .gap(4.0)
+                .padding(12.0)
+                .top_background_fade(AlertColors::for_tone(AlertTone::Info, palette).accent, 96.0),
+            )
+            .clip_children(),
+            caption(cx, "top_background_fade(color, alto): solo pintura, detrás de lo que el contenedor tiene dentro. bottom_background_fade hace lo mismo desde abajo."),
         ]),
     ])
     .gap(32.0)

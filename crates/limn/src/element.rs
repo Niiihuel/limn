@@ -894,6 +894,7 @@ pub struct Style {
     pub bottom_fade: Option<(Color, f32)>,
     /// Passive bottom background behind children, for dedicated footer space.
     pub bottom_background_fade: Option<(Color, f32)>,
+    pub top_background_fade: Option<(Color, f32)>,
     /// Paint-only overflow cues at a horizontal scroll viewport's edges.
     pub horizontal_edge_fade: Option<(Color, f32)>,
     pub hover_background: Option<Color>,
@@ -950,6 +951,7 @@ impl Default for Style {
             top_fade: None,
             bottom_fade: None,
             bottom_background_fade: None,
+            top_background_fade: None,
             horizontal_edge_fade: None,
             hover_background: None,
             pressed_background: None,
@@ -1991,6 +1993,14 @@ impl Element {
     /// space so the tint never covers the last line or the collapse control.
     pub fn bottom_background_fade(mut self, color: Color, height: f32) -> Self {
         self.style.bottom_background_fade =
+            (height.is_finite() && height > 0.0).then_some((color, height));
+        self
+    }
+
+    /// The same from the top edge down: a colour behind a page's header
+    /// that gives way to the surface below it.
+    pub fn top_background_fade(mut self, color: Color, height: f32) -> Self {
+        self.style.top_background_fade =
             (height.is_finite() && height > 0.0).then_some((color, height));
         self
     }

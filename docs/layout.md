@@ -119,6 +119,11 @@ slanted by the host.
 `.clip_children()` keeps a container's descendants, and their click targets,
 inside its bounds.
 
+`.top_background_fade(color, height)` and `.bottom_background_fade(color, height)`
+paint a colour behind a container's children that starts at that edge and is
+gone `height` further in: a tint behind a page's header, or under the last
+lines of a panel. Paint only, and never taller than the container.
+
 ### Sticky children
 
 A child of a column inside a scroll area can stay in view while the rows
