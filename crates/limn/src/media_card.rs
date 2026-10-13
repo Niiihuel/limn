@@ -1,5 +1,8 @@
 //! A track as a card to hand around: its record sleeve beside its title and
 //! artist, over a tint taken from its artwork.
+//!
+//! The arrangement follows Spell UI's Spotify card (MIT, Copyright (c) 2025
+//! Spell UI, github.com/xxtomm/spell-ui).
 
 use crate::{Color, Component, ComponentPalette, Element, FontFamily, RadiusRole, RasterImage, Text, TextRole, RECORD_REACH};
 
