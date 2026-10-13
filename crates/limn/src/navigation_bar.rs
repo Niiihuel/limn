@@ -428,7 +428,7 @@ impl Component for NavigationBar {
 mod tests {
     use super::*;
     use crate::{DrawCommand, Frame, HitKind, Key, Rect, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     fn bar(selected: usize, width: f32) -> NavigationBar {
         NavigationBar::new("desktop", ComponentPalette::neutral_dark())

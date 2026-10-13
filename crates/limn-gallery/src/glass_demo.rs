@@ -3,7 +3,7 @@
 use eframe::{egui, egui_wgpu, wgpu};
 use limn::{DrawCommand, Frame};
 use limn_egui::GlassRenderer;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 pub struct GlassDemo {
     renderer: GlassRenderer,

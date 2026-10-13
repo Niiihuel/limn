@@ -16,6 +16,8 @@ default = ["syntax"]
 syntax = ["dep:limn-language"]
 
 [dependencies]
+# The standard clock everywhere but a browser, where std's panics.
+web-time = "1.1"
 limn-editor = { path = "../limn-editor" }
 limn-language = { path = "../limn-language", optional = true }
 unicode-linebreak = "0.1.5"

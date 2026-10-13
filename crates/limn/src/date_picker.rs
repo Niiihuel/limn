@@ -5,7 +5,7 @@
 //! `Clicked` with IDs described on [`DatePicker`]. No date is silently chosen
 //! while the user navigates the calendar.
 
-use std::time::{SystemTime, UNIX_EPOCH};
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
 use crate::{Color, Element, FontFamily, Icon};

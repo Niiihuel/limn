@@ -224,10 +224,15 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
         // pictures scrolling into view drops a frame for each of them.
         let (landed, decoded) = std::sync::mpsc::channel();
         let (source, ctx) = (image.clone(), ui.ctx().clone());
-        std::thread::spawn(move || {
+        let decode = move || {
             let _ = landed.send(decode_raster_thumbnail(&source));
             ctx.request_repaint();
-        });
+        };
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::spawn(decode);
+        // A browser has no thread to give; the image lands on the next frame.
+        #[cfg(target_arch = "wasm32")]
+        decode();
         cache
             .entries
             .insert(key.clone(), RasterCacheEntry::Decoding(decoded));

@@ -259,7 +259,7 @@ pub fn collapse_footer(id: &str, palette: ComponentPalette) -> Element {
 mod tests {
     use super::*;
     use crate::{DrawCommand, Key, Point, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     #[test]
     fn footer_collapses_the_same_disclosure_and_does_not_duplicate_its_identity() {

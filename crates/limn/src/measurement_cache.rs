@@ -183,7 +183,7 @@ mod tests {
         for tree in [&mut cached, &mut uncached] {
             tree.set_reduced_motion(true);
         }
-        let now = std::time::Instant::now();
+        let now = web_time::Instant::now();
         for width in [360.0, 180.0, 420.0] {
             let size = Size::new(width, 600.0);
             assert_eq!(cached.layout_at(size, now), uncached.layout_at(size, now));
@@ -208,7 +208,7 @@ mod tests {
     #[test]
     fn tooltip_wait_requests_its_deadline_and_actual_animation_keeps_fast_repaint() {
         use super::super::{UiTree, TOOLTIP_HOVER_DELAY};
-        use std::time::{Duration, Instant};
+        use web_time::{Duration, Instant};
         let now = Instant::now();
         let mut tree = UiTree::new(Element::spacer());
         tree.tooltip_triggers.insert("hint".into());

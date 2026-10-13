@@ -728,7 +728,7 @@ impl Component for ColumnChart {
 mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     fn column_bars(frame: &crate::Frame, color: Color) -> Vec<crate::Rect> {
         frame

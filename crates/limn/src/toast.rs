@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn a_card_fades_in_and_lingers_fading_once_the_host_drops_it() {
-        use std::time::{Duration, Instant};
+        use web_time::{Duration, Instant};
         let palette = ComponentPalette::neutral_dark();
         let shown = || {
             Toast::layer(base(), vec![Toast::new("Guardado", palette).render()], 0.0)

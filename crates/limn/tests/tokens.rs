@@ -7,7 +7,7 @@ use limn::{
     set_tokens, tokens, Button, Component, ComponentPalette, DrawCommand, Element, Empty, Frame,
     Markdown, Modal, Motion, Radius, Size, Toast, Tokens, UiTree,
 };
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 const WINDOW: Size = Size::new(800.0, 600.0);
 

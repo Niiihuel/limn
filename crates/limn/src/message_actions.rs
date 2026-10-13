@@ -1,6 +1,6 @@
 //! The quiet row of icon actions under a chat message: copy, retry, edit.
 
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 use crate::{
     ButtonVariant, Component, ComponentPalette, ControlSize, DropdownMenu, DropdownMenuEntry,

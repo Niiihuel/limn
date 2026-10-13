@@ -12,7 +12,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     mpsc, Arc, Mutex,
 };
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 const MAX_FRAME: usize = 16 * 1024 * 1024;
 const MAX_INCOMING_FRAME: usize = 4 * 1024 * 1024;

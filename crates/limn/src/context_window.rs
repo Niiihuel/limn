@@ -610,7 +610,7 @@ impl ContextWindow {
 mod tests {
     use super::*;
     use crate::{DrawCommand, Frame, Rect, Size, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     const SIZE: Size = Size::new(400.0, 600.0);
     const SYSTEM: Color = Color::rgba(40, 40, 40, 255);

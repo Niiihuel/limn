@@ -17,7 +17,7 @@ mod pages;
 use eframe::egui;
 use limn::{Element, Point, Size, UiAction, UiEvent, UiTree};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 /// Run through the hot-patch jump table when patching is enabled, so the
 /// next frame after a patch calls the new code.
@@ -184,6 +184,56 @@ impl eframe::App for Host {
     }
 }
 
+/// In a page the gallery fills the canvas `limn`; the address's fragment
+/// (`#glass`) chooses the page, so a site can link to one component.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use eframe::wasm_bindgen::JsCast as _;
+    let window = eframe::web_sys::window().expect("a window");
+    let page = window.location().hash().unwrap_or_default();
+    let page = page.trim_start_matches('#');
+    let page = pages::PAGES
+        .iter()
+        .find(|known| known.id == page)
+        .map_or(pages::PAGES[0].id, |known| known.id);
+    let mut state = app::State::starting_at(page);
+    if window.location().search().unwrap_or_default().contains("light") {
+        state.set("light", "on");
+    }
+    let canvas = window
+        .document()
+        .and_then(|document| document.get_element_by_id("limn"))
+        .and_then(|element| element.dyn_into::<eframe::web_sys::HtmlCanvasElement>().ok())
+        .expect("a canvas with the id `limn`");
+    wasm_bindgen_futures::spawn_local(async move {
+        eframe::WebRunner::new()
+            .start(
+                canvas,
+                eframe::WebOptions::default(),
+                Box::new(move |creation| {
+                    limn_egui::install_fonts(&creation.egui_ctx);
+                    Ok(Box::new(Host {
+                        glass: creation
+                            .wgpu_render_state
+                            .as_ref()
+                            .map(glass_demo::GlassDemo::new),
+                        tree: UiTree::new(Element::spacer()),
+                        state,
+                        started: false,
+                        screenshot: None,
+                        hover: None,
+                        scroll_end: false,
+                        opened: Instant::now(),
+                        requested: false,
+                    }))
+                }),
+            )
+            .await
+            .expect("the gallery starts");
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
     #[cfg(feature = "hot")]
     dioxus_devtools::connect_subsecond();

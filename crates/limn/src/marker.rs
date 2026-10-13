@@ -198,7 +198,7 @@ impl Component for Marker {
 mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     #[test]
     fn thinking_marker_keeps_the_brain_static_and_only_shimmers_the_text() {

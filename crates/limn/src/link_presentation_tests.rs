@@ -228,7 +228,7 @@ fn a_slanted_highlight_replaces_the_upright_ink_under_it() {
 
 #[test]
 fn a_text_area_shows_its_scrollbar_while_it_scrolls_and_then_hides_it() {
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
     let size = Size::new(200.0, 60.0);
     let mut tree = UiTree::new(
         Element::text_area("prompt", "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12", "")

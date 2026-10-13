@@ -195,7 +195,7 @@ impl Component for DictationWaveform {
 mod tests {
     use super::*;
     use crate::{DrawCommand, Point, Rect, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     const WAVE: Size = Size::new(120.0, 28.0);
 

@@ -1331,7 +1331,7 @@ mod tests {
         tree.handle_event(UiEvent::PointerMove(Point::new(copy.x + 8.0, copy.y + 8.0)));
         let hinted = tree.layout_at(
             size,
-            std::time::Instant::now() + std::time::Duration::from_secs(2),
+            web_time::Instant::now() + std::time::Duration::from_secs(2),
         );
         assert!(hinted.commands.iter().any(|command| matches!(command,
             DrawCommand::Text { text, .. } if text.contains("Copies the address"))));
@@ -1414,7 +1414,7 @@ mod tests {
         assert!(tree.focus("replace"));
         let hinted = tree.layout_at(
             size,
-            std::time::Instant::now() + std::time::Duration::from_secs(1),
+            web_time::Instant::now() + std::time::Duration::from_secs(1),
         );
         for key in [
             if cfg!(target_os = "macos") {
@@ -1449,7 +1449,7 @@ mod tests {
         )));
         let hinted = tree.layout_at(
             size,
-            std::time::Instant::now() + std::time::Duration::from_secs(2),
+            web_time::Instant::now() + std::time::Duration::from_secs(2),
         );
         assert!(hinted.commands.iter().any(|command| matches!(command,
             DrawCommand::Text { text, .. } if text.contains("Sin cambios")

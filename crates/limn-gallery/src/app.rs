@@ -47,6 +47,8 @@ impl State {
     }
 
     /// The inverse of [`State::serialize`]. Lines it cannot read are skipped.
+    // Only the hot-reloading desktop build restores a session.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub fn deserialize(text: &str) -> Self {
         fn unescape(text: &str) -> String {
             let mut out = String::with_capacity(text.len());

@@ -651,7 +651,7 @@ mod tests {
         assert_eq!((clock.x + clock.width, label(&frame, "3:45").0.x + 32.0), (792.0, 792.0));
         // The glyph names its column in a hint.
         let mut tree = tree_of(table(WIDTH).render());
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         tree.layout_at(SIZE, start);
         tree.handle_event_at(UiEvent::PointerMove(middle(clock)), start);
         tree.layout_at(SIZE, start);

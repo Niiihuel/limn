@@ -142,7 +142,7 @@ impl Component for MediaCard {
 mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Point, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     const SIZE: Size = Size::new(400.0, 200.0);
 
