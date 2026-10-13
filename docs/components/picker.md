@@ -1,4 +1,4 @@
-# Picker
+# Catalog menus
 
 A menu that lists more than actions: a selector with a searchable catalog,
 folding sections and two-line rows. There is no `Picker` type; it is a

@@ -48,6 +48,10 @@ The default `syntax` feature enables tree-sitter highlighting through
 `limn-language`. With `default-features = false`, code views use the line
 lexer instead.
 
+## Used by
+
+**openADE**, a native Rust development environment for working with coding agents.
+
 ## License
 
 Licensed under either [MIT](LICENSE-MIT) or [Apache-2.0](LICENSE-APACHE),

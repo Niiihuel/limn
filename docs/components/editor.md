@@ -1,4 +1,4 @@
-# Editor
+# Editing tools
 
 The parts an editing surface puts around its text: a find and replace bar
 (`FindBar`), the path of the open file (`Breadcrumb::from_path`), a message

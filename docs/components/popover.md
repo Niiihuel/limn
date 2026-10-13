@@ -66,7 +66,7 @@ Popover::new(anchor, content, open, "dismiss", palette).width(260.0).render()
 ## A panel as content
 
 `PopoverPanel` stacks a header, a body that scrolls and a footer that stays;
-pass its rendered element as the content. See [Picker](picker.md).
+pass its rendered element as the content. See [Catalog menus](picker.md).
 
 ## Keyboard
 

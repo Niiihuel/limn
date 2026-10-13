@@ -85,6 +85,10 @@ checkout, not from crates.io.
 What is missing, accessibility first, is in the [roadmap](ROADMAP.md);
 what has shipped, in the [changelog](CHANGELOG.md).
 
+## Used by
+
+**openADE**, a native Rust development environment for working with coding agents.
+
 ## License
 
 Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or the

@@ -173,6 +173,21 @@ Run it. The buttons change the number, darken under the pointer, and can be
 reached with Tab and pressed with Enter or Space. You wrote none of that
 behavior: the tree keeps hover, press and focus for each ID.
 
+## Language
+
+The library's built-in labels are English by default. If you are upgrading
+an application that relied on the earlier Spanish defaults, call this once
+during startup, before building its first UI tree:
+
+```rust
+limn::set_labels(limn::Labels::SPANISH);
+```
+
+This sets the built-in labels for the whole process. Text you supply to a
+component remains yours; `FindBar`, `Markdown` and `DiagramViewer` have their
+own label settings. See [Theming: Language](theming.md#language) for those
+overrides and other languages.
+
 ## Where to go next
 
 - [Concepts](concepts.md) explains the model you just used.

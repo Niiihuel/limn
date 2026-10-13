@@ -1,4 +1,4 @@
-# Page
+# PageColumn / CardGrid
 
 The layout of a page, in two types: `PageColumn` is a scrolling page whose
 content is a centered column of bounded width, and `CardGrid` lays cards of

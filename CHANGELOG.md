@@ -5,6 +5,10 @@ in any release.
 
 ## 0.1.39 — unreleased
 
+- Kbd: width budgets cover alternatives and captions together; narrow rows omit the whole hint
+- Built-in labels default to English and can be replaced with `set_labels`; `Labels::SPANISH` preserves the earlier Spanish copy
+- Toast cards can use explicit IDs; breadcrumb search hints accept a custom shortcut
+- Documentation site: live components, native Mermaid diagrams and guides for every component
 - Docs: liquid glass, where its numbers come from and what is ours
 - Gallery: a page for glass, with a bar to drag over six backdrops
 - Glass: a material that refracts the scene behind a surface, and a navigation bar on it
