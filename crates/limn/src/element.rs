@@ -504,6 +504,8 @@ pub struct Element {
     pub(crate) menu_secondary_action: bool,
     pub(crate) draggable: bool,
     pub(crate) sticky_top: Option<StickyTop>,
+    /// Names a passive element for `UiTree::reveal` and `anchor_offset`.
+    pub(crate) anchor: Option<String>,
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
@@ -975,6 +977,7 @@ impl Element {
             menu_secondary_action: false,
             draggable: false,
             sticky_top: None,
+            anchor: None,
             animate_height: None,
             kept: None,
             hover_reveal: HoverReveal::None,
@@ -982,6 +985,15 @@ impl Element {
             menu_navigation: false,
             context_menu: None,
         }
+    }
+
+    /// Name this element as a place to scroll to, without making it a
+    /// control: `UiTree::reveal(id)` brings it into view and
+    /// `UiTree::anchor_offset(id)` says where it is. It has to be laid out
+    /// by a column of a scroll area, as a message of a conversation is.
+    pub fn anchor(mut self, id: impl Into<String>) -> Self {
+        self.anchor = Some(id.into());
+        self
     }
 
     /// Group a menu trigger, optional search input and its inline options.

@@ -151,6 +151,7 @@ that is resolved at the next layout, once sizes are known.
 | `tree.scroll_to_index(id, index)` | Keep one row of a uniform list in view. |
 | `tree.reveal(control_id)` | Bring a button, a clickable or a field into view wherever it is: every scroll area around it scrolls just enough to show it whole, 12 px clear of the edge. Rows need no fixed height. Nothing moves when it is already in view, and nothing happens when no control has that ID. Focus stays where it was. |
 | `tree.reveal_with_margin(control_id, margin)` | The same with a margin of the host's own, for a viewport whose edge is covered by a fade or a fixed header. A margin with no room shrinks until the control fits. |
+| `element.anchor(id)`, `tree.anchor_offset(id)` | Name a passive element, such as a message or a heading, as a place to scroll to: `reveal(id)` then brings it into view like a control, and a pinned `sticky_top` anchor is revealed where its column has it, so the view returns to the start of what it pins over. `anchor_offset(id)` is how far its top was below the top of its scroll area at the last layout, negative once it has scrolled past: the last anchor at or above a line of the viewport is the part in view. The element has to be laid out by a column of the scroll area. |
 
 `reveal` finds a control by its ID, so give the thing to reveal one: a row
 that is not otherwise interactive can be an `Element::clickable`. Rows of a

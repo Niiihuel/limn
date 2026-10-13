@@ -2814,6 +2814,14 @@ impl UiTree {
         self.pending_reveal = Some((id.to_owned(), margin));
     }
 
+    /// Where the `Element::anchor` named `id` was at the last layout: how far
+    /// its top is below the top of the scroll area around it, negative once
+    /// it has scrolled past. `None` when it was not laid out.
+    pub fn anchor_offset(&self, id: &str) -> Option<f32> {
+        let target = self.frame.scroll_focus_targets.get(id)?;
+        Some(target.rect.y - target.viewport.y)
+    }
+
     pub fn layout(&mut self, viewport: Size) -> Frame {
         self.layout_at(viewport, Instant::now())
     }
@@ -10068,8 +10076,8 @@ impl LayoutBuilder<'_> {
         if let ElementKind::Tooltip { anchor, .. } = &element.kind {
             self.record_scroll_focus_target(anchor, rect.inset(element.style.padding));
         }
-        if let (Some(scroll), Some(id)) = (self.scroll_focus_context.last(), focusable_id(element))
-        {
+        let id = focusable_id(element).or(element.anchor.as_deref());
+        if let (Some(scroll), Some(id)) = (self.scroll_focus_context.last(), id) {
             let ancestors = self.scroll_focus_ancestors();
             self.frame.scroll_focus_targets.insert(
                 id.to_owned(),
@@ -10294,6 +10302,10 @@ impl LayoutBuilder<'_> {
         rect.height = (rect.y + natural - top).clamp(cap, natural);
         rect.y = top.min(limit - rect.height).max(rect.y);
         let mut element = child.clone();
+        // An anchor stays where the column has it, so revealing it scrolls
+        // back to the start of what it pins over.
+        self.record_scroll_focus_target(child, rects[index]);
+        element.anchor = None;
         if rect.height < natural {
             element.style.clip_children = true;
             element.style.bottom_fade = element

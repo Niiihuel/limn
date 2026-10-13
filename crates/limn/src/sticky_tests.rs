@@ -234,3 +234,45 @@ fn popover_with_no_gap_starts_at_its_zero_height_anchor() {
     assert_eq!(top(Some(f32::NAN)), 35.0);
     assert_eq!(top(Some(-3.0)), 35.0);
 }
+
+/// Three sections whose passive headers are anchors `a0`, `a1` and `a2`.
+fn anchored(sticky: bool) -> UiTree {
+    let mut children = Vec::new();
+    for section in 0..3 {
+        let header = Element::text("Header").size(None, Some(20.0)).anchor(format!("a{section}"));
+        children.push(if sticky { header.sticky_top() } else { header });
+        children.extend((0..5).map(|_| Element::text("Row").size(None, Some(20.0))));
+    }
+    let mut tree = UiTree::new(Element::scroll("list", Element::column(children)));
+    tree.set_reduced_motion(true);
+    tree.layout(SIZE);
+    tree
+}
+
+#[test]
+fn a_passive_anchor_is_revealed_and_says_where_it_is() {
+    let mut tree = anchored(false);
+    // Laid out below the viewport, where nothing of it is painted.
+    assert_eq!(tree.anchor_offset("a2"), Some(240.0));
+    tree.reveal_with_margin("a2", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 160.0);
+    assert_eq!(tree.anchor_offset("a2"), Some(80.0));
+    assert_eq!(tree.anchor_offset("a0"), Some(-160.0));
+    assert_eq!(tree.anchor_offset("missing"), None);
+    // It is still no control: nothing to focus or click.
+    assert!(tree.frame().regions.iter().all(|region| region.id == "list"));
+}
+
+#[test]
+fn revealing_a_pinned_anchor_scrolls_back_to_where_its_section_starts() {
+    let mut tree = anchored(true);
+    tree.handle_event(UiEvent::ScrollDirect { position: Point::new(5.0, 5.0), delta_y: -170.0 });
+    tree.layout(SIZE);
+    // Pinned at the top of the viewport, it answers for its place in the column.
+    assert_eq!(tree.anchor_offset("a1"), Some(-50.0));
+    tree.reveal_with_margin("a1", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 120.0);
+    assert_eq!(tree.anchor_offset("a1"), Some(0.0));
+}
