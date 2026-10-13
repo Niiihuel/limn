@@ -38,6 +38,8 @@ struct Host {
     scroll_end: bool,
     opened: Instant,
     requested: bool,
+    /// The shape of the state when this run began, to notice a patch that changes it.
+    launched: limn::hot::Shape,
 }
 
 impl Host {
@@ -93,6 +95,12 @@ impl eframe::App for Host {
         if !self.started {
             self.started = true;
             self.start(&ctx);
+        }
+        // A patch that changes the state's fields leaves the state in memory as
+        // it was: the new code must not read it.
+        if limn::hot_shape!(app::State) != self.launched {
+            ui.label("The gallery's state changed shape. Restart it: press r in dx.");
+            return;
         }
         limn_egui::normalize_keyboard_input(&ctx);
         self.tree
@@ -242,6 +250,7 @@ fn main() {
                         scroll_end: false,
                         opened: Instant::now(),
                         requested: false,
+                        launched: limn::hot_shape!(app::State),
                     }))
                 }),
             )
@@ -323,6 +332,7 @@ fn main() -> eframe::Result {
                 scroll_end,
                 opened: Instant::now(),
                 requested: false,
+                launched: limn::hot_shape!(app::State),
             }))
         }),
     )
