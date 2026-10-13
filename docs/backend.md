@@ -74,6 +74,7 @@ the regions of the last layout.
 | `StrokeCornerRect { .. }` | An outline with a radius per corner. |
 | `FillVerticalGradient { .. }` | A vertical gradient, used for fades at scroll edges. |
 | `FillHorizontalGradient { .. }` | A gradient from left to right, with square corners: the length of a bar that lies down. |
+| `FillMesh { points, colors, indices }` | Triangles with a color at each corner, blended across each: the area under a line, a slice of a pie, a radar's shape. Its edges need no smoothing; the tree strokes them. |
 | `FillTriangle { points, color }` | A triangle, used for tooltip pointers. |
 | `Polyline { points, color, width, dashed }` | An open stroked path centered on its points, dashed in short marks when asked: the connectors and the decision outline of a `Flowchart`, the lifelines and messages of a `SequenceDiagram`. |
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |

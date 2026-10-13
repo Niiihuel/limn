@@ -1517,6 +1517,20 @@ fn paint_at_impl(
                     Stroke::NONE,
                 ));
             }
+            DrawCommand::FillMesh { points, colors, indices } => {
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let mut mesh = egui::Mesh::default();
+                mesh.vertices.extend(points.iter().zip(colors.iter()).map(|(point, ink)| egui::epaint::Vertex {
+                    pos: pos(origin, *point),
+                    uv: egui::epaint::WHITE_UV,
+                    color: color(*ink),
+                }));
+                // A corner that is not there would be read past the end.
+                if indices.iter().all(|index| (*index as usize) < mesh.vertices.len()) {
+                    mesh.indices.extend(indices.iter().copied());
+                    painter.add(egui::Shape::mesh(mesh));
+                }
+            }
             DrawCommand::Polyline {
                 points,
                 color: ink,

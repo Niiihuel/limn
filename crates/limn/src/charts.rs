@@ -493,11 +493,7 @@ impl Bars {
             .enumerate()
             .map(|(index, series)| crate::BarSeries {
                 name: series.name,
-                // One hue, a step lighter for each series after the first.
-                color: series.color.unwrap_or(Color {
-                    a: (f32::from(base.a) * (1.0 - 0.7 * index as f32 / several.max(2) as f32)).round() as u8,
-                    ..base
-                }),
+                color: series_color(series.color, base, index, several),
                 values: series
                     .values
                     .into_iter()
@@ -703,6 +699,350 @@ impl Component for ColumnChart {
     }
 }
 
+/// The color of the series at `index` of `count`: its own, or a step of the
+/// chart's, lighter for each one after the first.
+fn series_color(own: Option<Color>, base: Color, index: usize, count: usize) -> Color {
+    own.unwrap_or(Color { a: (f32::from(base.a) * (1.0 - 0.7 * index as f32 / count.max(2) as f32)).round() as u8, ..base })
+}
+
+/// Lines over the points of an axis, one for each series, on a value axis
+/// with round ticks. The lines are drawn from left to right when the chart
+/// appears. Under the pointer, a line marks the nearest point with a dot on
+/// each series, and a tooltip that follows the pointer lists their values.
+/// It takes no clicks and adds no tab stops. An [`AreaChart`] is the same
+/// chart with the area under each line filled.
+#[derive(Clone)]
+pub struct LineChart {
+    id: String,
+    points: Vec<String>,
+    series: Vec<ChartSeries>,
+    palette: ComponentPalette,
+    width: Option<f32>,
+    height: f32,
+    color: Option<Color>,
+    smooth: bool,
+    area: bool,
+    dots: bool,
+    grid: bool,
+    value_axis: bool,
+}
+
+impl LineChart {
+    /// A chart of one line for each series over the same points. `id` is the stable
+    /// ID under which the tree keeps the chart's motion and its hover.
+    pub fn new(
+        id: impl Into<String>,
+        points: impl IntoIterator<Item = impl Into<String>>,
+        series: Vec<ChartSeries>,
+        palette: ComponentPalette,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            points: points.into_iter().map(Into::into).collect(),
+            series,
+            palette,
+            width: None,
+            height: 240.0,
+            color: None,
+            smooth: true,
+            area: false,
+            dots: false,
+            grid: true,
+            value_axis: true,
+        }
+    }
+
+    /// Fix the width in logical pixels, never below 160. Without one the chart takes
+    /// the width it is offered. A value that is not finite is ignored.
+    pub fn width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.width = Some(width.max(160.0));
+        }
+        self
+    }
+
+    /// Fix the height in logical pixels, from 80 to 1200; 240 by default. A value
+    /// that is not finite is ignored.
+    pub fn height(mut self, height: f32) -> Self {
+        if height.is_finite() {
+            self.height = height.clamp(80.0, 1200.0);
+        }
+        self
+    }
+
+    /// The color of the lines: the first series takes it whole and each one after it
+    /// a lighter step. The palette's text color by default.
+    pub fn color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// Round each line through its points, without passing over or under any. On by
+    /// default; `smooth(false)` joins the points with straight strokes.
+    pub fn smooth(mut self, smooth: bool) -> Self {
+        self.smooth = smooth;
+        self
+    }
+
+    /// Fill under each line, from its color down to nothing at the zero line.
+    pub fn area(mut self, area: bool) -> Self {
+        self.area = area;
+        self
+    }
+
+    /// Draw a dot at every point of every line.
+    pub fn dots(mut self, dots: bool) -> Self {
+        self.dots = dots;
+        self
+    }
+
+    /// Draw or leave out the dashed line at each tick of the value axis. Drawn by default.
+    pub fn grid(mut self, grid: bool) -> Self {
+        self.grid = grid;
+        self
+    }
+
+    /// Write or leave out the ticks of the value axis. Written by default.
+    pub fn value_axis(mut self, axis: bool) -> Self {
+        self.value_axis = axis;
+        self
+    }
+}
+
+impl Component for LineChart {
+    fn render(self) -> Element {
+        let palette = self.palette;
+        let base = self.color.unwrap_or(palette.text);
+        let count = self.series.len();
+        Element::line_plot(crate::LinePlot {
+            id: self.id,
+            points: self.points,
+            series: self
+                .series
+                .into_iter()
+                .enumerate()
+                .map(|(index, series)| crate::PlotSeries {
+                    name: series.name,
+                    color: series_color(series.color, base, index, count),
+                    values: series.values.into_iter().map(finite).collect(),
+                })
+                .collect(),
+            smooth: self.smooth,
+            area: self.area,
+            dots: self.dots,
+            grid: self.grid,
+            value_axis: self.value_axis,
+            text: palette.text,
+            muted: palette.muted,
+            line: Color { a: (f32::from(palette.border.a) * 0.7) as u8, ..palette.border },
+            ground: palette.surface,
+            tooltip: palette.tooltip_style(),
+        })
+        .size(self.width, Some(self.height))
+    }
+}
+
+/// A [`LineChart`] with the area under each line filled: the same builders,
+/// the same motion and the same tooltip.
+#[derive(Clone)]
+pub struct AreaChart;
+
+impl AreaChart {
+    /// A line chart whose lines stand on a fill that fades down to the zero line.
+    #[allow(clippy::new_ret_no_self)]
+    pub fn new(
+        id: impl Into<String>,
+        points: impl IntoIterator<Item = impl Into<String>>,
+        series: Vec<ChartSeries>,
+        palette: ComponentPalette,
+    ) -> LineChart {
+        LineChart::new(id, points, series, palette).area(true)
+    }
+}
+
+/// A circle shared out among its data, or a ring of them with something said
+/// in its middle. The slices sweep round from twelve o'clock when the chart
+/// appears. The slice under the pointer stands out and the others recede,
+/// and a tooltip that follows the pointer says its value and its share. It
+/// takes no clicks and adds no tab stops.
+#[derive(Clone)]
+pub struct PieChart {
+    id: String,
+    data: Vec<ChartDatum>,
+    palette: ComponentPalette,
+    size: f32,
+    color: Option<Color>,
+    hole: f32,
+    title: String,
+    caption: String,
+}
+
+impl PieChart {
+    /// A pie of one slice for each datum, clockwise from twelve o'clock in their
+    /// order. `id` is the stable ID under which the tree keeps the chart's motion.
+    pub fn new(id: impl Into<String>, data: Vec<ChartDatum>, palette: ComponentPalette) -> Self {
+        Self { id: id.into(), data, palette, size: 220.0, color: None, hole: 0.0, title: String::new(), caption: String::new() }
+    }
+
+    /// The side of the square the chart takes, in logical pixels, from 80 to 1200;
+    /// 220 by default. A value that is not finite is ignored.
+    pub fn size(mut self, size: f32) -> Self {
+        if size.is_finite() {
+            self.size = size.clamp(80.0, 1200.0);
+        }
+        self
+    }
+
+    /// The color of the slices without one of their own: the first takes it whole
+    /// and each one after it a lighter step. The palette's text color by default.
+    pub fn color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// Make it a ring: the hole as a share of the radius, from 0 to 0.9. A value that
+    /// is not finite is ignored.
+    pub fn donut(mut self, hole: f32) -> Self {
+        if hole.is_finite() {
+            self.hole = hole.clamp(0.0, 0.9);
+        }
+        self
+    }
+
+    /// What a ring says in its middle: a figure, over a line that says what it is.
+    pub fn center(mut self, title: impl Into<String>, caption: impl Into<String>) -> Self {
+        self.title = title.into();
+        self.caption = caption.into();
+        self
+    }
+}
+
+impl Component for PieChart {
+    fn render(self) -> Element {
+        let palette = self.palette;
+        let base = self.color.unwrap_or(palette.text);
+        let count = self.data.len();
+        Element::pie_plot(crate::PiePlot {
+            id: self.id,
+            slices: self
+                .data
+                .into_iter()
+                .enumerate()
+                .map(|(index, datum)| crate::PieSlice {
+                    name: datum.tooltip.unwrap_or(datum.label),
+                    value: datum.value,
+                    color: series_color(datum.color, base, index, count),
+                    label: Some(datum.value_label),
+                })
+                .collect(),
+            hole: self.hole,
+            title: self.title,
+            caption: self.caption,
+            text: palette.text,
+            muted: palette.muted,
+            tooltip: palette.tooltip_style(),
+        })
+        .size(Some(self.size), Some(self.size))
+    }
+}
+
+/// Series compared over several axes that spread from a center: each is a
+/// shape whose corners stand on the axes at its values. The shapes open from
+/// the center when the chart appears. The axis nearest the pointer is marked
+/// with a dot on each series, and a tooltip that follows the pointer lists
+/// their values. It takes no clicks and adds no tab stops.
+#[derive(Clone)]
+pub struct RadarChart {
+    id: String,
+    axes: Vec<String>,
+    series: Vec<ChartSeries>,
+    palette: ComponentPalette,
+    width: f32,
+    height: f32,
+    color: Option<Color>,
+    maximum: Option<f64>,
+}
+
+impl RadarChart {
+    /// A radar of one shape for each series over the same axes, clockwise from
+    /// twelve o'clock. With fewer than three axes nothing is drawn. `id` is the
+    /// stable ID under which the tree keeps the chart's motion and its hover.
+    pub fn new(
+        id: impl Into<String>,
+        axes: impl IntoIterator<Item = impl Into<String>>,
+        series: Vec<ChartSeries>,
+        palette: ComponentPalette,
+    ) -> Self {
+        Self {
+            id: id.into(),
+            axes: axes.into_iter().map(Into::into).collect(),
+            series,
+            palette,
+            width: 320.0,
+            height: 260.0,
+            color: None,
+            maximum: None,
+        }
+    }
+
+    /// The width and the height in logical pixels, each from 120 to 1200; 320 by 260
+    /// by default. A value that is not finite leaves that side as it was.
+    pub fn size(mut self, width: f32, height: f32) -> Self {
+        if width.is_finite() {
+            self.width = width.clamp(120.0, 1200.0);
+        }
+        if height.is_finite() {
+            self.height = height.clamp(120.0, 1200.0);
+        }
+        self
+    }
+
+    /// The color of the shapes: the first series takes it whole and each one after
+    /// it a lighter step. The palette's text color by default.
+    pub fn color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// The value at the rim. Without one it is a round number over the greatest
+    /// value. One that is not finite or not above zero is ignored.
+    pub fn maximum(mut self, maximum: f64) -> Self {
+        if maximum.is_finite() && maximum > 0.0 {
+            self.maximum = Some(maximum);
+        }
+        self
+    }
+}
+
+impl Component for RadarChart {
+    fn render(self) -> Element {
+        let palette = self.palette;
+        let base = self.color.unwrap_or(palette.text);
+        let count = self.series.len();
+        Element::radar_plot(crate::RadarPlot {
+            id: self.id,
+            axes: self.axes,
+            series: self
+                .series
+                .into_iter()
+                .enumerate()
+                .map(|(index, series)| crate::PlotSeries {
+                    name: series.name,
+                    color: series_color(series.color, base, index, count),
+                    values: series.values.into_iter().map(finite).collect(),
+                })
+                .collect(),
+            maximum: self.maximum,
+            text: palette.text,
+            muted: palette.muted,
+            line: Color { a: (f32::from(palette.border.a) * 0.7) as u8, ..palette.border },
+            ground: palette.surface,
+            tooltip: palette.tooltip_style(),
+        })
+        .size(Some(self.width), Some(self.height))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -886,6 +1226,187 @@ mod tests {
         for command in &frame.commands {
             if let DrawCommand::FillRect { rect, .. } | DrawCommand::FillCornerRect { rect, .. } = command {
                 assert!([rect.x, rect.y, rect.width, rect.height].iter().all(|value| value.is_finite()));
+            }
+        }
+    }
+
+    fn meshes(frame: &crate::Frame) -> Vec<Vec<crate::Point>> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillMesh { points, .. } => Some(points.to_vec()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn lines() -> LineChart {
+        LineChart::new(
+            "visits",
+            ["Jan", "Feb", "Mar", "Apr"],
+            vec![ChartSeries::new("Desktop", [10.0, 40.0, 20.0, 30.0]).color(INK), ChartSeries::new("Mobile", [5.0, 20.0, 30.0, 10.0]).color(OTHER)],
+            ComponentPalette::neutral_dark(),
+        )
+        .width(400.0)
+    }
+
+    #[test]
+    fn lines_are_drawn_from_the_left_as_the_chart_appears_and_an_area_stands_on_the_zero_line() {
+        let window = Size::new(400.0, 240.0);
+        let start = web_time::Instant::now();
+        let clip = |frame: &crate::Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::PushClip(rect) => Some(rect.width),
+                _ => None,
+            })
+        };
+        let mut tree = UiTree::new(lines().render());
+        tree.layout_at(window, start);
+        let part = clip(&tree.layout_at(window, start + web_time::Duration::from_millis(150))).unwrap();
+        let whole = clip(&tree.layout_at(window, start + web_time::Duration::from_secs(3))).unwrap();
+        assert!(part > 0.0 && part < whole, "{part} of {whole}");
+
+        // A line passes through each of its points, rounded or not.
+        let through = |smooth: bool| {
+            let mut tree = UiTree::new(lines().smooth(smooth).render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout_at(window, start);
+            let strokes: Vec<Vec<crate::Point>> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Polyline { points, color, width, .. } if *color == INK && *width == 2.0 => Some(points.to_vec()),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(strokes.len(), 1);
+            strokes[0].clone()
+        };
+        let (straight, rounded) = (through(false), through(true));
+        assert_eq!(straight.len(), 4);
+        assert!(rounded.len() > straight.len());
+        for knot in &straight {
+            assert!(rounded.iter().any(|point| (point.x - knot.x).abs() < 0.01 && (point.y - knot.y).abs() < 0.01), "{knot:?}");
+        }
+        // 40 is twice as far from the zero line as 20.
+        let zero = straight[0].y + (straight[0].y - straight[1].y) / 3.0;
+        assert!(((zero - straight[1].y) / (zero - straight[2].y) - 2.0).abs() < 0.05);
+
+        let mut area = UiTree::new(AreaChart::new("area", ["a", "b", "c"], vec![ChartSeries::new("One", [1.0, 3.0, 2.0])], ComponentPalette::neutral_dark()).width(400.0).render());
+        area.set_reduced_motion(true);
+        let fills = meshes(&area.layout_at(window, start));
+        assert_eq!(fills.len(), 1);
+        let foot = fills[0].iter().map(|point| point.y).fold(f32::MIN, f32::max);
+        assert!(fills[0].iter().skip(1).step_by(2).all(|point| point.y == foot), "every strip stands on one line");
+        assert!(meshes(&UiTree::new(lines().render()).layout_at(window, start + web_time::Duration::from_secs(9))).is_empty());
+    }
+
+    #[test]
+    fn the_point_nearest_the_pointer_is_marked_and_listed() {
+        let window = Size::new(400.0, 240.0);
+        let start = web_time::Instant::now();
+        let mut tree = UiTree::new(lines().render());
+        tree.set_reduced_motion(true);
+        let rest = tree.layout_at(window, start);
+        let area = rest.regions.iter().find(|region| region.id == "visits").unwrap().rect;
+        // Nearer March, the third of four points, than April.
+        tree.handle_event(crate::UiEvent::PointerMove(crate::Point::new(area.x + area.width * 0.7, area.y + 30.0)));
+        tree.layout_at(window, start);
+        let said = texts(&tree.layout_at(window, start));
+        for wanted in ["Mar", "Desktop", "20", "Mobile", "30"] {
+            assert!(said.iter().filter(|text| *text == wanted).count() >= 1, "{wanted} is not in {said:?}");
+        }
+    }
+
+    #[test]
+    fn a_pie_shares_the_circle_by_value_and_sweeps_round_as_it_appears() {
+        // The root takes the whole window, so the window is the chart's square.
+        let window = Size::new(220.0, 220.0);
+        let start = web_time::Instant::now();
+        let data = || vec![ChartDatum::new("a", "Alpha", 3.0), ChartDatum::new("b", "Beta", 1.0), ChartDatum::new("c", "None", 0.0), ChartDatum::new("d", "Bad", f64::NAN)];
+        let pie = || PieChart::new("pie", data(), ComponentPalette::neutral_dark()).size(220.0);
+        let mut tree = UiTree::new(pie().render());
+        assert!(meshes(&tree.layout_at(window, start)).is_empty(), "nothing is swept on the first frame");
+        let grown = meshes(&tree.layout_at(window, start + web_time::Duration::from_secs(3)));
+        // A slice of nothing is not drawn.
+        assert_eq!(grown.len(), 2);
+        // Three quarters of the turn against one: three times the strokes along the rim.
+        let share = grown[0].len() as f32 / grown[1].len() as f32;
+        assert!((2.6..=3.3).contains(&share), "{share}");
+        let center = crate::Point::new(110.0, 110.0);
+        let reach = |points: &[crate::Point]| points.iter().map(|point| (point.x - center.x).hypot(point.y - center.y)).fold(0.0, f32::max);
+        // A whole pie reaches its center, a ring does not.
+        let nearest = |points: &[crate::Point]| points.iter().map(|point| (point.x - center.x).hypot(point.y - center.y)).fold(f32::MAX, f32::min);
+        assert!(nearest(&grown[0]) < 0.5);
+        let mut ring = UiTree::new(pie().donut(0.6).center("4", "Things").render());
+        ring.set_reduced_motion(true);
+        let frame = ring.layout_at(window, start);
+        let holed = meshes(&frame);
+        assert!((nearest(&holed[0]) / reach(&holed[0]) - 0.6).abs() < 0.02);
+        assert!(texts(&frame).contains(&"4".to_owned()) && texts(&frame).contains(&"Things".to_owned()));
+
+        // Over the first slice, to the right of twelve o'clock: it is named with its share.
+        ring.handle_event(crate::UiEvent::PointerMove(crate::Point::new(center.x + 60.0, center.y - 50.0)));
+        ring.layout_at(window, start);
+        let said = texts(&ring.layout_at(window, start));
+        assert!(said.contains(&"Alpha".to_owned()) && said.contains(&"3 (75.0 %)".to_owned()), "{said:?}");
+    }
+
+    #[test]
+    fn a_radar_opens_from_its_center_and_needs_three_axes() {
+        let window = Size::new(320.0, 260.0);
+        let start = web_time::Instant::now();
+        let radar = |axes: &[&str]| {
+            RadarChart::new("radar", axes.iter().copied(), vec![ChartSeries::new("One", [50.0, 100.0, 25.0, 75.0]).color(INK)], ComponentPalette::neutral_dark())
+                .maximum(100.0)
+        };
+        let mut two = UiTree::new(radar(&["a", "b"]).render());
+        two.set_reduced_motion(true);
+        assert!(two.layout_at(window, start).commands.iter().all(|command| !matches!(command, DrawCommand::FillMesh { .. } | DrawCommand::Polyline { .. })));
+
+        let mut tree = UiTree::new(radar(&["North", "East", "South", "West"]).render());
+        let closed = meshes(&tree.layout_at(window, start));
+        let open = meshes(&tree.layout_at(window, start + web_time::Duration::from_secs(3)));
+        let center = open[0][0];
+        let reach = |point: &crate::Point| (point.x - center.x).hypot(point.y - center.y);
+        assert!(closed[0].iter().all(|point| reach(point) < 0.01), "it starts shut");
+        // The corners stand on their axes in proportion: 50, 100, 25 and 75.
+        let corners: Vec<f32> = open[0][1..].iter().map(reach).collect();
+        assert!((corners[1] / corners[0] - 2.0).abs() < 0.02 && (corners[0] / corners[2] - 2.0).abs() < 0.02, "{corners:?}");
+        // North is up and East to the right.
+        assert!(open[0][1].y < center.y && (open[0][1].x - center.x).abs() < 0.01);
+        assert!(open[0][2].x > center.x && (open[0][2].y - center.y).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_chart_tooltip_stays_inside_the_window() {
+        let window = Size::new(400.0, 240.0);
+        let start = web_time::Instant::now();
+        let long = "A series with a name long enough to make the tooltip wide";
+        let chart = ColumnChart::series("edge", ["Only"], vec![ChartSeries::new(long, [10.0])], ComponentPalette::neutral_dark()).width(400.0);
+        let mut tree = UiTree::new(chart.render());
+        tree.set_reduced_motion(true);
+        let rest = tree.layout_at(window, start);
+        let area = rest.regions.iter().find(|region| region.id == "edge").unwrap().rect;
+        for point in [crate::Point::new(area.x + 2.0, area.y + 2.0), crate::Point::new(area.x + area.width - 2.0, area.y + area.height - 2.0)] {
+            tree.handle_event(crate::UiEvent::PointerMove(point));
+            tree.layout_at(window, start);
+            let frame = tree.layout_at(window, start);
+            let tip = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, .. } if text.starts_with("A series") => Some(*position),
+                    _ => None,
+                })
+                .next()
+                .expect("the tooltip names the series");
+            assert!(tip.x >= 0.0 && tip.x < window.width && tip.y >= 0.0 && tip.y < window.height, "{tip:?}");
+            for command in &frame.commands {
+                if let DrawCommand::StrokeRect { rect, .. } | DrawCommand::FillRect { rect, .. } = command {
+                    assert!(rect.x >= -0.5 && rect.x + rect.width <= window.width + 0.5, "{rect:?}");
+                }
             }
         }
     }
