@@ -58,3 +58,11 @@ Spinner::new("search-progress", palette.muted)
     .render()
     .accessibility_label("Searching")
 ```
+
+Inside a control that already says it is busy, or beside a text that does,
+that node would be one more thing without a name. `decorative` leaves it
+out:
+
+```rust
+Spinner::new("row-busy", palette.muted).decorative().render()
+```

@@ -51,7 +51,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .password(true)
                 .width(width)
                 .render(),
-            TextField::new("input-disabled", "Read-only", "", palette).disabled().width(width).render(),
+            TextField::new("input-disabled", "Read-only", "", palette)
+                .accessibility_label("License")
+                .disabled()
+                .width(width)
+                .render(),
             TextField::new("input-path", state.text("input-path"), "src/main.rs", palette)
                 .monospace(true)
                 .width(width)
@@ -176,18 +180,26 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render(),
         ]),
         section(cx, "Switch", vec![row(vec![
-            Switch::new("input-switch", state.flag("input-switch"), palette).render(),
-            Switch::new("input-switch-disabled", true, palette).disabled().render(),
+            Switch::new("input-switch", state.flag("input-switch"), palette).accessibility_label("Notifications").render(),
+            Switch::new("input-switch-disabled", true, palette).accessibility_label("Automatic updates").disabled().render(),
         ])]),
         section(cx, "Slider", vec![
-            Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette).width(280.0).render(),
+            Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette)
+                .accessibility_label("Volume")
+                .width(280.0)
+                .render(),
             caption(cx, &format!("Continuous: {:.0} %", fraction(cx, "input-slider", 0.35) * 100.0)),
             Slider::new("input-slider-steps", fraction(cx, "input-slider-steps", 0.5), palette)
                 .steps(5)
+                .accessibility_label("Quality")
                 .width(280.0)
                 .render(),
             caption(cx, ".steps(5): snaps to one of five stops on release."),
-            Slider::new("input-slider-disabled", 0.6, palette).enabled(false).width(280.0).render(),
+            Slider::new("input-slider-disabled", 0.6, palette)
+                .accessibility_label("Brightness")
+                .enabled(false)
+                .width(280.0)
+                .render(),
             caption(cx, "Disabled: shows the value without pointer input or focus."),
         ]),
     ]

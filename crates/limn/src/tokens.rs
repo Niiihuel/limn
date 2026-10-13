@@ -84,9 +84,13 @@ impl Default for Radius {
 /// its caller choose takes one of these, never a number of pixels.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RadiusRole {
+    /// `Radius::control`: 4 pixels by default.
     Control,
+    /// `Radius::surface`: 6 pixels by default.
     Surface,
+    /// `Radius::card`: 8 pixels by default.
     Card,
+    /// `Radius::panel`: 12 pixels by default.
     Panel,
     /// No rounding, whatever the tokens: a cell that sits flush inside a row
     /// or a bar that paints the surface.
@@ -161,7 +165,9 @@ impl Default for Motion {
 /// Everything about the library's look that is not a color.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Tokens {
+    /// The corner radii, by what is being rounded.
     pub radius: Radius,
+    /// The four durations every animation is built from.
     pub motion: Motion,
 }
 

@@ -78,6 +78,13 @@ reports its click.
 
 ## Accessibility
 
+The field is called "Time", the library's own word, unless the picker is
+given a name of its own:
+
+```rust
+TimePicker::new("departure", &state.departure, palette).accessibility_label("Departure").render()
+```
+
 Each arrow is a button named by its unit and the value it goes to, such as
 "Hour 10", or by its unit alone when the text is not a valid time. In a
 disabled picker they are still there, as disabled. The words for the units

@@ -9,17 +9,20 @@ pub struct Spinner {
     color: Color,
     side: f32,
     variant: SpinnerVariant,
+    decorative: bool,
 }
 
 impl Spinner {
     /// A circle spinner 16 logical pixels a side, drawn in `color`. The platform knows it
-    /// by `id` as a progress indicator with no value.
+    /// by `id` as a progress indicator with no value; name it on what it renders, with
+    /// [`Element::accessibility_label`], or mark it `decorative`.
     pub fn new(id: impl Into<String>, color: Color) -> Self {
         Self {
             id: id.into(),
             color,
             side: 16.0,
             variant: SpinnerVariant::Circle,
+            decorative: false,
         }
     }
 
@@ -29,6 +32,14 @@ impl Spinner {
         if side.is_finite() {
             self.side = side.max(8.0);
         }
+        self
+    }
+
+    /// Tell the platform nothing. For a spinner inside a control or beside a
+    /// text that already says what is going on: there it would be one more
+    /// thing with no name.
+    pub fn decorative(mut self) -> Self {
+        self.decorative = true;
         self
     }
 
@@ -43,9 +54,12 @@ impl Component for Spinner {
     fn render(self) -> Element {
         // Work without a known end: a progress indicator with no value.
         let said = Access::new(Role::ProgressIndicator).id(self.id.clone());
-        Element::spinner(self.id, self.color, self.variant)
-            .size(Some(self.side), Some(self.side))
-            .accessible(said)
+        let spinner = Element::spinner(self.id, self.color, self.variant).size(Some(self.side), Some(self.side));
+        if self.decorative {
+            spinner
+        } else {
+            spinner.accessible(said)
+        }
     }
 }
 

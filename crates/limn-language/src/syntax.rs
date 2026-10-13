@@ -14,17 +14,29 @@ mod markdown;
 /// A language this crate can analyze. `Plain` produces no highlights, symbols or folds.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum Language {
+    /// Text that is not analyzed, and what an unknown extension or code-fence label gives.
     #[default]
     Plain,
+    /// `.rs`.
     Rust,
+    /// `.json` and `.jsonc`.
     Json,
+    /// `.js`, `.jsx`, `.mjs` and `.cjs`.
     JavaScript,
+    /// `.ts`.
     TypeScript,
+    /// `.tsx`: TypeScript with JSX, which needs a grammar of its own.
     Tsx,
+    /// `.py` and `.pyi`.
     Python,
+    /// `.toml`.
     Toml,
+    /// `.css`, and `.scss` read with the CSS grammar.
     Css,
+    /// `.html` and `.htm`, and `.xml` and `.svg` read with the HTML grammar.
     Html,
+    /// `.md`, `.markdown` and their variants. Analyzed with a Markdown parser rather than a
+    /// tree-sitter grammar; its fenced code is highlighted in the fence's language.
     Markdown,
 }
 impl Language {
@@ -177,14 +189,25 @@ impl Language {
 /// The syntactic class of a highlighted range, for the host to map to a colour.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HighlightKind {
+    /// A comment. In Markdown, raw HTML.
     Comment,
+    /// A string or character literal or an escape in one. In Markdown, inline code and the
+    /// destination of a link.
     String,
+    /// A keyword, and also a boolean or a named constant. In Markdown, a code fence, a rule,
+    /// a task marker and a footnote reference.
     Keyword,
+    /// A numeric literal.
     Number,
+    /// The name of a function or a constructor. In Markdown, a link or an image.
     Function,
+    /// The name of a type, or of an HTML tag. In Markdown, a heading.
     Type,
+    /// A property, a field or an attribute. In Markdown, emphasis, strong and strikethrough.
     Property,
+    /// An operator or punctuation.
     Operator,
+    /// An identifier the grammar's highlight query captures as a variable.
     Variable,
 }
 /// A range of characters and its syntactic class.
@@ -192,21 +215,29 @@ pub enum HighlightKind {
 pub struct Highlight {
     /// Character offsets in the analyzed snapshot.
     pub range: Range<usize>,
+    /// What the range is. Ranges from a grammar may overlap or nest; Markdown's are disjoint.
     pub kind: HighlightKind,
 }
 /// The class of a named declaration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SymbolKind {
+    /// A function or a method, with or without a body.
     Function,
+    /// A struct, enum, trait, class, interface or type alias.
     Type,
+    /// A Rust or TypeScript module, a TOML table or a Markdown heading.
     Module,
+    /// A constant, a static or a declared variable.
     Variable,
+    /// The key of a key-value pair, a CSS rule or declaration, or an HTML element.
     Property,
 }
 /// A named declaration found in the text.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Symbol {
+    /// The declared name as written in the source. For a Markdown heading, its text.
     pub name: String,
+    /// What was declared.
     pub kind: SymbolKind,
     /// Characters of the whole declaration.
     pub range: Range<usize>,
@@ -216,17 +247,25 @@ pub struct Symbol {
 /// Physical rows [start,end), with the first row kept visible by the consumer.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Fold {
+    /// Zero-based rows of the buffer, in its own line counting. Always three rows or more
+    /// for a fold found by a tree-sitter grammar.
     pub rows: Range<usize>,
 }
 /// The result of analyzing one snapshot; `document_id` and `revision` say which one.
 #[derive(Clone, Debug)]
 pub struct AnalysisSnapshot {
+    /// `document_id` of the analyzed snapshot.
     pub document_id: u64,
+    /// Revision of the analyzed snapshot; every range below is in its offsets.
     pub revision: u64,
+    /// The language the text was analyzed as.
     pub language: Language,
     /// Sorted by start offset, then by length.
     pub highlights: Arc<[Highlight]>,
+    /// The declarations found. A grammar lists them in the order of the tree, a parent
+    /// before what it contains; Markdown lists its headings in document order.
     pub symbols: Arc<[Symbol]>,
+    /// The foldable blocks, sorted by first row, then by last, without duplicates.
     pub folds: Arc<[Fold]>,
     /// The parse tree contains a syntax error.
     pub has_errors: bool,
@@ -289,10 +328,14 @@ pub struct ParseLimits {
     pub max_bytes: usize,
     /// A longer line stops the analysis before parsing.
     pub max_line_bytes: usize,
+    /// Highlights gathered before the analysis stops collecting them.
     pub max_spans: usize,
+    /// Tree nodes visited for symbols and folds, or Markdown parser events, before the walk
+    /// stops.
     pub max_nodes: usize,
     /// Also the cap on symbols.
     pub max_folds: usize,
+    /// Time allowed for one analysis, from the start of parsing through the last pass.
     pub timeout: Duration,
 }
 impl Default for ParseLimits {

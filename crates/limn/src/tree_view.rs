@@ -19,6 +19,8 @@ const TRAILING_GAP: f32 = 6.0;
 /// own lane, which ends at its icon and continues below when a sibling follows.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TreeGuides {
+    /// How deep the row is, zero for a root. It is the number of guide lanes,
+    /// before the row's limit on visible lanes.
     pub depth: usize,
     /// For each ancestor lane, outermost first, whether its line continues past this row.
     pub ancestor_continuations: Vec<bool>,

@@ -14,6 +14,7 @@ pub struct TimePicker {
     id: String,
     value: String,
     enabled: bool,
+    accessibility_label: Option<String>,
     palette: ComponentPalette,
 }
 
@@ -24,8 +25,16 @@ impl TimePicker {
             id: id.into(),
             value: value.into(),
             enabled: true,
+            accessibility_label: None,
             palette,
         }
+    }
+
+    /// What the field is called to the platform, in place of the library's
+    /// own word for it: "Departure" says more than "Time".
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
     }
 
     /// A disabled picker shows its time in muted ink and is passive: the field
@@ -114,10 +123,11 @@ impl Component for TimePicker {
         let minute = parsed
             .map(|(_, minute)| format!("{minute:02}"))
             .unwrap_or_else(|| "--".into());
-        let input = TextField::new(&self.id, &self.value, "HH:MM", self.palette)
+        let input = TextField::new(&self.id, &self.value, crate::labels().time_placeholder, self.palette)
             .size(ControlSize::Compact)
             .width(92.0)
             .enabled(self.enabled)
+            .accessibility_label(self.accessibility_label.as_deref().unwrap_or(crate::labels().time))
             .render();
         let controls = Element::row(vec![
             self.unit(crate::labels().hour, hour, "hour_down", "hour_up"),

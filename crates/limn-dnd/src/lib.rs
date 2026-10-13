@@ -9,6 +9,7 @@
 //!
 //! X11, Windows and macOS are served by winit's own file-drop events;
 //! `attach` returns `None` there.
+#![warn(missing_docs)]
 
 use std::path::PathBuf;
 
@@ -20,11 +21,23 @@ mod wayland;
 #[derive(Clone, Debug, PartialEq)]
 pub enum DndEvent {
     /// Files from any application are over the window.
-    Hovered { x: f32, y: f32 },
+    Hovered {
+        /// Pointer position from the left edge of the surface.
+        x: f32,
+        /// Pointer position from the top edge of the surface.
+        y: f32,
+    },
     /// The drag left the window without dropping.
     Left,
     /// Files were dropped on the window.
-    Dropped { x: f32, y: f32, paths: Vec<PathBuf> },
+    Dropped {
+        /// Last pointer position of the drag, from the left edge of the surface.
+        x: f32,
+        /// Last pointer position of the drag, from the top edge of the surface.
+        y: f32,
+        /// The local files of the drop, in the order of the source's URI list. Never empty.
+        paths: Vec<PathBuf>,
+    },
     /// A drag started with `start_drag` was dropped or cancelled.
     DragEnded,
 }

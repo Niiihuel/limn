@@ -104,7 +104,13 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     vec![
         section(cx, "Code editor", vec![
             caption(cx, "An editor draws a limn_editor::TextBuffer that the host owns, behind an EditorController it keeps between frames."),
-            CodeEditor::new("code-editor", editor()).palette(palette).language(CodeLanguage::Rust).height(220.0).render(),
+            // Named for a screen reader as the file it shows.
+            CodeEditor::new("code-editor", editor())
+                .palette(palette)
+                .language(CodeLanguage::Rust)
+                .height(220.0)
+                .render()
+                .accessibility_label("greet.rs"),
         ]),
         section(cx, "Code diff", vec![
             caption(cx, "The rows the host gives it, with the old and the new line number and a column of marks. The language colors comments, strings, numbers and keywords."),

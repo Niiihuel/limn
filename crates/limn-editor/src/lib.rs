@@ -3,6 +3,7 @@
 //! Offsets and columns are Unicode scalar (Rust `char`) indices, never UTF-8
 //! byte offsets. Interactive movement and deletion use extended graphemes.
 //! Snapshots share Ropey storage and can be read or saved off the UI thread.
+#![warn(missing_docs)]
 
 mod commands;
 mod display;
@@ -35,7 +36,9 @@ const GROUP_INTERVAL_MS: u64 = 500;
 /// before `anchor`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Selection {
+    /// The end that stays put while the selection is extended, as a character offset.
     pub anchor: usize,
+    /// The end the caret is drawn at, as a character offset.
     pub head: usize,
 }
 
@@ -62,15 +65,20 @@ impl Selection {
 /// A zero-based line and a column counted in characters from the start of that line.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Position {
+    /// Zero-based line of the document.
     pub row: usize,
+    /// Characters, not bytes or display cells, from the start of the line. Zero-based.
     pub column: usize,
 }
 
 /// The line terminator a buffer writes for new lines.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineEnding {
+    /// `\n`. Also what a buffer uses when its initial text has no terminator.
     Lf,
+    /// `\r\n`.
     CrLf,
+    /// A lone `\r`.
     Cr,
 }
 
@@ -89,12 +97,22 @@ impl LineEnding {
 /// of the same kind made within 500 ms of each other; the other kinds never merge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditKind {
+    /// Inserted text. Merges while each edit leaves a caret right after what it inserted and
+    /// inserts no line break.
     Typing,
+    /// Removal of what is before the caret. Merges while it removes no line break.
     Backspace,
+    /// Removal of what is after the caret. Merges while it removes no line break.
     Delete,
+    /// Text inserted in one piece, as `EditorCommand::InsertText` does. Its own undo step.
     Paste,
+    /// Any other rewrite of existing text, such as a search replacement, a moved line or a
+    /// toggled comment. Its own undo step.
     Replace,
+    /// A change of leading whitespace: indent, outdent or a tab expanded to spaces. Its own
+    /// undo step.
     Indent,
+    /// A line break, with the indentation that follows it. Its own undo step.
     Newline,
 }
 
@@ -128,39 +146,67 @@ impl Default for EditorLimits {
 pub enum EditorError {
     /// `max_document_bytes` or `max_grouped_edits` is zero.
     InvalidLimits,
+    /// A range or offset that starts after its end or ends past the document.
     InvalidRange {
+        /// Start of the refused range; the offset itself when a single offset was refused.
         start: usize,
+        /// End of the refused range, exclusive.
         end: usize,
+        /// Length of the document in characters. `byte_to_char` puts the length in bytes
+        /// here, as the offset it refuses is in bytes.
         char_count: usize,
     },
+    /// A selection with an end past the document.
     InvalidSelection {
+        /// The refused selection.
         selection: Selection,
+        /// Length in characters of the document the selection was meant for.
         char_count: usize,
     },
+    /// A row past the last line.
     InvalidLine {
+        /// The zero-based row that was asked for.
         row: usize,
+        /// Number of lines in the document.
         line_count: usize,
     },
+    /// A column past the end of its line's content.
     InvalidPosition {
+        /// The refused row and column.
         position: Position,
     },
+    /// The text, or the text an edit would leave, exceeds `max_document_bytes`.
     DocumentTooLarge {
+        /// UTF-8 bytes the document would hold; `usize::MAX` when the sum overflowed.
         bytes: usize,
+        /// The buffer's `max_document_bytes`.
         limit: usize,
     },
+    /// Two edits of one transaction overlap or start at the same offset.
     OverlappingEdits,
+    /// One operation asked for more edits, cursors or lines than it may touch at once.
     TransactionTooLarge {
+        /// How many edits, cursors or lines were asked for.
         edits: usize,
+        /// The most the operation accepts.
         limit: usize,
     },
+    /// The revision counter is at `u64::MAX`, so the buffer accepts no further change.
     RevisionExhausted,
+    /// A snapshot of another buffer was given to `mark_saved_snapshot`.
     WrongDocument {
+        /// The identifier of this buffer.
         expected: DocumentId,
+        /// The identifier the snapshot carries.
         actual: DocumentId,
     },
     /// A tab or indent width outside 1..=32.
     InvalidTabWidth,
+    /// A viewport of more than 1024 rows with its overscan, or a display window of more than
+    /// 8192 columns.
     ViewportTooLarge,
+    /// The grapheme cursor asked for a piece of text the rope could not give it. An offset
+    /// past the document is reported as `InvalidRange` instead.
     InvalidGraphemeBoundary,
     /// A command that cannot run as given; the string is the message.
     InvalidCommand(String),
@@ -225,7 +271,9 @@ impl std::error::Error for EditorError {}
 /// All ranges refer to the pre-transaction document, and must not overlap.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TextEdit {
+    /// Characters to remove, as offsets. Empty for a pure insertion at `range.start`.
     pub range: Range<usize>,
+    /// Text put in place of `range`. Empty for a pure deletion.
     pub replacement: String,
 }
 

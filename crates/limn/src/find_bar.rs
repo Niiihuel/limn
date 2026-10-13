@@ -90,7 +90,7 @@ impl FindIds {
 }
 
 /// Every string a [`FindBar`] shows: the placeholders, the tooltips and the
-/// shortcuts named in them. The default is English.
+/// shortcuts named in them. The default takes its words from [`crate::labels`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FindLabels {
     /// Placeholder of the query field.
@@ -133,25 +133,26 @@ pub struct FindLabels {
 
 impl Default for FindLabels {
     fn default() -> Self {
+        let labels = crate::labels();
         Self {
-            query: "Find".into(),
-            replacement: "Replace".into(),
-            case: "Match case".into(),
-            word: "Match whole word".into(),
-            regex: "Use regular expression".into(),
-            in_selection: "Find in selection".into(),
-            toggle_replace: "Toggle replace".into(),
+            query: labels.find.into(),
+            replacement: labels.replace.into(),
+            case: labels.match_case.into(),
+            word: labels.match_word.into(),
+            regex: labels.use_regex.into(),
+            in_selection: labels.find_in_selection.into(),
+            toggle_replace: labels.toggle_replace.into(),
             toggle_replace_shortcut: "Ctrl+H".into(),
-            previous: "Previous match".into(),
+            previous: labels.previous_match.into(),
             previous_shortcut: "Shift+Enter".into(),
-            next: "Next match".into(),
+            next: labels.next_match.into(),
             next_shortcut: "Enter".into(),
-            dismiss: "Close".into(),
+            dismiss: labels.close.into(),
             dismiss_shortcut: "Esc".into(),
-            replace_one: "Replace".into(),
+            replace_one: labels.replace.into(),
             replace_one_shortcut: "Enter".into(),
-            replace_all: "Replace all".into(),
-            count: "Current match / total".into(),
+            replace_all: labels.replace_all.into(),
+            count: labels.match_count.into(),
         }
     }
 }

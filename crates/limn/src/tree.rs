@@ -345,99 +345,182 @@ fn layout_formatted(
 pub enum DrawCommand {
     /// A rounded backdrop-sampling surface, painted before its foreground.
     Glass {
+        /// The surface's bounds; what lies behind them is what the material
+        /// samples.
         rect: Rect,
+        /// Corner radius, the same on all four corners.
         radius: f32,
+        /// How the backdrop is blurred and tinted. A backend that cannot sample
+        /// the backdrop can fill the bounds with `material.tint`, as the egui
+        /// one does.
         material: GlassMaterial,
+        /// Opacity of the whole surface from 0 to 1: 1 unless a transition is
+        /// fading it.
         opacity: f32,
     },
+    /// A box shadow, pushed before the fill of the box that casts it.
     Shadow {
+        /// The box that casts the shadow, not the shadow's own extent.
         rect: Rect,
+        /// Color, offset, blur and spread of the shadow.
         shadow: BoxShadow,
+        /// Corner radius of the casting box.
         radius: f32,
     },
+    /// A filled rectangle with the same radius on every corner.
     FillRect {
+        /// Bounds of the fill, relative to the frame's top-left corner.
         rect: Rect,
+        /// Fill color; its alpha is the fill's opacity.
         color: Color,
+        /// Corner radius; 0 is a square corner.
         radius: f32,
     },
+    /// A filled rectangle whose corners do not all have the same radius.
     FillCornerRect {
+        /// Bounds of the fill, relative to the frame's top-left corner.
         rect: Rect,
+        /// Fill color; its alpha is the fill's opacity.
         color: Color,
+        /// Radius of each corner.
         radii: CornerRadii,
     },
     /// One implicitly closed, simple Y-monotone selection contour. Renderers
     /// tessellate its interior once and antialias only its exterior boundary.
     SelectionContour {
+        /// The contour's vertices, relative to the frame's top-left corner; the
+        /// last joins the first.
         points: Arc<[Point]>,
+        /// Fill color of the interior.
         color: Color,
     },
     /// Paint the exterior of four rounded corners as a continuous surface.
     /// Renderers must not antialias internal tessellation edges independently.
     CornerMask {
+        /// The rectangle whose corners are masked.
         rect: Rect,
+        /// Color of the area between the rectangle's square corners and its
+        /// rounded ones.
         color: Color,
+        /// Radius of each rounded corner; the mask covers what lies outside it.
         radii: CornerRadii,
     },
+    /// A rectangle filled with a linear gradient from its top edge to its
+    /// bottom edge. The tree paints fades with it, one end transparent.
     FillVerticalGradient {
+        /// Bounds of the gradient.
         rect: Rect,
+        /// Color along the top edge.
         top: Color,
+        /// Color along the bottom edge.
         bottom: Color,
     },
+    /// A rectangle outline with the same radius on every corner. The egui
+    /// backend strokes inside `rect`.
     StrokeRect {
+        /// Outer edge of the outline.
         rect: Rect,
+        /// Stroke color; its alpha is the outline's opacity.
         color: Color,
+        /// Stroke thickness in logical pixels.
         width: f32,
+        /// Corner radius of the outer edge.
         radius: f32,
     },
+    /// A rectangle outline whose corners do not all have the same radius. The
+    /// egui backend strokes inside `rect`.
     StrokeCornerRect {
+        /// Outer edge of the outline.
         rect: Rect,
+        /// Stroke color; its alpha is the outline's opacity.
         color: Color,
+        /// Stroke thickness in logical pixels.
         width: f32,
+        /// Radius of each corner of the outer edge.
         radii: CornerRadii,
     },
+    /// A filled triangle: the caret of a tooltip or coach mark, or the arrow of
+    /// a scrollbar button.
     FillTriangle {
+        /// The three vertices, relative to the frame's top-left corner.
         points: [Point; 3],
+        /// Fill color; its alpha is the fill's opacity.
         color: Color,
     },
     /// An open stroked path through `points`, centered on them. A dashed
     /// path alternates short marks and gaps along its length.
     Polyline {
+        /// The vertices in order, relative to the frame's top-left corner.
         points: Arc<[Point]>,
+        /// Stroke color.
         color: Color,
+        /// Stroke thickness in logical pixels.
         width: f32,
+        /// True for a dashed stroke; the egui backend draws 3 pixel marks and 3
+        /// pixel gaps.
         dashed: bool,
     },
+    /// A run of text the tree has already measured and wrapped. A backend
+    /// paints it from `position` without wrapping it again.
     Text {
+        /// Top-left corner of the run.
         position: Point,
+        /// The run's characters.
         text: String,
+        /// Color of the glyphs.
         color: Color,
+        /// Font size in logical pixels.
         font_size: f32,
+        /// The face to paint in: monospace, or a weight or slant of the sans
+        /// face.
         font_family: FontFamily,
     },
+    /// One of the library's icons, drawn in one color.
     Icon {
+        /// Where the icon is drawn; the egui backend aligns it to the pixel
+        /// grid.
         rect: Rect,
+        /// Which of the library's icons to draw.
         icon: Icon,
+        /// Color the icon's shape is drawn in.
         tint: Color,
     },
+    /// A picture. A cover image fills `rect` and is cropped; any other is
+    /// fitted inside it.
     RasterImage {
+        /// The area given to the picture.
         rect: Rect,
+        /// The picture, with the text alternative a backend gives to assistive
+        /// technology.
         image: RasterImage,
+        /// Opacity from 0 to 1: 1 unless a transition is fading the element.
         opacity: f32,
+        /// Corner radius the picture is rounded to.
         radius: f32,
     },
     /// Pixels the host presents to the backend under `id`, outside the frame.
     /// They start at the rectangle's top-left corner at their own density and
     /// are clipped to the rectangle, never stretched to fill it.
     Surface {
+        /// The area the surface shows in; its pixels are clipped to it.
         rect: Rect,
+        /// The ID the host presents the surface's pixels under.
         id: String,
+        /// The name a backend gives to assistive technology for the surface.
         label: String,
+        /// Opacity from 0 to 1: 1 unless a transition is fading the element.
         opacity: f32,
     },
+    /// An activity indicator that turns, sized to the shorter side of `rect`.
     Spinner {
+        /// Bounds of the indicator.
         rect: Rect,
+        /// Stroke color.
         color: Color,
+        /// Rotation in radians, from 0 to a full turn every 0.9 seconds. Always
+        /// 0 under reduced motion.
         angle: f32,
+        /// Which shape turns: an open circle or eight spokes.
         variant: SpinnerVariant,
     },
     /// A record behind its sleeve. `rect` is the sleeve; the record's
@@ -445,32 +528,71 @@ pub enum DrawCommand {
     /// `RECORD_REACH` of the side beyond the sleeve's end. `fill` paints a
     /// sleeve with no picture.
     Record {
+        /// The sleeve. The egui backend draws it as a square of the shorter
+        /// side, from the top-left corner.
         rect: Rect,
+        /// The sleeve's picture, cropped to cover it. `None` paints `fill`.
         image: Option<RasterImage>,
+        /// Sleeve color when there is no picture: the element's background, or
+        /// transparent without one.
         fill: Color,
+        /// How far the record is drawn out, from 0 (centered behind the sleeve)
+        /// to 1.
         out: f32,
+        /// The record's turn in radians, from 0 to a full turn.
         angle: f32,
+        /// Corner radius of the sleeve.
         radius: f32,
+        /// Opacity from 0 to 1: 1 unless a transition is fading the element.
         opacity: f32,
     },
+    /// A circle of `track` with an arc of `fill` over it, starting at twelve
+    /// o'clock and running clockwise. It is centered in `rect` and sized to the
+    /// shorter side.
     ProgressRing {
+        /// Bounds of the ring.
         rect: Rect,
+        /// Share of the circle the arc covers, from 0 to 1. `None` draws the
+        /// track alone.
         fraction: Option<f32>,
+        /// Color of the whole circle underneath.
         track: Color,
+        /// Color of the arc.
         fill: Color,
     },
+    /// The animated effort slider: a pill-shaped rail filled up to a round
+    /// knob, with a dot for each step and particles drifting in the fill.
     EffortSlider {
+        /// Bounds of the control; the rail is centered vertically in them.
         rect: Rect,
+        /// Where the knob is shown, 0 at the left end and 1 at the right. It
+        /// follows the pointer during a drag and eases to the value after it.
         fraction: f32,
+        /// Number of levels. The egui backend draws their dots when there are 2
+        /// to 12.
         steps: usize,
+        /// Clock of the idle animation in seconds, wrapping at 1000. It does
+        /// not advance under reduced motion.
         phase: f32,
+        /// True while the pointer holds the knob.
         dragging: bool,
+        /// True when the tree was told to reduce motion: a backend leaves out
+        /// the knob's pulse and the burst.
         reduced_motion: bool,
+        /// How much of the top level's gradient covers the fill, from 0 to 1.
+        /// It eases to 1 while the slider is on its last step and that level is
+        /// available.
         ultra_mix: f32,
+        /// Seconds since the slider settled on its top level, for the 0.28
+        /// seconds the burst lasts. `None` at any other time.
         burst_age: Option<f32>,
+        /// Opacity from 0 to 1: 1 unless a transition is fading the element.
         opacity: f32,
     },
+    /// Clip every command up to the matching `PopClip` to this rectangle,
+    /// intersected with the clips already in force.
     PushClip(Rect),
+    /// End the innermost `PushClip`.
     PopClip,
 }
 
@@ -919,16 +1041,29 @@ fn morph_popover_shell(command: &mut DrawCommand, rect: Rect) {
 /// What a [`HitRegion`] belongs to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HitKind {
+    /// A code editor's viewport: it takes focus, text, the editor's pointer
+    /// gestures and scrolling on both axes.
     CodeEditor,
+    /// A read-only diff's viewport: it scrolls on both axes and hands vertical
+    /// travel it cannot use to the scrolling areas around it.
     CodeDiff,
+    /// Anything pressable: a press and a release on it report
+    /// `UiAction::Clicked`. A slider uses it too.
     Button,
     /// Read-only pointer target, such as a chart observation's tooltip.
     Hover,
+    /// A single-line text field: a press focuses it and places the caret.
     TextInput,
+    /// A multi-line text field: as `TextInput`, and the wheel scrolls its
+    /// lines.
     TextArea,
     /// A non-activating floating surface that blocks backdrop dismissal.
     Surface,
+    /// A scrolling area's viewport: the wheel over it moves its content. A
+    /// press neither presses nor focuses it.
     Scroll,
+    /// A scrollbar's rail: its thumb drags, its buttons step and a press on the
+    /// rail pages.
     Scrollbar,
 }
 
@@ -936,8 +1071,12 @@ pub enum HitKind {
 /// element. Of two regions under a point, the later one is on top.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HitRegion {
+    /// ID of the element the region belongs to.
     pub id: String,
+    /// The part of the element that answers the pointer: its rectangle cut to
+    /// the clip in force, relative to the frame's top-left corner.
     pub rect: Rect,
+    /// What the tree does with a press, the wheel or focus here.
     pub kind: HitKind,
 }
 
@@ -945,7 +1084,11 @@ pub struct HitRegion {
 /// what the platform is told.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Frame {
+    /// Paint instructions in the order a backend carries them out: a later one
+    /// covers an earlier one.
     pub commands: Vec<DrawCommand>,
+    /// Pointer targets from bottom to top: of two under a point, the later one
+    /// answers.
     pub regions: Vec<HitRegion>,
     /// What the platform should know of the frame: one node for each control
     /// and each thing a component described, in the order they were placed.
@@ -1006,7 +1149,9 @@ impl Frame {
 /// their visible clip rectangles. Selection bookkeeping remains private.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextLayoutBlock {
+    /// The block's whole text, before wrapping.
     pub source: String,
+    /// The pieces `source` was laid out in.
     pub runs: Vec<TextLayoutRun>,
 }
 
@@ -1014,8 +1159,12 @@ pub struct TextLayoutBlock {
 /// visible clip rectangle.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextLayoutRun {
+    /// The characters of this run.
     pub text: String,
+    /// Where the run was laid out, before clipping.
     pub rect: Rect,
+    /// The part of `rect` that is shown after clipping. A run with `None` does
+    /// not answer the pointer.
     pub visible: Option<Rect>,
 }
 
@@ -1738,51 +1887,113 @@ impl Frame {
 /// The keys a host can forward in [`UiEvent::Key`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Key {
+    /// Page Up: without `ctrl`, scrolls up a page behind the focus or under the
+    /// pointer.
     PageUp,
+    /// Page Down: without `ctrl`, scrolls down a page behind the focus or under
+    /// the pointer.
     PageDown,
+    /// Escape: dismisses the open popover or cancels a drag in progress.
     Escape,
+    /// Tab: outside an editable code editor, moves focus to the next control,
+    /// or to the previous one with `shift`.
     Tab,
+    /// Left arrow: moves the caret, or steps a focused slider, tab strip, menu
+    /// or coach mark.
     ArrowLeft,
+    /// Right arrow: moves the caret, or steps a focused slider, tab strip, menu
+    /// or coach mark.
     ArrowRight,
+    /// Up arrow: moves the caret up a line in a text area, or steps a tab strip
+    /// or menu.
     ArrowUp,
+    /// Down arrow: moves the caret down a line in a text area, or steps a tab
+    /// strip or menu.
     ArrowDown,
+    /// Home: start of the line, or of the whole text with `ctrl` or in a
+    /// single-line field. Sliders, tab strips and menus read it too.
     Home,
+    /// End: end of the line, or of the whole text with `ctrl` or in a
+    /// single-line field. Sliders, tab strips and menus read it too.
     End,
+    /// Backspace: deletes backward in the focused text field.
     Backspace,
+    /// Delete: deletes forward in the focused text field.
     Delete,
+    /// Enter: activates the focused button, submits a text input, or adds a
+    /// line to a text area (which Ctrl+Enter submits).
     Enter,
+    /// Space: activates the focused button. Text fields take the character from
+    /// `UiEvent::Text`, not from this key.
     Space,
+    /// The A key: with `ctrl`, selects all of the focused text field.
     A,
+    /// With `ctrl`, a Vim motion in a code editor in Vim mode.
     B,
+    /// The C key: with `ctrl`, reports `UiAction::CopyRequested` for the
+    /// selection.
     C,
+    /// The D key: with `ctrl` in a code editor, selects the next occurrence, or
+    /// every one with `shift`.
     D,
+    /// Read only as the shortcut of an item in an open context menu.
     E,
+    /// With `ctrl`, a Vim motion in a code editor in Vim mode.
     F,
+    /// Read only as the shortcut of an item in an open context menu.
     G,
+    /// Read only as the shortcut of an item in an open context menu.
     H,
+    /// Read only as the shortcut of an item in an open context menu.
     I,
+    /// With `ctrl`, a Vim motion in a code editor in Vim mode.
     J,
+    /// Read only as the shortcut of an item in an open context menu.
     K,
+    /// Read only as the shortcut of an item in an open context menu.
     L,
+    /// Read only as the shortcut of an item in an open context menu.
     M,
+    /// With `ctrl`, a Vim motion in a code editor in Vim mode.
     N,
+    /// Read only as the shortcut of an item in an open context menu.
     O,
+    /// With `ctrl`, a Vim motion in a code editor in Vim mode.
     P,
+    /// Read only as the shortcut of an item in an open context menu.
     Q,
+    /// With `ctrl`, a Vim motion in a code editor in Vim mode.
     R,
+    /// The S key: with `ctrl` in a code editor, reports
+    /// `UiAction::EditorSaveRequested`.
     S,
+    /// Read only as the shortcut of an item in an open context menu.
     T,
+    /// With `ctrl`, a Vim motion in a code editor in Vim mode.
     U,
+    /// The V key. Pasted text arrives as `UiEvent::Paste`, not as this key.
     V,
+    /// Read only as the shortcut of an item in an open context menu.
     W,
+    /// The X key: with `ctrl`, reports `UiAction::CopyRequested` for the
+    /// selection and deletes it.
     X,
+    /// The Y key: with `ctrl` in an editable code editor, redoes.
     Y,
+    /// The Z key: with `ctrl` in an editable code editor, undoes, or redoes
+    /// with `shift`.
     Z,
+    /// Read only as the shortcut of an item in an open context menu.
     F2,
+    /// Read only as the shortcut of an item in an open context menu.
     F5,
+    /// Read only as the shortcut of an item in an open context menu.
     F9,
+    /// Read only as the shortcut of an item in an open context menu.
     F10,
+    /// Read only as the shortcut of an item in an open context menu.
     F11,
+    /// Read only as the shortcut of an item in an open context menu.
     F12,
 }
 
@@ -1792,70 +2003,127 @@ pub enum Key {
 pub enum UiEvent {
     /// Open text or host-defined actions without changing the selection.
     ContextMenu {
+        /// Where the secondary button was pressed; the menu opens there.
         position: Point,
     },
     /// Hosts map Shift+F10 or their platform's context-menu key here.
     ContextMenuKeyboard,
     /// Clipboard replies remain bound to the editor which requested them.
     PasteTo {
+        /// The control that reported `UiAction::PasteRequested`. The text is
+        /// dropped unless that control is still focused and laid out.
         id: String,
+        /// The clipboard text to insert there.
         text: String,
     },
+    /// The text an input method is composing, replacing what it sent before.
+    /// Only a code editor shows it.
     ImePreedit(String),
+    /// An input method committed this text. A code editor ends its composition
+    /// with it; other text fields take it as `Text`.
     ImeCommit(String),
+    /// The composition ended without a commit: a code editor drops what was
+    /// being composed.
     ImeCancelled,
+    /// An input method asks the focused code editor to delete text around the
+    /// caret.
     ImeDeleteSurrounding {
+        /// Characters to delete before the caret.
         before_chars: usize,
+        /// Characters to delete after the caret.
         after_chars: usize,
     },
     /// Additive editor selection gesture; ordinary controls treat it as a click.
     PointerDownModified {
+        /// Where the primary button was pressed.
         position: Point,
+        /// True to extend a code editor's selection to `position`.
         shift: bool,
     },
     /// Native editor pointer gestures; other controls receive an ordinary click.
     PointerDownEditor {
+        /// Where the primary button was pressed.
         position: Point,
+        /// Extends the selection to `position`; with `alt`, selects a
+        /// rectangle.
         shift: bool,
+        /// Adds a caret at `position`; with `shift`, selects a rectangle.
         alt: bool,
+        /// Whether Ctrl or Command was held. The tree does not read it.
         ctrl: bool,
+        /// 1 for a single click, 2 for a double click, 3 for a triple click.
         click_count: u8,
     },
     /// Pixel wheel deltas; hosts retain the legacy wheel event outside editors.
     Scroll2D {
+        /// Where the pointer is; what scrolls is under it.
         position: Point,
+        /// Horizontal travel in logical pixels; a positive value moves toward
+        /// the left edge of the content.
         delta_x: f32,
+        /// Vertical travel in logical pixels; a positive value moves toward the
+        /// top of the content.
         delta_y: f32,
+        /// True for pixel-precise input, handled as `ScrollDirect`; false is
+        /// eased as `Scroll` is.
         direct: bool,
+        /// True while Shift is held: with a `delta_x` of 0, a code editor or
+        /// diff scrolls sideways by `delta_y`.
         shift: bool,
     },
+    /// Clipboard text for the focused control. A text field inserts it as it
+    /// does `Text`.
     Paste(String),
     /// Files dragged from another application are over the window.
     FilesHovered {
+        /// The pointer's position, as far as the host knows it.
         position: Point,
     },
+    /// Files dragged from another application were dropped on the window.
     FilesDropped {
+        /// Where they were dropped.
         position: Point,
+        /// Paths of the dropped files.
         paths: Vec<std::path::PathBuf>,
     },
+    /// The pointer moved to this position: updates what is hovered and carries
+    /// on a drag, a text selection or a scrollbar drag.
     PointerMove(Point),
+    /// The pointer left the window: clears the hover and the press and ends any
+    /// drag.
     PointerLeave,
+    /// The primary button was pressed at this position, with no modifier held.
     PointerDown(Point),
+    /// The primary button was released at this position. A release on the
+    /// control that was pressed reports `UiAction::Clicked`.
     PointerUp(Point),
+    /// A wheel step, converted to logical pixels by the host. The scrolling
+    /// area under the pointer eases to its new offset.
     Scroll {
+        /// Where the pointer is; what scrolls is under it.
         position: Point,
+        /// Travel in logical pixels; a positive value moves toward the top of
+        /// the content.
         delta_y: f32,
     },
     /// Pixel-precise input, such as a touchpad, already supplies a continuous
     /// stream. Keep it attached to the gesture instead of adding wheel easing.
     ScrollDirect {
+        /// Where the pointer is; what scrolls is under it.
         position: Point,
+        /// Travel in logical pixels; a positive value moves toward the top of
+        /// the content.
         delta_y: f32,
     },
+    /// Typed characters, inserted into the focused text field or code editor.
     Text(String),
+    /// A key was pressed.
     Key {
+        /// The key that was pressed.
         key: Key,
+        /// True while Shift is held.
         shift: bool,
+        /// True while Ctrl is held. The egui backend sets it for Command too.
         ctrl: bool,
     },
 }
@@ -1863,72 +2131,126 @@ pub enum UiEvent {
 /// What `UiTree::handle_event` reports for the host to act on.
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiAction {
+    /// An edit changed the document of a code editor.
     EditorChanged {
+        /// ID of the code editor.
         id: String,
+        /// The buffer's document ID.
         document_id: u64,
+        /// The buffer's revision after the edit.
         revision: u64,
     },
+    /// Ctrl+S was pressed in a code editor. Saving is the host's work.
     EditorSaveRequested {
+        /// ID of the code editor.
         id: String,
+        /// The buffer's document ID.
         document_id: u64,
+        /// The buffer's revision when the key was pressed.
         revision: u64,
     },
+    /// A code editor could not carry out a command, such as an edit, or a copy
+    /// over the clipboard limit.
     EditorFailed {
+        /// ID of the code editor.
         id: String,
+        /// The reason, as text.
         error: String,
     },
+    /// A control was activated: pressed and released with the pointer, or Enter
+    /// or Space while it had focus. Escape reports it for an open popover's
+    /// dismiss ID, and a host's context menu for the chosen item's action ID.
     Clicked {
+        /// The control's ID, or the action ID it was given to report instead.
         id: String,
     },
     /// Continuous preview on pointer down/move; snapped selection on release.
     SliderChanged {
+        /// ID of the slider.
         id: String,
+        /// Position along the track, from 0 to 1. A committed one is snapped to
+        /// a step.
         fraction: f32,
+        /// False while the pointer drags. True on release, when the pointer
+        /// leaves the window, and for a step from the keyboard.
         committed: bool,
     },
+    /// The text of a text input or text area changed.
     InputChanged {
+        /// ID of the field.
         id: String,
+        /// The field's whole text after the change.
         value: String,
     },
+    /// Enter was pressed in a text input, or Ctrl+Enter in a text area.
     Submitted {
+        /// ID of the field.
         id: String,
+        /// The field's whole text.
         value: String,
     },
+    /// The host should put `text` on the clipboard, for example after Ctrl+C or
+    /// Ctrl+X on a selection.
     CopyRequested {
+        /// The selected text. Ctrl+C and Ctrl+X never report a password field's
+        /// selection.
         text: String,
     },
+    /// The paste item of a text context menu was chosen. The host reads the
+    /// clipboard and answers with `UiEvent::PasteTo`.
     PasteRequested {
+        /// The text field or code editor to paste into; `PasteTo` carries it
+        /// back.
         id: String,
     },
     /// The pointer left the click tolerance of a pressed `draggable` element.
     /// No `Clicked` follows this press.
     DragStarted {
+        /// ID of the dragged element.
         id: String,
+        /// Where the press began, not where the pointer is now.
         position: Point,
     },
     /// `over` is the topmost `drop_target` under the pointer, never the source.
     DragMoved {
+        /// ID of the dragged element.
         id: String,
+        /// Where the pointer is.
         position: Point,
+        /// The drop target under the pointer; `None` over none.
         over: Option<String>,
     },
+    /// The pointer was released during a drag.
     Dropped {
+        /// ID of the dragged element.
         id: String,
+        /// Where the pointer was released.
         position: Point,
+        /// The topmost `drop_target` there other than the source; `None` when
+        /// it was dropped on none.
         target: Option<String>,
     },
     /// Escape or the pointer leaving the window ended the drag.
     DragCancelled {
+        /// ID of the element that was being dragged.
         id: String,
     },
     /// `over` and `target` are the topmost `drop_target` under the pointer.
     FilesHovered {
+        /// The position the host sent.
         position: Point,
+        /// The drop target at `position`; `None` over none.
         over: Option<String>,
     },
+    /// Files from another application were dropped: the answer to
+    /// `UiEvent::FilesDropped`.
     FilesDropped {
+        /// The position the host sent.
         position: Point,
+        /// The drop target at `position`; `None` when they were dropped on
+        /// none.
         target: Option<String>,
+        /// The paths the host sent, unchanged.
         paths: Vec<std::path::PathBuf>,
     },
 }

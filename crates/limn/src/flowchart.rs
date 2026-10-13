@@ -41,36 +41,50 @@ const MARGIN: f32 = 2.0;
 /// Where the flow runs: `TD`/`TB`, `BT`, `LR` and `RL`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FlowDirection {
+    /// `TD`, `TB` or no direction in the header: ranks run from the top to the bottom.
     Down,
+    /// `BT`: ranks run from the bottom to the top.
     Up,
+    /// `LR`: ranks run from the left to the right.
     Right,
+    /// `RL`: ranks run from the right to the left.
     Left,
 }
 
 /// `A[rect]`, `A(rounded)`, `A([stadium])`, `A{decision}` and `A((circle))`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FlowNodeShape {
+    /// `A[text]`, `A[[text]]` or a bare id: a box with the control corner radius.
     Rect,
+    /// `A(text)`, `A[(text)]` or `A{{text}}`: a box with the larger panel corner radius.
     Rounded,
+    /// `A([text])`: a box whose short sides are half circles.
     Stadium,
+    /// `A{text}`: a diamond. Its label wraps at 150 pixels instead of 220.
     Decision,
+    /// `A((text))`: a circle around the label.
     Circle,
 }
 
 /// `-->`, `-.->` and `==>`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FlowEdgeLine {
+    /// A connector of dashes only: a line one pixel wide.
     Solid,
+    /// A connector with a `.` in it: a dashed line one pixel wide.
     Dotted,
+    /// A connector of `=`: a line two pixels wide.
     Thick,
 }
 
 /// A node of the chart: its id in the source, its label and its outline.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlowNode {
+    /// The name the source uses for the node in its edges.
     pub id: String,
     /// Lines are separated by `\n`.
     pub label: String,
+    /// The outline, from the brackets of the last statement that gave the node any.
     pub shape: FlowNodeShape,
 }
 
@@ -79,9 +93,11 @@ pub struct FlowNode {
 pub struct FlowEdge {
     /// Indexes into [`FlowchartGraph::nodes`].
     pub from: usize,
+    /// The node the edge arrives at, as an index into the same list.
     pub to: usize,
     /// Empty when the edge has none.
     pub label: String,
+    /// How the line is stroked.
     pub line: FlowEdgeLine,
     /// `---` joins two nodes without pointing at either.
     pub arrow: bool,
@@ -90,7 +106,10 @@ pub struct FlowEdge {
 /// A `subgraph … end`: a titled box around its nodes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlowGroup {
+    /// The text after `subgraph`, or the part in square brackets when it has one. On one line.
     pub title: String,
+    /// Indexes into [`FlowchartGraph::nodes`] of the nodes first named inside it, those of the
+    /// subgraphs nested in it included.
     pub nodes: Vec<usize>,
 }
 
@@ -100,9 +119,13 @@ pub type FlowchartError = crate::DiagramError;
 /// A parsed flowchart: what to draw, before any measurement.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlowchartGraph {
+    /// The direction named in the header line; `Down` when it names none.
     pub direction: FlowDirection,
+    /// In the order first named. `parse` gives at least one and at most 120.
     pub nodes: Vec<FlowNode>,
+    /// In the order written; `A & B --> C` gives one edge per pair. `parse` gives at most 240.
     pub edges: Vec<FlowEdge>,
+    /// One per `subgraph`, in the order opened.
     pub groups: Vec<FlowGroup>,
 }
 
@@ -936,7 +959,9 @@ impl FlowchartGraph {
 /// One node's box and its wrapped label.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowNodeLayout {
+    /// The bounds of the shape: a diamond and a circle touch it at the middle of each side.
     pub rect: Rect,
+    /// The label as wrapped, one string per row, centered in `rect`.
     pub lines: Vec<String>,
 }
 
@@ -944,6 +969,7 @@ pub struct FlowNodeLayout {
 /// edge from a node to itself has no points.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowEdgeLayout {
+    /// The corners of the line in order, the first on the source and the last on the target.
     pub points: Vec<Point>,
     /// The chip that carries the label, and its text.
     pub label: Option<(Rect, String)>,
@@ -952,7 +978,9 @@ pub struct FlowEdgeLayout {
 /// The box of one subgraph and its title.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowGroupLayout {
+    /// The outline around the group's nodes, with room for the title at the top.
     pub rect: Rect,
+    /// The group's title, drawn inside the top left corner of `rect`.
     pub title: String,
 }
 
@@ -961,9 +989,13 @@ pub struct FlowGroupLayout {
 /// covering another node is absent.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowchartLayout {
+    /// The natural size of the chart, rounded up to whole pixels.
     pub size: Size,
+    /// One per node of the graph, in the graph's order.
     pub nodes: Vec<FlowNodeLayout>,
+    /// One per edge of the graph, in the graph's order.
     pub edges: Vec<FlowEdgeLayout>,
+    /// The groups that could be boxed, in the graph's order.
     pub groups: Vec<FlowGroupLayout>,
 }
 

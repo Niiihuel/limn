@@ -10,10 +10,14 @@ const MAX_WORD_SCAN: usize = 100_000;
 /// The mode of modal editing. It starts in `Normal`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VimMode {
+    /// Typed characters are commands and the caret is a block on a character.
     #[default]
     Normal,
+    /// Typed characters are inserted, as without modal editing. Escape returns to `Normal`.
     Insert,
+    /// A character-wise selection, entered with `v` or by selecting with the pointer.
     Visual,
+    /// A selection of whole lines, entered with `V`.
     VisualLine,
 }
 impl VimMode {

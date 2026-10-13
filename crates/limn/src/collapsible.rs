@@ -148,7 +148,7 @@ impl Component for Collapsible {
         let leading = if self.thinking {
             Element::icon(Icon::Brain).foreground(self.palette.muted)
         } else if self.loading {
-            Spinner::new(format!("{}:spinner", self.id), self.palette.muted).render()
+            Spinner::new(format!("{}:spinner", self.id), self.palette.muted).decorative().render()
         } else if let Some(icon) = self.icon {
             Element::icon(icon).foreground(self.palette.muted)
         } else {

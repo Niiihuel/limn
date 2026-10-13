@@ -86,7 +86,7 @@ CodeEditor::new("source", controller)
 | `soft_wrap(bool)` | off | Wraps long lines to the editor's width |
 | `minimap(bool)` | off | An overview of the document to navigate by; a narrow editor hides it |
 | `status_bar(bool)` | off | A bar under the text with the caret, the language, the line ending and whether the document is saved |
-| `tab_width(usize)` | 4 | Columns of a tab and of an indent level, from 1 to 16 |
+| `tab_width(usize)` | 4 | Columns of a tab and of an indent level, from 1 to 32 |
 | `indent_style(IndentStyle)` | `IndentStyle::Spaces(4)` | Whether Tab indents with spaces or with tabs, and by how many columns |
 | `auto_pairs(bool)` | on | Typing an opening bracket or quote also inserts its closing one |
 | `vim_mode(bool)` | off | Modal editing with Vim's keys |

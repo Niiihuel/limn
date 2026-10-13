@@ -109,15 +109,21 @@ impl EditorController {
 /// A colour for a range of text, in the snapshot's Unicode scalar offsets.
 #[derive(Clone, Debug)]
 pub struct CodeHighlight {
+    /// The characters to colour, end-exclusive.
     pub range: std::ops::Range<usize>,
+    /// The colour of the text in `range`, in place of the palette's text colour.
     pub color: Color,
 }
 
 /// A confirmed diagnostic expressed in the snapshot's Unicode scalar offsets.
 #[derive(Clone, Debug)]
 pub struct CodeDiagnostic {
+    /// The characters to underline. An empty range is underlined one space wide at its
+    /// offset; a range that ends past the document is not drawn.
     pub range: std::ops::Range<usize>,
+    /// The colour of the underline.
     pub color: Color,
+    /// Shown in a tooltip while the pointer is over the range. Empty shows none.
     pub message: String,
 }
 
@@ -125,50 +131,108 @@ pub struct CodeDiagnostic {
 /// a failed one `UiAction::EditorFailed`.
 #[derive(Clone, Debug)]
 pub struct CodeEditor {
+    /// Identifier of the view: its focus, scroll position and editing state are kept under
+    /// it, and its actions carry it.
     pub id: String,
+    /// The host's buffer. The editor reads a snapshot of it each frame and edits it in place.
     pub controller: EditorController,
+    /// Colours of the surface, the text, the gutter numbers and the marks. Set with `palette`.
     pub palette: ComponentPalette,
+    /// Height in logical pixels, status bar included. 320 by default; `height` keeps it at
+    /// 24 or more.
     pub height: f32,
+    /// Refuse every edit. False by default.
     pub read_only: bool,
     /// Native modal editing, independent of the workbench shortcut profile.
     pub vim_mode: bool,
+    /// Show line numbers in the gutter. True by default.
     pub line_numbers: bool,
     /// Paint live cursor/selection and document metadata from this frame's snapshot.
     pub status_bar: bool,
+    /// Columns between tab stops, within 1..=32. 4 by default. `tab_width` and `indent_style`
+    /// keep it equal to the width of `indent_style`.
     pub tab_width: usize,
+    /// What the Tab key inserts and what one indent level is. Four spaces by default.
     pub indent_style: IndentStyle,
+    /// Close a typed bracket or quote and delete an empty pair with one backspace. True by
+    /// default.
     pub auto_pairs: bool,
+    /// Wrap long lines at the width of the editor instead of scrolling sideways. False by
+    /// default.
     pub soft_wrap: bool,
     /// A compact, navigable overview. Hidden automatically in narrow editors.
     pub minimap: bool,
     /// Keep revealed carets below a floating surface without changing layout.
     pub reveal_top_inset: f32,
+    /// The folded blocks, as ranges of zero-based rows: the first row of each stays visible
+    /// and the rows after it, up to the exclusive end, are hidden. Set with `folds`.
     pub folds: Arc<[std::ops::Range<usize>]>,
+    /// The document `fold_candidates` and `sticky_scopes` were computed for. Once set, the
+    /// gutter keeps a lane for fold controls, even with no candidates. Set with `structure`.
     pub structure_document_id: Option<u64>,
+    /// The revision they were computed for. They are ignored for any other snapshot.
     pub structure_revision: Option<u64>,
+    /// Blocks that get a fold control in the gutter, at most 16,384. Of several that start
+    /// on one row, the longest is kept.
     pub fold_candidates: Arc<[CodeFoldCandidate]>,
+    /// Scopes whose first row may be shown as a sticky header, at most 16,384.
     pub sticky_scopes: Arc<[CodeStickyScope]>,
+    /// The document `breakpoint_rows` belong to. Set with `breakpoints`.
     pub breakpoint_document_id: Option<u64>,
+    /// The revision `breakpoint_rows` belong to. The gutter's breakpoint controls are only
+    /// built for that snapshot.
     pub breakpoint_revision: Option<u64>,
+    /// Start of the action a click on the breakpoint lane reports, followed by `:` and the
+    /// zero-based row. Once set, the gutter keeps that lane; an empty prefix or one over 512
+    /// bytes gives a lane without controls.
     pub breakpoint_action_prefix: Option<String>,
+    /// Zero-based rows with a breakpoint the debugger has not answered for, drawn as
+    /// pending. Rows past the document are ignored.
     pub breakpoint_rows: Arc<[usize]>,
+    /// The document `debugger_breakpoints` and `execution_line` describe. Set with
+    /// `debugger`.
     pub debugger_document_id: Option<u64>,
+    /// The revision they describe. They are ignored for any other snapshot.
     pub debugger_revision: Option<u64>,
+    /// Breakpoints as the debugger reports them. One on a row takes the place of that row's
+    /// pending mark.
     pub debugger_breakpoints: Arc<[CodeBreakpoint]>,
+    /// The row the debugger is stopped at, drawn with an amber band. `None` draws none.
     pub execution_line: Option<CodeExecutionLine>,
+    /// Character ranges painted as search matches. Set with `search_matches`.
     pub search_matches: Arc<[std::ops::Range<usize>]>,
+    /// The buffer revision `search_matches` were found in; they are painted only at that
+    /// revision. No document identifier is compared.
     pub search_revision: Option<u64>,
+    /// Entries added to the context menu after a separator, below the text entries. Empty
+    /// by default.
     pub context_actions: Vec<crate::ContextMenuEntry>,
+    /// The revision `highlights` were computed for. On a later revision of the same document
+    /// they stay, moved with the text, on the rows the edits did not change.
     pub highlight_revision: Option<u64>,
+    /// The document `highlights` were computed for. For any other, the built-in colours of
+    /// `language` are used.
     pub highlight_document_id: Option<u64>,
+    /// The host's syntax colours, in place of the built-in ones. Give them sorted by start
+    /// offset: unsorted, all of them are scanned for every row. Set with `highlights`.
     pub highlights: Arc<[CodeHighlight]>,
+    /// The revision `diagnostics` were computed for. They are drawn only for that snapshot.
     pub diagnostic_revision: Option<u64>,
+    /// The document `diagnostics` were computed for.
     pub diagnostic_document_id: Option<u64>,
+    /// Underlines with a tooltip. Only the first 4096 are looked at. Set with `diagnostics`.
     pub diagnostics: Arc<[CodeDiagnostic]>,
+    /// The language of the built-in syntax colours and the name in the status bar. Plain
+    /// text by default.
     pub language: CodeLanguage,
+    /// The document `review_hunks` describe. Set with `review`.
     pub review_document_id: Option<u64>,
+    /// The revision `review_hunks` describe. They are ignored for any other snapshot.
     pub review_revision: Option<u64>,
+    /// The hunks under review: added rows are tinted and removed lines shown between rows.
     pub review_hunks: Arc<[CodeReviewHunk]>,
+    /// The buttons of each hunk, at the same index. No hunk gets controls unless there is
+    /// exactly one entry per hunk.
     pub review_actions: Arc<[CodeReviewHunkActions]>,
 }
 
@@ -277,10 +341,10 @@ impl CodeEditor {
         self.status_bar = enabled;
         self
     }
-    /// Set the tab stop in columns, clamped to 1..=16. The indent style keeps its kind and takes
+    /// Set the tab stop in columns, clamped to 1..=32. The indent style keeps its kind and takes
     /// this width.
     pub fn tab_width(mut self, width: usize) -> Self {
-        self.tab_width = width.clamp(1, 16);
+        self.tab_width = width.clamp(1, 32);
         self.indent_style = match self.indent_style {
             IndentStyle::Spaces(_) => IndentStyle::Spaces(self.tab_width),
             IndentStyle::Tabs(_) => IndentStyle::Tabs(self.tab_width),
@@ -398,7 +462,9 @@ impl CodeEditor {
         self.language = language;
         self
     }
-    /// Stale asynchronous syntax results are never painted onto a newer buffer.
+    /// Syntax colours computed for the snapshot with this `document_id` and `revision`. They
+    /// are never painted onto another document. After an edit, spans already shown stay on the
+    /// rows the edit did not change, moved with the text; the changed rows wait for new spans.
     pub fn highlights(
         mut self,
         document_id: u64,
@@ -2613,10 +2679,11 @@ fn paint_editor_status(
     let position = snapshot
         .position_of(snapshot.selection().head)
         .unwrap_or_default();
-    let cursor = format!("Ln {}, Col {}", position.row + 1, position.column + 1);
+    let labels = crate::labels();
+    let cursor = format!("{} {}, {} {}", labels.line_short, position.row + 1, labels.column_short, position.column + 1);
     let selected = snapshot.selection().range().len();
     let cursor_selection = if selected > 0 {
-        format!("{cursor} · {selected} sel.")
+        format!("{cursor} · {selected} {}", labels.selected_short)
     } else {
         cursor.clone()
     };

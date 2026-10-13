@@ -3,7 +3,9 @@
 /// A position in logical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point {
+    /// Horizontal coordinate, growing to the right.
     pub x: f32,
+    /// Vertical coordinate, growing downwards.
     pub y: f32,
 }
 
@@ -17,7 +19,9 @@ impl Point {
 /// A width and a height in logical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Size {
+    /// Horizontal extent.
     pub width: f32,
+    /// Vertical extent.
     pub height: f32,
 }
 
@@ -31,9 +35,13 @@ impl Size {
 /// A rectangle in logical pixels. `x` and `y` are its top left corner.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
+    /// The left edge.
     pub x: f32,
+    /// The top edge; `y + height` is the bottom.
     pub y: f32,
+    /// From the left edge to the right one, which is itself outside the rectangle.
     pub width: f32,
+    /// From the top edge to the bottom one, which is itself outside the rectangle.
     pub height: f32,
 }
 
@@ -84,9 +92,13 @@ impl Rect {
 /// is opaque.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Color {
+    /// Red, from 0 to 255.
     pub r: u8,
+    /// Green, from 0 to 255.
     pub g: u8,
+    /// Blue, from 0 to 255.
     pub b: u8,
+    /// Alpha: 0 is transparent and 255 is opaque.
     pub a: u8,
 }
 

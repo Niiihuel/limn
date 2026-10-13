@@ -12,6 +12,7 @@ use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion, Role}
 /// A component can render to an ordinary [`Element`] and be used anywhere in
 /// the tree. App-specific views and generic controls follow the same contract.
 pub trait Component {
+    /// Consume the component and build the element that draws it.
     fn render(self) -> Element;
 }
 
@@ -310,9 +311,13 @@ pub enum ActiveHover {
 /// Shared control heights in logical pixels.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ControlSize {
+    /// 24 pixels high.
     Dense,
+    /// 28 pixels high.
     Compact,
+    /// 32 pixels high.
     Regular,
+    /// 36 pixels high.
     Spacious,
 }
 
@@ -332,20 +337,33 @@ impl ControlSize {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ControlState {
     #[default]
+    /// It answers the pointer and the keyboard.
     Enabled,
+    /// It keeps its place and cannot be used.
     Disabled,
 }
 
 /// Semantic colors shared by tabs, dropdowns, and floating surfaces.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ComponentPalette {
+    /// The fill a component sits on, such as the track of a tab strip.
     pub surface: Color,
+    /// The fill of what stands above the surface, such as a popover.
     pub raised: Color,
+    /// The fill under the pointer. `interactive_surface` sets it as the hover
+    /// background.
     pub hover: Color,
+    /// The fill of the chosen item, such as the active tab, and of a pressed
+    /// control.
     pub selected: Color,
+    /// Hairlines around and between surfaces. Its lightness also tells a dark
+    /// palette from a light one, for `link` and the tooltips.
     pub border: Color,
+    /// Primary ink.
     pub text: Color,
+    /// Ink for secondary labels and for disabled content.
     pub muted: Color,
+    /// The shadow under floating surfaces: popovers, modals, toasts, tooltips.
     pub shadow: Color,
 }
 
@@ -473,11 +491,17 @@ pub enum ButtonVariant {
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ButtonSize {
     #[default]
+    /// 36 pixels high, with a 14 pixel label and 16 pixels of padding at each side.
     Default,
+    /// 32 pixels high, with a 13 pixel label and 12 pixels of padding at each side.
     Small,
+    /// 40 pixels high, with a 14 pixel label and 24 pixels of padding at each side.
     Large,
+    /// A 36 pixel square around an icon alone.
     Icon,
+    /// A 32 pixel square around an icon alone.
     IconSmall,
+    /// A 24 pixel square around an icon alone, with a 12 pixel label if it has one.
     IconExtraSmall,
     /// A 22 px action inside a dense row, such as "more" in a file tree.
     Mini,
@@ -510,8 +534,12 @@ impl ButtonSize {
 /// combined buttons on the same rendering and interaction path.
 #[derive(Clone, Debug)]
 pub enum ButtonContent {
+    /// Text alone.
     Label(String),
+    /// An icon alone. The button has no label and, unless a width is set, is
+    /// as wide as it is high.
     Icon(Icon),
+    /// An icon before a label.
     IconAndLabel(Icon, String),
 }
 
@@ -1021,6 +1049,7 @@ impl Component for Button {
                 Some(center_icon(
                     crate::Spinner::new(format!("{}:loading", self.action_id), ink)
                         .size(sizing.icon_size)
+                        .decorative()
                         .render(),
                 ))
             } else {
@@ -2128,11 +2157,21 @@ pub(crate) const fn darker(color: Color, amount: u8) -> Color {
 /// One selectable tab. `action_id` is a stable ID handled by the host's
 /// `UiAction::Clicked`; it can represent any domain value (file, view, task).
 pub struct Tab {
+    /// Reported in `UiAction::Clicked` when the tab is chosen. A disabled tab is
+    /// known to the platform by it.
     pub action_id: String,
+    /// The tab's text.
     pub label: String,
+    /// An icon before the label. `None` by default.
     pub icon: Option<Icon>,
+    /// Whether it is the chosen tab: it takes the text color and the sliding
+    /// selection rests under it, unless it is disabled.
     pub active: bool,
+    /// Width in logical pixels. `new` keeps it at 40 or more and
+    /// `Tabs::fill_width` replaces it.
     pub width: f32,
+    /// `Disabled` keeps the tab in its place, in the muted color, and it cannot
+    /// be chosen.
     pub state: ControlState,
 }
 
@@ -2185,11 +2224,20 @@ const TAB_FONT_SIZE: f32 = 11.5;
 
 /// A row of [`Tab`]s with a selection that slides to the active one.
 pub struct Tabs {
+    /// The tabs, in the order they are drawn.
     pub items: Vec<Tab>,
+    /// `surface` fills the track and `selected` the sliding selection; `text` is
+    /// the ink of the active tab and `muted` of the others.
     pub palette: ComponentPalette,
+    /// Height of a tab in logical pixels, 24 by default. The track is 4 taller.
     pub height: f32,
+    /// Space between two tabs in logical pixels, 2 by default.
     pub gap: f32,
+    /// Keys the selection's animation. `None`, the default, derives it from the
+    /// first tab's `action_id`.
     pub id: Option<String>,
+    /// How long the selection takes to slide to another tab, in milliseconds.
+    /// The default is the `move_ms` token.
     pub animation_ms: u16,
 }
 
@@ -2406,16 +2454,34 @@ impl Component for SegmentedControl {
 /// While open, Tab stays among visible controls in the floating surface;
 /// Escape or backdrop dismissal returns focus to the first focusable anchor.
 pub struct Popover {
+    /// The element it opens from, told to the platform as expanded or not. It
+    /// is all that is drawn while the popover is closed.
     pub anchor: Element,
+    /// What the floating surface holds, inside 6 pixels of padding.
     pub content: Element,
+    /// Whether the surface shows. The host owns it.
     pub open: bool,
+    /// Reported in `UiAction::Clicked` when the popover is dismissed, for the
+    /// host to close it.
     pub dismiss_id: String,
+    /// The side of the anchor it prefers. `BottomStart` by default.
     pub placement: PopoverPlacement,
+    /// Width of the surface in logical pixels, 240 by default. The `width`
+    /// builder keeps it at 96 or more.
     pub width: f32,
+    /// `raised` fills the surface, `border` outlines it and `shadow` falls under it.
     pub palette: ComponentPalette,
+    /// Duration of the entrance in milliseconds. The default is the `enter_ms`
+    /// token.
     pub animation_ms: u16,
+    /// Duration of the exit in milliseconds. `None`, the default, keeps the
+    /// engine's own.
     pub close_animation_ms: Option<u16>,
+    /// The scale the entrance starts at. 1.0, the default, does not scale; the
+    /// `open_scale` builder keeps it within 0.5..=1.25.
     pub open_scale: f32,
+    /// Names the view the content shows: a change of key while the popover stays
+    /// open is animated. `None` by default.
     pub view_key: Option<String>,
 }
 
@@ -2521,10 +2587,15 @@ impl Component for Popover {
 
 /// One option in a dropdown list; its ID is the host action to execute.
 pub struct DropdownOption {
+    /// What the host receives when the option is chosen.
     pub action_id: String,
+    /// The option's text, and its name for the platform.
     pub label: String,
+    /// A leading icon. `None` by default.
     pub icon: Option<Icon>,
+    /// Whether it is the current choice.
     pub selected: bool,
+    /// Whether it can be chosen. A disabled option stays in the list.
     pub state: ControlState,
 }
 
@@ -2573,14 +2644,25 @@ impl DropdownOption {
 /// Enter activates the focused option. The host still owns the open state and
 /// handles the resulting ID.
 pub struct DropdownList {
+    /// The element the list opens from: a button, a field or any other trigger.
     pub anchor: Element,
+    /// The options, in the order they are listed.
     pub options: Vec<DropdownOption>,
+    /// Whether the list shows. The host owns it.
     pub open: bool,
+    /// Reported when the list is dismissed, for the host to close it.
     pub dismiss_id: String,
+    /// Width of the list in logical pixels, 240 by default and 96 at least when
+    /// it is drawn. `sizing` replaces it with the profile's preferred width.
     pub width: f32,
+    /// The side of the anchor it prefers. `BottomStart` by default.
     pub placement: PopoverPlacement,
+    /// The colors of the list's surface and of its rows.
     pub palette: ComponentPalette,
+    /// Durations of the opening and of the item feedback.
     pub motion: MenuMotion,
+    /// A selector profile for the row density and the scroll budget. `None`, the
+    /// default, keeps the menu's own.
     pub sizing: Option<crate::SelectorSizing>,
 }
 

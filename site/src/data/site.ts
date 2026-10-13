@@ -16,6 +16,7 @@ export const GUIDES = [
     group: 'Guides',
     items: [
       ['components', 'Component API overview'],
+      ['accessibility', 'Accessibility'],
       ['hot-reload', 'Hot reload'],
       ['tours', 'Tours'],
       ['liquid-glass', 'Liquid glass'],

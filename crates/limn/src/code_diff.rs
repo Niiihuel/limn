@@ -5,32 +5,52 @@ use std::sync::Arc;
 /// Whether a row is unchanged, added or removed. It sets the row's marker and colours.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CodeDiffLineKind {
+    /// A line present on both sides: a blank marker, no fill, and it advances the syntax state
+    /// of both the old and the new text.
     Context,
+    /// A line only in the new text: a `+` marker and a green tint across the row.
     Added,
+    /// A line only in the old text: a `−` marker and a red tint across the row.
     Removed,
 }
 
 /// Text is retained exactly as supplied; the view never applies a patch.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodeDiffLine {
+    /// Which side of the change the row belongs to.
     pub kind: CodeDiffLineKind,
     /// The numbers shown in the old and the new line-number column, as given. `None` leaves
     /// that column empty on the row.
     pub old_line: Option<usize>,
+    /// The number in the new column, and the one a single gutter shows when it is set. A row
+    /// with neither number is not syntax-coloured and restarts the colouring after it.
     pub new_line: Option<usize>,
+    /// The line's text. One trailing CR, LF or CRLF is not drawn.
     pub text: String,
 }
 
 /// A read-only, scrollable list of diff rows with line numbers and change colours.
 #[derive(Clone, Debug)]
 pub struct CodeDiff {
+    /// Identifier of the view: its scroll position is kept under it, and its focus when
+    /// `focusable` is set.
     pub id: String,
+    /// The rows, top to bottom. Only the rows in view are measured and painted.
     pub lines: Arc<[CodeDiffLine]>,
+    /// Colours of the surface, the text, and the line numbers and scrollbars (`muted`). Set
+    /// with `palette`.
     pub palette: ComponentPalette,
+    /// Height in logical pixels, 320 by default. `height` keeps it at 24 or more.
     pub height: f32,
+    /// Columns between tab stops, 4 by default. `tab_width` clamps it to 1..=16.
     pub tab_width: usize,
+    /// Language the rows are syntax-coloured as. Plain text by default.
     pub language: CodeLanguage,
+    /// Show one line-number column (the new number, else the old one) and no +/- marker
+    /// column. False by default.
     pub single_gutter: bool,
+    /// Scroll to the new bottom when rows are appended while the view is at the bottom.
+    /// False by default.
     pub follow_tail: bool,
     /// Standalone read-only documents may own focus; inline activity previews do not.
     pub focusable: bool,

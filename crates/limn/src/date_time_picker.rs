@@ -81,6 +81,8 @@ impl Component for DateTimePicker {
             label(crate::labels().local_time),
             TimePicker::new(self.time_id, self.time_value, self.palette)
                 .enabled(self.enabled)
+                // The label drawn over it.
+                .accessibility_label(crate::labels().local_time)
                 .render(),
         ])
         .gap(6.0)

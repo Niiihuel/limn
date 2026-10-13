@@ -186,7 +186,10 @@ pub(crate) fn rounded(path: &[Point]) -> Vec<Point> {
 /// handed a source without knowing which it is.
 #[derive(Clone, Debug)]
 pub enum Diagram {
+    /// A `flowchart` or a `graph`. `parse` reads as one every source that does not
+    /// start with `sequenceDiagram`.
     Flowchart(Flowchart),
+    /// A source whose first statement is `sequenceDiagram`.
     Sequence(SequenceDiagram),
 }
 

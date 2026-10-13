@@ -10,7 +10,9 @@ const CURSOR_LIMIT: usize = 256;
 /// the distance between tab stops. The default is four spaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IndentStyle {
+    /// One level is this many spaces. Must be within 1..=32.
     Spaces(usize),
+    /// One level is one tab character, counted as this many columns. Must be within 1..=32.
     Tabs(usize),
 }
 impl Default for IndentStyle {
@@ -38,23 +40,35 @@ impl IndentStyle {
 /// An editing operation for `TextBuffer::execute_command`.
 #[derive(Clone, Debug)]
 pub enum EditorCommand {
+    /// Make this the only selection, dropping every secondary one.
     SetSelection(Selection),
+    /// Replace all selections; the first is the primary. At most 256, not empty. Selections
+    /// that overlap are merged, and so is a caret at the end of another selection.
     SetSelections(Vec<Selection>),
     /// Put a single caret at a row and column, clipped to the last line and the line's length.
     Goto(Position),
     /// Add a caret on the line below or above the primary one, at the same visual column.
     AddCursorVertical {
+        /// True for the next line, false for the previous one.
         below: bool,
+        /// Columns between tab stops, within 1..=32, used to find the visual column.
         tab_width: usize,
     },
     /// With an empty selection, select the word at the caret. Otherwise add the next occurrence
     /// of the selected text (case-sensitive, wrapping around), or select every one when `all`.
     SelectNextOccurrence {
+        /// Select every occurrence in the document instead of only the next one.
         all: bool,
     },
+    /// Put one selection on each line between two corners, from the column of one corner to
+    /// the column of the other. Fails when the corners are 256 or more rows apart.
     SelectRectangle {
+        /// The corner where the drag began. Its `column` counts display cells, not characters.
         anchor: Position,
+        /// The opposite corner, with `column` in display cells too. Its row may be past the
+        /// last line.
         head: Position,
+        /// Columns between tab stops, within 1..=32.
         tab_width: usize,
     },
     /// Replace each selection with this text, recorded as a paste.
@@ -63,36 +77,61 @@ pub enum EditorCommand {
     InsertSnippet(String),
     /// Move to the next snippet tab stop, or the previous one when `backward`.
     NextSnippet {
+        /// Go to the previous tab stop instead of the next.
         backward: bool,
     },
+    /// Insert a copy of every line a selection touches, below it.
     DuplicateLines,
+    /// Swap the selected lines with the line above or below them. Fails when the selections
+    /// do not cover one contiguous run of lines; does nothing at the edge of the document.
     MoveLines {
+        /// True to move toward the end of the document.
         down: bool,
     },
+    /// Remove every line a selection touches, terminator included.
     DeleteLines,
+    /// Comment the selected lines that are not blank, or uncomment them when every one of
+    /// them already is commented.
     ToggleLineComment {
+        /// Opening marker, such as `//`: not empty, on one line, at most 16 bytes. It is
+        /// written after the line's indentation, followed by a space.
         prefix: String,
         /// Closing marker for languages that only have block comments.
         suffix: String,
     },
     /// Indent, or outdent when `reverse`; see `TextBuffer::indent_with_style`.
     Indent {
+        /// Remove one indent level instead of adding one.
         reverse: bool,
+        /// What one level is.
         style: IndentStyle,
     },
     /// Rewrite every line terminator in the text and use this one for new lines.
     SetLineEnding(LineEnding),
+    /// Revert the newest undo step, as `TextBuffer::undo`.
     Undo,
+    /// Apply the last undone step again, as `TextBuffer::redo`.
     Redo,
+    /// Replace every match of a search as one undo step. A search error comes back as
+    /// `InvalidCommand` with its message.
     ReplaceAll {
+        /// What to search for; empty finds nothing.
         query: String,
+        /// The new text. With `options.regex` it may refer to capture groups, as `$1`.
         replacement: String,
+        /// How `query` is read and where it is searched.
         options: SearchOptions,
     },
+    /// Replace one match of a search. A search error comes back as `InvalidCommand`.
     ReplaceMatch {
+        /// What to search for.
         query: String,
+        /// The new text, as in `ReplaceAll`.
         replacement: String,
+        /// How `query` is read and where it is searched.
         options: SearchOptions,
+        /// Character range of the match to replace. Nothing changes unless the search
+        /// still finds a match with exactly this range.
         range: Range<usize>,
     },
 }

@@ -5,7 +5,15 @@ in any release.
 
 ## 0.1.39 — unreleased
 
-- Every public function, type, trait and constant of the five library crates has a doc comment, kept by a test
+- Everything public in the five library crates has a doc comment, fields and variants included; the crates carry `#![warn(missing_docs)]`
+- Accessibility, read from AT-SPI as a screen reader gets it (`tools/atspi/run.sh`): `limn_egui::name_window` names the window; a date or time picker's field is called "Date" or "Time", or what `accessibility_label` says, and a day by its whole date; `Spinner::decorative` keeps a spinner inside a control out of the list, and the library's own nested spinners use it
+- Labels: the texts that were still fixed now come from `set_labels`: the pickers' placeholders, an alert's default titles, the find bar, Markdown's block labels, the code review hints and the editor's status line; `MarkdownLabels::default()` follows them
+- `limn-language`: every error message is in English
+- `Element`: `padding`, `gap`, `flex`, `size`, `min_size` and `radius` ignore a number that is not finite; `border` after `dashed_border` is solid again
+- `ChartLegend` cuts its labels to the width it is given
+- `CodeEditor::tab_width` takes up to 32 columns, as `indent_style` does
+- `Composer::compact` never did anything and is deprecated
+- `limn-language`: a parse worker no longer spins when its queue's lock is poisoned
 - Gallery pages and guides for `DatePicker`, `TimePicker`, `DateTimePicker`, the charts, `CodeEditor`, `CodeDiff`, `Attachment`, `Avatar`, `ImageViewer`, `TreeRow`, `FramedCard`, `ScrollArea`, `Skeleton` and `TextShimmer`
 - Tests: one harness holds 51 interactive controls to the same facts (one action for a click, for Enter and for Space; reached by Tab; inert, in place and announced as such when disabled), and `Attachment`, `Avatar`, `ChartLegend`, `Link` and `MenuSeparator` have tests of their own
 - MenuBar: a disabled menu's accessibility node covers its whole trigger, not only its label

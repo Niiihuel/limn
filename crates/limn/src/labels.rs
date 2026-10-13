@@ -53,6 +53,8 @@ pub struct Labels {
     pub date: &'static str,
     /// Over the time of a date and time picker.
     pub local_time: &'static str,
+    /// What a time picker's field is called to the platform.
+    pub time: &'static str,
     /// A time picker.
     pub hour: &'static str,
     /// A time picker.
@@ -127,6 +129,64 @@ pub struct Labels {
     pub unsaved: &'static str,
     /// The code editor's status line.
     pub saved: &'static str,
+    /// An empty date field: the form of a date.
+    pub date_placeholder: &'static str,
+    /// An empty time field: the form of a time.
+    pub time_placeholder: &'static str,
+    /// The title of a neutral alert that is given none.
+    pub notice: &'static str,
+    /// The title of an informative alert that is given none.
+    pub information: &'static str,
+    /// The title of an alert of success that is given none.
+    pub success: &'static str,
+    /// The title of a warning that is given none.
+    pub warning: &'static str,
+    /// The title of an alert of an error that is given none.
+    pub error: &'static str,
+    /// A code review: the hint of the action that discards a change.
+    pub undo_block: &'static str,
+    /// A code review: the hint of the action that accepts a change.
+    pub keep_block: &'static str,
+    /// The code editor's status line, before the caret's line: "Ln 4".
+    pub line_short: &'static str,
+    /// The code editor's status line, before the caret's column: "Col 12".
+    pub column_short: &'static str,
+    /// The code editor's status line, after the number of characters selected: "8 sel.".
+    pub selected_short: &'static str,
+    /// The find bar: an empty query.
+    pub find: &'static str,
+    /// The find bar: an empty replacement, and the action that replaces one match.
+    pub replace: &'static str,
+    /// The find bar.
+    pub replace_all: &'static str,
+    /// The find bar.
+    pub match_case: &'static str,
+    /// The find bar.
+    pub match_word: &'static str,
+    /// The find bar.
+    pub use_regex: &'static str,
+    /// The find bar.
+    pub find_in_selection: &'static str,
+    /// The find bar: the button that shows and hides the replacement.
+    pub toggle_replace: &'static str,
+    /// The find bar.
+    pub previous_match: &'static str,
+    /// The find bar.
+    pub next_match: &'static str,
+    /// The find bar: the hint of the count of matches.
+    pub match_count: &'static str,
+    /// Markdown: over a block of code in no named language.
+    pub code: &'static str,
+    /// Markdown: under a preview that was cut to its limits.
+    pub long_text: &'static str,
+    /// Markdown: over a block drawn as a diagram.
+    pub diagram_heading: &'static str,
+    /// Markdown: the action that shows what a diagram was drawn from.
+    pub show_source: &'static str,
+    /// Markdown: the action that shows the diagram again.
+    pub show_diagram: &'static str,
+    /// Markdown: the action that shows a diagram over the window.
+    pub expand: &'static str,
 }
 
 impl Labels {
@@ -150,6 +210,7 @@ impl Labels {
         select_all: "Select all",
         date: "Date",
         local_time: "Local time",
+        time: "Time",
         hour: "Hour",
         minute: "Minute",
         zoom_out: "Zoom out",
@@ -190,6 +251,35 @@ impl Labels {
         read_only: "Read only",
         unsaved: "Unsaved",
         saved: "Saved",
+        date_placeholder: "YYYY-MM-DD",
+        time_placeholder: "HH:MM",
+        notice: "Notice",
+        information: "Information",
+        success: "Done",
+        warning: "Warning",
+        error: "Error",
+        undo_block: "Undo this block",
+        keep_block: "Keep this block",
+        line_short: "Ln",
+        column_short: "Col",
+        selected_short: "sel.",
+        find: "Find",
+        replace: "Replace",
+        replace_all: "Replace all",
+        match_case: "Match case",
+        match_word: "Match whole word",
+        use_regex: "Use regular expression",
+        find_in_selection: "Find in selection",
+        toggle_replace: "Toggle replace",
+        previous_match: "Previous match",
+        next_match: "Next match",
+        match_count: "Current match / total",
+        code: "CODE",
+        long_text: "Long text: only the first blocks are shown.",
+        diagram_heading: "DIAGRAM",
+        show_source: "Source",
+        show_diagram: "Diagram",
+        expand: "Expand",
     };
 
     /// The library's own words in Spanish.
@@ -212,6 +302,7 @@ impl Labels {
         select_all: "Seleccionar todo",
         date: "Fecha",
         local_time: "Hora local",
+        time: "Hora",
         hour: "Hora",
         minute: "Minuto",
         zoom_out: "Alejar",
@@ -252,6 +343,35 @@ impl Labels {
         read_only: "Solo lectura",
         unsaved: "Sin guardar",
         saved: "Guardado",
+        date_placeholder: "AAAA-MM-DD",
+        time_placeholder: "HH:MM",
+        notice: "Aviso",
+        information: "Información",
+        success: "Listo",
+        warning: "Advertencia",
+        error: "Error",
+        undo_block: "Deshacer este bloque",
+        keep_block: "Conservar este bloque",
+        line_short: "Lín.",
+        column_short: "Col.",
+        selected_short: "sel.",
+        find: "Buscar",
+        replace: "Reemplazar",
+        replace_all: "Reemplazar todo",
+        match_case: "Distinguir mayúsculas y minúsculas",
+        match_word: "Solo palabras completas",
+        use_regex: "Usar expresión regular",
+        find_in_selection: "Buscar en la selección",
+        toggle_replace: "Mostrar u ocultar el reemplazo",
+        previous_match: "Coincidencia anterior",
+        next_match: "Coincidencia siguiente",
+        match_count: "Coincidencia actual / total",
+        code: "CÓDIGO",
+        long_text: "Texto largo: solo se muestran los primeros bloques.",
+        diagram_heading: "DIAGRAMA",
+        show_source: "Fuente",
+        show_diagram: "Diagrama",
+        expand: "Ampliar",
     };
 }
 

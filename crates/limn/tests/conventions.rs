@@ -159,37 +159,29 @@ fn page_down_and_page_up_scroll_what_the_wheel_scrolls() {
     assert_eq!(settle(&mut tree), 0.0);
 }
 
-/// Whatever a host can call or name says what it is: every public function,
-/// type, trait and constant of the library's crates has a doc comment.
+/// The builders every component is made of hold the same line: a number that
+/// is not finite changes nothing.
 #[test]
-fn every_public_item_has_a_doc_comment() {
-    const KINDS: [&str; 8] = ["fn ", "const fn ", "unsafe fn ", "struct ", "enum ", "trait ", "const ", "type "];
-    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
-    let mut missing = Vec::new();
-    for name in ["limn", "limn-editor", "limn-language", "limn-dnd", "limn-egui"] {
-        for file in std::fs::read_dir(crates.join(name).join("src")).unwrap().flatten() {
-            let path = file.path();
-            if path.extension().is_none_or(|extension| extension != "rs") {
-                continue;
-            }
-            let source = std::fs::read_to_string(&path).unwrap();
-            let lines: Vec<&str> = source.lines().map(str::trim).collect();
-            for (index, line) in lines.iter().enumerate() {
-                // The tests of a file come last, and are nobody's API.
-                if *line == "#[cfg(test)]" && lines.get(index + 1).is_some_and(|next| next.starts_with("mod ")) {
-                    break;
-                }
-                let Some(item) = line.strip_prefix("pub ") else { continue };
-                if !KINDS.iter().any(|kind| item.starts_with(kind)) {
-                    continue;
-                }
-                // Attributes stand between a comment and its item.
-                let above = lines[..index].iter().rev().find(|above| !(above.starts_with("#[") || above.ends_with(")]")));
-                if !above.is_some_and(|above| above.starts_with("///") || above.ends_with("*/")) {
-                    missing.push(format!("{}:{}: {line}", path.file_name().unwrap().to_string_lossy(), index + 1));
-                }
-            }
-        }
+fn an_element_ignores_numbers_that_are_not_finite() {
+    for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let set = Element::spacer().padding(4.0).gap(5.0).flex(2.0).radius(3.0).min_size(6.0, 7.0).size(Some(8.0), Some(9.0));
+        let kept = set.style;
+        let after = set.padding(bad).gap(bad).flex(bad).radius(bad).min_size(bad, bad).size(Some(bad), Some(bad)).style;
+        assert_eq!(
+            (after.padding, after.gap, after.flex, after.radius, after.min_width, after.min_height, after.width, after.height),
+            (kept.padding, kept.gap, kept.flex, kept.radius, kept.min_width, kept.min_height, kept.width, kept.height),
+            "{bad}"
+        );
     }
-    assert!(missing.is_empty(), "{} public items have no doc comment:\n{}", missing.len(), missing.join("\n"));
+    let cleared = Element::spacer().size(Some(8.0), Some(9.0)).size(None, Some(-1.0)).style;
+    assert_eq!((cleared.width, cleared.height), (None, Some(0.0)));
+}
+
+#[test]
+fn the_last_border_said_is_the_one_drawn() {
+    let color = limn::Color::WHITE;
+    assert!(Element::spacer().border(color, 1.0).dashed_border(color, 1.0).style.dashed_border);
+    assert!(!Element::spacer().dashed_border(color, 1.0).border(color, 1.0).style.dashed_border);
+    let none = Element::spacer().dashed_border(color, f32::NAN).style;
+    assert!(none.border.is_none() && !none.dashed_border);
 }

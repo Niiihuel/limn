@@ -14,30 +14,61 @@ use crate::Rect;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Role {
+    /// Something that is clicked. What the tree makes of a button, an icon button
+    /// and a clickable.
     Button,
+    /// Text that goes somewhere when clicked, such as a breadcrumb's step.
     Link,
+    /// A box that is ticked or not; `toggled` says which.
     CheckBox,
+    /// A switch that is on or off; `toggled` says which.
     Switch,
+    /// One option of a set in which a single one is chosen.
     RadioButton,
+    /// A value dragged along a track; `value` is where it stands. What the tree
+    /// makes of a slider.
     Slider,
+    /// A one-line text field. What the tree makes of a text input, with what it
+    /// holds as `value_text`.
     TextInput,
+    /// A one-line field whose content is hidden. The tree gives it no `value_text`.
     PasswordInput,
+    /// A field of several lines. What the tree makes of a text area and a code
+    /// editor.
     MultilineTextInput,
+    /// A field that searches.
     SearchInput,
+    /// A control that opens a list to choose one value from, such as a select:
+    /// `value_text` is the current value and `expanded` whether the list is open.
     ComboBox,
+    /// One tab of a strip; `selected` says whether it is the chosen one.
     Tab,
+    /// One action in a menu.
     MenuItem,
+    /// One row of a list or a table.
     ListItem,
+    /// One row of a tree; `expanded` says whether its children show.
     TreeItem,
+    /// A surface that holds the user until it is closed: a modal, a coach mark.
     Dialog,
+    /// A dialog that asks for a decision.
     AlertDialog,
+    /// A message that matters now: an alert, a toast, an error.
     Alert,
+    /// Information that asks for nothing: a notice, a count of matches.
     Status,
+    /// A hint about another control.
     Tooltip,
+    /// Work in course: a progress bar, whose `value` is how far it is, or a
+    /// spinner, which has none.
     ProgressIndicator,
+    /// A picture, named by its text alternative.
     Image,
+    /// The title of a section.
     Heading,
+    /// Text that names something else.
     Label,
+    /// A thing with no kind of its own. A node whose role nothing said is one.
     Group,
 }
 
@@ -167,16 +198,26 @@ pub struct AccessNode {
     pub id: String,
     /// Where it is, clipped to what can be seen.
     pub rect: Rect,
+    /// What kind of thing it is. `Role::Group` when neither the component nor the
+    /// element's kind said.
     pub role: Role,
     /// Empty when nothing names it: an icon alone, without a name given.
     pub name: String,
+    /// A longer explanation, said after the name. `None` when there is none or it
+    /// would only repeat the name.
     pub description: Option<String>,
+    /// Whether it is there and cannot be used. A disabled node is not `actionable`.
     pub disabled: bool,
+    /// Whether a switch or a check box is on. `None` for what is not toggled.
     pub toggled: Option<bool>,
+    /// Whether it is the chosen one of several. `None` for what is not one of several.
     pub selected: Option<bool>,
+    /// Whether what it opens is open. `None` for what opens nothing.
     pub expanded: Option<bool>,
     /// From 0 to 1.
     pub value: Option<f32>,
+    /// Its value in words, such as what a field holds. `None` when it has none;
+    /// the tree gives none for a password field.
     pub value_text: Option<String>,
     /// Whether it answers a click and takes the keyboard focus.
     pub actionable: bool,

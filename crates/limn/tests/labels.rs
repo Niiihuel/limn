@@ -2,8 +2,8 @@
 //! binary, leaving the library's parallel unit tests in their own language.
 
 use limn::{
-    labels, set_labels, AlertDialog, Breadcrumb, BreadcrumbItem, Component, ComponentPalette,
-    DrawCommand, Element, Frame, Labels, Size, UiTree,
+    labels, set_labels, Alert, AlertDialog, AlertTone, Breadcrumb, BreadcrumbItem, Component, ComponentPalette,
+    DatePicker, DrawCommand, Element, FindLabels, Frame, Labels, MarkdownLabels, Size, UiTree,
 };
 
 fn texts(frame: &Frame) -> Vec<&str> {
@@ -52,5 +52,16 @@ fn replacing_labels_updates_rebuilt_components_and_preserves_explicit_copy() {
     let hint = path.layout(size);
     assert!(texts(&hint).contains(&"Rechercher"));
     assert!(!texts(&hint).contains(&"Search"));
+
+    // What a component says when its host gives it nothing follows the labels too.
+    set_labels(Labels::SPANISH);
+    let drawn = |element: Element| {
+        let frame = UiTree::new(element).layout(size);
+        texts(&frame).into_iter().map(str::to_owned).collect::<Vec<_>>()
+    };
+    assert!(drawn(Alert::new("", "Disk almost full", palette).tone(AlertTone::Warning).render()).contains(&"Advertencia".to_owned()));
+    assert!(drawn(DatePicker::new("date", "", palette).render()).contains(&"AAAA-MM-DD".to_owned()));
+    assert_eq!((FindLabels::default().query.as_str(), FindLabels::default().dismiss.as_str()), ("Buscar", "Cerrar"));
+    assert_eq!((MarkdownLabels::default().expand, MarkdownLabels::DEFAULT.expand), ("Ampliar", "Expand"));
     set_labels(original);
 }

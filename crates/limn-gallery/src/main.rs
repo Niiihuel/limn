@@ -141,6 +141,7 @@ impl eframe::App for Host {
                 changed = true;
             }
         }
+        limn_egui::name_window(&ctx, "limn gallery");
         // What a screen reader asked of a control is an action like any other.
         for action in limn_egui::apply_access_requests(&ctx, &mut self.tree) {
             if !glass_drag::handle(&mut self.state, &action, self.tree.frame()) {

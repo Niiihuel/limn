@@ -44,6 +44,15 @@ fn open_id(index: usize) -> String {
     format!("{VIEWER}=open&{INDEX}={index}&{ZOOM}=1")
 }
 
+/// Demos side by side where the page is `width` wide, and one under another where it is not.
+fn fit(cx: &Cx, width: f32, children: Vec<Element>) -> Element {
+    if cx.width >= width {
+        row(children)
+    } else {
+        Element::column(children).gap(12.0)
+    }
+}
+
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
@@ -90,7 +99,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         ]),
         section(cx, "Attachment", vec![
             caption(cx, "A file card: icon, title and description. The close button reports the remove action and the host drops the file."),
-            row(kept),
+            fit(cx, 232.0 * kept.len() as f32, kept),
             caption(cx, "With an open action the whole card is a button; without one, hovering the name shows it in full."),
             row(vec![
                 Attachment::new("media-open-card", "quarterly-report-2026-final-reviewed.pdf", palette)
@@ -105,7 +114,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ]),
             caption(cx, &format!("Opened: {}", state.choice("media-opened", "nothing yet"))),
             caption(cx, "With a preview: beside the caption, above it with AttachmentOrientation::Vertical, and alone with preview_only()."),
-            row(vec![
+            fit(cx, 500.0, vec![
                 Attachment::new("media-image-row", PICTURES[0].0, palette)
                     .description("PNG · 528 B")
                     .preview(picture(0).cover())

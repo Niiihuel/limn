@@ -18,14 +18,30 @@ const SCROLLBAR_GUTTER: f32 = 16.0;
 
 /// One action in a menu. The caller handles `action_id` from `UiAction`.
 pub struct DropdownMenuItem {
+    /// What the host receives when the item is chosen. A disabled item is known
+    /// to the platform by it.
     pub action_id: String,
+    /// The row's text, and its name for the platform.
     pub label: String,
+    /// A leading icon. `None` leaves the slot empty when another item has one.
     pub icon: Option<Icon>,
+    /// A keyboard shortcut drawn as keycaps at the trailing edge. The `shortcut`
+    /// builder clears `annotation`; with both set, only the shortcut is drawn.
     pub shortcut: Option<String>,
+    /// Plain trailing text, and the item's description for the platform. The
+    /// `annotation` builder clears `shortcut`.
     pub annotation: Option<String>,
+    /// Whether it is the current choice. One selected item gives the whole menu
+    /// a check column.
     pub selected: bool,
+    /// Whether it can be chosen. A disabled item is drawn in the muted color, is
+    /// passive and does not open its submenu.
     pub state: ControlState,
+    /// The entries of a second menu that opens beside the row. `None` for an
+    /// ordinary action.
     pub submenu: Option<Vec<DropdownMenuEntry>>,
+    /// The ink of the label and the icon, in place of the palette's text. `None`
+    /// for an ordinary action.
     pub destructive: Option<Color>,
     description: Option<String>,
     detail_mono: bool,
@@ -169,8 +185,13 @@ impl DropdownMenuItem {
 
 /// Static entries do not enter keyboard focus order.
 pub enum DropdownMenuEntry {
+    /// An action that can be chosen.
     Item(DropdownMenuItem),
+    /// A muted title over the entries that follow. One that comes after other
+    /// entries gets a divider before it.
     Heading(String),
+    /// A one-pixel line between two groups. One with no entry before it, or
+    /// that ends the menu, is dropped.
     Separator,
     /// An application-specific control inside the shared menu surface.
     Custom(Box<Element>),
@@ -179,9 +200,19 @@ pub enum DropdownMenuEntry {
     /// A muted sentence in place of items: nothing found, or work in course.
     Message(String),
     /// Placeholder rows while the items load. Skeleton IDs derive from `id`.
-    Loading { id: String, rows: usize },
+    Loading {
+        /// The skeleton of each row is `"{id}:{index}"`, counted from zero.
+        id: String,
+        /// How many placeholder rows, each as high as a one-line row.
+        rows: usize,
+    },
     /// A failure too long for a row, in its own short scroll area named `id`.
-    Error { id: String, text: String },
+    Error {
+        /// The ID of the scroll area the text sits in.
+        id: String,
+        /// The failure, in the muted style of a message. It wraps and scrolls.
+        text: String,
+    },
 }
 
 /// The heading of a group the user can fold: an icon, a label, how many

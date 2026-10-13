@@ -9,13 +9,21 @@ use unicode_segmentation::UnicodeSegmentation;
 /// The interface type scale in logical pixels, independent of display DPI.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextRole {
+    /// 18 pixels, the largest step.
     Display,
+    /// 16 pixels.
     Heading,
+    /// 14 pixels.
     Body,
+    /// 13 pixels.
     Label,
+    /// 12 pixels.
     Caption,
+    /// 11 pixels.
     Small,
+    /// 10 pixels, the smallest step.
     Micro,
+    /// 14 pixels, as `Body`, and the only role in the monospaced family.
     Code,
 }
 

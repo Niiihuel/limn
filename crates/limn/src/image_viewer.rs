@@ -233,7 +233,8 @@ impl Component for ImageViewer {
                 content.push(centered(
                     Spinner::new(format!("{}:loading", self.close_id), self.palette.muted)
                         .size(32.0)
-                        .render(),
+                        .render()
+                        .accessibility_label(crate::labels().loading_image),
                     32.0,
                 ));
             }

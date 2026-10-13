@@ -4,13 +4,17 @@ use serde::{Deserialize, Serialize};
 /// LSP UTF-16 coordinates. A position inside a surrogate pair is invalid.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Position {
+    /// Zero-based line. Only CR, LF and CRLF end a line.
     pub line: u32,
+    /// UTF-16 code units from the start of the line, zero-based.
     pub character: u32,
 }
 /// A pair of LSP UTF-16 positions, as the protocol writes a range.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Range {
+    /// First position of the range.
     pub start: Position,
+    /// Position just past the range: the protocol's ranges exclude their end.
     pub end: Position,
 }
 

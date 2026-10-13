@@ -88,7 +88,15 @@ arrow or a day reports its click.
 
 ## Accessibility
 
+The field is called "Date", the library's own word, unless the picker is
+given a name of its own:
+
+```rust
+DatePicker::new("start", &state.start, palette).accessibility_label("Start date").render()
+```
+
 Each arrow is a button named by the month it goes to, such as "April 2025",
-and each day a button named by its number that says whether it is the chosen
-one. In a disabled picker they are still there, as disabled. The names of the
-months and the weekdays come from `limn::labels()`.
+and each day a button named by its whole date, such as "14 May 2025", that
+says whether it is the chosen one. In a disabled picker they are still there,
+as disabled. The names of the months and the weekdays come from
+`limn::labels()`.

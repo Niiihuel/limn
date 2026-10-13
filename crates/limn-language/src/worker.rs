@@ -96,15 +96,12 @@ fn pool() -> &'static mpsc::SyncSender<Weak<State>> {
                 .spawn(move || {
                     let mut parser = ParserEngine::default();
                     loop {
-                        let state = match receiver
-                            .lock()
-                            .ok()
-                            .and_then(|receiver| receiver.recv().ok())
-                            .and_then(|weak| weak.upgrade())
-                        {
-                            Some(state) => state,
-                            None => continue,
+                        // A lock the other worker poisoned still holds the receiver; a
+                        // closed channel has no more work, ever.
+                        let Ok(weak) = receiver.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv() else {
+                            break;
                         };
+                        let Some(state) = weak.upgrade() else { continue };
                         let job = state.slot.lock().ok().and_then(|mut slot| {
                             slot.queued = false;
                             slot.job.take()
