@@ -302,3 +302,25 @@ fn a_pinned_control_that_is_an_anchor_keeps_both_places() {
     tree.layout(SIZE);
     assert_eq!(tree.scroll_offset("list"), 120.0);
 }
+
+#[test]
+fn an_anchor_already_in_view_still_goes_to_the_start_when_asked_to() {
+    let mut tree = anchored(false);
+    tree.handle_event(UiEvent::ScrollDirect { position: Point::new(5.0, 5.0), delta_y: -60.0 });
+    tree.layout(SIZE);
+    assert_eq!(tree.anchor_offset("a1"), Some(60.0));
+    // In view: revealing it moves nothing.
+    tree.reveal_with_margin("a1", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 60.0);
+    tree.reveal_at_start("a1", 10.0);
+    tree.layout(SIZE);
+    assert_eq!((tree.scroll_offset("list"), tree.anchor_offset("a1")), (110.0, Some(10.0)));
+    // Back up to one above it, and no further than the content goes.
+    tree.reveal_at_start("a0", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 0.0);
+    tree.reveal_at_start("a2", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 240.0);
+}

@@ -2240,7 +2240,9 @@ pub struct UiTree {
     caret_blink: crate::caret_blink::CaretBlink,
     modal_return_focus: Option<String>,
     pending_scroll_focus: Option<String>,
-    pending_reveal: Option<(String, f32)>,
+    /// The control to bring into view, its margin, and whether it goes to
+    /// the start of the viewport instead of just into it.
+    pending_reveal: Option<(String, f32, bool)>,
     hovered: Option<String>,
     pointer: Option<Point>,
     tooltip_hover_since: Option<(String, Instant)>,
@@ -2811,7 +2813,17 @@ impl UiTree {
     /// shrinks until the control fits; one that is not finite is ignored.
     pub fn reveal_with_margin(&mut self, id: &str, margin: f32) {
         let margin = if margin.is_finite() { margin.max(0.0) } else { REVEAL_MARGIN };
-        self.pending_reveal = Some((id.to_owned(), margin));
+        self.pending_reveal = Some((id.to_owned(), margin, false));
+    }
+
+    /// Scrolls so the control or anchor `id` starts `margin` under the top
+    /// of its scroll area, wherever it was: also when it is already in view,
+    /// which [`UiTree::reveal`] leaves alone. It is how a table of contents
+    /// jumps to a section. The scroll areas around that one only show it,
+    /// and the end of the content stops it short.
+    pub fn reveal_at_start(&mut self, id: &str, margin: f32) {
+        let margin = if margin.is_finite() { margin.max(0.0) } else { REVEAL_MARGIN };
+        self.pending_reveal = Some((id.to_owned(), margin, true));
     }
 
     /// Where the `Element::anchor` named `id` was at the last layout: how far
@@ -2859,7 +2871,7 @@ impl UiTree {
         let probe = self
             .pending_scroll_focus
             .as_deref()
-            .or(self.pending_reveal.as_ref().map(|(id, _)| id.as_str()));
+            .or(self.pending_reveal.as_ref().map(|(id, ..)| id.as_str()));
         let mut focus_path = HashSet::new();
         if let Some(id) = probe {
             find_focus_path(&self.root, id, &mut focus_path);
@@ -3642,7 +3654,7 @@ impl UiTree {
                 let focus = coach.focus.clone().filter(|id| {
                     !coach.missing && self.focus_order.iter().any(|(candidate, _)| candidate == id)
                 });
-                self.pending_reveal = Some((coach.target.clone(), REVEAL_MARGIN));
+                self.pending_reveal = Some((coach.target.clone(), REVEAL_MARGIN, false));
                 if focus.is_some() {
                     self.focused = focus;
                 }
@@ -3651,10 +3663,10 @@ impl UiTree {
         }
         // A pending focus was this layout's probe; a reveal waits its turn.
         let located = match self.pending_scroll_focus.take() {
-            Some(id) => Some((id, None)),
-            None => self.pending_reveal.take().map(|(id, margin)| (id, Some(margin))),
+            Some(id) => Some((id, None, false)),
+            None => self.pending_reveal.take().map(|(id, margin, start)| (id, Some(margin), start)),
         };
-        if let Some((id, margin)) = located {
+        if let Some((id, margin, start)) = located {
             let offsets = |tree: &Self| {
                 tree.frame.scroll_focus_targets.get(&id).map(|target| {
                     target
@@ -3667,12 +3679,12 @@ impl UiTree {
                 })
             };
             let previous = offsets(self);
-            self.reveal_scroll_focus(&id, margin.unwrap_or(0.0));
+            self.reveal_scroll_focus(&id, margin.unwrap_or(0.0), start);
             let moved = offsets(self) != previous;
             if let Some(margin) = margin.filter(|_| moved) {
                 // A scroll area that was itself out of view only gives the
                 // control its place once the one around it has moved.
-                self.pending_reveal.get_or_insert((id, margin));
+                self.pending_reveal.get_or_insert((id, margin, start));
             }
             if moved || self.pending_reveal.is_some() {
                 return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
@@ -4966,7 +4978,7 @@ impl UiTree {
 
     fn request_scroll_focus(&mut self, id: &str) {
         if self.frame.scroll_focus_targets.contains_key(id) {
-            self.reveal_scroll_focus(id, 0.0);
+            self.reveal_scroll_focus(id, 0.0, false);
             self.pending_scroll_focus = None;
         } else {
             self.pending_scroll_focus = Some(id.to_owned());
@@ -5094,14 +5106,15 @@ impl UiTree {
 
     /// Scroll every area around the control so it shows whole, `margin`
     /// clear of the viewport's edges where the control leaves that room.
-    fn reveal_scroll_focus(&mut self, id: &str, margin: f32) {
+    fn reveal_scroll_focus(&mut self, id: &str, margin: f32, start: bool) {
         let Some(target) = self.frame.scroll_focus_targets.get(id) else {
             return;
         };
         let rect = target.rect;
         let mut areas = target.ancestors.clone();
         areas.push((target.scroll_id.clone(), target.viewport, target.layout_offset));
-        for (scroll_id, viewport, layout_offset) in areas {
+        let innermost = areas.len() - 1;
+        for (index, (scroll_id, viewport, layout_offset)) in areas.into_iter().enumerate() {
             let max_offset = self.scroll_max(&scroll_id);
             self.scroll_transitions.remove(&scroll_id);
             if self
@@ -5118,7 +5131,11 @@ impl UiTree {
             let viewport_top = viewport.y + margin;
             let viewport_bottom = viewport.y + viewport.height - margin;
             // Half a pixel is in view: a second pass must find nothing to do.
-            if top < viewport_top - 0.5 {
+            if start && index == innermost {
+                if (top - viewport_top).abs() > 0.5 {
+                    *offset = (*offset + top - viewport_top).clamp(0.0, max_offset);
+                }
+            } else if top < viewport_top - 0.5 {
                 *offset = (*offset - (viewport_top - top)).clamp(0.0, max_offset);
             } else if bottom > viewport_bottom + 0.5 {
                 // A control taller than its viewport keeps its start in view.
