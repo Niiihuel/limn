@@ -7907,6 +7907,7 @@ impl LayoutBuilder<'_> {
 
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let dragged = element.draggable
+            && !element.drag_in_place
             && self.drag_source.is_some()
             && focusable_id(element) == self.drag_source;
         let start = self.frame.commands.len();
@@ -8075,7 +8076,10 @@ impl LayoutBuilder<'_> {
                 self.hovered == Some(id.as_str())
                     || element.hover_peer.as_deref() == self.hovered && self.hovered.is_some()
             };
-            if self.pressed == Some(id.as_str()) && hovered {
+            // A handle dragged in place is held for as long as its drag lasts,
+            // wherever the pointer has gone.
+            let held = element.drag_in_place && self.drag_source == Some(id.as_str());
+            if self.pressed == Some(id.as_str()) && hovered || held {
                 style.background = style
                     .pressed_background
                     .or(style.hover_background)

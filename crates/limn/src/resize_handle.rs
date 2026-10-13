@@ -12,7 +12,10 @@ const MIN_THICKNESS: f32 = 2.0;
 /// `DragMoved` and `Dropped` (or `DragCancelled`) on its ID with the
 /// pointer's position, and the host, which owns the panes' sizes, adds how
 /// far the pointer has travelled to the size the pane had when the drag
-/// began. A press released without moving is a `Clicked` the host may ignore.
+/// began. Nothing follows the pointer: the handle is where the host's panes
+/// put it and stays filled through the drag, so a boundary that has reached
+/// its limit shows where it stopped. A press
+/// released without moving is a `Clicked` the host may ignore.
 pub struct ResizeHandle {
     id: String,
     vertical: bool,
@@ -54,7 +57,7 @@ impl Component for ResizeHandle {
         let (width, height) = if self.vertical { (across, None) } else { (None, across) };
         self.palette
             .interactive_surface(Element::clickable(self.id, Element::spacer()))
-            .draggable()
+            .draggable_in_place()
             .cursor(if self.vertical { Cursor::ResizeColumn } else { Cursor::ResizeRow })
             .size(width, height)
             // Rounded ends, whatever the thickness.
@@ -119,6 +122,18 @@ mod tests {
             tree.handle_event(UiEvent::PointerUp(at(20.0))),
             vec![UiAction::Dropped { id: "split".into(), position: at(20.0), target: None }]
         );
+    }
+
+    #[test]
+    fn nothing_follows_the_pointer_past_where_the_host_keeps_the_boundary() {
+        let mut tree = columns(ResizeHandle::vertical("split", palette()));
+        let at = |x: f32| Point::new(x, 30.0);
+        tree.handle_event(UiEvent::PointerDown(at(104.0)));
+        let held = tree.layout(Size::new(208.0, 60.0)).commands.len();
+        tree.handle_event(UiEvent::PointerMove(at(20.0)));
+        // The host left the panes as they were: the boundary is at its limit.
+        let dragged = tree.layout(Size::new(208.0, 60.0)).commands.len();
+        assert_eq!((held, dragged), (1, 1), "the handle stays filled where it stands, and no copy follows the pointer");
     }
 
     #[test]

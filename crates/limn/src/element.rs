@@ -542,6 +542,7 @@ pub struct Element {
     pub action_alias: Option<String>,
     pub(crate) menu_secondary_action: bool,
     pub(crate) draggable: bool,
+    pub(crate) drag_in_place: bool,
     pub(crate) cursor: Option<Cursor>,
     pub(crate) sticky_top: Option<StickyTop>,
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
@@ -993,6 +994,7 @@ impl Element {
             action_alias: None,
             menu_secondary_action: false,
             draggable: false,
+            drag_in_place: false,
             cursor: None,
             sticky_top: None,
             animate_height: None,
@@ -1200,6 +1202,15 @@ impl Element {
     /// click tolerance. A press released inside it is still a click.
     pub fn draggable(mut self) -> Self {
         self.draggable = true;
+        self
+    }
+
+    /// As [`draggable`](Self::draggable), without a copy of the element
+    /// following the pointer: for a handle the host itself moves as the drag
+    /// goes on, which stays where the host puts it.
+    pub fn draggable_in_place(mut self) -> Self {
+        self.draggable = true;
+        self.drag_in_place = true;
         self
     }
 
