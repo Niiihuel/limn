@@ -3,7 +3,9 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
-## 0.1.39 — unreleased
+## 0.1.39 — 2026-10-13
+
+The first release on crates.io.
 
 - `CodeEditor` without the `syntax` feature, as in a browser, colors its buffer with the line lexer; it panicked on the first frame
 - Everything public in the five library crates has a doc comment, fields and variants included; the crates carry `#![warn(missing_docs)]`

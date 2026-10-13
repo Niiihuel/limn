@@ -19,12 +19,12 @@ platform. On NixOS, `nix-shell` at the repository root provides all of them.
 
 ## 1. Add the dependencies
 
-limn is used from a checkout. Point your `Cargo.toml` at it:
+Add limn and its backend to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-limn = { path = "../limn/crates/limn" }
-limn-egui = { path = "../limn/crates/limn-egui" }
+limn = "0.1"
+limn-egui = "0.1"
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 ```
 

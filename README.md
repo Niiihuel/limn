@@ -80,8 +80,8 @@ Rust: `cd site && vercel build --prod && vercel deploy --prebuilt --prod`.
 
 ## Status
 
-Version 0.1. The API changes without notice. The library is used from a
-checkout, not from crates.io.
+Version 0.1, on [crates.io](https://crates.io/crates/limn). Before 1.0 a
+release may change the API; the changelog says what each one changed.
 
 What is missing, accessibility first, is in the [roadmap](ROADMAP.md);
 what has shipped, in the [changelog](CHANGELOG.md).

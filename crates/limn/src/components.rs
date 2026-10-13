@@ -2215,7 +2215,6 @@ impl Tab {
     }
 }
 
-/// A compact tab strip. It owns appearance, while the host owns navigation.
 const TAB_GAP: f32 = 2.0;
 const TAB_TRACK_PADDING: f32 = 2.0;
 const TAB_ITEM_PADDING: f32 = 4.0;
