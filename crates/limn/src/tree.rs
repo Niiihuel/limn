@@ -3,8 +3,8 @@ mod horizontal_scroll_tree;
 use horizontal_scroll_tree::HorizontalScrollState;
 #[path = "corner_mask_tree.rs"]
 mod corner_mask_tree;
-#[path = "bar_plot_tree.rs"]
-mod bar_plot_tree;
+#[path = "plot_tree.rs"]
+mod plot_tree;
 #[cfg(test)]
 #[path = "popover_initial_focus_tests.rs"]
 mod popover_initial_focus_tests;
@@ -459,6 +459,17 @@ pub enum DrawCommand {
         /// Fill color; its alpha is the fill's opacity.
         color: Color,
     },
+    /// Triangles with a color at each corner, blended across each: the body of
+    /// an area under a line, a slice of a pie, the shape of a radar's series.
+    /// Its edges are not smoothed; what draws it strokes them.
+    FillMesh {
+        /// The corners, relative to the frame's top-left corner.
+        points: Arc<[Point]>,
+        /// The color at each corner, one for each point.
+        colors: Arc<[Color]>,
+        /// Three indices into `points` for each triangle.
+        indices: Arc<[u32]>,
+    },
     /// An open stroked path through `points`, centered on them. A dashed
     /// path alternates short marks and gaps along its length.
     Polyline {
@@ -667,6 +678,17 @@ impl DrawCommand {
                     .map(|point| Point::new(point.x + dx, point.y + dy))
                     .collect();
                 fade(color);
+            }
+            Self::FillMesh { points, colors, .. } => {
+                *points = points.iter().map(|point| Point::new(point.x + dx, point.y + dy)).collect();
+                *colors = colors
+                    .iter()
+                    .map(|color| {
+                        let mut color = *color;
+                        fade(&mut color);
+                        color
+                    })
+                    .collect();
             }
             Self::FillTriangle { points, color } => {
                 for point in points {
@@ -949,6 +971,14 @@ fn animate_popover_command(
             }
             *width *= scale;
             fade(color, opacity);
+        }
+        DrawCommand::FillMesh { points, colors, .. } => {
+            for point in Arc::make_mut(points) {
+                scale_point(point, scale, origin, slide_y);
+            }
+            for color in Arc::make_mut(colors) {
+                fade(color, opacity);
+            }
         }
         DrawCommand::FillCornerRect { rect, color, radii }
         | DrawCommand::CornerMask { rect, color, radii } => {
@@ -3445,6 +3475,7 @@ impl UiTree {
         let ghost_range;
         let (mut frame, overlay_start) = {
             let mut builder = LayoutBuilder {
+                viewport: viewport_rect,
                 frame: Frame {
                     menu_secondary_actions,
                     ..Frame::default()
@@ -6076,6 +6107,9 @@ fn collect_focus_order(
         | ElementKind::UnitGrid(_)
         | ElementKind::LevelBars(_)
         | ElementKind::BarPlot(_)
+        | ElementKind::LinePlot(_)
+        | ElementKind::PiePlot(_)
+        | ElementKind::RadarPlot(_)
         | ElementKind::Text(_)
         | ElementKind::ShimmerText { .. }
         | ElementKind::KeyboardShortcut { .. }
@@ -6157,6 +6191,9 @@ fn collect_action_metadata(
         | ElementKind::UnitGrid(_)
         | ElementKind::LevelBars(_)
         | ElementKind::BarPlot(_)
+        | ElementKind::LinePlot(_)
+        | ElementKind::PiePlot(_)
+        | ElementKind::RadarPlot(_)
         | ElementKind::MarkRail(_)
         | ElementKind::Spacer => {}
     }
@@ -6312,6 +6349,8 @@ fn find_focus_path(element: &Element, id: &str, path: &mut HashSet<usize>) -> bo
 }
 
 struct LayoutBuilder<'a> {
+    /// The window: what floats beside the pointer stays inside it.
+    viewport: Rect,
     frame: Frame,
     action_aliases: &'a mut HashMap<String, String>,
     overlays: VecDeque<DeferredOverlay>,
@@ -8467,7 +8506,7 @@ impl LayoutBuilder<'_> {
             // The caller sizes it; left alone it is one dot.
             ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
             // The caller sizes it; left alone it takes the width it is offered.
-            ElementKind::BarPlot(_) => Size::new(
+            ElementKind::BarPlot(_) | ElementKind::LinePlot(_) | ElementKind::PiePlot(_) | ElementKind::RadarPlot(_) => Size::new(
                 if available.width.is_finite() { available.width } else { 480.0 },
                 240.0 + padding,
             ),
@@ -10775,6 +10814,9 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::BarPlot(plot) => self.paint_bar_plot(plot, content, clip),
+            ElementKind::LinePlot(plot) => self.paint_line_plot(plot, content, clip),
+            ElementKind::PiePlot(plot) => self.paint_pie_plot(plot, content, clip),
+            ElementKind::RadarPlot(plot) => self.paint_radar_plot(plot, content, clip),
             ElementKind::LevelBars(bars) => {
                 let pitch = bars.bar + bars.gap;
                 let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };

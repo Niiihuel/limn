@@ -1,13 +1,20 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    AlertColors, AlertTone, BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, Color, ColumnChart, Component,
-    HeatmapCell, HeatmapChart, HeatmapScale,
+    AlertColors, AlertTone, AreaChart, BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, Color, ColumnChart,
+    Component, HeatmapCell, HeatmapChart, HeatmapScale, LineChart, PieChart, RadarChart,
 };
 
 const LANGUAGES: [(&str, f64); 5] = [("Rust", 48.0), ("TypeScript", 31.0), ("Python", 17.0), ("Shell", 6.0), ("Nix", 0.0)];
 const MONTHS: [(usize, &str); 5] = [(0, "Jan"), (5, "Feb"), (9, "Mar"), (13, "Apr"), (18, "May")];
 const WEEKS: usize = 20;
 const MONTHS_HALF: [&str; 6] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+
+fn browsers() -> Vec<ChartDatum> {
+    [("Chrome", 275.0), ("Safari", 200.0), ("Firefox", 287.0), ("Edge", 173.0), ("Other", 190.0)]
+        .into_iter()
+        .map(|(name, visitors)| ChartDatum::new(name.to_lowercase(), name, visitors))
+        .collect()
+}
 
 fn traffic() -> Vec<ChartSeries> {
     vec![
@@ -108,6 +115,44 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .total("Thousand lines")
             .render(),
             caption(cx, "Three series stacked, each a lighter step of the chart's color."),
+        ]),
+        section(cx, "Line chart", vec![
+            LineChart::new("charts-line", MONTHS_HALF, traffic(), palette).width(width).render(),
+            caption(cx, "A line for each series, rounded through its points. Move the pointer along the chart."),
+            LineChart::new("charts-line-straight", MONTHS_HALF, vec![ChartSeries::new("Desktop", [186.0, 305.0, 237.0, 73.0, 209.0, 214.0])], palette)
+                .width(width)
+                .height(180.0)
+                .smooth(false)
+                .dots(true)
+                .color(accent)
+                .render(),
+            caption(cx, ".smooth(false).dots(true).color(accent): straight strokes with a dot at every point."),
+        ]),
+        section(cx, "Area chart", vec![
+            AreaChart::new("charts-area", MONTHS_HALF, traffic(), palette).width(width).color(accent).render(),
+            caption(cx, "AreaChart: the same lines over a fill that fades down to the zero line."),
+        ]),
+        section(cx, "Pie chart", vec![
+            row(vec![
+                PieChart::new("charts-pie", browsers(), palette).render(),
+                PieChart::new("charts-donut", browsers(), palette).donut(0.62).center("1,125", "Visitors").color(accent).render(),
+            ]),
+            caption(cx, "PieChart, and .donut(0.62).center(\"1,125\", \"Visitors\").color(accent). The slice under the pointer stands out."),
+        ]),
+        section(cx, "Radar chart", vec![
+            RadarChart::new(
+                "charts-radar",
+                ["Speed", "Memory", "Startup", "Size", "Battery", "Input"],
+                vec![
+                    ChartSeries::new("Native", [92.0, 78.0, 95.0, 84.0, 88.0, 96.0]).color(accent),
+                    ChartSeries::new("Web view", [61.0, 42.0, 55.0, 38.0, 51.0, 70.0]),
+                ],
+                palette,
+            )
+            .size(width.min(420.0), 300.0)
+            .maximum(100.0)
+            .render(),
+            caption(cx, "RadarChart: two series over six axes, with .maximum(100.0) at the rim."),
         ]),
         section(cx, "Heatmap chart", vec![
             HeatmapChart::new("charts-heat", weeks(), palette)

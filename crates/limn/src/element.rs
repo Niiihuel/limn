@@ -960,6 +960,120 @@ pub struct BarPlot {
     pub total: Option<String>,
 }
 
+/// One series of a [`LinePlot`] or a [`RadarPlot`]: a name, a color and a value
+/// for each point or each axis.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PlotSeries {
+    /// Said beside its values in the plot's tooltip.
+    pub name: String,
+    /// Color of its line, of its dots and of its fill.
+    pub color: Color,
+    /// One for each point, in their order. A missing or non-finite one counts as zero.
+    pub values: Vec<f64>,
+}
+
+/// Lines over points along an axis, drawn and kept by the tree: a value axis
+/// with round ticks, a dashed grid and a line for each series, with the area
+/// under it filled if asked. UiTree keeps the plot's motion by `id`: the lines
+/// are drawn from left to right when the plot first appears, and under the
+/// pointer a line marks the nearest point and glides to the next, with a dot
+/// on each series and a tooltip that follows the pointer and lists them.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LinePlot {
+    /// Stable ID under which the tree keeps the plot's motion and its hover.
+    pub id: String,
+    /// The name of each point along the axis.
+    pub points: Vec<String>,
+    /// The series, in the order they are drawn and listed.
+    pub series: Vec<PlotSeries>,
+    /// True to round each line through its points; false to join them with straight strokes.
+    pub smooth: bool,
+    /// True to fill under each line, from its color down to nothing at the zero line.
+    pub area: bool,
+    /// True to draw a dot at every point of every line.
+    pub dots: bool,
+    /// True to draw a dashed line at each tick of the value axis.
+    pub grid: bool,
+    /// True to write the ticks of the value axis.
+    pub value_axis: bool,
+    /// Ink of the pointer's line.
+    pub text: Color,
+    /// Ink of the ticks and of the points' names.
+    pub muted: Color,
+    /// Color of the grid and of the zero line.
+    pub line: Color,
+    /// What is behind the plot: the ring around a dot under the pointer.
+    pub ground: Color,
+    /// Colors of the tooltip.
+    pub tooltip: TooltipStyle,
+}
+
+/// One slice of a [`PiePlot`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct PieSlice {
+    /// Said in the plot's tooltip.
+    pub name: String,
+    /// Its share of the whole, as any positive number. Negative or non-finite counts as zero.
+    pub value: f64,
+    /// Fill of the slice.
+    pub color: Color,
+    /// What is written for the value in the tooltip, in place of the number.
+    pub label: Option<String>,
+}
+
+/// A circle shared out among slices, or a ring of them, drawn and kept by the
+/// tree. UiTree keeps the plot's motion by `id`: the slices sweep round from
+/// twelve o'clock when the plot first appears, and the one under the pointer
+/// stands out from the others, which recede, while a tooltip that follows the
+/// pointer says its value and its share.
+#[derive(Clone, Debug, PartialEq)]
+pub struct PiePlot {
+    /// Stable ID under which the tree keeps the plot's motion and its hover.
+    pub id: String,
+    /// The slices, clockwise from twelve o'clock.
+    pub slices: Vec<PieSlice>,
+    /// The hole in the middle as a share of the radius, from 0 for a whole pie to 0.9.
+    pub hole: f32,
+    /// What is written in the middle of a ring, over `caption`. Empty for nothing.
+    pub title: String,
+    /// What is written under `title` in the middle of a ring. Empty for nothing.
+    pub caption: String,
+    /// Ink of the title.
+    pub text: Color,
+    /// Ink of the caption.
+    pub muted: Color,
+    /// Colors of the tooltip.
+    pub tooltip: TooltipStyle,
+}
+
+/// Series over axes that spread from a center, drawn and kept by the tree:
+/// rings and spokes for a grid, and a shape for each series whose corners
+/// stand on the axes at the series' values. UiTree keeps the plot's motion by
+/// `id`: the shapes open from the center when the plot first appears, and the
+/// axis nearest the pointer is marked with a dot on each series and listed in
+/// a tooltip that follows the pointer.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RadarPlot {
+    /// Stable ID under which the tree keeps the plot's motion and its hover.
+    pub id: String,
+    /// The name of each axis, clockwise from twelve o'clock.
+    pub axes: Vec<String>,
+    /// The series, in the order they are drawn and listed.
+    pub series: Vec<PlotSeries>,
+    /// The value at the rim. `None` takes a round number over the greatest value.
+    pub maximum: Option<f64>,
+    /// Ink of the pointer's marks.
+    pub text: Color,
+    /// Ink of the axes' names.
+    pub muted: Color,
+    /// Color of the rings and the spokes.
+    pub line: Color,
+    /// What is behind the plot: the ring around a dot under the pointer.
+    pub ground: Color,
+    /// Colors of the tooltip.
+    pub tooltip: TooltipStyle,
+}
+
 /// A column of short marks, one for each part of a long view, such as the
 /// turns of a conversation. The mark under the pointer or the keyboard focus
 /// grows to `peak` and its neighbours step down to `rest` over `reach` marks,
@@ -1392,6 +1506,12 @@ pub enum ElementKind {
     LevelBars(LevelBars),
     /// A bar chart; see [`BarPlot`].
     BarPlot(Box<BarPlot>),
+    /// A line or area chart; see [`LinePlot`].
+    LinePlot(Box<LinePlot>),
+    /// A pie or ring chart; see [`PiePlot`].
+    PiePlot(Box<PiePlot>),
+    /// A radar chart; see [`RadarPlot`].
+    RadarPlot(Box<RadarPlot>),
     /// A column of marks that rise around the pointer; see [`MarkRail`].
     MarkRail(MarkRail),
     /// Nothing of its own to draw and no natural size; see
@@ -2587,6 +2707,25 @@ impl Element {
     /// width it is offered and 240 pixels of height.
     pub fn bar_plot(plot: BarPlot) -> Self {
         Self::new(ElementKind::BarPlot(Box::new(plot)))
+    }
+
+    /// Lines over points that the tree draws, animates and answers the
+    /// pointer for; see [`LinePlot`]. Sized as a [`BarPlot`] is.
+    pub fn line_plot(plot: LinePlot) -> Self {
+        Self::new(ElementKind::LinePlot(Box::new(plot)))
+    }
+
+    /// A pie or a ring that the tree draws, animates and answers the pointer
+    /// for; see [`PiePlot`]. Sized as a [`BarPlot`] is; the circle takes the
+    /// lesser of its width and its height.
+    pub fn pie_plot(plot: PiePlot) -> Self {
+        Self::new(ElementKind::PiePlot(Box::new(plot)))
+    }
+
+    /// A radar that the tree draws, animates and answers the pointer for; see
+    /// [`RadarPlot`]. Sized as a [`BarPlot`] is.
+    pub fn radar_plot(plot: RadarPlot) -> Self {
+        Self::new(ElementKind::RadarPlot(Box::new(plot)))
     }
 
     /// A column of marks that rise around the pointer. It is as wide as its

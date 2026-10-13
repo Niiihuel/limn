@@ -227,6 +227,11 @@ pub fn update(state: &mut State, action: &UiAction) {
     dates::update(state, action);
 }
 
+/// The fields whose text a click may have changed, each with its value now.
+pub fn fields(state: &State) -> Vec<(&'static str, String)> {
+    dates::fields(state)
+}
+
 /// Wrap the window in the layers the pages control.
 pub fn layers(cx: &Cx, base: Element) -> Element {
     tour::layer(cx, overlays::layers(cx, media::layer(cx, base)))

@@ -117,7 +117,8 @@ pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 pub use button_group::{ButtonGroup, ButtonGroupSizing};
 pub use card::{Card, CardDensity};
 pub use charts::{
-    BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, ColumnChart, HeatmapCell, HeatmapChart, HeatmapScale,
+    AreaChart, BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, ColumnChart, HeatmapCell, HeatmapChart,
+    HeatmapScale, LineChart, PieChart, RadarChart,
 };
 pub use chip::Chip;
 pub use code_block::{CodeBlock, CodeBlockSizing};
@@ -146,7 +147,8 @@ pub use dropdown_menu::{
 };
 pub use element::{
     Cursor,
-    Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Element, ElementKind, FontFamily, Icon, LevelBars,
+    Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Element, ElementKind, FontFamily, Icon, LevelBars, LinePlot,
+    PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
     TooltipStyle, UniformList, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,

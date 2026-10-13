@@ -1,17 +1,19 @@
 # Charts
 
 Read-only charts for data the host already has: `BarChart` and `ColumnChart`
-compare categories, `HeatmapChart` shows intensity over a grid such as a
-calendar, and `ChartLegend` explains a color scale. They take no clicks and
-add no tab stops; the pointer over a bar chart lights a category and shows
-its values.
+compare categories, `LineChart` and `AreaChart` follow a measure along an
+axis, `PieChart` shares out a whole, `RadarChart` compares series over
+several axes, `HeatmapChart` shows intensity over a grid such as a calendar,
+and `ChartLegend` explains a color scale. They take no clicks and
+add no tab stops; the pointer over a chart marks what it is nearest and
+shows its values.
 
 ## Import
 
 ```rust
 use limn::{
-    BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, ColumnChart, Component,
-    HeatmapCell, HeatmapChart, HeatmapScale,
+    AreaChart, BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, ColumnChart,
+    Component, HeatmapCell, HeatmapChart, HeatmapScale, LineChart, PieChart, RadarChart,
 };
 ```
 
@@ -99,22 +101,73 @@ The value axis always includes zero and ends on a tick; ticks are steps of 1,
 2 or 5 times a power of ten. A number that is not finite is ignored by every
 builder.
 
+## LineChart and AreaChart
+
+```rust
+LineChart::new("visits", ["Jan", "Feb", "Mar"], series, palette).render()
+AreaChart::new("visits", ["Jan", "Feb", "Mar"], series, palette).color(accent).render()
+```
+
+A line for each `ChartSeries` over the points of an axis. `AreaChart::new`
+gives the same chart with the area under each line filled, from its color
+down to nothing at the zero line; it is `LineChart::area(true)`.
+
+| Builder | Default | What it does |
+| --- | --- | --- |
+| `width(f32)`, `height(f32)` | the width offered, 240 | As for a bar chart |
+| `color(Color)` | the palette's text | The color of the first series; the others are lighter steps of it |
+| `smooth(bool)` | on | Rounds each line through its points without passing over or under any; off joins them with straight strokes |
+| `area(bool)` | off | Fills under each line |
+| `dots(bool)` | off | A dot at every point |
+| `grid(bool)`, `value_axis(bool)` | on | The dashed lines and the ticks |
+
+## PieChart
+
+```rust
+PieChart::new("browsers", data, palette).render()
+PieChart::new("browsers", data, palette).donut(0.62).center("1,125", "Visitors").render()
+```
+
+One slice for each `ChartDatum`, clockwise from twelve o'clock in their
+order. `size` is the side of the square it takes, 220 by default. `donut`
+makes it a ring, with the hole as a share of the radius up to 0.9, and
+`center` writes a figure and a caption in the hole. A datum's `color` paints
+its slice; the others are steps of the chart's `color`. A datum of zero, or
+one that is negative or not finite, has no slice.
+
+## RadarChart
+
+```rust
+RadarChart::new("profile", ["Speed", "Memory", "Startup", "Size"], series, palette)
+    .maximum(100.0)
+    .render()
+```
+
+Each `ChartSeries` is a shape whose corners stand on the axes at its values,
+over four rings and a spoke for each axis. `maximum` is the value at the rim,
+otherwise a round number over the greatest value; `size(width, height)` is
+320 by 260 by default. It needs three axes or more.
+
 ## Motion
 
-When a chart first appears its bars grow from the zero line. Under the
-pointer, a band lights the category it is over and glides to the next as the
-pointer moves, while the other categories recede. A chart keeps this by its
-ID, so a chart that is rebuilt every frame does not start again.
-`UiTree::set_reduced_motion(true)` stands the bars at once and moves the band
+When a chart first appears it is drawn in: bars grow from the zero line,
+lines are drawn from left to right, a pie sweeps round from twelve o'clock
+and a radar opens from its center. Under the pointer, a bar chart lights the
+category with a band that glides to the next while the others recede, a line
+chart marks the nearest point with a line and a dot on each series, a pie
+stands the slice out, and a radar marks the nearest axis. A chart keeps this
+by its ID, so a chart that is rebuilt every frame does not start again.
+`UiTree::set_reduced_motion(true)` draws a chart at once and moves its marks
 without gliding.
 
 ## Tooltip
 
-The tooltip is the chart's own, not the one of the other components: it
-follows the pointer, on the side of it where the chart has more room, and
-shows the category over a row for each series with its color, its name and
-its value. It appears as soon as the pointer is over the chart, and anywhere
-over a category, not only over its bars.
+The tooltip is the charts' own, not the one of the other components: it
+follows the pointer, on the side of it where the chart has more room and
+never out of the window, and shows what the pointer reads over a row for each
+series with its color, its name and its value. A pie's says the slice's value
+and its share. It appears as soon as the pointer is over the chart, and
+anywhere over a category, not only over its bars.
 
 ## HeatmapChart
 

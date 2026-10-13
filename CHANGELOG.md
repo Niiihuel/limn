@@ -3,11 +3,13 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
-## 0.1.40 — unreleased
+## 0.1.40 — 2026-10-13
 
+- Charts: `LineChart` and `AreaChart`, `PieChart` with `donut` and `center`, and `RadarChart`, drawn in as they appear and read by the pointer with the charts' own tooltip, which stays inside the window; `Element::line_plot`, `pie_plot` and `radar_plot` for a chart of the host's own, and `DrawCommand::FillMesh` for a backend to draw
 - Charts: `BarChart` and `ColumnChart` are drawn by the tree. Several series with `ChartSeries`, side by side or `stacked()`, negative values, `gradient(true)`, rounded tips, a dashed grid and a value axis with round ticks; the bars grow from the zero line as the chart appears, and under the pointer a band lights the category, the others recede and a tooltip of the chart's own follows the pointer with a row for each series
 - Charts, changed: a `ChartDatum` keeps a negative value, a column chart no longer scrolls sideways, `ChartDatum::tooltip` is the name of the bar's row in the tooltip, and `ColumnChart::integer_ticks` is deprecated
 - `Element::bar_plot` with `BarPlot`, `BarSeries` and `BarValue` for a chart of the host's own, and `DrawCommand::FillHorizontalGradient` for a backend to draw
+- Gallery: a picker's field shows the day chosen or the time stepped; it kept the text it had
 - TimePicker: a card under the field with a column for each unit: the arrow that raises it, large digits, the arrow that lowers it and its name; the actions it reports are unchanged
 - DatePicker: a day's number stands in the middle of its cell, so the fill of the chosen day is around it
 - A background fade follows its element's rounded corners: a `MediaCard` showed square corners at its foot
