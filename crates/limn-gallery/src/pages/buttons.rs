@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx};
 use limn::{
-    ActiveHover, Button, ButtonGroup, ButtonGroupSizing, ButtonSize, ButtonSizing, ButtonVariant, Color,
-    Component, ControlSize, Element, Icon, IconButton, RadiusRole, TooltipPlacement, TooltipSpec,
+    ActiveHover, Button, ButtonGroup, ButtonGroupSizing, ButtonSize, ButtonSizing, ButtonVariant, Clipboard,
+    Color, Component, ControlSize, Element, Icon, IconButton, RadiusRole, TooltipPlacement, TooltipSpec,
 };
 
 /// A host's own densities: a navigation button with a larger label, and a
@@ -120,6 +120,19 @@ pub fn view(cx: &Cx) -> Element {
                 .tooltip("Eliminar")
                 .render(),
         ])]),
+        section(cx, "Portapapeles", vec![
+            caption(cx, "El icono pasa a un visto mientras el anfitrión lo indica (1,5 s con `ClipboardCopied`) y un toast lo anuncia. Acá un clic lo alterna."),
+            row(vec![
+                Clipboard::new("button-clipboard-link", "Copiar enlace", palette)
+                    .copied(cx.state.flag("button-clipboard-link"))
+                    .render(),
+                Clipboard::new("button-clipboard-label", "Copiar enlace", palette)
+                    .label(if cx.state.flag("button-clipboard-label") { "Enlace copiado" } else { "Copiar enlace" })
+                    .variant(ButtonVariant::Outline)
+                    .copied(cx.state.flag("button-clipboard-label"))
+                    .render(),
+            ]),
+        ]),
         section(cx, "Barra de herramientas", vec![
             row(vec![
                 IconButton::new("button-tool-dense", Icon::Add, palette)

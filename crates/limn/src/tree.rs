@@ -977,6 +977,8 @@ struct ScrollFocusContext {
 #[derive(Clone, Debug, PartialEq)]
 struct TabFocusScope {
     action_ids: Vec<String>,
+    /// Up and Down step it, and it stops at its ends.
+    vertical: bool,
 }
 
 #[derive(Debug)]
@@ -2257,6 +2259,8 @@ pub struct UiTree {
     // Measuring reads and starts these, and measuring borrows the tree shared.
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
     scalars: RefCell<HashMap<String, AnimatedScalar>>,
+    /// The length of each mark of a `MarkRail` and when it was seen.
+    springs: RefCell<HashMap<String, (ScalarSpring, Instant)>>,
     /// The ink of each `animate_foreground` element and when it was seen.
     inks: RefCell<HashMap<String, (ColorTransition, Instant)>>,
     /// The slots each `keep_leaving` column last laid out, in order.
@@ -2330,6 +2334,7 @@ impl UiTree {
             replacements: HashMap::new(),
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
+            springs: RefCell::new(HashMap::new()),
             inks: RefCell::new(HashMap::new()),
             leaving: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
@@ -2579,6 +2584,7 @@ impl UiTree {
             self.replacements.clear();
             self.flow_heights.get_mut().clear();
             self.scalars.get_mut().clear();
+            self.springs.get_mut().clear();
             self.inks.get_mut().clear();
             self.leaving.get_mut().clear();
             self.popover_view_transitions.clear();
@@ -2704,6 +2710,11 @@ impl UiTree {
                 .borrow()
                 .values()
                 .any(|state| state.value.is_active(now))
+            || self
+                .springs
+                .borrow()
+                .values()
+                .any(|(spring, _)| spring.is_active(now))
             || self.inks.borrow().values().any(|(ink, _)| ink.is_active(now))
             || self
                 .popover_view_transitions
@@ -2886,6 +2897,7 @@ impl UiTree {
                 measurement_cache: &self.measurement_cache,
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
+                springs: &self.springs,
                 inks: &self.inks,
                 leaving: &self.leaving,
                 measurement_scope: 0,
@@ -3481,6 +3493,7 @@ impl UiTree {
         // A slot is remembered while it is rendered, empty or not: content
         // that arrives in one seen empty is what `expand` opens.
         self.scalars.get_mut().retain(|_, state| state.seen == now);
+        self.springs.get_mut().retain(|_, (_, seen)| *seen == now);
         self.inks.get_mut().retain(|_, (_, seen)| *seen == now);
         self.leaving.get_mut().retain(|_, (_, seen)| *seen == now);
         self.flow_heights.get_mut().retain(|_, state| {
@@ -4777,7 +4790,15 @@ impl UiTree {
                     self.keyboard_tooltip_focus = true;
                 } else if !shift
                     && !ctrl
-                    && matches!(key, Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End)
+                    && matches!(
+                        key,
+                        Key::ArrowLeft
+                            | Key::ArrowRight
+                            | Key::ArrowUp
+                            | Key::ArrowDown
+                            | Key::Home
+                            | Key::End
+                    )
                     && self.step_tab(key, &mut actions)
                 {
                     // A tab strip activates the newly focused tab.
@@ -5161,11 +5182,13 @@ impl UiTree {
         let Some(index) = tabs.iter().position(|id| id.as_str() == focused) else {
             return false;
         };
-        let next = match key {
-            Key::ArrowLeft => (index + tabs.len() - 1) % tabs.len(),
-            Key::ArrowRight => (index + 1) % tabs.len(),
-            Key::Home => 0,
-            Key::End => tabs.len() - 1,
+        let next = match (key, scope.vertical) {
+            (Key::ArrowLeft, false) => (index + tabs.len() - 1) % tabs.len(),
+            (Key::ArrowRight, false) => (index + 1) % tabs.len(),
+            (Key::ArrowUp, true) => index.saturating_sub(1),
+            (Key::ArrowDown, true) => (index + 1).min(tabs.len() - 1),
+            (Key::Home, _) => 0,
+            (Key::End, _) => tabs.len() - 1,
             _ => return false,
         };
         if next != index {
@@ -5337,6 +5360,13 @@ fn collect_focus_order(
             }
         }
         ElementKind::Tooltip { anchor, .. } => collect_focus_order(anchor, order, seen),
+        ElementKind::MarkRail(rail) => {
+            for mark in &rail.marks {
+                if seen.insert(mark.id.clone()) {
+                    order.push((mark.id.clone(), HitKind::Button));
+                }
+            }
+        }
         ElementKind::Button { id, .. }
         | ElementKind::IconButton { id, .. }
         | ElementKind::EffortSlider { id, .. }
@@ -5456,6 +5486,7 @@ fn collect_action_metadata(
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
         | ElementKind::UnitGrid(_)
+        | ElementKind::MarkRail(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -5553,6 +5584,7 @@ struct LayoutBuilder<'a> {
     measurement_cache: &'a RefCell<MeasurementCache>,
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
+    springs: &'a RefCell<HashMap<String, (ScalarSpring, Instant)>>,
     inks: &'a RefCell<HashMap<String, (ColorTransition, Instant)>>,
     leaving: &'a RefCell<HashMap<String, (Vec<String>, Instant)>>,
     measurement_scope: u64,
@@ -7380,6 +7412,19 @@ impl LayoutBuilder<'_> {
         state.value.value(self.now)
     }
 
+    /// The value of the spring kept under `key`, on its way to `target`.
+    fn spring(&self, key: &str, target: f32) -> f32 {
+        let mut springs = self.springs.borrow_mut();
+        let (spring, seen) = springs.entry(key.to_owned()).or_insert_with(|| {
+            let settle = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
+            let motion = crate::SpringMotion::settling_in(settle);
+            (ScalarSpring::new(target, self.now).motion(motion), self.now)
+        });
+        *seen = self.now;
+        spring.retarget_with_motion(target, self.now, self.reduced_motion);
+        spring.value(self.now)
+    }
+
     /// The slot a child of a `keep_leaving` column answers to, if it has one.
     fn slot_id(child: &Element) -> Option<&str> {
         child
@@ -7606,6 +7651,12 @@ impl LayoutBuilder<'_> {
             ElementKind::UnitGrid(grid) => {
                 let size = grid.size();
                 Size::new(size.width + padding, size.height + padding)
+            }
+            ElementKind::MarkRail(rail) => {
+                // With less room than its marks ask for, they sit closer.
+                let height = rail.marks.len() as f32 * rail.pitch;
+                let room = (available.height - padding).max(0.0);
+                Size::new(rail.peak + padding, height.min(room) + padding)
             }
             ElementKind::Flowchart(flowchart) => {
                 let size = flowchart.layout(&|text, size| self.sans_width(text, size), &|size| {
@@ -8189,6 +8240,7 @@ impl LayoutBuilder<'_> {
                 }
                 self.frame.tab_focus.push(TabFocusScope {
                     action_ids: action_ids.clone(),
+                    vertical: false,
                 });
             }
             ElementKind::Panel(child) => self.place(child, content, clip),
@@ -9783,6 +9835,60 @@ impl LayoutBuilder<'_> {
                         });
                     }
                 }
+            }
+            ElementKind::MarkRail(rail) => {
+                let pitch = (content.height / rail.marks.len().max(1) as f32).min(rail.pitch);
+                let at = |id: Option<&str>| {
+                    id.and_then(|id| rail.marks.iter().position(|mark| mark.id == id))
+                };
+                // As for a tooltip, the keyboard leads until the pointer moves again.
+                let lead = at(self.focused.filter(|_| self.keyboard_tooltip_focus)).or(at(self.hovered));
+                let thickness = rail.thickness.min(pitch);
+                for (index, mark) in rail.marks.iter().enumerate() {
+                    let row = Rect::new(
+                        content.x,
+                        content.y + index as f32 * pitch,
+                        content.width,
+                        pitch,
+                    );
+                    self.add_region(&mark.id, row, HitKind::Button, clip);
+                    let rest = rail.length(index, None);
+                    let length =
+                        self.spring(&format!("{}/{}", rail.id, mark.id), rail.length(index, lead));
+                    // The ink follows the length, so only the raised mark is lit.
+                    let lit = ((length - rest) / (rail.peak - rest).max(1.0)).clamp(0.0, 1.0);
+                    let base = if rail.active == Some(index) { rail.active_ink } else { rail.ink };
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect: Rect::new(row.x, row.y + (pitch - thickness) / 2.0, length, thickness),
+                        color: mix(base, rail.lead_ink, lit.powi(3)),
+                        radius: thickness / 2.0,
+                    });
+                }
+                if let Some(index) = lead {
+                    let mark = &rail.marks[index];
+                    // Muted under the title, which is what the turn is known by.
+                    let preview = (!mark.preview.is_empty())
+                        .then(|| TooltipSection::Footer(mark.preview.clone()));
+                    // A rail is read by moving along it: no wait before the hint.
+                    self.overlays.push_back(DeferredOverlay::Tooltip {
+                        anchor: Rect::new(
+                            content.x,
+                            content.y + index as f32 * pitch,
+                            rail.peak,
+                            pitch,
+                        ),
+                        title: mark.title.clone(),
+                        shortcut: None,
+                        sections: preview.into_iter().collect(),
+                        max_width: 320.0,
+                        placement: TooltipPlacement::Right,
+                        colors: rail.tooltip,
+                    });
+                }
+                self.frame.tab_focus.push(TabFocusScope {
+                    action_ids: rail.marks.iter().map(|mark| mark.id.clone()).collect(),
+                    vertical: true,
+                });
             }
             ElementKind::ProgressRing {
                 fraction,

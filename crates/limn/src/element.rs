@@ -585,6 +585,54 @@ impl UnitGrid {
     }
 }
 
+/// A column of short marks, one for each part of a long view, such as the
+/// turns of a conversation. The mark under the pointer or the keyboard focus
+/// grows to `peak` and its neighbours step down to `rest` over `reach` marks,
+/// each on a spring UiTree keeps by stable ID. That mark shows its title and
+/// preview in a tooltip at once, and reports a click like a button. Up and
+/// Down move the focus between marks and activate the one they reach.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MarkRail {
+    pub id: String,
+    pub marks: Vec<RailMark>,
+    /// Index of the mark for what the view shows now, if one is.
+    pub active: Option<usize>,
+    /// Height each mark takes; less when they do not all fit.
+    pub pitch: f32,
+    pub thickness: f32,
+    pub rest: f32,
+    pub peak: f32,
+    /// How many marks away the last raised neighbour is.
+    pub reach: u8,
+    pub ink: Color,
+    pub active_ink: Color,
+    pub lead_ink: Color,
+    pub tooltip: TooltipStyle,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RailMark {
+    /// Reported as `UiAction::Clicked`.
+    pub id: String,
+    pub title: String,
+    pub preview: String,
+}
+
+impl MarkRail {
+    /// Length a mark tends to, `distance` marks from the raised one.
+    pub(crate) fn length(&self, index: usize, lead: Option<usize>) -> f32 {
+        let rest = if self.active == Some(index) {
+            self.rest + (self.peak - self.rest) * 0.3
+        } else {
+            self.rest
+        };
+        let Some(lead) = lead else { return rest };
+        let steps = f32::from(self.reach) + 1.0;
+        let lift = (1.0 - index.abs_diff(lead) as f32 / steps).max(0.0);
+        rest.max(self.rest + (self.peak - self.rest) * lift)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub enum ElementKind {
     Column(Vec<Element>),
@@ -773,6 +821,7 @@ pub enum ElementKind {
         format: fn(f32) -> String,
     },
     UnitGrid(UnitGrid),
+    MarkRail(MarkRail),
     Spacer,
 }
 
@@ -1758,6 +1807,13 @@ impl Element {
     /// cells; see [`UnitGrid`].
     pub fn unit_grid(grid: UnitGrid) -> Self {
         Self::new(ElementKind::UnitGrid(grid))
+    }
+
+    /// A column of marks that rise around the pointer. It is as wide as its
+    /// longest mark and as tall as its marks, or as the room it is given;
+    /// see [`MarkRail`].
+    pub fn mark_rail(rail: MarkRail) -> Self {
+        Self::new(ElementKind::MarkRail(rail))
     }
 
     /// A non-interactive loading surface with paint-only motion.

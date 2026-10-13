@@ -171,6 +171,10 @@ pub fn layers(cx: &Cx, base: Element) -> Element {
                 .dismissible("overlay-toast=hidden")
                 .render(),
         ]
+    } else if state.flag("button-clipboard-link") || state.flag("button-clipboard-label") {
+        vec![Toast::new("Enlace copiado", palette)
+            .description("https://limn.dev/componentes/portapapeles")
+            .render()]
     } else {
         Vec::new()
     };
