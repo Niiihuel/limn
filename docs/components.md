@@ -269,10 +269,144 @@ Any element can be placed without a component:
 
 | Component | Purpose |
 | --- | --- |
+| `Table`, `TableColumn`, `TableRow`, `TableSizing`, `TableSort` | Rows of cells under a header of column labels: columns that sort, resize, hide and drop out of a narrow table, and a header that stays pinned while the rows scroll; see [Table](#table). |
 | `BarChart`, `ColumnChart` | Horizontal and vertical bar charts. |
 | `HeatmapChart` | A grid of cells colored by value. |
 | `ChartLegend` | A legend for any of the charts. |
 | `DiffStat` | The lines a change adds and removes, as `+N` and `−M`. `.inks(added, removed)` takes the host's two colors; without them both counts are plain text. |
+
+## Table
+
+Rows of cells that line up under a header of column labels, for a list the
+user sorts, filters and reshapes, such as the tracks of a playlist. The host
+owns the rows and every choice; the table lays them out and reports what was
+asked.
+
+### Example
+
+```rust
+let text = |value: &str| Text::new(value, palette).truncate().render();
+let columns = vec![
+    TableColumn::fixed("index", "#", 24.0).align_end(),
+    TableColumn::flexible("title", "Title", 160.0).sortable(),
+    TableColumn::fixed("album", "Album", state.album_width)
+        .sortable()
+        .resizable(80.0)
+        .optional(state.album_shown)
+        .hide_below(460.0),
+    TableColumn::fixed("length", "Length", 56.0).icon(Icon::Clock).sortable().align_end(),
+];
+let rows = state
+    .tracks
+    .iter()
+    .map(|track| {
+        let cells = vec![text(&track.number), text(&track.title), text(&track.album), text(&track.length)];
+        TableRow::new(format!("track:{}", track.id), cells).selected(track.id == state.playing)
+    })
+    .collect();
+let table = Table::new("tracks", columns, width, palette)
+    .rows(rows)
+    .sort(state.sort.clone())
+    .sticky_header()
+    .sizing(TableSizing::ROOMY)
+    .render();
+```
+
+`crates/limn-gallery/src/pages/table.rs` is a whole host: it filters, sorts,
+keeps the widths and toggles the columns.
+
+### Options
+
+| Builder | Effect |
+| --- | --- |
+| `Table::new(id, columns, width, palette)` | A header alone. `width` is the width the table is given: it decides which columns fit and how wide the flexible ones are. |
+| `.rows(rows)` | The rows to show, in order. The host filters and sorts them. |
+| `.sort(Option<TableSort>)` | The sorted column: its label takes the text color and an arrow after it, up for ascending and down for descending. |
+| `.sticky_header()` | Pins the header at the top of the scroll area around the table while its rows scroll under it, filled with the palette's `surface`. |
+| `.columns_menu(open, title)` | Adds a button at the end of the header, with `title` as its hint, that opens the list of optional columns. Rows leave its slot empty. |
+| `.menu_palette(palette)` | Colors the columns menu and the header's context menu; the table's own palette unless set. |
+| `.radius(RadiusRole)` | Rounds the fill of a row; `Control` unless set. |
+| `.sizing(TableSizing)` | The density: both heights, the gap between rows, the side inset, the gap between columns, the role of the labels and the gap before the arrow. `COMPACT` (rows of 28 under a header of 28) unless set; `ROOMY` is 56 under 36, for rows with artwork and two lines. |
+| `.into_parts()` | In place of `.render()`: the header and one element per row, for a host that wraps each row in a `ContextMenu` or a `hover_region`. Stack them in one column, `row_gap` apart. |
+
+A column:
+
+| Builder | Effect |
+| --- | --- |
+| `TableColumn::fixed(key, label, width)` | A column `width` wide. `key` names it in the actions. |
+| `TableColumn::flexible(key, label, min_width)` | A column that shares the width the fixed ones leave, never under its minimum. Several share it equally. |
+| `.icon(icon)` | Shows a glyph in the header. The label becomes its hint and stays its name in the columns menu. |
+| `.sortable()` | Makes the header a button. |
+| `.resizable(min_width)` | Lets the boundary beside a fixed column be dragged. The column is never drawn under `min_width`. A flexible column ignores it. |
+| `.align_end()` | Sets the label and the cells against the end of the column, for figures. |
+| `.optional(shown)` | Lists the column in the columns menu, checked while shown. A column that is not shown is left out. |
+| `.hide_below(width)` | Leaves the column out while the table is narrower than `width`. |
+
+A row:
+
+| Builder | Effect |
+| --- | --- |
+| `TableRow::new(id, cells)` | One cell per column, in the order the columns were given, those not shown included. A missing cell is empty. |
+| `.selected(bool)` | Fills the row with the palette's `selected`: the chosen row, or the one that plays. |
+| `.controls(ids)` | The controls inside its cells. The row stays lit while the pointer is over one of them. |
+
+### Actions
+
+| Action | When |
+| --- | --- |
+| `Clicked` on `{id}:sort:{key}` | The header of a sortable column is activated. `TableSort::toggled(current, key)` gives the sort it leaves: ascending, then descending, then none. |
+| `DragStarted`, `DragMoved`, then `Dropped` or `DragCancelled`, on `{id}:resize:{key}` | The boundary of a resizable column is dragged, as a `ResizeHandle` reports it. The host adds the pointer's travel to the width the column had when the drag began and passes the new width to `TableColumn::fixed`. |
+| `Clicked` on `{id}:column:{key}` | An optional column is toggled, in the columns menu or in the header's context menu. |
+| `Clicked` on `{id}:columns`, and on `{id}:columns:dismiss` | The columns button is activated; its menu is dismissed. |
+| `Clicked` on a row's ID | The row is activated. A control in a cell reports its own ID instead. |
+
+A column before the first flexible one has its handle on its far edge and
+grows as the pointer goes right. A column after it has the handle on its near
+edge and grows as the pointer goes left. The flexible column takes up the
+change, so the boundary follows the pointer.
+
+### States
+
+- **Sorted.** The label of the sorted column is in the text color, with its
+  arrow. The others are muted, and one that sorts takes the text color under
+  the pointer.
+- **Selected.** The row is filled with the palette's `selected`, at rest and
+  under the pointer.
+- **Empty.** With no rows the table is its header. Put an `Empty` under it.
+- **Narrow.** Columns leave at their `hide_below`. If what is left still does
+  not fit, resizable columns give width up in order down to their minimum,
+  then every column shrinks alike. Nothing is painted outside the table.
+
+### Keyboard
+
+| Key | Effect |
+| --- | --- |
+| Tab | Moves through the sortable headers, the handles and the columns button, then the rows and the controls in their cells. |
+| Enter, Space | Activates the header, the button, the row or the control in focus. |
+
+A boundary has no keyboard resize.
+
+### Motion
+
+A row's fill and a label's ink answer the pointer over `hover_ms`. The
+columns menu enters and leaves as any menu does.
+
+### Notes
+
+- Pass the width the table really gets. A scroll area that keeps a rail for
+  its bar gives its content that much less: subtract the rail (14 unless
+  set), or give the scroll area `ScrollbarAppearance::overlay()`.
+- A cell hugs its content at the start of its column, or at its end, and
+  gives width up when the column is narrower: a `Text` with `.truncate()` is
+  cut with an ellipsis. A cell the host made `.flex(1.0)` fills its column.
+  Cells are centered in the row's height and clipped to the row.
+- A resizable column is drawn as wide as the host says only while that fits,
+  so keep what you store within limits of your own; the table does not report
+  the width it drew.
+- A sticky header pins while its table is in view and leaves with the
+  table's last row, so a page can hold more under the table.
+- Every row is built on every frame, and rows out of view are not painted.
+  There is no virtualized table.
 
 ## Code
 
