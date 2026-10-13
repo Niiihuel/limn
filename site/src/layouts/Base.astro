@@ -44,9 +44,10 @@ const nav = [
       // An embedded gallery follows the site's theme.
       const paint = () => {
         const light = document.documentElement.dataset.theme === 'light';
-        for (const frame of document.querySelectorAll('iframe[data-page]')) {
-          // The example stands on the ground of a code block.
-          const src = `/frame/?embed${light ? '&light' : ''}&bg=${light ? 'f6f6f7' : '0f0f11'}#${frame.dataset.page}`;
+        for (const frame of document.querySelectorAll('iframe.live')) {
+          // The example stands on the ground of a code block. A diagram is drawn from its source.
+          const what = frame.dataset.diagram ? `&diagram=${encodeURIComponent(frame.dataset.diagram)}` : `#${frame.dataset.page}`;
+          const src = `/frame/?embed${light ? '&light' : ''}&bg=${light ? 'f6f6f7' : '0f0f11'}${what}`;
           if (frame.getAttribute('src') !== src) frame.src = src;
         }
       };
@@ -72,7 +73,7 @@ const nav = [
       // An example that does not fit asks for room, a little at a time.
       addEventListener('message', (event) => {
         if (event.data !== 'limn:grow') return;
-        for (const frame of document.querySelectorAll('iframe[data-page]')) {
+        for (const frame of document.querySelectorAll('iframe.live')) {
           if (frame.contentWindow === event.source && frame.offsetHeight < 900) frame.style.height = `${frame.offsetHeight + 24}px`;
         }
       });

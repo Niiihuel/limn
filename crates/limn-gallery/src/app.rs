@@ -203,7 +203,19 @@ pub fn view(state: &State, window: Size) -> Element {
 
     // Embedded in a site's page, the gallery is only the component: the site
     // has the navigation and the title.
-    let content = if state.flag("embed") {
+    // A site that embeds a page gives it its own ground, as `embed-bg=rrggbb`.
+    let ground = u32::from_str_radix(state.text("embed-bg"), 16)
+        .ok()
+        .filter(|_| state.flag("embed") && state.text("embed-bg").len() == 6)
+        .map_or(theme.background, |rgb| limn::Color::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8));
+    let content = if state.flag("embed") && !state.text("embed-diagram").is_empty() {
+        // A site's own diagram, drawn here from its Mermaid source.
+        let diagram = match limn::Diagram::parse(state.text("embed-diagram"), palette) {
+            Ok(diagram) => diagram.backdrop(ground).scrollable("embed-diagram"),
+            Err(error) => pages::caption(&cx, &error.to_string()),
+        };
+        vec![ScrollArea::new("page-scroll", diagram.centered_x().padding(24.0)).render().flex(1.0)]
+    } else if state.flag("embed") {
         vec![ScrollArea::new("page-scroll", current.render(&cx).padding(24.0))
             .render()
             .flex(1.0)]
@@ -217,13 +229,7 @@ pub fn view(state: &State, window: Size) -> Element {
         ]
     };
     let root = Element::panel(Element::row(content))
-    // A site that embeds a page gives it its own ground, as `embed-bg=rrggbb`.
-    .background(
-        u32::from_str_radix(state.text("embed-bg"), 16)
-            .ok()
-            .filter(|_| state.flag("embed") && state.text("embed-bg").len() == 6)
-            .map_or(theme.background, |rgb| limn::Color::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)),
-    )
+    .background(ground)
     .size(Some(window.width), Some(window.height));
     // Dialogs and toasts float over the whole window, whatever the page.
     pages::layers(&cx, root)

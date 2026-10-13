@@ -42,9 +42,23 @@ function keycaps() {
   return visit;
 }
 
+// A `mermaid` block is drawn by limn itself, in the gallery's frame, as the
+// library draws one inside its own Markdown.
+function diagrams() {
+  const attribute = (value) => value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  const visit = (node) => {
+    node.children?.forEach((child, index) => {
+      if (child.type === 'code' && child.lang === 'mermaid') {
+        node.children[index] = { type: 'html', value: `<iframe class="live" title="Diagram" data-diagram="${attribute(child.value)}" style="height:140px"></iframe>` };
+      } else visit(child);
+    });
+  };
+  return visit;
+}
+
 export default defineConfig({
   markdown: {
-    remarkPlugins: [guideLinks, keycaps],
+    remarkPlugins: [guideLinks, keycaps, diagrams],
     shikiConfig: { themes: { light: 'github-light', dark: 'github-dark-default' } },
   },
 });
