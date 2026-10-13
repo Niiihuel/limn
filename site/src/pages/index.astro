@@ -3,7 +3,7 @@ import { Code } from 'astro:components';
 import Base from '../layouts/Base.astro';
 import Icon from '../components/Icon.astro';
 import LayoutField from '../components/home/LayoutField.astro';
-import { COMPONENTS, REPO } from '../data/site';
+import { COMPONENTS, REPO, groups } from '../data/site';
 import '../styles/home.css';
 
 const install = 'cargo add limn limn-egui';
@@ -22,15 +22,6 @@ fn update(state: &mut State, action: &UiAction) {
         if id == "save" { state.save(); }
     }
 }`;
-// The pages the window on the hero can show: the library itself, running.
-const shown = [
-  ['button', 'Button'],
-  ['dialog', 'Dialog'],
-  ['table', 'Table'],
-  ['code-editor', 'CodeEditor'],
-  ['charts', 'Charts'],
-  ['date-picker', 'DatePicker'],
-];
 const steps = [
   ['State', 'Yours. A plain value your application owns and changes.'],
   ['Element', 'A description of the window, rebuilt from the state whenever it changes.'],
@@ -66,20 +57,26 @@ const numbers = [
           <div class="install"><Code code={install} lang="sh" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} /></div>
         </div>
       </div>
-      <div class="stage" id="stage">
-        <div class="stage-bar">
-          <span class="stage-live"><span class="dot"></span> Live · WebAssembly</span>
-          <div class="stage-tabs" role="tablist" aria-label="Component shown">
-            {shown.map(([id, label], index) => <button type="button" role="tab" data-page={id} aria-selected={index === 0 ? 'true' : 'false'}>{label}</button>)}
-          </div>
-          <a class="stage-open" href="/components/button/" aria-label="Read the guide of the component shown"><Icon name="arrow-up-right" size={15} /></a>
-        </div>
-        <iframe class="stage-frame" title="A limn component, running" data-src="/frame/?embed&amp;bg=0c0c0d"></iframe>
-      </div>
     </section>
 
     <section class="numbers" aria-label="limn in numbers">
       {numbers.map(([value, label]) => <div><strong>{value}</strong><span>{label}</span></div>)}
+    </section>
+
+    <section class="block index" aria-labelledby="index-title">
+      <header>
+        <p class="kicker">The library</p>
+        <h2 id="index-title">{COMPONENTS.length} components.<br /><span>Each one runs on its page.</span></h2>
+      </header>
+      <dl class="index-rows">
+        {groups(COMPONENTS).map(({ group, items }) => (
+          <div>
+            <dt>{group}</dt>
+            <dd>{items.map(({ id, title }) => <a href={`/components/${id}/`}>{title}</a>)}</dd>
+          </div>
+        ))}
+      </dl>
+      <a class="text-link" href="/components/">Browse the components <Icon name="arrow-right" size={15} /></a>
     </section>
 
     <section class="block model" aria-labelledby="model-title">
@@ -91,10 +88,10 @@ const numbers = [
         <ol class="steps">
           {steps.map(([name, copy], index) => <li><span class="step-index">{String(index + 1).padStart(2, '0')}</span><div><h3>{name}</h3><p>{copy}</p></div></li>)}
         </ol>
-        <div class="home-window">
-          <div class="window-bar"><span><i></i><i></i><i></i></span><span>view.rs</span></div>
+        <figure class="listing">
+          <figcaption>view.rs</figcaption>
           <Code code={example} lang="rust" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} />
-        </div>
+        </figure>
       </div>
       <a class="text-link" href="/docs/concepts/">Read the concepts <Icon name="arrow-right" size={15} /></a>
     </section>
@@ -133,20 +130,4 @@ const numbers = [
       <nav class="ending-links" aria-label="More about limn"><a href="/docs/">Documentation</a><a href="/components/">Components</a><a href="/design-system/">Design system</a><a href="/gallery/">Gallery</a><a href={REPO}>GitHub <Icon name="arrow-up-right" size={13} /></a><a href="https://crates.io/crates/limn">crates.io <Icon name="arrow-up-right" size={13} /></a></nav>
     </section>
   </main>
-  <script is:inline>
-    // The window on the hero starts once the page is idle, and shows the tab that is chosen.
-    (() => {
-      const stage = document.getElementById('stage');
-      const frame = stage.querySelector('iframe');
-      const open = stage.querySelector('.stage-open');
-      const show = (id) => {
-        // The gallery reads its page once, so another page is another address.
-        frame.src = `${frame.dataset.src}&page=${id}#${id}`;
-        open.href = `/components/${id}/`;
-        for (const tab of stage.querySelectorAll('[role=tab]')) tab.setAttribute('aria-selected', String(tab.dataset.page === id));
-      };
-      for (const tab of stage.querySelectorAll('[role=tab]')) tab.addEventListener('click', () => show(tab.dataset.page));
-      (window.requestIdleCallback ?? setTimeout)(() => show('button'));
-    })();
-  </script>
 </Base>

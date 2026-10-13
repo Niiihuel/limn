@@ -16,11 +16,11 @@ body.home a:focus-visible, body.home button:focus-visible { outline: 2px solid #
 .limn-home .dot { display: inline-block; width: 6px; height: 6px; flex: none; border-radius: 50%; background: #e6e6e6; }
 
 /* Hero: the copy in the middle of a layout that keeps laying itself out. */
-.home-hero { position: relative; display: flex; flex-direction: column; align-items: center; padding: 96px 24px 0; }
+.home-hero { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: min(calc(100svh - 64px), 860px); padding: 72px 24px 120px; }
 .layout-field { position: absolute; inset: 0; width: 100%; height: 100%; }
 .hero-shade { position: absolute; inset: 0; pointer-events: none; background:
-  radial-gradient(ellipse 46% 34% at 50% 27%, #050505 30%, #050505c4 62%, transparent 100%),
-  linear-gradient(transparent 62%, #050505 96%); }
+  radial-gradient(ellipse 48% 42% at 50% 46%, #050505 30%, #050505c4 62%, transparent 100%),
+  linear-gradient(transparent 78%, #050505 100%); }
 .hero-copy { position: relative; max-width: 1040px; text-align: center; }
 .hero-chip { display: inline-flex; align-items: center; gap: 9px; padding: 6px 12px 6px 10px; border: 1px solid #2a2a2e; border-radius: 999px; background: #0c0c0dcc; color: #c9c9ce; font: 11px/1.5 var(--mono); letter-spacing: .02em; }
 .hero-chip:hover { border-color: #4a4a50; color: #fff; }
@@ -35,19 +35,7 @@ body.home a:focus-visible, body.home button:focus-visible { outline: 2px solid #
 .install { min-width: 0; }
 .install pre { margin: 0; min-height: 44px; display: flex; align-items: center; padding: 0 52px 0 16px !important; border: 1px solid #2a2a2e !important; border-radius: 8px !important; background: #0c0c0dcc !important; font-size: 13px; }
 .install pre::before { content: '$'; margin-right: 10px; color: #5d5d63; }
-.install .copy { top: 7px; right: 7px; opacity: 1; border-color: transparent; background: transparent; }
-
-/* The window under the copy: the library, running. */
-.stage { position: relative; width: 100%; max-width: 1040px; margin-top: 76px; border: 1px solid #26262a; border-bottom: 0; border-radius: 14px 14px 0 0; background: #0c0c0d; overflow: hidden; box-shadow: 0 -30px 120px -40px #ffffff14; }
-.stage-bar { display: flex; align-items: center; gap: 16px; min-height: 48px; padding: 0 14px 0 16px; border-bottom: 1px solid #1f1f22; }
-.stage-live { display: inline-flex; align-items: center; gap: 8px; flex: none; color: #7d7d83; font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
-.stage-tabs { display: flex; gap: 2px; margin-inline: auto; padding: 3px; border-radius: 9px; background: #141416; overflow-x: auto; scrollbar-width: none; }
-.stage-tabs button { all: unset; cursor: pointer; padding: 5px 12px; border-radius: 6px; color: #8f8f95; font-size: 12px; white-space: nowrap; transition: background 160ms, color 160ms; }
-.stage-tabs button:hover { color: #e9e9e9; }
-.stage-tabs button[aria-selected="true"] { background: #2a2a2e; color: #fff; }
-.stage-open { display: inline-flex; flex: none; padding: 7px; border-radius: 7px; color: #a9a9af; }
-.stage-open:hover { background: var(--hover); color: #fff; }
-.stage-frame { display: block; width: 100%; height: 440px; border: 0; background: #0c0c0d; }
+.install .copy { top: 8px; right: 8px; opacity: 1; border-color: transparent; background: transparent; }
 
 .numbers { position: relative; display: grid; grid-template-columns: repeat(4, 1fr); max-width: 1208px; margin: 0 auto; padding: 0 24px; border-block: 1px solid var(--line); }
 .numbers div { display: flex; flex-direction: column; gap: 6px; padding: 30px 24px; border-left: 1px solid var(--line); }
@@ -70,11 +58,18 @@ body.home a:focus-visible, body.home button:focus-visible { outline: 2px solid #
 .step-index { color: #66666c; font: 11px/22px var(--mono); }
 .steps h3 { margin: 0 0 6px; font: 600 15px/22px var(--mono); letter-spacing: -.01em; }
 .steps p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.7; }
-.home-window { min-width: 0; border: 1px solid #26262a; border-radius: 12px; background: #0c0c0d; overflow: hidden; }
-.window-bar { display: flex; align-items: center; justify-content: space-between; min-height: 42px; padding: 0 16px; border-bottom: 1px solid #1f1f22; color: #7d7d83; font: 10px var(--mono); }
-.window-bar > span:first-child { display: inline-flex; gap: 5px; }
-.window-bar i { width: 7px; height: 7px; border-radius: 50%; background: #2f2f34; }
-.home-window pre { margin: 0; padding: 24px 22px !important; border: 0 !important; border-radius: 0 !important; background: #0c0c0d !important; font-size: 12.5px; line-height: 1.85; overflow-x: auto; }
+.listing { min-width: 0; margin: 0; padding-left: 28px; border-left: 1px solid var(--line); }
+.listing figcaption { margin-bottom: 14px; color: #66666c; font: 11px var(--mono); letter-spacing: .04em; }
+.listing pre { margin: 0; padding: 0 !important; border: 0 !important; border-radius: 0 !important; background: transparent !important; font-size: 13px; line-height: 1.9; overflow-x: auto; }
+.listing .copy { top: -34px; right: 0; opacity: 1; background: transparent; }
+
+.index-rows { margin: 60px 0 0; border-bottom: 1px solid var(--line); }
+.index-rows > div { display: grid; grid-template-columns: 180px 1fr; gap: 24px; padding: 22px 0; border-top: 1px solid var(--line); }
+.index-rows dt { color: #66666c; font: 11px/30px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.index-rows dd { display: flex; flex-wrap: wrap; gap: 2px 22px; margin: 0; }
+.index-rows a { color: #8f8f95; font-size: 19px; line-height: 30px; letter-spacing: -.02em; transition: color 140ms; }
+.index-rows a:hover { color: #fff; }
+.index-rows:hover a:not(:hover) { color: #5d5d63; }
 
 .bento { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; margin-top: 60px; border: 1px solid var(--line); border-radius: 14px; background: var(--line); overflow: hidden; }
 .card { position: relative; display: block; padding: 30px 28px 34px; background: var(--bg); transition: background 200ms; }
@@ -108,14 +103,13 @@ body.home a:focus-visible, body.home button:focus-visible { outline: 2px solid #
   body.home .bar nav { gap: 13px; font-size: 12px; }
   body.home .bar nav a[href="/gallery/"], body.home .bar nav a[href="/design-system/"] { display: none; }
   body.home .bar .end a svg { display: none; }
-  .home-hero { padding: 56px 20px 0; }
+  .home-hero { padding: 48px 20px 80px; }
+  .index-rows > div { grid-template-columns: 1fr; gap: 6px; }
+  .index-rows a { font-size: 17px; }
+  .listing { padding-left: 16px; }
   .hero-lead { font-size: 15px; }
   .hero-actions { flex-direction: column; align-items: stretch; }
   .home-button { justify-content: center; }
-  .stage { margin-top: 52px; }
-  .stage-live { display: none; }
-  .stage-tabs { margin-inline: 0; }
-  .stage-frame { height: 380px; }
   .bento { grid-template-columns: 1fr; }
   .block { padding: 64px 20px; }
   .numbers { padding: 0 20px; }
@@ -125,6 +119,6 @@ body.home a:focus-visible, body.home button:focus-visible { outline: 2px solid #
 }
 @media (prefers-reduced-motion: reduce) {
   .hero-chip .dot { animation: none; }
-  .home-button, .card, .card-go, .stage-tabs button { transition: none; }
+  .home-button, .card, .card-go, .index-rows a { transition: none; }
   .home-button:hover, .card:hover .card-go { transform: none; }
 }

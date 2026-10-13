@@ -111,9 +111,10 @@ svg.bi { flex: none; vertical-align: -0.125em; }
 }
 :root[data-theme="light"] .when-dark, :root:not([data-theme="light"]) .when-light { display: none; }
 .code { position: relative; }
-.copy { all: unset; position: absolute; top: 8px; right: 8px; display: inline-flex; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 120ms; }
+.copy { all: unset; position: absolute; top: 8px; right: 8px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 120ms; }
 .code:hover .copy, .copy:focus-visible, .copy.copied { opacity: 1; }
 .copy:hover { color: var(--fg); }
+.copy .idle { display: inline-flex; }
 .copy .done, .copy.copied .idle { display: none; }
 .copy.copied .done { display: inline-flex; color: var(--accent); }
 .window .code pre { margin: 0; }
