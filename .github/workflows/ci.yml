@@ -25,6 +25,8 @@ jobs:
       # limn-dnd links the system Wayland client; winit needs xkbcommon.
       - run: sudo apt-get update && sudo apt-get install -y libwayland-dev libxkbcommon-dev pkg-config
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      # Nothing else builds the hot reload feature, and it must keep compiling.
+      - run: cargo clippy -p limn-gallery --all-targets --features hot -- -D warnings
       - run: cargo test --workspace
       - run: cargo doc --workspace --no-deps
         env:

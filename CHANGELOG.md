@@ -5,6 +5,7 @@ in any release.
 
 ## 0.1.39 — unreleased
 
+- Hot reload is part of the library: `limn::hot` (`connect`, `call`, `on_patch`, `remember`, `restore`) and `hot_shape!`, which notices a patch that changes a state's fields, behind the `hot` feature, and `limn_egui::repaint_on_patch`; the gallery uses them
 - Gallery: English labels, captions, menus, tooltips and sample content throughout
 - Kbd: width budgets cover alternatives and captions together; narrow rows omit the whole hint
 - Built-in labels default to English and can be replaced with `set_labels`; `Labels::SPANISH` preserves the earlier Spanish copy

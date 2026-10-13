@@ -90,6 +90,7 @@ mod text_width_cache;
 mod ticker;
 mod time_picker;
 mod toast;
+pub mod hot;
 mod labels;
 mod tokens;
 mod tree;

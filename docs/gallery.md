@@ -29,40 +29,14 @@ Save a file in `limn` or in the gallery and the running window updates in
 under a second. The page you were on, the scroll position, focus and every
 value you typed are kept.
 
-### How it works
-
-`dx` recompiles only what changed and patches the new code into the running
-process. The gallery calls its `view` and `update` functions through
-`subsecond::call`, so the next frame after a patch runs the new code. Its
-state lives in the host, outside the patched functions, so it survives.
-
-### What needs a restart
-
-| Change | Why |
-| --- | --- |
-| The fields of a live struct, such as the gallery's `State` or `UiTree` | Existing values in memory keep the old layout. |
-| Code that runs once at startup, such as `install_fonts` | It has already run. |
+The gallery gets this from the library, like any application can: see
+[Hot reload](hot-reload.md) for how it works, what needs a restart and what
+it costs. A restart is not a fresh start: the gallery keeps its state with
+`limn::hot::remember`, so a change that cannot be patched still lands on the
+same page with the same values. Passing `--page` starts clean.
 
 The gallery keeps demo state in a map keyed by control ID rather than in one
 field per demo, precisely so that adding a demo never changes a struct.
-
-A restart is not a fresh start. Under the `hot` feature the gallery saves its
-state to a file in the system's temporary directory after every action and
-reads it back when it launches, so a change that cannot be patched still
-lands on the same page with the same values. Passing `--page` starts clean.
-
-### Costs
-
-- Each patch loads new code and leaves the old code in memory, a few megabytes
-  each time. Restart after a long session.
-- The first build under `dx` is a full build. Dependencies are compiled with
-  optimizations even in development builds, so that first build is slower
-  and every frame afterwards is faster. Workspace crates stay unoptimized to
-  keep a patch under a second.
-- `subsecond` and `dioxus-devtools` must be the same version as the `dx`
-  binary. Both are pinned in the gallery's `Cargo.toml`.
-- Dioxus is only this development tool. The `hot` feature is off by default
-  and nothing else in the workspace depends on it.
 
 ## Adding a page
 
