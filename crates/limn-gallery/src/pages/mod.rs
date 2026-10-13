@@ -63,6 +63,12 @@ impl Page {
             .collect()
     }
 
+    /// How many variants each of this page's sections has: what a site can ask for alone.
+    #[cfg(test)]
+    pub fn variant_counts(&self, cx: &Cx) -> Vec<usize> {
+        self.sections(cx).into_iter().map(|section| section.variants().1.len()).collect()
+    }
+
     /// This page's sections, one under another. A site that shows each
     /// example by itself asks for one of them by its place, as
     /// `embed-section`.
@@ -287,8 +293,9 @@ impl Section {
     fn showcase(self, cx: &Cx) -> Element {
         let (title, mut variants) = self.variants();
         if let Some(only) = cx.state.text("embed-variant").parse::<usize>().ok().filter(|only| *only < variants.len()) {
+            // Never wider than the card, so what has no width of its own is centered too.
             let demos = variants.swap_remove(only).into_iter();
-            return Element::column(demos.map(|demo| natural(demo).centered_x()).collect()).gap(10.0);
+            return Element::column(demos.map(|demo| natural(demo).max_width(cx.width).centered_x()).collect()).gap(10.0);
         }
         let mut rows = Vec::new();
         if !title.is_empty() {

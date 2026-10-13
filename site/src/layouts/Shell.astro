@@ -13,7 +13,14 @@ const path = Astro.url.pathname;
       {side.map(({ group, items }) => (
         <>
           <h2>{group}</h2>
-          {items.map(({ href, label }) => <a href={href} aria-current={path === href ? 'page' : undefined}>{label}</a>)}
+          {items.map(({ href, label, children = [] }) => (
+            <>
+              <a href={href} aria-current={path === href ? 'page' : undefined} class={children.length ? 'branch' : undefined}>{label}{children.length > 0 && <Icon name="chevron-down" size={11} />}</a>
+              {path === href && children.length > 0 && (
+                <div class="twigs">{children.map((child) => <a href={child.href}>{child.label}</a>)}</div>
+              )}
+            </>
+          ))}
         </>
       ))}
     </nav>

@@ -7,6 +7,12 @@ body[data-layout="docs"] .side h2 { font-family: var(--sans); font-size: 12px; f
 body[data-layout="docs"] .side a { color: var(--muted); }
 body[data-layout="docs"] .side a:hover, body[data-layout="docs"] .side a[aria-current="page"] { color: var(--fg); }
 body[data-layout="docs"] .toc { padding-top: 48px; }
+body[data-layout="docs"] .side a.branch { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+body[data-layout="docs"] .side a.branch svg { flex: none; opacity: .55; transform: rotate(-90deg); transition: transform 140ms; }
+body[data-layout="docs"] .side a.branch[aria-current="page"] svg { transform: none; }
+body[data-layout="docs"] .side .twigs { margin: 2px 0 6px 12px; padding-left: 8px; border-left: 1px solid var(--line); }
+body[data-layout="docs"] .side .twigs a { padding-block: 4px; font-size: 13px; }
+body[data-layout="docs"] .side .twigs a.active { color: var(--fg); }
 body[data-layout="docs"] .docs-heading { margin-bottom: 32px; }
 body[data-layout="docs"] .docs-heading h1 { margin: 12px 0 16px; font-size: 36px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.15; }
 body[data-layout="docs"] .docs-breadcrumb { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 20px; color: var(--muted); font-size: 12px; }

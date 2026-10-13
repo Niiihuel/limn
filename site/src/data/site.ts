@@ -58,6 +58,9 @@ export const guideHref = (slug: string) => {
   return foundation ? `/design-system/${foundation.id}/` : `/docs/${slug}/`;
 };
 
+/** The anchor of a section's first example on its component's page. */
+export const exampleId = (title: string) => `example-${title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
+
 export const groups = <T extends { group: string }>(items: readonly T[]) =>
   [...new Set(items.map((item) => item.group))].map((group) => ({
     group,
@@ -76,7 +79,12 @@ export const DOC_NAV = [
   { group: 'Components', items: [{ href: '/components/', label: 'All components' }] },
   ...groups(COMPONENTS).map(({ group, items }) => ({
     group: group === 'System' ? 'Primitives' : group,
-    items: items.map(({ id, title }) => ({ href: `/components/${id}/`, label: title })),
+    items: items.map(({ id, title, sections }) => ({
+      href: `/components/${id}/`,
+      label: title,
+      // A component shown in several sections has a branch for each.
+      children: sections.length > 1 ? sections.filter(({ title }) => title).map(({ title }) => ({ href: `/components/${id}/#${exampleId(title)}`, label: title })) : [],
+    })),
   })),
   { group: 'Patterns', items: [
     { href: '/patterns/', label: 'All patterns' },

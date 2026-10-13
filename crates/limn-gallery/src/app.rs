@@ -284,6 +284,35 @@ mod tests {
         }
     }
 
+    /// A site shows each example alone in a card: none may run out of it.
+    #[test]
+    fn every_example_alone_stays_inside_the_card_a_site_gives_it() {
+        let window = Size::new(760.0, 320.0);
+        let mut outside = Vec::new();
+        // A diagram wider than its card is there to show that it scrolls sideways.
+        for page in pages::PAGES.iter().filter(|page| page.id != "diagram") {
+            let state = State::starting_at(page.id);
+            let cx = pages::Cx { state: &state, palette: state.theme().palette(), width: window.width - 48.0 };
+            for (section, variants) in page.variant_counts(&cx).into_iter().enumerate() {
+                for variant in 0..variants {
+                    let mut state = State::starting_at(page.id);
+                    for (key, value) in [("embed", "on".to_owned()), ("embed-section", section.to_string()), ("embed-variant", variant.to_string())] {
+                        state.set(key, &value);
+                    }
+                    let frame = UiTree::new(view(&state, window)).layout(window);
+                    let stray = frame.commands.iter().any(|command| match command {
+                        limn::DrawCommand::Text { position, .. } => position.x < 0.0 || position.x > window.width,
+                        _ => false,
+                    });
+                    if stray {
+                        outside.push(format!("{} section {section} variant {variant}", page.id));
+                    }
+                }
+            }
+        }
+        assert!(outside.is_empty(), "text drawn outside the card:\n{}", outside.join("\n"));
+    }
+
     #[test]
     fn page_ids_are_unique_and_selectable() {
         let mut seen = HashSet::new();

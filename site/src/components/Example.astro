@@ -4,10 +4,10 @@
 // sections of the component's gallery page.
 import { Code } from 'astro:components';
 import Icon from './Icon.astro';
-const { page, section, variant, title, label, place, code = '', codeSource, height = 220 } = Astro.props;
+const { anchor, page, section, variant, title, label, place, code = '', codeSource, height = 220 } = Astro.props;
 const id = `example-${page}-${section ?? 'all'}-${variant ?? 'all'}`;
 ---
-<figure class="specimen" data-example>
+<figure class="specimen" id={anchor} data-example>
   {label && <figcaption>{label}{place && <span>{place}</span>}</figcaption>}
   <p id={`${id}-scroll-hint`} class="example-scroll-hint" data-scroll-hint hidden>Scroll to explore the preview. Use arrow keys or swipe the strip below the preview.</p>
   <div class="example-viewport" role="region" aria-label={`${title}, scrollable preview`} aria-describedby={`${id}-scroll-hint`} tabindex="-1" data-preview-viewport>

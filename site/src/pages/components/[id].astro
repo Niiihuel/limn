@@ -4,7 +4,7 @@ import Shell from '../../layouts/Shell.astro';
 import Icon from '../../components/Icon.astro';
 import Example from '../../components/Example.astro';
 import Moved from '../../components/Moved.astro';
-import { CATALOG, FOUNDATIONS, PATTERNS, REPO } from '../../data/site';
+import { CATALOG, FOUNDATIONS, PATTERNS, REPO, exampleId } from '../../data/site';
 import { lead } from '../../data/guide';
 import { sectionSource, variantSources } from '../../data/examples';
 
@@ -29,6 +29,8 @@ const examples = component.sections.flatMap(({ title, variants }, section) => {
   return variants.map((_, variant) => ({
     section,
     variant,
+    // The first example of a section is where the sidebar's branch for it leads.
+    anchor: variant === 0 && title ? exampleId(title) : undefined,
     name: title || component.title,
     place: variants.length > 1 ? `${variant + 1} / ${variants.length}` : '',
     code: sources[variant] ?? (variants.length === 1 ? sectionSource(component.source, title) : ''),
@@ -52,7 +54,7 @@ const toc = [
 
   <section class="docs-section" aria-labelledby="preview">
     <h2 id="preview">Preview</h2>
-    <Example page={component.id} section={0} variant={0} title={component.title} code={code} codeSource={`${REPO}/blob/main/${code ? `docs/components/${component.id}.md` : file}`} height={tall + 80} />
+    <Example anchor={component.sections[0]?.title ? exampleId(component.sections[0].title) : undefined} page={component.id} section={0} variant={0} title={component.title} code={code} codeSource={`${REPO}/blob/main/${code ? `docs/components/${component.id}.md` : file}`} height={tall + 80} />
   </section>
 
   {examples.length > 0 && (
@@ -60,8 +62,8 @@ const toc = [
       <h2 id="examples">Examples</h2>
       <p class="docs-muted">Each one is the library drawing it. Press, type and hover.</p>
       <div class="specimens">
-        {examples.map(({ section, variant, name, place, code }) => (
-          <Example page={component.id} section={section} variant={variant} title={`${component.title}, ${name} ${place}`} label={name} place={place} code={code} codeSource={`${REPO}/blob/main/${file}`} height={tall} />
+        {examples.map(({ section, variant, anchor, name, place, code }) => (
+          <Example anchor={anchor} page={component.id} section={section} variant={variant} title={`${component.title}, ${name} ${place}`} label={name} place={place} code={code} codeSource={`${REPO}/blob/main/${file}`} height={tall} />
         ))}
       </div>
     </section>
