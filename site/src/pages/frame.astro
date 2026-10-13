@@ -23,6 +23,9 @@
       if (location.search.includes('light')) document.documentElement.classList.add('light');
       const ground = new URLSearchParams(location.search).get('bg');
       if (/^[0-9a-f]{6}$/.test(ground ?? '')) document.body.style.background = document.documentElement.style.background = `#${ground}`;
+      // A diagram to draw in place of a page: the gallery reads it from here.
+      const diagram = new URLSearchParams(location.search).get('diagram');
+      if (diagram) document.documentElement.dataset.diagram = diagram;
       try {
         const { default: init } = await import('/wasm/limn-gallery.js');
         await init();

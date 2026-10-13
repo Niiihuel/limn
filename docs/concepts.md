@@ -9,10 +9,14 @@ pages assume it.
 A limn application never mutates widgets. Every frame it describes the whole
 window again and hands that description to a `UiTree`:
 
-```text
-state ──view──▶ Element tree ──UiTree::layout──▶ Frame ──backend──▶ pixels
-  ▲                                                │
-  └──────update◀── UiAction ◀──UiTree::handle_event◀── UiEvent (input)
+```mermaid
+flowchart LR
+    state[view of your state] --> tree[UiTree]
+    input([UiEvent]) --> tree
+    tree -->|layout| frame[Frame]
+    frame -->|backend| pixels([Pixels])
+    tree -->|UiAction| update[update]
+    update --> state
 ```
 
 | Piece | What it is | Who owns it |

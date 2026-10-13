@@ -136,3 +136,5 @@ svg.bi { flex: none; vertical-align: -0.125em; }
 .side a[aria-current="page"] { font-weight: 650; }
 /* A key is a keycap. */
 kbd { display: inline-block; min-width: 1.7em; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--card); color: var(--fg); font: 600 12px/1.5 var(--mono); text-align: center; white-space: nowrap; }
+/* Room between the rows of the list, so two hovers never touch. */
+.side a { margin: 2px 0; }
