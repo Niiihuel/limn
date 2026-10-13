@@ -91,3 +91,9 @@ code, pre, kbd { font-family: var(--mono); font-size: 13px; }
 @media (max-width: 900px) { .hero { grid-template-columns: 1fr; padding-top: 48px; } }
 footer { padding: 28px clamp(16px, 5vw, 80px); border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+/* The page shows a guide's title and first paragraph itself, over the example. */
+.guide > h1:first-child, .guide > h1:first-child + p { display: none; }
+.guide > h2:first-of-type { margin-top: 36px; }
+.source { margin-top: 40px; color: var(--muted); font-size: 13px; }
+.source a { color: var(--link); }
+.window iframe { height: 440px; }

@@ -7,8 +7,9 @@ const REPO = 'https://github.com/Niiihuel/limn';
 function guideLinks() {
   const visit = (node) => {
     if (node.type === 'link' && !/^(https?:|#|\/|mailto:)/.test(node.url)) {
-      const guide = node.url.match(/^([\w-]+)\.md(#.*)?$/);
-      if (guide) node.url = (guide[1] === 'README' ? '/docs/' : `/docs/${guide[1]}/`) + (guide[2] ?? '');
+      const guide = node.url.match(/^(components\/)?([\w-]+)\.md(#.*)?$/);
+      if (guide?.[1]) node.url = `/components/${guide[2]}/` + (guide[3] ?? '');
+      else if (guide) node.url = (guide[2] === 'README' ? '/docs/' : `/docs/${guide[2]}/`) + (guide[3] ?? '');
       else node.url = `${REPO}/blob/main/${node.url.replace(/^(\.\.\/)+/, '')}`;
     }
     node.children?.forEach(visit);

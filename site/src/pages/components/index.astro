@@ -1,7 +1,10 @@
 ---
+import { getCollection } from 'astro:content';
 import Shell from '../../layouts/Shell.astro';
 import { COMPONENTS, groups } from '../../data/site';
+import { lead } from '../../data/guide';
 
+const guides = new Map((await getCollection('components')).map((guide) => [guide.id, guide]));
 const byGroup = groups(COMPONENTS);
 const side = [
   { group: 'Components', items: [{ href: '/components/', label: 'All components' }] },
@@ -9,15 +12,18 @@ const side = [
 ];
 const toc = byGroup.map(({ group }) => ({ depth: 2, slug: group.toLowerCase(), text: group }));
 ---
-<Shell title="Components" description="Every limn component, by category, each with a live example." side={side} toc={toc}>
+<Shell title="Components" description="Every limn component, each on a page of its own with a live example." side={side} toc={toc}>
   <div class="prose">
     <h1>Components</h1>
-    <p class="lead">Each page shows the components running, compiled to WebAssembly, with the source of the example. The <a href="/docs/components/">components guide</a> lists every one with its options.</p>
+    <p class="lead">Each component has a page of its own: the component running, compiled to WebAssembly, and its guide. The <a href="/docs/components/">components table</a> lists every one with its options.</p>
     {byGroup.map(({ group, items }) => (
       <>
         <h2 id={group.toLowerCase()}>{group}</h2>
         <ul class="list">
-          {items.map(({ id, title, about }) => <li><a href={`/components/${id}/`}>{title}</a> - {about}</li>)}
+          {items.map(({ id, title }) => {
+            const about = lead(guides.get(id)?.body);
+            return <li><a href={`/components/${id}/`}>{title}</a>{about && ` - ${about}`}</li>;
+          })}
         </ul>
       </>
     ))}

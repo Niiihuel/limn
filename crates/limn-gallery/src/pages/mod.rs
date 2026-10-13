@@ -39,7 +39,8 @@ pub struct Page {
     pub id: &'static str,
     pub group: &'static str,
     pub title: &'static str,
-    /// The module in this directory that draws it.
+    /// The module in this directory that draws it. Only `--pages` reads it.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub source: &'static str,
     /// Every section of that module, some of them this page's.
     pub view: fn(&Cx) -> Vec<Section>,
