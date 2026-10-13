@@ -21,6 +21,22 @@ const path = Astro.url.pathname;
     </aside>
   </div>
   <script is:inline>
+    // The list keeps the page being read in view, and shows its scrollbar
+    // only while it moves or the pointer is over it.
+    {
+      const side = document.querySelector('.side');
+      // Not scrollIntoView: that would move the page as well as the list.
+      const current = side.querySelector('[aria-current]');
+      if (current) side.scrollTop = current.offsetTop - side.offsetTop - side.clientHeight / 2;
+      let hide;
+      side.addEventListener('scroll', () => {
+        side.dataset.scrolling = '';
+        clearTimeout(hide);
+        hide = setTimeout(() => delete side.dataset.scrolling, 900);
+      }, { passive: true });
+    }
+  </script>
+  <script is:inline>
     // The heading being read is marked in "On this page": the last one above a line near the top.
     {
       const links = [...document.querySelectorAll('.toc a')];
