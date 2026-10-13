@@ -5,6 +5,9 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Component gallery for limn, with hot-patched views"
 publish = false
 
@@ -19,8 +22,8 @@ hot = ["dep:subsecond", "dep:dioxus-devtools"]
 [dependencies]
 # The standard clock everywhere but a browser, where std's panics.
 web-time = "1.1"
-limn = { path = "../limn", default-features = false }
-limn-egui = { path = "../limn-egui", default-features = false }
+limn = { version = "0.1.39", path = "../limn", default-features = false }
+limn-egui = { version = "0.1.39", path = "../limn-egui", default-features = false }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 subsecond = { version = "=0.7.9", optional = true }

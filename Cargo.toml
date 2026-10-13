@@ -8,6 +8,9 @@ edition = "2021"
 rust-version = "1.95"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/Niiihuel/limn"
+readme = "README.md"
+keywords = ["gui", "ui", "widgets", "components", "wgpu"]
+categories = ["gui"]
 
 # Drawing and layout pass geometry as arguments and keep commands in enums;
 # splitting either into structs or boxes would cost more than it explains.
