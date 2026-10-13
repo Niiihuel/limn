@@ -214,9 +214,15 @@ pub fn view(state: &State, window: Size) -> Element {
         };
         vec![ScrollArea::new("page-scroll", diagram.centered_x().padding(24.0)).render().flex(1.0)]
     } else if state.flag("embed") {
-        vec![ScrollArea::new("page-scroll", current.render(&cx).padding(24.0))
-            .render()
-            .flex(1.0)]
+        let page = current.render(&cx).padding(24.0);
+        let page = if state.text("embed-variant").is_empty() {
+            page
+        } else {
+            // One example alone stands in the middle of its card, and scrolls when it is taller.
+            Element::column(vec![Element::spacer().flex(1.0), page, Element::spacer().flex(1.0)])
+                .min_size(0.0, window.height)
+        };
+        vec![ScrollArea::new("page-scroll", page).render().flex(1.0)]
     } else {
         vec![
             Element::panel(Element::column(sidebar).gap(2.0))

@@ -6,6 +6,7 @@ import Example from '../../components/Example.astro';
 import Moved from '../../components/Moved.astro';
 import { CATALOG, FOUNDATIONS, PATTERNS, REPO } from '../../data/site';
 import { lead } from '../../data/guide';
+import { sectionSource, variantSources } from '../../data/examples';
 
 export function getStaticPaths() {
   return CATALOG.map((component) => ({ params: { id: component.id }, props: { component } }));
@@ -22,7 +23,24 @@ const file = `crates/limn-gallery/src/pages/${component.source}.rs`;
 const usageSection = guide?.body.match(/## Usage\s*\n([\s\S]*?)(?=\n## |$)/)?.[1];
 const blocks = [...(guide?.body.matchAll(/```rust\s*\n([\s\S]*?)```/g) ?? [])].map((block) => block[1].trim());
 const code = usageSection?.match(/```rust\s*\n([\s\S]*?)```/)?.[1].trim() ?? blocks.find((block) => /\b(?:fn|let|const)\b|::new\(/.test(block)) ?? '';
-const toc = [{ depth: 2, slug: 'preview', text: 'Preview' }, ...headings.filter(({ depth }) => depth === 2 || depth === 3), { depth: 2, slug: 'api-reference', text: 'API reference' }];
+// Every variant of every section of the gallery page is an example of its own; the first is the page's preview.
+const examples = component.sections.flatMap(({ title, variants }, section) => {
+  const sources = variantSources(component.source, title, variants.length);
+  return variants.map((_, variant) => ({
+    section,
+    variant,
+    name: title || component.title,
+    place: variants.length > 1 ? `${variant + 1} / ${variants.length}` : '',
+    code: sources[variant] ?? (variants.length === 1 ? sectionSource(component.source, title) : ''),
+  }));
+}).slice(1);
+const tall = component.group === 'Overlays' ? 420 : 240;
+const toc = [
+  { depth: 2, slug: 'preview', text: 'Preview' },
+  ...(examples.length ? [{ depth: 2, slug: 'examples', text: 'Examples' }] : []),
+  ...headings.filter(({ depth }) => depth === 2 || depth === 3),
+  { depth: 2, slug: 'api-reference', text: 'API reference' },
+];
 ---
 {foundation ? <Moved href={`/design-system/${foundation.id}/`} title={foundation.title} /> : <Shell title={component.title} description={about || `${component.title}, a limn component.`} toc={toc}>
   <header class="docs-heading">
@@ -34,8 +52,20 @@ const toc = [{ depth: 2, slug: 'preview', text: 'Preview' }, ...headings.filter(
 
   <section class="docs-section" aria-labelledby="preview">
     <h2 id="preview">Preview</h2>
-    <Example page={component.id} title={component.title} code={code} codeSource={`${REPO}/blob/main/${code ? `docs/components/${component.id}.md` : file}`} height={component.group === 'Overlays' ? 420 : 240} />
+    <Example page={component.id} section={0} variant={0} title={component.title} code={code} codeSource={`${REPO}/blob/main/${code ? `docs/components/${component.id}.md` : file}`} height={tall + 80} />
   </section>
+
+  {examples.length > 0 && (
+    <section class="docs-section" aria-labelledby="examples">
+      <h2 id="examples">Examples</h2>
+      <p class="docs-muted">Each one is the library drawing it. Press, type and hover.</p>
+      <div class="specimens">
+        {examples.map(({ section, variant, name, place, code }) => (
+          <Example page={component.id} section={section} variant={variant} title={`${component.title}, ${name} ${place}`} label={name} place={place} code={code} codeSource={`${REPO}/blob/main/${file}`} height={tall} />
+        ))}
+      </div>
+    </section>
+  )}
 
   {Content ? (
     <article class="prose guide"><Content /></article>

@@ -9,7 +9,6 @@ const nav = [
   ['/docs/', 'Docs', 'book'],
   ['/design-system/', 'Design system', 'palette'],
   ['/components/', 'Components', 'grid'],
-  ['/gallery/', 'Gallery', 'window-stack'],
 ];
 ---
 <!doctype html>
@@ -45,14 +44,33 @@ const nav = [
     <template id="copy"><button class="copy" type="button" aria-label="Copy the code"><span class="idle"><Icon name="clipboard" size={14} /></span><span class="done"><Icon name="check2" size={14} /></span></button></template>
     <footer>limn is free software under MIT or Apache-2.0. The examples on this site are the library itself, compiled to WebAssembly.</footer>
     <script is:inline>
-      // An embedded gallery follows the site's theme.
+      // An embedded gallery follows the site's theme. Each one is a program
+      // with a drawing context of its own, and a browser allows few: an
+      // example runs while it is near the window and stops when it is far.
+      const near = new IntersectionObserver((entries) => {
+        for (const { target, isIntersecting } of entries) {
+          target.dataset.near = isIntersecting ? 'yes' : '';
+          run(target);
+        }
+      }, { rootMargin: '600px 0px' });
+      const run = (frame) => {
+        // One that never ran has nothing to stop.
+        if (!frame.dataset.near && !frame.hasAttribute('src')) return;
+        const src = frame.dataset.near ? frame.dataset.src : 'about:blank';
+        if (frame.getAttribute('src') !== src) frame.src = src;
+      };
       const paint = () => {
         const light = document.documentElement.dataset.theme === 'light';
         for (const frame of document.querySelectorAll('iframe.live')) {
           // The example stands on the ground of a code block. A diagram is drawn from its source.
-          const what = frame.dataset.diagram ? `&diagram=${encodeURIComponent(frame.dataset.diagram)}` : `#${frame.dataset.page}`;
-          const src = `/frame/?embed${light ? '&light' : ''}&bg=${light ? 'f6f6f7' : '0f0f11'}${what}`;
-          if (frame.getAttribute('src') !== src) frame.src = src;
+          const section = (frame.dataset.section ? `&section=${frame.dataset.section}` : '') + (frame.dataset.variant ? `&variant=${frame.dataset.variant}` : '');
+          const what = frame.dataset.diagram ? `&diagram=${encodeURIComponent(frame.dataset.diagram)}` : `${section}#${frame.dataset.page}`;
+          frame.dataset.src = `/frame/?embed${light ? '&light' : ''}&bg=${light ? 'f6f6f7' : '0f0f11'}${what}`;
+          // Measured once here, so the first ones do not wait for the observer.
+          const box = frame.getBoundingClientRect();
+          if (box.bottom > -600 && box.top < innerHeight + 600) frame.dataset.near = 'yes';
+          near.observe(frame);
+          run(frame);
         }
       };
       paint();

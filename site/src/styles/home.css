@@ -101,7 +101,7 @@ body.home a:focus-visible, body.home button:focus-visible { outline: 2px solid #
 @media (max-width: 650px) {
   body.home .bar { gap: 16px; padding-inline: 20px; }
   body.home .bar nav { gap: 13px; font-size: 12px; }
-  body.home .bar nav a[href="/gallery/"], body.home .bar nav a[href="/design-system/"] { display: none; }
+  body.home .bar nav a[href="/design-system/"] { display: none; }
   body.home .bar .end a svg { display: none; }
   .home-hero { padding: 48px 20px 80px; }
   .index-rows > div { grid-template-columns: 1fr; gap: 6px; }

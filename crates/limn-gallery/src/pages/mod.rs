@@ -55,12 +55,22 @@ pub struct Page {
 }
 
 impl Page {
-    /// This page's sections, one under another.
-    pub fn render(&self, cx: &Cx) -> Element {
-        let mut sections: Vec<Section> = (self.view)(cx)
+    /// The sections of the module that are this page's.
+    fn sections(&self, cx: &Cx) -> Vec<Section> {
+        (self.view)(cx)
             .into_iter()
             .filter(|section| self.sections.is_empty() || self.sections.contains(&section.title.as_str()))
-            .collect();
+            .collect()
+    }
+
+    /// This page's sections, one under another. A site that shows each
+    /// example by itself asks for one of them by its place, as
+    /// `embed-section`.
+    pub fn render(&self, cx: &Cx) -> Element {
+        let mut sections = self.sections(cx);
+        if let Some(only) = cx.state.text("embed-section").parse::<usize>().ok().filter(|only| *only < sections.len()) {
+            sections = vec![sections.swap_remove(only)];
+        }
         // Embedded under the component's name, a lone section's title repeats it.
         if cx.state.flag("embed") && sections.len() == 1 {
             sections[0].title.clear();
@@ -152,19 +162,47 @@ pub const PAGES: &[Page] = &[
 ];
 
 /// The components as JSON, one page each: what a site needs to give every
-/// component its address. `site/src/data/pages.json` is this, kept by a test.
+/// component its address and to show each variant of each of its sections
+/// by itself, in the order `embed-section` and `embed-variant` count them. `site/src/data/pages.json` is this,
+/// kept by a test.
 #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
 pub fn pages_json() -> String {
     let quote = |text: &str| format!("\"{}\"", text.replace('"', "\\\""));
+    let state = State::default();
+    let cx = Cx { state: &state, palette: ComponentPalette::neutral_dark(), width: 800.0 };
     let pages: Vec<String> = PAGES
         .iter()
         .map(|page| {
+            // Each section with its variants, each variant being what its captions say.
+            let sections: Vec<String> = page
+                .sections(&cx)
+                .into_iter()
+                .map(|section| {
+                    let (title, variants) = section.variants();
+                    let captions: Vec<String> = variants
+                        .iter()
+                        .map(|variant| {
+                            let said: Vec<&str> = variant
+                                .iter()
+                                .filter(|demo| is_caption(demo))
+                                .filter_map(|demo| match &demo.kind {
+                                    ElementKind::Text(text) => Some(text.as_str()),
+                                    _ => None,
+                                })
+                                .collect();
+                            quote(&said.join(" "))
+                        })
+                        .collect();
+                    format!("{{\"title\": {}, \"variants\": [{}]}}", quote(&title), captions.join(", "))
+                })
+                .collect();
             format!(
-                "  {{\"id\": {}, \"group\": {}, \"title\": {}, \"source\": {}}}",
+                "  {{\"id\": {}, \"group\": {}, \"title\": {}, \"source\": {}, \"sections\": [{}]}}",
                 quote(page.id),
                 quote(page.group),
                 quote(page.title),
                 quote(page.source),
+                sections.join(", "),
             )
         })
         .collect();
@@ -223,9 +261,8 @@ impl Section {
         }
     }
 
-    /// As a site shows it: each variant apart from the next and centered, a
-    /// demo with its captions being one variant.
-    fn showcase(self, cx: &Cx) -> Element {
+    /// The section as its variants: a demo with the captions that go with it.
+    fn variants(self) -> (String, Vec<Vec<Element>>) {
         // A section says each demo's caption before it or after it; the first
         // item tells which.
         let leading = self.demos.first().is_some_and(is_caption);
@@ -241,9 +278,21 @@ impl Section {
                 _ => variants.push(vec![demo]),
             }
         }
+        (self.title, variants)
+    }
+
+    /// As a site shows it: each variant apart from the next and centered. A
+    /// site that gives every variant a card of its own asks for one by its
+    /// place, as `embed-variant`.
+    fn showcase(self, cx: &Cx) -> Element {
+        let (title, mut variants) = self.variants();
+        if let Some(only) = cx.state.text("embed-variant").parse::<usize>().ok().filter(|only| *only < variants.len()) {
+            let demos = variants.swap_remove(only).into_iter();
+            return Element::column(demos.map(|demo| natural(demo).centered_x()).collect()).gap(10.0);
+        }
         let mut rows = Vec::new();
-        if !self.title.is_empty() {
-            rows.push(titled(cx, &self.title, Vec::new()).centered_x());
+        if !title.is_empty() {
+            rows.push(titled(cx, &title, Vec::new()).centered_x());
         }
         for (index, variant) in variants.into_iter().enumerate() {
             if index > 0 {
