@@ -5,7 +5,13 @@ const REPO = 'https://github.com/Niiihuel/limn';
 // The guides are written to be read on GitHub: `layout.md#gaps` there is
 // `/docs/layout/#gaps` here, and a path into the repository is a link to it.
 function guideLinks() {
-  const page = (dir, name, hash = '') => (name === 'README' ? '/docs/' : `/${dir}/${name}/`) + hash;
+  const page = (dir, name, hash = '') => {
+    if (name === 'tokens') return `/design-system/tokens/${hash}`;
+    if ((dir === 'docs' && name === 'theming') || (dir === 'components' && name === 'scheme')) {
+      return `/design-system/colors/${hash}`;
+    }
+    return (name === 'README' ? '/docs/' : `/${dir}/${name}/`) + hash;
+  };
   return (tree, file) => {
     // A component's guide links to its neighbours by name and to the general guides one level up.
     const inComponents = /[\\/]docs[\\/]components[\\/]/.test(file.path ?? '');

@@ -1,12 +1,15 @@
 ---
 import Base from './Base.astro';
+import Icon from '../components/Icon.astro';
+import { DOC_NAV } from '../data/site';
 // `side`: [{ group, items: [{ href, label }] }]; `toc`: Astro's headings.
-const { title, description, side, toc = [] } = Astro.props;
+const { title, description, side = DOC_NAV, toc = [], canonical } = Astro.props;
 const path = Astro.url.pathname;
 ---
-<Base title={title} description={description}>
+<Base title={title} description={description} canonical={canonical}>
+  <button class="docs-menu-toggle" type="button" aria-controls="docs-nav" aria-expanded="false"><Icon name="list" />Browse documentation<Icon name="chevron-down" size={12} /></button>
   <div class="shell">
-    <nav class="side" aria-label="Section">
+    <nav id="docs-nav" class="side" aria-label="Documentation">
       {side.map(({ group, items }) => (
         <>
           <h2>{group}</h2>
@@ -14,7 +17,7 @@ const path = Astro.url.pathname;
         </>
       ))}
     </nav>
-    <main class="main"><slot /></main>
+    <main id="content" class="main" tabindex="-1"><slot /></main>
     <aside class="toc">
       {toc.length > 0 && <h2>On this page</h2>}
       {toc.map(({ depth, slug, text }) => <a href={`#${slug}`} class={depth > 2 ? 'sub' : undefined}>{text}</a>)}
@@ -25,6 +28,12 @@ const path = Astro.url.pathname;
     // only while it moves or the pointer is over it.
     {
       const side = document.querySelector('.side');
+      const toggle = document.querySelector('.docs-menu-toggle');
+      toggle.addEventListener('click', () => {
+        const open = toggle.getAttribute('aria-expanded') !== 'true';
+        toggle.setAttribute('aria-expanded', String(open));
+        side.toggleAttribute('data-open', open);
+      });
       // Not scrollIntoView: that would move the page as well as the list.
       const current = side.querySelector('[aria-current]');
       if (current) side.scrollTop = current.offsetTop - side.clientHeight / 2;

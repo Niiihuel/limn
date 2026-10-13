@@ -1,0 +1,12 @@
+---
+import { getCollection } from 'astro:content';
+import Shell from '../../layouts/Shell.astro';
+import Icon from '../../components/Icon.astro';
+import { PATTERNS } from '../../data/site';
+import { lead } from '../../data/guide';
+const guides = new Map((await getCollection('components')).map((guide) => [guide.id, guide]));
+---
+<Shell title="Patterns" description="Native interface patterns composed from limn components.">
+  <header class="docs-heading"><p class="docs-breadcrumb">Documentation<span>/</span>Patterns</p><h1>Patterns</h1><p class="lead">Put the building blocks together. These guides show complete layouts and interactions built from several native types.</p></header>
+  <div class="docs-index">{PATTERNS.map(({ id, title }) => <a href={`/components/${id}/`}><div><h2>{title}</h2><p>{lead(guides.get(id)?.body)}</p></div><Icon name="arrow-right" /></a>)}</div>
+</Shell>

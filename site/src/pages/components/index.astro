@@ -1,31 +1,32 @@
 ---
 import { getCollection } from 'astro:content';
 import Shell from '../../layouts/Shell.astro';
+import Icon from '../../components/Icon.astro';
 import { COMPONENTS, groups } from '../../data/site';
 import { lead } from '../../data/guide';
 
 const guides = new Map((await getCollection('components')).map((guide) => [guide.id, guide]));
 const byGroup = groups(COMPONENTS);
-const side = [
-  { group: 'Components', items: [{ href: '/components/', label: 'All components' }] },
-  ...byGroup.map(({ group, items }) => ({ group, items: items.map(({ id, title }) => ({ href: `/components/${id}/`, label: title })) })),
-];
-const toc = byGroup.map(({ group }) => ({ depth: 2, slug: group.toLowerCase(), text: group }));
+const toc = byGroup.map(({ group }) => ({ depth: 2, slug: group.toLowerCase(), text: group === 'System' ? 'Primitives' : group }));
 ---
-<Shell title="Components" description="limn components and patterns, each with a guide and a live example." side={side} toc={toc}>
-  <div class="prose">
+<Shell title="Components" description="Native limn components, with usage guides and real Rust previews." toc={toc}>
+  <header class="docs-heading">
+    <p class="docs-breadcrumb">Documentation<span>/</span>Components</p>
     <h1>Components</h1>
-    <p class="lead">Browse components and the patterns that combine them, with live examples compiled to WebAssembly and guides naming the types to use. The <a href="/docs/components/">components table</a> lists every component with its options.</p>
+    <p class="lead">Native building blocks for your interface. Try the preview, copy the Rust usage, and find the options and actions in each guide.</p>
+    <p class="docs-muted">Set up <a href="/design-system/">the design system</a>, or explore <a href="/patterns/">composed patterns</a>.</p>
+  </header>
+  <div class="component-index">
     {byGroup.map(({ group, items }) => (
-      <>
-        <h2 id={group.toLowerCase()}>{group}</h2>
-        <ul class="list">
+      <section class="docs-section" aria-labelledby={group.toLowerCase()}>
+        <h2 id={group.toLowerCase()}>{group === 'System' ? 'Primitives' : group}<span class="section-count">{items.length}</span></h2>
+        <div class="docs-index">
           {items.map(({ id, title }) => {
             const about = lead(guides.get(id)?.body);
-            return <li><a href={`/components/${id}/`}>{title}</a>{about && ` - ${about}`}</li>;
+            return <a href={`/components/${id}/`}><div><h3>{title}</h3>{about && <p>{about}</p>}</div><Icon name="arrow-right" size={14} /></a>;
           })}
-        </ul>
-      </>
+        </div>
+      </section>
     ))}
   </div>
 </Shell>

@@ -2,30 +2,40 @@
 import { getEntry, render } from 'astro:content';
 import Shell from '../../layouts/Shell.astro';
 import Icon from '../../components/Icon.astro';
-import { COMPONENTS, REPO, groups } from '../../data/site';
+import Example from '../../components/Example.astro';
+import Moved from '../../components/Moved.astro';
+import { CATALOG, FOUNDATIONS, PATTERNS, REPO } from '../../data/site';
 import { lead } from '../../data/guide';
 
 export function getStaticPaths() {
-  return COMPONENTS.map((component) => ({ params: { id: component.id }, props: { component } }));
+  return CATALOG.map((component) => ({ params: { id: component.id }, props: { component } }));
 }
 
 const { component } = Astro.props;
+const foundation = FOUNDATIONS.find(({ page }) => page === component.id);
+const pattern = PATTERNS.some(({ id }) => id === component.id);
 // The guide, docs/components/<id>.md, if the component has one yet.
 const guide = await getEntry('components', component.id);
 const { Content, headings } = guide ? await render(guide) : { Content: null, headings: [] };
 const about = lead(guide?.body);
 const file = `crates/limn-gallery/src/pages/${component.source}.rs`;
-const side = [
-  { group: 'Components', items: [{ href: '/components/', label: 'All components' }] },
-  ...groups(COMPONENTS).map(({ group, items }) => ({ group, items: items.map(({ id, title }) => ({ href: `/components/${id}/`, label: title })) })),
-];
-const toc = [...headings.filter(({ depth }) => depth === 2 || depth === 3)];
+const usageSection = guide?.body.match(/## Usage\s*\n([\s\S]*?)(?=\n## |$)/)?.[1];
+const blocks = [...(guide?.body.matchAll(/```rust\s*\n([\s\S]*?)```/g) ?? [])].map((block) => block[1].trim());
+const code = usageSection?.match(/```rust\s*\n([\s\S]*?)```/)?.[1].trim() ?? blocks.find((block) => /\b(?:fn|let|const)\b|::new\(/.test(block)) ?? '';
+const toc = [{ depth: 2, slug: 'preview', text: 'Preview' }, ...headings.filter(({ depth }) => depth === 2 || depth === 3), { depth: 2, slug: 'api-reference', text: 'API reference' }];
 ---
-<Shell title={component.title} description={about || `${component.title}, a limn component.`} side={side} toc={toc}>
-  <h1>{component.title}</h1>
-  {about && <p class="lead">{about}</p>}
+{foundation ? <Moved href={`/design-system/${foundation.id}/`} title={foundation.title} /> : <Shell title={component.title} description={about || `${component.title}, a limn component.`} toc={toc}>
+  <header class="docs-heading">
+    <p class="docs-breadcrumb"><a href={pattern ? '/patterns/' : '/components/'}>{pattern ? 'Patterns' : 'Components'}</a><span>/</span>{component.group}</p>
+    <h1>{component.title}</h1>
+    {about && <p class="lead">{about}</p>}
+    <div class="docs-meta"><span>{pattern ? 'Composed pattern' : 'Native component'}</span><a href={`${REPO}/blob/main/docs/components/${component.id}.md`}>Guide source<Icon name="arrow-up-right" size={12} /></a></div>
+  </header>
 
-  <iframe class="live" id="example" title={`${component.title}, live`} data-page={component.id} style={`height:${component.group === 'Overlays' ? 420 : 200}px`}></iframe>
+  <section class="docs-section" aria-labelledby="preview">
+    <h2 id="preview">Preview</h2>
+    <Example page={component.id} title={component.title} code={code} codeSource={`${REPO}/blob/main/${code ? `docs/components/${component.id}.md` : file}`} height={component.group === 'Overlays' ? 420 : 240} />
+  </section>
 
   {Content ? (
     <article class="prose guide"><Content /></article>
@@ -38,5 +48,11 @@ const toc = [...headings.filter(({ depth }) => depth === 2 || depth === 3)];
       </p>
     </div>
   )}
+  <section class="docs-section prose" aria-labelledby="api-reference">
+    <h2 id="api-reference">API reference</h2>
+    <p>The guide covers composition, options and actions. Generate the complete Rust type and builder reference from the checkout:</p>
+    <pre><code>cargo doc -p limn --open</code></pre>
+    <p><a href="/docs/components/">Component API overview</a> · <a href="/docs/concepts/#who-owns-state">State and actions</a></p>
+  </section>
   <p class="source"><Icon name="code-slash" size={14} /> The example is drawn by <a href={`${REPO}/blob/main/${file}`}><code>{file}</code></a>.</p>
-</Shell>
+</Shell>}

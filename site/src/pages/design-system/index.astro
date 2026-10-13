@@ -1,0 +1,11 @@
+---
+import Shell from '../../layouts/Shell.astro';
+import Icon from '../../components/Icon.astro';
+import { FOUNDATIONS } from '../../data/site';
+const toc = [{ depth: 2, slug: 'foundations', text: 'Foundations' }, { depth: 2, slug: 'how-it-fits', text: 'How it fits together' }];
+---
+<Shell title="Design system" description="Colors, semantic roles, radius and motion in limn." toc={toc}>
+  <header class="docs-heading"><p class="docs-breadcrumb">Documentation<span>/</span>Design system</p><h1>Design system</h1><p class="lead">A small set of values gives a native interface its color, shape and pace. Start here before styling individual components.</p></header>
+  <section class="docs-section" aria-labelledby="foundations"><h2 id="foundations">Foundations</h2><div class="docs-index">{FOUNDATIONS.map(({ id, title, description }) => <a href={`/design-system/${id}/`}><div><h3>{title}</h3><p>{description}</p></div><Icon name="arrow-right" /></a>)}</div></section>
+  <section class="docs-section prose" aria-labelledby="how-it-fits"><h2 id="how-it-fits">How it fits together</h2><ol class="foundation-steps"><li><strong>Choose color.</strong> <code>Theme</code> derives a palette from three inputs. <code>Scheme</code> names explicit roles when your application chooses every value.</li><li><strong>Pass a palette.</strong> Components receive a <code>ComponentPalette</code>, so a document and a sidebar can use different palettes in one window.</li><li><strong>Set shape and pace.</strong> <code>Tokens</code> supplies radii and motion durations for the whole process.</li><li><strong>Build with components.</strong> Keep application state in the host and compose the elements into your screen.</li></ol><p><a href="/docs/layout/">Learn layout</a> · <a href="/components/text/">Typography</a> · <a href="/components/icon/">Iconography</a> · <a href="/components/">Browse components</a></p></section>
+</Shell>

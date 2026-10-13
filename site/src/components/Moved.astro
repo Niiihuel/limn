@@ -1,0 +1,15 @@
+---
+const { href, title } = Astro.props;
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title} · limn</title>
+    <link rel="canonical" href={href} />
+    <meta http-equiv="refresh" content={`0;url=${href}`} />
+    <script is:inline define:vars={{ href }}>location.replace(href + location.hash);</script>
+  </head>
+  <body><p>This guide has moved to <a href={href}>{title}</a>.</p></body>
+</html>
