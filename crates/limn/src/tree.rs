@@ -19,6 +19,9 @@ mod sticky_tests;
 #[cfg(test)]
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
+#[cfg(test)]
+#[path = "soft_focus_tests.rs"]
+mod soft_focus_tests;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -2321,6 +2324,7 @@ pub struct UiTree {
     modal_return_focus: Option<String>,
     pending_scroll_focus: Option<String>,
     pending_reveal: Option<(String, f32)>,
+    pending_center: Option<String>,
     hovered: Option<String>,
     pointer: Option<Point>,
     tooltip_hover_since: Option<(String, Instant)>,
@@ -2397,6 +2401,7 @@ impl UiTree {
             modal_return_focus: None,
             pending_scroll_focus: None,
             pending_reveal: None,
+            pending_center: None,
             hovered: None,
             pointer: None,
             tooltip_hover_since: None,
@@ -2903,6 +2908,16 @@ impl UiTree {
     pub fn reveal_with_margin(&mut self, id: &str, margin: f32) {
         let margin = if margin.is_finite() { margin.max(0.0) } else { REVEAL_MARGIN };
         self.pending_reveal = Some((id.to_owned(), margin));
+    }
+
+    /// Brings the control `id` to the middle of the scroll area that holds
+    /// it, on the next layout, travelling there by that area's scroll motion
+    /// or at once under reduced motion. For content that follows a clock,
+    /// such as the line being sung. Near either end of the content it goes
+    /// as far as the area scrolls. It does nothing when no control has that
+    /// ID, and focus does not move.
+    pub fn center(&mut self, id: &str) {
+        self.pending_center = Some(id.to_owned());
     }
 
     pub fn layout(&mut self, viewport: Size) -> Frame {
@@ -3765,6 +3780,13 @@ impl UiTree {
             if moved || self.pending_reveal.is_some() {
                 return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
             }
+        }
+        if let Some(target) = self.pending_center.take().and_then(|id| self.frame.scroll_focus_targets.get(&id)) {
+            // Where the control was laid out, in the content's own measure.
+            let place = target.rect.y + target.layout_offset;
+            let middle = target.viewport.y + ((target.viewport.height - target.rect.height) / 2.0).max(0.0);
+            let scroll_id = target.scroll_id.clone();
+            self.set_scroll_target(&scroll_id, place - middle, now, true);
         }
         if self.pressed.as_ref().is_some_and(|id| {
             !self
@@ -7512,6 +7534,35 @@ impl LayoutBuilder<'_> {
         state.value.value(self.now)
     }
 
+    /// Puts the text painted since `start` out of focus: each run becomes
+    /// copies of itself over a disc of the radius kept under `id`, one in
+    /// the middle, four half way out and eight on the rim, which together
+    /// weigh what the sharp run did.
+    fn soften(&mut self, id: &str, radius: f32, start: usize) {
+        const RINGS: [(usize, f32, f32); 3] = [(1, 0.0, 0.0), (4, 0.5, 0.125), (8, 1.0, 0.0)];
+        const TAPS: usize = 13;
+        let radius = self.spring(&format!("soft/{id}"), radius);
+        if radius < 0.05 {
+            return;
+        }
+        let sharp: Vec<DrawCommand> = self.frame.commands.drain(start..).collect();
+        for command in sharp {
+            let DrawCommand::Text { color, .. } = &command else {
+                self.frame.commands.push(command);
+                continue;
+            };
+            // Where every copy overlaps, the ink is nearly what it was.
+            let ink = f32::from(color.a) / 255.0;
+            let share = if ink > 0.0 { (1.0 - (1.0 - 0.95 * ink).powf(1.0 / TAPS as f32)) / ink } else { 0.0 };
+            for (count, reach, turn) in RINGS {
+                for tap in 0..count {
+                    let (sin, cos) = (std::f32::consts::TAU * (tap as f32 / count as f32 + turn)).sin_cos();
+                    self.frame.commands.push(command.moved(radius * reach * cos, radius * reach * sin, share));
+                }
+            }
+        }
+    }
+
     /// As `scalar`, on a spring that covers its way in one move: for a value
     /// that is followed, and redirected before it arrives.
     fn spring(&self, key: &str, target: f32) -> f32 {
@@ -7925,6 +7976,9 @@ impl LayoutBuilder<'_> {
             _ => self.place_inner(element, rect, clip),
         }
         self.region_hovered = around;
+        if let Some((id, radius)) = element.kept.as_ref().and_then(|kept| kept.soft.as_ref()) {
+            self.soften(id, *radius, start);
+        }
         match &element.presence {
             Some((id, _)) if reveal == HoverReveal::Revealed => {
                 self.reveal_on_hover(element, id, start)

@@ -502,6 +502,8 @@ pub(crate) enum HoverReveal {
 pub(crate) struct Kept {
     pub(crate) foreground: Option<String>,
     pub(crate) leaving: Option<String>,
+    /// The ID a soft focus is kept under, and its radius.
+    pub(crate) soft: Option<(String, f32)>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1109,6 +1111,17 @@ impl Element {
     /// over `move_ms`. For a text or an icon whose colour carries a state.
     pub fn animate_foreground(mut self, id: impl Into<String>) -> Self {
         self.kept.get_or_insert_default().foreground = Some(id.into());
+        self
+    }
+
+    /// Paint this element's text out of focus by `radius` logical pixels, the
+    /// way lines away from the one being read are held back. The radius is
+    /// kept under `id` and springs to a new one in one move, or changes at
+    /// once under reduced motion. Zero is sharp; a radius that is not finite
+    /// counts as zero and none goes over 8.
+    pub fn soft_focus(mut self, id: impl Into<String>, radius: f32) -> Self {
+        let radius = if radius.is_finite() { radius.clamp(0.0, 8.0) } else { 0.0 };
+        self.kept.get_or_insert_default().soft = Some((id.into(), radius));
         self
     }
 

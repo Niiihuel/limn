@@ -36,6 +36,7 @@ own content, and how to switch movement off.
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `Switch` | The thumb springs across. | | `move_ms` |
 | `Stepper` | The badge cross-fades between active and inactive. | | `move_ms` |
+| An element with `soft_focus` | Shown as given. | Its radius springs to a new one. | `move_ms` |
 | `DictationWaveform`, `Element::level_bars` | Shown as given. A bar springs to a new level, and a level that moves on to the next slot is followed there. | | `move_ms` |
 | Content of a `Collapse` | Takes its height at once, or with `.expand()` opens from zero and fades in. | The slot closes while the last paint fades, clipped to what is left. What follows moves with it. | a spring, one and a half `move_ms` |
 | Line of a `Ticker` | Rises into place from its own height below. | Moves up by the same distance and fades, clipped by the slot. | `move_ms` |
@@ -181,6 +182,18 @@ let percent = Element::text("88%").foreground(ink).animate_foreground("usage-ink
 
 When the colour given under the same ID changes, the ink cross-fades over
 `move_ms` instead of switching. For a text or an icon.
+
+### Text that is out of focus
+
+```rust
+let line = Element::text(&line.text).soft_focus(format!("line-{index}"), if sung { 0.0 } else { 2.0 });
+```
+
+The element's text is painted out of focus by that many logical pixels, the
+way lines away from the one being read are held back. The radius is kept under
+the ID and springs to a new one in one move; with reduced motion it changes
+at once. Zero is sharp. It is paint only: layout and the pointer see the
+text where it is.
 
 ### An element that replaces another
 
