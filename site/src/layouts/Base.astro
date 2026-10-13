@@ -2,6 +2,7 @@
 import '../styles/site.css';
 import '../styles/docs.css';
 import Icon from '../components/Icon.astro';
+import Search from '../components/Search.astro';
 import { REPO } from '../data/site';
 const { title, description = 'A native UI library for Rust.', variant = 'docs', bodyClass, canonical = Astro.url.pathname } = Astro.props;
 const path = Astro.url.pathname;
@@ -33,6 +34,7 @@ const nav = [
         {nav.map(([href, label, icon]) => <a href={href} data-nav={href} aria-current={path.startsWith(href) ? 'page' : undefined}><Icon name={icon} />{label}</a>)}
       </nav>
       <div class="end">
+        <Search />
         <a href={`${REPO}/blob/main/CHANGELOG.md`}><Icon name="journal-text" />Changelog</a>
         <a href={REPO}><Icon name="github" />GitHub</a>
         <button id="theme" type="button" aria-label="Switch between the light and the dark theme">

@@ -1,0 +1,84 @@
+---
+// The site's search: a palette over every page and every section of a
+// component, opened from the bar or with Ctrl+K.
+import Icon from './Icon.astro';
+---
+<button class="search-open" type="button" aria-haspopup="dialog" aria-keyshortcuts="Control+K Meta+K">
+  <Icon name="search" size={13} /><span>Search</span><kbd>Ctrl K</kbd>
+</button>
+<dialog class="search" aria-label="Search the site">
+  <div class="search-field">
+    <Icon name="search" size={15} />
+    <input type="text" placeholder="Search components and guides…" autocomplete="off" spellcheck="false" role="combobox" aria-expanded="true" aria-controls="search-results" aria-autocomplete="list" />
+  </div>
+  <ul id="search-results" role="listbox" aria-label="Results"></ul>
+  <p class="search-empty" hidden>Nothing by that name.</p>
+  <footer><span><kbd>↑</kbd><kbd>↓</kbd> Choose</span><span><kbd>Enter</kbd> Open</span><span><kbd>Esc</kbd> Close</span></footer>
+</dialog>
+<script is:inline>
+  {
+    const dialog = document.querySelector('dialog.search');
+    const input = dialog.querySelector('input');
+    const list = dialog.querySelector('ul');
+    const empty = dialog.querySelector('.search-empty');
+    let pages = null;
+    let shown = [];
+    let at = 0;
+    const mark = () => {
+      [...list.children].forEach((row, index) => row.setAttribute('aria-selected', String(index === at)));
+      list.children[at]?.scrollIntoView({ block: 'nearest' });
+      input.setAttribute('aria-activedescendant', list.children[at]?.id ?? '');
+    };
+    const fill = () => {
+      const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+      const has = (page) => words.every((word) => `${page.label} ${page.group}`.toLowerCase().includes(word));
+      // A name that starts with what was typed comes before one that only contains it.
+      const first = (page) => (words.length && page.label.toLowerCase().startsWith(words[0]) ? 0 : 1);
+      shown = (pages ?? []).filter(has).sort((a, b) => first(a) - first(b)).slice(0, 40);
+      list.replaceChildren(...shown.map((page, index) => {
+        const row = document.createElement('li');
+        row.id = `search-result-${index}`;
+        row.setAttribute('role', 'option');
+        const name = document.createElement('span');
+        name.textContent = page.label;
+        const group = document.createElement('small');
+        group.textContent = page.group;
+        row.append(name, group);
+        row.addEventListener('click', () => (location.href = page.href));
+        row.addEventListener('pointermove', () => { at = index; mark(); });
+        return row;
+      }));
+      empty.hidden = shown.length > 0 || pages === null;
+      at = 0;
+      mark();
+    };
+    const open = async () => {
+      if (dialog.open) return;
+      dialog.showModal();
+      input.value = '';
+      input.focus();
+      pages ??= await fetch('/search.json').then((response) => response.json()).catch(() => []);
+      fill();
+    };
+    document.querySelector('.search-open').addEventListener('click', open);
+    addEventListener('keydown', (event) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        open();
+      }
+    });
+    input.addEventListener('input', fill);
+    input.addEventListener('keydown', (event) => {
+      const step = { ArrowDown: 1, ArrowUp: -1 }[event.key];
+      if (step && shown.length) {
+        event.preventDefault();
+        at = (at + step + shown.length) % shown.length;
+        mark();
+      } else if (event.key === 'Enter' && shown[at]) {
+        location.href = shown[at].href;
+      }
+    });
+    // A click on the backdrop is a click on the dialog itself.
+    dialog.addEventListener('click', (event) => { if (event.target === dialog) dialog.close(); });
+  }
+</script>

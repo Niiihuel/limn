@@ -9,6 +9,8 @@ body.home .brand { font-size: 22px; font-weight: 700; letter-spacing: -.07em; }
 body.home .bar nav { gap: 24px; font-size: 13px; }
 body.home .bar nav svg, body.home #theme, body.home .bar .end a[href$="CHANGELOG.md"] { display: none; }
 body.home .bar .end a { color: var(--fg); padding: 7px 11px; border: 1px solid #2a2a2e; border-radius: 999px; font-size: 12px; }
+body.home .bar .search-open { border-color: #2a2a2e; border-radius: 999px; padding-left: 12px; font-size: 12px; }
+body.home .bar .search-open kbd { border-radius: 999px; }
 body.home .bar .end a:hover { background: var(--hover); }
 body.home > footer { max-width: 1208px; margin-inline: auto; padding: 28px 24px 44px; border: 0; color: #6d6d73; font-size: 12px; }
 body.home a:focus-visible, body.home button:focus-visible { outline: 2px solid #e9e9e9; outline-offset: 4px; }

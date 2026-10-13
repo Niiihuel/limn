@@ -1475,18 +1475,20 @@ impl Component for Kbd {
                 .chain(std::mem::take(&mut self.alternatives))
             {
                 if !parts.is_empty() {
-                    parts.push(Element::text("/").font_size(small).foreground(palette.muted));
+                    parts.push(Element::text("/").font_size(small).foreground(palette.muted).centered_y());
                 }
                 parts.push(
-                    Kbd { keys, menu: self.menu, ..Kbd::new("", palette) }.render(),
+                    Kbd { keys, menu: self.menu, ..Kbd::new("", palette) }.render().centered_y(),
                 );
             }
             if let Some(caption) = caption {
                 parts.push(
+                    // On the keycaps' middle line, not hung from their top.
                     Element::text(caption)
                         .font_family(FontFamily::Sans)
                         .font_size(small)
-                        .foreground(palette.muted),
+                        .foreground(palette.muted)
+                        .centered_y(),
                 );
             }
             // One pixel of air above and below the keycaps.

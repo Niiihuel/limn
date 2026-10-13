@@ -145,3 +145,21 @@ svg.bi { flex: none; vertical-align: -0.125em; }
 kbd { display: inline-block; min-width: 1.7em; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--card); color: var(--fg); font: 600 12px/1.5 var(--mono); text-align: center; white-space: nowrap; }
 /* Room between the rows of the list, so two hovers never touch. */
 .side a { margin: 2px 0; }
+
+/* Search: a palette over the site, opened with Ctrl+K. */
+.search-open kbd, dialog.search kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--hover); color: var(--fg); font: 11px/1 var(--sans); }
+.bar .search-open { display: inline-flex; align-items: center; gap: 8px; padding: 5px 6px 5px 10px; border: 1px solid var(--line); border-radius: 8px; color: var(--muted); font-size: 13px; }
+.bar .search-open span { margin-right: 18px; }
+dialog.search { width: min(560px, calc(100vw - 32px)); max-height: min(520px, 70vh); margin: 14vh auto auto; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--fg); overflow: hidden; box-shadow: 0 24px 80px #0009; }
+dialog.search[open] { display: flex; flex-direction: column; }
+dialog.search::backdrop { background: #0008; backdrop-filter: blur(3px); }
+.search-field { display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.search-field input { flex: 1; min-width: 0; height: 50px; border: 0; outline: 0; background: transparent; color: var(--fg); font: 15px var(--sans); }
+dialog.search ul { flex: 1; min-height: 0; margin: 0; padding: 6px; list-style: none; overflow-y: auto; }
+dialog.search li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 10px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+dialog.search li[aria-selected="true"] { background: var(--hover); }
+dialog.search li small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.search-empty { margin: 0; padding: 28px 16px; color: var(--muted); font-size: 14px; text-align: center; }
+dialog.search footer { display: flex; gap: 18px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+dialog.search footer span { display: inline-flex; align-items: center; gap: 5px; }
+@media (max-width: 760px) { .bar .search-open span, .bar .search-open kbd { display: none; } .bar .search-open { padding: 6px 8px; } }

@@ -3,6 +3,12 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## 0.1.40 — unreleased
+
+- Kbd: a caption and the slash between alternatives stand on the keycaps' middle line; they hung from the top
+- Gallery: one section or one variant of a page alone, as `&section=` and `&variant=` in its address, centered in what it is given
+- Documentation site: a new landing, every example of a component on a card of its own with its code, branches in the sidebar, a search opened with Ctrl+K, and no gallery page
+
 ## 0.1.39 — 2026-10-13
 
 The first release on crates.io.
