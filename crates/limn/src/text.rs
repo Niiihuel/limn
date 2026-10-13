@@ -48,11 +48,17 @@ impl Text {
     /// A size in pixels that is not on the scale, such as 10.5; the role
     /// still chooses the family. Values that are not finite and positive are
     /// ignored.
-    pub fn size(mut self, px: f32) -> Self {
+    pub fn font_size(mut self, px: f32) -> Self {
         if px.is_finite() && px > 0.0 {
             self.size = Some(px);
         }
         self
+    }
+
+    /// The former name of [`font_size`](Self::font_size).
+    #[deprecated(since = "0.1.39", note = "renamed to `font_size`: `size` is a control's size elsewhere")]
+    pub fn size(self, px: f32) -> Self {
+        self.font_size(px)
     }
 
     /// Paint in the palette's muted color, for secondary copy.
@@ -189,7 +195,7 @@ mod tests {
         );
         // A size off the scale replaces the role's and nothing else.
         same(
-            Text::new("Texto", palette).role(TextRole::Code).size(10.5).truncate().render(),
+            Text::new("Texto", palette).role(TextRole::Code).font_size(10.5).truncate().render(),
             Element::truncated_text("Texto")
                 .font_family(FontFamily::Monospace)
                 .font_size(10.5)
@@ -206,7 +212,7 @@ mod tests {
         let palette = ComponentPalette::neutral_dark();
         for bad in [f32::NAN, f32::INFINITY, -1.0] {
             same(
-                Text::new("Texto", palette).fade(bad).line_height(bad).size(bad).render(),
+                Text::new("Texto", palette).fade(bad).line_height(bad).font_size(bad).render(),
                 Text::new("Texto", palette).render(),
             );
         }

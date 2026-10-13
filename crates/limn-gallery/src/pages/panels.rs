@@ -1,6 +1,6 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    AlertColors, AlertTone, ButtonVariant, Component, ControlSize, Element, HeaderSizing, Icon, IconButton, ListRow, Pager,
+    AlertColors, AlertTone, ButtonVariant, Component, ControlSize, Element, PanelHeaderSizing, Icon, IconButton, ListRow, Pager,
     PagerSizing, PanelHeader, RadiusRole, ResizeHandle, SearchField, Separator, SidebarPanel, Text, TextField,
     TextRole, TooltipPlacement, TooltipSpec,
 };
@@ -49,14 +49,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(320.0);
     let profiles = [
-        ("SIDEBAR", HeaderSizing::SIDEBAR),
-        ("PANE", HeaderSizing::PANE),
-        ("CARD", HeaderSizing::CARD),
-        ("POPOVER", HeaderSizing::POPOVER),
+        ("SIDEBAR", PanelHeaderSizing::SIDEBAR),
+        ("PANE", PanelHeaderSizing::PANE),
+        ("CARD", PanelHeaderSizing::CARD),
+        ("POPOVER", PanelHeaderSizing::POPOVER),
     ];
     let mut headers = Vec::new();
     for (name, sizing) in profiles {
-        headers.push(caption(cx, &format!("HeaderSizing::{name}: {} px high", sizing.height)));
+        headers.push(caption(cx, &format!("PanelHeaderSizing::{name}: {} px high", sizing.height)));
         headers.push(framed(
             cx,
             width,
@@ -83,7 +83,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                         tool(cx, "panel-long-add", Icon::Add, "Add"),
                     ])
                     .dismiss("panel-dismiss", "Close")
-                    .sizing(HeaderSizing::CARD)
+                    .sizing(PanelHeaderSizing::CARD)
                     .render(),
             ),
             caption(cx, "Title only, and tools aligned to the top edge (center_tools: false):"),
@@ -93,7 +93,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 width,
                 PanelHeader::new("Debugging", palette)
                     .trailing(vec![tool(cx, "panel-top-refresh", Icon::Refresh, "Refresh")])
-                    .sizing(HeaderSizing { center_tools: false, ..HeaderSizing::SIDEBAR })
+                    .sizing(PanelHeaderSizing { center_tools: false, ..PanelHeaderSizing::SIDEBAR })
                     .render(),
             ),
         ]),
@@ -108,7 +108,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             )
                 .trailing(vec![tool(cx, "panel-field-more", Icon::More, "More actions")])
                 // A profile of the host's own: room for a 28 px field.
-                .sizing(HeaderSizing { height: 36.0, ..HeaderSizing::PANE })
+                .sizing(PanelHeaderSizing { height: 36.0, ..PanelHeaderSizing::PANE })
                 .render(),
         )]),
         section(cx, "Sidebar panel", vec![

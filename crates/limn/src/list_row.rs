@@ -11,7 +11,7 @@ const TITLE_FADE: f32 = 24.0;
 
 /// Density of a [`ListRow`], in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct RowSizing {
+pub struct ListRowSizing {
     /// Height of a row with a title alone; `None` follows the content.
     pub height: Option<f32>,
     /// Height of a row with a subtitle; `None` follows the content.
@@ -47,7 +47,12 @@ pub struct RowSizing {
     pub subtitle_height: Option<f32>,
 }
 
-impl RowSizing {
+
+/// The former name of [`ListRowSizing`].
+#[deprecated(since = "0.1.39", note = "renamed to `ListRowSizing`")]
+pub type RowSizing = ListRowSizing;
+
+impl ListRowSizing {
     /// A list in a panel or a popover: 28 high, 40 with a subtitle.
     pub const COMPACT: Self = Self {
         height: Some(28.0),
@@ -106,12 +111,12 @@ pub struct ListRow {
     radius: RadiusRole,
     width: Option<f32>,
     tooltip: Option<TooltipSpec>,
-    sizing: RowSizing,
+    sizing: ListRowSizing,
     palette: ComponentPalette,
 }
 
 impl ListRow {
-    /// A title alone, in the [`RowSizing::COMPACT`] profile.
+    /// A title alone, in the [`ListRowSizing::COMPACT`] profile.
     pub fn new(id: impl Into<String>, title: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -137,7 +142,7 @@ impl ListRow {
             radius: RadiusRole::Control,
             width: None,
             tooltip: None,
-            sizing: RowSizing::COMPACT,
+            sizing: ListRowSizing::COMPACT,
             palette,
         }
     }
@@ -295,8 +300,8 @@ impl ListRow {
         self
     }
 
-    /// The row's density. [`RowSizing::COMPACT`] unless set.
-    pub fn sizing(mut self, sizing: RowSizing) -> Self {
+    /// The row's density. [`ListRowSizing::COMPACT`] unless set.
+    pub fn sizing(mut self, sizing: ListRowSizing) -> Self {
         self.sizing = sizing;
         self
     }
@@ -587,7 +592,7 @@ mod tests {
 
     #[test]
     fn presets_take_their_heights_and_sizes_from_the_profile() {
-        for sizing in [RowSizing::COMPACT, RowSizing::DENSE] {
+        for sizing in [ListRowSizing::COMPACT, ListRowSizing::DENSE] {
             let one = ListRow::new("row", TITLE, palette()).icon(Icon::Code).sizing(sizing);
             let frame = tree_of(one.render()).layout(Size::new(320.0, 200.0));
             let row = region(&frame, "row");
@@ -673,7 +678,7 @@ mod tests {
 
     #[test]
     fn meta_shares_the_title_line_and_trailing_elements_end_the_row() {
-        let sizing = RowSizing::COMPACT;
+        let sizing = ListRowSizing::COMPACT;
         let row = ListRow::new("row", TITLE, palette())
             .icon(Icon::Code)
             .subtitle(WHY)
@@ -720,7 +725,7 @@ mod tests {
 
     #[test]
     fn the_profile_can_box_the_icon_and_the_leading_element_from_the_top() {
-        let sizing = RowSizing { height: Some(40.0), leading_height: Some(22.0), ..RowSizing::COMPACT };
+        let sizing = ListRowSizing { height: Some(40.0), leading_height: Some(22.0), ..ListRowSizing::COMPACT };
         let row = ListRow::new("row", TITLE, palette()).icon(Icon::Code).sizing(sizing);
         let frame = tree_of(row.render()).layout(Size::new(300.0, 120.0));
         let glyph = icons(&frame)[0].0;
@@ -742,7 +747,7 @@ mod tests {
         let bands = texts(&faded);
         // The whole line is painted in bands of falling opacity.
         assert!(bands.len() > 1 && bands.iter().all(|band| band.0 == TITLE));
-        assert!(bands.iter().all(|band| band.1 == bands[0].1 && band.2 == RowSizing::COMPACT.title_size));
+        assert!(bands.iter().all(|band| band.1 == bands[0].1 && band.2 == ListRowSizing::COMPACT.title_size));
         // With room to spare it is one plain line where the cut one is.
         let wide = |fade| {
             let row = ListRow::new("row", TITLE, palette()).title_fade(fade).render();
@@ -867,13 +872,13 @@ mod tests {
 
     #[test]
     fn line_boxes_stack_from_the_top_and_a_free_height_follows_them() {
-        let sizing = RowSizing {
+        let sizing = ListRowSizing {
             height: None,
             two_line_height: None,
             padding: 9.0,
             title_height: Some(18.0),
             subtitle_height: Some(16.0),
-            ..RowSizing::COMPACT
+            ..ListRowSizing::COMPACT
         };
         let two = ListRow::new("row", TITLE, palette()).icon(Icon::Search).subtitle(WHY).sizing(sizing);
         let frame = tree_of(two.render()).layout(Size::new(300.0, 200.0));
@@ -882,7 +887,7 @@ mod tests {
         assert!(lines[0].1.y > 9.0 && lines[0].1.y + 12.0 < 27.0);
         assert!(lines[1].1.y > 29.0 && lines[1].1.y + 11.0 < 45.0);
         // A boxed title alone stays at the top of a taller row.
-        let boxed = RowSizing { height: Some(40.0), padding: 4.0, ..sizing };
+        let boxed = ListRowSizing { height: Some(40.0), padding: 4.0, ..sizing };
         let frame = tree_of(ListRow::new("row", TITLE, palette()).sizing(boxed).render())
             .layout(Size::new(300.0, 200.0));
         assert!(texts(&frame)[0].1.y + 12.0 < 22.0);
@@ -893,13 +898,13 @@ mod tests {
         let row = ListRow::new("row", TITLE, palette()).width(f32::NAN).width(f32::INFINITY);
         assert_eq!(row.width, None);
         assert_eq!(ListRow::new("row", TITLE, palette()).width(-8.0).width, Some(0.0));
-        let sizing = RowSizing {
+        let sizing = ListRowSizing {
             height: Some(f32::NAN),
             two_line_height: Some(-10.0),
             padding: f32::NEG_INFINITY,
             gap: f32::NAN,
             icon_size: -4.0,
-            ..RowSizing::COMPACT
+            ..ListRowSizing::COMPACT
         };
         for subtitle in ["", WHY] {
             let row = ListRow::new("row", TITLE, palette()).icon(Icon::Code).subtitle(subtitle).sizing(sizing);

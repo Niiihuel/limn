@@ -34,10 +34,10 @@ dark or light.
 ## Color
 
 ```rust
-Link::new("more", "Show more", palette).color(palette.muted).render()
+Link::new("more", "Show more", palette).ink(palette.muted).render()
 ```
 
-`color` replaces the link ink with a color of the host's.
+`ink` replaces the link ink with a color of the host's.
 
 ## Size
 
@@ -53,7 +53,7 @@ Link::new("terms", "Terms", palette).font_size(11.0).render()
 Link::new("docs", "Read the documentation", palette).enabled(false).render()
 ```
 
-A disabled link is its label in the palette's muted, whatever its `color`,
+A disabled link is its label in the palette's muted, whatever its `ink`,
 in the same place. It takes no pointer or focus and reports nothing.
 
 ## Actions

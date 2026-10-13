@@ -6,7 +6,7 @@ tools after it, and optional back and close buttons at the ends.
 ## Import
 
 ```rust
-use limn::{Component, HeaderSizing, PanelHeader};
+use limn::{Component, PanelHeaderSizing, PanelHeader};
 ```
 
 ## Usage
@@ -79,7 +79,7 @@ PanelHeader::with_leading(
         .render(),
     palette,
 )
-    .sizing(HeaderSizing { height: 36.0, ..HeaderSizing::PANE })
+    .sizing(PanelHeaderSizing { height: 36.0, ..PanelHeaderSizing::PANE })
     .render()
 ```
 
@@ -90,19 +90,19 @@ not drawn.
 ## Sizing
 
 ```rust
-PanelHeader::new("Commit", palette).sizing(HeaderSizing::CARD).render()
+PanelHeader::new("Commit", palette).sizing(PanelHeaderSizing::CARD).render()
 ```
 
 | Profile | For | Height | Inset | Gap | Title |
 | --- | --- | --- | --- | --- | --- |
-| `HeaderSizing::SIDEBAR` | The heading of a sidebar; the default | 26 | 0 | 2 | `TextRole::Caption` |
-| `HeaderSizing::PANE` | The bar over a pane, as tall as a tab strip | 32 | 4 | 4 | `TextRole::Caption` |
-| `HeaderSizing::CARD` | The heading of a card | 28 | 2 | 4 | `TextRole::Body` |
-| `HeaderSizing::POPOVER` | The heading of a popover | 24 | 0 | 6 | `TextRole::Caption` |
+| `PanelHeaderSizing::SIDEBAR` | The heading of a sidebar; the default | 26 | 0 | 2 | `TextRole::Caption` |
+| `PanelHeaderSizing::PANE` | The bar over a pane, as tall as a tab strip | 32 | 4 | 4 | `TextRole::Caption` |
+| `PanelHeaderSizing::CARD` | The heading of a card | 28 | 2 | 4 | `TextRole::Body` |
+| `PanelHeaderSizing::POPOVER` | The heading of a popover | 24 | 0 | 6 | `TextRole::Caption` |
 
 The fields are `height`, `padding`, `gap`, `title_role` and `center_tools`.
 Every profile centers the tools in the header's height;
-`HeaderSizing { center_tools: false, ..HeaderSizing::SIDEBAR }` hangs them
+`PanelHeaderSizing { center_tools: false, ..PanelHeaderSizing::SIDEBAR }` hangs them
 from the top inset instead.
 
 ## Width

@@ -238,7 +238,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         ]),
         section(cx, "Links", vec![row(vec![
             Link::new("nav-link", "View documentation", palette).render(),
-            Link::new("nav-link-muted", "Custom color", palette).color(palette.muted).render(),
+            Link::new("nav-link-muted", "Custom color", palette).ink(palette.muted).render(),
         ])]),
         section(cx, "Path", vec![Breadcrumb::new(
             "nav-path",

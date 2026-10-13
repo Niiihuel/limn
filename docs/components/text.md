@@ -40,10 +40,10 @@ Text::new("Projects", palette).role(TextRole::Heading).render()
 ## A size off the scale
 
 ```rust
-Text::new("42", palette).mono().size(10.5).render()
+Text::new("42", palette).mono().font_size(10.5).render()
 ```
 
-`size(px)` is for a step the host's design has between two roles. The role
+`font_size(px)` is for a step the host's design has between two roles. The role
 still chooses the family. Prefer a role.
 
 ## Ink and family
@@ -93,7 +93,7 @@ provides; a host without one paints `Sans`.
 ## Out of focus
 
 ```rust
-Text::new(line, palette).size(20.0).render().soft_focus("lyric:3", 2.0)
+Text::new(line, palette).font_size(20.0).render().soft_focus("lyric:3", 2.0)
 ```
 
 `soft_focus(id, radius)` is a method of the rendered element. It paints the

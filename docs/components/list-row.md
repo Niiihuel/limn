@@ -6,7 +6,7 @@ at its trailing edge, all under one hover surface.
 ## Import
 
 ```rust
-use limn::{Component, DiffStat, Icon, ListRow, RadiusRole, RowSizing, TooltipSpec};
+use limn::{Component, DiffStat, Icon, ListRow, RadiusRole, ListRowSizing, TooltipSpec};
 ```
 
 ## Usage
@@ -146,11 +146,11 @@ width instead of the width the row has left.
 ## Sizing
 
 ```rust
-ListRow::new("frame", "render", palette).sizing(RowSizing::DENSE).render()
+ListRow::new("frame", "render", palette).sizing(ListRowSizing::DENSE).render()
 ```
 
-`RowSizing::COMPACT`, the default, is 28 high, or 40 with a subtitle.
-`RowSizing::DENSE` is 24 and 36, for a long list of short entries. `RowSizing`
+`ListRowSizing::COMPACT`, the default, is 28 high, or 40 with a subtitle.
+`ListRowSizing::DENSE` is 24 and 36, for a long list of short entries. `ListRowSizing`
 is a struct of the heights, padding, gaps, column widths and font sizes, so a
 host can write a profile of its own; a `None` height follows the content.
 
