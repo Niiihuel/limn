@@ -18,7 +18,7 @@ fn swatch(cx: &Cx, name: &str, color: Color) -> Element {
 /// presses with that palette's own colors.
 fn sample(cx: &Cx, id: &str, name: &str, note: &str, palette: ComponentPalette) -> Element {
     let action = palette.interactive_surface(
-        Element::button(format!("scheme-{id}"), "Acción")
+        Element::button(format!("scheme-{id}"), "Action")
             .font_family(FontFamily::Sans)
             .foreground(palette.text),
     );
@@ -58,8 +58,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         Element::column(rows).gap(10.0)
     };
     vec![
-        caption(cx, "Un Scheme nombra cada color por su papel. Ningún componente lo recibe: sólo produce paletas.").into(),
-        section(cx, "Papeles", vec![wrap(vec![
+        caption(cx, "A Scheme names each color by its role. Components do not receive it directly: it only produces palettes.").into(),
+        section(cx, "Roles", vec![wrap(vec![
             swatch(cx, "canvas", scheme.canvas),
             swatch(cx, "panel", scheme.panel),
             swatch(cx, "raised", scheme.raised),
@@ -77,19 +77,19 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             swatch(cx, "control.pressed", scheme.control.pressed),
             swatch(cx, "control.border", scheme.control.border),
         ], 192.0)]),
-        section(cx, "Paletas", vec![wrap(vec![
-            sample(cx, "palette", "palette()", "Sobre el lienzo.", scheme.palette()),
-            sample(cx, "card", "card()", "Contenido sobre una tarjeta.", scheme.card()),
-            sample(cx, "menu", "menu()", "Un menú flotante.", scheme.menu()),
-            sample(cx, "on-raised", "on_raised()", "Un control relleno sobre una tarjeta.", scheme.on_raised()),
+        section(cx, "Palettes", vec![wrap(vec![
+            sample(cx, "palette", "palette()", "On the canvas.", scheme.palette()),
+            sample(cx, "card", "card()", "Content on a card.", scheme.card()),
+            sample(cx, "menu", "menu()", "A floating menu.", scheme.menu()),
+            sample(cx, "on-raised", "on_raised()", "A filled control on a card.", scheme.on_raised()),
         ], 260.0)]),
-        section(cx, "Superficie de una acción", vec![
+        section(cx, "Action surface", vec![
             row(vec![
                 on(scheme, "flat", "Flat", Surface::Flat(scheme.canvas), scheme.text),
                 on(scheme, "raised", "Raised", Surface::Raised(scheme.raised), scheme.text),
                 on(scheme, "solid", "Solid", Surface::Solid(theme.accent_surface_strong()), scheme.text),
             ]),
-            caption(cx, "Flat usa el hover del esquema, Raised da un paso desde su propio color y Solid se mantiene."),
+            caption(cx, "Flat uses the scheme's hover color, Raised steps from its own color and Solid stays unchanged."),
             row(vec![
                 swatch(cx, "raised", scheme.raised),
                 swatch(cx, "step(raised)", scheme.step(scheme.raised)),

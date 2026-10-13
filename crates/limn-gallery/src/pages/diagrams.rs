@@ -2,83 +2,83 @@ use super::{caption, section, Cx, Section};
 use limn::{Diagram, Element, Markdown, RadiusRole};
 
 const DOWN: &str = "flowchart TD
-    A[Se inicializa la demo] --> B[workspace-preview.js prepara la experiencia]
-    B --> C[workspace-dock.js gestiona paneles y pestañas]
-    C --> D[Archivos, vistas y terminales de ejemplo]
-    A --> E[Recorrido guiado automático o interacción manual]
-    E --> F[El usuario explora una solicitud preparada]
-    F --> G[Recorre planificación, aprobaciones y resultado de ejemplo]
-    D --> H[El usuario cambia archivos o vistas del ejemplo]
-    G --> I[La experiencia muestra un resultado simulado]
+    A[The demo initializes] --> B[workspace-preview.js prepares the experience]
+    B --> C[workspace-dock.js manages panels and tabs]
+    C --> D[Sample files, views and terminals]
+    A --> E[Automatic guided tour or manual interaction]
+    E --> F[The user explores a prepared request]
+    F --> G[Walks through planning, approvals and a sample result]
+    D --> H[The user changes sample files or views]
+    G --> I[The experience shows a simulated result]
     H --> I";
 
 const RIGHT: &str = "flowchart LR
-    A[Contenido en docs/sections/] --> B[docs/content.js organiza guías y navegación]
+    A[Content in docs/sections/] --> B[docs/content.js organizes guides and navigation]
     B --> C[scripts/build-docs.mjs]
-    C --> D[Genera páginas HTML estáticas]
-    C --> E[Genera índice de búsqueda local]
-    D --> F[Salida dentro de dist/]
+    C --> D[Generates static HTML pages]
+    C --> E[Generates a local search index]
+    D --> F[Output inside dist/]
     E --> F
-    F --> G[El navegador muestra la documentación]";
+    F --> G[The browser shows the documentation]";
 
 const SHAPES: &str = "flowchart TD
-    start([Inicio]) --> check{¿Hay cambios?}
-    check -->|Sí| build[Compilar]
-    check -->|No| done((Fin))
-    subgraph Verificación
-        build -.-> test(Probar)
+    start([Start]) --> check{Are there changes?}
+    check -->|Yes| build[Build]
+    check -->|No| done((End))
+    subgraph Verificación[Verification]
+        build -.-> test(Test)
     end
-    test ==>|pasa| done
-    test -- falla --> check";
+    test ==>|pass| done
+    test -- fail --> check";
 
 const PURCHASE: &str = "sequenceDiagram
     autonumber
-    actor C as Cliente
-    participant W as Tienda web
-    participant P as Pagos
-    participant D as Depósito
-    C->>W: Confirma el carrito
-    W->>+P: Cobra el total
-    Note right of P: Valida la tarjeta<br/>con el banco
-    alt Pago aprobado
-        P-->>W: Aprobado
-        W->>D: Reserva los productos
-        loop Por cada producto
-            D->>D: Descuenta del stock
+    actor C as Customer
+    participant W as Web store
+    participant P as Payments
+    participant D as Warehouse
+    C->>W: Confirms the cart
+    W->>+P: Charges the total
+    Note right of P: Validates the card<br/>with the bank
+    alt Payment approved
+        P-->>W: Approved
+        W->>D: Reserves the products
+        loop For each product
+            D->>D: Deducts from stock
         end
-        D-->>W: Reserva confirmada
-    else Pago rechazado
-        P-->>-W: Rechazado
-        W-->>C: Pide otro medio de pago
+        D-->>W: Reservation confirmed
+    else Payment declined
+        P-->>-W: Declined
+        W-->>C: Requests another payment method
     end
-    opt El cliente dejó su correo
-        W-)C: Envía el comprobante
+    opt The customer provided an email
+        W-)C: Sends the receipt
     end";
 
 const TURN: &str = "sequenceDiagram
-    title Un turno del agente
-    participant V as Ventana
-    participant M as Motor
-    participant H as Herramientas
-    V->>+M: Inicia el turno
-    Note over V,M: La ventana solo dibuja
-    par Lectura
+    title An agent turn
+    participant V as Window
+    participant M as Engine
+    participant H as Tools
+    V->>+M: Starts the turn
+    Note over V,M: The window only renders
+    par Reading
         M->>+H: read_file
-        H-->>-M: Contenido
-    and Búsqueda
+        H-->>-M: Content
+    and Search
         M->>+H: grep
-        H-->>-M: Coincidencias
+        H-->>-M: Matches
     end
-    critical Guardar la sesión
-        M->>M: Escribe el registro
-    option Disco lleno
-        M--xV: Avisa del error
+    critical Save the session
+        M->>M: Writes the log
+    option Disk full
+        M--xV: Reports the error
     end
-    break Si el usuario cancela
-        V-xM: Cancela el turno
+    break If the user cancels
+        V-xM: Cancels the turn
     end
     rect rgb(0, 0, 0)
-        M-->>-V: Turno terminado
+        M-->>-V: Turn finished
     end";
 
 fn chart(cx: &Cx, id: &str, source: &str) -> Element {
@@ -95,32 +95,32 @@ fn chart(cx: &Cx, id: &str, source: &str) -> Element {
 
 pub fn view(cx: &Cx) -> Vec<Section> {
     let fence = format!(
-        "Un bloque `mermaid` cerrado se dibuja:\n\n```mermaid\n{RIGHT}\n```\n\nTambién una secuencia:\n\n\
-         ```mermaid\nsequenceDiagram\n    Editor->>Vista previa: Cambia el texto\n    Vista previa-->>Editor: Se redibuja\n```\n"
+        "A closed `mermaid` block is rendered:\n\n```mermaid\n{RIGHT}\n```\n\nA sequence too:\n\n\
+         ```mermaid\nsequenceDiagram\n    participant Editor\n    participant Vista previa as Preview\n    Editor->>Vista previa: Changes the text\n    Vista previa-->>Editor: Redraws\n```\n"
     );
     vec![
-        section(cx, "De arriba abajo", vec![
-            caption(cx, "Flowchart::parse(fuente, palette)?.scrollable(id): rangos por camino más largo"),
+        section(cx, "Top to bottom", vec![
+            caption(cx, "Flowchart::parse(source, palette)?.scrollable(id): ranks by longest path"),
             chart(cx, "diagram-down", DOWN),
         ]),
-        section(cx, "De izquierda a derecha", vec![
-            caption(cx, "Más ancho que su contenedor se desplaza en horizontal"),
+        section(cx, "Left to right", vec![
+            caption(cx, "A chart wider than its container scrolls horizontally"),
             chart(cx, "diagram-right", RIGHT),
         ]),
-        section(cx, "Formas, etiquetas y grupos", vec![
-            caption(cx, "Estadio, decisión, círculo, redondeado; líneas punteada y gruesa; un ciclo"),
+        section(cx, "Shapes, labels and groups", vec![
+            caption(cx, "Stadium, decision, circle, rounded; dotted and thick lines; a cycle"),
             chart(cx, "diagram-shapes", SHAPES),
         ]),
-        section(cx, "Secuencia", vec![
-            caption(cx, "SequenceDiagram::parse(fuente, palette)?.scrollable(id): una línea de vida por participante"),
+        section(cx, "Sequence", vec![
+            caption(cx, "SequenceDiagram::parse(source, palette)?.scrollable(id): one lifeline per participant"),
             chart(cx, "diagram-sequence", PURCHASE),
         ]),
-        section(cx, "Secuencia: bloques, notas y finales de flecha", vec![
-            caption(cx, "par, critical y break; cruz y flecha abierta; un mensaje a sí mismo; rect como zona resaltada"),
+        section(cx, "Sequence: blocks, notes and arrowheads", vec![
+            caption(cx, "par, critical and break; cross and open arrow; a self-message; rect as a highlighted region"),
             chart(cx, "diagram-sequence-blocks", TURN),
         ]),
-        section(cx, "Dentro de Markdown", vec![
-            caption(cx, "Lo que no se entiende, o sigue abierto, queda como bloque de código"),
+        section(cx, "Inside Markdown", vec![
+            caption(cx, "Unsupported or unfinished diagrams remain code blocks"),
             Markdown::new(&fence, cx.palette).width(cx.width.min(560.0)).render().element,
         ]),
     ]

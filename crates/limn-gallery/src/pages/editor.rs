@@ -15,19 +15,19 @@ const SPEECH: [f32; 24] = [
 
 fn find_labels() -> FindLabels {
     FindLabels {
-        query: "Buscar en el archivo".into(),
-        replacement: "Reemplazar por".into(),
-        case: "Distinguir mayúsculas y minúsculas".into(),
-        word: "Sólo palabras completas".into(),
-        regex: "Expresión regular".into(),
-        in_selection: "Buscar dentro de la selección".into(),
-        toggle_replace: "Mostrar u ocultar reemplazo".into(),
-        previous: "Coincidencia anterior".into(),
-        next: "Coincidencia siguiente".into(),
-        dismiss: "Cerrar búsqueda".into(),
-        replace_one: "Reemplazar coincidencia".into(),
-        replace_all: "Reemplazar todas las coincidencias".into(),
-        count: "Coincidencia actual / total".into(),
+        query: "Find in file".into(),
+        replacement: "Replace with".into(),
+        case: "Match case".into(),
+        word: "Whole words only".into(),
+        regex: "Regular expression".into(),
+        in_selection: "Find in selection".into(),
+        toggle_replace: "Show or hide replacement".into(),
+        previous: "Previous match".into(),
+        next: "Next match".into(),
+        dismiss: "Close search".into(),
+        replace_one: "Replace match".into(),
+        replace_all: "Replace all matches".into(),
+        count: "Current match / total".into(),
         ..FindLabels::default()
     }
 }
@@ -66,7 +66,7 @@ fn find_bar(cx: &Cx, width: f32) -> Element {
         .has_matches(found)
         .has_current(found)
         .no_matches(!query.is_empty() && !found)
-        .error((regex && query.contains('(') && !query.contains(')')).then_some("Paréntesis sin cerrar en la expresión"))
+        .error((regex && query.contains('(') && !query.contains(')')).then_some("Unclosed parenthesis in the expression"))
         .ink(DANGER)
         .width(width)
         .render()
@@ -112,7 +112,7 @@ fn composer(cx: &Cx, width: f32) -> Element {
         trailing.insert(0, DictationWaveform::new("editor-composer-levels", levels, palette).size(ControlSize::Compact).width(48.0).render());
     }
     let trailing = Element::row(trailing).gap(4.0);
-    Composer::new("editor-composer", cx.state.text("editor-composer"), "Describe una tarea", width, palette)
+    Composer::new("editor-composer", cx.state.text("editor-composer"), "Describe a task", width, palette)
         .pill_controls(tool("editor-composer-add", Icon::Add), trailing)
         .auto_grow(28.0, 120.0)
         .header_strip(strip, ComponentPalette { surface: palette.raised, ..palette })
@@ -144,23 +144,23 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     vec![
         section(
             cx,
-            "Buscar y reemplazar",
+            "Find and replace",
             vec![
-                caption(cx, "La app busca; la barra muestra la consulta, las opciones y el recuento. «zzz» no encuentra nada."),
+                caption(cx, "The app searches; the bar shows the query, options and count. “zzz” finds nothing."),
                 row(widths),
                 row(vec![find_bar(cx, width.min(cx.width))]),
-                caption(cx, "Por debajo de 480, o con el reemplazo abierto, las opciones bajan a su propia fila."),
+                caption(cx, "Below 480 px, or with replacement open, the options move to their own row."),
             ],
         ),
         section(
             cx,
-            "Ruta de un archivo",
+            "File path",
             vec![
-                caption(cx, "Pasiva: sólo muestra dónde está el archivo."),
+                caption(cx, "Passive: only shows where the file is."),
                 Breadcrumb::from_path("editor-path", PATH, palette).width(crumb_width).render(),
-                caption(cx, "Con cambios sin guardar y con las acciones que da la app a cada segmento."),
+                caption(cx, "With unsaved changes and actions supplied by the app for each segment."),
                 linked("editor-path-dirty", true).render(),
-                caption(cx, "Un símbolo del archivo, añadido tras la ruta."),
+                caption(cx, "A symbol from the file, added after the path."),
                 linked("editor-path-symbol", false)
                     .item(BreadcrumbItem::new("render").action("editor-path-symbol-render"))
                     .render(),
@@ -168,11 +168,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         ),
         section(
             cx,
-            "Compositor con franja superior",
+            "Composer with header strip",
             vec![
-                caption(cx, "La franja lleva los metadatos del mensaje, unida al borde superior de la tarjeta."),
+                caption(cx, "The strip holds message metadata, attached to the card’s top edge."),
                 row(vec![composer(cx, cx.width.min(480.0))]),
-                caption(cx, "El micrófono del compositor avanza con cada clic: en reposo, iniciando, escuchando, transcribiendo."),
+                caption(cx, "The composer microphone advances with each click: idle, starting, listening, transcribing."),
                 row(vec![
                     DictationButton::new("editor-dictation-idle", DictationState::Idle, palette).render(),
                     DictationButton::new("editor-dictation-starting", DictationState::Starting, palette).render(),
@@ -184,7 +184,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                         .enabled(false)
                         .render(),
                 ]),
-                caption(cx, "DictationButton: reposo, iniciando, escuchando, escuchando con la paleta de la app, y sin dictado disponible."),
+                caption(cx, "DictationButton: idle, starting, listening, listening with the app palette, and dictation unavailable."),
                 row(vec![
                     DictationWaveform::new(
                         "editor-waveform",
@@ -196,31 +196,31 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                         palette,
                     )
                     .render(),
-                    Button::new("editor-levels=silence", "Silencio", palette).variant(ButtonVariant::Outline).render(),
-                    Button::new("editor-levels=speech", "Voz", palette).variant(ButtonVariant::Outline).render(),
-                    Button::new("editor-levels=loud", "Tope", palette).variant(ButtonVariant::Outline).render(),
+                    Button::new("editor-levels=silence", "Silence", palette).variant(ButtonVariant::Outline).render(),
+                    Button::new("editor-levels=speech", "Speech", palette).variant(ButtonVariant::Outline).render(),
+                    Button::new("editor-levels=loud", "Maximum", palette).variant(ButtonVariant::Outline).render(),
                 ]),
-                caption(cx, "DictationWaveform: el nivel del micrófono, lo más nuevo al final. El silencio son puntos, y cada barra va a su nivel con un resorte."),
+                caption(cx, "DictationWaveform: microphone levels, newest at the end. Silence appears as dots, and each bar moves to its level with a spring."),
             ],
         ),
         section(
             cx,
-            "Tinta de estado",
+            "Status ink",
             vec![
-                caption(cx, "Un marcador y un plegable con el color de fallo de la app en su texto secundario."),
-                Marker::new("editor-marker", "Respuesta recibida", palette).icon(Icon::Check).render(),
-                Marker::new("editor-marker-failed", "Solicitud al modelo fallida", palette)
+                caption(cx, "A marker and a collapsible with the app’s error color in their secondary text."),
+                Marker::new("editor-marker", "Response received", palette).icon(Icon::Check).render(),
+                Marker::new("editor-marker-failed", "Model request failed", palette)
                     .icon(Icon::Code)
                     .ink(DANGER)
                     .render(),
                 Collapsible::new(
                     "editor-collapsible-failed",
-                    "Exploración · 5",
-                    caption(cx, "crates/limn/src/missing.rs: no existe"),
+                    "Exploration · 5",
+                    caption(cx, "crates/limn/src/missing.rs: does not exist"),
                     palette,
                 )
                 .icon(Icon::Search)
-                .detail("3 lecturas · 2 fallidas")
+                .detail("3 reads · 2 failed")
                 .ink(DANGER)
                 .expanded(state.flag("editor-collapsible-failed"))
                 .render(),

@@ -61,25 +61,25 @@ fn controls(cx: &Cx) -> Element {
     let palette = cx.palette;
     let position = titled(
         cx,
-        "Posición",
+        "Position",
         vec![
             slider(cx, "glass-x", "Horizontal", DEFAULT_X, 100.0),
             slider(cx, "glass-y", "Vertical", DEFAULT_Y, 100.0),
-            Button::new("glass-x=0.5&glass-y=0.25", "Restablecer posición", palette)
+            Button::new("glass-x=0.5&glass-y=0.25", "Reset position", palette)
                 .variant(ButtonVariant::Outline)
                 .render(),
-            toggle(cx, "glass-compact", "Barra compacta"),
+            toggle(cx, "glass-compact", "Compact bar"),
         ],
     )
     .size(Some(column_width), None);
 
     let scenes = [
-        ("amber", "Ámbar"),
-        ("ocean", "Océano"),
-        ("grid", "Líneas"),
-        ("checker", "Cuadros"),
-        ("rings", "Anillos"),
-        ("content", "Contenido"),
+        ("amber", "Amber"),
+        ("ocean", "Ocean"),
+        ("grid", "Lines"),
+        ("checker", "Checkerboard"),
+        ("rings", "Rings"),
+        ("content", "Content"),
     ];
     let scene_columns = if column_width < 280.0 { 2 } else { 3 };
     let scene_width = (column_width - (scene_columns - 1) as f32 * 8.0) / scene_columns as f32;
@@ -111,24 +111,24 @@ fn controls(cx: &Cx) -> Element {
                 } else {
                     "glass-animate=on"
                 }),
-            caption(cx, "Animar el fondo"),
+            caption(cx, "Animate background"),
         ])
         .gap(12.0),
     );
-    backgrounds.push(slider(cx, "glass-speed", "Velocidad", 0.5, 100.0));
-    let backgrounds = titled(cx, "Fondo", backgrounds).size(Some(column_width), None);
+    backgrounds.push(slider(cx, "glass-speed", "Speed", 0.5, 100.0));
+    let backgrounds = titled(cx, "Background", backgrounds).size(Some(column_width), None);
 
     let mut material: Vec<_> = [
-        ("glass-blur", "Desenfoque", 0.125, 64.0),
-        ("glass-refraction", "Refracción", 1.0, 32.0),
-        ("glass-dispersion", "Dispersión", 0.2, 2.0),
-        ("glass-tint", "Tinte", 0.6, 100.0),
+        ("glass-blur", "Blur", 0.125, 64.0),
+        ("glass-refraction", "Refraction", 1.0, 32.0),
+        ("glass-dispersion", "Dispersion", 0.2, 2.0),
+        ("glass-tint", "Tint", 0.6, 100.0),
     ]
     .into_iter()
     .map(|(id, label, default, maximum)| slider(cx, id, label, default, maximum))
     .collect();
-    material.push(toggle(cx, "glass-opaque", "Superficie opaca"));
-    material.push(toggle(cx, "tokens-reduced", "Movimiento reducido"));
+    material.push(toggle(cx, "glass-opaque", "Opaque surface"));
+    material.push(toggle(cx, "tokens-reduced", "Reduced motion"));
     let material = titled(cx, "Material", material).size(Some(column_width), None);
     match columns {
         3 => Element::row(vec![position, backgrounds, material]).gap(20.0),
@@ -159,24 +159,24 @@ fn detail(cx: &Cx, width: f32) -> Option<Element> {
     let panel = cx.state.choice("glass-panel", "none");
     let (title, message) = match panel {
         "calendar" => (
-            "Martes, 13 de octubre",
-            "11:06 · Tu próximo evento, a las 14:30.",
+            "Tuesday, October 13",
+            "11:06 · Your next event is at 14:30.",
         ),
-        "weather" => ("Córdoba · 15°", "Parcialmente nublado · Máxima de 22°."),
-        "network" => ("Conectividad", "Wi-Fi conectado · Bluetooth disponible."),
+        "weather" => ("Córdoba · 15°", "Partly cloudy · High of 22°."),
+        "network" => ("Connectivity", "Wi-Fi connected · Bluetooth available."),
         "battery" => (
-            "Batería · 100%",
-            "Conectada a la corriente · Carga completa.",
+            "Battery · 100%",
+            "Plugged in · Fully charged.",
         ),
-        "notifications" => ("Notificaciones", "Tenés dos notificaciones sin leer."),
-        "audio" => ("Mezclador", "Salida: parlantes · Volumen: 65%."),
-        "system" => ("Sistema", "CPU 12% · Memoria 6.4 / 32 GB."),
-        "containers" => ("Contenedores", "Dos servicios activos en el entorno local."),
-        "recorder" => ("Grabación", "Lista para grabar una región de la pantalla."),
-        "settings" => ("Ajustes", "Probá el material con los controles de abajo."),
+        "notifications" => ("Notifications", "You have two unread notifications."),
+        "audio" => ("Mixer", "Output: speakers · Volume: 65%."),
+        "system" => ("System", "CPU 12% · Memory 6.4 / 32 GB."),
+        "containers" => ("Containers", "Two active services in the local environment."),
+        "recorder" => ("Recording", "Ready to record a region of the screen."),
+        "settings" => ("Settings", "Try the material with the controls below."),
         "power" => (
-            "Sesión",
-            "Vista de prueba: no se ejecutan acciones del sistema.",
+            "Session",
+            "Demo view: system actions are not executed.",
         ),
         _ => return None,
     };
@@ -190,7 +190,7 @@ fn detail(cx: &Cx, width: f32) -> Option<Element> {
                     .font_family(FontFamily::Sans)
                     .foreground(palette.text)
                     .flex(1.0),
-                Button::new("glass-panel=none", "Cerrar", palette)
+                Button::new("glass-panel=none", "Close", palette)
                     .variant(ButtonVariant::Ghost)
                     .render(),
             ]),
@@ -217,16 +217,16 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let selected = cx.state.choice("glass-workspace", "5");
     let panel = cx.state.choice("glass-panel", "none");
     let actions = [
-        ("weather", Icon::Custom(CLOUD), "Clima", "15°"),
-        ("network", Icon::Custom(WIFI), "Conectividad", ""),
-        ("battery", Icon::Custom(BATTERY), "Batería", "100%"),
-        ("notifications", Icon::Bell, "Notificaciones", ""),
-        ("audio", Icon::Sliders, "Mezclador", ""),
-        ("system", Icon::Laptop, "Sistema", ""),
-        ("containers", Icon::Server, "Contenedores", ""),
-        ("recorder", Icon::Video, "Grabación", ""),
-        ("settings", Icon::Settings, "Ajustes", ""),
-        ("power", Icon::Custom(POWER), "Sesión", ""),
+        ("weather", Icon::Custom(CLOUD), "Weather", "15°"),
+        ("network", Icon::Custom(WIFI), "Connectivity", ""),
+        ("battery", Icon::Custom(BATTERY), "Battery", "100%"),
+        ("notifications", Icon::Bell, "Notifications", ""),
+        ("audio", Icon::Sliders, "Mixer", ""),
+        ("system", Icon::Laptop, "System", ""),
+        ("containers", Icon::Server, "Containers", ""),
+        ("recorder", Icon::Video, "Recording", ""),
+        ("settings", Icon::Settings, "Settings", ""),
+        ("power", Icon::Custom(POWER), "Session", ""),
     ]
     .into_iter()
     .map(|(key, icon, label, value)| {
@@ -241,14 +241,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .map(|number| {
                     NavigationWorkspace::new(
                         format!("glass-workspace={number}"),
-                        format!("Espacio {number}"),
+                        format!("Workspace {number}"),
                     )
                     .selected(selected == number.to_string())
                     .occupied(number == 1 || number == 3)
                 })
                 .collect(),
         )
-        .clock("11:06:46", "MAR 13 OCT")
+        .clock("11:06:46", "TUE OCT 13")
         .clock_action("glass-panel=calendar")
         .actions(actions)
         .accent(Color::rgb(244, 168, 123))
@@ -258,7 +258,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     } else {
         bar.glass(material(cx))
     };
-    let handle = Element::button(HANDLE, "Arrastrar barra")
+    let handle = Element::button(HANDLE, "Drag bar")
         .draggable_in_place()
         .font_family(FontFamily::Sans)
         .font_size(12.0)
@@ -284,7 +284,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         Some(NavigationBar::HEIGHT + HANDLE_GAP + HANDLE_HEIGHT),
     );
     let preview = Element::stack(vec![
-        Element::surface(BACKDROP, "Fondo de prueba del vidrio"),
+        Element::surface(BACKDROP, "Glass demo background"),
         Element::column(vec![
             Element::spacer().size(None, Some(position.bar.y)),
             Element::row(vec![
@@ -308,11 +308,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     .clip_children();
 
     vec![
-        caption(cx, "Arrastrá la barra sobre el fondo para explorar el vidrio. Sus controles siguen funcionando; los datos son simulados.").into(),
+        caption(cx, "Drag the bar across the background to explore the glass. Its controls still work; the data is simulated.").into(),
         preview.into(),
         Collapse::new("glass-detail", detail(cx, bar_width)).expand().render().into(),
         controls(cx).into(),
-        caption(cx, "Esta prueba usa un fondo propio. La integración con el escritorio queda para una siguiente etapa.").into(),
+        caption(cx, "This demo uses its own background. Desktop integration is planned for a later stage.").into(),
     ]
 }
 
@@ -378,8 +378,8 @@ mod tests {
                 "{id} is offscreen"
             );
         }
-        let position = heading(&frame, "Posición");
-        let background = heading(&frame, "Fondo");
+        let position = heading(&frame, "Position");
+        let background = heading(&frame, "Background");
         let material = heading(&frame, "Material");
         assert_eq!((position.y, background.y), (background.y, material.y));
         assert!(position.x < background.x && background.x < material.x);
@@ -395,8 +395,8 @@ mod tests {
                 width,
             };
             let frame = UiTree::new(controls(&cx)).layout(Size::new(width, 1000.0));
-            let position = heading(&frame, "Posición");
-            let background = heading(&frame, "Fondo");
+            let position = heading(&frame, "Position");
+            let background = heading(&frame, "Background");
             let material = heading(&frame, "Material");
             if columns == 2 {
                 assert_eq!(position.y, background.y);

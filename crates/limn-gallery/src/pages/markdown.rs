@@ -1,11 +1,11 @@
 use super::{caption, section, Cx, Section};
 use limn::{Component, Element, Markdown, MarkdownLabels, MarkdownLimits, Text};
 
-const COMPLETE: &str = "# Resumen de la revisión\n\nSe corrigió **la sesión** en `src/main.rs`; el detalle está en la [guía](https://example.com/docs) y en https://github.com/rust-lang/rust.\n\n## Pasos\n\n1. Compilar el proyecto\n2. Ejecutar las pruebas\n   - [x] Unitarias\n   - [ ] De integración\n- Un punto suelto con un texto lo bastante largo como para partirse en dos líneas dentro de la columna de lectura.\n\n> Una cita mantiene su barra y su fondo aunque ocupe más de una línea de la columna.\n\n```rust\nfn main() {\n    println!(\"hola\");\n}\n```\n\n```\nsin lenguaje\n```\n\n---\n\n### Cierre\n\nTexto *con énfasis* y un salto  \nde línea forzado.";
+const COMPLETE: &str = "# Review summary\n\n**The session** was fixed in `src/main.rs`; details are in the [guide](https://example.com/docs) and at https://github.com/rust-lang/rust.\n\n## Steps\n\n1. Build the project\n2. Run the tests\n   - [x] Unit tests\n   - [ ] Integration tests\n- A standalone item with text long enough to wrap onto two lines within the reading column.\n\n> A quote keeps its bar and background even when it spans several lines of the column.\n\n```rust\nfn main() {\n    println!(\"hello\");\n}\n```\n\n```\nno language\n```\n\n---\n\n### Closing\n\nText *with emphasis* and a forced  \nline break.";
 
-const STREAMING: &str = "El resultado llega por partes.\n\n- Primer punto ya **cerrado**\n- Segundo punto con un enlace a medias https://example.com/doc\n\nLa última línea sigue **abierta y con `código";
+const STREAMING: &str = "The result arrives in parts.\n\n- First item already **complete**\n- Second item with an unfinished link https://example.com/doc\n\nThe last line is still **open and contains `code";
 
-const PLAIN: &str = "**Esto no es negrita**: revisa https://github.com/rust-lang/rust y https://example.com/docs, no `src/main.rs`.";
+const PLAIN: &str = "**This is not bold**: check https://github.com/rust-lang/rust and https://example.com/docs, not `src/main.rs`.";
 
 fn link(cx: &Cx, written: &str) -> Element {
     let palette = cx.palette;
@@ -13,7 +13,7 @@ fn link(cx: &Cx, written: &str) -> Element {
     Element::row(vec![
         Element::icon(Markdown::link_icon(written)).foreground(palette.muted),
         Text::new(written, palette).mono().muted().render(),
-        Text::new(address.as_deref().unwrap_or("no se abre"), palette).mono().truncate().render().flex(1.0),
+        Text::new(address.as_deref().unwrap_or("does not open"), palette).mono().truncate().render().flex(1.0),
     ])
     .gap(8.0)
     .size(Some(cx.width.min(560.0)), None)
@@ -23,14 +23,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(560.0);
     let labels = MarkdownLabels {
-        code_fallback: "CÓDIGO",
-        truncated_note: "Texto extenso: vista limitada a los primeros bloques.",
+        code_fallback: "CODE",
+        truncated_note: "Long text: preview limited to the first blocks.",
         ..MarkdownLabels::DEFAULT
     };
     let page = Markdown::source_page(COMPLETE, 0);
     vec![
-        section(cx, "Markdown completo", vec![
-            caption(cx, "Encabezados, listas, cita, código, regla y enlaces, con las etiquetas del host"),
+        section(cx, "Complete Markdown", vec![
+            caption(cx, "Headings, lists, quote, code, rule, and links, with labels supplied by the host"),
             Markdown::new(COMPLETE, palette)
                 .width(width)
                 .labels(labels)
@@ -38,8 +38,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render()
                 .element,
         ]),
-        section(cx, "En curso", vec![
-            caption(cx, ".streaming(true): la cola sin cerrar ya tiene estilo y su dirección aún no abre nada"),
+        section(cx, "Streaming", vec![
+            caption(cx, ".streaming(true): the unfinished tail is styled, but its address does not open yet"),
             Markdown::new(STREAMING, palette)
                 .width(width)
                 .streaming(true)
@@ -47,8 +47,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render()
                 .element,
         ]),
-        section(cx, "Límites", vec![
-            caption(cx, ".limits de 3 bloques: el resto queda para la vista de la fuente"),
+        section(cx, "Limits", vec![
+            caption(cx, ".limits set to 3 blocks: the rest is available in the source view"),
             Markdown::new(COMPLETE, palette)
                 .width(width)
                 .labels(labels)
@@ -56,7 +56,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .link_action_prefix("markdown-limited:")
                 .render()
                 .element,
-            caption(cx, "Columna de 220"),
+            caption(cx, "220 px column"),
             Markdown::new(COMPLETE, palette)
                 .width(220.0)
                 .labels(labels)
@@ -66,8 +66,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .element
                 .size(Some(220.0), None),
         ]),
-        section(cx, "Texto literal con enlaces", vec![
-            caption(cx, ".plain_with_autolinks(21.0): solo las direcciones completas son enlaces"),
+        section(cx, "Plain text with links", vec![
+            caption(cx, ".plain_with_autolinks(21.0): only complete addresses become links"),
             Markdown::new(PLAIN, palette)
                 .plain_with_autolinks(21.0)
                 .link_action_prefix("markdown-plain:")
@@ -75,13 +75,13 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .element
                 .size(Some(width), None),
         ]),
-        section(cx, "Direcciones para el host", vec![
-            caption(cx, "Markdown::web_link normaliza o rechaza; Markdown::link_icon da el glifo"),
+        section(cx, "Addresses for the host", vec![
+            caption(cx, "Markdown::web_link normalizes or rejects; Markdown::link_icon supplies the glyph"),
             link(cx, "https://GitHub.com/limn"),
             link(cx, "https://example.com/docs"),
             link(cx, "file:///etc/passwd"),
         ]),
-        section(cx, "Fuente por páginas", vec![
+        section(cx, "Paginated source", vec![
             caption(cx, "Markdown::source_page(..).render(width, palette)"),
             page.render(width, palette),
         ]),

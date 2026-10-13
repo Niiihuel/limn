@@ -24,9 +24,9 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         PreferencesGroup::new(
             "Plugins",
             vec![
-                ActionRow::new("Skills de plugins", palette)
+                ActionRow::new("Plugin skills", palette)
                     .icon(Icon::InfoCircle)
-                    .subtitle("Al activar un plugin, el agente recibe el nombre y la descripción de cada skill y puede leer sus archivos cuando la tarea lo pida.")
+                    .subtitle("When a plugin is enabled, the agent receives each skill's name and description and can read its files when a task needs them.")
                     .render(),
                 plugin("preferences-agent-skills", "agent-skills", "25 skills"),
                 plugin("preferences-ponytail", "ponytail", "6 skills"),
@@ -34,19 +34,19 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ],
             palette,
         )
-        .description("Instrucciones instaladas para el agente.")
+        .description("Instructions installed for the agent.")
         .render().into(),
         PreferencesGroup::new(
             "Marketplace",
             vec![
-                ActionRow::new("Skills instaladas", palette)
-                    .subtitle("Instrucciones disponibles por usuario o por proyecto.")
-                    .trailing(Chip::new("0 activas", palette).render())
+                ActionRow::new("Installed skills", palette)
+                    .subtitle("Instructions available for a user or a project.")
+                    .trailing(Chip::new("0 active", palette).render())
                     .render(),
-                ActionRow::new("Explorar y administrar", palette)
-                    .subtitle("Busca skills, agrega fuentes y administra instalaciones.")
+                ActionRow::new("Browse and manage", palette)
+                    .subtitle("Find skills, add sources and manage installations.")
                     .trailing(
-                        Button::new("preferences-marketplace", "Abrir Marketplace", palette)
+                        Button::new("preferences-marketplace", "Open Marketplace", palette)
                             .variant(ButtonVariant::Outline)
                             .icon(Icon::ArrowRight)
                             .render(),
@@ -57,38 +57,38 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         )
         .render().into(),
         PreferencesGroup::new(
-            "Valores, notas y filas apiladas",
+            "Values, notes and stacked rows",
             vec![
-                ActionRow::new("Contexto de la conversación", palette)
-                    .subtitle("Último porcentaje de contexto restante.")
-                    .value("82% restante")
+                ActionRow::new("Conversation context", palette)
+                    .subtitle("Latest percentage of remaining context.")
+                    .value("82% remaining")
                     .render(),
-                ActionRow::new("Solo CLIs iniciadas desde la aplicación", palette)
-                    .subtitle("Cada sesión recibe un acceso propio que deja de valer al cerrarla. Una CLI abierta por fuera no puede conectarse.")
+                ActionRow::new("Only CLIs started from the application", palette)
+                    .subtitle("Each session gets its own access, which expires when it closes. A CLI started elsewhere cannot connect.")
                     .icon(Icon::Terminal)
                     .icon_muted(true)
                     .align_top(true)
                     .wrap_title(true)
                     .sizing(NOTE)
                     .render(),
-                ActionRow::new("Carpeta de trabajo de los agentes en segundo plano", palette)
-                    .subtitle("Apilada: el control baja bajo el texto y el título se parte en vez de cortarse.")
+                ActionRow::new("Working folder for background agents", palette)
+                    .subtitle("Stacked: the control moves below the text and the title wraps instead of being cut off.")
                     .wrap_title(true)
                     .align_top(true)
                     .trailing(
-                        Button::new("preferences-folder", "Elegir carpeta", palette)
+                        Button::new("preferences-folder", "Choose folder", palette)
                             .variant(ButtonVariant::Outline)
                             .render(),
                     )
                     .stacked(true)
                     .render(),
-                ActionRow::new("Atajo junto a un texto que ocupa más de una línea cuando la columna es estrecha: la tecla se queda en la primera", palette)
+                ActionRow::new("A shortcut beside text that wraps onto several lines in a narrow column: the key stays on the first line", palette)
                     .wrap_title(true)
                     .trailing(Kbd::new("Ctrl+K", palette).render())
                     .trailing_top(true)
                     .render(),
-                ActionRow::new("Reducir movimiento", palette)
-                    .subtitle("Apilada también, pero un interruptor se queda en su línea.")
+                ActionRow::new("Reduce motion", palette)
+                    .subtitle("Also stacked, but a switch stays on the same line.")
                     .trailing(toggle("preferences-motion"))
                     .stacked(true)
                     .render(),
@@ -97,20 +97,20 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         )
         .render().into(),
         PreferencesGroup::new(
-            "Filas que son acciones",
+            "Rows that act as actions",
             vec![
-                ActionRow::new("Cuenta", palette)
+                ActionRow::new("Account", palette)
                     .icon(Icon::Users)
-                    .subtitle("Sesión, plan y facturación.")
+                    .subtitle("Session, plan and billing.")
                     .trailing(Element::icon(Icon::ChevronRight).foreground(palette.muted))
                     .action("preferences-account")
                     .render(),
-                ActionRow::new("Atajos de teclado", palette)
+                ActionRow::new("Keyboard shortcuts", palette)
                     .icon(Icon::Keyboard)
                     .trailing(Element::icon(Icon::ChevronRight).foreground(palette.muted))
                     .action("preferences-shortcuts")
                     .render(),
-                ActionRow::new("Datos", palette)
+                ActionRow::new("Data", palette)
                     .icon(Icon::Archive)
                     .trailing(Element::icon(Icon::ChevronRight).foreground(palette.muted))
                     .action("preferences-data")

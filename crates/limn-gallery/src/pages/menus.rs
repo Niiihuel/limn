@@ -10,20 +10,20 @@ use limn::{
 };
 
 const MODELS: [(&str, &str, &str, &str); 5] = [
-    ("north", "North Large", "north/large-2", "Revisado"),
+    ("north", "North Large", "north/large-2", "Reviewed"),
     ("north", "North Small", "north/small-2", ""),
-    ("harbor", "Harbor Pro", "harbor/pro-latest", "Sin verificar"),
-    ("harbor", "Harbor Flash", "harbor/flash", "Declarado"),
-    ("harbor", "Harbor Legacy", "harbor/legacy-1", "No compatible"),
+    ("harbor", "Harbor Pro", "harbor/pro-latest", "Unverified"),
+    ("harbor", "Harbor Flash", "harbor/flash", "Declared"),
+    ("harbor", "Harbor Legacy", "harbor/legacy-1", "Unsupported"),
 ];
 
 const COMMANDS: [(&str, &str, &str, Icon); 6] = [
-    ("Comandos", "/plan", "Describe los pasos antes de editar", Icon::Plan),
-    ("Comandos", "/review", "Revisa los cambios sin confirmar", Icon::Search),
-    ("Comandos", "/files", "Adjunta archivos del proyecto", Icon::File),
-    ("Plantillas", "/docs", "Redacta la documentación de un módulo", Icon::Text),
-    ("Plantillas", "/tests", "Escribe pruebas para la selección", Icon::Code),
-    ("Plantillas", "/release", "Prepara las notas de la versión", Icon::Archive),
+    ("Commands", "/plan", "Describe the steps before editing", Icon::Plan),
+    ("Commands", "/review", "Review uncommitted changes", Icon::Search),
+    ("Commands", "/files", "Attach project files", Icon::File),
+    ("Templates", "/docs", "Write documentation for a module", Icon::Text),
+    ("Templates", "/tests", "Write tests for the selection", Icon::Code),
+    ("Templates", "/release", "Prepare release notes", Icon::Archive),
 ];
 
 fn trigger(cx: &Cx, id: &str, label: &str) -> Element {
@@ -36,18 +36,18 @@ fn trigger(cx: &Cx, id: &str, label: &str) -> Element {
 /// The first view of a selector: what it sets and a chevron into each list.
 fn selector(cx: &Cx) -> Element {
     DropdownMenu::new(
-        trigger(cx, "menus-selector=open", "Modelo y esfuerzo"),
+        trigger(cx, "menus-selector=open", "Model and effort"),
         vec![
-            DropdownMenuEntry::Heading("Para el próximo mensaje".into()),
-            DropdownMenuItem::new("menus-selector=model", "Modelo")
+            DropdownMenuEntry::Heading("For the next message".into()),
+            DropdownMenuItem::new("menus-selector=model", "Model")
                 .icon(Icon::Server)
                 .description("North Large")
                 .chevron()
                 .into(),
             DropdownMenuEntry::Separator,
-            DropdownMenuItem::new("menus-selector=effort", "Esfuerzo")
+            DropdownMenuItem::new("menus-selector=effort", "Effort")
                 .icon(Icon::Brain)
-                .description("Automático")
+                .description("Automatic")
                 .chevron()
                 .into(),
         ],
@@ -69,7 +69,7 @@ fn catalog(cx: &Cx) -> Element {
     let query = cx.state.text("menus-search").to_lowercase();
     let chosen = cx.state.choice("menus-model", MODELS[0].2);
     let mut entries = Vec::new();
-    for (provider, name) in [("north", "North"), ("harbor", "Harbor · En tu cuenta")] {
+    for (provider, name) in [("north", "North"), ("harbor", "Harbor · In your account")] {
         let models: Vec<_> = MODELS
             .iter()
             .filter(|model| model.0 == provider && model.1.to_lowercase().contains(&query))
@@ -102,17 +102,17 @@ fn catalog(cx: &Cx) -> Element {
                     // One slot for every status, so they start in a column.
                     .status_width(84.0)
                     .selected(*id == chosen)
-                    .enabled(*status != "No compatible")
-                    .tooltip_with(TooltipSpec::new(*title).description(format!("Identificador: {id}")))
+                    .enabled(*status != "Unsupported")
+                    .tooltip_with(TooltipSpec::new(*title).description(format!("Identifier: {id}")))
                     .into(),
             );
         }
     }
     if entries.is_empty() {
-        entries.push(DropdownMenuEntry::Message("Sin resultados. Prueba otro nombre.".into()));
+        entries.push(DropdownMenuEntry::Message("No results. Try another name.".into()));
     }
     DropdownMenu::new(
-        trigger(cx, "menus-catalog=open", "Catálogo de modelos"),
+        trigger(cx, "menus-catalog=open", "Model catalog"),
         entries,
         cx.state.text("menus-catalog") == "open",
         "menus-catalog=closed",
@@ -120,19 +120,19 @@ fn catalog(cx: &Cx) -> Element {
     )
     .header(
         MenuHeader::new(palette)
-            .back("menus-catalog=closed", "Modelo")
+            .back("menus-catalog=closed", "Model")
             .trailing(
                 IconButton::new("menus-refresh", Icon::Refresh, palette)
                     .variant(ButtonVariant::Ghost)
-                    .tooltip_with(TooltipSpec::new("Actualizar el catálogo"))
+                    .tooltip_with(TooltipSpec::new("Refresh the catalog"))
                     .render(),
             )
-            .search("menus-search", cx.state.text("menus-search"), "Buscar modelos")
+            .search("menus-search", cx.state.text("menus-search"), "Search models")
             .width(width - 8.0)
             .render(),
     )
     .footer(
-        Button::new("menus-connect", "Conectar proveedor", palette)
+        Button::new("menus-connect", "Connect provider", palette)
             .icon(Icon::Add)
             .variant(ButtonVariant::Ghost)
             .width(width - 8.0)
@@ -152,16 +152,16 @@ fn states(cx: &Cx) -> Element {
         "error" => vec![
             DropdownMenuEntry::Error {
                 id: "menus-error".into(),
-                text: "No se pudo leer el repositorio: el directorio de trabajo no existe o no \
-                       es accesible. Comprueba la ruta, los permisos de lectura y que el \
-                       repositorio no se haya movido; después vuelve a actualizar la lista."
+                text: "Could not read the repository: the working directory is missing or \
+                       inaccessible. Check the path, read permissions, and whether the \
+                       repository has moved; then refresh the list again."
                     .into(),
             },
         ],
-        _ => vec![DropdownMenuEntry::Message("Todavía no hay ramas en este repositorio.".into())],
+        _ => vec![DropdownMenuEntry::Message("This repository has no branches yet.".into())],
     };
     entries.push(DropdownMenuEntry::Separator);
-    for (id, label) in [("loading", "Cargando"), ("empty", "Vacío"), ("error", "Error")] {
+    for (id, label) in [("loading", "Loading"), ("empty", "Empty"), ("error", "Error")] {
         entries.push(
             DropdownMenuItem::new(format!("menus-state={id}"), label)
                 .selected(state == id)
@@ -169,13 +169,13 @@ fn states(cx: &Cx) -> Element {
         );
     }
     DropdownMenu::new(
-        trigger(cx, "menus-states=open", "Estados"),
+        trigger(cx, "menus-states=open", "States"),
         entries,
         cx.state.text("menus-states") == "open",
         "menus-states=closed",
         cx.palette,
     )
-    .header(MenuHeader::new(cx.palette).title("Cambiar rama").render())
+    .header(MenuHeader::new(cx.palette).title("Switch branch").render())
     .context_menu_style()
     .width(280.0)
     .render()
@@ -189,27 +189,27 @@ fn rows(cx: &Cx) -> Element {
         Element::column(vec![
             MenuItem::new("menus-row=one", "Terminal 1", palette)
                 .icon(Icon::Terminal)
-                .trailing("Activa")
-                .tooltip_with(TooltipSpec::new("Terminal 1").description("Directorio inicial: ~/proyecto"))
-                .trailing_action("menus-row-close-1", Icon::Trash, TooltipSpec::new("Cerrar terminal"))
+                .trailing("Active")
+                .tooltip_with(TooltipSpec::new("Terminal 1").description("Initial directory: ~/project"))
+                .trailing_action("menus-row-close-1", Icon::Trash, TooltipSpec::new("Close terminal"))
                 .trailing_dispatch_as("menus-row=closed-one")
                 .width(width)
                 .render(),
             MenuItem::new("menus-row=two", "Terminal 2", palette)
                 .icon(Icon::Terminal)
-                .trailing_action("menus-row-close-2", Icon::Trash, TooltipSpec::new("Cerrar terminal"))
+                .trailing_action("menus-row-close-2", Icon::Trash, TooltipSpec::new("Close terminal"))
                 .trailing_dispatch_as("menus-row=closed-two")
                 .width(width)
                 .render(),
             MenuItem::new("menus-row=project", "limn", palette)
                 .icon(Icon::Folder)
-                .description("~/proyectos/personal/limn")
+                .description("~/projects/personal/limn")
                 .selected(true)
                 .width(width)
                 .render(),
-            MenuItem::new("menus-row=gone", "Proyecto movido", palette)
+            MenuItem::new("menus-row=gone", "Project moved", palette)
                 .icon(Icon::Folder)
-                .description("~/proyectos/antiguo")
+                .description("~/projects/old")
                 .selected(false)
                 .enabled(false)
                 .width(width)
@@ -237,17 +237,17 @@ fn actions(cx: &Cx) -> Element {
             .into()
     };
     DropdownMenu::new(
-        trigger(cx, "menus-actions=open", "Acciones"),
+        trigger(cx, "menus-actions=open", "Actions"),
         vec![
-            action("copy", Icon::File, "Copiar dirección", "Copia la dirección visible al portapapeles."),
+            action("copy", Icon::File, "Copy address", "Copy the visible address to the clipboard."),
             action(
                 "settings",
                 Icon::Code,
-                "Copiar la configuración de la conexión",
-                "Copia la configuración para conectar herramientas a esta página.",
+                "Copy connection settings",
+                "Copy the settings for connecting tools to this page.",
             ),
             DropdownMenuEntry::Separator,
-            action("restart", Icon::Refresh, "Reiniciar", "Abre un contexto nuevo."),
+            action("restart", Icon::Refresh, "Restart", "Open a new context."),
         ],
         cx.state.text("menus-actions") == "open",
         "menus-actions=closed",
@@ -274,21 +274,21 @@ fn panel(cx: &Cx, padded: bool) -> Element {
         .size(None, Some(24.0))
     };
     let accounts = (1..=14)
-        .map(|index| line(&format!("Cuenta {index}"), &format!("{} %", index * 7 % 100)))
+        .map(|index| line(&format!("Account {index}"), &format!("{} %", index * 7 % 100)))
         .collect();
     Popover::new(
-        trigger(cx, &format!("{key}=open"), if padded { "Con margen" } else { "Cuenta y uso" }),
+        trigger(cx, &format!("{key}=open"), if padded { "With padding" } else { "Account and usage" }),
         PopoverPanel::new(palette)
             .header(
-                PanelHeader::new("Cuenta y uso", palette)
-                    .dismiss(format!("{key}=closed"), "Cerrar")
+                PanelHeader::new("Account and usage", palette)
+                    .dismiss(format!("{key}=closed"), "Close")
                     .sizing(HeaderSizing::POPOVER)
                     .render(),
             )
             .body(ScrollArea::new(format!("{key}-body"), Element::column(accounts)).render())
             .body_max_height(180.0)
             .footer(
-                Button::new(format!("{key}=details"), "Ver uso y proveedores", palette)
+                Button::new(format!("{key}=details"), "View usage and providers", palette)
                     .trailing_icon(Icon::ArrowRight)
                     .variant(ButtonVariant::Ghost)
                     .render(),
@@ -329,7 +329,7 @@ fn suggestions(cx: &Cx) -> Element {
         })
         .collect();
     SuggestionList::new(
-        TextField::new("menus-suggest-input", cx.state.text("menus-suggest-input"), "Escribe / para ver comandos", palette)
+        TextField::new("menus-suggest-input", cx.state.text("menus-suggest-input"), "Type / to see commands", palette)
             .width(360.0)
             .render(),
         "menus-suggest-options",
@@ -339,43 +339,48 @@ fn suggestions(cx: &Cx) -> Element {
         "menus-suggest=closed",
         palette,
     )
-    .title("Comandos y plantillas")
-    .empty("No hay comandos que coincidan.")
+    .title("Commands and templates")
+    .empty("No matching commands.")
     .hints(hints(cx))
-    .note("Resultados limitados")
+    .note("Limited results")
     .width(cx.width)
     .placement(limn::PopoverPlacement::BottomStart)
     .render()
 }
 
 fn hints(cx: &Cx) -> Vec<Element> {
-    vec![
-        Kbd::new("↑↓", cx.palette).caption("Elegir").render(),
-        Kbd::new("Enter", cx.palette).alternative("Tab").caption("Aceptar").render(),
-        Kbd::new("Esc", cx.palette).caption("Cerrar").render(),
-    ]
+    let hints = vec![
+        Kbd::new("↑↓", cx.palette).caption("Choose").render(),
+        Kbd::new("Enter", cx.palette).alternative("Tab").caption("Accept").render(),
+        Kbd::new("Esc", cx.palette).caption("Close").render(),
+    ];
+    if cx.width < 360.0 {
+        vec![Element::column(hints).gap(8.0)]
+    } else {
+        hints
+    }
 }
 
 pub fn view(cx: &Cx) -> Vec<Section> {
     vec![
-        section(cx, "Selector y catálogo", vec![
+        section(cx, "Select and catalog", vec![
             row(vec![selector(cx), catalog(cx), states(cx)]),
             row(vec![actions(cx)]),
-            caption(cx, &format!("Modelo: {}", cx.state.choice("menus-model", MODELS[0].2))),
+            caption(cx, &format!("Model: {}", cx.state.choice("menus-model", MODELS[0].2))),
         ]),
-        section(cx, "Filas de menú", vec![
+        section(cx, "Menu rows", vec![
             row(vec![rows(cx)]),
-            caption(cx, &format!("Última fila: {}", cx.state.text("menus-row"))),
+            caption(cx, &format!("Last row: {}", cx.state.text("menus-row"))),
         ]),
-        section(cx, "Panel en popover", vec![row(vec![panel(cx, false), panel(cx, true)])]),
-        section(cx, "Lista de sugerencias", vec![
+        section(cx, "Popover panel", vec![row(vec![panel(cx, false), panel(cx, true)])]),
+        section(cx, "Suggestion list", vec![
             row(vec![
                 suggestions(cx),
-                Button::new("menus-suggest=open", "Mostrar", cx.palette).variant(ButtonVariant::Outline).render(),
-                Button::new("menus-suggest-empty", "Vaciar", cx.palette).variant(ButtonVariant::Ghost).render(),
+                Button::new("menus-suggest=open", "Show", cx.palette).variant(ButtonVariant::Outline).render(),
+                Button::new("menus-suggest-empty", "Clear", cx.palette).variant(ButtonVariant::Ghost).render(),
             ]),
-            caption(cx, &format!("Elegido: {}", cx.state.text("menus-suggest-pick"))),
+            caption(cx, &format!("Selected: {}", cx.state.text("menus-suggest-pick"))),
         ]),
-        section(cx, "Teclas con leyenda", vec![row(hints(cx))]),
+        section(cx, "Keys with captions", vec![row(hints(cx))]),
     ]
 }

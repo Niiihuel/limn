@@ -17,7 +17,7 @@ fn card(cx: &Cx, title: &str, width: f32) -> Element {
     Element::panel(
         Element::column(vec![
             Text::new(title, cx.palette).render(),
-            Text::new("Descripción de la tarjeta.", cx.palette).muted().render(),
+            Text::new("Card description.", cx.palette).muted().render(),
         ])
         .gap(4.0),
     )
@@ -31,7 +31,7 @@ fn card(cx: &Cx, title: &str, width: f32) -> Element {
 fn grid(cx: &Cx, width: f32, breakpoint: f32, count: usize) -> Element {
     let grid = CardGrid::new(width, breakpoint);
     let item_width = grid.item_width();
-    grid.items((1..=count).map(|index| card(cx, &format!("Tarjeta {index}"), item_width)).collect())
+    grid.items((1..=count).map(|index| card(cx, &format!("Card {index}"), item_width)).collect())
         .render()
 }
 
@@ -44,12 +44,12 @@ fn page(cx: &Cx, id: &str, width: f32, tint: bool) -> Element {
         .tint_scrollbar(tint);
     let content_width = page.content_width();
     let page = page.children(vec![
-        PageHeader::new("Automatizaciones", cx.palette)
-            .description("Tareas programadas para este proyecto")
-            .trailing(Button::new(format!("{id}-new"), "Nueva tarea", cx.palette).icon(Icon::Add).render())
+        PageHeader::new("Automations", cx.palette)
+            .description("Scheduled tasks for this project")
+            .trailing(Button::new(format!("{id}-new"), "New task", cx.palette).icon(Icon::Add).render())
             .stacked(content_width < 300.0)
             .render(),
-        SectionHeader::new("Plantillas", cx.palette).count(5).render(),
+        SectionHeader::new("Templates", cx.palette).count(5).render(),
         grid(cx, content_width, 300.0, 5),
     ]);
     Element::panel(page.render())
@@ -63,62 +63,62 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     // This page overflows, and the gallery's scrollbar then takes its rail.
     let width = (cx.width - ScrollbarAppearance::default().rail_width).min(720.0);
-    let action = |id: &str| Button::new(id, "Actualizar", palette).variant(ButtonVariant::Outline).render();
+    let action = |id: &str| Button::new(id, "Refresh", palette).variant(ButtonVariant::Outline).render();
     let open = !cx.state.flag("page-section-fold");
     vec![
-        section(cx, "Encabezado de página", vec![
-            PageHeader::new("Proveedores", palette)
-                .description("Cuentas conectadas y modelos disponibles para el agente.")
+        section(cx, "Page header", vec![
+            PageHeader::new("Providers", palette)
+                .description("Connected accounts and models available to the agent.")
                 .trailing(action("page-header-row"))
                 .render()
                 .size(Some(width), None),
-            caption(cx, "Apilado, para una página estrecha"),
-            PageHeader::new("Proveedores", palette)
-                .description("Cuentas conectadas y modelos disponibles para el agente.")
+            caption(cx, "Stacked, for a narrow page"),
+            PageHeader::new("Providers", palette)
+                .description("Connected accounts and models available to the agent.")
                 .trailing(action("page-header-stacked"))
                 .stacked(true)
                 .render()
                 .size(Some(width.min(320.0)), None),
-            caption(cx, "Con elemento inicial, una línea cortada y alto fijo"),
-            PageHeader::new("Marketplace de complementos del agente", palette)
-                .description("Skills para tu agente, por usuario o por proyecto")
+            caption(cx, "Leading element, truncated line, and fixed height"),
+            PageHeader::new("Agent plugin marketplace", palette)
+                .description("Skills for your agent, per user or per project")
                 .leading(IconButton::new("page-header-back", Icon::ArrowLeft, palette).variant(ButtonVariant::Ghost).render())
                 .trailing(action("page-header-cut"))
                 .truncate(true)
                 .sizing(CATALOG)
                 .render()
                 .size(Some(width.min(360.0)), None),
-            caption(cx, "El elemento final en la línea del título, sin centrar"),
-            PageHeader::new("Automatizaciones", palette)
-                .description("Tareas programadas para este proyecto, con una descripción que ocupa más de una línea en una página estrecha.")
+            caption(cx, "Trailing element on the title line, without centering"),
+            PageHeader::new("Automations", palette)
+                .description("Scheduled tasks for this project, with a description spanning multiple lines on a narrow page.")
                 .trailing(action("page-header-top"))
                 .trailing_top(true)
                 .render()
                 .size(Some(width.min(420.0)), None),
-            caption(cx, "Sólo título"),
-            PageHeader::new("Atajos de teclado", palette).render(),
+            caption(cx, "Title only"),
+            PageHeader::new("Keyboard shortcuts", palette).render(),
         ]),
-        section(cx, "Encabezados de sección", vec![
+        section(cx, "Section headers", vec![
             Element::column(vec![
-                SectionHeader::new("Recomendadas", palette).count(7).render(),
-                SectionHeader::new("Instaladas", palette).count(128).render(),
-                SectionHeader::new("Cambios", palette)
+                SectionHeader::new("Recommended", palette).count(7).render(),
+                SectionHeader::new("Installed", palette).count(128).render(),
+                SectionHeader::new("Changes", palette)
                     .disclosure(Some(open))
-                    .detail(if open { "3 archivos" } else { "oculto" })
+                    .detail(if open { "3 files" } else { "hidden" })
                     .action("page-section-fold")
                     .sizing(SectionSizing::LIST)
                     .render(),
-                SectionHeader::new("Fuentes", palette)
+                SectionHeader::new("Sources", palette)
                     .detail("12")
                     .sizing(SectionSizing::LABEL)
                     .render(),
-                SectionHeader::new("Un título de sección demasiado largo que se corta en una línea", palette)
+                SectionHeader::new("A section title too long to fit on one line", palette)
                     .detail("128")
                     .truncate(true)
                     .sizing(SectionSizing::LIST)
                     .width(280.0)
                     .render(),
-                SectionHeader::new("Herramientas", palette)
+                SectionHeader::new("Tools", palette)
                     .trailing(
                         IconButton::new("page-section-add", Icon::Add, palette)
                             .variant(ButtonVariant::Ghost)
@@ -131,16 +131,16 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .gap(8.0)
             .size(Some(width.min(420.0)), None),
         ]),
-        section(cx, "Rejilla de tarjetas", vec![
+        section(cx, "Card grid", vec![
             grid(cx, width, 360.0, 3),
-            caption(cx, "Por debajo del corte, una sola columna"),
+            caption(cx, "Below the breakpoint, a single column"),
             grid(cx, width.min(300.0), 360.0, 2),
         ]),
-        section(cx, "Columna de página", vec![
+        section(cx, "Page column", vec![
             page(cx, "page-column-wide", width, true),
-            caption(cx, "Estrecha: margen menor, encabezado apilado y una columna"),
+            caption(cx, "Narrow: smaller gutter, stacked header, and one column"),
             page(cx, "page-column-narrow", width.min(300.0), true),
-            caption(cx, "Con la barra de desplazamiento en su propio color, sin teñir"),
+            caption(cx, "With the scrollbar's own color, without tinting"),
             page(cx, "page-column-plain", width.min(300.0), false),
         ]),
     ]

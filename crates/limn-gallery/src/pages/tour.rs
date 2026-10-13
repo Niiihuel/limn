@@ -8,22 +8,22 @@ use limn::{
 const STEPS: [(&str, &str, &str, CoachSide, CoachAlign); 3] = [
     (
         "tour-new",
-        "Empieza por aquí",
-        "Cada tarea es una conversación con un agente sobre tu proyecto.",
+        "Start here",
+        "Each task is a conversation with an agent about your project.",
         CoachSide::Below,
         CoachAlign::Start,
     ),
     (
         "tour-search",
-        "Encuentra lo que buscas",
-        "Escribe parte del nombre de una tarea o de un archivo para filtrar la lista.",
+        "Find what you need",
+        "Type part of a task or file name to filter the list.",
         CoachSide::Below,
         CoachAlign::Center,
     ),
     (
         "tour-notify",
-        "Entérate cuando termine",
-        "Con los avisos activados no hace falta quedarse mirando: te avisamos cuando el agente te necesite.",
+        "Know when it finishes",
+        "With notifications enabled, you do not need to keep watching: we let you know when the agent needs you.",
         CoachSide::Left,
         CoachAlign::Center,
     ),
@@ -33,12 +33,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
     let toolbar = Element::row(vec![
-        Button::new("tour-new", "Nueva tarea", palette).icon(Icon::Add).render(),
-        TextField::new("tour-search", state.text("tour-search"), "Buscar", palette)
+        Button::new("tour-new", "New task", palette).icon(Icon::Add).render(),
+        TextField::new("tour-search", state.text("tour-search"), "Search", palette)
             .render()
             .size(Some(220.0), None),
         Element::spacer().flex(1.0),
-        caption(cx, "Avisos"),
+        caption(cx, "Notifications"),
         Switch::new("tour-notify", state.flag("tour-notify"), palette).render(),
     ])
     .gap(12.0);
@@ -48,25 +48,25 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     vec![
         section(
             cx,
-            "Recorrido de tres pasos",
+            "Three-step tour",
             vec![
                 toolbar,
-                row(vec![Button::new("tour-step=0", "Iniciar recorrido", palette)
+                row(vec![Button::new("tour-step=0", "Start tour", palette)
                     .variant(ButtonVariant::Outline)
                     .render()]),
                 caption(
                     cx,
-                    "Flechas izquierda y derecha o Enter para avanzar, Esc para cerrar. \
-                     El resto de la ventana no recibe clics mientras dura.",
+                    "Left and Right arrow keys or Enter to advance, Esc to close. \
+                     The rest of the window does not receive clicks during the tour.",
                 ),
             ],
         ),
         section(
             cx,
-            "Variantes",
+            "Variants",
             vec![
-                option("tour-accent", "Color de acento de la aplicación"),
-                option("tour-dim", "Atenuar la ventana alrededor del control"),
+                option("tour-accent", "Application accent color"),
+                option("tour-dim", "Dim the window around the control"),
             ],
         ),
     ]
@@ -85,7 +85,7 @@ pub fn layer(cx: &Cx, base: Element) -> Element {
         .body(body)
         .placement(side, align)
         .step(index, STEPS.len())
-        .skip("Omitir recorrido")
+        .skip("Skip tour")
         .on_skip("tour-step=skipped")
         .on_next(format!("tour-step={}", index + 1))
         .on_back(format!("tour-step={}", index.saturating_sub(1)));

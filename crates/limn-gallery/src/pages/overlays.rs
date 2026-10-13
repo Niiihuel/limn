@@ -17,14 +17,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let open = |group: &str| state.text(group) == "open";
 
     let popover = Popover::new(
-        trigger(cx, "overlay-popover=open", "Abrir popover"),
+        trigger(cx, "overlay-popover=open", "Open popover"),
         Element::column(vec![
-            Element::text("Compartir enlace")
+            Element::text("Share link")
                 .font_family(FontFamily::Sans)
                 .font_size(13.0)
                 .foreground(palette.text),
-            caption(cx, "Cualquiera con el enlace puede ver el documento."),
-            Button::new("overlay-popover=copied", "Copiar enlace", palette).render(),
+            caption(cx, "Anyone with the link can view the document."),
+            Button::new("overlay-popover=copied", "Copy link", palette).render(),
         ])
         .gap(8.0)
         .padding(12.0),
@@ -57,16 +57,16 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     .render();
 
     let menu = DropdownMenu::new(
-        trigger(cx, "overlay-menu=open", "Abrir menú"),
+        trigger(cx, "overlay-menu=open", "Open menu"),
         vec![
-            DropdownMenuEntry::Heading("Archivo".into()),
-            DropdownMenuItem::new("overlay-menu=rename", "Renombrar").icon(Icon::Edit).shortcut("F2").into(),
-            DropdownMenuItem::new("overlay-menu=archive", "Archivar").icon(Icon::Archive).into(),
-            DropdownMenuItem::new("overlay-menu=pinned", "Fijar").icon(Icon::Pin).disabled().into(),
+            DropdownMenuEntry::Heading("File".into()),
+            DropdownMenuItem::new("overlay-menu=rename", "Rename").icon(Icon::Edit).shortcut("F2").into(),
+            DropdownMenuItem::new("overlay-menu=archive", "Archive").icon(Icon::Archive).into(),
+            DropdownMenuItem::new("overlay-menu=pinned", "Pin").icon(Icon::Pin).disabled().into(),
             DropdownMenuEntry::Separator,
-            DropdownMenuItem::new("overlay-menu=delete", "Eliminar")
+            DropdownMenuItem::new("overlay-menu=delete", "Delete")
                 .icon(Icon::Trash)
-                .shortcut("Supr")
+                .shortcut("Del")
                 .destructive(Color::rgb(229, 83, 75))
                 .into(),
         ],
@@ -79,15 +79,15 @@ pub fn view(cx: &Cx) -> Vec<Section> {
 
     let context = ContextMenu::new(
         "overlay-context",
-        Element::panel(caption(cx, "Clic derecho aquí"))
+        Element::panel(caption(cx, "Right-click here"))
             .padding(24.0)
             .border(palette.border, 1.0)
             .radius(limn::tokens().radius.card),
         vec![
-            ContextMenuEntry::Item(ContextMenuItem::new("overlay-context-action=copy", "Copiar").icon(Icon::File).shortcut("Ctrl+C")),
-            ContextMenuEntry::Item(ContextMenuItem::new("overlay-context-action=paste", "Pegar").enabled(false)),
+            ContextMenuEntry::Item(ContextMenuItem::new("overlay-context-action=copy", "Copy").icon(Icon::File).shortcut("Ctrl+C")),
+            ContextMenuEntry::Item(ContextMenuItem::new("overlay-context-action=paste", "Paste").enabled(false)),
             ContextMenuEntry::Separator,
-            ContextMenuEntry::Item(ContextMenuItem::new("overlay-context-action=delete", "Eliminar").icon(Icon::Trash)),
+            ContextMenuEntry::Item(ContextMenuItem::new("overlay-context-action=delete", "Delete").icon(Icon::Trash)),
         ],
         palette,
     )
@@ -95,20 +95,20 @@ pub fn view(cx: &Cx) -> Vec<Section> {
 
     vec![
         section(cx, "Popover", vec![row(vec![popover])]),
-        section(cx, "Lista desplegable", vec![row(vec![list])]),
-        section(cx, "Menú", vec![row(vec![menu]), caption(cx, &format!("Elegido: {}", state.text("overlay-menu")))]),
-        section(cx, "Menú contextual", vec![row(vec![context])]),
-        section(cx, "Diálogos", vec![
+        section(cx, "Dropdown list", vec![row(vec![list])]),
+        section(cx, "Menu", vec![row(vec![menu]), caption(cx, &format!("Selected: {}", state.text("overlay-menu")))]),
+        section(cx, "Context menu", vec![row(vec![context])]),
+        section(cx, "Dialogs", vec![
             row(vec![
-                trigger(cx, "overlay-modal=open", "Abrir modal"),
-                trigger(cx, "overlay-alert=open", "Abrir confirmación"),
+                trigger(cx, "overlay-modal=open", "Open modal"),
+                trigger(cx, "overlay-alert=open", "Open confirmation"),
             ]),
-            caption(cx, &format!("Confirmación: {}", state.text("overlay-alert"))),
+            caption(cx, &format!("Confirmation: {}", state.text("overlay-alert"))),
         ]),
         section(cx, "Toast", vec![row(vec![
-            trigger(cx, "overlay-toast=shown", "Mostrar toasts"),
+            trigger(cx, "overlay-toast=shown", "Show toasts"),
             // Its own ID: the toast's close button dispatches the same action.
-            trigger(cx, "overlay-toast-hide", "Ocultar").dispatch_as("overlay-toast=hidden"),
+            trigger(cx, "overlay-toast-hide", "Hide").dispatch_as("overlay-toast=hidden"),
         ])]),
     ]
 }
@@ -120,26 +120,26 @@ pub fn layers(cx: &Cx, base: Element) -> Element {
     let base = Modal::new(
         base,
         state.text("overlay-modal") == "open",
-        "Nuevo proyecto",
-        "El nombre se puede cambiar más tarde.",
+        "New project",
+        "You can change the name later.",
         "overlay-modal=closed",
         palette,
     )
     .width(Modal::fit_width(cx.width, 420.0))
     .body(
         FormField::new(
-            "Nombre",
-            TextField::new("overlay-modal-name", state.text("overlay-modal-name"), "Mi proyecto", palette)
+            "Name",
+            TextField::new("overlay-modal-name", state.text("overlay-modal-name"), "My project", palette)
                 .render(),
             palette,
         )
-        .hint("Sólo letras, números y guiones.")
+        .hint("Letters, numbers, and hyphens only.")
         .render(),
     )
     .footer(Element::row(vec![
         Element::spacer().flex(1.0),
-        Button::new("overlay-modal=cancelled", "Cancelar", palette).variant(ButtonVariant::Outline).render(),
-        Button::new("overlay-modal=created", "Crear", palette).render(),
+        Button::new("overlay-modal=cancelled", "Cancel", palette).variant(ButtonVariant::Outline).render(),
+        Button::new("overlay-modal=created", "Create", palette).render(),
     ])
     .gap(8.0))
     .initial_focus("overlay-modal-name")
@@ -148,31 +148,31 @@ pub fn layers(cx: &Cx, base: Element) -> Element {
     let base = AlertDialog::new(
         base,
         state.text("overlay-alert") == "open",
-        "¿Eliminar el proyecto?",
-        "Esta acción no se puede deshacer.",
+        "Delete the project?",
+        "This action cannot be undone.",
         "overlay-alert=confirmed",
         "overlay-alert=cancelled",
         palette,
     )
-    .confirm_label("Eliminar")
-    .cancel_label("Cancelar")
+    .confirm_label("Delete")
+    .cancel_label("Cancel")
     .destructive(Color::rgb(161, 67, 71))
     .render();
     let toasts = if state.text("overlay-toast") == "shown" {
         vec![
-            Toast::new("Cambios guardados", palette)
+            Toast::new("Changes saved", palette)
                 .description("limn/src/empty.rs")
                 .tone(AlertTone::Success)
                 .render(),
-            Toast::new("Sin conexión", palette)
-                .description("Se reintentará en unos segundos.")
+            Toast::new("Offline", palette)
+                .description("Retrying in a few seconds.")
                 .tone(AlertTone::Error)
                 .dismissible("overlay-toast=hidden")
                 .render(),
         ]
     } else if state.flag("button-clipboard-link") || state.flag("button-clipboard-label") {
-        vec![Toast::new("Enlace copiado", palette)
-            .description("https://limn.dev/componentes/portapapeles")
+        vec![Toast::new("Link copied", palette)
+            .description("https://limn.dev/components/clipboard")
             .render()]
     } else {
         Vec::new()

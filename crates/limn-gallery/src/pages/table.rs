@@ -26,25 +26,25 @@ const fn track(title: &'static str, artist: &'static str, album: &'static str, a
 }
 
 const SONGS: [Track; 12] = [
-    track("Cuando pase el temblor", "Soda Stereo", "Nada personal", "2026-03-14", 229),
-    track("Seminare", "Serú Girán", "Serú Girán", "2026-01-02", 207),
-    track("Muchacha (ojos de papel)", "Almendra", "Almendra", "2025-11-23", 186),
-    track("Un título demasiado largo para caber en la columna que le toca", "Una banda de nombre igual de largo que su canción", "Un disco que tampoco cabe", "2026-05-30", 3723),
-    track("Flaca", "Andrés Calamaro", "Alta suciedad", "2026-02-19", 277),
-    track("Lamento boliviano", "Los Enanitos Verdes", "Big Bang", "2025-12-08", 222),
-    track("El amor después del amor", "Fito Páez", "El amor después del amor", "2026-04-01", 310),
-    track("Rasguña las piedras", "Sui Generis", "Confesiones de invierno", "2025-10-17", 191),
-    track("Persiana americana", "Soda Stereo", "Signos", "2026-03-14", 293),
-    track("Mariposa tecknicolor", "Fito Páez", "Circo beat", "2026-06-11", 224),
-    track("La balsa", "Los Gatos", "Los Gatos", "2025-09-05", 177),
-    track("Ji ji ji", "Patricio Rey y sus Redonditos de Ricota", "Oktubre", "2026-02-27", 327),
+    track("Crossing the River", "Aster", "Open Water", "2026-03-14", 229),
+    track("Silver Morning", "Northbound", "Northbound", "2026-01-02", 207),
+    track("Blue Horizon", "Juniper", "Juniper", "2025-11-23", 186),
+    track("The title of this song is far too long to fit in its assigned column", "A band whose name is as long as its song title", "An album that does not fit either", "2026-05-30", 3723),
+    track("Golden Hour", "Maple Street", "Late Summer", "2026-02-19", 277),
+    track("Kind of Quiet", "Lunar Garden", "Big Bang", "2025-12-08", 222),
+    track("Echoes After Midnight", "Willow", "Echoes After Midnight", "2026-04-01", 310),
+    track("Hidden Paths", "Paper Lanterns", "Footsteps", "2025-10-17", 191),
+    track("Passing Clouds", "Aster", "Open Water", "2026-03-14", 293),
+    track("Purple Skies", "Willow", "Nightfall", "2026-06-11", 224),
+    track("River Song", "Lantern", "Lantern", "2025-09-05", 177),
+    track("Rain on Windows", "Morning Lines", "Paper Houses", "2026-02-27", 327),
 ];
 
 const DOCUMENTS: [(&str, &str, &str, u32); 4] = [
-    ("table.rs", "Rust", "hoy", 31),
-    ("components.md", "Markdown", "ayer", 46),
-    ("Un nombre de archivo demasiado largo para su columna.toml", "TOML", "hace 3 días", 2),
-    ("lienzo.png", "Imagen", "hace 2 semanas", 512),
+    ("table.rs", "Rust", "today", 31),
+    ("components.md", "Markdown", "yesterday", 46),
+    ("A filename far too long to fit in its column.toml", "TOML", "3 days ago", 2),
+    ("canvas.png", "Image", "2 weeks ago", 512),
 ];
 
 fn sort(state: &State, table: &str) -> Option<TableSort> {
@@ -108,18 +108,18 @@ fn tracks(cx: &Cx, id: &str, width: f32, query: &str, palette: ComponentPalette)
     let shown = |key: &str| !state.flag(&format!("{id}:column:{key}"));
     let columns = vec![
         TableColumn::fixed("index", "#", 24.0).align_end(),
-        TableColumn::flexible("title", "Título", 160.0).sortable(),
-        TableColumn::fixed("album", "Álbum", column_width(state, id, "album"))
+        TableColumn::flexible("title", "Title", 160.0).sortable(),
+        TableColumn::fixed("album", "Album", column_width(state, id, "album"))
             .sortable()
             .resizable(COLUMN_LIMITS.0)
             .optional(shown("album"))
             .hide_below(460.0),
-        TableColumn::fixed("added", "Agregada", column_width(state, id, "added"))
+        TableColumn::fixed("added", "Added", column_width(state, id, "added"))
             .sortable()
             .resizable(COLUMN_LIMITS.0)
             .optional(shown("added"))
             .hide_below(620.0),
-        TableColumn::fixed("duration", "Duración", 56.0).icon(Icon::Clock).sortable().align_end(),
+        TableColumn::fixed("duration", "Duration", 56.0).icon(Icon::Clock).sortable().align_end(),
         TableColumn::fixed("more", "", ControlSize::Dense.height()),
     ];
     let needle = query.to_lowercase();
@@ -165,7 +165,7 @@ fn tracks(cx: &Cx, id: &str, width: f32, query: &str, palette: ComponentPalette)
                 IconButton::new(&more, Icon::More, palette)
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Dense)
-                    .tooltip("Opciones")
+                    .tooltip("Options")
                     .render(),
             ];
             TableRow::new(format!("{id}:row={index}"), cells)
@@ -181,13 +181,13 @@ fn tracks(cx: &Cx, id: &str, width: f32, query: &str, palette: ComponentPalette)
         .rows(rows)
         .sort(sort)
         .sticky_header()
-        .columns_menu(open, "Columnas")
+        .columns_menu(open, "Columns")
         .menu_palette(cx.palette)
         .radius(RadiusRole::Surface)
         .sizing(TableSizing::ROOMY)
         .render();
     if empty {
-        let none = Empty::new("Sin resultados", "Ninguna canción coincide con la búsqueda.", palette)
+        let none = Empty::new("No results", "No song matches the search.", palette)
             .icon(Icon::Search)
             .width(width)
             .render();
@@ -201,10 +201,10 @@ fn documents(cx: &Cx, width: f32, palette: ComponentPalette) -> Element {
     let state = cx.state;
     let sort = sort(state, FILES);
     let columns = vec![
-        TableColumn::flexible("name", "Nombre", 120.0).sortable(),
-        TableColumn::fixed("kind", "Tipo", 90.0).optional(!state.flag(&format!("{FILES}:column:kind"))),
-        TableColumn::fixed("changed", "Modificado", 120.0).hide_below(420.0),
-        TableColumn::fixed("size", "Tamaño", 72.0).sortable().align_end(),
+        TableColumn::flexible("name", "Name", 120.0).sortable(),
+        TableColumn::fixed("kind", "Type", 90.0).optional(!state.flag(&format!("{FILES}:column:kind"))),
+        TableColumn::fixed("changed", "Modified", 120.0).hide_below(420.0),
+        TableColumn::fixed("size", "Size", 72.0).sortable().align_end(),
     ];
     let mut files = DOCUMENTS.to_vec();
     if let Some(sort) = &sort {
@@ -243,23 +243,23 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         .size(None, Some(360.0));
     let narrow = width.min(380.0);
     vec![
-        section(cx, "Lista de canciones", vec![
-            caption(cx, "El encabezado queda fijo mientras las filas pasan por debajo. Un clic en una etiqueta ordena: ascendente, descendente y sin orden. Los límites de Álbum y Agregada se arrastran, y el botón del final, o un clic secundario en el encabezado, elige las columnas."),
-            SearchField::new("demo-table-query", query, "Filtrar canciones", cx.palette).width(narrow).render(),
+        section(cx, "Track list", vec![
+            caption(cx, "The header stays fixed while the rows scroll underneath. Click a label to cycle through ascending, descending and no sort. Drag the Album and Added column boundaries; the last button or a right-click on the header selects columns."),
+            SearchField::new("demo-table-query", query, "Filter tracks", cx.palette).width(narrow).render(),
             card(width, list),
-            caption(cx, "El anfitrión filtra y ordena: la tabla muestra las filas que recibe. La fila elegida queda rellena y el botón Opciones conserva su propio destino."),
+            caption(cx, "The host filters and sorts: the table shows the rows it receives. The selected row has a filled background and the Options button keeps its own target."),
         ]),
-        section(cx, "Angosta", vec![
-            caption(cx, "Cada columna dice bajo qué ancho de la tabla se deja afuera: primero Agregada, después Álbum. Lo que queda nunca se sale."),
-            card(narrow, tracks(cx, NARROW, narrow - 16.0, "soda", palette)),
+        section(cx, "Narrow", vec![
+            caption(cx, "Each column specifies the table width below which it is hidden: Added first, then Album. The remaining columns always fit."),
+            card(narrow, tracks(cx, NARROW, narrow - 16.0, "aster", palette)),
         ]),
-        section(cx, "Compacta", vec![
-            caption(cx, "El perfil de un panel: filas de 28. La columna Tipo se oculta con un clic secundario en el encabezado."),
+        section(cx, "Compact", vec![
+            caption(cx, "The panel profile: 28-pixel rows. Hide the Type column with a right-click on the header."),
             card(width.min(560.0), documents(cx, width.min(560.0) - 16.0, palette)),
         ]),
-        section(cx, "Sin filas", vec![
-            caption(cx, "Sin filas queda el encabezado; el anfitrión pone debajo su estado vacío."),
-            card(width, tracks(cx, "demo-table-empty", width - 16.0, "no existe", palette)),
+        section(cx, "No rows", vec![
+            caption(cx, "With no rows, the header remains; the host puts its empty state below it."),
+            card(width, tracks(cx, "demo-table-empty", width - 16.0, "not found", palette)),
         ]),
     ]
 }
@@ -302,7 +302,7 @@ mod tests {
         let step = row(&frame, 1) - row(&frame, 0);
         assert_eq!(step, TableSizing::ROOMY.row_height + TableSizing::ROOMY.row_gap);
 
-        // By title: "Cuando…" stays first and "El amor…" follows it; then the other way round.
+        // By title: "Crossing…" is followed by "Echoes…"; then the other way round.
         let frame = click(&mut tree, &mut state, &frame, "demo-table:sort:title");
         assert_eq!(row(&frame, 6), row(&frame, 0) + step);
         let frame = click(&mut tree, &mut state, &frame, "demo-table:sort:title");

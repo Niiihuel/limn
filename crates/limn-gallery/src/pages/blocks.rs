@@ -26,30 +26,30 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         TextSpan::new("fn ", palette.muted, 13.0, FontFamily::Monospace),
         TextSpan::new("main", palette.text, 13.0, FontFamily::Monospace),
         TextSpan::new("() {}  ", palette.muted, 13.0, FontFamily::Monospace),
-        TextSpan::new("// coloreado por el host", palette.muted, 13.0, FontFamily::Monospace),
+        TextSpan::new("// colored by the host", palette.muted, 13.0, FontFamily::Monospace),
     ];
     // Five tiles and the four gaps of `row` share the page's width.
     let tile = ((cx.width - 48.0) / 5.0).min(144.0);
     // The gallery ships no pictures: a cover here is a glyph on a fill.
     let cover = |icon| Element::icon(icon).large_icon(40.0).foreground(palette.text).background(palette.raised);
     vec![
-        section(cx, "Tarjeta", vec![
+        section(cx, "Card", vec![
             row(densities
                 .into_iter()
                 .map(|(name, density)| {
-                    Card::new(card_copy(cx, name, "Borde y radio"), palette)
+                    Card::new(card_copy(cx, name, "Border and radius"), palette)
                         .density(density)
                         .width(128.0)
                         .render()
                 })
                 .collect()),
             row(vec![
-                Card::new(card_copy(cx, "Sin borde", "Radio de superficie"), palette)
+                Card::new(card_copy(cx, "Borderless", "Surface radius"), palette)
                     .border(false)
                     .radius(RadiusRole::Surface)
                     .width(160.0)
                     .render(),
-                Card::new(card_copy(cx, "Radio de panel", "Para un contenedor grande"), palette)
+                Card::new(card_copy(cx, "Panel radius", "For a large container"), palette)
                     .radius(RadiusRole::Panel)
                     .width(200.0)
                     .render(),
@@ -57,9 +57,9 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             row(vec![
                 Card::new(
                     Element::column(vec![
-                        ListRow::new("blocks-card-flush", "Flush: fila hasta el borde", palette).render(),
+                        ListRow::new("blocks-card-flush", "Flush: row to the edge", palette).render(),
                         Separator::horizontal(palette).render(),
-                        card_copy(cx, "Sin relleno", "El contenido trae el suyo").padding(8.0),
+                        card_copy(cx, "No padding", "Content supplies its own").padding(8.0),
                     ])
                     .clip_children(),
                     palette,
@@ -70,8 +70,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ]),
             Card::new(
                 Element::column(vec![
-                    card_copy(cx, "Plan propuesto", "Una tarjeta sin ancho ocupa el que recibe; el contenido es del host, incluidas sus acciones."),
-                    row(vec![Button::new("blocks-card-build", "Construir", palette)
+                    card_copy(cx, "Proposed plan", "A card without a width uses the space it receives; the host supplies its content, including actions."),
+                    row(vec![Button::new("blocks-card-build", "Build", palette)
                         .variant(ButtonVariant::Outline)
                         .render()]),
                 ])
@@ -82,7 +82,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .render()
             .size(Some(width), None),
         ]),
-        section(cx, "Mosaico de medios", vec![
+        section(cx, "Media tile", vec![
             row(vec![
                 MediaTile::new("blocks-tile-album", "Kind of Blue", palette)
                     .artwork(cover(Icon::Library))
@@ -96,24 +96,24 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .render(),
                 MediaTile::new("blocks-tile-artist", "Nina Simone", palette)
                     .artwork(cover(Icon::Heart))
-                    .subtitle("Artista")
+                    .subtitle("Artist")
                     .round(true)
                     .width(tile)
                     .render(),
-                MediaTile::new("blocks-tile-empty", "Sin portada", palette)
-                    .subtitle("Aún no cargó")
+                MediaTile::new("blocks-tile-empty", "No artwork", palette)
+                    .subtitle("Not loaded yet")
                     .width(tile)
                     .render(),
-                MediaTile::new("blocks-tile-disabled", "No disponible", palette)
+                MediaTile::new("blocks-tile-disabled", "Unavailable", palette)
                     .artwork(cover(Icon::Library))
-                    .subtitle("Deshabilitado")
+                    .subtitle("Disabled")
                     .enabled(false)
                     .width(tile)
                     .render(),
             ]),
-            caption(cx, "Dos álbumes, un artista con .round(true), uno sin portada y uno deshabilitado; el título largo se corta sin ensanchar el mosaico."),
+            caption(cx, "Two albums, an artist with .round(true), one without artwork and one disabled; the long title is truncated without widening the tile."),
         ]),
-        section(cx, "Tarjeta de pista", vec![
+        section(cx, "Track card", vec![
             row(vec![
                 MediaCard::new("blocks-card-rest", "Past Won't Leave My Bed", palette)
                     .artist("Joji")
@@ -131,18 +131,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .artist("David Bowie")
                     .tint(limn::Color::rgb(44, 84, 150))
                     .render(),
-                MediaCard::new("blocks-card-disabled", "No disponible", palette).artist("Deshabilitada").enabled(false).render(),
+                MediaCard::new("blocks-card-disabled", "Unavailable", palette).artist("Disabled").enabled(false).render(),
             ]),
-            caption(cx, "La funda es el control: bajo el puntero el disco asoma, y mientras suena queda afuera y gira. El anfitrión da la portada, el tinte y el estado."),
+            caption(cx, "The sleeve is the control: the record peeks out on hover and stays out, spinning, while playing. The host supplies the artwork, tint and state."),
         ]),
-        section(cx, "Bloque de salida", vec![
-            caption(cx, "4000 líneas: sólo se construyen las visibles, y la nota avisa del recorte"),
+        section(cx, "Output block", vec![
+            caption(cx, "4000 lines: only visible lines are built, and a note indicates truncation"),
             OutputBlock::new("blocks-output-long", log, palette)
                 .width(width)
                 .max_height(136.0)
-                .truncation_note("Vista parcial · resultado demasiado extenso")
+                .truncation_note("Partial preview · output too long")
                 .render(),
-            caption(cx, "Salida corta, con una tinta del host y una línea más ancha que el bloque"),
+            caption(cx, "Short output, with host-supplied ink and a line wider than the block"),
             OutputBlock::new(
                 "blocks-output-short",
                 "error[E0308]: mismatched types\n\n  expected `u32`, found `&str` in a line that runs well past the right edge of the block and is clipped there",
@@ -151,13 +151,13 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .ink(palette.muted)
             .width(width)
             .render(),
-            caption(cx, "Vacío"),
+            caption(cx, "Empty"),
             OutputBlock::new("blocks-output-empty", "", palette).width(width).render(),
         ]),
-        section(cx, "Bloque de código", vec![
+        section(cx, "Code block", vec![
             caption(cx, "CodeBlockSizing::CHAT"),
             CodeBlock::new(source, palette).label("RUST").width(width).render(),
-            caption(cx, "CodeBlockSizing::DOCUMENT, con tramos coloreados y sin etiqueta"),
+            caption(cx, "CodeBlockSizing::DOCUMENT, with colored spans and no label"),
             CodeBlock::new(source, palette)
                 .label("rust")
                 .sizing(CodeBlockSizing::DOCUMENT)
@@ -168,7 +168,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .sizing(CodeBlockSizing::DOCUMENT)
                 .width(width)
                 .render(),
-            caption(cx, "Angosto: el código se parte dentro del bloque"),
+            caption(cx, "Narrow: code wraps inside the block"),
             CodeBlock::new("cargo test -p limn -p limn-egui -p limn-gallery", palette)
                 .label("SH")
                 .width(180.0)
