@@ -936,6 +936,9 @@ pub struct HitRegion {
 pub struct Frame {
     pub commands: Vec<DrawCommand>,
     pub regions: Vec<HitRegion>,
+    /// What the platform should know of the frame: one node for each control
+    /// and each thing a component described, in the order they were placed.
+    pub access: Vec<crate::AccessNode>,
     action_menu_items: HashSet<String>,
     menu_secondary_actions: HashSet<String>,
     draggables: HashSet<String>,
@@ -5697,6 +5700,81 @@ fn focusable_id(element: &Element) -> Option<&str> {
     }
 }
 
+/// What an element's kind tells of it: a button is a button named by its
+/// label, a field is a field named by its placeholder.
+fn inferred_access(element: &Element) -> crate::Access {
+    use crate::{Access, Role};
+    match &element.kind {
+        ElementKind::Button { label, .. } | ElementKind::IconButton { label, .. } => {
+            Access { name: (!label.is_empty()).then(|| label.clone()), ..Access::new(Role::Button) }
+        }
+        ElementKind::Clickable { child, .. } => {
+            let role = if element.slider.is_some() { Role::Slider } else { Role::Button };
+            let name = spoken_text(child);
+            Access { name: (!name.is_empty()).then_some(name), ..Access::new(role) }
+        }
+        ElementKind::TextInput { initial_value, placeholder, password, .. } => Access {
+            name: (!placeholder.is_empty()).then(|| placeholder.clone()),
+            // What is typed into a password field is nobody's to read out.
+            value_text: (!*password).then(|| initial_value.clone()),
+            ..Access::new(if *password { Role::PasswordInput } else { Role::TextInput })
+        },
+        ElementKind::TextArea { initial_value, placeholder, .. } => Access {
+            name: (!placeholder.is_empty()).then(|| placeholder.clone()),
+            value_text: Some(initial_value.clone()),
+            ..Access::new(Role::MultilineTextInput)
+        },
+        ElementKind::EffortSlider { fraction, .. } => Access::new(Role::Slider).value(*fraction),
+        ElementKind::CodeEditor(_) => Access::new(Role::MultilineTextInput),
+        _ => Access::default(),
+    }
+}
+
+/// The text an element shows, as one line: what names a control that was
+/// given no name of its own.
+fn spoken_text(element: &Element) -> String {
+    fn gather(element: &Element, out: &mut String) {
+        // A name is a phrase, not a page.
+        if out.len() >= 160 {
+            return;
+        }
+        let mut say = |text: &str| {
+            let text = text.trim();
+            if !text.is_empty() {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(text);
+            }
+        };
+        match &element.kind {
+            ElementKind::Text(text)
+            | ElementKind::TruncatedText(text)
+            | ElementKind::FadedText { text, .. }
+            | ElementKind::ShimmerText { text, .. } => say(text),
+            ElementKind::Button { label, .. } | ElementKind::IconButton { label, .. } => say(label),
+            ElementKind::FormattedText(spans) => {
+                say(&spans.iter().map(|span| span.text.as_str()).collect::<String>())
+            }
+            ElementKind::Column(children) | ElementKind::Row(children) | ElementKind::Stack(children) => {
+                children.iter().for_each(|child| gather(child, out))
+            }
+            ElementKind::TabStrip { children, .. } => children.iter().for_each(|child| gather(child, out)),
+            ElementKind::Panel(child)
+            | ElementKind::Clickable { child, .. }
+            | ElementKind::ShortcutHint { child, .. }
+            | ElementKind::Scroll { child, .. }
+            | ElementKind::HorizontalScroll { child, .. } => gather(child, out),
+            ElementKind::Overlay { base, .. } => gather(base, out),
+            ElementKind::Popover { anchor, .. } | ElementKind::Tooltip { anchor, .. } => gather(anchor, out),
+            _ => {}
+        }
+    }
+    let mut out = String::new();
+    gather(element, &mut out);
+    out
+}
+
 /// Whether a hover-revealed element must stay painted without the pointer:
 /// a popover inside it is open, or the keyboard focus is on one of its
 /// controls.
@@ -8108,6 +8186,45 @@ impl LayoutBuilder<'_> {
         if dragged {
             self.drag_ghost = Some(start..self.frame.commands.len());
         }
+        self.note_access(element, rect, clip);
+    }
+
+    /// Record what the platform should know of `element`: what it says of
+    /// itself over what its kind tells.
+    fn note_access(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        let own = focusable_id(element);
+        if own.is_none() && element.access.is_none() {
+            return;
+        }
+        let said = element.access.as_deref().cloned().unwrap_or_default();
+        let Some(id) = said.id.clone().or_else(|| own.map(str::to_owned)) else {
+            // Something described without a name to know it by.
+            return;
+        };
+        let Some(rect) = clip.map_or(Some(rect), |clip| rect.intersection(clip)) else {
+            return;
+        };
+        // One control drawn in pieces, such as a link wrapped over two lines, is one node.
+        if self.frame.access.iter().any(|node| node.id == id) {
+            return;
+        }
+        let access = said.over(inferred_access(element));
+        let actionable = own.is_some() && !access.disabled;
+        self.frame.access.push(crate::AccessNode {
+            focused: actionable && self.focused == Some(id.as_str()),
+            id,
+            rect,
+            role: access.role.unwrap_or(crate::Role::Group),
+            name: access.name.unwrap_or_default(),
+            description: access.description,
+            disabled: access.disabled,
+            toggled: access.toggled,
+            selected: access.selected,
+            expanded: access.expanded,
+            value: access.value,
+            value_text: access.value_text,
+            actionable,
+        });
     }
 
     fn place_inner(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {

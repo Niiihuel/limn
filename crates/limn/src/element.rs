@@ -529,6 +529,9 @@ pub struct Element {
     /// Makes a clickable report [`UiAction::SliderChanged`](crate::UiAction::SliderChanged)
     /// instead of a click. Boxed: few elements have one.
     pub(crate) slider: Option<Box<SliderTravel>>,
+    /// What the element says of itself to the platform, over what the tree
+    /// works out. Boxed: few elements say anything.
+    pub(crate) access: Option<Box<crate::Access>>,
     /// ID under which this element fades in when it is first placed, and
     /// whether its last paint is left behind to fade out once it is gone.
     pub presence: Option<(String, bool)>,
@@ -1057,6 +1060,7 @@ impl Element {
             style: Style::default(),
             hover_peer: None,
             slider: None,
+            access: None,
             presence: None,
             replacement: None,
             hover_surface: None,
@@ -2259,6 +2263,24 @@ impl Element {
         Self::column(vec![Self::spacer().flex(1.0), self, Self::spacer().flex(1.0)])
             .size(width, None)
             .flex(flex)
+    }
+
+    /// Say what this element is to the platform: its role, its name and its
+    /// state, as a screen reader will give them. What is left out the tree
+    /// works out from the element; said twice, the later call adds to the
+    /// earlier and wins where they differ.
+    pub fn accessible(mut self, access: crate::Access) -> Self {
+        self.access = Some(Box::new(match self.access.take() {
+            Some(earlier) => access.over(*earlier),
+            None => access,
+        }));
+        self
+    }
+
+    /// Name this element for the platform: what a screen reader says for a
+    /// control whose text does not say it, such as an icon alone.
+    pub fn accessibility_label(self, name: impl Into<String>) -> Self {
+        self.accessible(crate::Access::named(name))
     }
 
     /// Center this element horizontally in the width its parent gives it.
