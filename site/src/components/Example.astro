@@ -1,33 +1,29 @@
 ---
+// One example of a component, alone on a plain ground: the library drawing
+// it, and under it the code that does. `section` is its place among the
+// sections of the component's gallery page.
 import { Code } from 'astro:components';
 import Icon from './Icon.astro';
-const { page, title, code = '', codeSource, height = 240 } = Astro.props;
-const id = `example-${page}`;
+const { anchor, page, section, variant, title, label, place, code = '', codeSource, height = 220 } = Astro.props;
+const id = `example-${page}-${section ?? 'all'}-${variant ?? 'all'}`;
 ---
-<section class="docs-example" aria-label={`${title} example`} data-example>
-  <div class="example-toolbar">
-    <div class="example-tabs" role="tablist" aria-label={`${title} example views`}>
-      <button id={`${id}-preview-tab`} type="button" role="tab" aria-selected="true" aria-controls={`${id}-preview`} data-view="preview">Preview</button>
-      <button id={`${id}-code-tab`} type="button" role="tab" aria-selected="false" aria-controls={`${id}-code`} tabindex="-1" data-view="code">Code</button>
-    </div>
-    <a href={`/frame/#${page}`} target="_blank" rel="noreferrer">Open preview<Icon name="arrow-up-right" size={12} /></a>
+<figure class="specimen" id={anchor} data-example>
+  {label && <figcaption>{label}{place && <span>{place}</span>}</figcaption>}
+  <p id={`${id}-scroll-hint`} class="example-scroll-hint" data-scroll-hint hidden>Scroll to explore the preview. Use arrow keys or swipe the strip below the preview.</p>
+  <div class="example-viewport" role="region" aria-label={`${title}, scrollable preview`} aria-describedby={`${id}-scroll-hint`} tabindex="-1" data-preview-viewport>
+    <iframe class="live" title={`${title}, drawn by limn`} data-page={page} data-section={section} data-variant={variant} style={`height:${height}px`}></iframe>
+    <div class="example-scroll-gutter" aria-hidden="true" data-scroll-gutter hidden></div>
   </div>
-  <div id={`${id}-preview`} role="tabpanel" aria-labelledby={`${id}-preview-tab`} data-panel="preview">
-    <p id={`${id}-scroll-hint`} class="example-scroll-hint" data-scroll-hint hidden>Scroll to explore the preview. Use arrow keys or swipe the strip below the preview.</p>
-    <div class="example-viewport" role="region" aria-label={`${title} scrollable preview`} aria-describedby={`${id}-scroll-hint`} tabindex="0" data-preview-viewport>
-      <iframe class="live" title={`${title}, native Rust preview`} data-page={page} style={`height:${height}px`}></iframe>
-      <div class="example-scroll-gutter" aria-hidden="true" data-scroll-gutter hidden></div>
-    </div>
-    <p class="example-caption">Rendered by limn, compiled to WebAssembly.</p>
-  </div>
-  <div id={`${id}-code`} role="tabpanel" aria-labelledby={`${id}-code-tab`} tabindex="0" data-panel="code" hidden>
-    {code ? <Code code={code} lang="rust" themes={{ light: 'github-light', dark: 'github-dark-default' }} /> : <p class="example-empty">Read the native implementation for this example.</p>}
-    <p class="example-caption">{code ? 'Basic usage from the guide.' : 'The complete example source.'}{codeSource && <> <a href={codeSource}>View source<Icon name="arrow-up-right" size={12} /></a></>}</p>
-  </div>
-</section>
+  {(code || codeSource) && (
+    <details class="specimen-code">
+      <summary><span><Icon name="code-slash" size={13} /> Code</span>{codeSource && <a href={codeSource}>Source <Icon name="arrow-up-right" size={11} /></a>}</summary>
+      {code ? <Code code={code} lang="rust" themes={{ light: 'github-light', dark: 'github-dark-default' }} /> : <p class="example-empty">Read the source of this example.</p>}
+    </details>
+  )}
+</figure>
 <script>
+  // A preview wider than its card can be scrolled, and says so.
   for (const example of document.querySelectorAll<HTMLElement>('[data-example]')) {
-    const tabs = [...example.querySelectorAll<HTMLButtonElement>('[role="tab"]')];
     const viewport = example.querySelector<HTMLElement>('[data-preview-viewport]')!;
     const hint = example.querySelector<HTMLElement>('[data-scroll-hint]')!;
     const gutter = example.querySelector<HTMLElement>('[data-scroll-gutter]')!;
@@ -40,25 +36,5 @@ const id = `example-${page}`;
     };
     new ResizeObserver(updateOverflow).observe(viewport);
     updateOverflow();
-    const select = (tab: HTMLButtonElement) => {
-      for (const item of tabs) {
-        const selected = item === tab;
-        item.setAttribute('aria-selected', String(selected));
-        item.tabIndex = selected ? 0 : -1;
-      }
-      for (const panel of example.querySelectorAll<HTMLElement>('[data-panel]')) {
-        panel.hidden = panel.dataset.panel !== tab.dataset.view;
-      }
-      requestAnimationFrame(updateOverflow);
-    };
-    tabs.forEach((tab, index) => {
-      tab.addEventListener('click', () => select(tab));
-      tab.addEventListener('keydown', (event) => {
-        const next = event.key === 'ArrowRight' ? tabs[(index + 1) % tabs.length]
-          : event.key === 'ArrowLeft' ? tabs[(index + tabs.length - 1) % tabs.length]
-          : event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs.at(-1) : undefined;
-        if (next) { event.preventDefault(); select(next); next.focus(); }
-      });
-    });
   }
 </script>

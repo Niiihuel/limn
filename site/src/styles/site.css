@@ -16,26 +16,29 @@ body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.6 var(--
 a { color: inherit; text-decoration: none; }
 code, pre, kbd { font-family: var(--mono); font-size: 13px; }
 
-.bar { position: sticky; top: 0; z-index: 10; height: 54px; display: flex; align-items: center; gap: 28px; padding: 0 clamp(16px, 5vw, 80px); background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: saturate(180%) blur(16px); border-bottom: 1px solid var(--line); }
-.brand { font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
-.bar nav { display: flex; gap: 20px; font-size: 14px; }
+/* The bar is the same on every page: the name, the sections, and pills at the end. */
+.bar { position: sticky; top: 0; z-index: 10; height: 64px; display: flex; align-items: center; gap: 36px; padding: 0 clamp(16px, 5vw, 80px); background: color-mix(in srgb, var(--bg) 85%, transparent); backdrop-filter: saturate(180%) blur(16px); border-bottom: 1px solid var(--line); }
+.brand { font-weight: 700; font-size: 22px; letter-spacing: -.07em; }
+.bar nav { display: flex; gap: 24px; font-size: 13px; }
 .bar nav a { color: var(--muted); }
 .bar nav a:hover, .bar nav a[aria-current="page"] { color: var(--fg); }
-.bar nav a[aria-current="page"] { font-weight: 600; }
-.bar .end { margin-left: auto; display: flex; gap: 14px; align-items: center; font-size: 13px; color: var(--muted); }
-.bar button { all: unset; cursor: pointer; padding: 6px 10px; border: 1px solid var(--line); border-radius: 8px; }
-.bar button:hover, .bar .end a:hover { color: var(--fg); }
+.bar .end { margin-left: auto; display: flex; gap: 8px; align-items: center; font-size: 12px; }
+.bar .end a, .bar button { all: unset; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 7px; height: 32px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg); font-size: 12px; cursor: pointer; transition: background 140ms; }
+/* An icon on a line of text hangs from its baseline: as a block it is in the middle. */
+.bar #theme { width: 32px; padding: 0; line-height: 0; }
+.bar #theme svg { display: block; }
+.bar .end a:hover, .bar button:hover { background: var(--hover); }
 .bar button:focus-visible, a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 .shell { display: grid; grid-template-columns: 250px minmax(0, 1fr) 220px; max-width: 1440px; margin: 0 auto; padding: 0 clamp(16px, 5vw, 80px); }
-.side { position: sticky; top: 54px; align-self: start; height: calc(100vh - 54px); overflow-y: auto; padding: 28px 16px 40px 0; border-right: 1px solid var(--line); }
+.side { position: sticky; top: 64px; align-self: start; height: calc(100vh - 64px); overflow-y: auto; padding: 28px 16px 40px 0; border-right: 1px solid var(--line); }
 .side h2, .toc h2, .eyebrow { margin: 0 0 8px; font: 600 11px/1.4 var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
 .side h2:not(:first-child) { margin-top: 24px; }
 .side a { display: block; padding: 5px 8px; border-radius: 6px; font-size: 14px; }
 .side a:hover { background: var(--hover); }
 .side a[aria-current="page"] { background: var(--hover); font-weight: 600; }
 .main { padding: 44px clamp(16px, 4vw, 56px) 96px; min-width: 0; }
-.toc { position: sticky; top: 54px; align-self: start; padding: 48px 0 0 8px; font-size: 13px; }
+.toc { position: sticky; top: 64px; align-self: start; padding: 48px 0 0 8px; font-size: 13px; }
 .toc a { display: block; padding: 4px 0 4px 14px; border-left: 1px solid var(--line); color: var(--muted); }
 .toc a:hover { color: var(--fg); border-color: var(--fg); }
 .toc a.sub { padding-left: 26px; }
@@ -99,21 +102,19 @@ footer { padding: 28px clamp(16px, 5vw, 80px); border-top: 1px solid var(--line)
 .toc a.active { color: var(--fg); border-left-color: var(--fg); }
 /* Bootstrap icons sit on the text's line and take its color. */
 svg.bi { flex: none; vertical-align: -0.125em; }
-.bar nav a, .bar .end a, .button, .grid h3, .cargo { display: inline-flex; align-items: center; gap: 7px; }
+.bar nav a, .button, .grid h3, .cargo { display: inline-flex; align-items: center; gap: 7px; }
 /* The theme switch is its icon: it lights up, with no box around it. */
-.bar button { display: inline-flex; padding: 4px; border: 0; border-radius: 6px; color: var(--muted); transition: color 140ms; }
-.bar button:hover, .bar button:focus-visible { color: var(--fg); }
 @media (max-width: 760px) { .bar .end a { display: none; } }
 @media (max-width: 480px) {
   .bar { gap: 14px; }
   .bar nav { gap: 12px; font-size: 13px; }
-  .bar nav svg { display: none; }
 }
 :root[data-theme="light"] .when-dark, :root:not([data-theme="light"]) .when-light { display: none; }
 .code { position: relative; }
-.copy { all: unset; position: absolute; top: 8px; right: 8px; display: inline-flex; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 120ms; }
+.copy { all: unset; position: absolute; top: 8px; right: 8px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 120ms; }
 .code:hover .copy, .copy:focus-visible, .copy.copied { opacity: 1; }
 .copy:hover { color: var(--fg); }
+.copy .idle { display: inline-flex; }
 .copy .done, .copy.copied .idle { display: none; }
 .copy.copied .done { display: inline-flex; color: var(--accent); }
 .window .code pre { margin: 0; }
@@ -144,3 +145,22 @@ svg.bi { flex: none; vertical-align: -0.125em; }
 kbd { display: inline-block; min-width: 1.7em; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--card); color: var(--fg); font: 600 12px/1.5 var(--mono); text-align: center; white-space: nowrap; }
 /* Room between the rows of the list, so two hovers never touch. */
 .side a { margin: 2px 0; }
+
+/* Search: a palette over the site, opened with Ctrl+K. */
+.search-open kbd, dialog.search kbd { display: inline-flex; align-items: center; justify-content: center; min-width: 20px; height: 20px; padding: 0 5px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--hover); color: var(--fg); font: 11px/1 var(--sans); }
+.bar .search-open { padding: 0 6px 0 12px; color: var(--muted); }
+.bar .search-open kbd { border-radius: 999px; }
+.bar .search-open span { margin-right: 18px; }
+dialog.search { width: min(560px, calc(100vw - 32px)); max-height: min(520px, 70vh); margin: 14vh auto auto; padding: 0; border: 1px solid var(--line); border-radius: 14px; background: var(--card); color: var(--fg); overflow: hidden; box-shadow: 0 24px 80px #0009; }
+dialog.search[open] { display: flex; flex-direction: column; }
+dialog.search::backdrop { background: #0008; backdrop-filter: blur(3px); }
+.search-field { display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); color: var(--muted); }
+.search-field input { flex: 1; min-width: 0; height: 50px; border: 0; outline: 0; background: transparent; color: var(--fg); font: 15px var(--sans); }
+dialog.search ul { flex: 1; min-height: 0; margin: 0; padding: 6px; list-style: none; overflow-y: auto; }
+dialog.search li { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 10px; border-radius: 8px; font-size: 14px; cursor: pointer; }
+dialog.search li[aria-selected="true"] { background: var(--hover); }
+dialog.search li small { color: var(--muted); font-size: 12px; white-space: nowrap; }
+.search-empty { margin: 0; padding: 28px 16px; color: var(--muted); font-size: 14px; text-align: center; }
+dialog.search footer { display: flex; gap: 18px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+dialog.search footer span { display: inline-flex; align-items: center; gap: 5px; }
+@media (max-width: 760px) { .bar .search-open span, .bar .search-open kbd { display: none; } .bar .search-open { width: 32px; padding: 0; } }

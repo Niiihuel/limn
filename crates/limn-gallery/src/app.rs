@@ -202,10 +202,7 @@ pub fn view(state: &State, window: Size) -> Element {
     // Embedded in a site's page, the gallery is only the component: the site
     // has the navigation and the title.
     // A site that embeds a page gives it its own ground, as `embed-bg=rrggbb`.
-    let ground = u32::from_str_radix(state.text("embed-bg"), 16)
-        .ok()
-        .filter(|_| state.flag("embed") && state.text("embed-bg").len() == 6)
-        .map_or(theme.background, |rgb| limn::Color::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8));
+    let ground = pages::ground(&cx);
     let content = if state.flag("embed") && !state.text("embed-diagram").is_empty() {
         // A site's own diagram, drawn here from its Mermaid source.
         let diagram = match limn::Diagram::parse(state.text("embed-diagram"), palette) {
@@ -214,9 +211,15 @@ pub fn view(state: &State, window: Size) -> Element {
         };
         vec![ScrollArea::new("page-scroll", diagram.centered_x().padding(24.0)).render().flex(1.0)]
     } else if state.flag("embed") {
-        vec![ScrollArea::new("page-scroll", current.render(&cx).padding(24.0))
-            .render()
-            .flex(1.0)]
+        let page = current.render(&cx).padding(24.0);
+        let page = if state.text("embed-variant").is_empty() {
+            page
+        } else {
+            // One example alone stands in the middle of its card, and scrolls when it is taller.
+            Element::column(vec![Element::spacer().flex(1.0), page, Element::spacer().flex(1.0)])
+                .min_size(0.0, window.height)
+        };
+        vec![ScrollArea::new("page-scroll", page).render().flex(1.0)]
     } else {
         vec![
             Element::panel(Element::column(sidebar).gap(2.0))
@@ -276,6 +279,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// A site shows each example alone in a card: none may run out of it.
+    #[test]
+    fn every_example_alone_stays_inside_the_card_a_site_gives_it() {
+        let window = Size::new(760.0, 320.0);
+        let mut outside = Vec::new();
+        // A diagram wider than its card is there to show that it scrolls sideways.
+        for page in pages::PAGES.iter().filter(|page| page.id != "diagram") {
+            let state = State::starting_at(page.id);
+            let cx = pages::Cx { state: &state, palette: state.theme().palette(), width: window.width - 48.0 };
+            for (section, variants) in page.variant_counts(&cx).into_iter().enumerate() {
+                for variant in 0..variants {
+                    let mut state = State::starting_at(page.id);
+                    for (key, value) in [("embed", "on".to_owned()), ("embed-section", section.to_string()), ("embed-variant", variant.to_string())] {
+                        state.set(key, &value);
+                    }
+                    let frame = UiTree::new(view(&state, window)).layout(window);
+                    let stray = frame.commands.iter().any(|command| match command {
+                        limn::DrawCommand::Text { position, .. } => position.x < 0.0 || position.x > window.width,
+                        _ => false,
+                    });
+                    if stray {
+                        outside.push(format!("{} section {section} variant {variant}", page.id));
+                    }
+                }
+            }
+        }
+        assert!(outside.is_empty(), "text drawn outside the card:\n{}", outside.join("\n"));
     }
 
     #[test]

@@ -133,10 +133,17 @@ impl DatePicker {
         } else {
             self.palette.muted
         };
-        let label = Element::text(day.to_string())
+        let number = Element::text(day.to_string())
             .foreground(ink)
             .font_family(FontFamily::Sans)
             .font_size(12.0);
+        // In the middle of its cell, so the fill of the chosen day is around it.
+        let label = Element::column(vec![
+            Element::spacer().flex(1.0),
+            Element::row(vec![Element::spacer().flex(1.0), number, Element::spacer().flex(1.0)]),
+            Element::spacer().flex(1.0),
+        ])
+        .size(Some(CELL_WIDTH), Some(CELL_HEIGHT));
         // Named by its whole date, since a number alone is in no month; the chosen day says so.
         let id = format!("{}:day:{date}", self.id);
         let name = format!("{day} {} {year}", crate::labels().months[month as usize - 1]);

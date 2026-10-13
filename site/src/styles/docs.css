@@ -7,6 +7,12 @@ body[data-layout="docs"] .side h2 { font-family: var(--sans); font-size: 12px; f
 body[data-layout="docs"] .side a { color: var(--muted); }
 body[data-layout="docs"] .side a:hover, body[data-layout="docs"] .side a[aria-current="page"] { color: var(--fg); }
 body[data-layout="docs"] .toc { padding-top: 48px; }
+body[data-layout="docs"] .side a.branch { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+body[data-layout="docs"] .side a.branch svg { flex: none; opacity: .55; transform: rotate(-90deg); transition: transform 140ms; }
+body[data-layout="docs"] .side a.branch[aria-current="page"] svg { transform: none; }
+body[data-layout="docs"] .side .twigs { margin: 2px 0 6px 12px; padding-left: 8px; border-left: 1px solid var(--line); }
+body[data-layout="docs"] .side .twigs a { padding-block: 4px; font-size: 13px; }
+body[data-layout="docs"] .side .twigs a.active { color: var(--fg); }
 body[data-layout="docs"] .docs-heading { margin-bottom: 32px; }
 body[data-layout="docs"] .docs-heading h1 { margin: 12px 0 16px; font-size: 36px; font-weight: 650; letter-spacing: -0.035em; line-height: 1.15; }
 body[data-layout="docs"] .docs-breadcrumb { display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 20px; color: var(--muted); font-size: 12px; }
@@ -24,23 +30,23 @@ body[data-layout="docs"] .docs-index > a { display: flex; justify-content: space
 body[data-layout="docs"] .docs-index > a:hover { color: var(--link); }
 body[data-layout="docs"] .docs-index h2, body[data-layout="docs"] .docs-index h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 body[data-layout="docs"] .docs-index p { max-width: 580px; margin: 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
-body[data-layout="docs"] .docs-example { overflow: hidden; border: 1px solid var(--line); border-radius: 10px; background: var(--code); }
-body[data-layout="docs"] .example-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--line); background: var(--bg); }
-body[data-layout="docs"] .example-tabs { display: flex; gap: 20px; }
-body[data-layout="docs"] .example-tabs button { position: relative; padding: 13px 0; border: 0; background: transparent; color: var(--muted); font: 500 13px var(--sans); cursor: pointer; }
-body[data-layout="docs"] .example-tabs button[aria-selected="true"] { color: var(--fg); }
-body[data-layout="docs"] .example-tabs button[aria-selected="true"]::after { position: absolute; bottom: -1px; left: 0; right: 0; height: 2px; background: var(--fg); content: ""; }
-body[data-layout="docs"] .example-tabs button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
-body[data-layout="docs"] .example-toolbar > a { display: inline-flex; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; }
-body[data-layout="docs"] .example-toolbar > a:hover { color: var(--fg); }
+body[data-layout="docs"] .specimen { margin: 0; overflow: hidden; border-radius: 14px; background: var(--code); }
+body[data-layout="docs"] .specimen figcaption { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 16px 20px 0; font-size: 14px; font-weight: 550; }
+body[data-layout="docs"] .specimen figcaption span { color: var(--muted); font: 11px var(--mono); }
+body[data-layout="docs"] .specimen .live:not([data-near="yes"]) { visibility: hidden; }
+body[data-layout="docs"] .specimens { display: grid; gap: 28px; margin-top: 20px; }
+body[data-layout="docs"] .specimen-code summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; cursor: pointer; list-style: none; }
+body[data-layout="docs"] .specimen-code summary::-webkit-details-marker { display: none; }
+body[data-layout="docs"] .specimen-code summary span, body[data-layout="docs"] .specimen-code summary a { display: inline-flex; align-items: center; gap: 6px; }
+body[data-layout="docs"] .specimen-code summary:hover span, body[data-layout="docs"] .specimen-code[open] summary span, body[data-layout="docs"] .specimen-code summary a:hover { color: var(--fg); }
+body[data-layout="docs"] .specimen-code summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+body[data-layout="docs"] .specimen pre { margin: 0; padding: 20px; border: 0; border-top: 1px solid var(--line); border-radius: 0; max-height: 460px; overflow: auto; }
 body[data-layout="docs"] .example-viewport { max-width: 100%; overflow-x: auto; }
 body[data-layout="docs"] .example-viewport:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-body[data-layout="docs"] .docs-example .live { min-width: 640px; margin: 0; border: 0; border-radius: 0; }
+body[data-layout="docs"] .specimen .live { display: block; width: 100%; min-width: 560px; margin: 0; border: 0; border-radius: 0; background: transparent; }
 body[data-layout="docs"] .example-scroll-gutter { position: sticky; left: 0; width: 100%; height: 24px; border-top: 1px solid var(--line); background: var(--hover); touch-action: pan-x; }
 body[data-layout="docs"] .example-scroll-gutter::after { display: block; width: 48px; height: 3px; margin: 10px auto; border-radius: 3px; background: var(--muted); content: ""; }
 body[data-layout="docs"] .example-scroll-hint { margin: 0; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; background: var(--bg); }
-body[data-layout="docs"] .docs-example pre { margin: 0; padding: 24px; border: 0; border-radius: 0; }
-body[data-layout="docs"] .example-caption { display: flex; gap: 8px; flex-wrap: wrap; margin: 0; padding: 10px 16px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; background: var(--bg); }
 body[data-layout="docs"] .example-empty { margin: 0; padding: 24px; color: var(--muted); font-size: 14px; }
 body[data-layout="docs"] .docs-source { color: var(--muted); font-size: 12px; }
 body[data-layout="docs"] .color-reference { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }

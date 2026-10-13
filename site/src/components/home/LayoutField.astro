@@ -1,0 +1,182 @@
+---
+// The landing's ground: a layout tree that keeps laying itself out. Panels
+// split, close and trade room the way a flex row does, each one says its
+// size, and the whole tree leans to make room where the pointer is. It is
+// what limn does, drawn in hairlines.
+---
+<canvas class="layout-field" aria-hidden="true"></canvas>
+<script>
+  type Leaf = { glow: number; glowTo: number; hov: number };
+  type Split = { vertical: boolean; t: number; to: number; grow: number; closing: boolean; hov: number; a: Node; b: Node };
+  type Node = Leaf | Split;
+  type Rect = { x: number; y: number; w: number; h: number };
+
+  const canvas = document.querySelector<HTMLCanvasElement>('.layout-field');
+  const host = canvas?.parentElement;
+  const ctx = canvas?.getContext('2d');
+  if (canvas && host && ctx) {
+    const still = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const isSplit = (node: Node): node is Split => 'a' in node;
+    const leaf = (): Leaf => ({ glow: 0, glowTo: 0, hov: 0 });
+    const between = (low: number, high: number) => low + Math.random() * (high - low);
+    // A panel is cut across its longer side, as a person would cut it.
+    const cut = (rect: Rect, grow: number): Split => {
+      const t = between(0.34, 0.66);
+      return { vertical: rect.w * 0.8 > rect.h, t, to: t, grow, closing: false, hov: 0, a: leaf(), b: leaf() };
+    };
+    const part = (node: Split, rect: Rect): [Rect, Rect] => {
+      // Every split gives a little of its room to the side the pointer is on.
+      const share = Math.min(0.82, Math.max(0.18, node.t + (side(node.a) - side(node.b)) * 0.045));
+      return node.vertical
+        ? [{ ...rect, w: rect.w * share }, { ...rect, x: rect.x + rect.w * share, w: rect.w * (1 - share) }]
+        : [{ ...rect, h: rect.h * share }, { ...rect, y: rect.y + rect.h * share, h: rect.h * (1 - share) }];
+    };
+    const side = (node: Node) => node.hov;
+
+    let width = 0;
+    let height = 0;
+    let root: Node = leaf();
+    let pointer: { x: number; y: number } | null = null;
+    let leaves: { node: Leaf; rect: Rect; parent: Split | null }[] = [];
+    let splits: { node: Split; rect: Rect; parent: Split | null; first: boolean }[] = [];
+
+    const build = (rect: Rect, depth: number): Node => {
+      if (depth > 5 || rect.w < 190 || rect.h < 130 || (depth > 2 && Math.random() < 0.2)) return leaf();
+      const node = cut(rect, 1);
+      const [first, second] = part(node, rect);
+      node.a = build(first, depth + 1);
+      node.b = build(second, depth + 1);
+      return node;
+    };
+
+    const walk = (node: Node, rect: Rect, parent: Split | null, first: boolean) => {
+      const inside = pointer !== null && pointer.x >= rect.x && pointer.x < rect.x + rect.w && pointer.y >= rect.y && pointer.y < rect.y + rect.h;
+      node.hov += ((inside ? 1 : 0) - node.hov) * 0.09;
+      if (!isSplit(node)) {
+        leaves.push({ node, rect, parent });
+        return;
+      }
+      splits.push({ node, rect, parent, first });
+      const [a, b] = part(node, rect);
+      walk(node.a, a, node, true);
+      walk(node.b, b, node, false);
+    };
+
+    const replace = (parent: Split | null, first: boolean, with_: Node) => {
+      if (!parent) root = with_;
+      else if (first) parent.a = with_;
+      else parent.b = with_;
+    };
+
+    // Something changes every second or so: a boundary moves, a panel is cut, a cut closes.
+    const change = () => {
+      const roll = Math.random();
+      const open = splits.filter(({ node }) => !node.closing && node.grow === 1);
+      if (roll < 0.5 && open.length) {
+        open[Math.floor(Math.random() * open.length)].node.to = between(0.3, 0.7);
+      } else if (roll < 0.76 && leaves.length < 26) {
+        const roomy = leaves.filter(({ rect }) => rect.w > 220 && rect.h > 150);
+        const pick = roomy[Math.floor(Math.random() * roomy.length)];
+        if (pick) replace(pick.parent, pick.parent?.a === pick.node, cut(pick.rect, 0));
+      } else if (leaves.length > 12) {
+        const ends = open.filter(({ node }) => !isSplit(node.a) && !isSplit(node.b));
+        const pick = ends[Math.floor(Math.random() * ends.length)];
+        if (pick) pick.node.closing = true;
+      }
+      const lit = leaves[Math.floor(Math.random() * leaves.length)];
+      if (lit) lit.node.glowTo = 1;
+    };
+
+    const draw = () => {
+      leaves = [];
+      splits = [];
+      walk(root, { x: 0, y: 0, w: width, h: height }, null, true);
+      ctx.clearRect(0, 0, width, height);
+      ctx.font = '10px ui-monospace, "JetBrains Mono", Menlo, monospace';
+      ctx.textBaseline = 'top';
+      for (const { node, rect } of leaves) {
+        node.glow += (node.glowTo - node.glow) * 0.04;
+        if (node.glow > 0.96) node.glowTo = 0;
+        const light = node.glow * 0.028 + node.hov * 0.04;
+        if (light > 0.002) {
+          ctx.fillStyle = `rgba(255,255,255,${light})`;
+          ctx.fillRect(rect.x, rect.y, rect.w, rect.h);
+        }
+        if (node.hov > 0.02) {
+          ctx.strokeStyle = `rgba(255,255,255,${0.3 * node.hov})`;
+          ctx.strokeRect(Math.round(rect.x) + 0.5, Math.round(rect.y) + 0.5, Math.round(rect.w) - 1, Math.round(rect.h) - 1);
+        }
+        // Each panel says the room it was given, as a layout would report it.
+        if (rect.w > 84 && rect.h > 40) {
+          ctx.fillStyle = `rgba(255,255,255,${0.13 + 0.45 * node.hov + 0.18 * node.glow})`;
+          ctx.fillText(`${Math.round(rect.w)} × ${Math.round(rect.h)}`, rect.x + 9, rect.y + 9);
+        }
+      }
+      for (const { node, rect, parent, first } of splits) {
+        node.t += (node.to - node.t) * 0.035;
+        node.grow = Math.min(1, Math.max(0, node.grow + (node.closing ? -0.035 : 0.03)));
+        if (node.closing && node.grow === 0) replace(parent, first, leaf());
+        const [a] = part(node, rect);
+        const eased = 1 - (1 - node.grow) ** 3;
+        const alpha = 0.1 + 0.1 * node.hov;
+        ctx.strokeStyle = `rgba(255,255,255,${alpha})`;
+        ctx.fillStyle = `rgba(255,255,255,${0.3 + 0.3 * node.hov})`;
+        ctx.beginPath();
+        if (node.vertical) {
+          const x = Math.round(a.x + a.w) + 0.5;
+          ctx.moveTo(x, rect.y);
+          ctx.lineTo(x, rect.y + rect.h * eased);
+          ctx.stroke();
+          // The end of the line being drawn: the pen.
+          if (node.grow < 1) ctx.fillRect(x - 1.5, rect.y + rect.h * eased - 1.5, 3, 3);
+        } else {
+          const y = Math.round(a.y + a.h) + 0.5;
+          ctx.moveTo(rect.x, y);
+          ctx.lineTo(rect.x + rect.w * eased, y);
+          ctx.stroke();
+          if (node.grow < 1) ctx.fillRect(rect.x + rect.w * eased - 1.5, y - 1.5, 3, 3);
+        }
+      }
+    };
+
+    const fit = () => {
+      const ratio = Math.min(devicePixelRatio || 1, 2);
+      const bounds = host.getBoundingClientRect();
+      if (Math.abs(bounds.width - width) < 1 && Math.abs(bounds.height - height) < 1) return;
+      width = bounds.width;
+      height = bounds.height;
+      canvas.width = Math.round(width * ratio);
+      canvas.height = Math.round(height * ratio);
+      ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+      root = build({ x: 0, y: 0, w: width, h: height }, 0);
+      draw();
+    };
+
+    let visible = true;
+    let last = 0;
+    let next = 900;
+    const frame = (now: number) => {
+      if (visible && !document.hidden) {
+        if (now - last > next) {
+          last = now;
+          next = between(700, 1500);
+          change();
+        }
+        draw();
+      }
+      requestAnimationFrame(frame);
+    };
+
+    new ResizeObserver(fit).observe(host);
+    fit();
+    if (!still) {
+      new IntersectionObserver(([entry]) => (visible = entry.isIntersecting)).observe(host);
+      host.addEventListener('pointermove', (event) => {
+        const bounds = host.getBoundingClientRect();
+        pointer = { x: event.clientX - bounds.left, y: event.clientY - bounds.top };
+      });
+      host.addEventListener('pointerleave', () => (pointer = null));
+      requestAnimationFrame(frame);
+    }
+  }
+</script>

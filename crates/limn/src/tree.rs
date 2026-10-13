@@ -738,6 +738,40 @@ fn paint_spinner(
     });
 }
 
+/// A vertical fade that keeps to its element's rounded corners. The straight
+/// part is one gradient; under the corners, at the top or at the bottom, it
+/// is rows a pixel high, each as wide as the corner leaves it.
+fn paint_fade(commands: &mut Vec<DrawCommand>, rect: Rect, top: Color, bottom: Color, radius: f32, corners_at_top: bool) {
+    let rounded = radius.min(rect.height).min(rect.width / 2.0).max(0.0).floor();
+    let mix = |share: f32| {
+        let channel = |from: u8, to: u8| (f32::from(from) + (f32::from(to) - f32::from(from)) * share).round() as u8;
+        Color { r: channel(top.r, bottom.r), g: channel(top.g, bottom.g), b: channel(top.b, bottom.b), a: channel(top.a, bottom.a) }
+    };
+    let straight = if corners_at_top {
+        Rect::new(rect.x, rect.y + rounded, rect.width, rect.height - rounded)
+    } else {
+        Rect::new(rect.x, rect.y, rect.width, rect.height - rounded)
+    };
+    if straight.height > 0.0 {
+        commands.push(DrawCommand::FillVerticalGradient {
+            rect: straight,
+            top: mix((straight.y - rect.y) / rect.height),
+            bottom: mix((straight.y + straight.height - rect.y) / rect.height),
+        });
+    }
+    for row in 0..rounded as usize {
+        // How far this row is from the edge the corners are on, at its middle.
+        let depth = row as f32 + 0.5;
+        let inset = radius - (radius * radius - (radius - depth).powi(2)).max(0.0).sqrt();
+        let y = if corners_at_top { rect.y + row as f32 } else { rect.y + rect.height - row as f32 - 1.0 };
+        commands.push(DrawCommand::FillRect {
+            rect: Rect::new(rect.x + inset, y, (rect.width - 2.0 * inset).max(0.0), 1.0),
+            color: mix((y + 0.5 - rect.y) / rect.height),
+            radius: 0.0,
+        });
+    }
+}
+
 fn paint_corner_rect(
     commands: &mut Vec<DrawCommand>,
     rect: Rect,
@@ -8915,20 +8949,14 @@ impl LayoutBuilder<'_> {
         if let Some((color, height)) = style.bottom_background_fade {
             if rect.width > 0.0 && rect.height > 0.0 {
                 let height = height.min(rect.height);
-                self.frame.commands.push(DrawCommand::FillVerticalGradient {
-                    rect: Rect::new(rect.x, rect.y + rect.height - height, rect.width, height),
-                    top: Color { a: 0, ..color },
-                    bottom: color,
-                });
+                let fade = Rect::new(rect.x, rect.y + rect.height - height, rect.width, height);
+                paint_fade(&mut self.frame.commands, fade, Color { a: 0, ..color }, color, style.radius, false);
             }
         }
         if let Some((color, height)) = style.top_background_fade {
             if rect.width > 0.0 && rect.height > 0.0 {
-                self.frame.commands.push(DrawCommand::FillVerticalGradient {
-                    rect: Rect::new(rect.x, rect.y, rect.width, height.min(rect.height)),
-                    top: color,
-                    bottom: Color { a: 0, ..color },
-                });
+                let fade = Rect::new(rect.x, rect.y, rect.width, height.min(rect.height));
+                paint_fade(&mut self.frame.commands, fade, color, Color { a: 0, ..color }, style.radius, true);
             }
         }
         if let Some(border) = style

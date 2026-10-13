@@ -207,7 +207,8 @@ impl eframe::App for Host {
 /// In a page the gallery fills the canvas `limn`; the address's fragment
 /// (`#glass`) chooses the page, so a site can link to one component, and
 /// `?embed` leaves only that page, `?light` in the light theme, on the
-/// ground `&bg=rrggbb`. With `data-diagram` on the document's root, it draws
+/// ground `&bg=rrggbb`, `&section=2` only its third section and `&variant=0` only the first variant
+/// of that. With `data-diagram` on the document's root, it draws
 /// that Mermaid source in place of a page. An embedded page that does not fit asks the page
 /// around it for room with the message `limn:grow`.
 #[cfg(target_arch = "wasm32")]
@@ -229,6 +230,12 @@ fn main() {
     }
     if let Some(ground) = query.split(['?', '&']).find_map(|part| part.strip_prefix("bg=")) {
         state.set("embed-bg", ground);
+    }
+    // One section of the page alone, by its place among them, or one variant of it.
+    for (name, key) in [("section=", "embed-section"), ("variant=", "embed-variant")] {
+        if let Some(place) = query.split(['?', '&']).find_map(|part| part.strip_prefix(name)) {
+            state.set(key, place);
+        }
     }
     // A diagram to draw in place of a page: its source, as the page left it on the document.
     let diagram = window
