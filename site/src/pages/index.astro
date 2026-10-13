@@ -2,10 +2,11 @@
 import { Code } from 'astro:components';
 import Base from '../layouts/Base.astro';
 import Icon from '../components/Icon.astro';
-import Lanyard from '../components/home/Lanyard.astro';
-import { REPO } from '../data/site';
+import LayoutField from '../components/home/LayoutField.astro';
+import { COMPONENTS, REPO } from '../data/site';
 import '../styles/home.css';
 
+const install = 'cargo add limn limn-egui';
 const example = `use limn::{Button, Component, ComponentPalette, Element, Text};
 
 fn view(state: &State, palette: ComponentPalette) -> Element {
@@ -14,88 +15,138 @@ fn view(state: &State, palette: ComponentPalette) -> Element {
         Button::new("save", "Save changes", palette).render(),
     ])
     .gap(12.0)
+}
+
+fn update(state: &mut State, action: &UiAction) {
+    if let UiAction::Clicked { id } = action {
+        if id == "save" { state.save(); }
+    }
 }`;
-const dependency = `limn = { git = "${REPO}" }`;
-const principles = [
-  ['01', 'Your state stays yours.', 'Your application owns the values and actions. Stable IDs keep focus, scroll and transitions in place.', 'State → Element'],
-  ['02', 'Every detail belongs.', 'Controls, menus and motion share a visual language. Build a whole interface from pieces that work together.', 'Element → UiTree'],
-  ['03', 'Bring your renderer.', 'limn produces drawing commands. Use the egui backend, or give your own renderer a frame to draw.', 'UiTree → Frame'],
+// The pages the window on the hero can show: the library itself, running.
+const shown = [
+  ['button', 'Button'],
+  ['dialog', 'Dialog'],
+  ['table', 'Table'],
+  ['code-editor', 'CodeEditor'],
+  ['charts', 'Charts'],
+  ['date-picker', 'DatePicker'],
+];
+const steps = [
+  ['State', 'Yours. A plain value your application owns and changes.'],
+  ['Element', 'A description of the window, rebuilt from the state whenever it changes.'],
+  ['UiTree', 'Lays the description out and keeps what a description cannot: focus, scroll, hover, motion.'],
+  ['Frame', 'Drawing commands, hit regions and accessibility nodes, for any renderer to paint.'],
+];
+const built = [
+  ['universal-access', 'Accessibility', 'Every control tells the platform its role, its name and its state. Screen readers get them through AccessKit.', '/docs/accessibility/'],
+  ['activity', 'Motion', 'Springs and transitions that survive a rebuild, one switch to turn them off, and the browser’s preference read for you.', '/docs/animation/'],
+  ['arrow-repeat', 'Hot reload', 'Edit a view while the application runs. The window changes; the state stays where it was.', '/docs/hot-reload/'],
+  ['palette', 'Themes and tokens', 'One palette colors every component. Radii and durations are tokens you set once.', '/design-system/'],
+  ['code-slash', 'A code editor', 'Carets, selections, undo, syntax colors, a minimap and Vim keys, over a buffer you own.', '/components/code-editor/'],
+  ['droplet-half', 'Liquid glass', 'A material that refracts what is behind it, written as a shader and documented number by number.', '/docs/liquid-glass/'],
+];
+const numbers = [
+  [String(COMPONENTS.length), 'components, each with a live page'],
+  ['5', 'crates on crates.io'],
+  ['2', 'targets: Linux and WebAssembly'],
+  ['1,200+', 'tests run on every change'],
 ];
 ---
-<Base variant="landing" bodyClass="home" description="limn is a native UI library for Rust. Build interfaces from your state, with coherent components, retained interactions and motion.">
+<Base variant="landing" bodyClass="home" description="limn is a native UI library for Rust: components, layout, motion and accessibility, drawn from your state.">
   <main class="limn-home" id="content" tabindex="-1">
-    <section class="home-hero" aria-labelledby="home-title">
-      <div class="home-halftone" aria-hidden="true"></div>
-      <div class="home-hero-inner">
-        <div class="home-intro">
-          <p class="home-kicker"><span></span> Native UI for Rust <span class="home-version">/ 0.1 preview</span></p>
-          <h1 id="home-title">Native<br />by design<span class="home-period">.</span></h1>
-          <p class="home-lead">Describe your interface in Rust. limn brings the layout, interactions and motion. Your state. Your backend. Your application.</p>
-          <div class="home-actions">
-            <a class="home-button" href="/docs/getting-started/">Get started <Icon name="arrow-up-right" size={18} /></a>
-            <a class="home-text-link" href="/components/">Browse components <Icon name="arrow-right" size={17} /></a>
-          </div>
-          <p class="home-platforms">Open source <span>·</span> Linux + WebAssembly <span>·</span> MIT / Apache-2.0</p>
+    <section class="home-hero" aria-labelledby="hero-title">
+      <LayoutField />
+      <div class="hero-shade" aria-hidden="true"></div>
+      <div class="hero-copy">
+        <a class="hero-chip" href={`${REPO}/blob/main/CHANGELOG.md`}><span class="dot"></span> 0.1.39 is on crates.io <Icon name="arrow-right" size={12} /></a>
+        <h1 id="hero-title">Interfaces,<br />drawn in Rust<span>.</span></h1>
+        <p class="hero-lead">limn is a native UI library. You describe the window from your state; it brings the components, the layout, the motion and the accessibility.</p>
+        <div class="hero-actions">
+          <a class="home-button" href="/docs/getting-started/">Get started <Icon name="arrow-up-right" size={16} /></a>
+          <div class="install"><Code code={install} lang="sh" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} /></div>
         </div>
-        <Lanyard />
       </div>
-      <div class="home-hero-bottom"><span>LESS BETWEEN AN IDEA AND AN INTERFACE</span><a href="#built-in">Explore limn <Icon name="arrow-down" size={14} /></a></div>
+      <div class="stage" id="stage">
+        <div class="stage-bar">
+          <span class="stage-live"><span class="dot"></span> Live · WebAssembly</span>
+          <div class="stage-tabs" role="tablist" aria-label="Component shown">
+            {shown.map(([id, label], index) => <button type="button" role="tab" data-page={id} aria-selected={index === 0 ? 'true' : 'false'}>{label}</button>)}
+          </div>
+          <a class="stage-open" href="/components/button/" aria-label="Read the guide of the component shown"><Icon name="arrow-up-right" size={15} /></a>
+        </div>
+        <iframe class="stage-frame" title="A limn component, running" data-src="/frame/?embed&amp;bg=0c0c0d"></iframe>
+      </div>
     </section>
 
-    <section class="home-principles home-section" id="built-in" aria-labelledby="home-principles-title">
-      <div class="home-section-heading">
-        <p class="home-kicker">The way it works</p>
-        <h2 id="home-principles-title">One tree.<br /><span>A whole interface.</span></h2>
-        <p>Describe what belongs on screen. The tree remembers how it feels.</p>
+    <section class="numbers" aria-label="limn in numbers">
+      {numbers.map(([value, label]) => <div><strong>{value}</strong><span>{label}</span></div>)}
+    </section>
+
+    <section class="block model" aria-labelledby="model-title">
+      <header>
+        <p class="kicker">How a frame is made</p>
+        <h2 id="model-title">State in.<br /><span>Interface out.</span></h2>
+      </header>
+      <div class="model-grid">
+        <ol class="steps">
+          {steps.map(([name, copy], index) => <li><span class="step-index">{String(index + 1).padStart(2, '0')}</span><div><h3>{name}</h3><p>{copy}</p></div></li>)}
+        </ol>
+        <div class="home-window">
+          <div class="window-bar"><span><i></i><i></i><i></i></span><span>view.rs</span></div>
+          <Code code={example} lang="rust" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} />
+        </div>
       </div>
-      <div class="home-principle-grid">
-        {principles.map(([number, title, copy, flow]) => (
-          <article>
-            <span class="home-number">{number}</span>
+      <a class="text-link" href="/docs/concepts/">Read the concepts <Icon name="arrow-right" size={15} /></a>
+    </section>
+
+    <section class="block" aria-labelledby="built-title">
+      <header>
+        <p class="kicker">Already built</p>
+        <h2 id="built-title">The parts nobody<br /><span>wants to write twice.</span></h2>
+      </header>
+      <div class="bento">
+        {built.map(([icon, title, copy, href]) => (
+          <a class="card" href={href}>
+            <Icon name={icon} size={18} />
             <h3>{title}</h3>
             <p>{copy}</p>
-            <span class="home-flow">{flow}</span>
-          </article>
+            <span class="card-go"><Icon name="arrow-up-right" size={14} /></span>
+          </a>
         ))}
       </div>
     </section>
 
-    <section class="home-code-section home-section" aria-labelledby="home-code-title">
-      <div class="home-section-heading">
-        <p class="home-kicker">Start small. Build naturally.</p>
-        <h2 id="home-code-title">In your<br /><span>element.</span></h2>
-        <p>Ordinary Rust, a few components, and a view of your state. Rebuild the description. Keep the interaction.</p>
-        <a class="home-text-link" href="/docs/concepts/">Meet the model <Icon name="arrow-up-right" size={17} /></a>
-      </div>
-      <div class="home-code-window">
-        <div class="home-window-bar"><span><i></i><i></i><i></i></span><span>view.rs</span><span>RUST</span></div>
-        <Code code={example} lang="rust" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} />
-        <div class="home-code-note"><span class="home-status-dot"></span> State in. Interface out.</div>
+    <section class="block used" aria-labelledby="used-title">
+      <p class="kicker">Shaped by real work</p>
+      <div class="used-row">
+        <h2 id="used-title">The interface of<br /><span class="strong">openADE</span></h2>
+        <p>A native Rust development environment for working with coding agents. Every panel, menu and editor in it is limn: the library grows from what a real application needs.</p>
       </div>
     </section>
 
-    <section class="home-demo-section home-section" aria-labelledby="home-demo-title">
-      <div class="home-demo-heading">
-        <div><p class="home-kicker">The real thing</p><h2 id="home-demo-title">Go ahead.<br /><span>Press a button.</span></h2></div>
-        <div><p>This is limn running as WebAssembly. The same Rust that draws a desktop window, right here.</p><a class="home-text-link" href="/gallery/">Open the full gallery <Icon name="arrow-up-right" size={17} /></a></div>
+    <section class="block ending" aria-labelledby="ending-title">
+      <h2 id="ending-title">Draw yours<span>.</span></h2>
+      <div class="hero-actions">
+        <a class="home-button" href="/docs/getting-started/">Get started <Icon name="arrow-up-right" size={16} /></a>
+        <div class="install"><Code code={install} lang="sh" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} /></div>
       </div>
-      <div class="home-live-window">
-        <div class="home-window-bar"><span class="home-live-indicator"><span class="home-status-dot"></span> LIVE EXAMPLE</span><span>Modal / AlertDialog</span><a href="/components/dialog/" aria-label="Read the Modal and AlertDialog guide"><Icon name="arrow-up-right" size={17} /></a></div>
-        <iframe class="home-live" title="Interactive limn dialog examples" src="/frame/?embed&amp;bg=101012#dialog" loading="lazy"></iframe>
-      </div>
-      <div class="home-demo-links"><a href="/design-system/">Explore the foundations <Icon name="arrow-right" size={16} /></a><a href="/patterns/">Build with patterns <Icon name="arrow-right" size={16} /></a></div>
-    </section>
-
-    <section class="home-used home-section" aria-labelledby="home-used-title">
-      <p class="home-kicker">Shaped by real work</p>
-      <div class="home-used-content"><h2 id="home-used-title">The UI behind<br /><span class="home-openade">openADE</span></h2><div><p>A native Rust development environment for working with coding agents. limn brings its interfaces to life.</p><span class="home-used-note">Built in Rust. Built with limn.</span></div></div>
-    </section>
-
-    <section class="home-ending home-section" aria-labelledby="home-ending-title">
-      <p class="home-kicker">Your next interface starts here</p>
-      <h2 id="home-ending-title">Make it<br /><span>your own.</span></h2>
-      <div class="home-ending-row"><a class="home-button" href="/docs/getting-started/">Start building <Icon name="arrow-up-right" size={18} /></a><div class="home-install"><span>ADD LIMN FROM GIT</span><Code code={dependency} lang="toml" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} /></div></div>
-      <nav class="home-bottom-links" aria-label="More about limn"><a href="/docs/">Documentation</a><a href="/components/">Components</a><a href="/design-system/">Design system</a><a href={REPO}>GitHub <Icon name="arrow-up-right" size={14} /></a></nav>
+      <nav class="ending-links" aria-label="More about limn"><a href="/docs/">Documentation</a><a href="/components/">Components</a><a href="/design-system/">Design system</a><a href="/gallery/">Gallery</a><a href={REPO}>GitHub <Icon name="arrow-up-right" size={13} /></a><a href="https://crates.io/crates/limn">crates.io <Icon name="arrow-up-right" size={13} /></a></nav>
     </section>
   </main>
+  <script is:inline>
+    // The window on the hero starts once the page is idle, and shows the tab that is chosen.
+    (() => {
+      const stage = document.getElementById('stage');
+      const frame = stage.querySelector('iframe');
+      const open = stage.querySelector('.stage-open');
+      const show = (id) => {
+        // The gallery reads its page once, so another page is another address.
+        frame.src = `${frame.dataset.src}&page=${id}#${id}`;
+        open.href = `/components/${id}/`;
+        for (const tab of stage.querySelectorAll('[role=tab]')) tab.setAttribute('aria-selected', String(tab.dataset.page === id));
+      };
+      for (const tab of stage.querySelectorAll('[role=tab]')) tab.addEventListener('click', () => show(tab.dataset.page));
+      (window.requestIdleCallback ?? setTimeout)(() => show('button'));
+    })();
+  </script>
 </Base>
