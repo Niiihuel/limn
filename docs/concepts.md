@@ -114,6 +114,11 @@ a layout that contains the control.
 
 An open popover, menu or dialog keeps Tab inside itself and closes on Escape.
 
+Page Up and Page Down scroll most of a page at a time: the area behind the
+focused control, else the one under the pointer, else the largest one. A popover can take the left and right arrow keys with
+`Element::popover_arrows(back, next)`; the image viewer uses it to step
+through its images.
+
 ## Passive and interactive
 
 An element is interactive only if it is a button, an input, or wrapped in

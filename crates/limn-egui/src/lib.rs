@@ -45,6 +45,28 @@ fn effort_palette() -> EffortPalette {
     EFFORT_PALETTE.with(std::cell::Cell::get)
 }
 
+/// Whether the person asked their system for less motion, where that can be
+/// asked. Give it to [`UiTree::set_reduced_motion`](limn::UiTree::set_reduced_motion)
+/// at launch, with your own setting over it:
+///
+/// ```no_run
+/// # let mut tree = limn::UiTree::new(limn::Element::spacer());
+/// # let setting: Option<bool> = None;
+/// tree.set_reduced_motion(setting.or(limn_egui::prefers_reduced_motion()).unwrap_or(false));
+/// ```
+///
+/// In a browser it is the `prefers-reduced-motion` media query. On the
+/// desktop it is `None`: nothing here reads the platform's setting yet.
+pub fn prefers_reduced_motion() -> Option<bool> {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let query = eframe::web_sys::window()?.match_media("(prefers-reduced-motion: reduce)").ok()??;
+        Some(query.matches())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    None
+}
+
 /// Paint again when a hot patch lands, so an idle window shows the new code
 /// at once. Call it once, when the window is created. It does nothing in a
 /// build without the `hot` feature; see [`limn::hot`].

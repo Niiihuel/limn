@@ -753,6 +753,9 @@ pub enum ElementKind {
         return_focus: Option<String>,
         /// Anchors the surface to existing controls instead of `anchor`.
         coach: Option<Box<CoachAnchor>>,
+        /// The actions the Left and Right arrow keys report while this
+        /// surface has the keyboard: what goes back and what goes on.
+        arrows: Option<Box<(Option<String>, Option<String>)>>,
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -1443,6 +1446,7 @@ impl Element {
                 initial_focus: None,
                 return_focus: None,
                 coach: None,
+                arrows: None,
             },
             layout,
         )
@@ -1462,6 +1466,16 @@ impl Element {
     pub fn popover_initial_focus(mut self, id: impl Into<String>) -> Self {
         if let ElementKind::Popover { initial_focus, .. } = &mut self.kind {
             *initial_focus = Some(id.into());
+        }
+        self
+    }
+
+    /// Let the Left and Right arrow keys report these actions while the
+    /// surface has the keyboard: the previous and the next of a gallery, a
+    /// carousel, a wizard. `None` for an end there is nothing beyond.
+    pub fn popover_arrows(mut self, back: Option<String>, next: Option<String>) -> Self {
+        if let ElementKind::Popover { arrows, .. } = &mut self.kind {
+            *arrows = Some(Box::new((back, next)));
         }
         self
     }

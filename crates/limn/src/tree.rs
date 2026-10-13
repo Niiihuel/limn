@@ -3145,6 +3145,7 @@ impl UiTree {
                         initial_focus,
                         return_focus,
                         coach,
+                        arrows,
                     } => {
                         let coach = coach.as_deref();
                         if let Some(coach) = coach {
@@ -3208,7 +3209,9 @@ impl UiTree {
                                 return_focus,
                                 submenu: !backdrop,
                                 modal: scrim.is_some(),
-                                arrows: coach.map(|coach| (coach.back.clone(), coach.next.clone())),
+                                arrows: coach
+                                    .map(|coach| (coach.back.clone(), coach.next.clone()))
+                                    .or_else(|| arrows.as_deref().cloned()),
                             });
                         }
                         // Measure wrapped content at the width the viewport
@@ -4085,6 +4088,42 @@ impl UiTree {
         self.handle_event_at(event, Instant::now())
     }
 
+    /// Scroll what scrolls behind the focused control, or under the pointer,
+    /// or the largest scrolling area there is, by most of its height: what
+    /// Page Up and Page Down do. False when nothing there scrolls.
+    fn scroll_by_page(&mut self, down: bool, now: Instant) -> bool {
+        let middle = |rect: Rect| Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+        let scrolls = |region: &&HitRegion| region.kind == HitKind::Scroll;
+        let at = self
+            .focused
+            .as_deref()
+            .and_then(|id| self.frame.regions.iter().find(|region| region.id == id && region.kind != HitKind::Scroll))
+            .map(|region| middle(region.rect))
+            .or(self.pointer)
+            .filter(|at| self.frame.regions.iter().filter(scrolls).any(|region| region.rect.contains(*at)))
+            .or_else(|| {
+                self.frame
+                    .regions
+                    .iter()
+                    .filter(scrolls)
+                    .max_by(|a, b| (a.rect.width * a.rect.height).total_cmp(&(b.rect.width * b.rect.height)))
+                    .map(|region| middle(region.rect))
+            });
+        let Some(at) = at else { return false };
+        // The innermost area there: the last one placed.
+        let Some(page) = self.frame.regions.iter().rev().filter(scrolls).find(|region| region.rect.contains(at)).map(|region| region.rect.height)
+        else {
+            return false;
+        };
+        // The wheel's path, without the pointer having moved.
+        let pointer = self.pointer;
+        let step = page * 0.9;
+        // As the wheel has it: a negative delta moves down the content.
+        self.scroll_regular_regions(at, if down { -step } else { step }, true, now);
+        self.pointer = pointer;
+        true
+    }
+
     // Native diff viewports own their horizontal scroll. Their unconsumed
     // vertical delta uses this same hierarchy as an ordinary nested scroll,
     // including smooth targets and floating/modal containment.
@@ -4892,7 +4931,9 @@ impl UiTree {
                 }
             }
             UiEvent::Key { key, shift, ctrl } => {
-                if key == Key::Escape {
+                if matches!(key, Key::PageUp | Key::PageDown) && !ctrl && self.scroll_by_page(key == Key::PageDown, now) {
+                    // Scrolled: a page of what is behind the focus, or under the pointer.
+                } else if key == Key::Escape {
                     if let Some(scope) = self.active_popover_scope() {
                         let dismiss_id = scope.dismiss_id.clone();
                         let trigger_id = scope.trigger_id.clone();
@@ -5948,6 +5989,8 @@ enum DeferredOverlay {
         initial_focus: Option<String>,
         return_focus: Option<String>,
         coach: Option<Box<CoachAnchor>>,
+        /// What the Left and Right arrow keys report inside the surface.
+        arrows: Option<Box<(Option<String>, Option<String>)>>,
     },
     Tooltip {
         anchor: Rect,
@@ -8743,6 +8786,7 @@ impl LayoutBuilder<'_> {
                 initial_focus,
                 return_focus,
                 coach,
+                arrows,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -8823,6 +8867,7 @@ impl LayoutBuilder<'_> {
                     initial_focus: initial_focus.clone(),
                     return_focus: return_focus.clone(),
                     coach: coach.clone(),
+                    arrows: arrows.clone(),
                 });
             }
             ElementKind::Tooltip {

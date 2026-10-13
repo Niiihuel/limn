@@ -289,7 +289,12 @@ impl Component for ImageViewer {
                 .popover_scrim(Color::rgba(0, 0, 0, 230))
                 .popover_animation_ms(crate::tokens().motion.enter_ms)
                 .popover_backdrop_dismiss(true)
-                .popover_initial_focus(&self.close_id);
+                .popover_initial_focus(&self.close_id)
+                // The arrows its hints show: back while there is one before, on while there is one after.
+                .popover_arrows(
+                    self.previous_action.filter(|_| self.index > 0),
+                    self.next_action.filter(|_| self.index + 1 < self.total),
+                );
         if let Some(id) = self.return_focus {
             popover = popover.popover_return_focus(id);
         }
@@ -357,6 +362,32 @@ mod tests {
             assert_eq!((said.role, said.name.as_str()), (Role::Button, name));
             assert_eq!((said.disabled, said.actionable), (!enabled, enabled), "{id}");
         }
+    }
+
+    #[test]
+    fn the_arrow_keys_do_what_the_hints_say_and_stop_at_the_ends() {
+        let gallery = |index: usize| {
+            let picture = RasterImage::new("a".repeat(64), RasterImageFormat::Png, 4, Arc::from("AAAA"), "A picture").unwrap();
+            ImageViewer::new(Element::spacer(), true, "picture.png", "close", ComponentPalette::neutral_dark())
+                .viewport(WINDOW)
+                .image(picture)
+                .gallery(index, 3)
+                .previous_action("before")
+                .next_action("after")
+                .render()
+        };
+        let press = |index: usize, key: crate::Key| {
+            let mut tree = UiTree::new(gallery(index));
+            tree.set_reduced_motion(true);
+            tree.layout(WINDOW);
+            tree.handle_event(crate::UiEvent::Key { key, shift: false, ctrl: false })
+        };
+        let clicked = |id: &str| vec![UiAction::Clicked { id: id.into() }];
+        assert_eq!(press(1, crate::Key::ArrowLeft), clicked("before"));
+        assert_eq!(press(1, crate::Key::ArrowRight), clicked("after"));
+        // Nothing before the first, nothing after the last.
+        assert!(press(0, crate::Key::ArrowLeft).is_empty());
+        assert!(press(2, crate::Key::ArrowRight).is_empty());
     }
 
     #[test]

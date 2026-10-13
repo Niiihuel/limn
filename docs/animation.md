@@ -62,8 +62,15 @@ One switch for the whole tree. Every surface appears and disappears at once,
 indicators jump to their place, and spinners, pulses and shimmer hold still.
 Nothing about layout or behavior changes.
 
-Use this for a user's accessibility preference. The library does not read the
-operating system's reduced-motion setting; the host passes it in.
+Use this for a user's accessibility preference. The tree does not read the
+operating system's setting; the host passes it in.
+`limn_egui::prefers_reduced_motion()` asks where it can be asked: in a browser
+it is the `prefers-reduced-motion` media query, and on the desktop it is
+`None`, because nothing reads the platform's setting there yet.
+
+```rust
+tree.set_reduced_motion(setting.or(limn_egui::prefers_reduced_motion()).unwrap_or(false));
+```
 
 To change the pace instead of removing movement, scale the durations:
 

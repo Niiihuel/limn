@@ -104,7 +104,12 @@ impl eframe::App for Host {
         }
         limn_egui::normalize_keyboard_input(&ctx);
         self.tree
-            .set_reduced_motion(self.screenshot.is_some() || self.state.flag("tokens-reduced"));
+            .set_reduced_motion(
+                self.screenshot.is_some()
+                    || self.state.flag("tokens-reduced")
+                    // Where the system can say the person asked for less motion.
+                    || limn_egui::prefers_reduced_motion() == Some(true),
+            );
         let area = ui.max_rect();
         let window = Size::new(area.width(), area.height());
 
