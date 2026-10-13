@@ -7,13 +7,16 @@ const MAX_VIEWPORT_ROWS: usize = 1024;
 const MAX_WINDOW_COLUMNS: usize = 8192;
 const MAX_WINDOW_BYTES: usize = 64 * 1024;
 
+/// The physical lines a view asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Viewport {
     pub first_row: usize,
     pub row_count: usize,
+    /// Extra rows included before and after the `row_count` visible ones.
     pub overscan: usize,
 }
 
+/// One line of a viewport: its row and its characters, without the line terminator.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisibleLine {
     pub row: usize,
@@ -32,6 +35,8 @@ pub struct DisplayLine {
 }
 
 impl BufferSnapshot {
+    /// The lines of `viewport` with its overscan, clipped to the document. Fails with
+    /// `ViewportTooLarge` when `row_count` plus twice the overscan exceeds 1024.
     pub fn visible_lines(&self, viewport: Viewport) -> Result<Vec<VisibleLine>, EditorError> {
         let count = viewport
             .row_count
@@ -59,6 +64,9 @@ impl BufferSnapshot {
             .collect()
     }
 
+    /// Visual column of `offset` on its line, in display cells: a tab advances to the next
+    /// multiple of `tab_width` and a wide grapheme counts its display width. `tab_width` must be
+    /// within 1..=32.
     pub fn display_column(&self, offset: usize, tab_width: usize) -> Result<usize, EditorError> {
         validate_tab_width(tab_width)?;
         let position = self.position_of(offset)?;

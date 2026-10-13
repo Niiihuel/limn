@@ -53,6 +53,8 @@ pub enum Easing {
 }
 
 impl Easing {
+    /// The eased share of the way, from 0 to 1, for a linear `progress`.
+    /// `progress` is clamped to 0..=1.
     pub fn sample(self, progress: f32) -> f32 {
         let progress = progress.clamp(0.0, 1.0);
         match self {
@@ -75,6 +77,8 @@ pub struct ScalarTransition {
 }
 
 impl ScalarTransition {
+    /// A transition at rest on `value`. A value that is not finite is read as
+    /// zero.
     pub fn new(value: f32, now: Instant) -> Self {
         let value = if value.is_finite() { value } else { 0.0 };
         Self {
@@ -86,15 +90,19 @@ impl ScalarTransition {
         }
     }
 
+    /// Choose the timing curve. The default is `Easing::OutCubic`.
     pub fn easing(mut self, easing: Easing) -> Self {
         self.easing = easing;
         self
     }
 
+    /// The value it is moving to, or rests on.
     pub fn target(&self) -> f32 {
         self.target
     }
 
+    /// Move to `value` over `duration`, starting from the value shown at `now`.
+    /// A value that is not finite, or that is already the target, is ignored.
     pub fn retarget(&mut self, value: f32, now: Instant, duration: Duration) {
         if !value.is_finite() || value == self.target {
             return;
@@ -121,6 +129,7 @@ impl ScalarTransition {
         }
     }
 
+    /// Jump to `value` and rest there. A value that is not finite is ignored.
     pub fn snap_to(&mut self, value: f32, now: Instant) {
         if !value.is_finite() {
             return;
@@ -131,6 +140,7 @@ impl ScalarTransition {
         self.duration = Duration::ZERO;
     }
 
+    /// The value to show at `now`. It is the target once the duration is over.
     pub fn value(&self, now: Instant) -> f32 {
         if self.duration.is_zero() {
             return self.target;
@@ -141,6 +151,7 @@ impl ScalarTransition {
         self.from + (self.target - self.from) * self.easing.sample(progress)
     }
 
+    /// Whether it is still moving at `now`. A host repaints while it is.
     pub fn is_active(&self, now: Instant) -> bool {
         !self.duration.is_zero()
             && self.from != self.target
@@ -196,6 +207,8 @@ impl ScalarSpring {
     /// Distance and speed below which the spring counts as settled.
     const REST: f32 = 0.01;
 
+    /// A spring at rest on `value`, with the default [`SpringMotion`]. A value
+    /// that is not finite is read as zero.
     pub fn new(value: f32, now: Instant) -> Self {
         let value = if value.is_finite() { value } else { 0.0 };
         Self {
@@ -207,15 +220,19 @@ impl ScalarSpring {
         }
     }
 
+    /// Choose the stiffness and damping.
     pub fn motion(mut self, motion: SpringMotion) -> Self {
         self.motion = motion;
         self
     }
 
+    /// The value it is moving to, or rests on.
     pub fn target(&self) -> f32 {
         self.target
     }
 
+    /// Move to `value`, keeping the position and the speed it has at `now`. A
+    /// value that is not finite, or that is already the target, is ignored.
     pub fn retarget(&mut self, value: f32, now: Instant) {
         if !value.is_finite() || value == self.target {
             return;
@@ -239,6 +256,7 @@ impl ScalarSpring {
         self.started = now;
     }
 
+    /// Retarget, or snap when the host asks for reduced motion.
     pub fn retarget_with_motion(&mut self, value: f32, now: Instant, reduced_motion: bool) {
         if reduced_motion {
             self.snap_to(value, now);
@@ -247,6 +265,8 @@ impl ScalarSpring {
         }
     }
 
+    /// Jump to `value` and rest there, with no speed left. A value that is not
+    /// finite is ignored.
     pub fn snap_to(&mut self, value: f32, now: Instant) {
         if !value.is_finite() {
             return;
@@ -257,6 +277,7 @@ impl ScalarSpring {
         self.started = now;
     }
 
+    /// The position at `now`. It is exactly the target once the spring settles.
     pub fn value(&self, now: Instant) -> f32 {
         if self.is_active(now) {
             self.state(now).0
@@ -265,10 +286,13 @@ impl ScalarSpring {
         }
     }
 
+    /// The speed at `now`, in units per second.
     pub fn velocity(&self, now: Instant) -> f32 {
         self.state(now).1
     }
 
+    /// Whether it is still more than 0.01 away from its target, or moving
+    /// faster than 0.01 per second. A host repaints while it is.
     pub fn is_active(&self, now: Instant) -> bool {
         let (position, velocity) = self.state(now);
         (position - self.target).abs() > Self::REST || velocity.abs() > Self::REST

@@ -198,6 +198,8 @@ struct TrailingAction {
 }
 
 impl MenuItem {
+    /// An enabled row 220 wide that shows `label`. `action_id` is what the host receives
+    /// when it is chosen.
     pub fn new(
         action_id: impl Into<String>,
         label: impl Into<String>,
@@ -225,23 +227,28 @@ impl MenuItem {
         }
     }
 
+    /// A leading icon for the row.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// Plain text at the trailing edge. It replaces any `shortcut`.
     pub fn trailing(mut self, trailing: impl Into<String>) -> Self {
         self.trailing = Some(trailing.into());
         self.shortcut = None;
         self
     }
 
+    /// A keyboard shortcut at the trailing edge. It replaces any `trailing` text.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self.trailing = None;
         self
     }
 
+    /// Set the row's width in logical pixels, never below 40 (220 by default). A value that
+    /// is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(40.0);
@@ -249,6 +256,8 @@ impl MenuItem {
         self
     }
 
+    /// Set the row's height in logical pixels, never below 24. A row with a `description`
+    /// ignores it. A value that is not finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.height = height.max(24.0);
@@ -256,6 +265,8 @@ impl MenuItem {
         self
     }
 
+    /// Draw the one-line row in `ink` while it is enabled, for an action that destroys
+    /// something.
     pub fn destructive(mut self, ink: Color) -> Self {
         self.destructive = Some(ink);
         self

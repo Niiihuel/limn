@@ -2,6 +2,7 @@
 use crate::{CodeLanguage, Component, ComponentPalette, Element};
 use std::sync::Arc;
 
+/// Whether a row is unchanged, added or removed. It sets the row's marker and colours.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CodeDiffLineKind {
     Context,
@@ -13,11 +14,14 @@ pub enum CodeDiffLineKind {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CodeDiffLine {
     pub kind: CodeDiffLineKind,
+    /// The numbers shown in the old and the new line-number column, as given. `None` leaves
+    /// that column empty on the row.
     pub old_line: Option<usize>,
     pub new_line: Option<usize>,
     pub text: String,
 }
 
+/// A read-only, scrollable list of diff rows with line numbers and change colours.
 #[derive(Clone, Debug)]
 pub struct CodeDiff {
     pub id: String,
@@ -33,6 +37,8 @@ pub struct CodeDiff {
 }
 
 impl CodeDiff {
+    /// A diff over `lines` with the neutral dark palette: 320 pixels high, tab width 4, plain
+    /// text, two line-number columns, not focusable and not following its tail.
     pub fn new(id: impl Into<String>, lines: impl Into<Arc<[CodeDiffLine]>>) -> Self {
         Self {
             id: id.into(),
@@ -46,6 +52,7 @@ impl CodeDiff {
             focusable: false,
         }
     }
+    /// Use this palette for the surface, the text and the gutter.
     pub fn palette(mut self, palette: ComponentPalette) -> Self {
         self.palette = palette;
         self
@@ -58,10 +65,12 @@ impl CodeDiff {
         }
         self
     }
+    /// Set the tab stop in columns, clamped to 1..=16.
     pub fn tab_width(mut self, width: usize) -> Self {
         self.tab_width = width.clamp(1, 16);
         self
     }
+    /// The language used to colour the text of the rows. The default is plain text.
     pub fn language(mut self, language: CodeLanguage) -> Self {
         self.language = language;
         self

@@ -1,6 +1,7 @@
 use crate::{Color, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
+/// Text size, in logical pixels, of an element that sets none.
 pub const DEFAULT_FONT_SIZE: f32 = 14.0;
 /// Canonical visual size of every chrome icon, in logical pixels.
 /// The host rasterizes this size at the current display scale.
@@ -98,6 +99,7 @@ pub struct TooltipItem {
 }
 
 impl TooltipItem {
+    /// An item drawn as its label, without an icon.
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -114,12 +116,14 @@ impl TooltipItem {
         self
     }
 
+    /// Give the item an icon.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 }
 
+/// The colors a tooltip is painted with.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TooltipStyle {
     pub background: Color,
@@ -303,6 +307,8 @@ pub enum SpinnerVariant {
     Spokes,
 }
 
+/// The face a text is measured and painted in. The host chooses the font
+/// for each. The default is `Monospace`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum FontFamily {
     #[default]
@@ -334,6 +340,8 @@ pub struct TextSpan {
 }
 
 impl TextSpan {
+    /// A run with no background, action or icon. A `font_size` that is not
+    /// finite or not above zero becomes [`DEFAULT_FONT_SIZE`].
     pub fn new(
         text: impl Into<String>,
         color: Color,
@@ -355,16 +363,21 @@ impl TextSpan {
         }
     }
 
+    /// Paint this color behind the run.
     pub fn background(mut self, color: Color) -> Self {
         self.background = Some(color);
         self
     }
 
+    /// Make the run an inline action that reports `UiAction::Clicked` with
+    /// this ID.
     pub fn action(mut self, id: impl Into<String>) -> Self {
         self.action = Some(id.into());
         self
     }
 
+    /// Draw a decorative icon before the text. It adds to the width and is
+    /// not part of the text that can be copied.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
@@ -381,6 +394,7 @@ pub struct TextHighlight {
     pub italic: bool,
 }
 
+/// The color of an outline and its width in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Border {
     pub color: Color,
@@ -398,6 +412,7 @@ pub struct CornerRadii {
 }
 
 impl CornerRadii {
+    /// The same radius on the four corners.
     pub const fn same(radius: f32) -> Self {
         Self {
             top_left: radius,
@@ -407,6 +422,7 @@ impl CornerRadii {
         }
     }
 
+    /// Round the two top corners; the bottom ones stay square.
     pub const fn top(radius: f32) -> Self {
         Self {
             top_left: radius,
@@ -416,6 +432,7 @@ impl CornerRadii {
         }
     }
 
+    /// Round the two bottom corners; the top ones stay square.
     pub const fn bottom(radius: f32) -> Self {
         Self {
             top_left: 0.0,
@@ -464,6 +481,9 @@ pub struct TabSelection {
 }
 
 impl BoxShadow {
+    /// A shadow with its numbers made safe: an offset that is not finite
+    /// becomes zero, `blur` is clamped to 0..=64 and `spread` to 0..=32, and
+    /// either is zero when it is not finite.
     pub fn new(color: Color, offset: Point, blur: f32, spread: f32) -> Self {
         Self {
             color,
@@ -619,6 +639,7 @@ pub struct UnitGrid {
     pub focus: Option<usize>,
 }
 
+/// One part of a [`UnitGrid`]: how many cells it takes and their color.
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnitGridPart {
     /// Names the part across rebuilds, whatever its position.
@@ -681,6 +702,8 @@ pub struct MarkRail {
     pub tooltip: TooltipStyle,
 }
 
+/// One mark of a [`MarkRail`], with the title and preview its tooltip
+/// shows.
 #[derive(Clone, Debug, PartialEq)]
 pub struct RailMark {
     /// Reported as `UiAction::Clicked`.
@@ -704,6 +727,8 @@ impl MarkRail {
     }
 }
 
+/// What an element is: a container, a control or passive content. The
+/// constructors of [`Element`] build each kind.
 #[derive(Clone, Debug)]
 pub enum ElementKind {
     Column(Vec<Element>),
@@ -935,6 +960,8 @@ impl Default for StickyTop {
     }
 }
 
+/// Layout and paint properties every kind of element has. The builder
+/// methods of [`Element`] set them; lengths are in logical pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct Style {
     pub width: Option<f32>,
@@ -1045,15 +1072,19 @@ impl Default for Style {
 }
 
 impl Element {
+    /// A code editor; see `CodeEditor`.
     pub fn code_editor(editor: crate::CodeEditor) -> Self {
         Self::new(ElementKind::CodeEditor(editor))
     }
+    /// A code diff view; see `CodeDiff`.
     pub fn code_diff(diff: crate::CodeDiff) -> Self {
         Self::new(ElementKind::CodeDiff(diff))
     }
+    /// A passive flowchart at its natural size; see `Flowchart`.
     pub fn flowchart(flowchart: crate::Flowchart) -> Self {
         Self::new(ElementKind::Flowchart(flowchart))
     }
+    /// A sequence diagram; see `SequenceDiagram`.
     pub fn sequence_diagram(diagram: crate::SequenceDiagram) -> Self {
         Self::new(ElementKind::SequenceDiagram(diagram))
     }
@@ -1115,14 +1146,20 @@ impl Element {
         element
     }
 
+    /// Lay children out from top to bottom, `gap` apart. A child with `flex`
+    /// shares the height the others leave.
     pub fn column(children: Vec<Self>) -> Self {
         Self::new(ElementKind::Column(children))
     }
 
+    /// Lay children out side by side, `gap` apart. A child with `flex` shares
+    /// the width the others leave.
     pub fn row(children: Vec<Self>) -> Self {
         Self::new(ElementKind::Row(children))
     }
 
+    /// A row of tabs. `action_ids` are the IDs of its enabled tabs: arrow keys
+    /// move the focus between them and activate the tab they reach.
     pub fn tab_strip(children: Vec<Self>, action_ids: Vec<String>) -> Self {
         Self::new(ElementKind::TabStrip {
             children,
@@ -1226,10 +1263,15 @@ impl Element {
         self
     }
 
+    /// A box around one child, as large as the child plus this element's
+    /// padding. It carries a background, border or radius.
     pub fn panel(child: Self) -> Self {
         Self::new(ElementKind::Panel(Box::new(child)))
     }
 
+    /// Make `child` one interactive surface with this ID. Controls inside it
+    /// keep their own hit regions, which take precedence. Its hover and press
+    /// backgrounds change over the hover duration of the motion tokens.
     pub fn clickable(id: impl Into<String>, child: Self) -> Self {
         Self::new(ElementKind::Clickable {
             id: id.into(),
@@ -1641,6 +1683,9 @@ impl Element {
         )
     }
 
+    /// A scrolling viewport over `child`, with the default scrollbar appearance
+    /// and wheel motion. `id` is the one `UiTree::scroll_offset` and the
+    /// `scroll_to_*` methods take.
     pub fn scroll(id: impl Into<String>, child: Self) -> Self {
         Self::new(ElementKind::Scroll {
             id: id.into(),
@@ -1717,10 +1762,14 @@ impl Element {
         self
     }
 
+    /// Plain text in the element's foreground, font and size, wrapped to the
+    /// width available.
     pub fn text(value: impl Into<String>) -> Self {
         Self::new(ElementKind::Text(value.into()))
     }
 
+    /// Wrapped text with a paint-only highlight in `highlight` that moves
+    /// across it. See `shimmer_truncated_text` for a single line.
     pub fn shimmer_text(id: impl Into<String>, text: impl Into<String>, highlight: Color) -> Self {
         Self::new(ElementKind::ShimmerText {
             id: id.into(),
@@ -1745,6 +1794,8 @@ impl Element {
         })
     }
 
+    /// A passive ring filled up to `fraction`, which is clamped to 0..=1.
+    /// `None`, or a fraction that is not finite, fills no arc.
     pub fn progress_ring(fraction: Option<f32>, track: Color, fill: Color) -> Self {
         Self::new(ElementKind::ProgressRing {
             fraction: fraction
@@ -1755,6 +1806,8 @@ impl Element {
         })
     }
 
+    /// Passive key caps for `keys`, filled with `fill`. With a `max_width` the
+    /// whole shortcut is left out when it does not fit, never a part of it.
     pub fn keyboard_shortcut(keys: impl Into<String>, fill: Color, max_width: Option<f32>) -> Self {
         Self::new(ElementKind::KeyboardShortcut {
             keys: keys.into(),
@@ -1782,6 +1835,8 @@ impl Element {
         })
     }
 
+    /// One line of text, ended with an ellipsis when the width available is
+    /// shorter than the text.
     pub fn truncated_text(value: impl Into<String>) -> Self {
         Self::new(ElementKind::TruncatedText(value.into()))
     }
@@ -1799,10 +1854,13 @@ impl Element {
         })
     }
 
+    /// A paragraph of inline style runs, with explicit line breaks.
     pub fn formatted_text(spans: Vec<TextSpan>) -> Self {
         Self::new(ElementKind::FormattedText(spans))
     }
 
+    /// An encoded raster image. The host validates and decodes it; see
+    /// `RasterImage`.
     pub fn raster_image(image: RasterImage) -> Self {
         Self::new(ElementKind::RasterImage(image))
     }
@@ -1817,10 +1875,15 @@ impl Element {
         })
     }
 
+    /// An icon on its own, [`ICON_SIZE`] on a side unless `large_icon` says
+    /// otherwise.
     pub fn icon(icon: Icon) -> Self {
         Self::new(ElementKind::Icon(icon))
     }
 
+    /// A text button with this ID. It starts with 8 pixels of padding, and its
+    /// hover and press backgrounds change over the hover duration of the
+    /// motion tokens.
     pub fn button(id: impl Into<String>, label: impl Into<String>) -> Self {
         Self::new(ElementKind::Button {
             id: id.into(),
@@ -1857,6 +1920,9 @@ impl Element {
         self
     }
 
+    /// A single-line text field with 8 pixels of padding. `initial_value` is
+    /// the text the first time this ID is laid out; from then on UiTree keeps
+    /// the value, which `UiTree::input_value` reads.
     pub fn text_input(
         id: impl Into<String>,
         initial_value: impl Into<String>,
@@ -1905,6 +1971,8 @@ impl Element {
         self
     }
 
+    /// Tint a text input's leading icon. Without it the icon takes the
+    /// foreground. Other elements ignore it.
     pub fn leading_icon_tint(mut self, color: Color) -> Self {
         if let ElementKind::TextInput {
             leading_icon_tint, ..
@@ -1983,6 +2051,8 @@ impl Element {
         self
     }
 
+    /// An empty element with no size of its own. Give it `flex` to push its
+    /// siblings apart, or `size` for a fixed space.
     pub fn spacer() -> Self {
         Self::new(ElementKind::Spacer)
     }
@@ -2026,6 +2096,8 @@ impl Element {
         })
     }
 
+    /// A passive spinner in `color`, whose phase UiTree keeps by `id`. It has
+    /// no size of its own: give it one with `size`.
     pub fn spinner(id: impl Into<String>, color: Color, variant: SpinnerVariant) -> Self {
         Self::new(ElementKind::Spinner {
             id: id.into(),
@@ -2082,16 +2154,21 @@ impl Element {
         self
     }
 
+    /// Space between the element's edges and its content, in logical pixels.
+    /// A negative value becomes zero.
     pub fn padding(mut self, value: f32) -> Self {
         self.style.padding = value.max(0.0);
         self
     }
 
+    /// Space between the children of a row or column, in logical pixels. A
+    /// negative value becomes zero.
     pub fn gap(mut self, value: f32) -> Self {
         self.style.gap = value.max(0.0);
         self
     }
 
+    /// Fill the element's bounds with this color.
     pub fn background(mut self, color: Color) -> Self {
         self.style.background = Some(color);
         self
@@ -2154,16 +2231,21 @@ impl Element {
         self
     }
 
+    /// Ink of an interactive element while the pointer is over it. Its hit
+    /// bounds and geometry do not change.
     pub fn hover_foreground(mut self, color: Color) -> Self {
         self.style.hover_foreground = Some(color);
         self
     }
 
+    /// Ink of an interactive element while it is pressed.
     pub fn pressed_foreground(mut self, color: Color) -> Self {
         self.style.pressed_foreground = Some(color);
         self
     }
 
+    /// Border a text input or text area shows in place of its own while it has
+    /// the focus. A width that is not finite or not above zero removes it.
     pub fn focus_border(mut self, color: Color, width: f32) -> Self {
         self.style.focus_border =
             (width > 0.0 && width.is_finite()).then_some(Border { color, width });
@@ -2181,6 +2263,9 @@ impl Element {
         self
     }
 
+    /// A clipped horizontal viewport over `child`. A vertical wheel moves it
+    /// sideways, as a tab strip needs; inside a document that scrolls
+    /// vertically use `horizontal_scroll_2d`.
     pub fn horizontal_scroll(id: impl Into<String>, child: Element) -> Self {
         Self::new(ElementKind::HorizontalScroll {
             id: id.into(),
@@ -2212,6 +2297,8 @@ impl Element {
         self
     }
 
+    /// Whether the keyboard focus ring is drawn on this element. It is by
+    /// default.
     pub fn focus_ring(mut self, visible: bool) -> Self {
         self.style.focus_ring = visible;
         self
@@ -2233,16 +2320,21 @@ impl Element {
         self
     }
 
+    /// Color of the element's text and icons. The default is white.
     pub fn foreground(mut self, color: Color) -> Self {
         self.style.foreground = color;
         self
     }
 
+    /// Center the text, or a button's content, across the element's width
+    /// instead of starting it at the edge.
     pub fn center_content(mut self) -> Self {
         self.style.center_content = true;
         self
     }
 
+    /// Underline the text while the pointer is over the element or it has the
+    /// keyboard focus.
     pub fn underline_on_hover(mut self) -> Self {
         self.style.underline_on_hover = true;
         self
@@ -2254,6 +2346,9 @@ impl Element {
         self
     }
 
+    /// Draw the border as dashes. It replaces any border set before; a width
+    /// that is not finite or not above zero removes the border. A later
+    /// `border` call stays dashed.
     pub fn dashed_border(mut self, color: Color, width: f32) -> Self {
         self.style.border = (width > 0.0 && width.is_finite()).then_some(Border { color, width });
         self.style.dashed_border = true;
@@ -2339,6 +2434,8 @@ impl Element {
         self
     }
 
+    /// Choose the face the element's text is measured and painted in. The
+    /// default is `FontFamily::Monospace`.
     pub fn font_family(mut self, family: FontFamily) -> Self {
         self.style.font_family = family;
         self
@@ -2374,17 +2471,25 @@ impl Element {
         self
     }
 
+    /// Take a share of the space a row or column has left, in proportion to
+    /// this factor among the flexible children. Zero, the default, keeps the
+    /// natural size; a negative factor becomes zero.
     pub fn flex(mut self, factor: f32) -> Self {
         self.style.flex = factor.max(0.0);
         self
     }
 
+    /// Fix the width and the height in logical pixels. `None` leaves that
+    /// side to the content and to the parent; a negative value becomes zero.
     pub fn size(mut self, width: Option<f32>, height: Option<f32>) -> Self {
         self.style.width = width.map(|value| value.max(0.0));
         self.style.height = height.map(|value| value.max(0.0));
         self
     }
 
+    /// Lower bounds for the width and the height, in logical pixels. They take
+    /// precedence over `max_width` and `max_height`. A negative value becomes
+    /// zero.
     pub fn min_size(mut self, width: f32, height: f32) -> Self {
         self.style.min_width = width.max(0.0);
         self.style.min_height = height.max(0.0);
@@ -2412,6 +2517,8 @@ impl Element {
         self
     }
 
+    /// Round the four corners by this radius, in logical pixels. It replaces
+    /// any `corner_radii`; a negative value becomes zero.
     pub fn radius(mut self, radius: f32) -> Self {
         self.style.radius = radius.max(0.0);
         self.style.corner_radii = None;

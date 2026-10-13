@@ -4,11 +4,15 @@ use crate::{
     Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Role, Spinner, TextShimmer,
 };
 
+/// How a [`Marker`] row is set off from what surrounds it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MarkerVariant {
+    /// The row alone.
     #[default]
     Default,
+    /// The label between two rules that take the width it leaves.
     Separator,
+    /// A rule under the row.
     Border,
 }
 
@@ -44,6 +48,8 @@ pub struct Marker {
 }
 
 impl Marker {
+    /// A passive marker that shows `label` in muted ink. `id` prefixes the IDs of its
+    /// animated parts, `{id}:text` and `{id}:spinner`.
     pub fn new(id: impl Into<String>, label: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -61,18 +67,23 @@ impl Marker {
         }
     }
 
+    /// Choose how the row is set off; `MarkerVariant::Default` by default.
     pub fn variant(mut self, variant: MarkerVariant) -> Self {
         self.variant = variant;
         self
     }
+    /// A leading icon in muted ink. The `loading` spinner and the `thinking` brain take its
+    /// place while either is set.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
+    /// Show a spinner in the leading slot and sweep a highlight across the label.
     pub fn loading(mut self, loading: bool) -> Self {
         self.loading = loading;
         self
     }
+    /// Sweep a highlight across the label, with no spinner.
     pub fn shimmer(mut self, shimmer: bool) -> Self {
         self.shimmer = shimmer;
         self
@@ -90,6 +101,7 @@ impl Marker {
         self.truncate = truncate;
         self
     }
+    /// Make the row a button, named by its label, that reports `action` when clicked.
     pub fn action(mut self, action: impl Into<String>) -> Self {
         self.action = Some(action.into());
         self

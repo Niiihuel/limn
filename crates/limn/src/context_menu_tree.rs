@@ -73,10 +73,13 @@ impl ContextMenuState {
 }
 
 impl UiTree {
+    /// Whether a context menu is open.
     pub fn context_menu_open(&self) -> bool {
         self.context_menu.is_some()
     }
 
+    /// Close the open context menu, clearing the hovered and pressed controls with it.
+    /// Returns whether one was open.
     pub fn dismiss_context_menu(&mut self) -> bool {
         let was_open = self.context_menu.is_some();
         self.close_context_menu(Instant::now());

@@ -40,6 +40,8 @@ impl Default for CaretBlink {
 }
 
 impl CaretBlink {
+    /// Record whether the window has focus. On a change the active caret is dropped and the
+    /// blink restarts when a caret is next observed. Returns whether the value changed.
     pub fn set_window_focused(&mut self, focused: bool) -> bool {
         if self.window_focused == focused {
             return false;
@@ -50,10 +52,14 @@ impl CaretBlink {
         true
     }
 
+    /// Restart the blink at the next `observe`, which then begins a new period with the
+    /// caret shown.
     pub fn reset(&mut self) {
         self.reset_pending = true;
     }
 
+    /// Start a frame with no caret observed yet. With `allowed` false no caret is shown
+    /// this frame and the active one is dropped.
     pub fn begin_frame(&mut self, allowed: bool) {
         self.observed = false;
         self.allowed = allowed;
@@ -100,6 +106,8 @@ impl CaretBlink {
         (elapsed / half).is_multiple_of(2)
     }
 
+    /// End a frame: forget the active caret if none was observed, or if it does not belong
+    /// to the `focused` control.
     pub fn finish_frame(&mut self, focused: Option<&str>) {
         if !self.observed
             || self
@@ -111,6 +119,8 @@ impl CaretBlink {
         }
     }
 
+    /// How long until the caret next changes, for scheduling a repaint: zero while a
+    /// restart is pending, `None` with no active caret or under reduced motion.
     pub fn repaint_after(&self, now: Instant) -> Option<Duration> {
         let active = self.active.as_ref()?;
         if self.reset_pending {

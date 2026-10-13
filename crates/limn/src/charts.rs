@@ -18,14 +18,18 @@ pub struct HeatmapScale {
 }
 
 impl HeatmapScale {
+    /// A scale from these colors, level 0 first.
     pub const fn new(colors: [Color; 5]) -> Self {
         Self { colors }
     }
 
+    /// The color for `level`. Levels above 4 take the last color.
     pub fn color(self, level: u8) -> Color {
         self.colors[usize::from(level.min(4))]
     }
 
+    /// A scale from the palette's own colors: raised, selected, muted and text, then white
+    /// for the highest level.
     pub fn neutral(palette: ComponentPalette) -> Self {
         Self::new([
             palette.raised,
@@ -46,6 +50,8 @@ pub struct ChartLegend {
 }
 
 impl ChartLegend {
+    /// A legend with one swatch for each color, in order, between the `low` and `high`
+    /// labels.
     pub fn new(
         colors: impl IntoIterator<Item = Color>,
         low: impl Into<String>,
@@ -83,11 +89,15 @@ impl Component for ChartLegend {
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeatmapCell {
     pub id: String,
+    /// From 0 to 4.
     pub level: u8,
+    /// Empty for a cell with no tooltip.
     pub tooltip: String,
 }
 
 impl HeatmapCell {
+    /// A cell at `level`, clamped to 0 to 4. `id` scopes the cell's tooltip within its
+    /// chart.
     pub fn new(id: impl Into<String>, level: u8, tooltip: impl Into<String>) -> Self {
         Self {
             id: id.into(),
@@ -105,6 +115,7 @@ pub struct ChartAxisLabel {
 }
 
 impl ChartAxisLabel {
+    /// A label that starts at `column`, counted from zero.
     pub fn new(column: usize, label: impl Into<String>) -> Self {
         Self {
             column,
@@ -130,6 +141,9 @@ pub struct HeatmapChart {
 }
 
 impl HeatmapChart {
+    /// A heatmap 720 wide with cells of at most 14, a gap of 3, the neutral scale and no
+    /// labels. `columns` holds one vector for each column, top row first; `id` scopes the
+    /// tooltips of its cells.
     pub fn new(
         id: impl Into<String>,
         columns: Vec<Vec<Option<HeatmapCell>>>,
@@ -148,6 +162,8 @@ impl HeatmapChart {
         }
     }
 
+    /// Set the total width in logical pixels (720 by default). Cells shrink so every column
+    /// stays inside it. A width that is not finite is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(0.0);
@@ -155,6 +171,8 @@ impl HeatmapChart {
         self
     }
 
+    /// Set the largest side of a cell, clamped to 1 to 40 (14 by default). Cells are
+    /// smaller when the width requires it. A value that is not finite is ignored.
     pub fn cell_size(mut self, size: f32) -> Self {
         if size.is_finite() {
             self.cell_size = size.clamp(1.0, 40.0);
@@ -162,6 +180,9 @@ impl HeatmapChart {
         self
     }
 
+    /// Set the space between cells, clamped to 0 to 16 (3 by default). When drawn it is
+    /// also at most a fifth of each column's share of the width. A value that is not finite
+    /// is ignored.
     pub fn gap(mut self, gap: f32) -> Self {
         if gap.is_finite() {
             self.gap = gap.clamp(0.0, 16.0);
@@ -169,16 +190,22 @@ impl HeatmapChart {
         self
     }
 
+    /// Replace the neutral color scale.
     pub fn scale(mut self, scale: HeatmapScale) -> Self {
         self.scale = scale;
         self
     }
 
+    /// Label the rows, top first, in an axis 32 wide at the leading edge. The axis is left
+    /// out when every label is empty or when the width gives each column less than 11.
     pub fn row_labels(mut self, labels: impl IntoIterator<Item = impl Into<String>>) -> Self {
         self.row_labels = labels.into_iter().map(Into::into).collect();
         self
     }
 
+    /// Label columns above the grid. Labels are sorted by column and one is kept for each
+    /// column. A label is dropped when its column does not exist, when it starts within 24
+    /// of the plot's end or within 32 of the label before it.
     pub fn column_labels(mut self, labels: Vec<ChartAxisLabel>) -> Self {
         self.column_labels = labels;
         self
@@ -309,11 +336,16 @@ pub struct ChartDatum {
     pub label: String,
     pub value: f64,
     pub value_label: String,
+    /// `None` shows the label and the value label.
     pub tooltip: Option<String>,
+    /// `None` takes the chart's color.
     pub color: Option<Color>,
 }
 
 impl ChartDatum {
+    /// An observation with no tooltip and no color of its own. A negative or non-finite
+    /// `value` becomes zero. The value label is the value with no decimals when it is whole
+    /// and with one otherwise.
     pub fn new(id: impl Into<String>, label: impl Into<String>, value: f64) -> Self {
         let value = non_negative(value);
         Self {
@@ -330,16 +362,21 @@ impl ChartDatum {
         }
     }
 
+    /// Replace the text shown for the value, to add a unit or a format of the host's.
     pub fn value_label(mut self, label: impl Into<String>) -> Self {
         self.value_label = label.into();
         self
     }
 
+    /// Text for the hover tooltip. A `BarChart` shows it in place of "label: value label";
+    /// a `ColumnChart` shows it under the value label, after the label on a line of its own
+    /// unless the text already contains it.
     pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
     }
 
+    /// Draw this observation in a color of its own instead of the chart's.
     pub fn color(mut self, color: Color) -> Self {
         self.color = Some(color);
         self
@@ -365,6 +402,8 @@ pub struct BarChart {
 }
 
 impl BarChart {
+    /// A bar chart 480 wide whose bars take the palette's text color. `id` scopes the
+    /// tooltips of its data.
     pub fn new(id: impl Into<String>, data: Vec<ChartDatum>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -375,6 +414,8 @@ impl BarChart {
         }
     }
 
+    /// Set the total width in logical pixels (480 by default). A width that is not finite
+    /// is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(0.0);
@@ -382,6 +423,7 @@ impl BarChart {
         self
     }
 
+    /// The color of every bar whose datum has none of its own.
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
         self
@@ -466,6 +508,8 @@ pub struct ColumnChart {
 }
 
 impl ColumnChart {
+    /// A column chart 480 by 240 with integer ticks, columns at most 48 wide and the
+    /// palette's text color. `id` scopes the tooltips of its data.
     pub fn new(id: impl Into<String>, data: Vec<ChartDatum>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -479,6 +523,8 @@ impl ColumnChart {
         }
     }
 
+    /// Set the total width in logical pixels (480 by default). A width that is not finite
+    /// is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(0.0);
@@ -486,6 +532,8 @@ impl ColumnChart {
         self
     }
 
+    /// Set the height in logical pixels, clamped to 120 to 1200 (240 by default). A value
+    /// that is not finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.height = height.clamp(120.0, 1200.0);
@@ -493,11 +541,15 @@ impl ColumnChart {
         self
     }
 
+    /// The color of every column whose datum has none of its own.
     pub fn color(mut self, color: Color) -> Self {
         self.color = color;
         self
     }
 
+    /// Set the widest a column may be, clamped to 1 to 120 (48 by default). A column is
+    /// also never wider than 56% of its category's width. A value that is not finite is
+    /// ignored.
     pub fn max_bar_width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.max_bar_width = width.clamp(1.0, 120.0);
@@ -505,6 +557,8 @@ impl ColumnChart {
         self
     }
 
+    /// Whether the value axis steps in whole numbers, as for counts; on by default. Pass
+    /// `false` for a measure with fractions.
     pub fn integer_ticks(mut self, integer: bool) -> Self {
         self.integer_ticks = integer;
         self

@@ -37,6 +37,8 @@ pub struct DropdownMenuItem {
 }
 
 impl DropdownMenuItem {
+    /// An enabled, unselected item that shows `label`. `action_id` is what the host
+    /// receives when it is chosen.
     pub fn new(action_id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             action_id: action_id.into(),
@@ -58,11 +60,13 @@ impl DropdownMenuItem {
         }
     }
 
+    /// A leading icon, drawn in the item's ink, or muted while the item is disabled.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// A keyboard shortcut at the trailing edge. It replaces any `annotation`.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self.annotation = None;
@@ -76,11 +80,14 @@ impl DropdownMenuItem {
         self
     }
 
+    /// Mark the item as the current choice. It is reported as selected to the platform and
+    /// shown as such in the menu.
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
         self
     }
 
+    /// Disable the item. Its submenu, if it has one, does not open.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
@@ -152,6 +159,8 @@ impl DropdownMenuItem {
         self
     }
 
+    /// Draw the label and the icon in `ink`, for an action that destroys something. An item
+    /// with a `description` ignores it.
     pub fn destructive(mut self, ink: Color) -> Self {
         self.destructive = Some(ink);
         self
@@ -366,6 +375,10 @@ pub struct DropdownMenu {
 }
 
 impl DropdownMenu {
+    /// A menu of `entries` on `anchor`, drawn only while `open`; closed, it renders the
+    /// anchor alone. `dismiss_id` is reported when the menu is dismissed and prefixes the
+    /// IDs of its parts, such as `{dismiss_id}:options` for its scroll area. The menu is
+    /// 240 wide, opens below the start of the anchor and shows 8 rows before it scrolls.
     pub fn new(
         anchor: Element,
         entries: Vec<DropdownMenuEntry>,
@@ -424,6 +437,8 @@ impl DropdownMenu {
         self
     }
 
+    /// Set the menu's width in logical pixels, never below 96 (240 by default). A value
+    /// that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(96.0);
@@ -454,21 +469,29 @@ impl DropdownMenu {
         self
     }
 
+    /// Where the menu floats against its anchor; `PopoverPlacement::BottomStart` by
+    /// default.
     pub fn placement(mut self, placement: PopoverPlacement) -> Self {
         self.placement = placement;
         self
     }
 
+    /// The durations of the menu's opening and of its rows' pointer feedback. Submenus take
+    /// the same ones.
     pub fn motion(mut self, motion: MenuMotion) -> Self {
         self.motion = motion;
         self
     }
 
+    /// Set how long the menu takes to close, in milliseconds, apart from its opening.
+    /// Without it the popover's own short exit is used.
     pub fn close_animation_ms(mut self, duration: u16) -> Self {
         self.close_animation_ms = Some(duration);
         self
     }
 
+    /// The visual scale the menu starts its entrance at, clamped to 0.5 to 1.25. The
+    /// default, 1, does not scale. A value that is not finite is ignored.
     pub fn open_scale(mut self, scale: f32) -> Self {
         if scale.is_finite() {
             self.open_scale = scale.clamp(0.5, 1.25);
@@ -476,11 +499,14 @@ impl DropdownMenu {
         self
     }
 
+    /// Name the view the menu shows. When the key changes while the menu stays open, the
+    /// content animates from one view to the other.
     pub fn view_key(mut self, key: impl Into<String>) -> Self {
         self.view_key = Some(key.into());
         self
     }
 
+    /// How many rows show before the options scroll: at least 1, and 8 by default.
     pub fn max_visible_items(mut self, count: usize) -> Self {
         self.max_visible_items = count.max(1);
         self

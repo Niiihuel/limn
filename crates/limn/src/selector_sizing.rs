@@ -4,6 +4,8 @@
 //! second line; explanations belong in tooltips. These tokens describe the
 //! content, while `Popover` keeps the final surface inside the viewport.
 
+/// The dimensions of a selector popover, in logical pixels: its width range, its row
+/// heights, its type sizes and how many rows show before the list scrolls.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SelectorSizing {
     pub preferred_width: f32,

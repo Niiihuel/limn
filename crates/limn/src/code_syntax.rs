@@ -28,6 +28,7 @@ pub enum CodeLanguage {
 
 #[cfg(not(feature = "syntax"))]
 impl CodeLanguage {
+    /// Without the `syntax` feature every code fence is plain text.
     pub fn from_code_fence(_info: &str) -> Self {
         Self::Plain
     }
@@ -94,6 +95,7 @@ pub(crate) struct SyntaxCache {
     invalid_from: Option<usize>,
 }
 impl SyntaxCache {
+    /// An empty cache with nothing requested.
     pub fn new() -> Self {
         let results = Arc::new(Mutex::new(None));
         let generation = Arc::new(AtomicU64::new(0));
@@ -106,9 +108,14 @@ impl SyntaxCache {
             invalid_from: None,
         }
     }
+    /// Ask for the highlights of this buffer snapshot in `language`. A job is sent to the
+    /// background analyser only when the document, revision or language differs from the
+    /// last one sent; `Plain` cancels any analysis instead.
     pub fn update(&mut self, snapshot: &BufferSnapshot, language: CodeLanguage) {
         self.request(Source::Buffer(snapshot.clone()), language);
     }
+    /// As `update`, for the lines of a diff. Two diffs are told apart by their allocation
+    /// and their length.
     pub fn update_diff(&mut self, lines: Arc<[crate::CodeDiffLine]>, language: CodeLanguage) {
         self.request(Source::Diff(lines), language);
     }
@@ -119,6 +126,8 @@ impl SyntaxCache {
             self.requested = None;
         }
     }
+    /// Record the first row that changed. The lowest row recorded is sent with the next
+    /// analysis, next to the previous result.
     pub fn invalidate_from(&mut self, row: usize) {
         self.invalid_from = Some(self.invalid_from.map_or(row, |previous| previous.min(row)));
     }
@@ -173,6 +182,8 @@ impl SyntaxCache {
             }
         }
     }
+    /// The highlights of `row` in this snapshot. Empty while the ready result is for
+    /// another document, revision or language.
     pub fn line(
         &self,
         snapshot: &BufferSnapshot,
@@ -181,6 +192,7 @@ impl SyntaxCache {
     ) -> &[CodeHighlight] {
         self.line_key((snapshot.document_id(), snapshot.revision(), language), row)
     }
+    /// As `line`, for a row of a diff.
     pub fn diff_line(
         &self,
         lines: &Arc<[crate::CodeDiffLine]>,
@@ -203,6 +215,7 @@ impl SyntaxCache {
             .and_then(|ready| ready.rows.get(row))
             .map_or(&[], Vec::as_slice)
     }
+    /// Whether a requested analysis has not produced its result yet.
     pub fn pending(&self) -> bool {
         self.desired.is_some_and(|key| {
             self.ready

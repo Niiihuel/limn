@@ -34,6 +34,8 @@ impl Progress {
         self
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is ignored and a
+    /// negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
@@ -41,6 +43,8 @@ impl Progress {
         self
     }
 
+    /// Set the bar's thickness in logical pixels, never below 1 (4 by default). A value
+    /// that is not finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.height = height.max(1.0);

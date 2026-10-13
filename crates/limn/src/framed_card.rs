@@ -21,11 +21,13 @@ impl FramedCard {
     /// The frame around the card, and how far the card's content stands from
     /// the component's edge.
     pub const FRAME: f32 = 4.0;
+    /// How far the card's content stands from the component's edge, in logical pixels.
     pub const INSET: f32 = 16.0;
     /// How far a row's fill reaches past its content on each side. It leaves
     /// the fill as far from the card's edge as the card's last row is from
     /// its foot, so a fill in a corner follows the corner.
     pub const REACH: f32 = 6.0;
+    /// The height of a row, in logical pixels.
     pub const ROW_HEIGHT: f32 = 30.0;
     /// Between two rows, so their fills stay apart.
     pub const ROW_GAP: f32 = 2.0;
@@ -33,6 +35,7 @@ impl FramedCard {
     const MARGIN: f32 = Self::INSET - Self::REACH - Self::FRAME;
     const FOOT_HEIGHT: f32 = 40.0;
 
+    /// An empty card with no foot that fills the width it is given.
     pub fn new(palette: ComponentPalette) -> Self {
         Self {
             palette,

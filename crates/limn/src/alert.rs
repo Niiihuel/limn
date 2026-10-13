@@ -100,6 +100,8 @@ pub struct Alert {
 }
 
 impl Alert {
+    /// A neutral alert with no ID, action or close button. A blank title is replaced by the
+    /// tone's name, such as "Warning"; a blank description is left out.
     pub fn new(
         title: impl Into<String>,
         description: impl Into<String>,
@@ -118,6 +120,8 @@ impl Alert {
         }
     }
 
+    /// Choose the icon and, unless `colors` is set, the colors that `AlertColors::for_tone`
+    /// derives. The default is `AlertTone::Neutral`.
     pub fn tone(mut self, tone: AlertTone) -> Self {
         self.tone = tone;
         self
@@ -131,6 +135,7 @@ impl Alert {
         self
     }
 
+    /// Use these colors instead of the ones derived from the tone and the palette.
     pub fn colors(mut self, colors: AlertColors) -> Self {
         self.colors = Some(colors);
         self
@@ -142,6 +147,8 @@ impl Alert {
         self
     }
 
+    /// Add a close button at the trailing edge that reports `action_id` when clicked. The
+    /// alert does not hide itself.
     pub fn dismiss(mut self, action_id: impl Into<String>) -> Self {
         self.dismiss_id = Some(action_id.into());
         self

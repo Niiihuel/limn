@@ -3,6 +3,8 @@
 
 use crate::{ComponentPalette, Element, MarkRail, RailMark};
 
+/// One turn on a [`ChatMinimap`]: its ID, how the turn opens and how the reply starts. Each
+/// text is put on one line; the title is cut to 72 characters and the preview to 180.
 pub struct ChatMinimapMark {
     id: String,
     title: String,
@@ -41,6 +43,8 @@ fn clipped(text: &str, limit: usize) -> String {
     line
 }
 
+/// A rail with one mark for each turn of a conversation. The marks around the pointer are
+/// raised and a mark's tooltip shows its title and preview.
 pub struct ChatMinimap {
     id: String,
     marks: Vec<ChatMinimapMark>,

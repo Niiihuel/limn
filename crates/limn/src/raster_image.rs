@@ -27,6 +27,7 @@ impl std::fmt::Debug for RasterImage {
     }
 }
 
+/// The encoding of an image's bytes, as the host declares it.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum RasterImageFormat {
     Png,
@@ -69,22 +70,27 @@ impl RasterImage {
         })
     }
 
+    /// The SHA-256 digest the image was constructed with: 64 hexadecimal characters.
     pub fn sha256(&self) -> &str {
         &self.sha256
     }
 
+    /// The encoding the image was constructed with.
     pub fn format(&self) -> RasterImageFormat {
         self.format
     }
 
+    /// The declared size of the image's bytes, from 1 to 8 MiB.
     pub fn size_bytes(&self) -> u32 {
         self.size_bytes
     }
 
+    /// The image's bytes in base64.
     pub fn data_base64(&self) -> &str {
         &self.data_base64
     }
 
+    /// The text alternative: never empty and at most 256 bytes.
     pub fn alt(&self) -> &str {
         &self.alt
     }
@@ -95,6 +101,7 @@ impl RasterImage {
         self
     }
 
+    /// Whether [`full_resolution`](Self::full_resolution) was requested.
     pub fn is_full_resolution(&self) -> bool {
         self.full_resolution
     }
@@ -107,6 +114,7 @@ impl RasterImage {
         self
     }
 
+    /// Whether [`cover`](Self::cover) was requested.
     pub fn is_cover(&self) -> bool {
         self.cover
     }

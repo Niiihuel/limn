@@ -26,6 +26,7 @@ impl Default for AnalysisWorker {
     }
 }
 impl AnalysisWorker {
+    /// A client of the shared parser threads, which start on the first `submit` of any client.
     pub fn new() -> Self {
         Self {
             state: Arc::new(State {
@@ -64,9 +65,12 @@ impl AnalysisWorker {
             }
         }
     }
+    /// Take the result for the latest submitted snapshot once it is ready. Each result is
+    /// returned once.
     pub fn try_recv(&self) -> Option<Result<AnalysisSnapshot, String>> {
         self.state.slot.lock().ok()?.result.take()
     }
+    /// Drop the waiting job and any unread result, and interrupt an analysis in progress.
     pub fn cancel(&self) {
         self.state.generation.fetch_add(1, Ordering::Release);
         if let Ok(mut slot) = self.state.slot.lock() {

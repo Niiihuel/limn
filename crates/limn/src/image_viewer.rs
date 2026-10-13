@@ -5,6 +5,8 @@ use crate::{
     Icon, IconButton, PopoverPlacement, RasterImage, Role, Size, Spinner, Tooltip,
 };
 
+/// A viewer over the whole window for one picture of a gallery: a title, a close control,
+/// the picture or a loading or error message, and the picture's place in the gallery.
 pub struct ImageViewer {
     base: Element,
     open: bool,
@@ -24,6 +26,10 @@ pub struct ImageViewer {
 }
 
 impl ImageViewer {
+    /// A viewer over `base`, drawn only while `open`; closed, it renders `base` alone. The
+    /// close control reports `close_id`, which also prefixes the viewer's own IDs, such as
+    /// `{close_id}:dialog`. Until `image` is set it shows a spinner and
+    /// `Labels::loading_image`.
     pub fn new(
         base: Element,
         open: bool,
@@ -50,6 +56,9 @@ impl ImageViewer {
         }
     }
 
+    /// The window's size in logical pixels; the viewer leaves 8 on every side (900 by 620
+    /// by default). A size with a side that is not finite is ignored and a negative side is
+    /// zero.
     pub fn viewport(mut self, size: Size) -> Self {
         if size.width.is_finite() && size.height.is_finite() {
             self.viewport = Size::new(size.width.max(0.0), size.height.max(0.0));
@@ -57,32 +66,43 @@ impl ImageViewer {
         self
     }
 
+    /// The picture to show. It is drawn at full resolution.
     pub fn image(mut self, image: RasterImage) -> Self {
         self.image = Some(image);
         self
     }
 
+    /// A message shown in place of the spinner and the loading label while there is no
+    /// image. It is not shown once `image` is set.
     pub fn error(mut self, error: impl Into<String>) -> Self {
         self.error = Some(error.into());
         self
     }
 
+    /// The place of the picture: `index` counts from zero and is clamped to the last of
+    /// `total`, which is at least 1. The footer shows both, and the arrows appear only when
+    /// `total` is above 1.
     pub fn gallery(mut self, index: usize, total: usize) -> Self {
         self.total = total.max(1);
         self.index = index.min(self.total - 1);
         self
     }
 
+    /// Add an arrow before the picture that reports `id`. It is disabled on the first
+    /// picture.
     pub fn previous_action(mut self, id: impl Into<String>) -> Self {
         self.previous_action = Some(id.into());
         self
     }
 
+    /// Add an arrow after the picture that reports `id`. It is disabled on the last
+    /// picture.
     pub fn next_action(mut self, id: impl Into<String>) -> Self {
         self.next_action = Some(id.into());
         self
     }
 
+    /// The control that takes focus when the viewer closes.
     pub fn return_focus(mut self, id: impl Into<String>) -> Self {
         self.return_focus = Some(id.into());
         self
@@ -111,6 +131,7 @@ impl ImageViewer {
         self
     }
 
+    /// The largest level [`ImageViewer::zoom`] accepts.
     pub const MAX_ZOOM: f32 = 8.0;
 }
 

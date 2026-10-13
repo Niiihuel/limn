@@ -57,9 +57,12 @@ Then declare it in `crates/limn/src/lib.rs`: a `mod` line and a `pub use`.
 | A name that changes keeps its old form, marked `#[deprecated]` with the new name in its note. | An application built on an earlier version still compiles, and is told what to change. |
 | What can be disabled has both `disabled()` and `enabled(bool)`. | The first reads well for a fixed case, the second takes a state the host computes; a caller should not have to remember which one a component has. |
 
+| Every public function, type, trait and constant has a doc comment that says what the name does not: the unit, what a value is clamped to, what it makes the component report. | The reference is read without the source beside it. |
+
 `crates/limn/tests/conventions.rs` holds the components to the rules that can
-be checked across all of them: both spellings of disabling, and sizes that
-are not numbers. A component that joins a family joins its row there.
+be checked across all of them: both spellings of disabling, sizes that are
+not numbers, and a doc comment on every public item. A component that joins a
+family joins its row there.
 
 Pills and circles are the exception to the radius rule: a radius of half the
 height is a shape, not a token.
@@ -87,6 +90,11 @@ Add a `#[cfg(test)]` module in the same file. Cover at least:
 - every action it reports, by pointer;
 - bad input to each numeric builder;
 - a narrow width, if it contains text.
+
+A control that reports an action when it is activated also joins the table in
+`crates/limn/tests/controls.rs`, which holds every one of them to the same
+facts: one action for a click, for Enter and for Space; reached by Tab; and,
+disabled, inert, in the same place and announced as disabled.
 
 See [Testing](testing.md).
 

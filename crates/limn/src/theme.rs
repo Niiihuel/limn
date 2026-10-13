@@ -7,6 +7,7 @@
 
 use crate::{Color, ComponentPalette, ControlColors, Element, Scheme};
 
+/// The three colors a whole palette is derived from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Theme {
     pub background: Color,
@@ -52,6 +53,7 @@ impl Theme {
         self.surface(2)
     }
 
+    /// Primary text: the foreground at 90% opacity.
     pub const fn text(&self) -> Color {
         alpha(self.foreground, 90)
     }
@@ -61,10 +63,13 @@ impl Theme {
         alpha(self.foreground, 60)
     }
 
+    /// Text a step quieter than [`text_sub`](Self::text_sub): the foreground at 40%
+    /// opacity.
     pub const fn text_hint(&self) -> Color {
         alpha(self.foreground, 40)
     }
 
+    /// Text of disabled content: the foreground at 20% opacity.
     pub const fn text_disabled(&self) -> Color {
         alpha(self.foreground, 20)
     }
@@ -74,6 +79,8 @@ impl Theme {
         alpha(self.foreground, 10)
     }
 
+    /// The veil of a pressed control: the foreground at 20% opacity. It is also the
+    /// palette's `selected` fill.
     pub const fn pressed(&self) -> Color {
         alpha(self.foreground, 20)
     }
@@ -83,6 +90,8 @@ impl Theme {
         mix(self.background, self.accent, 40)
     }
 
+    /// A stronger accent fill: 60% of the accent in the background, where
+    /// [`accent_surface`](Self::accent_surface) has 40%.
     pub const fn accent_surface_strong(&self) -> Color {
         mix(self.background, self.accent, 60)
     }
@@ -108,6 +117,8 @@ impl Theme {
             .hover_background(fill)
     }
 
+    /// The component palette of this theme: surface levels 1 and 2, the hover and pressed
+    /// veils, the outline as border, and the primary and secondary text.
     pub const fn palette(&self) -> ComponentPalette {
         ComponentPalette {
             surface: self.surface(1),

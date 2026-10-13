@@ -43,6 +43,8 @@ pub struct DictationButton {
 }
 
 impl DictationButton {
+    /// An enabled button of regular size in the given state, with no name for the platform.
+    /// A click reports `id` in every state.
     pub fn new(id: impl Into<String>, state: DictationState, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -73,6 +75,7 @@ impl DictationButton {
         self
     }
 
+    /// Set the button's control size; `ControlSize::Regular` by default.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
         self

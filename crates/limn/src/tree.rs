@@ -74,10 +74,14 @@ const SCROLL_BUTTON_STEP: f32 = 48.0;
 const SCROLL_REPEAT_DELAY: Duration = Duration::from_millis(350);
 const SCROLL_REPEAT_INTERVAL: Duration = Duration::from_millis(60);
 
+/// Text dimensions at [`DEFAULT_FONT_SIZE`], scaled in proportion for other
+/// sizes. The tree measures with them when the host has installed no text
+/// measurer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FontMetrics {
     /// Advance of one monospace character in logical pixels.
     pub char_width: f32,
+    /// Height of one row of text in logical pixels.
     pub line_height: f32,
 }
 
@@ -335,6 +339,8 @@ fn layout_formatted(
     lines
 }
 
+/// One paint instruction of a [`Frame`], in logical pixels. A backend
+/// carries out `Frame::commands` in order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
     /// A rounded backdrop-sampling surface, painted before its foreground.
@@ -910,6 +916,7 @@ fn morph_popover_shell(command: &mut DrawCommand, rect: Rect) {
     }
 }
 
+/// What a [`HitRegion`] belongs to.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HitKind {
     CodeEditor,
@@ -925,6 +932,8 @@ pub enum HitKind {
     Scrollbar,
 }
 
+/// A rectangle of the frame that answers the pointer, with the ID of its
+/// element. Of two regions under a point, the later one is on top.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HitRegion {
     pub id: String,
@@ -932,6 +941,8 @@ pub struct HitRegion {
     pub kind: HitKind,
 }
 
+/// The result of one layout: what to paint, where the pointer lands and
+/// what the platform is told.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Frame {
     pub commands: Vec<DrawCommand>,
@@ -999,6 +1010,8 @@ pub struct TextLayoutBlock {
     pub runs: Vec<TextLayoutRun>,
 }
 
+/// One run of a [`TextLayoutBlock`]: its text, its rectangle and its
+/// visible clip rectangle.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextLayoutRun {
     pub text: String,
@@ -1647,6 +1660,8 @@ impl SliderMotion {
 }
 
 impl Frame {
+    /// A copy of the selectable text blocks laid out in this frame, for
+    /// diagnostics and tests.
     pub fn text_layouts(&self) -> Vec<TextLayoutBlock> {
         self.text_blocks
             .iter()
@@ -1670,6 +1685,8 @@ impl Frame {
         self.hit_region(point).map(|region| region.id.as_str())
     }
 
+    /// The topmost region at a point, with its rectangle and kind. For a press
+    /// use `press_region`, which looks through passive hover targets.
     pub fn hit_region(&self, point: Point) -> Option<&HitRegion> {
         self.region_at(point, false)
     }
@@ -1718,6 +1735,7 @@ impl Frame {
     }
 }
 
+/// The keys a host can forward in [`UiEvent::Key`].
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Key {
     PageUp,
@@ -1768,6 +1786,8 @@ pub enum Key {
     F12,
 }
 
+/// Input a host forwards to `UiTree::handle_event`. Positions are in
+/// logical pixels.
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiEvent {
     /// Open text or host-defined actions without changing the selection.
@@ -1840,6 +1860,7 @@ pub enum UiEvent {
     },
 }
 
+/// What `UiTree::handle_event` reports for the host to act on.
 #[derive(Clone, Debug, PartialEq)]
 pub enum UiAction {
     EditorChanged {
@@ -2392,6 +2413,8 @@ pub struct UiTree {
 }
 
 impl UiTree {
+    /// A tree showing `root`, with the default font metrics and no host text
+    /// measurer.
     pub fn new(root: Element) -> Self {
         Self {
             root,
@@ -2465,6 +2488,7 @@ impl UiTree {
         }
     }
 
+    /// The builder form of [`Self::set_metrics`].
     pub fn with_metrics(mut self, metrics: FontMetrics) -> Self {
         self.set_metrics(metrics);
         self
@@ -2511,6 +2535,8 @@ impl UiTree {
         self.formatted_cache.get_mut().clear();
     }
 
+    /// Remove the host's text width function, so widths come from the font
+    /// metrics again. Cached widths are dropped.
     pub fn clear_text_measurer(&mut self) {
         self.text_measurer = None;
         self.width_cache.get_mut().clear();
@@ -2529,6 +2555,7 @@ impl UiTree {
         self.text_height_measurer = Some(Arc::new(measure));
     }
 
+    /// Remove the function installed with [`Self::set_text_height_measurer`].
     pub fn clear_text_height_measurer(&mut self) {
         self.text_height_measurer = None;
     }
@@ -2540,6 +2567,8 @@ impl UiTree {
         self.action_aliases.clear();
     }
 
+    /// The text a text input or text area holds now. `None` until a field
+    /// with this ID has been laid out or set with [`Self::set_input_value`].
     pub fn input_value(&self, id: &str) -> Option<&str> {
         self.inputs.get(id).map(|state| state.value.as_str())
     }
@@ -2583,6 +2612,9 @@ impl UiTree {
         Some(char_range(&selection.source, start, end))
     }
 
+    /// Replace the text of a field from the host. The caret goes to the end
+    /// and any selection is dropped. A field not laid out yet takes this
+    /// value in place of its initial one.
     pub fn set_input_value(&mut self, id: &str, value: impl Into<String>) {
         let value = value.into();
         let cursor = value.chars().count();
@@ -2604,6 +2636,9 @@ impl UiTree {
         state.desired_column = None;
     }
 
+    /// Where an input method belongs for the focused code editor: the visible
+    /// part of the editor's body and of its caret. `None` when the window is
+    /// not focused, a popover is open or no code editor has the focus.
     pub fn editor_ime_rects(&self) -> Option<(Rect, Rect)> {
         if !self.ime_window_focused || self.has_open_popover() {
             return None;
@@ -2611,6 +2646,8 @@ impl UiTree {
         self.code_editors.get(self.focused.as_ref()?)?.ime_rects()
     }
 
+    /// The ID of the control that has the focus, from the pointer or the
+    /// keyboard.
     pub fn focused_id(&self) -> Option<&str> {
         self.focused.as_deref()
     }
@@ -2638,6 +2675,7 @@ impl UiTree {
                 .any(|scope| scope.dismiss_id != container_dismiss_id)
     }
 
+    /// The ID of the control under the pointer.
     pub fn hovered_id(&self) -> Option<&str> {
         self.hovered.as_deref()
     }
@@ -2738,6 +2776,8 @@ impl UiTree {
         self.caret_blink.set_window_focused(focused)
     }
 
+    /// How long until the blinking caret has to be painted again; zero is
+    /// now. `None` when no caret blinks or a context menu is open.
     pub fn caret_repaint_after(&self) -> Option<Duration> {
         self.caret_repaint_after_at(Instant::now())
     }
@@ -2876,6 +2916,8 @@ impl UiTree {
         self.animation_repaint_after().is_some()
     }
 
+    /// How far a scroll area is scrolled, in logical pixels. Zero for an ID
+    /// that has no offset yet.
     pub fn scroll_offset(&self, id: &str) -> f32 {
         self.scroll_offsets.get(id).copied().unwrap_or(0.0)
     }
@@ -2963,6 +3005,9 @@ impl UiTree {
         self.pending_center = Some(id.to_owned());
     }
 
+    /// Lay the tree out in a viewport of this size at the current time, and
+    /// return the frame to paint; see [`Self::layout_at`]. A negative width
+    /// or height is read as zero.
     pub fn layout(&mut self, viewport: Size) -> Frame {
         self.layout_at(viewport, Instant::now())
     }
@@ -3895,13 +3940,18 @@ impl UiTree {
         }
     }
 
+    /// The frame of the last layout.
     pub fn frame(&self) -> &Frame {
         &self.frame
     }
 
+    /// The Vim mode a code editor is in. `None` when no editor has this ID or
+    /// the editor does not use Vim keys.
     pub fn code_editor_vim_mode(&self, id: &str) -> Option<crate::VimMode> {
         self.code_editors.get(id).and_then(|view| view.vim_mode())
     }
+    /// The Vim mode of the code editor that has the focus, as
+    /// [`Self::code_editor_vim_mode`].
     pub fn focused_code_editor_vim_mode(&self) -> Option<crate::VimMode> {
         self.focused
             .as_deref()
@@ -3968,6 +4018,8 @@ impl UiTree {
     pub fn retained_code_view_counts(&self) -> (usize, usize) {
         (self.code_editors.len(), self.code_diffs.len())
     }
+    /// Ask a code editor to bring its caret into view. False when no editor
+    /// has this ID.
     pub fn reveal_code_caret(&mut self, id: &str) -> bool {
         if let Some(view) = self.code_editors.get_mut(id) {
             view.viewport.reveal_caret = true;
@@ -4084,6 +4136,8 @@ impl UiTree {
         }
     }
 
+    /// Take one input event at the current time and return what it caused,
+    /// in order; see [`Self::handle_event_at`].
     pub fn handle_event(&mut self, event: UiEvent) -> Vec<UiAction> {
         self.handle_event_at(event, Instant::now())
     }

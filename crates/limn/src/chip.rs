@@ -13,6 +13,7 @@ pub struct Chip {
 }
 
 impl Chip {
+    /// A filled chip 22 logical pixels tall that shows `label`.
     pub fn new(label: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             label: label.into(),

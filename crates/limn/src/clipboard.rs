@@ -59,11 +59,14 @@ impl Clipboard {
         self
     }
 
+    /// Set the button's control size; `ControlSize::Compact` by default.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
         self
     }
 
+    /// Set the button's variant. The default, `ButtonVariant::Ghost`, draws the icon and
+    /// label muted until the button is hovered or `copied`.
     pub fn variant(mut self, variant: ButtonVariant) -> Self {
         self.variant = variant;
         self

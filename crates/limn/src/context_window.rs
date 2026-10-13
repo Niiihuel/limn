@@ -33,6 +33,7 @@ pub struct ContextShare {
 }
 
 impl ContextShare {
+    /// A measured share of `tokens` tokens, with no items and no action.
     pub fn new(id: impl Into<String>, label: impl Into<String>, tokens: u64, color: Color) -> Self {
         Self {
             id: id.into(),
@@ -52,11 +53,14 @@ impl ContextShare {
         self
     }
 
+    /// What the share is made of. A share with items opens to list them.
     pub fn items(mut self, items: Vec<ContextItem>) -> Self {
         self.items = items;
         self
     }
 
+    /// What the share offers to make it smaller, and how that is going. The window reports
+    /// `"{id}:action:{share}"` for it.
     pub fn action(mut self, action: ContextShareAction) -> Self {
         self.action = Some(action);
         self
@@ -213,6 +217,8 @@ impl ContextWindow {
         self
     }
 
+    /// Set the width in logical pixels, never below 200 (320 by default). A value that is
+    /// not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(200.0);

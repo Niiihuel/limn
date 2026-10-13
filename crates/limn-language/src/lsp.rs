@@ -19,16 +19,23 @@ const MAX_INCOMING_FRAME: usize = 4 * 1024 * 1024;
 const MAX_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 const MAX_DOCUMENTS: usize = 32;
 const MAX_REQUESTS: usize = 64;
+/// Identifies one request sent with `LanguageServer::request`, to match its `Event::Response`
+/// or to cancel it.
 pub type RequestId = u64;
 
+/// How to start a language server process.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
     pub executable: PathBuf,
     pub args: Vec<String>,
+    /// Workspace folder. The process starts in it and it is sent as the workspace root, so it
+    /// must be an absolute path.
     pub root: PathBuf,
+    /// Sent to the server as `initializationOptions`.
     pub initialization_options: Value,
 }
 impl ServerConfig {
+    /// A configuration with no arguments and null initialization options.
     pub fn new(executable: impl Into<PathBuf>, root: impl Into<PathBuf>) -> Self {
         Self {
             executable: executable.into(),
@@ -38,6 +45,8 @@ impl ServerConfig {
         }
     }
 }
+/// Which text the server holds for an open document: the buffer revision last sent and the
+/// LSP version number it was sent under.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DocumentVersion {
     pub uri: String,
@@ -45,6 +54,7 @@ pub struct DocumentVersion {
     pub revision: u64,
     pub version: i32,
 }
+/// The kind of a `Request`, without its parameters. It comes back in `Event::Response`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RequestKind {
     Completion,
@@ -56,6 +66,8 @@ pub enum RequestKind {
     CodeActions,
     Symbols,
 }
+/// A query about an open document. Positions and ranges are UTF-16 coordinates in the
+/// snapshot passed with the request.
 #[derive(Clone, Debug)]
 pub enum Request {
     Completion(Position),
@@ -65,10 +77,12 @@ pub enum Request {
         position: Position,
         include_declaration: bool,
     },
+    /// A `new_name` that is empty or longer than 1024 bytes is refused.
     Rename {
         position: Position,
         new_name: String,
     },
+    /// `tab_size` is clamped to 1..=32.
     Formatting {
         tab_size: u32,
         insert_spaces: bool,
@@ -80,6 +94,7 @@ pub enum Request {
     Symbols,
 }
 impl Request {
+    /// The kind of this request, without its parameters.
     pub fn kind(&self) -> RequestKind {
         match self {
             Self::Completion(_) => RequestKind::Completion,
@@ -117,6 +132,7 @@ impl Request {
         }
     }
 }
+/// One diagnostic, with the fields the server published.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Diagnostic {
     pub range: Range,
@@ -128,6 +144,8 @@ pub struct Diagnostic {
     pub source: Option<String>,
     pub message: String,
 }
+/// A failure reported by the server or raised by this client. `code` is the JSON-RPC error
+/// code; errors raised by this client use -32603.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LspError {
     pub code: i64,
@@ -145,18 +163,23 @@ fn error(message: impl Into<String>) -> LspError {
         message: message.into(),
     }
 }
+/// What `LanguageServer::try_recv` reports.
 #[derive(Clone, Debug)]
 pub enum Event {
+    /// The server answered `initialize`.
     Initialized {
         capabilities: Value,
         server_info: Value,
     },
+    /// The answer to a request, or its failure. A request with no answer after 30 seconds is
+    /// cancelled and reported here as an error.
     Response {
         id: RequestId,
         document: DocumentVersion,
         kind: RequestKind,
         result: Result<Value, LspError>,
     },
+    /// Diagnostics for a document version that is still the one open.
     Diagnostics {
         document: DocumentVersion,
         items: Vec<Diagnostic>,
@@ -166,6 +189,8 @@ pub enum Event {
         uri: String,
         items: Vec<Diagnostic>,
     },
+    /// The server process or its connection stopped, or `initialize` was not answered within 15
+    /// seconds. Later `open`, `change` and `request` calls fail.
     Stopped {
         reason: String,
     },
@@ -339,6 +364,8 @@ impl Drop for StartingProcess {
         }
     }
 }
+/// A running language server process and the documents open in it. Dropping it sends
+/// `shutdown` and `exit`, then kills the process without waiting for an answer.
 pub struct LanguageServer {
     child: Child,
     wire: Wire,
@@ -350,6 +377,8 @@ pub struct LanguageServer {
     waker: Arc<Mutex<Option<WakeCallback>>>,
 }
 impl LanguageServer {
+    /// Start the server process in `config.root` and send `initialize`. It does not wait for the
+    /// answer: `try_recv` reports `Event::Initialized` when it arrives.
     pub fn spawn(config: ServerConfig) -> Result<Self, LspError> {
         let root_uri = file_uri(&config.root)?;
         let child = Command::new(&config.executable)
@@ -491,11 +520,14 @@ impl LanguageServer {
             waker,
         })
     }
+    /// Set a callback that the background threads run whenever they queue an event, so that a
+    /// sleeping host knows to call `try_recv`. It replaces any earlier callback.
     pub fn set_waker(&self, waker: Arc<dyn Fn() + Send + Sync>) {
         if let Ok(mut callback) = self.waker.lock() {
             *callback = Some(waker);
         }
     }
+    /// True once the server has answered `initialize` and has not stopped.
     pub fn is_ready(&self) -> bool {
         !self.stopped.load(Ordering::Acquire)
             && self
@@ -503,9 +535,13 @@ impl LanguageServer {
                 .lock()
                 .is_ok_and(|state| state.capabilities.is_some())
     }
+    /// The capabilities from the server's `initialize` answer; `None` until it arrives.
     pub fn capabilities(&self) -> Option<Value> {
         self.state.lock().ok()?.capabilities.clone()
     }
+    /// Send the text of `snapshot` as the document at `path` and start tracking it. Fails when
+    /// the path is not absolute, the text is over 8 MiB, the document is already open, 32
+    /// documents are open or the server is not ready.
     pub fn open(
         &self,
         path: &Path,
@@ -589,6 +625,8 @@ impl LanguageServer {
         state.documents.insert(uri, document.clone());
         Ok(document)
     }
+    /// Tell the server the document is closed and forget its pending requests. Does nothing for
+    /// a document that is not open.
     pub fn close(&self, path: &Path) -> Result<(), LspError> {
         let uri = file_uri(path)?;
         let mut state = self
@@ -603,6 +641,10 @@ impl LanguageServer {
         state.documents.remove(&uri);
         Ok(())
     }
+    /// Send a request about an open document and return its id; the answer arrives as
+    /// `Event::Response`. `snapshot` must be the revision last sent with `open` or `change`.
+    /// Fails when the server does not offer the capability, a position is invalid or 64 requests
+    /// are already pending.
     pub fn request(
         &self,
         path: &Path,
@@ -683,6 +725,7 @@ impl LanguageServer {
         );
         Ok(id)
     }
+    /// Cancel a pending request and tell the server. Returns false when the id is not pending.
     pub fn cancel(&self, id: RequestId) -> bool {
         let Ok(mut state) = self.state.lock() else {
             return false;
@@ -773,11 +816,13 @@ impl Drop for LanguageServer {
         let _ = self.child.wait();
     }
 }
+/// The `file://` URI of an absolute path. A relative path is an error.
 pub fn file_uri(path: &Path) -> Result<String, LspError> {
     url::Url::from_file_path(path)
         .map(String::from)
         .map_err(|_| error("LSP requiere una ruta absoluta"))
 }
+/// The local path of a `file://` URI. Any other scheme is an error.
 pub fn uri_path(uri: &str) -> Result<PathBuf, LspError> {
     let url = url::Url::parse(uri).map_err(|_| error("Invalid LSP URI"))?;
     if url.scheme() != "file" {

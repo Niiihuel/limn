@@ -1,7 +1,9 @@
-//! Account photos with an accessible, name-based fallback.
+//! Account photos, with the initial of the name where there is no photo.
 
 use crate::{Component, ComponentPalette, Element, FontFamily, RasterImage};
 
+/// A round account picture. Without an image it shows the first character of the trimmed
+/// name, in upper case, on the palette's selected fill; a blank name shows "?".
 pub struct Avatar {
     name: String,
     image: Option<RasterImage>,
@@ -10,6 +12,7 @@ pub struct Avatar {
 }
 
 impl Avatar {
+    /// An avatar 32 logical pixels across for `name`, with no image.
     pub fn new(name: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             name: name.into(),
@@ -25,6 +28,8 @@ impl Avatar {
         self
     }
 
+    /// Set the diameter in logical pixels, clamped to 16 to 256. A value that is not finite
+    /// is ignored.
     pub fn size(mut self, size: f32) -> Self {
         if size.is_finite() {
             self.size = size.clamp(16.0, 256.0);

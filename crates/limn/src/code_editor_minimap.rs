@@ -29,6 +29,7 @@ pub(super) struct Layout {
 }
 
 impl Layout {
+    /// A minimap in `rect` for `rows` display rows: 2 pixels a row, no taller than the rect.
     pub fn new(rect: Rect, rows: usize) -> Self {
         Self {
             rect,
@@ -37,6 +38,7 @@ impl Layout {
         }
     }
 
+    /// The rectangle that marks the visible part of the document, at least 8 pixels high.
     pub fn thumb(self, viewport: &CodeViewport) -> Rect {
         let range = viewport.max_y - viewport.min_y;
         let height = (self.content_height * viewport.body.height

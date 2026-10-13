@@ -13,6 +13,8 @@ pub struct Collapse {
 }
 
 impl Collapse {
+    /// A slot named `id`. Pass `Some(content)` while there is content and `None` once it
+    /// leaves, with the same `id` on every rebuild.
     pub fn new(id: impl Into<String>, content: Option<Element>) -> Self {
         Self {
             id: id.into(),

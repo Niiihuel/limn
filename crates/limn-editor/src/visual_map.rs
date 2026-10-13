@@ -4,15 +4,22 @@ use std::ops::Range;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+/// One row as drawn: a whole physical line, or one wrapped segment of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisualRow {
     pub physical_row: usize,
+    /// Characters shown on this row, without the line terminator.
     pub range: Range<usize>,
+    /// Display cells from the start of the physical line to the row's first cell and, in
+    /// `end_column`, past its last. Both are 0 when wrapping is off.
     pub start_column: usize,
     pub end_column: usize,
+    /// True for every wrapped segment after the first of its line.
     pub continuation: bool,
+    /// True on the first row of a line whose fold hides the lines that follow it.
     pub folded: bool,
 }
+/// The visual rows of one snapshot, in order, after wrapping and folding.
 #[derive(Clone, Debug)]
 pub struct VisualMap {
     pub rows: Vec<VisualRow>,
@@ -277,6 +284,8 @@ impl VisualMap {
             revision: next.revision(),
         })
     }
+    /// Index of the visual row that shows `offset`. An offset on a wrap boundary belongs to the
+    /// following row, and an offset hidden by a fold maps to the last row before it.
     pub fn row_for_offset(&self, offset: usize) -> usize {
         let index = self
             .rows
