@@ -1,10 +1,10 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     Alert, AlertTone, Avatar, Chip, Collapse, Component, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
     Spinner, SpinnerVariant, Ticker,
 };
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(560.0);
     let alert = |tone: AlertTone, title: &str, description: &str| {
@@ -20,7 +20,7 @@ pub fn view(cx: &Cx) -> Element {
     ];
     let step: usize = cx.state.choice("feedback-ticker", "0").parse().unwrap_or(0) % STEPS.len();
     let collapse_open = cx.state.choice("feedback-collapse", "open") == "open";
-    Element::column(vec![
+    vec![
         section(cx, "Avisos", vec![
             alert(AlertTone::Neutral, "Nota", "Un aviso sin urgencia."),
             alert(AlertTone::Info, "Información", "Hay una versión nueva disponible."),
@@ -152,6 +152,5 @@ pub fn view(cx: &Cx) -> Element {
             Avatar::new("Ada Lovelace", palette).size(32.0).render(),
             Kbd::new("Ctrl+Shift+P", palette).render(),
         ])]),
-    ])
-    .gap(32.0)
+    ]
 }

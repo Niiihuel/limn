@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     Button, ButtonVariant, Component, DropdownMenuEntry, DropdownMenuItem, Element, Icon, MenuBar,
     MenuBarMenu, RadiusRole, StatusBar, StatusBarItem, StatusBarItemSizing, TooltipPlacement,
@@ -118,7 +118,7 @@ fn status(cx: &Cx, prefix: &str, width: f32) -> StatusBar {
     )
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let open_id = |group: &str| {
         let open = cx.state.choice(group, "none");
@@ -150,7 +150,7 @@ pub fn view(cx: &Cx) -> Element {
         .sizing(StatusBarItemSizing::COUNTS)
         .tooltip_with(TooltipSpec::new("3 notificaciones nuevas"));
 
-    Element::column(vec![
+    vec![
         section(
             cx,
             "Barra de menús",
@@ -174,6 +174,5 @@ pub fn view(cx: &Cx) -> Element {
                 row(vec![bell.render()]),
             ],
         ),
-    ])
-    .gap(28.0)
+    ]
 }

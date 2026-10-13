@@ -1,4 +1,4 @@
-use super::{caption, section, Cx};
+use super::{caption, section, Cx, Section};
 use limn::{
     AlertColors, AlertTone, Button, ButtonVariant, Component, ComponentPalette, ControlSize, DiffStat,
     Element, Icon, IconButton, ListRow, RadiusRole, RowSizing, ScrollArea, Tooltip, TooltipPlacement,
@@ -82,7 +82,7 @@ fn change(cx: &Cx, palette: ComponentPalette, id: &str, name: &str, status: &str
         .render()
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let width = cx.width.min(360.0);
     let inner = width - 12.0;
     // A row hovers one step above the surface it sits on.
@@ -109,7 +109,7 @@ pub fn view(cx: &Cx) -> Element {
         .leading(stacked)
         .render()
         .hover_region();
-    Element::column(vec![
+    vec![
         section(cx, "Capas en un mismo lugar", vec![
             card(cx, width, vec![stacked_row]),
             caption(cx, "Element::stack con conceal_on_hover y reveal_on_hover: en reposo la marca, bajo el puntero lo que haría un clic."),
@@ -294,6 +294,5 @@ pub fn view(cx: &Cx) -> Element {
             .top_fade(cx.palette.raised, 6.0)
             .size(None, Some(180.0))]),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

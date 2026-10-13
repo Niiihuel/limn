@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Collapsible, Color, Component, Composer,
     ComponentPalette, ControlSize, DictationButton, DictationState, DictationWaveform, Element, FindBar, FindIds,
@@ -119,7 +119,7 @@ fn composer(cx: &Cx, width: f32) -> Element {
         .render()
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
     let chosen = state.choice("editor-find-width", "520");
@@ -141,7 +141,7 @@ pub fn view(cx: &Cx) -> Element {
             .segment_action(move |segment| Some(if segment == PATH { file.clone() } else { format!("{folder}={segment}") }))
             .width(crumb_width)
     };
-    Element::column(vec![
+    vec![
         section(
             cx,
             "Buscar y reemplazar",
@@ -226,6 +226,5 @@ pub fn view(cx: &Cx) -> Element {
                 .render(),
             ],
         ),
-    ])
-    .gap(28.0)
+    ]
 }

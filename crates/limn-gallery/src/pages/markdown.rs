@@ -1,4 +1,4 @@
-use super::{caption, section, Cx};
+use super::{caption, section, Cx, Section};
 use limn::{Component, Element, Markdown, MarkdownLabels, MarkdownLimits, Text};
 
 const COMPLETE: &str = "# Resumen de la revisión\n\nSe corrigió **la sesión** en `src/main.rs`; el detalle está en la [guía](https://example.com/docs) y en https://github.com/rust-lang/rust.\n\n## Pasos\n\n1. Compilar el proyecto\n2. Ejecutar las pruebas\n   - [x] Unitarias\n   - [ ] De integración\n- Un punto suelto con un texto lo bastante largo como para partirse en dos líneas dentro de la columna de lectura.\n\n> Una cita mantiene su barra y su fondo aunque ocupe más de una línea de la columna.\n\n```rust\nfn main() {\n    println!(\"hola\");\n}\n```\n\n```\nsin lenguaje\n```\n\n---\n\n### Cierre\n\nTexto *con énfasis* y un salto  \nde línea forzado.";
@@ -19,7 +19,7 @@ fn link(cx: &Cx, written: &str) -> Element {
     .size(Some(cx.width.min(560.0)), None)
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(560.0);
     let labels = MarkdownLabels {
@@ -28,7 +28,7 @@ pub fn view(cx: &Cx) -> Element {
         ..MarkdownLabels::DEFAULT
     };
     let page = Markdown::source_page(COMPLETE, 0);
-    Element::column(vec![
+    vec![
         section(cx, "Markdown completo", vec![
             caption(cx, "Encabezados, listas, cita, código, regla y enlaces, con las etiquetas del host"),
             Markdown::new(COMPLETE, palette)
@@ -85,6 +85,5 @@ pub fn view(cx: &Cx) -> Element {
             caption(cx, "Markdown::source_page(..).render(width, palette)"),
             page.render(width, palette),
         ]),
-    ])
-    .gap(28.0)
+    ]
 }

@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{AlertColors, AlertTone, Component, Element, Icon, IconButton, Separator, Text, TextRole};
 
 const ROLES: [(TextRole, &str); 8] = [
@@ -12,7 +12,7 @@ const ROLES: [(TextRole, &str); 8] = [
     (TextRole::Code, "Code"),
 ];
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(520.0);
     let long = "Un título bastante más largo que la columna que lo contiene, para ver cómo termina";
@@ -28,8 +28,8 @@ pub fn view(cx: &Cx) -> Element {
         ])
         .gap(12.0)
     };
-    Element::column(vec![
-        caption(cx, "Text toma el tamaño de un TextRole y el color de la paleta."),
+    vec![
+        caption(cx, "Text toma el tamaño de un TextRole y el color de la paleta.").into(),
         section(cx, "Escala", ROLES.iter().map(|(role, name)| sample(*role, name)).collect()),
         section(cx, "Fuera de la escala", vec![
             caption(cx, ".size(px) para un paso que el diseño del host tiene entre dos roles"),
@@ -101,6 +101,5 @@ pub fn view(cx: &Cx) -> Element {
             ]),
             caption(cx, "Vertical: centrado en la barra con margen, y sin opciones (llena el alto)."),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

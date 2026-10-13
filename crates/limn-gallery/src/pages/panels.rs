@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     AlertColors, AlertTone, ButtonVariant, Component, ControlSize, Element, HeaderSizing, Icon, IconButton, ListRow, Pager,
     PagerSizing, PanelHeader, RadiusRole, ResizeHandle, SearchField, Separator, SidebarPanel, Text, TextField,
@@ -45,7 +45,7 @@ fn pager(cx: &Cx, group: &str, sizing: PagerSizing, vertical: bool) -> Element {
     }
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(320.0);
     let profiles = [
@@ -69,7 +69,7 @@ pub fn view(cx: &Cx) -> Element {
                 .render(),
         ));
     }
-    Element::column(vec![
+    vec![
         section(cx, "Cabecera de panel", headers),
         section(cx, "Volver, cerrar y título largo", vec![
             framed(
@@ -175,6 +175,5 @@ pub fn view(cx: &Cx) -> Element {
             .clip_children(),
             caption(cx, "top_background_fade(color, alto): solo pintura, detrás de lo que el contenedor tiene dentro. bottom_background_fade hace lo mismo desde abajo."),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

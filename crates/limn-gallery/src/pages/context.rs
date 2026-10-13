@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     AlertColors, AlertTone, Button, ButtonVariant, Color, Component, ContextItem, ContextShare,
     ContextShareAction, ContextTones, ContextWindow, Element, FontFamily, FramedCard, Icon,
@@ -12,7 +12,7 @@ const FILES: [(&str, &str, u64); 3] = [
     ("notas", "notas-de-reunion.md", 15_400),
 ];
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let accent = cx.state.theme().accent;
     let tone = |tone| AlertColors::for_tone(tone, palette).accent;
@@ -77,7 +77,7 @@ pub fn view(cx: &Cx) -> Element {
     let reset = FILES.iter().fold(String::from("context:action:conversacion=off&context-busy=off"), |reset, (id, ..)| {
         format!("{reset}&{ID}:remove:archivos:{id}=off")
     });
-    Element::column(vec![environment(cx), section(cx, "Ventana de contexto", vec![
+    vec![environment(cx), section(cx, "Ventana de contexto", vec![
         caption(cx, "Pasá el cursor por una categoría, abrí Archivos y quitá uno, o compactá la conversación: las cifras cuentan y las celdas se vacían solas."),
         row(vec![Element::column(vec![card.render()])
             .background(palette.surface)
@@ -90,12 +90,11 @@ pub fn view(cx: &Cx) -> Element {
                 .render(),
             Button::new(reset, "Restablecer", palette).variant(ButtonVariant::Outline).render(),
         ]),
-    ])])
-    .gap(28.0)
+    ])]
 }
 
 /// The same card, frame and rows around other content: a project's environment.
-fn environment(cx: &Cx) -> Element {
+fn environment(cx: &Cx) -> Section {
     let palette = cx.palette;
     let tone = |tone| AlertColors::for_tone(tone, palette).accent;
     let text = |value: &str, size: f32, ink: Color| {

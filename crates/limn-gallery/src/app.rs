@@ -178,7 +178,8 @@ pub fn view(state: &State, window: Size) -> Element {
                 .render(),
         );
     }
-    sidebar.push(Element::spacer().flex(1.0));
+    // A page for each component is more than a window's height of them.
+    let mut sidebar = vec![ScrollArea::new("sidebar-scroll", Element::column(sidebar).gap(2.0)).render().flex(1.0)];
     sidebar.push(
         Button::new("light", if state.flag("light") { "Tema oscuro" } else { "Tema claro" }, palette)
             .variant(ButtonVariant::Outline)
@@ -193,7 +194,7 @@ pub fn view(state: &State, window: Size) -> Element {
             .font_family(FontFamily::Sans)
             .font_size(24.0)
             .foreground(palette.text),
-        (current.view)(&cx),
+        current.render(&cx),
     ])
     .gap(24.0)
     .padding(32.0);
@@ -201,7 +202,7 @@ pub fn view(state: &State, window: Size) -> Element {
     // Embedded in a site's page, the gallery is only the component: the site
     // has the navigation and the title.
     let content = if state.flag("embed") {
-        vec![ScrollArea::new("page-scroll", (current.view)(&cx).padding(24.0))
+        vec![ScrollArea::new("page-scroll", current.render(&cx).padding(24.0))
             .render()
             .flex(1.0)]
     } else {

@@ -1,4 +1,4 @@
-use super::{caption, section, Cx};
+use super::{caption, Cx, Section, titled};
 use crate::glass_drag::{
     self, DEFAULT_X, DEFAULT_Y, HANDLE, HANDLE_GAP, HANDLE_HEIGHT, PREVIEW_HEIGHT,
 };
@@ -59,7 +59,7 @@ fn controls(cx: &Cx) -> Element {
     };
     let cx = &column;
     let palette = cx.palette;
-    let position = section(
+    let position = titled(
         cx,
         "Posición",
         vec![
@@ -116,7 +116,7 @@ fn controls(cx: &Cx) -> Element {
         .gap(12.0),
     );
     backgrounds.push(slider(cx, "glass-speed", "Velocidad", 0.5, 100.0));
-    let backgrounds = section(cx, "Fondo", backgrounds).size(Some(column_width), None);
+    let backgrounds = titled(cx, "Fondo", backgrounds).size(Some(column_width), None);
 
     let mut material: Vec<_> = [
         ("glass-blur", "Desenfoque", 0.125, 64.0),
@@ -129,7 +129,7 @@ fn controls(cx: &Cx) -> Element {
     .collect();
     material.push(toggle(cx, "glass-opaque", "Superficie opaca"));
     material.push(toggle(cx, "tokens-reduced", "Movimiento reducido"));
-    let material = section(cx, "Material", material).size(Some(column_width), None);
+    let material = titled(cx, "Material", material).size(Some(column_width), None);
     match columns {
         3 => Element::row(vec![position, backgrounds, material]).gap(20.0),
         2 => Element::column(vec![
@@ -209,7 +209,7 @@ fn detail(cx: &Cx, width: f32) -> Option<Element> {
     )
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width;
     let position = glass_drag::geometry(cx.state, Rect::new(0.0, 0.0, width, PREVIEW_HEIGHT));
@@ -307,13 +307,13 @@ pub fn view(cx: &Cx) -> Element {
     .size(Some(width), Some(PREVIEW_HEIGHT))
     .clip_children();
 
-    Element::column(vec![
-        caption(cx, "Arrastrá la barra sobre el fondo para explorar el vidrio. Sus controles siguen funcionando; los datos son simulados."),
-        preview,
-        Collapse::new("glass-detail", detail(cx, bar_width)).expand().render(),
-        controls(cx),
-        caption(cx, "Esta prueba usa un fondo propio. La integración con el escritorio queda para una siguiente etapa."),
-    ]).gap(16.0)
+    vec![
+        caption(cx, "Arrastrá la barra sobre el fondo para explorar el vidrio. Sus controles siguen funcionando; los datos son simulados.").into(),
+        preview.into(),
+        Collapse::new("glass-detail", detail(cx, bar_width)).expand().render().into(),
+        controls(cx).into(),
+        caption(cx, "Esta prueba usa un fondo propio. La integración con el escritorio queda para una siguiente etapa.").into(),
+    ]
 }
 
 #[cfg(test)]

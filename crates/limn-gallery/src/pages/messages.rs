@@ -1,4 +1,4 @@
-use super::{caption, section, Cx};
+use super::{caption, section, Cx, Section};
 use limn::{
     Card, ChatMinimap, ChatMinimapMark, Component, DropdownMenuEntry, DropdownMenuItem, Element,
     Icon, MessageAction, MessageActions, MessageActionsVisibility, Pager, Text, TextRole,
@@ -70,13 +70,13 @@ fn minimap(cx: &Cx) -> Element {
     ])
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(560.0);
     let answer = "El fallo está en el cálculo del margen: la fila reserva su alto aunque no se pinte, \
                   así que el mensaje no cambia de tamaño cuando aparecen las acciones.";
-    Element::column(vec![
-        caption(cx, "Botones de 24 px separados por 2, tinta atenuada en reposo. La fila ocupa su lugar aunque no se pinte."),
+    let sections: Vec<Section> = vec![
+        caption(cx, "Botones de 24 px separados por 2, tinta atenuada en reposo. La fila ocupa su lugar aunque no se pinte.").into(),
         section(cx, "Mensaje del asistente", vec![
             caption(cx, "Siempre visible: el último mensaje"),
             Element::column(vec![prose(cx, answer), assistant(cx, "messages-last", MessageActionsVisibility::Always).render()])
@@ -135,7 +135,10 @@ pub fn view(cx: &Cx) -> Element {
             caption(cx, "Una marca por turno. La del puntero crece y sus vecinas bajan en escalera; muestra el turno sin espera. Arriba y Abajo recorren las marcas."),
             minimap(cx),
         ]),
-    ])
-    .gap(32.0)
-    .size(Some(width), None)
+    ];
+    // Every message is as wide as the conversation it is in.
+    sections
+        .into_iter()
+        .map(|section| Section { body: section.body.size(Some(width), None), ..section })
+        .collect()
 }

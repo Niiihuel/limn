@@ -1,10 +1,10 @@
-use super::{section, Cx};
+use super::{section, Cx, Section};
 use limn::{
     AlertColors, AlertTone, Button, ButtonSize, ButtonVariant, Component, ComponentPalette, Element, Empty,
     Icon, Notice, NoticeSizing,
 };
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let width = cx.width.min(720.0);
     // A framed notice takes its fill from the palette it is given.
     let raised = ComponentPalette { surface: cx.palette.raised, ..cx.palette };
@@ -24,7 +24,7 @@ pub fn view(cx: &Cx) -> Element {
             notice.render()
         }
     };
-    Element::column(vec![
+    vec![
         section(cx, "Con icono y acción", vec![
             Empty::new(
                 "Bienvenido a la wiki",
@@ -113,8 +113,7 @@ pub fn view(cx: &Cx) -> Element {
             bar("El proceso terminó con un error que no cabe en una sola línea y se corta con puntos suspensivos", true),
             bar("Proceso finalizado · código 0", false),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }
 
 /// A one-line bar: the title cut and centered beside its action.

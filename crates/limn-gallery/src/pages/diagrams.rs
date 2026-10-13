@@ -1,4 +1,4 @@
-use super::{caption, section, Cx};
+use super::{caption, section, Cx, Section};
 use limn::{Diagram, Element, Markdown, RadiusRole};
 
 const DOWN: &str = "flowchart TD
@@ -93,12 +93,12 @@ fn chart(cx: &Cx, id: &str, source: &str) -> Element {
     }
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let fence = format!(
         "Un bloque `mermaid` cerrado se dibuja:\n\n```mermaid\n{RIGHT}\n```\n\nTambién una secuencia:\n\n\
          ```mermaid\nsequenceDiagram\n    Editor->>Vista previa: Cambia el texto\n    Vista previa-->>Editor: Se redibuja\n```\n"
     );
-    Element::column(vec![
+    vec![
         section(cx, "De arriba abajo", vec![
             caption(cx, "Flowchart::parse(fuente, palette)?.scrollable(id): rangos por camino más largo"),
             chart(cx, "diagram-down", DOWN),
@@ -123,8 +123,7 @@ pub fn view(cx: &Cx) -> Element {
             caption(cx, "Lo que no se entiende, o sigue abierto, queda como bloque de código"),
             Markdown::new(&fence, cx.palette).width(cx.width.min(560.0)).render().element,
         ]),
-    ])
-    .gap(28.0)
+    ]
 }
 
 #[cfg(test)]

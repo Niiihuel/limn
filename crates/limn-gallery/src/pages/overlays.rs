@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     AlertDialog, AlertTone, Button, ButtonVariant, Color, Component, ContextMenu, ContextMenuEntry,
     ContextMenuItem, DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption,
@@ -11,7 +11,7 @@ fn trigger(cx: &Cx, id: &str, label: &str) -> Element {
     Button::new(id, label, cx.palette).variant(ButtonVariant::Outline).render()
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
     let open = |group: &str| state.text(group) == "open";
@@ -93,7 +93,7 @@ pub fn view(cx: &Cx) -> Element {
     )
     .render();
 
-    Element::column(vec![
+    vec![
         section(cx, "Popover", vec![row(vec![popover])]),
         section(cx, "Lista desplegable", vec![row(vec![list])]),
         section(cx, "Menú", vec![row(vec![menu]), caption(cx, &format!("Elegido: {}", state.text("overlay-menu")))]),
@@ -110,8 +110,7 @@ pub fn view(cx: &Cx) -> Element {
             // Its own ID: the toast's close button dispatches the same action.
             trigger(cx, "overlay-toast-hide", "Ocultar").dispatch_as("overlay-toast=hidden"),
         ])]),
-    ])
-    .gap(32.0)
+    ]
 }
 
 /// Wrap the window in the layers this page controls.

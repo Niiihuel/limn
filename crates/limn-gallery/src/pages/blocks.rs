@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     Button, ButtonVariant, Card, CardDensity, CodeBlock, CodeBlockSizing, Component, Element,
     FontFamily, Icon, ListRow, MediaCard, MediaTile, OutputBlock, RadiusRole, Separator, Text, TextRole, TextSpan,
@@ -12,7 +12,7 @@ fn card_copy(cx: &Cx, title: &str, detail: &str) -> Element {
     .gap(6.0)
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(520.0);
     let densities = [
@@ -32,7 +32,7 @@ pub fn view(cx: &Cx) -> Element {
     let tile = ((cx.width - 48.0) / 5.0).min(144.0);
     // The gallery ships no pictures: a cover here is a glyph on a fill.
     let cover = |icon| Element::icon(icon).large_icon(40.0).foreground(palette.text).background(palette.raised);
-    Element::column(vec![
+    vec![
         section(cx, "Tarjeta", vec![
             row(densities
                 .into_iter()
@@ -174,6 +174,5 @@ pub fn view(cx: &Cx) -> Element {
                 .width(180.0)
                 .render(),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

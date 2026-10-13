@@ -7,6 +7,7 @@
 //! the pointer over a control first, to capture its hover state or tooltip,
 //! `--end` scrolls the page to its end and `--set <id=value>` starts as if
 //! that control had been clicked, to capture an open menu or dialog.
+//! `--pages` prints the components as JSON, one page each, and exits.
 
 mod app;
 mod glass_content;
@@ -258,6 +259,24 @@ fn main() -> eframe::Result {
                 page_chosen = true;
             }
             "--light" => light = true,
+            // What a site needs to give every component its page.
+            "--pages" => {
+                let quote = |text: &str| format!("\"{}\"", text.replace('"', "\\\""));
+                let pages: Vec<String> = pages::PAGES
+                    .iter()
+                    .map(|page| {
+                        format!(
+                            "  {{\"id\": {}, \"group\": {}, \"title\": {}, \"source\": {}}}",
+                            quote(page.id),
+                            quote(page.group),
+                            quote(page.title),
+                            quote(page.source),
+                        )
+                    })
+                    .collect();
+                println!("[\n{}\n]", pages.join(",\n"));
+                return Ok(());
+            }
             "--screenshot" => screenshot = arguments.next().map(PathBuf::from),
             "--hover" => hover = arguments.next(),
             "--end" => scroll_end = true,

@@ -1,4 +1,4 @@
-use super::{caption, section, Cx};
+use super::{caption, section, Cx, Section};
 use limn::{
     Button, ButtonSize, ButtonVariant, CardGrid, Component, Element, Icon, IconButton, PageColumn, PageHeader,
     PageHeaderSizing, RadiusRole, ScrollbarAppearance, SectionHeader, SectionSizing, Text,
@@ -59,13 +59,13 @@ fn page(cx: &Cx, id: &str, width: f32, tint: bool) -> Element {
         .size(Some(width), Some(260.0))
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     // This page overflows, and the gallery's scrollbar then takes its rail.
     let width = (cx.width - ScrollbarAppearance::default().rail_width).min(720.0);
     let action = |id: &str| Button::new(id, "Actualizar", palette).variant(ButtonVariant::Outline).render();
     let open = !cx.state.flag("page-section-fold");
-    Element::column(vec![
+    vec![
         section(cx, "Encabezado de página", vec![
             PageHeader::new("Proveedores", palette)
                 .description("Cuentas conectadas y modelos disponibles para el agente.")
@@ -143,6 +143,5 @@ pub fn view(cx: &Cx) -> Element {
             caption(cx, "Con la barra de desplazamiento en su propio color, sin teñir"),
             page(cx, "page-column-plain", width.min(300.0), false),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

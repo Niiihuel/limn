@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     ActiveHover, Button, ButtonGroup, ButtonGroupSizing, ButtonSize, ButtonSizing, ButtonVariant, Clipboard,
     Color, Component, ControlSize, Element, Icon, IconButton, RadiusRole, TooltipPlacement, TooltipSpec,
@@ -49,7 +49,7 @@ fn group(prefix: &str, palette: limn::ComponentPalette) -> Vec<Element> {
     ]
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let variants = |prefix: &str, build: fn(Button) -> Button| {
         // Two rows, so the page also fits a narrow window.
@@ -69,7 +69,7 @@ pub fn view(cx: &Cx) -> Element {
         )
         .gap(12.0)
     };
-    Element::column(vec![
+    vec![
         section(cx, "Variantes", vec![variants("button", |button| button)]),
         section(cx, "Deshabilitados", vec![variants("button-disabled", Button::disabled)]),
         section(cx, "Cargando", vec![variants("button-loading", |button| button.loading(true))]),
@@ -253,6 +253,5 @@ pub fn view(cx: &Cx) -> Element {
                 .render()]),
             caption(cx, "El botón conserva su relleno mientras el estado está activo."),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }
