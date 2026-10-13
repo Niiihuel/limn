@@ -274,7 +274,7 @@ Any element can be placed without a component:
 | Component | Purpose |
 | --- | --- |
 | `Table`, `TableColumn`, `TableRow`, `TableSizing`, `TableSort` | Rows of cells under a header of column labels: columns that sort, resize, hide and drop out of a narrow table, and a header that stays pinned while the rows scroll; see [Table](#table). |
-| `BarChart`, `ColumnChart` | Horizontal and vertical bar charts. |
+| `BarChart`, `ColumnChart` | Bars over a value axis, lying or standing: one for each datum, or several `ChartSeries` side by side or stacked, with a gradient if asked. They grow as the chart appears, and under the pointer a category is lit and listed in a tooltip that follows it. |
 | `HeatmapChart` | A grid of cells colored by value. |
 | `ChartLegend` | A legend for any of the charts. |
 | `DiffStat` | The lines a change adds and removes, as `+N` and `−M`. `.inks(added, removed)` takes the host's two colors; without them both counts are plain text. |

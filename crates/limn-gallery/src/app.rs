@@ -97,7 +97,8 @@ impl State {
     pub fn tokens(&self) -> Tokens {
         let radius = match self.choice("tokens-radius", "default") {
             "square" => Radius::SQUARE,
-            "round" => Radius::DEFAULT.scaled(2.0),
+            "soft" => Radius::DEFAULT.scaled(2.0),
+            "round" => Radius::ROUND,
             _ => Radius::DEFAULT,
         };
         let motion = match self.choice("tokens-motion", "default") {

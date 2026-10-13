@@ -3,14 +3,15 @@
 Read-only charts for data the host already has: `BarChart` and `ColumnChart`
 compare categories, `HeatmapChart` shows intensity over a grid such as a
 calendar, and `ChartLegend` explains a color scale. They take no clicks and
-add no tab stops; hovering a bar or a cell shows a tooltip.
+add no tab stops; the pointer over a bar chart lights a category and shows
+its values.
 
 ## Import
 
 ```rust
 use limn::{
-    BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ColumnChart, Component, HeatmapCell,
-    HeatmapChart, HeatmapScale,
+    BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, ColumnChart, Component,
+    HeatmapCell, HeatmapChart, HeatmapScale,
 };
 ```
 
@@ -30,59 +31,90 @@ fn view(state: &State, palette: ComponentPalette) -> Element {
 }
 ```
 
-A chart is 480 px wide unless `width` is set (a heatmap, 720), so pass the
-width of its container when the window changes. Charts report nothing.
+A bar chart takes the width it is offered unless `width` is set; a heatmap
+is 720 px wide. Charts report nothing.
 
 ## Data
 
 ```rust
 ChartDatum::new("skipped", "Skipped", 37.0)
     .value_label("37 (8 %)")
-    .tooltip("Skipped: 37 tests behind a feature flag")
+    .tooltip("Behind a feature flag")
     .color(warning)
 ```
 
-The value is an `f64`. A negative or non-finite value is drawn as zero.
-`value_label` replaces the number shown, which is otherwise the value with no
-decimals when it is whole and one when it is not. `tooltip` is the text shown
-on hover, which is otherwise "label: value", and `color` paints this one bar
-instead of the chart's color.
+The value is an `f64`. A negative one grows the other way from the zero line;
+one that is not finite counts as zero. `value_label` replaces the number
+written at the bar's tip, which is otherwise the value with no decimals when
+it is whole and one when it is not. `tooltip` is what the tooltip calls this
+bar's row, and `color` paints this one bar instead of the chart's color.
 
-## BarChart
+## Several series
+
+```rust
+ColumnChart::series(
+    "traffic",
+    ["Jan", "Feb", "Mar"],
+    vec![
+        ChartSeries::new("Desktop", [186.0, 305.0, 237.0]),
+        ChartSeries::new("Mobile", [80.0, 200.0, 120.0]),
+    ],
+    palette,
+)
+.render()
+```
+
+`series` takes the categories and a `ChartSeries` for each measure: a name
+and a value for each category. A category's bars stand side by side.
+`stacked()` piles them on one another, and `total("Total")` adds a last row
+to the tooltip with their sum. Each series is a lighter step of the chart's
+color unless it is given one with `ChartSeries::color`.
+
+## BarChart and ColumnChart
 
 ```rust
 BarChart::new("tests", data, palette).width(480.0).color(accent).render()
+ColumnChart::new("timings", data, palette).height(180.0).gradient(true).render()
 ```
 
-Horizontal bars, one row per datum: the label, the bar and the value. The
-bars share one linear scale from zero, on which the largest value fills the
-track. `color` is the bars' color, the palette's text unless set.
+A `ColumnChart` stands its bars on the category axis; a `BarChart` lays them
+down, with the categories' names at the side. `BarChart::vertical()` turns
+one into the other. Both have the same builders:
 
-## ColumnChart
+| Builder | Default | What it does |
+| --- | --- | --- |
+| `width(f32)` | the width offered | Fixes the width, never below 160 |
+| `height(f32)` | 240, or 34 for each bar of a `BarChart` | Fixes the height, from 80 to 1200 |
+| `color(Color)` | the palette's text | The color of the first series; the others are lighter steps of it |
+| `stacked()` | side by side | Piles each category's series |
+| `gradient(bool)` | off | Fades each bar from a third of its color at its foot to all of it at its tip |
+| `radius(f32)` | 4 | Rounds the tip of each bar; the foot stays square |
+| `max_bar_width(f32)` | 32 | The widest a bar is drawn |
+| `grid(bool)` | on | The dashed line at each tick |
+| `value_axis(bool)` | on | The ticks of the value axis |
+| `value_labels(bool)` | on for a chart built from data | Each bar's value at its tip, or a stack's sum |
+| `total(name)` | none | A row in the tooltip that sums a category |
 
-```rust
-ColumnChart::new("timings", data, palette)
-    .width(480.0)
-    .height(180.0)
-    .max_bar_width(28.0)
-    .integer_ticks(false)
-    .render()
-```
+The value axis always includes zero and ends on a tick; ticks are steps of 1,
+2 or 5 times a power of ten. A number that is not finite is ignored by every
+builder.
 
-Vertical columns from a zero baseline, with a value axis at the left, each
-value over its column and each label under it. `BarChart::vertical()` gives
-the same chart from a bar chart, keeping its data, width and color.
+## Motion
 
-- `height` is 240 unless set, between 120 and 1200.
-- `max_bar_width` is 48 unless set, between 1 and 120.
-- The axis has whole-number ticks, for counts. `integer_ticks(false)` allows
-  fractions.
+When a chart first appears its bars grow from the zero line. Under the
+pointer, a band lights the category it is over and glides to the next as the
+pointer moves, while the other categories recede. A chart keeps this by its
+ID, so a chart that is rebuilt every frame does not start again.
+`UiTree::set_reduced_motion(true)` stands the bars at once and moves the band
+without gliding.
 
-A column's tooltip is headed by its value, over the datum's tooltip with its
-label.
+## Tooltip
 
-Each category takes at least 64 px. When they do not fit in the width, the
-columns scroll sideways and the value axis stays in place.
+The tooltip is the chart's own, not the one of the other components: it
+follows the pointer, on the side of it where the chart has more room, and
+shows the category over a row for each series with its color, its name and
+its value. It appears as soon as the pointer is over the chart, and anywhere
+over a category, not only over its bars.
 
 ## HeatmapChart
 

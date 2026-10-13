@@ -5,9 +5,13 @@ in any release.
 
 ## 0.1.40 — unreleased
 
+- Charts: `BarChart` and `ColumnChart` are drawn by the tree. Several series with `ChartSeries`, side by side or `stacked()`, negative values, `gradient(true)`, rounded tips, a dashed grid and a value axis with round ticks; the bars grow from the zero line as the chart appears, and under the pointer a band lights the category, the others recede and a tooltip of the chart's own follows the pointer with a row for each series
+- Charts, changed: a `ChartDatum` keeps a negative value, a column chart no longer scrolls sideways, `ChartDatum::tooltip` is the name of the bar's row in the tooltip, and `ColumnChart::integer_ticks` is deprecated
+- `Element::bar_plot` with `BarPlot`, `BarSeries` and `BarValue` for a chart of the host's own, and `DrawCommand::FillHorizontalGradient` for a backend to draw
 - TimePicker: a card under the field with a column for each unit: the arrow that raises it, large digits, the arrow that lowers it and its name; the actions it reports are unchanged
 - DatePicker: a day's number stands in the middle of its cell, so the fill of the chosen day is around it
 - A background fade follows its element's rounded corners: a `MediaCard` showed square corners at its foot
+- `Radius::ROUND`: controls as pills, and surfaces, cards and panels to match
 - Kbd: a caption and the slash between alternatives stand on the keycaps' middle line; they hung from the top
 - Gallery: one section or one variant of a page alone, as `&section=` and `&variant=` in its address, centered in what it is given
 - Documentation site: a new landing, every example of a component on a card of its own with its code, branches in the sidebar, a search opened with Ctrl+K, one header on every page, and no gallery page

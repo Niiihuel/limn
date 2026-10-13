@@ -1,12 +1,20 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    AlertColors, AlertTone, BarChart, ChartAxisLabel, ChartDatum, ChartLegend, Color, ColumnChart, Component,
+    AlertColors, AlertTone, BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, Color, ColumnChart, Component,
     HeatmapCell, HeatmapChart, HeatmapScale,
 };
 
 const LANGUAGES: [(&str, f64); 5] = [("Rust", 48.0), ("TypeScript", 31.0), ("Python", 17.0), ("Shell", 6.0), ("Nix", 0.0)];
 const MONTHS: [(usize, &str); 5] = [(0, "Jan"), (5, "Feb"), (9, "Mar"), (13, "Apr"), (18, "May")];
 const WEEKS: usize = 20;
+const MONTHS_HALF: [&str; 6] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+
+fn traffic() -> Vec<ChartSeries> {
+    vec![
+        ChartSeries::new("Desktop", [186.0, 305.0, 237.0, 73.0, 209.0, 214.0]),
+        ChartSeries::new("Mobile", [80.0, 200.0, 120.0, 190.0, 130.0, 140.0]),
+    ]
+}
 
 fn languages() -> Vec<ChartDatum> {
     LANGUAGES.iter().map(|(name, files)| ChartDatum::new(name.to_lowercase(), *name, *files)).collect()
@@ -43,51 +51,63 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         accent,
     ]);
     vec![
+        section(cx, "Column chart", vec![
+            ColumnChart::new("charts-columns", languages(), palette).width(width).gradient(true).render(),
+            caption(cx, "One column for each datum, written with its value. gradient(true) fades each from its foot to its tip. Move the pointer over the chart."),
+            ColumnChart::series("charts-grouped", MONTHS_HALF, traffic(), palette).width(width).gradient(true).radius(6.0).render(),
+            caption(cx, "ColumnChart::series: two series over the same months, side by side. The tooltip lists both."),
+            ColumnChart::series("charts-stacked", MONTHS_HALF, traffic(), palette)
+                .width(width)
+                .stacked()
+                .total("Total")
+                .value_labels(true)
+                .color(accent)
+                .render(),
+            caption(cx, ".stacked().total(\"Total\").color(accent): one pile for each month, its sum over it and in the tooltip."),
+            ColumnChart::new(
+                "charts-negative",
+                [("Mon", 4.0), ("Tue", -2.0), ("Wed", 6.5), ("Thu", -4.5), ("Fri", 3.0)]
+                    .into_iter()
+                    .map(|(day, change)| {
+                        let datum = ChartDatum::new(day, day, change);
+                        if change < 0.0 { datum.color(AlertColors::for_tone(AlertTone::Error, palette).accent) } else { datum }
+                    })
+                    .collect(),
+                palette,
+            )
+            .width(width)
+            .height(200.0)
+            .render(),
+            caption(cx, "A negative value grows down from the zero line; here each has a color of its own."),
+        ]),
         section(cx, "Bar chart", vec![
-            BarChart::new("charts-bars", languages(), palette).width(width).render(),
-            caption(cx, "One linear scale from zero: the longest bar fills the track, and a zero draws none."),
+            BarChart::new("charts-bars", languages(), palette).width(width).gradient(true).render(),
+            caption(cx, "The same data lying down: BarChart, with the categories' names down the side."),
             BarChart::new(
                 "charts-bars-ink",
                 vec![
                     ChartDatum::new("passed", "Passed", 412.0),
-                    ChartDatum::new("skipped", "Skipped", 37.0).value_label("37 (8 %)").tooltip("Skipped: 37 tests behind a feature flag"),
+                    ChartDatum::new("skipped", "Skipped", 37.0).value_label("37 (8 %)").tooltip("Behind a feature flag"),
                     ChartDatum::new("failed", "Failed", 9.0).color(AlertColors::for_tone(AlertTone::Error, palette).accent),
                 ],
                 palette,
             )
             .width(width)
             .color(accent)
+            .value_axis(false)
+            .grid(false)
             .render(),
-            caption(cx, ".color(accent) on the chart, and on one datum its own color, value label and tooltip."),
-        ]),
-        section(cx, "Column chart", vec![
-            BarChart::new("charts-columns", languages(), palette).width(width).vertical().render(),
-            caption(cx, "BarChart::vertical(): the same data as columns, with whole-number ticks."),
-            ColumnChart::new(
-                "charts-columns-seconds",
-                vec![
-                    ChartDatum::new("parse", "Parse", 0.3),
-                    ChartDatum::new("check", "Check", 1.4),
-                    ChartDatum::new("link", "Link", 0.8),
-                ],
-                palette,
-            )
+            caption(cx, ".color(accent).value_axis(false).grid(false), and on one datum its own color, value label and name in the tooltip."),
+            BarChart::series("charts-bars-stacked", ["Engine", "Components", "Gallery"], vec![
+                ChartSeries::new("Code", [16.6, 21.4, 6.2]),
+                ChartSeries::new("Tests", [8.1, 9.7, 0.4]),
+                ChartSeries::new("Docs", [1.9, 3.3, 0.2]),
+            ], palette)
             .width(width)
-            .height(180.0)
-            .max_bar_width(28.0)
-            .integer_ticks(false)
-            .color(accent)
+            .stacked()
+            .total("Thousand lines")
             .render(),
-            caption(cx, ".integer_ticks(false) for a measure with fractions, 180 px high with columns of 28 px at most."),
-            ColumnChart::new(
-                "charts-columns-dense",
-                (1..=16).map(|day| ChartDatum::new(day.to_string(), format!("Day {day}"), ((day * 7) % 11) as f64)).collect(),
-                palette,
-            )
-            .width(width)
-            .height(180.0)
-            .render(),
-            caption(cx, "More categories than fit: the columns scroll sideways and the value axis stays."),
+            caption(cx, "Three series stacked, each a lighter step of the chart's color."),
         ]),
         section(cx, "Heatmap chart", vec![
             HeatmapChart::new("charts-heat", weeks(), palette)

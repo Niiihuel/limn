@@ -3,6 +3,8 @@ mod horizontal_scroll_tree;
 use horizontal_scroll_tree::HorizontalScrollState;
 #[path = "corner_mask_tree.rs"]
 mod corner_mask_tree;
+#[path = "bar_plot_tree.rs"]
+mod bar_plot_tree;
 #[cfg(test)]
 #[path = "popover_initial_focus_tests.rs"]
 mod popover_initial_focus_tests;
@@ -415,6 +417,16 @@ pub enum DrawCommand {
         /// Color along the bottom edge.
         bottom: Color,
     },
+    /// A rectangle filled with a gradient from `left` to `right`, with square
+    /// corners: the length of a bar that runs sideways.
+    FillHorizontalGradient {
+        /// Bounds of the fill, relative to the frame's top-left corner.
+        rect: Rect,
+        /// Color at the left edge.
+        left: Color,
+        /// Color at the right edge.
+        right: Color,
+    },
     /// A rectangle outline with the same radius on every corner. The egui
     /// backend strokes inside `rect`.
     StrokeRect {
@@ -628,6 +640,11 @@ impl DrawCommand {
                 shift(rect);
                 fade(top);
                 fade(bottom);
+            }
+            Self::FillHorizontalGradient { rect, left, right } => {
+                shift(rect);
+                fade(left);
+                fade(right);
             }
             Self::ProgressRing {
                 rect, track, fill, ..
@@ -971,6 +988,11 @@ fn animate_popover_command(
             scale_rect(rect, scale, origin, slide_y);
             fade(top, opacity);
             fade(bottom, opacity);
+        }
+        DrawCommand::FillHorizontalGradient { rect, left: start, right: end } => {
+            scale_rect(rect, scale, origin, slide_y);
+            fade(start, opacity);
+            fade(end, opacity);
         }
         DrawCommand::FillTriangle { points, color } => {
             for point in points {
@@ -6053,6 +6075,7 @@ fn collect_focus_order(
         | ElementKind::RollingNumber { .. }
         | ElementKind::UnitGrid(_)
         | ElementKind::LevelBars(_)
+        | ElementKind::BarPlot(_)
         | ElementKind::Text(_)
         | ElementKind::ShimmerText { .. }
         | ElementKind::KeyboardShortcut { .. }
@@ -6133,6 +6156,7 @@ fn collect_action_metadata(
         | ElementKind::RollingNumber { .. }
         | ElementKind::UnitGrid(_)
         | ElementKind::LevelBars(_)
+        | ElementKind::BarPlot(_)
         | ElementKind::MarkRail(_)
         | ElementKind::Spacer => {}
     }
@@ -8442,6 +8466,11 @@ impl LayoutBuilder<'_> {
             }
             // The caller sizes it; left alone it is one dot.
             ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
+            // The caller sizes it; left alone it takes the width it is offered.
+            ElementKind::BarPlot(_) => Size::new(
+                if available.width.is_finite() { available.width } else { 480.0 },
+                240.0 + padding,
+            ),
             ElementKind::MarkRail(rail) => {
                 // With less room than its marks ask for, they sit closer.
                 let height = rail.marks.len() as f32 * rail.pitch;
@@ -10745,6 +10774,7 @@ impl LayoutBuilder<'_> {
                     }
                 }
             }
+            ElementKind::BarPlot(plot) => self.paint_bar_plot(plot, content, clip),
             ElementKind::LevelBars(bars) => {
                 let pitch = bars.bar + bars.gap;
                 let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };

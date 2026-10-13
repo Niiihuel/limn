@@ -24,7 +24,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     vec![
         caption(cx, "One call to set_tokens changes the shape and pace of the whole library.").into(),
         section(cx, "Corners", vec![
-            row(vec![choice(cx, "tokens-radius", &[("square", "Square"), ("default", "Default"), ("round", "Round")])]),
+            row(vec![choice(cx, "tokens-radius", &[("square", "Square"), ("default", "Default"), ("soft", "Soft"), ("round", "Round")])]),
             caption(cx, &format!(
                 "control {} · surface {} · card {} · panel {}",
                 tokens.radius.control, tokens.radius.surface, tokens.radius.card, tokens.radius.panel
