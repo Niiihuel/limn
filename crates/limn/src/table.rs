@@ -19,7 +19,10 @@ pub struct TableSizing {
     pub header_height: f32,
     /// Height of a row.
     pub row_height: f32,
-    /// Space between two rows, and between the header and the first.
+    /// Space between the header's hairline and the first row: a row lit
+    /// under the pointer does not touch the line.
+    pub header_gap: f32,
+    /// Space between two rows.
     pub row_gap: f32,
     /// Space between the table's edge and its first and last columns,
     /// inside a row's hover surface.
@@ -37,6 +40,7 @@ impl TableSizing {
     pub const COMPACT: Self = Self {
         header_height: 28.0,
         row_height: 28.0,
+        header_gap: 4.0,
         row_gap: 2.0,
         inset: 8.0,
         gap: 12.0,
@@ -49,6 +53,7 @@ impl TableSizing {
     pub const ROOMY: Self = Self {
         header_height: 36.0,
         row_height: 56.0,
+        header_gap: 8.0,
         inset: 16.0,
         gap: 16.0,
         label_role: TextRole::Caption,
@@ -307,7 +312,8 @@ impl Table {
 
     /// The header and the rows apart, for a host that wraps each row in
     /// something of its own, such as a context menu. Stack them in one
-    /// column, `row_gap` apart: a sticky header pins inside that column.
+    /// column, the first row `header_gap` under the header and the rows
+    /// `row_gap` apart: a sticky header pins inside that column.
     pub fn into_parts(self) -> (Element, Vec<Element>) {
         let Self { id, columns, rows, width, sort, sticky, menu, menu_palette, radius, sizing, palette } = self;
         let (inset, gap) = (px(sizing.inset), px(sizing.gap));
@@ -364,8 +370,12 @@ impl Table {
                 let handle = ResizeHandle::vertical(format!("{id}:resize:{}", owner.key), palette)
                     .thickness(gap.min(GRIP))
                     .render();
-                Element::row(vec![Element::spacer().flex(1.0), handle, Element::spacer().flex(1.0)])
-                    .size(Some(gap), None)
+                let across = |part: Element| Element::row(vec![Element::spacer().flex(1.0), part, Element::spacer().flex(1.0)]);
+                // A handle draws nothing at rest: a short rule says where the
+                // boundary can be taken, and the handle stands over it.
+                let bar = px(sizing.header_height) - 1.0;
+                let rule = Separator::vertical(palette).length(bar / 2.0).centered_in(bar).render();
+                Element::stack(vec![across(rule), across(handle)]).size(Some(gap), None)
             }
             None => Element::spacer().size(Some(gap), None),
         };
@@ -468,9 +478,9 @@ impl Table {
 
 impl Component for Table {
     fn render(self) -> Element {
-        let (width, gap) = (self.width, px(self.sizing.row_gap));
+        let (width, under, gap) = (self.width, px(self.sizing.header_gap), px(self.sizing.row_gap));
         let (header, rows) = self.into_parts();
-        Element::column(std::iter::once(header).chain(rows).collect()).gap(gap).size(Some(width), None)
+        Element::column(vec![header, Element::column(rows).gap(gap)]).gap(under).size(Some(width), None)
     }
 }
 
@@ -658,7 +668,7 @@ mod tests {
         for sizing in [TableSizing::COMPACT, TableSizing::ROOMY] {
             let frame = tree_of(table(WIDTH).sizing(sizing).render()).layout(SIZE);
             let first = region(&frame, "row:0");
-            assert_eq!(first, Rect::new(0.0, sizing.header_height + sizing.row_gap, WIDTH, sizing.row_height));
+            assert_eq!(first, Rect::new(0.0, sizing.header_height + sizing.header_gap, WIDTH, sizing.row_height));
             assert_eq!(region(&frame, "row:1").y, first.y + sizing.row_height + sizing.row_gap);
             // The hairline closes the header across the whole table.
             let rule = Rect::new(0.0, sizing.header_height - 1.0, WIDTH, 1.0);
@@ -742,6 +752,9 @@ mod tests {
         assert_eq!(region(&frame, "t:resize:album"), Rect::new(451.0, 0.0, GRIP, 27.0));
         // The day and the duration do not resize: their boundaries are bare.
         assert_eq!(frame.regions.iter().filter(|region| region.id.contains(":resize:")).count(), 1);
+        // At rest the handle paints nothing: a rule half the header tall marks it, and only it.
+        let rules: Vec<Rect> = fills(&frame, palette().border).into_iter().filter(|rule| rule.width == 1.0).collect();
+        assert_eq!(rules, [Rect::new(453.5, 6.75, 1.0, 13.5)]);
         let at = |x: f32| Point::new(x, 14.0);
         let id = || "t:resize:album".to_owned();
         tree.handle_event(UiEvent::PointerMove(at(454.0)));
@@ -878,7 +891,7 @@ mod tests {
             tree_of(Table::new("t", columns, 300.0, palette).rows(vec![row]).render())
         };
         let size = Size::new(300.0, 200.0);
-        let whole = Rect::new(0.0, 30.0, 300.0, 28.0);
+        let whole = Rect::new(0.0, 32.0, 300.0, 28.0);
         let mut tree = build(true, false);
         let frame = tree.layout(size);
         assert!(fills(&frame, palette.hover).is_empty() && fills(&frame, palette.selected).is_empty());
@@ -939,8 +952,8 @@ mod tests {
         let rows = vec![TableRow::new("row:0", vec![text("1"), bar]), TableRow::new("row:1", Vec::new())];
         let frame = tree_of(Table::new("t", columns(), WIDTH, palette()).rows(rows).render()).layout(SIZE);
         // As wide as the title's column and centered in the row.
-        assert_eq!(fills(&frame, mark), vec![Rect::new(44.0, 30.0 + 12.0, 404.0, 4.0)]);
-        assert_eq!(region(&frame, "row:1").y, 60.0);
+        assert_eq!(fills(&frame, mark), vec![Rect::new(44.0, 32.0 + 12.0, 404.0, 4.0)]);
+        assert_eq!(region(&frame, "row:1").y, 62.0);
     }
 
     #[test]
@@ -973,8 +986,8 @@ mod tests {
         let (header, rows) = build().into_parts();
         assert_eq!(rows.len(), 3);
         assert!(header.sticky_top.is_some());
-        let stacked = Element::column(std::iter::once(header).chain(rows).collect())
-            .gap(TableSizing::COMPACT.row_gap)
+        let stacked = Element::column(vec![header, Element::column(rows).gap(TableSizing::COMPACT.row_gap)])
+            .gap(TableSizing::COMPACT.header_gap)
             .size(Some(WIDTH), None);
         assert_eq!(tree_of(stacked).layout(SIZE), tree_of(build().render()).layout(SIZE));
     }

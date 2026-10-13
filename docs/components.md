@@ -327,7 +327,7 @@ keeps the widths and toggles the columns.
 | `.menu_palette(palette)` | Colors the columns menu and the header's context menu; the table's own palette unless set. |
 | `.radius(RadiusRole)` | Rounds the fill of a row; `Control` unless set. |
 | `.sizing(TableSizing)` | The density: both heights, the gap between rows, the side inset, the gap between columns, the role of the labels and the gap before the arrow. `COMPACT` (rows of 28 under a header of 28) unless set; `ROOMY` is 56 under 36, for rows with artwork and two lines. |
-| `.into_parts()` | In place of `.render()`: the header and one element per row, for a host that wraps each row in a `ContextMenu` or a `hover_region`. Stack them in one column, `row_gap` apart. |
+| `.into_parts()` | In place of `.render()`: the header and one element per row, for a host that wraps each row in a `ContextMenu` or a `hover_region`. Stack them in one column: the first row `header_gap` under the header, the rows `row_gap` apart. |
 
 A column:
 
@@ -337,7 +337,7 @@ A column:
 | `TableColumn::flexible(key, label, min_width)` | A column that shares the width the fixed ones leave, never under its minimum. Several share it equally. |
 | `.icon(icon)` | Shows a glyph in the header. The label becomes its hint and stays its name in the columns menu. |
 | `.sortable()` | Makes the header a button. |
-| `.resizable(min_width)` | Lets the boundary beside a fixed column be dragged. The column is never drawn under `min_width`. A flexible column ignores it. |
+| `.resizable(min_width)` | Lets the boundary beside a fixed column be dragged; a short rule in the header marks it. The column is never drawn under `min_width`. A flexible column ignores it. |
 | `.align_end()` | Sets the label and the cells against the end of the column, for figures. |
 | `.optional(shown)` | Lists the column in the columns menu, checked while shown. A column that is not shown is left out. |
 | `.hide_below(width)` | Leaves the column out while the table is narrower than `width`. |
