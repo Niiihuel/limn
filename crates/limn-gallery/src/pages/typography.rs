@@ -29,8 +29,13 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         .gap(12.0)
     };
     vec![
-        caption(cx, "Text toma el tamaño de un TextRole y el color de la paleta.").into(),
-        section(cx, "Escala", ROLES.iter().map(|(role, name)| sample(*role, name)).collect()),
+        section(
+            cx,
+            "Escala",
+            std::iter::once(caption(cx, "Text toma el tamaño de un TextRole y el color de la paleta."))
+                .chain(ROLES.iter().map(|(role, name)| sample(*role, name)))
+                .collect(),
+        ),
         section(cx, "Fuera de la escala", vec![
             caption(cx, ".size(px) para un paso que el diseño del host tiene entre dos roles"),
             Text::new("Small · 11", palette).role(TextRole::Small).muted().render(),

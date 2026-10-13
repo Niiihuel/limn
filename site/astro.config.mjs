@@ -31,6 +31,8 @@ function keycaps() {
       for (const row of node.children.slice(1)) {
         const cell = row.children[0];
         const keys = text(cell).split(/(\s*,\s*|\s+or\s+|\s*\/\s*|\+)/);
+        // A cell that describes keys in words, not names them, stays prose.
+        if (keys.some((part, index) => index % 2 === 0 && !/^[A-Z←→↑↓][\w ]{0,11}$/.test(part.trim()))) continue;
         const html = keys.map((part, index) => (index % 2 ? escape(part) : part.trim() && `<kbd>${escape(part.trim())}</kbd>`)).join('');
         cell.children = [{ type: 'html', value: html }];
       }

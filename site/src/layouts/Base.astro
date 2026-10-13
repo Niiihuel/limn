@@ -55,7 +55,12 @@ const nav = [
       for (const block of document.querySelectorAll('pre')) {
         const button = document.getElementById('copy').content.firstElementChild.cloneNode(true);
         button.addEventListener('click', async () => {
-          await navigator.clipboard.writeText(block.querySelector('code')?.innerText ?? block.innerText);
+          // Without a secure origin there is no clipboard, and nothing was copied.
+          try {
+            await navigator.clipboard.writeText(block.querySelector('code')?.innerText ?? block.innerText);
+          } catch {
+            return;
+          }
           button.classList.add('copied');
           setTimeout(() => button.classList.remove('copied'), 1400);
         });

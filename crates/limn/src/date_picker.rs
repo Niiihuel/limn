@@ -10,21 +10,6 @@ use web_time::{SystemTime, UNIX_EPOCH};
 use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
 use crate::{Color, Element, FontFamily, Icon};
 
-const WEEKDAYS: [&str; 7] = ["Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"];
-const MONTHS: [&str; 12] = [
-    "enero",
-    "febrero",
-    "marzo",
-    "abril",
-    "mayo",
-    "junio",
-    "julio",
-    "agosto",
-    "septiembre",
-    "octubre",
-    "noviembre",
-    "diciembre",
-];
 // Seven columns plus gaps and panel padding stay within a 248 px modal body.
 const CELL_WIDTH: f32 = 30.0;
 const CELL_HEIGHT: f32 = 28.0;
@@ -169,7 +154,7 @@ impl Component for DatePicker {
         .render();
         let title = Element::text(format!(
             "{} {}",
-            MONTHS[self.display_month as usize - 1],
+            crate::labels().months[self.display_month as usize - 1],
             self.display_year
         ))
         .foreground(self.palette.text)
@@ -179,7 +164,7 @@ impl Component for DatePicker {
         .center_content();
         let header = Element::row(vec![previous, title, next]).gap(3.0);
         let weekdays = Element::row(
-            WEEKDAYS
+            crate::labels().weekdays
                 .iter()
                 .map(|day| {
                     Element::text(*day)

@@ -45,8 +45,8 @@ const path = Astro.url.pathname;
         let current = heads[0];
         for (const head of heads) if (head.getBoundingClientRect().top <= 96) current = head;
         // At the end of the page the last headings never reach the line.
-        if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) current = heads.at(-1);
-        for (const link of links) link.classList.toggle('active', current && link.hash === `#${current.id}`);
+        if (scrollY > 0 && innerHeight + scrollY >= document.documentElement.scrollHeight - 2) current = heads.at(-1);
+        for (const link of links) link.classList.toggle('active', current && decodeURIComponent(link.hash) === `#${current.id}`);
       };
       if (heads.length) {
         addEventListener('scroll', mark, { passive: true });

@@ -221,7 +221,7 @@ pub fn view(state: &State, window: Size) -> Element {
     .background(
         u32::from_str_radix(state.text("embed-bg"), 16)
             .ok()
-            .filter(|_| state.flag("embed"))
+            .filter(|_| state.flag("embed") && state.text("embed-bg").len() == 6)
             .map_or(theme.background, |rgb| limn::Color::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)),
     )
     .size(Some(window.width), Some(window.height));
@@ -239,16 +239,16 @@ mod tests {
     fn every_page_lays_out_in_both_themes_at_several_widths() {
         for page in pages::PAGES {
             for light in [false, true] {
-                for width in [640.0, 1280.0, 2200.0] {
+                // The last is the page alone, at the size a site embeds it.
+                for (width, height, embed) in [(640.0, 800.0, false), (1280.0, 800.0, false), (2200.0, 800.0, false), (700.0, 200.0, true)] {
                     let mut state = State::starting_at(page.id);
                     if light {
                         state.set("light", "on");
                     }
-                    // The widest window is also the page alone, as a site embeds it.
-                    if width > 2000.0 {
+                    if embed {
                         state.set("embed", "on");
                     }
-                    let window = Size::new(width, 800.0);
+                    let window = Size::new(width, height);
                     let frame = UiTree::new(view(&state, window)).layout(window);
                     assert!(!frame.commands.is_empty(), "{} paints nothing", page.id);
                     // Two controls with one ID would share hover, fill and focus.

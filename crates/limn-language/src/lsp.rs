@@ -361,7 +361,7 @@ impl LanguageServer {
             .spawn()
             .map_err(|source| {
                 error(format!(
-                    "No se pudo iniciar {}: {source}",
+                    "Could not start {}: {source}",
                     config.executable.display()
                 ))
             })?;

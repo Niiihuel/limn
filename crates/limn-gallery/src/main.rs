@@ -284,20 +284,7 @@ fn main() -> eframe::Result {
             "--light" => light = true,
             // What a site needs to give every component its page.
             "--pages" => {
-                let quote = |text: &str| format!("\"{}\"", text.replace('"', "\\\""));
-                let pages: Vec<String> = pages::PAGES
-                    .iter()
-                    .map(|page| {
-                        format!(
-                            "  {{\"id\": {}, \"group\": {}, \"title\": {}, \"source\": {}}}",
-                            quote(page.id),
-                            quote(page.group),
-                            quote(page.title),
-                            quote(page.source),
-                        )
-                    })
-                    .collect();
-                println!("[\n{}\n]", pages.join(",\n"));
+                print!("{}", pages::pages_json());
                 return Ok(());
             }
             "--screenshot" => screenshot = arguments.next().map(PathBuf::from),

@@ -131,6 +131,26 @@ pub const PAGES: &[Page] = &[
     Page { id: "tour", group: "Superposiciones", title: "Tour", source: "tour", view: tour::view, sections: &[] },
 ];
 
+/// The components as JSON, one page each: what a site needs to give every
+/// component its address. `site/src/data/pages.json` is this, kept by a test.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+pub fn pages_json() -> String {
+    let quote = |text: &str| format!("\"{}\"", text.replace('"', "\\\""));
+    let pages: Vec<String> = PAGES
+        .iter()
+        .map(|page| {
+            format!(
+                "  {{\"id\": {}, \"group\": {}, \"title\": {}, \"source\": {}}}",
+                quote(page.id),
+                quote(page.group),
+                quote(page.title),
+                quote(page.source),
+            )
+        })
+        .collect();
+    format!("[\n{}\n]\n", pages.join(",\n"))
+}
+
 /// The page with this ID, or the first one for an ID that no longer exists
 /// (a hot patch may remove the page being shown).
 pub fn find(id: &str) -> &'static Page {
@@ -183,13 +203,20 @@ impl Section {
     }
 
     /// As a site shows it: each variant apart from the next and centered, a
-    /// demo with the captions that follow it being one variant.
+    /// demo with its captions being one variant.
     fn showcase(self, cx: &Cx) -> Element {
+        // A section says each demo's caption before it or after it; the first
+        // item tells which.
+        let leading = self.demos.first().is_some_and(is_caption);
         let mut variants: Vec<Vec<Element>> = Vec::new();
         for demo in self.demos {
+            let caption = is_caption(&demo);
             match variants.last_mut() {
-                // A caption before any demo opens the first variant.
-                Some(variant) if is_caption(&demo) || variant.iter().all(is_caption) => variant.push(demo),
+                // After it: a caption joins the demo before it.
+                Some(variant) if !leading && caption => variant.push(demo),
+                // Before it: a demo joins the captions that announced it, and
+                // a caption that follows a demo opens the next variant.
+                Some(variant) if leading && (!caption || variant.iter().all(is_caption)) => variant.push(demo),
                 _ => variants.push(vec![demo]),
             }
         }
@@ -261,7 +288,11 @@ mod tests {
         let state = State::default();
         let cx = Cx { state: &state, palette: ComponentPalette::neutral_dark(), width: 800.0 };
         let mut claimed: HashMap<&str, Option<HashSet<&str>>> = HashMap::new();
+        // The name of a module and its function go together: the site links to the one and shows the other.
+        let mut views: HashMap<&str, usize> = HashMap::new();
         for page in PAGES {
+            let view = page.view as usize;
+            assert_eq!(*views.entry(page.source).or_insert(view), view, "{}: {}.rs is not its view", page.id, page.source);
             let titles: Vec<String> = (page.view)(&cx).into_iter().map(|section| section.title).collect();
             for wanted in page.sections {
                 assert!(titles.iter().any(|title| title == wanted), "{}: no section {wanted:?} in {}.rs", page.id, page.source);
@@ -277,14 +308,26 @@ mod tests {
         for page in PAGES {
             let Some(Some(seen)) = claimed.get(page.source) else { continue };
             for section in (page.view)(&cx) {
+                // Without a title a section belongs to no page that names its sections.
                 assert!(
-                    section.title.is_empty() || seen.contains(section.title.as_str()),
+                    seen.contains(section.title.as_str()),
                     "{}.rs: section {:?} is on no page",
                     page.source,
                     section.title
                 );
             }
         }
+    }
+
+    /// The site is built without the gallery, from the list it last printed.
+    #[test]
+    fn the_site_has_the_list_of_pages_as_it_is() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../site/src/data/pages.json");
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap_or_default(),
+            pages_json(),
+            "run `cargo run -p limn-gallery -- --pages > site/src/data/pages.json`"
+        );
     }
 
     /// The convention of a component's guide: it is named after a page, and

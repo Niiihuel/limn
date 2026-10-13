@@ -115,6 +115,18 @@ pub struct Labels {
     pub breakpoint_add: &'static str,
     /// The code editor.
     pub breakpoint_add_detail: &'static str,
+    /// A calendar's weekdays, Monday first, two letters each.
+    pub weekdays: [&'static str; 7],
+    /// A calendar's months, January first.
+    pub months: [&'static str; 12],
+    /// The code editor's status line: a file in no language.
+    pub plain_text: &'static str,
+    /// The code editor's status line.
+    pub read_only: &'static str,
+    /// The code editor's status line: changes not yet saved.
+    pub unsaved: &'static str,
+    /// The code editor's status line.
+    pub saved: &'static str,
 }
 
 impl Labels {
@@ -168,6 +180,15 @@ impl Labels {
         breakpoint_local_detail: "A local mark: no debugger is connected. It does not stop execution and is cleared when the file is edited.",
         breakpoint_add: "Set a breakpoint",
         breakpoint_add_detail: "Toggle a breakpoint on this line.",
+        weekdays: ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"],
+        months: [
+            "January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+            "November", "December",
+        ],
+        plain_text: "Text",
+        read_only: "Read only",
+        unsaved: "Unsaved",
+        saved: "Saved",
     };
 
     pub const SPANISH: Self = Self {
@@ -220,6 +241,15 @@ impl Labels {
         breakpoint_local_detail: "Marca local · sin depurador conectado. No detiene la ejecución. Se borra al editar el archivo.",
         breakpoint_add: "Marcar punto de interrupción",
         breakpoint_add_detail: "Alternar punto de interrupción en esta línea.",
+        weekdays: ["Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"],
+        months: [
+            "enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
+            "noviembre", "diciembre",
+        ],
+        plain_text: "Texto",
+        read_only: "Solo lectura",
+        unsaved: "Sin guardar",
+        saved: "Guardado",
     };
 }
 

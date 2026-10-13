@@ -6,7 +6,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 # The components, one page each: the site gives each its address.
-cargo run -q -p limn-gallery -- --pages > site/src/data/pages.json
+# Written whole or not at all: a failed build must not leave the list empty.
+cargo run -q -p limn-gallery -- --pages > site/src/data/pages.json.new
+mv site/src/data/pages.json.new site/src/data/pages.json
 # Size over speed: every visitor downloads this.
 CARGO_PROFILE_RELEASE_OPT_LEVEL=s CARGO_PROFILE_RELEASE_LTO=true \
 CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1 CARGO_PROFILE_RELEASE_STRIP=true \

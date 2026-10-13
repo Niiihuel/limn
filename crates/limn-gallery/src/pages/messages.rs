@@ -76,8 +76,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let answer = "El fallo está en el cálculo del margen: la fila reserva su alto aunque no se pinte, \
                   así que el mensaje no cambia de tamaño cuando aparecen las acciones.";
     let sections: Vec<Section> = vec![
-        caption(cx, "Botones de 24 px separados por 2, tinta atenuada en reposo. La fila ocupa su lugar aunque no se pinte.").into(),
         section(cx, "Mensaje del asistente", vec![
+            caption(cx, "Botones de 24 px separados por 2, tinta atenuada en reposo. La fila ocupa su lugar aunque no se pinte."),
             caption(cx, "Siempre visible: el último mensaje"),
             Element::column(vec![prose(cx, answer), assistant(cx, "messages-last", MessageActionsVisibility::Always).render()])
                 .gap(4.0),
