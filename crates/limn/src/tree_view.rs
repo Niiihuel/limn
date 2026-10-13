@@ -20,11 +20,14 @@ const TRAILING_GAP: f32 = 6.0;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TreeGuides {
     pub depth: usize,
+    /// For each ancestor lane, outermost first, whether its line continues past this row.
     pub ancestor_continuations: Vec<bool>,
+    /// Whether a sibling follows, so the row's own lane continues below it.
     pub next_sibling: bool,
 }
 
 impl TreeGuides {
+    /// The guides of a depth-zero row: none.
     pub fn root() -> Self {
         Self {
             depth: 0,
@@ -92,6 +95,9 @@ pub struct TreeRow<F: FnOnce(Element) -> Element> {
 }
 
 impl<F: FnOnce(Element) -> Element> TreeRow<F> {
+    /// A row of compact control height. `action` wraps the row's content in the caller's
+    /// control, such as a clickable with the caller's ID; `icon` and `title` follow the
+    /// guides.
     pub fn new(
         action: F,
         icon: Element,
@@ -116,6 +122,7 @@ impl<F: FnOnce(Element) -> Element> TreeRow<F> {
         }
     }
 
+    /// An element at the trailing edge, after the count and the chevron.
     pub fn trailing(mut self, element: Element) -> Self {
         self.trailing = Some(element);
         self
@@ -144,6 +151,7 @@ impl<F: FnOnce(Element) -> Element> TreeRow<F> {
         self
     }
 
+    /// Set the row's height in logical pixels. A height below 18 or not finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() && height >= 18.0 {
             self.height = height;
@@ -151,16 +159,21 @@ impl<F: FnOnce(Element) -> Element> TreeRow<F> {
         self
     }
 
+    /// Draw guides for at most this many levels (6 by default). A deeper row is indented no
+    /// further and keeps its innermost lanes.
     pub fn max_guide_depth(mut self, depth: usize) -> Self {
         self.max_guide_depth = depth;
         self
     }
 
+    /// Fill the row with the palette's selected color, at rest and under the pointer, and
+    /// report it as selected to the platform.
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
         self
     }
 
+    /// The color of the guide lines; the palette's border by default.
     pub fn guide_color(mut self, color: Color) -> Self {
         self.guide_color = color;
         self

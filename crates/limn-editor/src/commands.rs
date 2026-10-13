@@ -93,6 +93,8 @@ impl BufferSnapshot {
 }
 
 impl TextBuffer {
+    /// Delete from the caret back to `previous_word_start`. A non-empty selection is deleted
+    /// instead, as `delete_backward` does.
     pub fn delete_word_backward(&mut self, timestamp_ms: u64) -> Result<bool, EditorError> {
         if self.selections().count() > 1 {
             return self.delete_at_selections(false, true, timestamp_ms);
@@ -112,6 +114,8 @@ impl TextBuffer {
         )
     }
 
+    /// Delete from the caret forward to `next_word_end`. A non-empty selection is deleted
+    /// instead, as `delete_forward` does.
     pub fn delete_word_forward(&mut self, timestamp_ms: u64) -> Result<bool, EditorError> {
         if self.selections().count() > 1 {
             return self.delete_at_selections(true, true, timestamp_ms);

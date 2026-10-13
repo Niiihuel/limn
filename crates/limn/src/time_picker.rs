@@ -18,6 +18,7 @@ pub struct TimePicker {
 }
 
 impl TimePicker {
+    /// A picker whose field shows `value`, a 24-hour `HH:MM` time.
     pub fn new(id: impl Into<String>, value: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -40,6 +41,7 @@ impl TimePicker {
         self.enabled(false)
     }
 
+    /// Whether `value` is exactly `HH:MM` with an hour below 24 and a minute below 60.
     pub fn is_valid_time(value: &str) -> bool {
         parse_time(value).is_some()
     }

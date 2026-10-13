@@ -69,6 +69,8 @@ impl EditorController {
             .map_err(|error| error.to_string())?;
         Ok(buffer.snapshot())
     }
+    /// Search the current text; see `BufferSnapshot::search`. A buffer lock that cannot be taken
+    /// is reported as `SearchError::InvalidPattern`.
     pub fn search(
         &self,
         query: &str,
@@ -77,15 +79,19 @@ impl EditorController {
         let snapshot = self.snapshot().map_err(SearchError::InvalidPattern)?;
         snapshot.search(query, options)
     }
+    /// Put a buffer behind a controller. Clones of the controller share the buffer.
     pub fn new(buffer: TextBuffer) -> Self {
         Self(Arc::new(Mutex::new(buffer)))
     }
+    /// A controller over a buffer the application already shares.
     pub fn from_shared(buffer: Arc<Mutex<TextBuffer>>) -> Self {
         Self(buffer)
     }
+    /// The buffer behind this controller, shared and not copied.
     pub fn shared_buffer(&self) -> Arc<Mutex<TextBuffer>> {
         self.0.clone()
     }
+    /// The current text and selections. `Err` only when the buffer lock is poisoned.
     pub fn snapshot(&self) -> Result<BufferSnapshot, String> {
         self.0
             .lock()
@@ -100,6 +106,7 @@ impl EditorController {
     }
 }
 
+/// A colour for a range of text, in the snapshot's Unicode scalar offsets.
 #[derive(Clone, Debug)]
 pub struct CodeHighlight {
     pub range: std::ops::Range<usize>,
@@ -114,6 +121,8 @@ pub struct CodeDiagnostic {
     pub message: String,
 }
 
+/// A code editor over a buffer the host owns. An edit reports `UiAction::EditorChanged` and
+/// a failed one `UiAction::EditorFailed`.
 #[derive(Clone, Debug)]
 pub struct CodeEditor {
     pub id: String,
@@ -164,6 +173,9 @@ pub struct CodeEditor {
 }
 
 impl CodeEditor {
+    /// An editor for `controller` with the neutral dark palette: 320 pixels high, editable, line
+    /// numbers on, tab width 4 with spaces, auto pairs on; status bar, soft wrap, minimap and
+    /// modal editing off.
     pub fn new(id: impl Into<String>, controller: EditorController) -> Self {
         Self {
             id: id.into(),
@@ -209,6 +221,7 @@ impl CodeEditor {
             review_actions: Arc::from([]),
         }
     }
+    /// Use this palette for the surface, the text and the editor's marks.
     pub fn palette(mut self, palette: ComponentPalette) -> Self {
         self.palette = palette;
         self
@@ -242,22 +255,30 @@ impl CodeEditor {
         }
         self
     }
+    /// Refuse edits: typing, the input method and the context menu's cut and paste do nothing.
+    /// The status bar, when shown, says the document is read-only.
     pub fn read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
         self
     }
+    /// Turn modal editing on or off. Changing it puts the editor back in Normal mode.
     pub fn vim_mode(mut self, enabled: bool) -> Self {
         self.vim_mode = enabled;
         self
     }
+    /// Show line numbers in the gutter. Without them the gutter keeps 8 pixels of padding.
     pub fn line_numbers(mut self, enabled: bool) -> Self {
         self.line_numbers = enabled;
         self
     }
+    /// Add a bar 28 pixels high at the bottom, inside the editor's height, with the caret's line
+    /// and column, the size of the selection, the language, the encoding and the line ending.
     pub fn status_bar(mut self, enabled: bool) -> Self {
         self.status_bar = enabled;
         self
     }
+    /// Set the tab stop in columns, clamped to 1..=16. The indent style keeps its kind and takes
+    /// this width.
     pub fn tab_width(mut self, width: usize) -> Self {
         self.tab_width = width.clamp(1, 16);
         self.indent_style = match self.indent_style {
@@ -266,6 +287,8 @@ impl CodeEditor {
         };
         self
     }
+    /// Indent with spaces or with tabs. The style's width, clamped to 1..=32, also becomes the
+    /// tab stop.
     pub fn indent_style(mut self, style: IndentStyle) -> Self {
         self.tab_width = style.width().clamp(1, 32);
         self.indent_style = match style {
@@ -274,14 +297,19 @@ impl CodeEditor {
         };
         self
     }
+    /// Insert the closing bracket or quote when the opening one is typed, and delete an empty
+    /// pair with one backspace. On by default.
     pub fn auto_pairs(mut self, enabled: bool) -> Self {
         self.auto_pairs = enabled;
         self
     }
+    /// Wrap long lines at the width of the editor; there is then no horizontal scrolling.
     pub fn soft_wrap(mut self, enabled: bool) -> Self {
         self.soft_wrap = enabled;
         self
     }
+    /// Show a 72-pixel overview of the document that scrolls on press and drag. It is left out
+    /// when fewer than 380 pixels remain beside the gutter.
     pub fn minimap(mut self, enabled: bool) -> Self {
         self.minimap = enabled;
         self
@@ -297,6 +325,8 @@ impl CodeEditor {
         };
         self
     }
+    /// Fold these ranges of zero-based rows: the first row of each stays visible and the rows
+    /// after it, up to the exclusive end, are hidden.
     pub fn folds(mut self, rows: impl Into<Arc<[std::ops::Range<usize>]>>) -> Self {
         self.folds = rows.into();
         self
@@ -346,6 +376,8 @@ impl CodeEditor {
         self.execution_line = execution;
         self
     }
+    /// Mark these character ranges as search matches. They are painted only while the buffer is
+    /// at `revision`.
     pub fn search_matches(
         mut self,
         revision: u64,
@@ -355,10 +387,13 @@ impl CodeEditor {
         self.search_matches = ranges.into();
         self
     }
+    /// Entries for the editor's context menu, added after a separator below the text entries.
     pub fn context_actions(mut self, actions: Vec<crate::ContextMenuEntry>) -> Self {
         self.context_actions = actions;
         self
     }
+    /// The language for the built-in syntax colours and for the status bar. The default is
+    /// plain text.
     pub fn language(mut self, language: CodeLanguage) -> Self {
         self.language = language;
         self
@@ -427,6 +462,8 @@ impl CodeViewport {
         self.minimap_drag = false;
         self.scrollbar_pointer = None;
     }
+    /// Start a drag of a scrollbar or of the minimap when `point` is on one, and report whether
+    /// it did. A press beside the thumb centres the thumb on the pointer.
     pub fn begin_scrollbar(&mut self, point: Point) -> bool {
         if let Some(layout) = self.minimap.filter(|layout| layout.rect.contains(point)) {
             let thumb = layout.thumb(self);
@@ -481,6 +518,8 @@ impl CodeViewport {
         self.drag_scrollbar(point, true);
         true
     }
+    /// Scroll so that the grabbed thumb follows `point`. Pass `dragging: false` on release: the
+    /// position is applied once more and the drag ends.
     pub fn drag_scrollbar(&mut self, point: Point, dragging: bool) {
         if self.minimap_drag {
             if let (Some(layout), Some((_, grab))) = (self.minimap, self.scrollbar_drag) {
@@ -527,6 +566,8 @@ impl CodeViewport {
             self.scrollbar_drag = None;
         }
     }
+    /// Scroll by a wheel delta in logical pixels; a positive value moves towards the start. The
+    /// result is clamped to the scrollable range and a non-finite delta is ignored.
     pub fn scroll(&mut self, x: f32, y: f32) {
         if x.is_finite() {
             self.scroll_x = (self.scroll_x - x).clamp(0.0, self.max_x);
@@ -709,6 +750,7 @@ struct CompositionState {
 }
 
 impl EditorView {
+    /// Fresh view state for `editor`: nothing scrolled, no caches and Normal mode.
     pub fn new(editor: CodeEditor, now: Instant) -> Self {
         let document_id = editor
             .controller
@@ -745,6 +787,8 @@ impl EditorView {
             review_interaction: review::Interaction::new(now),
         }
     }
+    /// Take this frame's description of the editor. A different document resets the viewport,
+    /// the caches and the composition; that, or a change of `vim_mode`, resets modal editing.
     pub fn update(&mut self, editor: CodeEditor) {
         let next_id = editor
             .controller
@@ -813,6 +857,8 @@ impl EditorView {
             error: error.to_string(),
         }
     }
+    /// True while a repaint is due without any input: syntax colours are still being computed,
+    /// or the pointer rests on a review hunk or a diagnostic whose popup has not appeared yet.
     pub fn syntax_pending(&self) -> bool {
         self.syntax.pending()
             || self.review_interaction.hover_pending()
@@ -912,6 +958,8 @@ impl EditorView {
             _ => None,
         }
     }
+    /// Apply a key, text, paste or other input event and return the actions it caused. `measure`
+    /// gives the width of a string in the editor's font.
     pub fn input(
         &mut self,
         event: &UiEvent,
@@ -1199,6 +1247,9 @@ impl EditorView {
         self.viewport.reveal_caret = true;
         actions
     }
+    /// Handle the pointer at `point`: place the caret, select by dragging or drive a scrollbar.
+    /// `extend` keeps the anchor of the current selection; `dragging` is true while the button
+    /// is held and false on release.
     pub fn point(
         &mut self,
         point: Point,
@@ -1747,6 +1798,9 @@ impl EditorView {
         }
         Vec::new()
     }
+    /// Draw the editor in `rect`, clipped to `clip`, and bring the viewport's scroll limits up
+    /// to date. `show_caret` is asked, with the document, the revision and the caret's offset,
+    /// whether the blinking caret is visible now.
     pub fn paint(
         &mut self,
         rect: Rect,
@@ -2955,6 +3009,7 @@ impl Default for DiffView {
     }
 }
 impl DiffView {
+    /// True while syntax colours for the diff are still being computed.
     pub fn syntax_pending(&self) -> bool {
         self.syntax.pending()
     }

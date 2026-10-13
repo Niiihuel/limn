@@ -1112,11 +1112,11 @@ fn aligned_icon_rect(area: EguiRect, pixels_per_point: f32) -> Option<(EguiRect,
     Some((EguiRect::from_min_size(min, size), pixels))
 }
 
+/// Paint a frame with its origin at the top-left corner of the space `ui` has available.
 pub fn paint(ui: &egui::Ui, frame: &Frame) {
     paint_at(ui, frame, ui.max_rect().min);
 }
 
-/// Paint a tree laid out in its own coordinate space at a window position.
 /// Give the pointer the shape the tree asks for: `set_cursor(ctx, tree.cursor())`
 /// once a frame, after the layout. egui goes back to its own shape every
 /// frame, so `None` needs nothing done.
@@ -1129,6 +1129,7 @@ pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
     }
 }
 
+/// Paint a tree laid out in its own coordinate space at a window position.
 pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
     paint_at_impl(ui, frame, origin, None, None);
 }
@@ -1701,6 +1702,10 @@ fn relative(origin: Pos2, position: Pos2) -> Point {
     Point::new(position.x - origin.x, position.y - origin.y)
 }
 
+/// Translate this frame's egui input into limn events, with pointer positions made
+/// relative to `origin`. A primary press with Alt, Ctrl or Command held, or a double or
+/// triple click, becomes `PointerDownEditor`; wheel input is dropped while the pointer is
+/// outside the window; only the keys limn knows are forwarded, with Command counted as Ctrl.
 pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
     ctx.input(|input| {
         let mut events = Vec::new();

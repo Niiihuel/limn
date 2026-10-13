@@ -20,6 +20,9 @@ pub struct DateTimePicker {
 }
 
 impl DateTimePicker {
+    /// A date picker above a time picker, each under its label from `Labels`. `date_value`
+    /// is `YYYY-MM-DD` and `time_value` is `HH:MM`; each half reports under its own ID, as
+    /// `DatePicker` and `TimePicker` do.
     pub fn new(
         date_id: impl Into<String>,
         time_id: impl Into<String>,
@@ -38,6 +41,8 @@ impl DateTimePicker {
         }
     }
 
+    /// Show this month in the calendar instead of the selected date's. A year outside 1 to
+    /// 9999 or a month outside 1 to 12 is ignored.
     pub fn display_month(mut self, year: i32, month: u32) -> Self {
         self.display_month = Some((year, month));
         self

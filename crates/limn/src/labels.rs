@@ -130,6 +130,7 @@ pub struct Labels {
 }
 
 impl Labels {
+    /// The library's own words in English; the default.
     pub const ENGLISH: Self = Self {
         close: "Close",
         dismiss_notice: "Dismiss",
@@ -191,6 +192,7 @@ impl Labels {
         saved: "Saved",
     };
 
+    /// The library's own words in Spanish.
     pub const SPANISH: Self = Self {
         close: "Cerrar",
         dismiss_notice: "Cerrar aviso",

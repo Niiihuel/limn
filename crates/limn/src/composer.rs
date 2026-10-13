@@ -8,6 +8,9 @@ const STRIP_INSET: f32 = 8.0;
 const STRIP_PADDING: f32 = 4.0;
 const STRIP_ROW: f32 = 28.0;
 
+/// A message editor in a card with slots around it: attachments above the editor, a link
+/// preview and a footer below it, and a context element outside the card. The editor is a
+/// text area with the ID `editor_id`.
 pub struct Composer {
     editor_id: String,
     prompt: String,
@@ -35,6 +38,9 @@ pub struct Composer {
 }
 
 impl Composer {
+    /// A composer `width` logical pixels wide whose editor shows `prompt`, or `placeholder`
+    /// while that is empty. A width that is negative or not finite is zero. The editor is
+    /// 64 tall until `editor_height` or `auto_grow` says otherwise.
     pub fn new(
         editor_id: impl Into<String>,
         prompt: impl Into<String>,
@@ -73,6 +79,8 @@ impl Composer {
         }
     }
 
+    /// Fix the editor's height in logical pixels, never below 24 (64 by default), and turn
+    /// `auto_grow` off. A value that is not finite is ignored.
     pub fn editor_height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.editor_height = height.max(24.0);
@@ -90,16 +98,22 @@ impl Composer {
         self
     }
 
+    /// Has no effect at present: the flag is stored and nothing reads it.
     pub fn compact(mut self, compact: bool) -> Self {
         self.compact = compact;
         self
     }
 
+    /// An element outside the card: centered in a row above it, or under the pill when
+    /// `pill_controls` is set.
     pub fn context(mut self, context: Element) -> Self {
         self.context = Some(context);
         self
     }
 
+    /// The height of the row that holds `context` above the card (28 by default). The pill
+    /// layout does not use it. A height that is not finite is ignored and a negative one is
+    /// zero.
     pub fn context_height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.context_height = height.max(0.0);
@@ -107,11 +121,14 @@ impl Composer {
         self
     }
 
+    /// Elements stacked above the editor inside the card, such as `Attachment` cards.
     pub fn attachments(mut self, attachments: Vec<Element>) -> Self {
         self.attachments = attachments;
         self
     }
 
+    /// An element at the bottom of the card, under the editor and the link preview, such as
+    /// a row of actions.
     pub fn footer(mut self, footer: Element) -> Self {
         self.footer = Some(footer);
         self
@@ -132,6 +149,8 @@ impl Composer {
         self
     }
 
+    /// Set the editor's text size in logical pixels (13 by default). A size that is zero,
+    /// negative or not finite is ignored.
     pub fn editor_font_size(mut self, size: f32) -> Self {
         if size.is_finite() && size > 0.0 {
             self.editor_font_size = size;
@@ -145,6 +164,7 @@ impl Composer {
         self
     }
 
+    /// Highlights for ranges of the editor's text. A disabled composer draws none.
     pub fn editor_highlights(mut self, highlights: Vec<TextHighlight>) -> Self {
         self.editor_highlights = highlights;
         self
@@ -174,16 +194,21 @@ impl Composer {
         self
     }
 
+    /// The color of the card's border; the palette's border by default.
     pub fn border_color(mut self, color: Color) -> Self {
         self.border_color = color;
         self
     }
 
+    /// The color of the card's shadow; the palette's shadow by default. The pill layout
+    /// draws no shadow.
     pub fn shadow_color(mut self, color: Color) -> Self {
         self.shadow_color = color;
         self
     }
 
+    /// The card's corner radius; the `panel` radius token by default. A radius that is not
+    /// finite is ignored and a negative one is zero.
     pub fn card_radius(mut self, radius: f32) -> Self {
         if radius.is_finite() {
             self.card_radius = radius.max(0.0);

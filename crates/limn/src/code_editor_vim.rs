@@ -7,6 +7,7 @@ use std::ops::Range;
 const MAX_COUNT: usize = 1_000;
 const MAX_WORD_SCAN: usize = 100_000;
 
+/// The mode of modal editing. It starts in `Normal`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum VimMode {
     #[default]
@@ -16,6 +17,7 @@ pub enum VimMode {
     VisualLine,
 }
 impl VimMode {
+    /// The mode's name in capitals, as the editor's mode indicator writes it.
     pub fn label(self) -> &'static str {
         match self {
             Self::Normal => "NORMAL",

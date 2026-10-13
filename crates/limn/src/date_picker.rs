@@ -30,6 +30,8 @@ pub struct DatePicker {
 }
 
 impl DatePicker {
+    /// A picker whose field shows `value`, a `YYYY-MM-DD` date. The calendar opens on that
+    /// date's month, or on the current UTC month when `value` is not a valid date.
     pub fn new(id: impl Into<String>, value: impl Into<String>, palette: ComponentPalette) -> Self {
         let value = value.into();
         let (display_year, display_month) = parse_date(&value)
@@ -68,6 +70,7 @@ impl DatePicker {
         self.enabled(false)
     }
 
+    /// Whether `value` is exactly `YYYY-MM-DD` and names a real day in the years 1 to 9999.
     pub fn is_valid_date(value: &str) -> bool {
         parse_date(value).is_some()
     }

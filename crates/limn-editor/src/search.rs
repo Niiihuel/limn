@@ -4,25 +4,34 @@ use regex::{Regex, RegexBuilder};
 use std::{fmt, ops::Range};
 
 const MATCH_LIMIT: usize = 4096;
+/// How `search` and the replace methods read a query. The default is a case-insensitive
+/// literal search of the whole document.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SearchOptions {
     pub case_sensitive: bool,
+    /// Reject a match that has a letter, digit or underscore directly before or after it.
     pub whole_word: bool,
+    /// Read the query as a regular expression instead of literal text.
     pub regex: bool,
     /// Character offsets in the captured snapshot, not bytes.
     pub scope: Option<Range<usize>>,
 }
+/// The matches of one search and the snapshot revision they were found in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchResults {
     pub document_id: u64,
     pub revision: u64,
+    /// Character ranges in document order.
     pub matches: Vec<Range<usize>>,
+    /// True when the search stopped at its limit of 4096 matches.
     pub truncated: bool,
 }
+/// Why a search or a replacement failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SearchError {
     InvalidPattern(String),
     InvalidScope,
+    /// A replacement was refused because the search found more than 4096 matches.
     TooManyMatches,
     Edit(EditorError),
 }
@@ -68,6 +77,8 @@ fn allowed(text: &str, start: usize, end: usize, options: &SearchOptions) -> boo
             && !text[end..].chars().next().is_some_and(word))
 }
 impl BufferSnapshot {
+    /// Find `query` in this snapshot. An empty query finds nothing, at most 4096 matches are
+    /// returned (`truncated` reports the cut) and a match that would split a grapheme is dropped.
     pub fn search(
         &self,
         query: &str,
@@ -112,6 +123,9 @@ impl BufferSnapshot {
     }
 }
 impl TextBuffer {
+    /// Replace every match in one undo transaction and return how many were replaced. In regex
+    /// mode `replacement` may refer to capture groups. Fails with `TooManyMatches` rather than
+    /// replace only some of them.
     pub fn replace_all(
         &mut self,
         query: &str,

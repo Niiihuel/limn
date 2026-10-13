@@ -65,6 +65,7 @@ pub enum FlowEdgeLine {
     Thick,
 }
 
+/// A node of the chart: its id in the source, its label and its outline.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlowNode {
     pub id: String,
@@ -73,6 +74,7 @@ pub struct FlowNode {
     pub shape: FlowNodeShape,
 }
 
+/// A connector between two nodes.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct FlowEdge {
     /// Indexes into [`FlowchartGraph::nodes`].
@@ -947,6 +949,7 @@ pub struct FlowEdgeLayout {
     pub label: Option<(Rect, String)>,
 }
 
+/// The box of one subgraph and its title.
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlowGroupLayout {
     pub rect: Rect,
@@ -1002,6 +1005,7 @@ impl Flowchart {
         self
     }
 
+    /// The parsed graph this chart draws.
     pub fn graph(&self) -> &FlowchartGraph {
         &self.shared.graph
     }

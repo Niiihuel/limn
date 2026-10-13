@@ -82,6 +82,7 @@ pub enum SequenceArrow {
     Open,
 }
 
+/// One arrow from a participant to another, or to itself.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SequenceMessage {
     /// Indexes into [`SequenceGraph::participants`]; the same for a message
@@ -930,6 +931,7 @@ pub struct SequenceParticipantLayout {
     pub lines: Vec<String>,
 }
 
+/// The line of one message, with the chips of its text and of its number.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SequenceMessageLayout {
     /// From the sender to the receiver: two points, or a turn out and back
@@ -941,12 +943,14 @@ pub struct SequenceMessageLayout {
     pub number: Option<Rect>,
 }
 
+/// The box of one note and its wrapped lines.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SequenceNoteLayout {
     pub rect: Rect,
     pub lines: Vec<String>,
 }
 
+/// The frame of one block, with its tab, the labels of its sections and their dividers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SequenceBlockLayout {
     pub kind: SequenceBlockKind,
@@ -1014,6 +1018,7 @@ impl SequenceDiagram {
         self
     }
 
+    /// The parsed graph this diagram draws.
     pub fn graph(&self) -> &SequenceGraph {
         &self.shared.graph
     }

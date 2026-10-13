@@ -27,6 +27,7 @@ pub struct Radius {
 }
 
 impl Radius {
+    /// The library's radii: 4 for controls, 6 for surfaces, 8 for cards and 12 for panels.
     pub const DEFAULT: Self = Self {
         control: 4.0,
         surface: 6.0,
@@ -126,6 +127,8 @@ pub struct Motion {
 }
 
 impl Motion {
+    /// The library's durations in milliseconds: 120 to hover, 140 to enter, 110 to exit and
+    /// 170 to move.
     pub const DEFAULT: Self = Self {
         hover_ms: 120,
         enter_ms: 140,
@@ -163,6 +166,7 @@ pub struct Tokens {
 }
 
 impl Tokens {
+    /// The default radii and durations.
     pub const DEFAULT: Self = Self {
         radius: Radius::DEFAULT,
         motion: Motion::DEFAULT,

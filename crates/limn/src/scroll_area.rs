@@ -31,6 +31,7 @@ pub struct ScrollbarAppearance {
     /// `None` uses the scroll element's foreground color, so a theme can tint
     /// the scrollbar through its ordinary typography token.
     pub tint: Option<Color>,
+    /// The four opacities run from 0 to 255 and multiply the ink's alpha.
     pub idle_thumb_opacity: u8,
     pub hover_thumb_opacity: u8,
     pub active_thumb_opacity: u8,
@@ -55,6 +56,8 @@ impl Default for ScrollbarAppearance {
 }
 
 impl ScrollbarAppearance {
+    /// The default appearance with the scrollbar painted over the content, whose width does
+    /// not change.
     pub fn overlay() -> Self {
         Self {
             placement: ScrollbarPlacement::Overlay,
@@ -62,20 +65,26 @@ impl ScrollbarAppearance {
         }
     }
 
+    /// The default appearance: a separate rail, reserved while the content overflows.
     pub fn reserved() -> Self {
         Self::default()
     }
 
+    /// Draw the scrollbar in this color instead of the scroll element's foreground. The
+    /// opacities still apply.
     pub fn tint(mut self, tint: Color) -> Self {
         self.tint = Some(tint);
         self
     }
 
+    /// Show or hide the up and down controls at the ends of the rail; shown by default.
     pub fn buttons(mut self, enabled: bool) -> Self {
         self.buttons = enabled;
         self
     }
 
+    /// Set the rail's width in logical pixels, clamped to 4 to 24 (14 by default). A value
+    /// that is not finite is ignored.
     pub fn rail_width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.rail_width = width.clamp(4.0, 24.0);
@@ -83,6 +92,8 @@ impl ScrollbarAppearance {
         self
     }
 
+    /// Set the thumb's width in logical pixels, clamped to 2 to 12 (5 by default). A value
+    /// that is not finite is ignored.
     pub fn thumb_width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.thumb_width = width.clamp(2.0, 12.0);
@@ -143,12 +154,16 @@ pub struct ScrollArea {
 }
 
 impl ScrollArea {
+    /// A scroll surface around `child`. `id` is the ID of the scroll element, under which
+    /// its position is retained.
     pub fn new(id: impl Into<String>, child: Element) -> Self {
         Self {
             element: Element::scroll(id, child),
         }
     }
 
+    /// A scroll surface over `row_count` rows `row_height` tall, each built from its index
+    /// by `build_row` instead of all at once.
     pub fn uniform_list(
         id: impl Into<String>,
         row_count: usize,
@@ -167,16 +182,21 @@ impl ScrollArea {
         self
     }
 
+    /// Replace the whole scrollbar appearance, including a `tint` or `buttons` set before
+    /// it.
     pub fn appearance(mut self, appearance: ScrollbarAppearance) -> Self {
         self.element = self.element.scrollbar_appearance(appearance);
         self
     }
 
+    /// Set how wheel and scrollbar-button scrolling is interpolated.
     pub fn motion(mut self, motion: ScrollMotion) -> Self {
         self.element = self.element.scroll_motion(motion);
         self
     }
 
+    /// Show or hide the scrollbar's up and down controls, keeping the rest of the
+    /// appearance.
     pub fn buttons(mut self, enabled: bool) -> Self {
         match &mut self.element.kind {
             crate::ElementKind::Scroll { appearance, .. } => appearance.buttons = enabled,
@@ -186,6 +206,7 @@ impl ScrollArea {
         self
     }
 
+    /// Draw the scrollbar in `color`, keeping the rest of the appearance.
     pub fn tint(mut self, color: Color) -> Self {
         match &mut self.element.kind {
             crate::ElementKind::Scroll { appearance, .. } => appearance.tint = Some(color),

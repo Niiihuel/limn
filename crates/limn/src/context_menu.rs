@@ -7,6 +7,7 @@ use crate::menu::action_style::{
 };
 use crate::{Access, Component, ComponentPalette, Element, FontFamily, Icon, Kbd, Role, ScrollArea};
 
+/// One action in a [`ContextMenu`]: a label with an optional icon and shortcut.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContextMenuItem {
     pub(crate) action_id: String,
@@ -17,6 +18,8 @@ pub struct ContextMenuItem {
 }
 
 impl ContextMenuItem {
+    /// An enabled item with this label and no icon or shortcut. `action_id` is what the
+    /// host receives when it is chosen.
     pub fn new(action_id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             action_id: action_id.into(),
@@ -26,14 +29,18 @@ impl ContextMenuItem {
             enabled: true,
         }
     }
+    /// Show a keyboard shortcut at the row's trailing edge. A blank one is not drawn.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self
     }
+    /// A leading icon for the row.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
+    /// A disabled item is drawn in muted ink and is passive: it stays in the menu, known to
+    /// the platform as disabled, and cannot be chosen.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
         self
@@ -45,6 +52,7 @@ impl ContextMenuItem {
     }
 }
 
+/// One row of a context menu: an action, or a line between groups of actions.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContextMenuEntry {
     Item(ContextMenuItem),
@@ -66,6 +74,8 @@ pub struct ContextMenu {
 }
 
 impl ContextMenu {
+    /// Attach `entries` to `child` as its context menu. `id` identifies the menu; the
+    /// child's layout and its own actions are unchanged.
     pub fn new(
         id: impl Into<String>,
         child: Element,

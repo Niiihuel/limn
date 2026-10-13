@@ -158,3 +158,38 @@ fn page_down_and_page_up_scroll_what_the_wheel_scrolls() {
     tree.handle_event(key(Key::PageUp));
     assert_eq!(settle(&mut tree), 0.0);
 }
+
+/// Whatever a host can call or name says what it is: every public function,
+/// type, trait and constant of the library's crates has a doc comment.
+#[test]
+fn every_public_item_has_a_doc_comment() {
+    const KINDS: [&str; 8] = ["fn ", "const fn ", "unsafe fn ", "struct ", "enum ", "trait ", "const ", "type "];
+    let crates = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+    let mut missing = Vec::new();
+    for name in ["limn", "limn-editor", "limn-language", "limn-dnd", "limn-egui"] {
+        for file in std::fs::read_dir(crates.join(name).join("src")).unwrap().flatten() {
+            let path = file.path();
+            if path.extension().is_none_or(|extension| extension != "rs") {
+                continue;
+            }
+            let source = std::fs::read_to_string(&path).unwrap();
+            let lines: Vec<&str> = source.lines().map(str::trim).collect();
+            for (index, line) in lines.iter().enumerate() {
+                // The tests of a file come last, and are nobody's API.
+                if *line == "#[cfg(test)]" && lines.get(index + 1).is_some_and(|next| next.starts_with("mod ")) {
+                    break;
+                }
+                let Some(item) = line.strip_prefix("pub ") else { continue };
+                if !KINDS.iter().any(|kind| item.starts_with(kind)) {
+                    continue;
+                }
+                // Attributes stand between a comment and its item.
+                let above = lines[..index].iter().rev().find(|above| !(above.starts_with("#[") || above.ends_with(")]")));
+                if !above.is_some_and(|above| above.starts_with("///") || above.ends_with("*/")) {
+                    missing.push(format!("{}:{}: {line}", path.file_name().unwrap().to_string_lossy(), index + 1));
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "{} public items have no doc comment:\n{}", missing.len(), missing.join("\n"));
+}

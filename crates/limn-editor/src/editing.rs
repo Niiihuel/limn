@@ -6,6 +6,8 @@ use crate::{
 use std::{collections::BTreeMap, ops::Range};
 
 const CURSOR_LIMIT: usize = 256;
+/// What one indent level inserts. The number is its width in columns: the spaces written, or
+/// the distance between tab stops. The default is four spaces.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum IndentStyle {
     Spaces(usize),
@@ -17,6 +19,7 @@ impl Default for IndentStyle {
     }
 }
 impl IndentStyle {
+    /// Columns in one indent level.
     pub fn width(self) -> usize {
         match self {
             Self::Spaces(n) | Self::Tabs(n) => n,
@@ -32,15 +35,20 @@ impl IndentStyle {
         })
     }
 }
+/// An editing operation for `TextBuffer::execute_command`.
 #[derive(Clone, Debug)]
 pub enum EditorCommand {
     SetSelection(Selection),
     SetSelections(Vec<Selection>),
+    /// Put a single caret at a row and column, clipped to the last line and the line's length.
     Goto(Position),
+    /// Add a caret on the line below or above the primary one, at the same visual column.
     AddCursorVertical {
         below: bool,
         tab_width: usize,
     },
+    /// With an empty selection, select the word at the caret. Otherwise add the next occurrence
+    /// of the selected text (case-sensitive, wrapping around), or select every one when `all`.
     SelectNextOccurrence {
         all: bool,
     },
@@ -49,8 +57,11 @@ pub enum EditorCommand {
         head: Position,
         tab_width: usize,
     },
+    /// Replace each selection with this text, recorded as a paste.
     InsertText(String),
+    /// Insert a snippet; see `TextBuffer::insert_snippet` for the syntax.
     InsertSnippet(String),
+    /// Move to the next snippet tab stop, or the previous one when `backward`.
     NextSnippet {
         backward: bool,
     },
@@ -64,10 +75,12 @@ pub enum EditorCommand {
         /// Closing marker for languages that only have block comments.
         suffix: String,
     },
+    /// Indent, or outdent when `reverse`; see `TextBuffer::indent_with_style`.
     Indent {
         reverse: bool,
         style: IndentStyle,
     },
+    /// Rewrite every line terminator in the text and use this one for new lines.
     SetLineEnding(LineEnding),
     Undo,
     Redo,
@@ -165,14 +178,18 @@ pub(crate) fn map_offset(offset: usize, edits: &[TextEdit], right_bias: bool) ->
     offset.saturating_add_signed(delta)
 }
 impl BufferSnapshot {
+    /// The primary selection first, then the secondary ones.
     pub fn selections(&self) -> impl Iterator<Item = Selection> + Clone + '_ {
         std::iter::once(self.selection).chain(self.secondary.iter().copied())
     }
 }
 impl TextBuffer {
+    /// The primary selection first, then the secondary ones.
     pub fn selections(&self) -> impl Iterator<Item = Selection> + Clone + '_ {
         std::iter::once(self.selection).chain(self.secondary.iter().copied())
     }
+    /// Replace all selections; the first one given is the primary. Selections that overlap are
+    /// merged. An empty list, more than 256 selections or an end past the document is an error.
     pub fn set_selections(&mut self, selections: Vec<Selection>) -> Result<(), EditorError> {
         let selections = normalize_selections(selections, self.rope.len_chars())?;
         self.break_undo_group();
@@ -180,6 +197,8 @@ impl TextBuffer {
         self.secondary = selections[1..].to_vec().into();
         Ok(())
     }
+    /// Put a single caret at a zero-based row and character column, clipped to the last line and
+    /// to the line's length, and end any snippet session.
     pub fn goto_line(&mut self, row: usize, column: usize) -> Result<(), EditorError> {
         let offset = self
             .snapshot()
@@ -304,6 +323,10 @@ impl TextBuffer {
         }
         self.replacement_transaction(replacements, EditKind::Newline, timestamp)
     }
+    /// Insert typed text. With `auto_pairs`, typing an opening bracket, a quote or a backtick
+    /// also inserts its closing character, around the selection when there is one, and typing a
+    /// closing character that already follows every caret steps over it. A quote typed right
+    /// after a letter or digit is inserted alone.
     pub fn type_text(
         &mut self,
         text: &str,
@@ -378,6 +401,8 @@ impl TextBuffer {
             .collect();
         self.apply_transaction_selections(&edits, after, EditKind::Replace, timestamp)
     }
+    /// Backspace that removes both characters when every caret sits inside an empty bracket or
+    /// quote pair; otherwise the same as `delete_backward`.
     pub fn delete_pair_backward(&mut self, timestamp: u64) -> Result<bool, EditorError> {
         let snapshot = self.snapshot();
         let paired = self.selections().all(|s| {
@@ -435,6 +460,10 @@ impl TextBuffer {
         }
         Ok(rows.into_iter().collect())
     }
+    /// Indent, or outdent when `reverse`. Indenting with only carets inserts a tab, or spaces up
+    /// to the next indent stop, at each caret. Every other case adds or removes one indent level
+    /// at the start of each selected line. Fails with `InvalidTabWidth` when the style's width
+    /// is outside 1..=32.
     pub fn indent_with_style(
         &mut self,
         reverse: bool,
@@ -715,6 +744,8 @@ impl TextBuffer {
         let _ = (first, last);
         self.apply_preserving_selections(&edits, EditKind::Replace, timestamp)
     }
+    /// Run one command. Returns `Ok(true)` when the text changed; commands that only move
+    /// selections return `Ok(false)`.
     pub fn execute_command(
         &mut self,
         command: EditorCommand,
@@ -869,9 +900,11 @@ impl TextBuffer {
                 .map_err(|e| EditorError::InvalidCommand(e.to_string())),
         }
     }
+    /// True while a snippet with tab stops is being filled in.
     pub fn has_snippet(&self) -> bool {
         self.snippet.is_some()
     }
+    /// End the snippet session, leaving text and selections as they are.
     pub fn cancel_snippet(&mut self) {
         self.snippet = None;
     }
@@ -889,6 +922,9 @@ impl TextBuffer {
             s.end = map_offset(s.end, edits, true);
         }
     }
+    /// Select the next tab stop of the active snippet, or the previous one when `backward`. Past
+    /// the last stop the caret moves to the snippet's end and the session ends. Always returns
+    /// `Ok(false)`, because the text is not changed.
     pub fn next_snippet(&mut self, backward: bool) -> Result<bool, EditorError> {
         let Some(mut snippet) = self.snippet.take() else {
             return Ok(false);
@@ -913,6 +949,10 @@ impl TextBuffer {
         self.snippet = Some(snippet);
         Ok(false)
     }
+    /// Insert a snippet at the selection and select its first tab stop. Tab stops are written
+    /// `$1`, `${1}` or `${1:default}`, `$0` marks where the caret ends up and a backslash
+    /// escapes the next character; stops with the same number are edited together. Fails with
+    /// more than one selection, a source over 64 KiB or any other `$` form.
     pub fn insert_snippet(&mut self, source: &str, timestamp: u64) -> Result<bool, EditorError> {
         if source.len() > 64 * 1024 {
             return Err(EditorError::InvalidCommand("Snippet exceeds 64 KiB".into()));

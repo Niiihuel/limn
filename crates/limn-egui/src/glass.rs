@@ -29,6 +29,7 @@ struct Backdrop {
 }
 
 impl GlassRenderer {
+    /// Create the pipeline, bindings and sampler on the device of `state`. No backdrop is set.
     pub fn new(state: &egui_wgpu::RenderState) -> Self {
         let device = &state.device;
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

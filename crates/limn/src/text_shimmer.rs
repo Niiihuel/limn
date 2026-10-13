@@ -2,6 +2,8 @@
 
 use crate::{Color, Component, ComponentPalette, Element, FontFamily};
 
+/// Wrapped text, 13 pixels in the sans family, with a highlight that moves across it. The
+/// sweep is paint only and changes no layout.
 pub struct TextShimmer {
     id: String,
     text: String,
@@ -10,6 +12,8 @@ pub struct TextShimmer {
 }
 
 impl TextShimmer {
+    /// Shimmering `text` in the palette's muted color, with its text color as the
+    /// highlight. `id` identifies the animation.
     pub fn new(id: impl Into<String>, text: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -19,6 +23,7 @@ impl TextShimmer {
         }
     }
 
+    /// Replace the resting color and the color of the moving highlight, in that order.
     pub fn colors(mut self, base: Color, highlight: Color) -> Self {
         self.base = base;
         self.highlight = highlight;

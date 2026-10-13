@@ -37,6 +37,8 @@ pub struct Collapsible {
 }
 
 impl Collapsible {
+    /// A collapsed, enabled disclosure with this title and no icon. Activating the header
+    /// reports `toggle_action_id`; `content` is shown only while expanded.
     pub fn new(
         toggle_action_id: impl Into<String>,
         title: impl Into<String>,
@@ -59,6 +61,8 @@ impl Collapsible {
         }
     }
 
+    /// Show the content under the header and say to the platform that the header is
+    /// expanded. The host sets this from its own state.
     pub fn expanded(mut self, expanded: bool) -> Self {
         self.expanded = expanded;
         self
@@ -71,6 +75,8 @@ impl Collapsible {
         self
     }
 
+    /// A leading icon for the header. The `loading` spinner and the `thinking` brain take
+    /// its place while either is set.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self

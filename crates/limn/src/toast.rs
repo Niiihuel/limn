@@ -21,6 +21,7 @@ pub struct Toast {
 }
 
 impl Toast {
+    /// A neutral toast 360 wide with this title and no description, action or close button.
     pub fn new(title: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: None,
@@ -42,6 +43,8 @@ impl Toast {
         self
     }
 
+    /// A muted line under the title, which is also the toast's description to the platform.
+    /// A blank one is left out.
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
         self
@@ -65,6 +68,8 @@ impl Toast {
         self
     }
 
+    /// Set the card's width in logical pixels, never below 120 (360 by default). A value
+    /// that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(120.0);

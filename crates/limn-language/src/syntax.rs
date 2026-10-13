@@ -11,6 +11,7 @@ use tree_sitter::{InputEdit, Parser, Point, Query, QueryCursor, StreamingIterato
 #[path = "markdown_syntax.rs"]
 mod markdown;
 
+/// A language this crate can analyze. `Plain` produces no highlights, symbols or folds.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum Language {
     #[default]
@@ -27,6 +28,8 @@ pub enum Language {
     Markdown,
 }
 impl Language {
+    /// The language for a file extension, with or without its leading dot and in any letter case.
+    /// An unknown extension is `Plain`.
     pub fn from_extension(extension: &str) -> Self {
         match extension
             .trim_start_matches('.')
@@ -85,6 +88,7 @@ impl Language {
             Self::Html | Self::Markdown => Some(("<!--", "-->")),
         }
     }
+    /// The LSP `languageId` sent when a document of this language is opened.
     pub fn lsp_id(self) -> &'static str {
         match self {
             Self::Plain => "plaintext",
@@ -170,6 +174,7 @@ impl Language {
     }
 }
 
+/// The syntactic class of a highlighted range, for the host to map to a colour.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum HighlightKind {
     Comment,
@@ -182,11 +187,14 @@ pub enum HighlightKind {
     Operator,
     Variable,
 }
+/// A range of characters and its syntactic class.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Highlight {
+    /// Character offsets in the analyzed snapshot.
     pub range: Range<usize>,
     pub kind: HighlightKind,
 }
+/// The class of a named declaration.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SymbolKind {
     Function,
@@ -195,11 +203,14 @@ pub enum SymbolKind {
     Variable,
     Property,
 }
+/// A named declaration found in the text.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
+    /// Characters of the whole declaration.
     pub range: Range<usize>,
+    /// Characters of its name.
     pub selection: Range<usize>,
 }
 /// Physical rows [start,end), with the first row kept visible by the consumer.
@@ -207,14 +218,17 @@ pub struct Symbol {
 pub struct Fold {
     pub rows: Range<usize>,
 }
+/// The result of analyzing one snapshot; `document_id` and `revision` say which one.
 #[derive(Clone, Debug)]
 pub struct AnalysisSnapshot {
     pub document_id: u64,
     pub revision: u64,
     pub language: Language,
+    /// Sorted by start offset, then by length.
     pub highlights: Arc<[Highlight]>,
     pub symbols: Arc<[Symbol]>,
     pub folds: Arc<[Fold]>,
+    /// The parse tree contains a syntax error.
     pub has_errors: bool,
     /// Budget exhausted or giant input; never implies an error-free complete parse.
     pub truncated: bool,
@@ -234,6 +248,8 @@ impl AnalysisSnapshot {
     }
 }
 
+/// A flag that an analysis checks while it runs. It reads as cancelled once the shared
+/// generation counter no longer holds the value the flag was created for.
 #[derive(Clone)]
 pub struct Cancellation {
     generation: Arc<AtomicU64>,
@@ -248,25 +264,34 @@ impl Default for Cancellation {
     }
 }
 impl Cancellation {
+    /// A flag that reads as cancelled when `generation` no longer holds `expected`.
     pub fn for_generation(generation: Arc<AtomicU64>, expected: u64) -> Self {
         Self {
             generation,
             expected,
         }
     }
+    /// Advance the shared counter, which cancels this flag and its clones.
     pub fn cancel(&self) {
         self.generation.fetch_add(1, Ordering::Release);
     }
+    /// True when the shared counter has moved away from the expected value.
     pub fn is_cancelled(&self) -> bool {
         self.generation.load(Ordering::Acquire) != self.expected
     }
 }
+/// Budgets for one analysis. Exceeding one gives a result marked `truncated`, not an error.
+/// The defaults are 8 MiB of text, 256 KiB per line, 1,048,576 highlights, 4,194,304 tree
+/// nodes, 65,536 folds and 4 seconds.
 #[derive(Clone, Copy, Debug)]
 pub struct ParseLimits {
+    /// Larger text is not parsed at all.
     pub max_bytes: usize,
+    /// A longer line stops the analysis before parsing.
     pub max_line_bytes: usize,
     pub max_spans: usize,
     pub max_nodes: usize,
+    /// Also the cap on symbols.
     pub max_folds: usize,
     pub timeout: Duration,
 }
@@ -308,6 +333,8 @@ impl Default for ParserEngine {
     }
 }
 impl ParserEngine {
+    /// An engine with no grammar loaded. A grammar is loaded the first time its language is
+    /// analyzed.
     pub fn new(limits: ParseLimits) -> Self {
         Self {
             grammars: Vec::new(),
@@ -315,6 +342,9 @@ impl ParserEngine {
             limits,
         }
     }
+    /// Highlight `snapshot` and list its symbols and folds. `Plain` gives an empty result. An
+    /// exceeded limit, the timeout or a cancellation gives what was gathered so far with
+    /// `truncated` set. `Err` means a grammar or its highlight query could not be loaded.
     pub fn analyze(
         &mut self,
         snapshot: &BufferSnapshot,

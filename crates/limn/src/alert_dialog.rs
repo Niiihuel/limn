@@ -25,6 +25,10 @@ pub struct AlertDialog {
 }
 
 impl AlertDialog {
+    /// An alert dialog over `base`, drawn only while `open`; closed, it renders `base`
+    /// alone. The confirm button reports `confirm_id`; Cancel and the close button report
+    /// `cancel_id`. The button labels come from the current `Labels`, the card is 440 wide
+    /// and Cancel takes the initial focus.
     pub fn new(
         base: Element,
         open: bool,
@@ -53,11 +57,13 @@ impl AlertDialog {
         }
     }
 
+    /// Replace the confirm button's text, which is `Labels::confirm` by default.
     pub fn confirm_label(mut self, label: impl Into<String>) -> Self {
         self.confirm_label = label.into();
         self
     }
 
+    /// Replace the cancel button's text, which is `Labels::cancel` by default.
     pub fn cancel_label(mut self, label: impl Into<String>) -> Self {
         self.cancel_label = label.into();
         self
@@ -69,11 +75,15 @@ impl AlertDialog {
         self
     }
 
+    /// Fill the confirm button with `color` and draw its label in white, for an action that
+    /// destroys something. Without it the button is filled with the palette's text color.
     pub fn destructive(mut self, color: Color) -> Self {
         self.destructive = Some(color);
         self
     }
 
+    /// Set the card's width in logical pixels, never below 240 (440 by default). Below 360
+    /// the actions stack in a column. A value that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(240.0);
@@ -81,6 +91,8 @@ impl AlertDialog {
         self
     }
 
+    /// Set how long the dialog takes to appear, in milliseconds. The default is the
+    /// `enter_ms` motion token.
     pub fn animation_ms(mut self, duration: u16) -> Self {
         self.animation_ms = duration;
         self

@@ -7,6 +7,7 @@ pub struct Position {
     pub line: u32,
     pub character: u32,
 }
+/// A pair of LSP UTF-16 positions, as the protocol writes a range.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize, Deserialize)]
 pub struct Range {
     pub start: Position,
@@ -87,6 +88,9 @@ fn line_content(
     }
     Some(start..end)
 }
+/// Convert a character offset in `snapshot` to an LSP position. Only CR, LF and CRLF start a new
+/// line here, and an offset inside a line terminator reports the end of that line's content.
+/// `None` when the offset is past the document or the text has more than 1,000,000 lines.
 pub fn offset_to_utf16(snapshot: &BufferSnapshot, offset: usize) -> Option<Position> {
     if offset > snapshot.char_count() {
         return None;
@@ -106,6 +110,8 @@ pub fn offset_to_utf16(snapshot: &BufferSnapshot, offset: usize) -> Option<Posit
         character: character.try_into().ok()?,
     })
 }
+/// Convert an LSP position to a character offset in `snapshot`. `None` when the line does not
+/// exist, the character is past the end of the line's content or it falls inside a surrogate pair.
 pub fn utf16_to_offset(snapshot: &BufferSnapshot, position: Position) -> Option<usize> {
     let index = index(snapshot)?;
     let line = line_content(snapshot, &index, position.line as usize)?;

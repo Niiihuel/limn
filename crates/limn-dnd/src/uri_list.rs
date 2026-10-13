@@ -24,6 +24,8 @@ fn path(bytes: Vec<u8>) -> PathBuf {
     String::from_utf8_lossy(&bytes).into_owned().into()
 }
 
+/// One `file://` line per absolute path, ended with CRLF, with every byte other than an
+/// ASCII letter, a digit or one of `-._~/` percent-encoded. Relative paths are skipped.
 #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
 pub fn encode(paths: &[PathBuf]) -> Vec<u8> {
     let mut out = Vec::new();

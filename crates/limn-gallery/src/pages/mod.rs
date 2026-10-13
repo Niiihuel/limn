@@ -8,8 +8,11 @@ use limn::{ComponentPalette, Element, ElementKind, FontFamily, UiAction};
 
 mod blocks;
 mod buttons;
+mod charts;
 mod chrome;
+mod code;
 mod context;
+mod dates;
 mod diagrams;
 mod editor;
 mod empty;
@@ -17,7 +20,9 @@ mod feedback;
 pub mod glass;
 mod inputs;
 mod lists;
+mod loading;
 mod markdown;
+mod media;
 mod menus;
 mod messages;
 mod navigation;
@@ -26,6 +31,7 @@ mod page;
 mod panels;
 mod preferences;
 mod scheme;
+mod surfaces;
 mod table;
 mod tokens;
 mod tooltip;
@@ -82,6 +88,9 @@ pub const PAGES: &[Page] = &[
     Page { id: "select", group: "Inputs", title: "Select", source: "inputs", view: inputs::view, sections: &["Select"] },
     Page { id: "switch", group: "Inputs", title: "Switch", source: "inputs", view: inputs::view, sections: &["Switch"] },
     Page { id: "slider", group: "Inputs", title: "Slider", source: "inputs", view: inputs::view, sections: &["Slider"] },
+    Page { id: "date-picker", group: "Inputs", title: "DatePicker", source: "dates", view: dates::view, sections: &["Date picker"] },
+    Page { id: "time-picker", group: "Inputs", title: "TimePicker", source: "dates", view: dates::view, sections: &["Time picker"] },
+    Page { id: "date-time-picker", group: "Inputs", title: "DateTimePicker", source: "dates", view: dates::view, sections: &["Date and time picker"] },
     Page { id: "editor", group: "Inputs", title: "Editing tools", source: "editor", view: editor::view, sections: &[] },
     Page { id: "tabs", group: "Navigation", title: "Tabs", source: "navigation", view: navigation::view, sections: &["Tabs", "Resource tabs"] },
     Page { id: "segmented-control", group: "Navigation", title: "SegmentedControl", source: "navigation", view: navigation::view, sections: &["Segmented control"] },
@@ -94,12 +103,19 @@ pub const PAGES: &[Page] = &[
     Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"] },
     Page { id: "glass", group: "Navigation", title: "NavigationBar", source: "glass", view: glass::view, sections: &[] },
     Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[] },
+    Page { id: "tree-row", group: "Data", title: "TreeRow", source: "surfaces", view: surfaces::view, sections: &["Tree rows"] },
     Page { id: "table", group: "Data", title: "Table", source: "table", view: table::view, sections: &[] },
     Page { id: "markdown", group: "Data", title: "Markdown", source: "markdown", view: markdown::view, sections: &[] },
     Page { id: "diagram", group: "Data", title: "Diagram", source: "diagrams", view: diagrams::view, sections: &[] },
     Page { id: "code-block", group: "Data", title: "CodeBlock", source: "blocks", view: blocks::view, sections: &["Code block"] },
     Page { id: "output-block", group: "Data", title: "OutputBlock", source: "blocks", view: blocks::view, sections: &["Output block"] },
+    Page { id: "code-editor", group: "Data", title: "CodeEditor", source: "code", view: code::view, sections: &["Code editor"] },
+    Page { id: "code-diff", group: "Data", title: "CodeDiff", source: "code", view: code::view, sections: &["Code diff"] },
+    Page { id: "charts", group: "Data", title: "Charts", source: "charts", view: charts::view, sections: &[] },
+    Page { id: "attachment", group: "Data", title: "Attachment", source: "media", view: media::view, sections: &["Attachment"] },
     Page { id: "card", group: "Layout", title: "Card", source: "blocks", view: blocks::view, sections: &["Card"] },
+    Page { id: "framed-card", group: "Layout", title: "FramedCard", source: "surfaces", view: surfaces::view, sections: &["Framed card"] },
+    Page { id: "scroll-area", group: "Layout", title: "ScrollArea", source: "surfaces", view: surfaces::view, sections: &["Scroll area"] },
     Page { id: "media-tile", group: "Layout", title: "MediaTile", source: "blocks", view: blocks::view, sections: &["Media tile"] },
     Page { id: "media-card", group: "Layout", title: "MediaCard", source: "blocks", view: blocks::view, sections: &["Track card"] },
     Page { id: "page-header", group: "Layout", title: "PageHeader", source: "page", view: page::view, sections: &["Page header"] },
@@ -114,10 +130,13 @@ pub const PAGES: &[Page] = &[
     Page { id: "alert", group: "States", title: "Alert", source: "feedback", view: feedback::view, sections: &["Alerts", "Alerts with actions"] },
     Page { id: "progress", group: "States", title: "Progress", source: "feedback", view: feedback::view, sections: &["Progress"] },
     Page { id: "spinner", group: "States", title: "Spinner", source: "feedback", view: feedback::view, sections: &["Loading"] },
+    Page { id: "skeleton", group: "States", title: "Skeleton", source: "loading", view: loading::view, sections: &["Skeleton"] },
+    Page { id: "text-shimmer", group: "States", title: "TextShimmer", source: "loading", view: loading::view, sections: &["Text shimmer"] },
     Page { id: "marker", group: "States", title: "Marker", source: "feedback", view: feedback::view, sections: &["Markers"] },
     Page { id: "ticker", group: "States", title: "Ticker", source: "feedback", view: feedback::view, sections: &["Ticker"] },
     Page { id: "collapse", group: "States", title: "Collapse", source: "feedback", view: feedback::view, sections: &["Closing slot"] },
     Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels"] },
+    Page { id: "avatar", group: "States", title: "Avatar", source: "media", view: media::view, sections: &["Avatar"] },
     Page { id: "context-window", group: "States", title: "ContextWindow", source: "context", view: context::view, sections: &[] },
     Page { id: "popover", group: "Overlays", title: "Popover", source: "overlays", view: overlays::view, sections: &["Popover"] },
     Page { id: "dropdown-list", group: "Overlays", title: "DropdownList", source: "overlays", view: overlays::view, sections: &["Dropdown list"] },
@@ -125,6 +144,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "context-menu", group: "Overlays", title: "ContextMenu", source: "overlays", view: overlays::view, sections: &["Context menu"] },
     Page { id: "dialog", group: "Overlays", title: "Modal / AlertDialog", source: "overlays", view: overlays::view, sections: &["Dialogs"] },
     Page { id: "toast", group: "Overlays", title: "Toast", source: "overlays", view: overlays::view, sections: &["Toast"] },
+    Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer"] },
     Page { id: "picker", group: "Overlays", title: "Catalog menus", source: "menus", view: menus::view, sections: &["Select and catalog", "Menu rows", "Popover panel"] },
     Page { id: "suggestion-list", group: "Overlays", title: "SuggestionList", source: "menus", view: menus::view, sections: &["Suggestion list"] },
     Page { id: "tooltip", group: "Overlays", title: "Tooltip", source: "tooltip", view: tooltip::view, sections: &[] },
@@ -160,11 +180,12 @@ pub fn find(id: &str) -> &'static Page {
 /// What a demo keeps that a flag or a choice cannot hold.
 pub fn update(state: &mut State, action: &UiAction) {
     table::update(state, action);
+    dates::update(state, action);
 }
 
 /// Wrap the window in the layers the pages control.
 pub fn layers(cx: &Cx, base: Element) -> Element {
-    tour::layer(cx, overlays::layers(cx, base))
+    tour::layer(cx, overlays::layers(cx, media::layer(cx, base)))
 }
 
 /// What a page needs to draw itself.

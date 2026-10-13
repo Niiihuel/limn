@@ -59,6 +59,7 @@ pub(super) struct Interaction {
 }
 
 impl Interaction {
+    /// No hunk is active and no pointer is known; `now` is the time of that reading.
     pub fn new(now: Instant) -> Self {
         Self {
             active: None,
@@ -76,6 +77,7 @@ impl Interaction {
         self.pointer.map(|point| (point, self.now))
     }
 
+    /// True while the pointer rests on a hunk whose hover has not fired yet.
     pub fn hover_pending(&self) -> bool {
         self.hover.is_some_and(|(_, _, fired)| !fired)
     }
@@ -113,6 +115,9 @@ pub(super) struct Layout {
 }
 
 impl Layout {
+    /// Lay the review hunks out again for this snapshot, visual map and wrap width; nothing is
+    /// done when none of them changed. Hunks that are not for this exact snapshot, or that are
+    /// invalid or over the limits, leave the layout without review rows.
     pub fn update(
         &mut self,
         editor: &CodeEditor,
@@ -258,6 +263,8 @@ impl Layout {
             .collect();
     }
 
+    /// The row on screen of visual row `visual`: the rows of removed lines shown above it are
+    /// counted in.
     pub fn display_row(&self, visual: usize) -> usize {
         let index = self.zones.partition_point(|zone| zone.visual <= visual);
         visual
@@ -266,6 +273,7 @@ impl Layout {
                 .map_or(0, |index| self.zones[index].cumulative)
     }
 
+    /// How many of `count` rows starting at `visual` come before the next zone of removed lines.
     pub fn contiguous_rows(&self, visual: usize, count: usize) -> usize {
         let next = self.zones.partition_point(|zone| zone.visual <= visual);
         self.zones
@@ -273,6 +281,8 @@ impl Layout {
             .map_or(count, |zone| count.min(zone.visual - visual))
     }
 
+    /// The visual row for a row on screen. A row inside a zone of removed lines maps to the
+    /// visual row the zone sits above.
     pub fn visual_row(&self, display: usize) -> usize {
         let index = self.zones.partition_point(|zone| zone.display <= display);
         let visual = match index.checked_sub(1).map(|index| &self.zones[index]) {
@@ -283,6 +293,8 @@ impl Layout {
         visual.min(self.real_rows)
     }
 
+    /// The hunk, and the index of its removed line, shown at screen row `display`. `None` when
+    /// that row is not a removed line.
     pub fn zone_row(&self, display: usize) -> Option<(usize, usize)> {
         self.zone_fragment(display)
             .map(|(hunk, fragment)| (hunk, fragment.line))
@@ -299,6 +311,8 @@ impl Layout {
             .map(|fragment| (zone.hunk, fragment))
     }
 
+    /// The first screen row of hunk `index`: its removed lines when it has any, otherwise its
+    /// first current row. `None` when the layout is not valid or there is no such hunk.
     pub fn hunk_row(
         &self,
         index: usize,
@@ -350,6 +364,7 @@ impl Layout {
         (end > start).then_some(start..end)
     }
 
+    /// Whether physical row `physical` is one of the current rows of a hunk.
     pub fn added(&self, physical: usize) -> bool {
         self.added
             .partition_point(|range| range.start <= physical)

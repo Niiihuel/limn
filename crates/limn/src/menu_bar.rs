@@ -173,13 +173,16 @@ impl Component for MenuBar {
                 if !menu.enabled {
                     let access = Access::new(Role::Button).id(menu.id).name(&menu.label);
                     // The label where the button draws its own, and nothing to press.
-                    return Element::text(menu.label)
+                    // The node is the trigger's whole rectangle, as an enabled one's is.
+                    return Element::panel(
+                        Element::text(menu.label)
+                            .font_family(FontFamily::Sans)
+                            .font_size(FONT_SIZE)
+                            .foreground(palette.muted)
+                            .center_content()
+                            .centered_y(),
+                    )
                         .accessible(access.expanded(false).disabled(true))
-                        .font_family(FontFamily::Sans)
-                        .font_size(FONT_SIZE)
-                        .foreground(palette.muted)
-                        .center_content()
-                        .centered_y()
                         .padding(PADDING)
                         .background(palette.surface)
                         .radius(control_radius())

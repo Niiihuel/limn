@@ -118,6 +118,8 @@ impl CoachMark {
         self
     }
 
+    /// The bubble's heading, which is also the name of its dialog to the platform. Empty by
+    /// default.
     pub fn title(mut self, title: impl Into<String>) -> Self {
         self.title = title.into();
         self
@@ -388,12 +390,15 @@ impl TourStep {
         self
     }
 
+    /// The side of the target this step's bubble prefers and where it sits along that edge.
+    /// A step sits below, at the start, by default.
     pub fn placement(mut self, side: CoachSide, align: CoachAlign) -> Self {
         self.side = side;
         self.align = align;
         self
     }
 
+    /// A picture above this step's title, as wide as the bubble's content.
     pub fn illustration(mut self, illustration: Element) -> Self {
         self.illustration = Some(illustration);
         self
@@ -413,6 +418,8 @@ pub struct Tour {
 }
 
 impl Tour {
+    /// A tour over `base` that shows step `current` of `steps`. `id` prefixes the actions
+    /// it reports, which the description of [`Tour`] lists.
     pub fn new(
         base: Element,
         id: impl Into<String>,

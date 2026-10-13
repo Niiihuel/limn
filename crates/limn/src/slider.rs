@@ -45,6 +45,8 @@ impl Slider {
         self
     }
 
+    /// Fix the width, in logical pixels, never below the thumb's 12. A value that is not
+    /// finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(THUMB));

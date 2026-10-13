@@ -1,5 +1,6 @@
 //! Geometry uses logical pixels. The host handles device scaling.
 
+/// A position in logical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point {
     pub x: f32,
@@ -7,11 +8,13 @@ pub struct Point {
 }
 
 impl Point {
+    /// A point at `x`, `y`.
     pub const fn new(x: f32, y: f32) -> Self {
         Self { x, y }
     }
 }
 
+/// A width and a height in logical pixels.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Size {
     pub width: f32,
@@ -19,11 +22,13 @@ pub struct Size {
 }
 
 impl Size {
+    /// A size of `width` by `height`.
     pub const fn new(width: f32, height: f32) -> Self {
         Self { width, height }
     }
 }
 
+/// A rectangle in logical pixels. `x` and `y` are its top left corner.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Rect {
     pub x: f32,
@@ -33,6 +38,7 @@ pub struct Rect {
 }
 
 impl Rect {
+    /// A rectangle from its top left corner and its size.
     pub const fn new(x: f32, y: f32, width: f32, height: f32) -> Self {
         Self {
             x,
@@ -42,6 +48,8 @@ impl Rect {
         }
     }
 
+    /// Whether the point is inside. The left and top edges are inside; the right
+    /// and bottom edges are not.
     pub fn contains(self, point: Point) -> bool {
         point.x >= self.x
             && point.y >= self.y
@@ -49,6 +57,8 @@ impl Rect {
             && point.y < self.y + self.height
     }
 
+    /// The part two rectangles share, or `None` when they do not overlap.
+    /// Rectangles that only touch along an edge do not overlap.
     pub fn intersection(self, other: Self) -> Option<Self> {
         let x = self.x.max(other.x);
         let y = self.y.max(other.y);
@@ -57,6 +67,8 @@ impl Rect {
         (right > x && bottom > y).then(|| Self::new(x, y, right - x, bottom - y))
     }
 
+    /// Move every edge inwards by `amount`. The width and height stop at zero,
+    /// and a negative amount is read as zero.
     pub fn inset(self, amount: f32) -> Self {
         let inset = amount.max(0.0);
         Self::new(
@@ -68,6 +80,8 @@ impl Rect {
     }
 }
 
+/// An RGBA color with 8 bits per channel. An `a` of 0 is transparent and 255
+/// is opaque.
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub struct Color {
     pub r: u8,
@@ -77,13 +91,17 @@ pub struct Color {
 }
 
 impl Color {
+    /// Opaque white.
     pub const WHITE: Self = Self::rgb(255, 255, 255);
+    /// Black with an alpha of zero: nothing is painted.
     pub const TRANSPARENT: Self = Self::rgba(0, 0, 0, 0);
 
+    /// An opaque color.
     pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
         Self { r, g, b, a: 255 }
     }
 
+    /// A color with its alpha, from 0 (transparent) to 255 (opaque).
     pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Self {
         Self { r, g, b, a }
     }

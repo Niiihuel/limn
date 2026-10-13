@@ -11,12 +11,15 @@ pub enum CodeBreakpointState {
     Rejected,
     Disabled,
 }
+/// A breakpoint as the debugger reports it, on a zero-based row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CodeBreakpoint {
     pub row: usize,
     pub state: CodeBreakpointState,
+    /// Added to the marker's tooltip when present and not empty.
     pub message: Option<String>,
 }
+/// A row the debugger is stopped at, zero-based.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CodeExecutionLine {
     pub row: usize,
@@ -29,6 +32,7 @@ pub(super) const GLYPH_LANE: f32 = 18.0;
 pub(super) const BREAKPOINT_LANE: f32 = 14.0;
 pub(super) const NUMBER_TRAILING_PADDING: f32 = 8.0;
 
+/// A range of rows the gutter offers to fold; its control reports `action_id`.
 #[derive(Clone, Debug)]
 pub struct CodeFoldCandidate {
     /// Physical, zero-based rows [start_row, end_row).
@@ -37,6 +41,7 @@ pub struct CodeFoldCandidate {
     pub action_id: String,
 }
 
+/// A scope whose first row is offered as a sticky header; its control reports `action_id`.
 #[derive(Clone, Debug)]
 pub struct CodeStickyScope {
     /// Physical, zero-based rows [start_row, end_row).

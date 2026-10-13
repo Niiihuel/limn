@@ -12,6 +12,8 @@ pub struct Spinner {
 }
 
 impl Spinner {
+    /// A circle spinner 16 logical pixels a side, drawn in `color`. The platform knows it
+    /// by `id` as a progress indicator with no value.
     pub fn new(id: impl Into<String>, color: Color) -> Self {
         Self {
             id: id.into(),
@@ -21,6 +23,8 @@ impl Spinner {
         }
     }
 
+    /// Set the side in logical pixels, never below 8 (16 by default). A value that is not
+    /// finite is ignored.
     pub fn size(mut self, side: f32) -> Self {
         if side.is_finite() {
             self.side = side.max(8.0);
@@ -28,6 +32,7 @@ impl Spinner {
         self
     }
 
+    /// Choose the outline form; `SpinnerVariant::Circle` by default.
     pub fn variant(mut self, variant: SpinnerVariant) -> Self {
         self.variant = variant;
         self

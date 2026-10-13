@@ -23,11 +23,14 @@ pub enum DndEvent {
     Hovered { x: f32, y: f32 },
     /// The drag left the window without dropping.
     Left,
+    /// Files were dropped on the window.
     Dropped { x: f32, y: f32, paths: Vec<PathBuf> },
     /// A drag started with `start_drag` was dropped or cancelled.
     DragEnded,
 }
 
+/// A window's connection to the Wayland drag-and-drop protocol. Dropping it stops and joins
+/// its worker thread.
 pub struct FileDnd {
     #[cfg(target_os = "linux")]
     inner: wayland::Worker,

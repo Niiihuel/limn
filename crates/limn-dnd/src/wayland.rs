@@ -40,6 +40,8 @@ enum Command {
     Exit,
 }
 
+/// The thread that owns the Wayland data device for one window. Dropping it stops and joins
+/// the thread.
 pub struct Worker {
     pub events: mpsc::Receiver<DndEvent>,
     commands: Sender<Command>,
@@ -74,6 +76,8 @@ impl Worker {
         })
     }
 
+    /// Ask the thread to start a drag that offers this `text/uri-list` payload. An empty payload
+    /// is ignored.
     pub fn start_drag(&self, uri_list: Vec<u8>) {
         if !uri_list.is_empty() {
             let _ = self.commands.send(Command::StartDrag(uri_list));

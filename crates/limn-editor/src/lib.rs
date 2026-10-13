@@ -26,10 +26,13 @@ pub use row_map::{changed_rows, remap_rows};
 pub use search::{SearchError, SearchOptions, SearchResults};
 pub use visual_map::{VisualMap, VisualRow};
 
+/// Identifies one `TextBuffer` for the life of the process; each new buffer takes the next value.
 pub type DocumentId = u64;
 static NEXT_DOCUMENT_ID: AtomicU64 = AtomicU64::new(1);
 const GROUP_INTERVAL_MS: u64 = 500;
 
+/// A directed selection in character offsets. `head` is the end that moves and may come
+/// before `anchor`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Selection {
     pub anchor: usize,
@@ -37,6 +40,7 @@ pub struct Selection {
 }
 
 impl Selection {
+    /// An empty selection with both ends at `offset`.
     pub const fn caret(offset: usize) -> Self {
         Self {
             anchor: offset,
@@ -44,21 +48,25 @@ impl Selection {
         }
     }
 
+    /// The selected characters in document order, whichever way the selection points.
     pub fn range(self) -> Range<usize> {
         self.anchor.min(self.head)..self.anchor.max(self.head)
     }
 
+    /// True when nothing is selected: `anchor` and `head` are the same offset.
     pub fn is_empty(self) -> bool {
         self.anchor == self.head
     }
 }
 
+/// A zero-based line and a column counted in characters from the start of that line.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Position {
     pub row: usize,
     pub column: usize,
 }
 
+/// The line terminator a buffer writes for new lines.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum LineEnding {
     Lf,
@@ -67,6 +75,7 @@ pub enum LineEnding {
 }
 
 impl LineEnding {
+    /// The characters this terminator writes.
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Lf => "\n",
@@ -76,6 +85,8 @@ impl LineEnding {
     }
 }
 
+/// What produced an edit. Undo can merge consecutive `Typing`, `Backspace` or `Delete` edits
+/// of the same kind made within 500 ms of each other; the other kinds never merge.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum EditKind {
     Typing,
@@ -87,12 +98,17 @@ pub enum EditKind {
     Newline,
 }
 
+/// Bounds on document size and undo history. The defaults are 8 MiB of text, 32 MiB and 512
+/// transactions of history, and 64 edits in one undo step.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EditorLimits {
+    /// UTF-8 bytes. Text or an edit that would exceed it is refused; zero is invalid.
     pub max_document_bytes: usize,
     /// Changed text plus a conservative per-edit storage charge, not allocator RSS.
     pub max_history_bytes: usize,
+    /// Undo transactions kept; the oldest is dropped beyond this.
     pub max_history_transactions: usize,
+    /// Consecutive edits that may merge into one undo step; zero is invalid.
     pub max_grouped_edits: usize,
 }
 
@@ -107,8 +123,10 @@ impl Default for EditorLimits {
     }
 }
 
+/// Why a buffer or snapshot operation was refused.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum EditorError {
+    /// `max_document_bytes` or `max_grouped_edits` is zero.
     InvalidLimits,
     InvalidRange {
         start: usize,
@@ -140,9 +158,11 @@ pub enum EditorError {
         expected: DocumentId,
         actual: DocumentId,
     },
+    /// A tab or indent width outside 1..=32.
     InvalidTabWidth,
     ViewportTooLarge,
     InvalidGraphemeBoundary,
+    /// A command that cannot run as given; the string is the message.
     InvalidCommand(String),
 }
 
@@ -250,10 +270,14 @@ pub struct TextBuffer {
 }
 
 impl TextBuffer {
+    /// Create a buffer holding `text` with the default limits and the caret at offset 0. New
+    /// lines use the first terminator found in `text`, or LF when it has none.
     pub fn new(text: &str) -> Result<Self, EditorError> {
         Self::with_limits(text, EditorLimits::default())
     }
 
+    /// Like `new` with explicit limits. Fails with `InvalidLimits` when `max_document_bytes` or
+    /// `max_grouped_edits` is zero, and with `DocumentTooLarge` when `text` exceeds the limit.
     pub fn with_limits(text: &str, limits: EditorLimits) -> Result<Self, EditorError> {
         if limits.max_document_bytes == 0 || limits.max_grouped_edits == 0 {
             return Err(EditorError::InvalidLimits);
@@ -296,33 +320,45 @@ impl TextBuffer {
         Ok(buffer)
     }
 
+    /// The identifier shared by this buffer and every snapshot taken from it.
     pub fn document_id(&self) -> DocumentId {
         self.document_id
     }
+    /// Counter that goes up by one on every change to the text, including undo and redo.
     pub fn revision(&self) -> u64 {
         self.revision
     }
+    /// The revision recorded by the last `mark_saved` or `mark_saved_snapshot`; 0 before any.
     pub fn saved_revision(&self) -> u64 {
         self.saved_revision
     }
+    /// True when the text is not in its last saved state, or after `mark_unsaved`. Undoing back
+    /// to the saved state clears it.
     pub fn is_dirty(&self) -> bool {
         self.externally_unsaved || self.state != self.saved_state
     }
+    /// The primary selection. `selections` also yields the secondary ones.
     pub fn selection(&self) -> Selection {
         self.selection
     }
+    /// The limits this buffer was created with.
     pub fn limits(&self) -> EditorLimits {
         self.limits
     }
+    /// The terminator `insert_newline` writes: the first one found in the initial text, LF when
+    /// it had none, or the one set by `EditorCommand::SetLineEnding`.
     pub fn preferred_line_ending(&self) -> LineEnding {
         self.line_ending
     }
+    /// True when `undo` has a transaction to revert.
     pub fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
+    /// True when `redo` has a transaction to apply again.
     pub fn can_redo(&self) -> bool {
         !self.redo.is_empty()
     }
+    /// Transactions held in undo and redo history together.
     pub fn history_transaction_count(&self) -> usize {
         self.undo.len() + self.redo.len()
     }
@@ -337,6 +373,8 @@ impl TextBuffer {
     pub fn undo_transaction_id(&self) -> Option<u64> {
         self.undo.back().map(|entry| entry.after_state)
     }
+    /// The storage charged to undo and redo history, which `max_history_bytes` bounds: for each
+    /// edit, the bytes removed and inserted plus 2048.
     pub fn history_bytes(&self) -> usize {
         self.undo
             .iter()
@@ -344,6 +382,8 @@ impl TextBuffer {
             .fold(0usize, |total, entry| total.saturating_add(entry.charge))
     }
 
+    /// An immutable copy of the text, selections and save state at this revision. It shares
+    /// storage with the buffer, so the text is not copied.
     pub fn snapshot(&self) -> BufferSnapshot {
         BufferSnapshot {
             rope: self.rope.clone(),
@@ -358,6 +398,8 @@ impl TextBuffer {
         }
     }
 
+    /// Replace every selection, secondary ones included, with this one. Fails when an end lies
+    /// past the document. A change of selection closes the current undo step.
     pub fn set_selection(&mut self, selection: Selection) -> Result<(), EditorError> {
         validate_selection(selection, self.rope.len_chars())?;
         if selection != self.selection || !self.secondary.is_empty() {
@@ -368,10 +410,12 @@ impl TextBuffer {
         Ok(())
     }
 
+    /// Stop the next edit from merging into the previous undo step.
     pub fn break_undo_group(&mut self) {
         self.group_open = false;
     }
 
+    /// Record the current text as saved, so `is_dirty` is false until the next change.
     pub fn mark_saved(&mut self) {
         self.externally_unsaved = false;
         self.saved_state = self.state;
@@ -475,6 +519,8 @@ impl TextBuffer {
         Ok(true)
     }
 
+    /// Replace each selection with `text` and leave a caret after it. Returns `Ok(false)` when
+    /// the text did not change.
     pub fn insert(
         &mut self,
         text: &str,
@@ -489,6 +535,7 @@ impl TextBuffer {
         self.edit(range, text, Selection::caret(offset), kind, timestamp_ms)
     }
 
+    /// Same as `insert`.
     pub fn replace_selection(
         &mut self,
         text: &str,
@@ -498,6 +545,8 @@ impl TextBuffer {
         self.insert(text, kind, timestamp_ms)
     }
 
+    /// Delete the selected text, or the grapheme before the caret when the selection is empty.
+    /// Returns `Ok(false)` when there is nothing to delete, as at the start of the document.
     pub fn delete_backward(&mut self, timestamp_ms: u64) -> Result<bool, EditorError> {
         if !self.secondary.is_empty() {
             return self.delete_at_selections(false, false, timestamp_ms);
@@ -520,6 +569,8 @@ impl TextBuffer {
         )
     }
 
+    /// Delete the selected text, or the grapheme after the caret when the selection is empty.
+    /// Returns `Ok(false)` when there is nothing to delete, as at the end of the document.
     pub fn delete_forward(&mut self, timestamp_ms: u64) -> Result<bool, EditorError> {
         if !self.secondary.is_empty() {
             return self.delete_at_selections(true, false, timestamp_ms);
@@ -691,6 +742,8 @@ impl TextBuffer {
         Ok((sorted, selections_after, charge))
     }
 
+    /// Revert the newest undo transaction, restoring the text, selections and line ending from
+    /// before it, and end any snippet session. Returns `Ok(false)` when there is nothing to undo.
     pub fn undo(&mut self) -> Result<bool, EditorError> {
         if self.undo.is_empty() {
             return Ok(false);
@@ -709,6 +762,8 @@ impl TextBuffer {
         Ok(true)
     }
 
+    /// Apply the last undone transaction again and end any snippet session. Returns `Ok(false)`
+    /// when there is nothing to redo.
     pub fn redo(&mut self) -> Result<bool, EditorError> {
         if self.redo.is_empty() {
             return Ok(false);
@@ -778,6 +833,8 @@ impl TextBuffer {
     }
 }
 
+/// An immutable view of a `TextBuffer` at one revision. It shares the buffer's storage and
+/// can be read or saved off the UI thread.
 #[derive(Clone, Debug)]
 pub struct BufferSnapshot {
     pub(crate) rope: Rope,
@@ -792,33 +849,43 @@ pub struct BufferSnapshot {
 }
 
 impl BufferSnapshot {
+    /// The identifier of the buffer this snapshot was taken from.
     pub fn document_id(&self) -> DocumentId {
         self.document_id
     }
+    /// The buffer revision this snapshot captured.
     pub fn revision(&self) -> u64 {
         self.revision
     }
+    /// Whether the buffer had unsaved changes when the snapshot was taken.
     pub fn is_dirty(&self) -> bool {
         self.externally_unsaved || self.state != self.saved_state
     }
+    /// The primary selection when the snapshot was taken.
     pub fn selection(&self) -> Selection {
         self.selection
     }
+    /// The terminator the buffer wrote for new lines when the snapshot was taken.
     pub fn preferred_line_ending(&self) -> LineEnding {
         self.line_ending
     }
+    /// Length in Unicode scalar values, the unit of every offset in this crate.
     pub fn char_count(&self) -> usize {
         self.rope.len_chars()
     }
+    /// Length in UTF-8 bytes.
     pub fn byte_count(&self) -> usize {
         self.rope.len_bytes()
     }
+    /// Number of lines, at least 1. A text that ends in a line break has an empty last line.
     pub fn line_count(&self) -> usize {
         self.rope.len_lines()
     }
+    /// The text as consecutive string pieces, in order, without copying.
     pub fn chunks(&self) -> ropey::iter::Chunks<'_> {
         self.rope.chunks()
     }
+    /// Write the whole text to `writer` as UTF-8, line endings unchanged.
     pub fn write_to<W: Write>(&self, writer: W) -> io::Result<()> {
         self.rope.write_to(writer)
     }
@@ -838,20 +905,25 @@ impl BufferSnapshot {
         Ok(start..start + content_char_count(line))
     }
 
+    /// The text of line `row` without its terminator.
     pub fn line_text(&self, row: usize) -> Result<String, EditorError> {
         self.text_range(self.line_range(row)?)
     }
 
+    /// A copy of the characters in `range`. Fails with `InvalidRange` when the range is reversed
+    /// or ends past the document.
     pub fn text_range(&self, range: Range<usize>) -> Result<String, EditorError> {
         validate_range(&range, self.char_count())?;
         Ok(self.rope.slice(range).to_string())
     }
 
+    /// A borrowed view of the characters in `range`, with the same checks as `text_range`.
     pub fn slice(&self, range: Range<usize>) -> Result<RopeSlice<'_>, EditorError> {
         validate_range(&range, self.char_count())?;
         Ok(self.rope.slice(range))
     }
 
+    /// UTF-8 byte offset of the character at `offset`; `offset` may equal `char_count`.
     pub fn char_to_byte(&self, offset: usize) -> Result<usize, EditorError> {
         validate_range(&(offset..offset), self.char_count())?;
         Ok(self.rope.char_to_byte(offset))
@@ -876,6 +948,8 @@ impl BufferSnapshot {
         Ok(self.rope.char_to_line(offset))
     }
 
+    /// Row and column of `offset`. An offset inside a line terminator reports the column just
+    /// after the line's last character.
     pub fn position_of(&self, offset: usize) -> Result<Position, EditorError> {
         validate_range(&(offset..offset), self.char_count())?;
         let row = self.rope.char_to_line(offset);
@@ -886,6 +960,8 @@ impl BufferSnapshot {
         })
     }
 
+    /// Character offset of `position`. Fails with `InvalidLine` for a row past the last line and
+    /// `InvalidPosition` for a column past the line's content.
     pub fn offset_of(&self, position: Position) -> Result<usize, EditorError> {
         let range = self.line_range(position.row)?;
         if position.column > range.len() {
@@ -894,15 +970,19 @@ impl BufferSnapshot {
         Ok(range.start + position.column)
     }
 
+    /// The grapheme boundary before `offset`, or 0 at the start of the document.
     pub fn prev_grapheme(&self, offset: usize) -> Result<usize, EditorError> {
         grapheme::boundary(&self.rope, offset, false)
     }
+    /// The grapheme boundary after `offset`, or `char_count` at the end of the document.
     pub fn next_grapheme(&self, offset: usize) -> Result<usize, EditorError> {
         grapheme::boundary(&self.rope, offset, true)
     }
+    /// Whether `offset` sits between two graphemes. The start and end of the document always do.
     pub fn is_grapheme_boundary(&self, offset: usize) -> Result<bool, EditorError> {
         grapheme::is_boundary(&self.rope, offset)
     }
+    /// `offset` when it is a grapheme boundary, otherwise the boundary before it.
     pub fn snap_grapheme_backward(&self, offset: usize) -> Result<usize, EditorError> {
         if self.is_grapheme_boundary(offset)? {
             Ok(offset)
@@ -910,6 +990,7 @@ impl BufferSnapshot {
             self.prev_grapheme(offset)
         }
     }
+    /// `offset` when it is a grapheme boundary, otherwise the boundary after it.
     pub fn snap_grapheme_forward(&self, offset: usize) -> Result<usize, EditorError> {
         if self.is_grapheme_boundary(offset)? {
             Ok(offset)

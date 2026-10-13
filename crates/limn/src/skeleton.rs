@@ -14,6 +14,7 @@ pub struct Skeleton {
 }
 
 impl Skeleton {
+    /// A block 12 tall with a radius of 6 that fills the available width.
     pub fn new(id: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -56,6 +57,8 @@ impl Skeleton {
             .radius(diameter / 2.0)
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is ignored and a
+    /// negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
@@ -63,6 +66,8 @@ impl Skeleton {
         self
     }
 
+    /// Set the height in logical pixels, never below 1 (12 by default). A value that is not
+    /// finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.height = height.max(1.0);
@@ -70,6 +75,8 @@ impl Skeleton {
         self
     }
 
+    /// Set the corner radius (6 by default). A radius that is not finite is ignored and a
+    /// negative one is zero.
     pub fn radius(mut self, radius: f32) -> Self {
         if radius.is_finite() {
             self.radius = radius.max(0.0);

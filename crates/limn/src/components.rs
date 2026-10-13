@@ -45,6 +45,9 @@ pub struct Tooltip {
 }
 
 impl Tooltip {
+    /// A hint on `anchor` with this title. `anchor_id` is the ID of the control
+    /// the anchor is, or the one a passive anchor's hover region takes. It
+    /// opens above the anchor and is at most 360 pixels wide.
     pub fn new(
         anchor: Element,
         anchor_id: impl Into<String>,
@@ -91,6 +94,7 @@ impl Tooltip {
         }
     }
 
+    /// Show a keyboard shortcut in the hint, as key caps.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self
@@ -150,6 +154,7 @@ impl Tooltip {
         self
     }
 
+    /// The side of the anchor it prefers. The default is above.
     pub fn placement(mut self, placement: TooltipPlacement) -> Self {
         self.placement = placement;
         self
@@ -312,6 +317,7 @@ pub enum ControlSize {
 }
 
 impl ControlSize {
+    /// The height in logical pixels: 24, 28, 32 or 36.
     pub const fn height(self) -> f32 {
         match self {
             Self::Dense => 24.0,
@@ -322,6 +328,7 @@ impl ControlSize {
     }
 }
 
+/// Whether a control can be used.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ControlState {
     #[default]
@@ -377,6 +384,7 @@ impl ComponentPalette {
         }
     }
 
+    /// A dark palette of neutral grays.
     pub const fn neutral_dark() -> Self {
         Self {
             surface: Color::rgb(24, 24, 24),
@@ -476,6 +484,8 @@ pub enum ButtonSize {
 }
 
 impl ButtonSize {
+    /// The geometry of this size: 22 to 40 pixels high, with 8 pixels between
+    /// the icons and the label.
     pub fn sizing(self) -> ButtonSizing {
         let (height, font_size, horizontal_padding) = match self {
             Self::Default => (36.0, 14.0, 16.0),
@@ -549,6 +559,9 @@ impl ButtonSizing {
 }
 
 impl ControlSize {
+    /// The geometry of a button of this height: a label of 12 to 14 pixels,
+    /// 6 pixels between the icons and the label, and padding that centers the
+    /// icon in a square button.
     pub fn button_sizing(self) -> ButtonSizing {
         let height = self.height();
         ButtonSizing {
@@ -593,6 +606,8 @@ pub struct Button {
 }
 
 impl Button {
+    /// A button with this label that reports `action_id`. It starts as the
+    /// default variant at `ControlSize::Regular`.
     pub fn new(
         action_id: impl Into<String>,
         label: impl Into<String>,
@@ -601,6 +616,7 @@ impl Button {
         Self::with_content(action_id, ButtonContent::Label(label.into()), palette)
     }
 
+    /// A button with a label, an icon or both, as [`Self::new`].
     pub fn with_content(
         action_id: impl Into<String>,
         content: ButtonContent,
@@ -659,6 +675,8 @@ impl Button {
         }
     }
 
+    /// Put an icon before the label. With an empty label the button shows
+    /// the icon alone and is as wide as it is high.
     pub fn icon(mut self, icon: Icon) -> Self {
         let (_, label) = self.content.parts();
         self.content = if label.is_empty() {
@@ -669,16 +687,20 @@ impl Button {
         self
     }
 
+    /// Give the button a hint with this title. A button of an icon alone is
+    /// also called by it to the platform.
     pub fn tooltip(mut self, title: impl Into<String>) -> Self {
         self.tooltip.title = Some(title.into());
         self
     }
 
+    /// Set the keyboard shortcut the hint shows.
     pub fn tooltip_shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.tooltip.shortcut = Some(shortcut.into());
         self
     }
 
+    /// The side of the button the hint prefers.
     pub fn tooltip_placement(mut self, placement: TooltipPlacement) -> Self {
         self.tooltip.placement = placement;
         self
@@ -697,16 +719,22 @@ impl Button {
         self
     }
 
+    /// Add a second icon after the label. It shares the button's action and
+    /// hit region.
     pub fn trailing_icon(mut self, icon: Icon) -> Self {
         self.trailing_icon = Some(icon);
         self
     }
 
+    /// Choose the fill, the ink and the hover treatment; see
+    /// [`ButtonVariant`].
     pub fn variant(mut self, variant: ButtonVariant) -> Self {
         self.variant = variant;
         self
     }
 
+    /// Size the button from a shared control height. It drops a `button_size`
+    /// or `sizing` set before.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
         self.button_size = None;
@@ -714,6 +742,8 @@ impl Button {
         self
     }
 
+    /// Size the button from the button family. It takes precedence over
+    /// `size` and drops a `sizing` set before.
     pub fn button_size(mut self, size: ButtonSize) -> Self {
         self.button_size = Some(size);
         self.sizing = None;
@@ -727,6 +757,8 @@ impl Button {
         self
     }
 
+    /// Fix the width in logical pixels, in place of the content's. A negative
+    /// width becomes zero; one that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
@@ -734,6 +766,9 @@ impl Button {
         self
     }
 
+    /// Draw the button as the current choice. Ghost, Subtle, Raised and
+    /// Outline take the palette's selected fill; the other variants rest on
+    /// their hover fill.
     pub fn active(mut self, active: bool) -> Self {
         self.active = active;
         self
@@ -745,11 +780,15 @@ impl Button {
         self
     }
 
+    /// Draw the button muted, as passive content: it keeps its size and its
+    /// hint, and cannot be focused or activated.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
     }
 
+    /// Enable or disable it from a state the host computes; `enabled(false)`
+    /// is [`Self::disabled`].
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.state = if enabled {
             ControlState::Enabled
@@ -774,11 +813,13 @@ impl Button {
         self
     }
 
+    /// Ink under the pointer, and while pressed unless `pressed_ink` is set.
     pub fn hover_ink(mut self, color: Color) -> Self {
         self.hover_ink = Some(color);
         self
     }
 
+    /// Ink while pressed.
     pub fn pressed_ink(mut self, color: Color) -> Self {
         self.pressed_ink = Some(color);
         self
@@ -1179,6 +1220,7 @@ impl Component for Link {
 pub struct IconButton(Button);
 
 impl IconButton {
+    /// A button of this icon alone that reports `action_id`.
     pub fn new(action_id: impl Into<String>, icon: Icon, palette: ComponentPalette) -> Self {
         Self(Button::with_content(
             action_id,
@@ -1187,22 +1229,28 @@ impl IconButton {
         ))
     }
 
+    /// Add a label after the icon. The button is then as wide as its content
+    /// in place of square.
     pub fn label(mut self, label: impl Into<String>) -> Self {
         let (icon, _) = self.0.content.parts();
         self.0.content = ButtonContent::IconAndLabel(icon.expect("IconButton icon"), label.into());
         self
     }
 
+    /// Give the button a hint with this title, which also names an icon
+    /// alone to the platform; as [`Button::tooltip`].
     pub fn tooltip(mut self, title: impl Into<String>) -> Self {
         self.0 = self.0.tooltip(title);
         self
     }
 
+    /// Set the keyboard shortcut the hint shows.
     pub fn tooltip_shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.0 = self.0.tooltip_shortcut(shortcut);
         self
     }
 
+    /// The side of the button the hint prefers.
     pub fn tooltip_placement(mut self, placement: TooltipPlacement) -> Self {
         self.0 = self.0.tooltip_placement(placement);
         self
@@ -1228,21 +1276,26 @@ impl IconButton {
         self
     }
 
+    /// Add a second icon at the far edge, as [`Button::trailing_icon`].
     pub fn trailing_icon(mut self, icon: Icon) -> Self {
         self.0.trailing_icon = Some(icon);
         self
     }
 
+    /// Choose the fill, the ink and the hover treatment; see
+    /// [`ButtonVariant`].
     pub fn variant(mut self, variant: ButtonVariant) -> Self {
         self.0.variant = variant;
         self
     }
 
+    /// Size the button from a shared control height, as [`Button::size`].
     pub fn size(mut self, size: ControlSize) -> Self {
         self.0 = self.0.size(size);
         self
     }
 
+    /// Size the button from the button family, as [`Button::button_size`].
     pub fn button_size(mut self, size: ButtonSize) -> Self {
         self.0 = self.0.button_size(size);
         self
@@ -1266,11 +1319,13 @@ impl IconButton {
         self
     }
 
+    /// Fix the width in logical pixels, as [`Button::width`].
     pub fn width(mut self, width: f32) -> Self {
         self.0 = self.0.width(width);
         self
     }
 
+    /// Draw the button as the current choice, as [`Button::active`].
     pub fn active(mut self, active: bool) -> Self {
         self.0.active = active;
         self
@@ -1282,16 +1337,20 @@ impl IconButton {
         self
     }
 
+    /// Draw the button muted and passive, as [`Button::disabled`].
     pub fn disabled(mut self) -> Self {
         self.0.state = ControlState::Disabled;
         self
     }
 
+    /// Enable or disable it from a state the host computes.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.0 = self.0.enabled(enabled);
         self
     }
 
+    /// Show the standard spinner in place of the icon; a busy button cannot
+    /// be focused or activated. As [`Button::loading`].
     pub fn loading(mut self, loading: bool) -> Self {
         self.0 = self.0.loading(loading);
         self
@@ -1303,11 +1362,13 @@ impl IconButton {
         self
     }
 
+    /// Ink under the pointer, and while pressed unless `pressed_ink` is set.
     pub fn hover_ink(mut self, color: Color) -> Self {
         self.0.hover_ink = Some(color);
         self
     }
 
+    /// Ink while pressed.
     pub fn pressed_ink(mut self, color: Color) -> Self {
         self.0.pressed_ink = Some(color);
         self
@@ -1331,6 +1392,7 @@ pub struct Kbd {
 }
 
 impl Kbd {
+    /// Key caps for the combination `keys`.
     pub fn new(keys: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             keys: keys.into(),
@@ -2358,6 +2420,9 @@ pub struct Popover {
 }
 
 impl Popover {
+    /// A popover on `anchor` that shows `content` while `open` is true.
+    /// Escape reports `UiAction::Clicked` with `dismiss_id`, for the host to
+    /// close it. It opens under the start of the anchor, 240 pixels wide.
     pub fn new(
         anchor: Element,
         content: Element,
@@ -2380,11 +2445,14 @@ impl Popover {
         }
     }
 
+    /// The side of the anchor it prefers. The default is `BottomStart`.
     pub fn placement(mut self, placement: PopoverPlacement) -> Self {
         self.placement = placement;
         self
     }
 
+    /// Width of the floating surface in logical pixels, at least 96. A width
+    /// that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(96.0);
@@ -2392,16 +2460,22 @@ impl Popover {
         self
     }
 
+    /// Duration of the entrance, in milliseconds. The default is the enter
+    /// duration of the motion tokens.
     pub fn animation_ms(mut self, duration: u16) -> Self {
         self.animation_ms = duration;
         self
     }
 
+    /// Duration of the exit, in milliseconds, in place of the default short
+    /// fade.
     pub fn close_animation_ms(mut self, duration: u16) -> Self {
         self.close_animation_ms = Some(duration);
         self
     }
 
+    /// The scale the entrance starts at, clamped to 0.5..=1.25. The default,
+    /// 1.0, does not scale; a value that is not finite is ignored.
     pub fn open_scale(mut self, scale: f32) -> Self {
         if scale.is_finite() {
             self.open_scale = scale.clamp(0.5, 1.25);
@@ -2409,6 +2483,8 @@ impl Popover {
         self
     }
 
+    /// Name the view the content shows, so that a change of key while the
+    /// popover stays open is animated.
     pub fn view_key(mut self, key: impl Into<String>) -> Self {
         self.view_key = Some(key.into());
         self
@@ -2453,6 +2529,7 @@ pub struct DropdownOption {
 }
 
 impl DropdownOption {
+    /// An enabled option, not selected, that reports `action_id`.
     pub fn new(action_id: impl Into<String>, label: impl Into<String>) -> Self {
         Self {
             action_id: action_id.into(),
@@ -2463,16 +2540,19 @@ impl DropdownOption {
         }
     }
 
+    /// Give the option an icon.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
 
+    /// Mark the option as the current choice.
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
         self
     }
 
+    /// Disable the option.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
         self
@@ -2505,6 +2585,9 @@ pub struct DropdownList {
 }
 
 impl DropdownList {
+    /// A list of `options` on `anchor`, shown while `open` is true and
+    /// dismissed with `dismiss_id`. It opens under the start of the anchor,
+    /// 240 pixels wide.
     pub fn new(
         anchor: Element,
         options: Vec<DropdownOption>,
@@ -2525,6 +2608,8 @@ impl DropdownList {
         }
     }
 
+    /// Width of the list in logical pixels, at least 96. A width that is not
+    /// finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(96.0);
@@ -2532,6 +2617,7 @@ impl DropdownList {
         self
     }
 
+    /// The side of the anchor it prefers. The default is `BottomStart`.
     pub fn placement(mut self, placement: PopoverPlacement) -> Self {
         self.placement = placement;
         self
@@ -2545,6 +2631,7 @@ impl DropdownList {
         self
     }
 
+    /// Durations of the opening and of the item feedback; see `MenuMotion`.
     pub fn motion(mut self, motion: MenuMotion) -> Self {
         self.motion = motion;
         self

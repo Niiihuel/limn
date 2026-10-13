@@ -20,6 +20,8 @@ pub enum TextRole {
 }
 
 impl TextRole {
+    /// The role's text size in logical pixels, from 18 for `Display` down to 10 for
+    /// `Micro`.
     pub const fn size(self) -> f32 {
         match self {
             Self::Display => 18.0,
@@ -32,6 +34,7 @@ impl TextRole {
         }
     }
 
+    /// Whether the role is set in the monospaced family. Only `Code` is.
     pub const fn monospaced(self) -> bool {
         matches!(self, Self::Code)
     }

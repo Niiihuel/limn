@@ -16,6 +16,8 @@ pub struct DismissButton {
 }
 
 impl DismissButton {
+    /// A close button 24 logical pixels a side that reports `id` when clicked. Its name and
+    /// its hint are `Labels::close`.
     pub fn new(id: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -25,6 +27,8 @@ impl DismissButton {
         }
     }
 
+    /// Report `action` instead of the button's own ID, which stays the ID of the control
+    /// and of its tooltip. A disabled button reports nothing.
     pub fn dispatch_as(mut self, action: impl Into<String>) -> Self {
         self.action_id = Some(action.into());
         self
@@ -105,6 +109,10 @@ pub struct Modal {
 }
 
 impl Modal {
+    /// A modal over `base`, drawn only while `open`; closed, it renders `base` alone. The
+    /// close button reports `close_id`, which also prefixes the modal's own IDs,
+    /// `{close_id}:close` and `{close_id}:dialog`. An empty `description` is left out. The
+    /// card is 520 wide by default.
     pub fn new(
         base: Element,
         open: bool,
@@ -141,6 +149,8 @@ impl Modal {
         self
     }
 
+    /// Set the card's width in logical pixels, never below 240 (520 by default). A value
+    /// that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(240.0);
@@ -176,31 +186,40 @@ impl Modal {
         self
     }
 
+    /// The content between the header and the footer. It is the only part that scrolls.
     pub fn body(mut self, body: Element) -> Self {
         self.body = Some(body);
         self
     }
 
+    /// Content under the body, such as the row of actions. It does not scroll with the
+    /// body.
     pub fn footer(mut self, footer: Element) -> Self {
         self.footer = Some(footer);
         self
     }
 
+    /// The control inside the modal that takes focus when it opens.
     pub fn initial_focus(mut self, id: impl Into<String>) -> Self {
         self.initial_focus = Some(id.into());
         self
     }
 
+    /// The control that takes focus when the modal closes.
     pub fn return_focus(mut self, id: impl Into<String>) -> Self {
         self.return_focus = Some(id.into());
         self
     }
 
+    /// Whether a click on the backdrop dismisses the modal; off by default. The backdrop
+    /// blocks the content underneath either way.
     pub fn backdrop_dismiss(mut self, enabled: bool) -> Self {
         self.backdrop_dismiss = enabled;
         self
     }
 
+    /// Set how long the modal takes to appear, in milliseconds. The default is the
+    /// `enter_ms` motion token.
     pub fn animation_ms(mut self, duration: u16) -> Self {
         self.animation_ms = duration;
         self

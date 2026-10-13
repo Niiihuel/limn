@@ -5,13 +5,18 @@ use crate::{
     RasterImage, Role, Tooltip,
 };
 
+/// How an [`Attachment`] card lays out its media and its caption.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AttachmentOrientation {
+    /// The media beside the caption, in a card `Attachment::FILE_HEIGHT` tall.
     #[default]
     Horizontal,
+    /// The media above the caption, in a card `Attachment::IMAGE_HEIGHT` tall.
     Vertical,
 }
 
+/// A card for one attached file or image: an icon or a preview, the title and a description
+/// line under it. The card reports only the open and remove actions it is given.
 pub struct Attachment {
     id: String,
     title: String,
@@ -28,10 +33,16 @@ pub struct Attachment {
 }
 
 impl Attachment {
+    /// The height of a horizontal card, in logical pixels.
     pub const FILE_HEIGHT: f32 = 64.0;
+    /// The height of a vertical card with its caption, in logical pixels.
     pub const IMAGE_HEIGHT: f32 = 140.0;
+    /// A side for a square `preview_only` card, in logical pixels. The library does not
+    /// apply it; pass it to `width`.
     pub const PREVIEW_SIZE: f32 = 96.0;
 
+    /// A horizontal card 220 wide with the file icon, an empty description and no actions.
+    /// `id` prefixes the ID of the card's tooltip, `{id}:name`.
     pub fn new(id: impl Into<String>, title: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
@@ -49,36 +60,46 @@ impl Attachment {
         }
     }
 
+    /// The muted line under the title, such as a size or a type. It is also the tooltip's
+    /// description unless `help` is set.
     pub fn description(mut self, description: impl Into<String>) -> Self {
         self.description = description.into();
         self
     }
 
+    /// Text for the tooltip and for the card's description to the platform, in place of the
+    /// description line.
     pub fn help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
         self
     }
 
+    /// The icon drawn while there is no preview; the file icon by default.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = icon;
         self
     }
 
+    /// Draw this image in the media slot instead of the icon.
     pub fn preview(mut self, image: RasterImage) -> Self {
         self.preview = Some(image);
         self
     }
 
+    /// Add a remove button that reports `id`. Its name is `Labels::remove` followed by the
+    /// title.
     pub fn remove_action(mut self, id: impl Into<String>) -> Self {
         self.remove_action = Some(id.into());
         self
     }
 
+    /// Make the whole card a button that reports `id`, named by the title.
     pub fn open_action(mut self, id: impl Into<String>) -> Self {
         self.open_action = Some(id.into());
         self
     }
 
+    /// Choose the layout. This also brings back the caption that `preview_only` hides.
     pub fn orientation(mut self, orientation: AttachmentOrientation) -> Self {
         self.orientation = orientation;
         self.show_caption = true;
@@ -92,6 +113,8 @@ impl Attachment {
         self
     }
 
+    /// Set the card's width in logical pixels, never below 80 (220 by default). A
+    /// `preview_only` card is as tall as it is wide. A value that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(80.0);
