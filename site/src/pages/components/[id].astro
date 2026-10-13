@@ -1,0 +1,45 @@
+---
+import { readFile } from 'node:fs/promises';
+import { Code } from 'astro:components';
+import Shell from '../../layouts/Shell.astro';
+import { COMPONENTS, REPO, groups } from '../../data/site';
+
+export function getStaticPaths() {
+  return COMPONENTS.map((component) => ({ params: { id: component.id }, props: { component } }));
+}
+
+const { component } = Astro.props;
+const file = `crates/limn-gallery/src/pages/${component.id}.rs`;
+// The example on the page is this file; showing it keeps the two from drifting.
+const source = await readFile(new URL(`../../../../${file}`, import.meta.url), 'utf8');
+const side = [
+  { group: 'Components', items: [{ href: '/components/', label: 'All components' }] },
+  ...groups(COMPONENTS).map(({ group, items }) => ({ group, items: items.map(({ id, title }) => ({ href: `/components/${id}/`, label: title })) })),
+];
+const toc = [
+  { depth: 2, slug: 'example', text: 'Example' },
+  { depth: 2, slug: 'reference', text: 'Reference' },
+  { depth: 2, slug: 'source', text: 'Source of the example' },
+];
+---
+<Shell title={component.title} description={component.about} side={side} toc={toc}>
+  <h1>{component.title}</h1>
+  <p class="lead">{component.about}</p>
+
+  <div class="example" id="example"><span class="eyebrow">Example</span><span class="eyebrow">Rust &amp; WebAssembly</span></div>
+  <div class="window">
+    <header><i></i><i></i><i></i><span>{component.title} — limn</span></header>
+    <iframe title={`${component.title}, live`} data-page={component.id} loading="lazy"></iframe>
+  </div>
+
+  <div class="prose">
+    <h2 id="reference">Reference</h2>
+    <p>
+      The options of these components are in <a href={component.guide}>the guide</a>, and every builder method in the
+      API documentation: <code>cargo doc -p limn --open</code>.
+    </p>
+    <h2 id="source">Source of the example</h2>
+    <p>The example above is <a href={`${REPO}/blob/main/${file}`}><code>{file}</code></a>, shown here as it is built.</p>
+  </div>
+  <Code code={source} lang="rust" themes={{ light: 'github-light', dark: 'github-dark-default' }} />
+</Shell>

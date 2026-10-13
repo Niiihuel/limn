@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.astro/
+# Built from crates/limn-gallery by build-gallery.sh.
+public/wasm/

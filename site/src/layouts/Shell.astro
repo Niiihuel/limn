@@ -1,0 +1,23 @@
+---
+import Base from './Base.astro';
+// `side`: [{ group, items: [{ href, label }] }]; `toc`: Astro's headings.
+const { title, description, side, toc = [] } = Astro.props;
+const path = Astro.url.pathname;
+---
+<Base title={title} description={description}>
+  <div class="shell">
+    <nav class="side" aria-label="Section">
+      {side.map(({ group, items }) => (
+        <>
+          <h2>{group}</h2>
+          {items.map(({ href, label }) => <a href={href} aria-current={path === href ? 'page' : undefined}>{label}</a>)}
+        </>
+      ))}
+    </nav>
+    <main class="main"><slot /></main>
+    <aside class="toc">
+      {toc.length > 0 && <h2>On this page</h2>}
+      {toc.map(({ depth, slug, text }) => <a href={`#${slug}`} class={depth > 2 ? 'sub' : undefined}>{text}</a>)}
+    </aside>
+  </div>
+</Base>
