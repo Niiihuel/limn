@@ -185,7 +185,8 @@ impl eframe::App for Host {
 }
 
 /// In a page the gallery fills the canvas `limn`; the address's fragment
-/// (`#glass`) chooses the page, so a site can link to one component.
+/// (`#glass`) chooses the page, so a site can link to one component, and
+/// `?embed` leaves only that page, `?light` in the light theme.
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use eframe::wasm_bindgen::JsCast as _;
@@ -197,8 +198,11 @@ fn main() {
         .find(|known| known.id == page)
         .map_or(pages::PAGES[0].id, |known| known.id);
     let mut state = app::State::starting_at(page);
-    if window.location().search().unwrap_or_default().contains("light") {
-        state.set("light", "on");
+    let query = window.location().search().unwrap_or_default();
+    for flag in ["light", "embed"] {
+        if query.contains(flag) {
+            state.set(flag, "on");
+        }
     }
     let canvas = window
         .document()

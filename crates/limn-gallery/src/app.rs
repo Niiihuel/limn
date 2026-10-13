@@ -149,7 +149,12 @@ pub fn view(state: &State, window: Size) -> Element {
     let cx = Cx {
         state,
         palette,
-        width: (window.width - SIDEBAR_WIDTH - 64.0).max(240.0),
+        width: if state.flag("embed") {
+            window.width - 48.0
+        } else {
+            window.width - SIDEBAR_WIDTH - 64.0
+        }
+        .max(240.0),
     };
 
     let mut sidebar = vec![Element::text("limn")
@@ -193,13 +198,22 @@ pub fn view(state: &State, window: Size) -> Element {
     .gap(24.0)
     .padding(32.0);
 
-    let root = Element::panel(Element::row(vec![
-        Element::panel(Element::column(sidebar).gap(2.0))
-            .padding(12.0)
-            .background(palette.surface)
-            .size(Some(SIDEBAR_WIDTH), None),
-        ScrollArea::new("page-scroll", page).render().flex(1.0),
-    ]))
+    // Embedded in a site's page, the gallery is only the component: the site
+    // has the navigation and the title.
+    let content = if state.flag("embed") {
+        vec![ScrollArea::new("page-scroll", (current.view)(&cx).padding(24.0))
+            .render()
+            .flex(1.0)]
+    } else {
+        vec![
+            Element::panel(Element::column(sidebar).gap(2.0))
+                .padding(12.0)
+                .background(palette.surface)
+                .size(Some(SIDEBAR_WIDTH), None),
+            ScrollArea::new("page-scroll", page).render().flex(1.0),
+        ]
+    };
+    let root = Element::panel(Element::row(content))
     .background(theme.background)
     .size(Some(window.width), Some(window.height));
     // Dialogs and toasts float over the whole window, whatever the page.
