@@ -1,5 +1,8 @@
 # limn
 
+**[limn-omega.vercel.app](https://limn-omega.vercel.app)**: the guides, and every
+component running in your browser.
+
 A native UI library for Rust. An application describes its window as a tree
 of elements; limn lays it out, keeps the state of every control by its ID,
 and produces drawing commands for a backend to paint.
@@ -59,6 +62,9 @@ per gallery page with the components running in WebAssembly.
 sh site/build-gallery.sh          # the gallery, for the browser
 cd site && npm install && npm run dev
 ```
+
+It is published from a local build, because the gallery is compiled from
+Rust: `cd site && vercel build --prod && vercel deploy --prebuilt --prod`.
 
 ## Crates
 

@@ -3,3 +3,5 @@ dist/
 .astro/
 # Built from crates/limn-gallery by build-gallery.sh.
 public/wasm/
+.vercel
+.env*
