@@ -85,8 +85,15 @@ impl PanelHeader {
         }
     }
 
-    /// Put this element in place of the title, such as a strip of tabs, a
-    /// breadcrumb or a field. It takes the width the tools leave.
+    /// A header that holds this element where a title would be, such as a
+    /// strip of tabs, a breadcrumb or a field: [`new`](Self::new) with
+    /// [`leading`](Self::leading), without a title to leave unused.
+    pub fn with_leading(element: Element, palette: ComponentPalette) -> Self {
+        Self::new("", palette).leading(element)
+    }
+
+    /// Put this element in place of the title, which is then not shown. It
+    /// takes the width the tools leave.
     pub fn leading(mut self, element: Element) -> Self {
         self.leading = Some(element);
         self

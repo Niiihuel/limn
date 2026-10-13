@@ -73,12 +73,12 @@ fn update(state: &mut State, action: &UiAction) {
 ## An element in place of the title
 
 ```rust
-PanelHeader::new("", palette)
-    .leading(
-        TextField::new("address", &state.address, "Address…", palette)
-            .size(ControlSize::Compact)
-            .render(),
-    )
+PanelHeader::with_leading(
+    TextField::new("address", &state.address, "Address…", palette)
+        .size(ControlSize::Compact)
+        .render(),
+    palette,
+)
     .sizing(HeaderSizing { height: 36.0, ..HeaderSizing::PANE })
     .render()
 ```

@@ -109,6 +109,7 @@ pub struct Breadcrumb {
     height: f32,
     overflow_open: bool,
     search_action: Option<String>,
+    search_shortcut: String,
     editing: Option<(String, String, String)>,
     path: Option<PathSegments>,
 }
@@ -128,6 +129,7 @@ impl Breadcrumb {
             height: 28.0,
             overflow_open: false,
             search_action: None,
+            search_shortcut: "Ctrl+F".into(),
             editing: None,
             path: None,
         }
@@ -208,6 +210,13 @@ impl Breadcrumb {
         self
     }
 
+    /// The keys shown in the search button's hint, in place of `Ctrl+F`. The
+    /// bar does not bind them: the host does. Empty shows none.
+    pub fn search_shortcut(mut self, keys: impl Into<String>) -> Self {
+        self.search_shortcut = keys.into();
+        self
+    }
+
     /// Show a one-line field in place of the path, for typing a location or
     /// a search. The host owns the text through `InputChanged` and
     /// `Submitted` for `input_id`, and leaves this mode by not calling it.
@@ -238,7 +247,7 @@ impl Component for Breadcrumb {
                 .foreground(palette.muted)
                 .size(Some(height), Some(height));
             let button = Tooltip::new(button, action, crate::labels().search, palette)
-                .shortcut("Ctrl+F")
+                .shortcut(self.search_shortcut.clone())
                 .render();
             self.width = (width - height - GAP).max(0.0);
             return Element::row(vec![self.render(), button])

@@ -100,12 +100,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Un campo en lugar del título", vec![framed(
             cx,
             width,
-            PanelHeader::new("", palette)
-                .leading(
-                    TextField::new("panel-address", cx.state.text("panel-address"), "Dirección…", palette)
-                        .size(ControlSize::Compact)
-                        .render(),
-                )
+            PanelHeader::with_leading(
+                TextField::new("panel-address", cx.state.text("panel-address"), "Dirección…", palette)
+                    .size(ControlSize::Compact)
+                    .render(),
+                palette,
+            )
                 .trailing(vec![tool(cx, "panel-field-more", Icon::More, "Más acciones")])
                 // A profile of the host's own: room for a 28 px field.
                 .sizing(HeaderSizing { height: 36.0, ..HeaderSizing::PANE })

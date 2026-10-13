@@ -146,32 +146,10 @@ default is the near edge, where an assistant's text starts.
 
 For a branch position such as "2 / 3", put a `Pager` beside the row.
 
-## A minimap of the conversation
-
-```rust
-let marks = state
-    .turns
-    .iter()
-    .map(|turn| ChatMinimapMark::new(format!("turn={}", turn.index), &turn.question).preview(&turn.answer))
-    .collect();
-ChatMinimap::new("minimap", marks, palette)
-    .active(format!("turn={}", state.turn_in_view))
-    .render()
-```
-
-The page also shows `ChatMinimap`, a separate component: a conversation's
-turns as a rail of short marks beside it, one `ChatMinimapMark::new(id,
-title)` per turn. The mark under the pointer or with the focus grows and its
-neighbours step down, and it shows the turn's title and `preview` in a
-tooltip at once. `active(id)` marks the turn in view. A click on a mark
-reports its ID, and the host scrolls that turn into view.
-
 ## Keyboard
 
 | Key | Effect |
 | --- | --- |
-| Up, Down | On the minimap, move the focus to the next mark and report it. They stop at the ends of the rail. |
-| Home | On the minimap, moves to the first mark and reports it. |
 | Tab | Moves through the enabled actions and the overflow trigger in order. It reaches a `Hover` row that is not painted, and the row stays shown while one of its controls has the focus. |
 
 ## Motion
@@ -188,4 +166,3 @@ motion it switches at once. Only the paint changes: nothing moves. See
 | `UiAction::Clicked { id }` with `{id}:more` | The overflow trigger is activated. |
 | `UiAction::Clicked { id }` with `{id}:more:dismiss` | A click lands outside the open menu. |
 | `UiAction::Clicked { id }` with a menu item's ID | That item of the overflow menu is chosen. |
-| `UiAction::Clicked { id }` with a mark's ID | A mark of the minimap is clicked, or reached with the keyboard. |

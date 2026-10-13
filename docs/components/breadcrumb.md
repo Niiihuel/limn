@@ -107,6 +107,9 @@ shows a one-line field in place of the path, for typing a location or a
 search. The host owns its text through `InputChanged` and `Submitted` for the
 input ID, and leaves this mode by not calling `editing`.
 
+The button's hint shows `Ctrl+F`; `search_shortcut(keys)` shows the keys the
+host binds instead, and an empty string none.
+
 ## Actions
 
 | Action | When |
