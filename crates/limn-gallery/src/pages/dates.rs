@@ -62,6 +62,12 @@ pub fn update(state: &mut State, action: &UiAction) {
     }
 }
 
+/// Each live field and the value it stands for. A field keeps the text typed
+/// in it, so after a day is chosen or a time stepped the tree is given these.
+pub fn fields(state: &State) -> Vec<(&'static str, String)> {
+    DATES.iter().chain(&TIMES).map(|(id, initial)| (*id, state.choice(id, initial).to_owned())).collect()
+}
+
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;

@@ -37,6 +37,13 @@ fn update(state: &mut State, action: &UiAction) {
 `adjusted_value(action_id, id, current)` is `None` for an action that is not
 one of this picker's arrows, so it can be tried on every click.
 
+A field keeps the text typed in it, whatever value it is built with again.
+So after an arrow changes the time, give the field the new text:
+
+```rust
+tree.set_input_value("alarm", &state.alarm);
+```
+
 ## Stepping
 
 An hour arrow moves the time by an hour and wraps at midnight: an hour up

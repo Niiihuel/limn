@@ -43,6 +43,20 @@ struct Host {
 }
 
 impl Host {
+    /// A field keeps the text typed in it, whatever value it is built with
+    /// again. When a click changes what a field stands for, as a picker's
+    /// arrow does, the tree is told the new text.
+    fn show_what_a_click_changed(&mut self, action: &UiAction) {
+        if !matches!(action, UiAction::Clicked { .. }) {
+            return;
+        }
+        for (id, value) in pages::fields(&self.state) {
+            if self.tree.input_value(id).is_some_and(|shown| shown != value) {
+                self.tree.set_input_value(id, value);
+            }
+        }
+    }
+
     /// Under hot reload a change that cannot be patched restarts the gallery.
     /// Saving the state makes that restart land on the same page with the
     /// same values, like a patch would.
@@ -138,6 +152,7 @@ impl eframe::App for Host {
                 if !glass_drag::handle(&mut self.state, &action, self.tree.frame()) {
                     hot(|| app::update(&mut self.state, &action));
                 }
+                self.show_what_a_click_changed(&action);
                 changed = true;
             }
         }
@@ -147,6 +162,7 @@ impl eframe::App for Host {
             if !glass_drag::handle(&mut self.state, &action, self.tree.frame()) {
                 hot(|| app::update(&mut self.state, &action));
             }
+            self.show_what_a_click_changed(&action);
             changed = true;
         }
         if changed {

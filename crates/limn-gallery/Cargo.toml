@@ -21,10 +21,10 @@ hot = ["limn/hot"]
 [dependencies]
 # The standard clock everywhere but a browser, where std's panics.
 web-time = "1.1"
-limn = { version = "0.1.39", path = "../limn", default-features = false }
-limn-egui = { version = "0.1.39", path = "../limn-egui", default-features = false }
+limn = { version = "0.1.40", path = "../limn", default-features = false }
+limn-egui = { version = "0.1.40", path = "../limn-egui", default-features = false }
 # The buffer a `CodeEditor` draws.
-limn-editor = { version = "0.1.39", path = "../limn-editor" }
+limn-editor = { version = "0.1.40", path = "../limn-editor" }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 

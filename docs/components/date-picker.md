@@ -41,6 +41,13 @@ fn update(state: &mut State, action: &UiAction) {
 }
 ```
 
+A field keeps the text typed in it, whatever value it is built with again.
+So after a day is chosen, give the field the new text:
+
+```rust
+tree.set_input_value("due", &state.due);
+```
+
 The text is the host's, valid or not: a date half typed stays as typed.
 `DatePicker::is_valid_date(value)` says whether it is a real date, from year
 1 to 9999, written with every digit.
