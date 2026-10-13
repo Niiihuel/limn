@@ -2,82 +2,100 @@
 import { Code } from 'astro:components';
 import Base from '../layouts/Base.astro';
 import Icon from '../components/Icon.astro';
-import { COMPONENTS, REPO } from '../data/site';
+import Lanyard from '../components/home/Lanyard.astro';
+import { REPO } from '../data/site';
+import '../styles/home.css';
 
-const counter = `fn view(state: &State, palette: ComponentPalette) -> Element {
+const example = `use limn::{Button, Component, ComponentPalette, Element, Text};
+
+fn view(state: &State, palette: ComponentPalette) -> Element {
     Element::column(vec![
-        Element::text(format!("Count: {}", state.count))
-            .foreground(palette.text),
-        Button::new("increment", "Increase", palette).render(),
+        Text::new(&state.title, palette).render(),
+        Button::new("save", "Save changes", palette).render(),
     ])
-    .gap(16.0)
-}
-
-fn update(state: &mut State, action: &UiAction) {
-    if let UiAction::Clicked { id } = action {
-        if id == "increment" {
-            state.count += 1;
-        }
-    }
+    .gap(12.0)
 }`;
-
-const capabilities = [
-  ['Declarative', 'The window is a function of your state, rebuilt every frame. Controls keep their own state by ID.', ['Element', 'UiTree', 'UiAction'], 'diagram-3'],
-  ['Backend-neutral', 'The core has no window or graphics dependency: it produces drawing commands. An egui and wgpu backend is included.', ['Frame', 'DrawCommand', 'limn-egui'], 'layers'],
-  ['Animated by default', 'Menus, dialogs, tooltips and controls move without application code, and one switch turns all of it off.', ['Motion', 'set_reduced_motion'], 'lightning-charge'],
-  ['Themeable', 'Three colors define a palette; tokens set corner radii and pace for the whole application.', ['Theme', 'ComponentPalette', 'Tokens'], 'palette'],
-  ['Testable', 'A test lays out a tree and inspects the frame. No window, no GPU, no screenshots to compare.', ['UiTree::layout', 'Frame::regions'], 'check2-circle'],
-  ['A real code editor', 'A rope-backed editor with folding, a minimap, search and Vim keys, and Tree-sitter highlighting behind a feature.', ['CodeEditor', 'limn-editor', 'limn-language'], 'code-slash'],
-  ['Native Markdown and diagrams', 'Markdown, Mermaid flowcharts and sequence diagrams are laid out and drawn by the library, not by a web view.', ['Markdown', 'DiagramViewer'], 'markdown'],
-  ['Liquid glass', 'A material that blurs, tints and refracts the scene behind a surface, with a rim that bends what enters it.', ['GlassMaterial', 'NavigationBar'], 'droplet-half'],
-  ['Runs in a browser', 'The same tree compiles to WebAssembly. Every example on this site is the library, not a recording.', ['wasm32', 'WebGL 2', 'WebGPU'], 'globe2'],
+const dependency = `limn = { git = "${REPO}" }`;
+const principles = [
+  ['01', 'Your state stays yours.', 'Your application owns the values and actions. Stable IDs keep focus, scroll and transitions in place.', 'State → Element'],
+  ['02', 'Every detail belongs.', 'Controls, menus and motion share a visual language. Build a whole interface from pieces that work together.', 'Element → UiTree'],
+  ['03', 'Bring your renderer.', 'limn produces drawing commands. Use the egui backend, or give your own renderer a frame to draw.', 'UiTree → Frame'],
 ];
 ---
-<Base>
-  <section class="hero">
-    <div>
-      <span class="pill">Open source · MIT or Apache-2.0</span>
-      <h1>Native interfaces for Rust, drawn from your state.</h1>
-      <p class="lead">
-        limn lays out a tree of elements, keeps the state of every control by its ID, and hands a backend the drawing
-        commands. {COMPONENTS.length} components with a live page each, animated by default, testable without a window.
-      </p>
-      <div class="actions">
-        <a class="button primary" href="/docs/getting-started/">Get started<Icon name="arrow-right" /></a>
-        <a class="button" href="/components/"><Icon name="grid" />Browse components</a>
+<Base variant="landing" bodyClass="home" description="limn is a native UI library for Rust. Build interfaces from your state, with coherent components, retained interactions and motion.">
+  <main class="limn-home" id="content" tabindex="-1">
+    <section class="home-hero" aria-labelledby="home-title">
+      <div class="home-halftone" aria-hidden="true"></div>
+      <div class="home-hero-inner">
+        <div class="home-intro">
+          <p class="home-kicker"><span></span> Native UI for Rust <span class="home-version">/ 0.1 preview</span></p>
+          <h1 id="home-title">Native<br />by design<span class="home-period">.</span></h1>
+          <p class="home-lead">Describe your interface in Rust. limn brings the layout, interactions and motion. Your state. Your backend. Your application.</p>
+          <div class="home-actions">
+            <a class="home-button" href="/docs/getting-started/">Get started <Icon name="arrow-up-right" size={18} /></a>
+            <a class="home-text-link" href="/components/">Browse components <Icon name="arrow-right" size={17} /></a>
+          </div>
+          <p class="home-platforms">Open source <span>·</span> Linux + WebAssembly <span>·</span> MIT / Apache-2.0</p>
+        </div>
+        <Lanyard />
       </div>
-      <ul class="facts">
-        <li>Linux today, and the browser through WebAssembly · version 0.1, the API still changes</li>
-      </ul>
-      <code class="cargo"><Icon name="box-seam" size={14} /> limn = {`{ git = "${REPO}" }`}</code>
-    </div>
-    <div class="window">
-      <header><i></i><i></i><i></i><span>main.rs</span></header>
-      <Code code={counter} lang="rust" themes={{ light: 'github-light', dark: 'github-dark-default' }} />
-    </div>
-  </section>
+      <div class="home-hero-bottom"><span>LESS BETWEEN AN IDEA AND AN INTERFACE</span><a href="#built-in">Explore limn <Icon name="arrow-down" size={14} /></a></div>
+    </section>
 
-  <section class="band">
-    <p class="eyebrow">Live</p>
-    <h2>This is the library, running in your browser.</h2>
-    <p class="lead">The gallery below is compiled from the same Rust that draws a desktop window. Click through it.</p>
-    <div class="window" style="margin-top:32px">
-      <header><i></i><i></i><i></i><span>limn-gallery — Rust &amp; WebAssembly</span></header>
-      <iframe title="limn gallery" src="/frame/" loading="lazy"></iframe>
-    </div>
-  </section>
+    <section class="home-principles home-section" id="built-in" aria-labelledby="home-principles-title">
+      <div class="home-section-heading">
+        <p class="home-kicker">The way it works</p>
+        <h2 id="home-principles-title">One tree.<br /><span>A whole interface.</span></h2>
+        <p>Describe what belongs on screen. The tree remembers how it feels.</p>
+      </div>
+      <div class="home-principle-grid">
+        {principles.map(([number, title, copy, flow]) => (
+          <article>
+            <span class="home-number">{number}</span>
+            <h3>{title}</h3>
+            <p>{copy}</p>
+            <span class="home-flow">{flow}</span>
+          </article>
+        ))}
+      </div>
+    </section>
 
-  <section class="band">
-    <p class="eyebrow">Capabilities</p>
-    <h2>What a desktop application needs, in one tree.</h2>
-    <div class="grid">
-      {capabilities.map(([title, text, tags, icon]) => (
-        <article>
-          <h3><Icon name={icon} />{title}</h3>
-          <p>{text}</p>
-          <div class="tags">{tags.map((tag) => <code>{tag}</code>)}</div>
-        </article>
-      ))}
-    </div>
-  </section>
+    <section class="home-code-section home-section" aria-labelledby="home-code-title">
+      <div class="home-section-heading">
+        <p class="home-kicker">Start small. Build naturally.</p>
+        <h2 id="home-code-title">In your<br /><span>element.</span></h2>
+        <p>Ordinary Rust, a few components, and a view of your state. Rebuild the description. Keep the interaction.</p>
+        <a class="home-text-link" href="/docs/concepts/">Meet the model <Icon name="arrow-up-right" size={17} /></a>
+      </div>
+      <div class="home-code-window">
+        <div class="home-window-bar"><span><i></i><i></i><i></i></span><span>view.rs</span><span>RUST</span></div>
+        <Code code={example} lang="rust" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} />
+        <div class="home-code-note"><span class="home-status-dot"></span> State in. Interface out.</div>
+      </div>
+    </section>
+
+    <section class="home-demo-section home-section" aria-labelledby="home-demo-title">
+      <div class="home-demo-heading">
+        <div><p class="home-kicker">The real thing</p><h2 id="home-demo-title">Go ahead.<br /><span>Press a button.</span></h2></div>
+        <div><p>This is limn running as WebAssembly. The same Rust that draws a desktop window, right here.</p><a class="home-text-link" href="/gallery/">Open the full gallery <Icon name="arrow-up-right" size={17} /></a></div>
+      </div>
+      <div class="home-live-window">
+        <div class="home-window-bar"><span class="home-live-indicator"><span class="home-status-dot"></span> LIVE EXAMPLE</span><span>Modal / AlertDialog</span><a href="/components/dialog/" aria-label="Read the Modal and AlertDialog guide"><Icon name="arrow-up-right" size={17} /></a></div>
+        <iframe class="home-live" title="Interactive limn dialog examples" src="/frame/?embed&amp;bg=101012#dialog" loading="lazy"></iframe>
+      </div>
+      <div class="home-demo-links"><a href="/design-system/">Explore the foundations <Icon name="arrow-right" size={16} /></a><a href="/patterns/">Build with patterns <Icon name="arrow-right" size={16} /></a></div>
+    </section>
+
+    <section class="home-used home-section" aria-labelledby="home-used-title">
+      <p class="home-kicker">Shaped by real work</p>
+      <div class="home-used-content"><h2 id="home-used-title">The UI behind<br /><span class="home-openade">openADE</span></h2><div><p>A native Rust development environment for working with coding agents. limn brings its interfaces to life.</p><span class="home-used-note">Built in Rust. Built with limn.</span></div></div>
+    </section>
+
+    <section class="home-ending home-section" aria-labelledby="home-ending-title">
+      <p class="home-kicker">Your next interface starts here</p>
+      <h2 id="home-ending-title">Make it<br /><span>your own.</span></h2>
+      <div class="home-ending-row"><a class="home-button" href="/docs/getting-started/">Start building <Icon name="arrow-up-right" size={18} /></a><div class="home-install"><span>ADD LIMN FROM GIT</span><Code code={dependency} lang="toml" themes={{ light: 'github-dark-default', dark: 'github-dark-default' }} /></div></div>
+      <nav class="home-bottom-links" aria-label="More about limn"><a href="/docs/">Documentation</a><a href="/components/">Components</a><a href="/design-system/">Design system</a><a href={REPO}>GitHub <Icon name="arrow-up-right" size={14} /></a></nav>
+    </section>
+  </main>
 </Base>
