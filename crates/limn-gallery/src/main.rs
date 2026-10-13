@@ -20,17 +20,7 @@ use limn::{Element, Point, Size, UiAction, UiEvent, UiTree};
 use std::path::PathBuf;
 use web_time::{Duration, Instant};
 
-/// Run through the hot-patch jump table when patching is enabled, so the
-/// next frame after a patch calls the new code.
-fn hot<T>(call: impl FnMut() -> T) -> T {
-    #[cfg(feature = "hot")]
-    return subsecond::call(call);
-    #[cfg(not(feature = "hot"))]
-    {
-        let mut call = call;
-        call()
-    }
-}
+use limn::hot::call as hot;
 
 #[cfg(target_arch = "wasm32")]
 thread_local! {
@@ -50,29 +40,19 @@ struct Host {
     requested: bool,
 }
 
-/// Where the gallery keeps its state between runs while hot reloading.
-fn session_file() -> PathBuf {
-    std::env::temp_dir().join("limn-gallery-session")
-}
-
 impl Host {
     /// Under hot reload a change that cannot be patched restarts the gallery.
     /// Saving the state makes that restart land on the same page with the
     /// same values, like a patch would.
     fn remember(&self) {
-        if cfg!(feature = "hot") && self.screenshot.is_none() {
-            // Best effort: a lost session only costs a click.
-            let _ = std::fs::write(session_file(), self.state.serialize());
+        if self.screenshot.is_none() {
+            limn::hot::remember("limn-gallery", &self.state.serialize());
         }
     }
 
     fn start(&mut self, ctx: &egui::Context) {
         limn_egui::attach_fonts(&mut self.tree, ctx);
-        #[cfg(feature = "hot")]
-        {
-            let wake = ctx.clone();
-            subsecond::register_handler(std::sync::Arc::new(move || wake.request_repaint()));
-        }
+        limn_egui::repaint_on_patch(ctx);
     }
 
     /// Ask for the frame once fonts and icons have settled, save it, exit.
@@ -272,8 +252,7 @@ fn main() {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
-    #[cfg(feature = "hot")]
-    dioxus_devtools::connect_subsecond();
+    limn::hot::connect();
 
     let mut arguments = std::env::args().skip(1);
     let mut page = pages::PAGES[0].id.to_owned();
@@ -306,8 +285,8 @@ fn main() -> eframe::Result {
             }
         }
     }
-    let restored = (cfg!(feature = "hot") && !page_chosen && screenshot.is_none())
-        .then(|| std::fs::read_to_string(session_file()).ok())
+    let restored = (!page_chosen && screenshot.is_none())
+        .then(|| limn::hot::restore("limn-gallery"))
         .flatten()
         .map(|text| app::State::deserialize(&text));
     let mut state = restored.unwrap_or_else(|| app::State::starting_at(&page));

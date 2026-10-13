@@ -144,6 +144,11 @@ fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
 The tree is laid out before input is delivered because a click is resolved
 against the positions from the last layout.
 
+The example file has three calls more: `limn::hot::connect` in `main`,
+`limn_egui::repaint_on_patch`, and `limn::hot::call` around `view` and
+`update`. They do nothing in an ordinary build, and are what lets you edit
+the application while it runs: see [Hot reload](hot-reload.md).
+
 ## 6. Open the window
 
 Install the UI font once, when the window is created:
@@ -193,4 +198,5 @@ overrides and other languages.
 - [Concepts](concepts.md) explains the model you just used.
 - [Components](components.md) lists what you can put in the tree.
 - [Theming](theming.md) changes how it looks.
+- [Hot reload](hot-reload.md) lets you edit the application while it runs.
 - [Gallery and hot reload](gallery.md) shows every component running.

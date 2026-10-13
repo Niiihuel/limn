@@ -15,9 +15,8 @@ publish = false
 workspace = true
 
 [features]
-# Hot-patch views while running under `dx serve --hot-patch`.
-# The crate versions must match the `dx` binary.
-hot = ["dep:subsecond", "dep:dioxus-devtools"]
+# Hot-patch views while running under `dx serve --hot-patch`; see `limn::hot`.
+hot = ["limn/hot"]
 
 [dependencies]
 # The standard clock everywhere but a browser, where std's panics.
@@ -26,8 +25,6 @@ limn = { version = "0.1.39", path = "../limn", default-features = false }
 limn-egui = { version = "0.1.39", path = "../limn-egui", default-features = false }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
-subsecond = { version = "=0.7.9", optional = true }
-dioxus-devtools = { version = "=0.7.9", optional = true }
 
 # The browser build: `wasm32-unknown-unknown`, then `wasm-bindgen --target web`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]
