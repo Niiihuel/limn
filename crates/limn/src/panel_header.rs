@@ -7,7 +7,7 @@ use crate::{
 
 /// Density of a [`PanelHeader`], in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct HeaderSizing {
+pub struct PanelHeaderSizing {
     /// Height of the header.
     pub height: f32,
     /// Space around the row, inside the header.
@@ -21,7 +21,12 @@ pub struct HeaderSizing {
     pub center_tools: bool,
 }
 
-impl HeaderSizing {
+
+/// The former name of [`PanelHeaderSizing`].
+#[deprecated(since = "0.1.39", note = "renamed to `PanelHeaderSizing`")]
+pub type HeaderSizing = PanelHeaderSizing;
+
+impl PanelHeaderSizing {
     /// The heading of a sidebar: 26 high, tools 2 apart.
     pub const SIDEBAR: Self = Self {
         height: 26.0,
@@ -67,12 +72,12 @@ pub struct PanelHeader {
     trailing: Vec<Element>,
     dismiss: Option<(String, String)>,
     width: Option<f32>,
-    sizing: HeaderSizing,
+    sizing: PanelHeaderSizing,
     palette: ComponentPalette,
 }
 
 impl PanelHeader {
-    /// A title cut to one line, in the [`HeaderSizing::SIDEBAR`] profile.
+    /// A title cut to one line, in the [`PanelHeaderSizing::SIDEBAR`] profile.
     pub fn new(title: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: None,
@@ -82,7 +87,7 @@ impl PanelHeader {
             trailing: Vec::new(),
             dismiss: None,
             width: None,
-            sizing: HeaderSizing::SIDEBAR,
+            sizing: PanelHeaderSizing::SIDEBAR,
             palette,
         }
     }
@@ -138,7 +143,7 @@ impl PanelHeader {
     }
 
     /// Height, inset, gap and title size.
-    pub fn sizing(mut self, sizing: HeaderSizing) -> Self {
+    pub fn sizing(mut self, sizing: PanelHeaderSizing) -> Self {
         self.sizing = sizing;
         self
     }
@@ -289,7 +294,7 @@ mod tests {
     #[test]
     fn each_profile_sets_the_height_the_inset_and_centers_the_tools() {
         let palette = ComponentPalette::neutral_dark();
-        for sizing in [HeaderSizing::SIDEBAR, HeaderSizing::PANE, HeaderSizing::CARD, HeaderSizing::POPOVER] {
+        for sizing in [PanelHeaderSizing::SIDEBAR, PanelHeaderSizing::PANE, PanelHeaderSizing::CARD, PanelHeaderSizing::POPOVER] {
             for width in [180.0, 420.0] {
                 let header = PanelHeader::new("Changes", palette)
                     .trailing(vec![tool("one", palette), tool("two", palette)])
@@ -312,7 +317,7 @@ mod tests {
     #[test]
     fn tools_hang_from_the_top_inset_when_not_centered() {
         let palette = ComponentPalette::neutral_dark();
-        let sizing = HeaderSizing { center_tools: false, ..HeaderSizing::SIDEBAR };
+        let sizing = PanelHeaderSizing { center_tools: false, ..PanelHeaderSizing::SIDEBAR };
         let header = PanelHeader::new("Changes", palette)
             .trailing(vec![tool("one", palette)])
             .sizing(sizing)
@@ -344,7 +349,7 @@ mod tests {
                 .back("back", "Back to changes")
                 .trailing(vec![tool("one", palette)])
                 .dismiss("close", "")
-                .sizing(HeaderSizing::CARD)
+                .sizing(PanelHeaderSizing::CARD)
                 .render()
         };
         let mut tree = tree(header());
@@ -368,7 +373,7 @@ mod tests {
         let header = PanelHeader::new("unused", palette)
             .leading(field)
             .trailing(vec![tool("one", palette)])
-            .sizing(HeaderSizing::PANE)
+            .sizing(PanelHeaderSizing::PANE)
             .render();
         let frame = tree(header).layout(Size::new(300.0, 200.0));
         assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { .. })));
@@ -386,7 +391,7 @@ mod tests {
     #[test]
     fn bad_numbers_do_not_reach_the_layout() {
         let palette = ComponentPalette::neutral_dark();
-        let sizing = HeaderSizing { height: f32::NAN, padding: -4.0, gap: f32::INFINITY, ..HeaderSizing::SIDEBAR };
+        let sizing = PanelHeaderSizing { height: f32::NAN, padding: -4.0, gap: f32::INFINITY, ..PanelHeaderSizing::SIDEBAR };
         let header = PanelHeader::new("Changes", palette).sizing(sizing).width(f32::NAN).render();
         assert_eq!((header.style.width, header.style.height), (None, Some(0.0)));
         assert_eq!((header.style.padding, header.style.gap), (0.0, 0.0));

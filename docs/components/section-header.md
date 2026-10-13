@@ -7,7 +7,7 @@ that can fold the section.
 ## Import
 
 ```rust
-use limn::{Component, SectionHeader, SectionSizing};
+use limn::{Component, SectionHeader, SectionHeaderSizing};
 ```
 
 ## Usage
@@ -85,18 +85,18 @@ instead of wrapping it.
 ## Sizing
 
 ```rust
-SectionHeader::new("Sources", palette).sizing(SectionSizing::LABEL).render()
+SectionHeader::new("Sources", palette).sizing(SectionHeaderSizing::LABEL).render()
 ```
 
 | Profile | For | Height | Title |
 | --- | --- | --- | --- |
-| `SectionSizing::TITLE` | A section of a page; the default | 28 | 15 px |
-| `SectionSizing::LIST` | The heading of a list | 28 | 14 px |
-| `SectionSizing::LABEL` | A quiet label over a group in a side panel | 25 | 11 px, muted |
+| `SectionHeaderSizing::TITLE` | A section of a page; the default | 28 | 15 px |
+| `SectionHeaderSizing::LIST` | The heading of a list | 28 | 14 px |
+| `SectionHeaderSizing::LABEL` | A quiet label over a group in a side panel | 25 | 11 px, muted |
 
 `LABEL` also insets the row by 4 and starts the title and the detail at the
 top inset instead of centering them. A host with a density of its own builds
-a `SectionSizing` from its fields: `height`, `padding`, `gap`, `title_size`,
+a `SectionHeaderSizing` from its fields: `height`, `padding`, `gap`, `title_size`,
 `title_muted`, `detail_size` and `align_top`.
 
 ## Actions

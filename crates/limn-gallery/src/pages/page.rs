@@ -1,7 +1,7 @@
 use super::{caption, section, Cx, Section};
 use limn::{
     Button, ButtonSize, ButtonVariant, CardGrid, Component, Element, Icon, IconButton, PageColumn, PageHeader,
-    PageHeaderSizing, RadiusRole, ScrollbarAppearance, SectionHeader, SectionSizing, Text,
+    PageHeaderSizing, RadiusRole, ScrollbarAppearance, SectionHeader, SectionHeaderSizing, Text,
 };
 
 /// A catalog's heading: one cut line each, on the row of its actions.
@@ -106,16 +106,16 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .disclosure(Some(open))
                     .detail(if open { "3 files" } else { "hidden" })
                     .action("page-section-fold")
-                    .sizing(SectionSizing::LIST)
+                    .sizing(SectionHeaderSizing::LIST)
                     .render(),
                 SectionHeader::new("Sources", palette)
                     .detail("12")
-                    .sizing(SectionSizing::LABEL)
+                    .sizing(SectionHeaderSizing::LABEL)
                     .render(),
                 SectionHeader::new("A section title too long to fit on one line", palette)
                     .detail("128")
                     .truncate(true)
-                    .sizing(SectionSizing::LIST)
+                    .sizing(SectionHeaderSizing::LIST)
                     .width(280.0)
                     .render(),
                 SectionHeader::new("Tools", palette)
@@ -125,7 +125,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                             .button_size(ButtonSize::Mini)
                             .render(),
                     )
-                    .sizing(SectionSizing::LIST)
+                    .sizing(SectionHeaderSizing::LIST)
                     .render(),
             ])
             .gap(8.0)

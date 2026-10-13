@@ -1,7 +1,7 @@
 use super::{caption, section, Cx, Section};
 use limn::{
     AlertColors, AlertTone, Button, ButtonVariant, Component, ComponentPalette, ControlSize, DiffStat,
-    Element, Icon, IconButton, ListRow, RadiusRole, RowSizing, ScrollArea, Tooltip, TooltipPlacement,
+    Element, Icon, IconButton, ListRow, RadiusRole, ListRowSizing, ScrollArea, Tooltip, TooltipPlacement,
     TooltipSpec,
     TreeGuides, TreeRow,
 };
@@ -158,7 +158,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     ListRow::new(format!("list-frame-{index}"), *name, on_card)
                         .icon(Icon::Terminal)
                         .meta(*place)
-                        .sizing(RowSizing::DENSE)
+                        .sizing(ListRowSizing::DENSE)
                         .width(inner)
                         .render()
                 })

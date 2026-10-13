@@ -37,11 +37,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .collect(),
         ),
         section(cx, "Outside the scale", vec![
-            caption(cx, ".size(px) for a size the host's design places between two roles"),
+            caption(cx, ".font_size(px) for a size the host's design places between two roles"),
             Text::new("Small · 11", palette).role(TextRole::Small).muted().render(),
-            Text::new(".size(11.5): between Small and Caption", palette).size(11.5).muted().render(),
+            Text::new(".font_size(11.5): between Small and Caption", palette).font_size(11.5).muted().render(),
             Text::new("Caption · 12", palette).muted().render(),
-            Text::new("   42", palette).mono().size(10.5).muted().render(),
+            Text::new("   42", palette).mono().font_size(10.5).muted().render(),
         ]),
         section(cx, "Ink and family", vec![
             Text::eyebrow("EYEBROW", palette).render(),
@@ -77,7 +77,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 [0.0, 1.0, 2.0, 3.5]
                     .into_iter()
                     .enumerate()
-                    .map(|(index, radius)| Text::new("The line that has not been sung yet", palette).size(20.0).render().soft_focus(format!("typography-soft:{index}"), radius))
+                    .map(|(index, radius)| Text::new("The line that has not been sung yet", palette).font_size(20.0).render().soft_focus(format!("typography-soft:{index}"), radius))
                     .collect(),
             )
             .gap(8.0),

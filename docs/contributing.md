@@ -53,6 +53,8 @@ Then declare it in `crates/limn/src/lib.rs`: a `mod` line and a `pub use`.
 | Derive every ID the component creates from the caller's ID, such as `format!("{id}:body")`. | IDs must be unique across the window. |
 | Take colors from the palette, radii and durations from `crate::tokens()`. Never write a color, a radius or a duration as a literal. | Themes and tokens must reach every component. |
 | A disabled state renders passive elements, not a button that ignores clicks. | It must be unreachable by keyboard as well as pointer. |
+| One name for one idea: `ink` for the color of the content, `font_size` for the size of text, `width` and `height` in logical pixels, `size(ControlSize)` for a control's size, `sizing(<Component>Sizing)` for a density profile, `accessibility_label` for a name. | A caller who knows one component can guess the next. |
+| A name that changes keeps its old form, marked `#[deprecated]` with the new name in its note. | An application built on an earlier version still compiles, and is told what to change. |
 | What can be disabled has both `disabled()` and `enabled(bool)`. | The first reads well for a fixed case, the second takes a state the host computes; a caller should not have to remember which one a component has. |
 
 `crates/limn/tests/conventions.rs` holds the components to the rules that can

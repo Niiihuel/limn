@@ -1118,10 +1118,16 @@ impl Link {
         }
     }
 
-    /// Draw the link in this color, in place of the palette's link ink.
-    pub fn color(mut self, color: Color) -> Self {
+    /// Draw the link in this ink, in place of the palette's link ink.
+    pub fn ink(mut self, color: Color) -> Self {
         self.color = color;
         self
+    }
+
+    /// The former name of [`ink`](Self::ink).
+    #[deprecated(since = "0.1.39", note = "renamed to `ink`, the name every other component uses")]
+    pub fn color(self, color: Color) -> Self {
+        self.ink(color)
     }
 
     /// Set the size of the text. A size that is not finite or not above
@@ -5238,7 +5244,7 @@ mod tests {
         let palette = ComponentPalette::neutral_dark();
         let tree_of = |enabled| {
             let link = Link::new("docs", "Read the documentation", palette)
-                .color(palette.text)
+                .ink(palette.text)
                 .font_size(11.0)
                 .enabled(enabled);
             let mut tree = UiTree::new(Element::column(vec![

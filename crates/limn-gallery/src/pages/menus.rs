@@ -4,7 +4,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     Button, ButtonVariant, Component, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
-    DropdownMenuSection, Element, FontFamily, HeaderSizing, Icon, IconButton, Kbd, MenuHeader,
+    DropdownMenuSection, Element, FontFamily, PanelHeaderSizing, Icon, IconButton, Kbd, MenuHeader,
     MenuItem, PanelHeader, Popover, PopoverPanel, PopoverPanelSizing, ScrollArea, SelectorSizing,
     SuggestionItem, SuggestionList, TextField, TooltipPlacement, TooltipSpec,
 };
@@ -282,7 +282,7 @@ fn panel(cx: &Cx, padded: bool) -> Element {
             .header(
                 PanelHeader::new("Account and usage", palette)
                     .dismiss(format!("{key}=closed"), "Close")
-                    .sizing(HeaderSizing::POPOVER)
+                    .sizing(PanelHeaderSizing::POPOVER)
                     .render(),
             )
             .body(ScrollArea::new(format!("{key}-body"), Element::column(accounts)).render())

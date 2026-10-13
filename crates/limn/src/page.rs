@@ -368,7 +368,7 @@ impl Component for CardGrid {
 
 /// Density of a [`SectionHeader`], in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct SectionSizing {
+pub struct SectionHeaderSizing {
     /// Height of the row, padding included.
     pub height: f32,
     /// Inset on every side.
@@ -386,7 +386,12 @@ pub struct SectionSizing {
     pub align_top: bool,
 }
 
-impl SectionSizing {
+
+/// The former name of [`SectionHeaderSizing`].
+#[deprecated(since = "0.1.39", note = "renamed to `SectionHeaderSizing`")]
+pub type SectionSizing = SectionHeaderSizing;
+
+impl SectionHeaderSizing {
     /// A section of a page: a heading, usually with a count.
     pub const TITLE: Self = Self {
         height: 28.0,
@@ -428,12 +433,12 @@ pub struct SectionHeader {
     action: Option<String>,
     width: Option<f32>,
     truncate: bool,
-    sizing: SectionSizing,
+    sizing: SectionHeaderSizing,
     palette: ComponentPalette,
 }
 
 impl SectionHeader {
-    /// A heading in the [`SectionSizing::TITLE`] profile.
+    /// A heading in the [`SectionHeaderSizing::TITLE`] profile.
     pub fn new(title: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             title: title.into(),
@@ -444,7 +449,7 @@ impl SectionHeader {
             action: None,
             width: None,
             truncate: false,
-            sizing: SectionSizing::TITLE,
+            sizing: SectionHeaderSizing::TITLE,
             palette,
         }
     }
@@ -495,8 +500,8 @@ impl SectionHeader {
         self
     }
 
-    /// The row's density. [`SectionSizing::TITLE`] unless set.
-    pub fn sizing(mut self, sizing: SectionSizing) -> Self {
+    /// The row's density. [`SectionHeaderSizing::TITLE`] unless set.
+    pub fn sizing(mut self, sizing: SectionHeaderSizing) -> Self {
         self.sizing = sizing;
         self
     }
@@ -715,7 +720,7 @@ mod tests {
                 SectionHeader::new(title, palette())
                     .detail("12")
                     .truncate(truncate)
-                    .sizing(SectionSizing::LABEL)
+                    .sizing(SectionHeaderSizing::LABEL)
                     .render(),
                 120.0,
             )
@@ -801,7 +806,7 @@ mod tests {
                 SectionHeader::new("Fuentes", palette())
                     .detail("12")
                     .trailing(button("more"))
-                    .sizing(SectionSizing::LABEL)
+                    .sizing(SectionHeaderSizing::LABEL)
                     .render(),
                 width,
             );
@@ -825,7 +830,7 @@ mod tests {
             SectionHeader::new("Cambios", palette())
                 .disclosure(Some(open))
                 .action("fold")
-                .sizing(SectionSizing::LIST)
+                .sizing(SectionHeaderSizing::LIST)
                 .render()
         };
         for (open, icon) in [(true, Icon::ChevronDown), (false, Icon::ChevronRight)] {
@@ -861,7 +866,7 @@ mod tests {
 
     #[test]
     fn section_header_survives_a_bad_profile() {
-        let bad = SectionSizing {
+        let bad = SectionHeaderSizing {
             height: f32::NAN,
             padding: -3.0,
             gap: f32::INFINITY,
