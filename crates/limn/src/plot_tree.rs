@@ -194,14 +194,17 @@ impl LayoutBuilder<'_> {
         if !title.is_empty() {
             lines.push(text(title, style.text, FontFamily::SansMedium));
         }
+        // Rows with a value keep it at the far edge of a tooltip wide enough to read across.
+        let valued = rows.iter().any(|(_, _, value)| !value.is_empty());
         lines.extend(rows.into_iter().map(|(swatch, name, value)| {
-            Element::row(vec![
+            let mut row = vec![
                 Element::spacer().size(Some(8.0), Some(8.0)).background(swatch.unwrap_or(Color::TRANSPARENT)).radius(2.0).centered_y(),
-                text(&name, style.muted, FontFamily::Sans),
-                Element::spacer().flex(1.0).min_size(16.0, 0.0),
-                text(&value, style.text, FontFamily::Sans),
-            ])
-            .gap(6.0)
+                text(&name, if valued { style.muted } else { style.text }, FontFamily::Sans),
+            ];
+            if valued {
+                row.extend([Element::spacer().flex(1.0).min_size(16.0, 0.0), text(&value, style.text, FontFamily::Sans)]);
+            }
+            Element::row(row).gap(6.0)
         }));
         let tip = Element::panel(Element::column(lines).gap(5.0))
             .padding(9.0)
@@ -210,7 +213,7 @@ impl LayoutBuilder<'_> {
             .radius(crate::tokens().radius.control)
             .shadow(style.shadow, Point::new(0.0, 6.0), 18.0, 0.0);
         let size = self.measure_uncached(&tip, Size::new(280.0, 4096.0));
-        let size = Size::new(size.width.max(150.0), size.height);
+        let size = Size::new(size.width.max(if valued { 150.0 } else { 0.0 }), size.height);
         let x = if pointer.x < around.x + around.width / 2.0 { pointer.x + 10.0 } else { pointer.x - 10.0 - size.width };
         let y = if pointer.y < around.y + around.height / 2.0 { pointer.y + 10.0 } else { pointer.y - 10.0 - size.height };
         let inside = |at: f32, length: f32, from: f32, room: f32| at.min(from + room - length - 4.0).max(from + 4.0);
@@ -752,5 +755,55 @@ impl LayoutBuilder<'_> {
         }
         let title = plot.categories.get(category).map_or("", String::as_str);
         self.plot_tooltip(plot.tooltip, title, rows, area, pointer);
+    }
+
+    pub(super) fn paint_heat_plot(&mut self, plot: &crate::HeatPlot, content: Rect, clip: Option<Rect>) {
+        let count = plot.columns.len();
+        let pitch = plot.side + plot.gap;
+        if count == 0 || plot.side <= 0.0 {
+            return;
+        }
+        let appear = self.appearing(&format!("{}/appear", plot.id));
+        let cell_at = |column: usize, row: usize| plot.columns.get(column).and_then(|cells| cells.get(row)).and_then(Option::as_ref);
+        // The cell the pointer is in, counting the gap around it as its own.
+        let over = self
+            .pointer
+            .filter(|pointer| self.hovered == Some(plot.id.as_str()) && content.contains(*pointer) && appear >= 0.999)
+            .map(|pointer| (((pointer.x - content.x + plot.gap / 2.0) / pitch) as usize, ((pointer.y - content.y + plot.gap / 2.0) / pitch) as usize))
+            .filter(|(column, row)| cell_at(*column, *row).is_some());
+        let hover = crate::tokens().motion.hover_ms;
+        let focus = self.spring_paced(&format!("{}/focus", plot.id), if over.is_some() { 1.0 } else { 0.0 }, hover, hover).clamp(0.0, 1.0);
+        let mut raised = Vec::new();
+        for (column, cells) in plot.columns.iter().enumerate() {
+            // One column after another: each waits its turn, then comes in over the same time.
+            let turn = (appear * 1.5 - column as f32 / count as f32 * 0.5).clamp(0.0, 1.0);
+            for (row, cell) in cells.iter().enumerate() {
+                let Some(cell) = cell else { continue };
+                let key = format!("{}/cell/{column}/{row}", plot.id);
+                let under = over == Some((column, row));
+                // Only the cells the pointer has been over have a height to come down from.
+                let lift = if under || self.springs.borrow().contains_key(&key) {
+                    let lift = self.spring_paced(&key, if under { 1.0 } else { 0.0 }, hover, hover * 2);
+                    if under || lift.abs() > 0.004 { lift } else { 0.0 }
+                } else {
+                    0.0
+                };
+                let side = plot.side * (0.6 + 0.4 * turn) * (1.0 + 0.45 * lift);
+                let center = Point::new(content.x + column as f32 * pitch + plot.side / 2.0, content.y + row as f32 * pitch + plot.side / 2.0);
+                let strength = turn * (1.0 - 0.4 * focus * (1.0 - lift).clamp(0.0, 1.0));
+                let command = DrawCommand::FillRect {
+                    rect: Rect::new(center.x - side / 2.0, center.y - side / 2.0, side, side),
+                    color: faded(cell.color, strength),
+                    radius: (side * 0.2).min(3.5),
+                };
+                // The cell that stands over its neighbours is drawn after them.
+                if lift > 0.0 { raised.push(command) } else { self.frame.commands.push(command) }
+            }
+        }
+        self.frame.commands.extend(raised);
+        self.add_region(&plot.id, content, HitKind::Hover, clip);
+        let (Some((column, row)), Some(pointer)) = (over, self.pointer) else { return };
+        let Some(cell) = cell_at(column, row).filter(|cell| !cell.name.is_empty()) else { return };
+        self.plot_tooltip(plot.tooltip, "", vec![(Some(cell.color), cell.name.clone(), String::new())], content, pointer);
     }
 }

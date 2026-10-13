@@ -1008,6 +1008,34 @@ pub struct LinePlot {
     pub tooltip: TooltipStyle,
 }
 
+/// One cell of a [`HeatPlot`].
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeatCell {
+    /// Fill of the cell.
+    pub color: Color,
+    /// What the plot's tooltip says of it. Empty for a cell with no tooltip.
+    pub name: String,
+}
+
+/// A grid of square cells, one column after another, drawn and kept by the
+/// tree. UiTree keeps the plot's motion by `id`: the columns come in one
+/// after another when the plot first appears, and the cell under the pointer
+/// grows over its neighbours while the others recede, with a tooltip that
+/// follows the pointer and says what the cell is.
+#[derive(Clone, Debug, PartialEq)]
+pub struct HeatPlot {
+    /// Stable ID under which the tree keeps the plot's motion and its hover.
+    pub id: String,
+    /// One vector for each column, top row first. `None` is a hole.
+    pub columns: Vec<Vec<Option<HeatCell>>>,
+    /// Side of a cell, in logical pixels.
+    pub side: f32,
+    /// Space between two cells, in logical pixels.
+    pub gap: f32,
+    /// Colors of the tooltip.
+    pub tooltip: TooltipStyle,
+}
+
 /// One slice of a [`PiePlot`].
 #[derive(Clone, Debug, PartialEq)]
 pub struct PieSlice {
@@ -1512,6 +1540,8 @@ pub enum ElementKind {
     PiePlot(Box<PiePlot>),
     /// A radar chart; see [`RadarPlot`].
     RadarPlot(Box<RadarPlot>),
+    /// A grid of cells; see [`HeatPlot`].
+    HeatPlot(Box<HeatPlot>),
     /// A column of marks that rise around the pointer; see [`MarkRail`].
     MarkRail(MarkRail),
     /// Nothing of its own to draw and no natural size; see
@@ -2726,6 +2756,12 @@ impl Element {
     /// [`RadarPlot`]. Sized as a [`BarPlot`] is.
     pub fn radar_plot(plot: RadarPlot) -> Self {
         Self::new(ElementKind::RadarPlot(Box::new(plot)))
+    }
+
+    /// A grid of cells that the tree draws, animates and answers the pointer
+    /// for; see [`HeatPlot`]. It is as large as its cells and their gaps.
+    pub fn heat_plot(plot: HeatPlot) -> Self {
+        Self::new(ElementKind::HeatPlot(Box::new(plot)))
     }
 
     /// A column of marks that rise around the pointer. It is as wide as its

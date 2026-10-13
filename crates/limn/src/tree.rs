@@ -6110,6 +6110,7 @@ fn collect_focus_order(
         | ElementKind::LinePlot(_)
         | ElementKind::PiePlot(_)
         | ElementKind::RadarPlot(_)
+        | ElementKind::HeatPlot(_)
         | ElementKind::Text(_)
         | ElementKind::ShimmerText { .. }
         | ElementKind::KeyboardShortcut { .. }
@@ -6194,6 +6195,7 @@ fn collect_action_metadata(
         | ElementKind::LinePlot(_)
         | ElementKind::PiePlot(_)
         | ElementKind::RadarPlot(_)
+        | ElementKind::HeatPlot(_)
         | ElementKind::MarkRail(_)
         | ElementKind::Spacer => {}
     }
@@ -8506,6 +8508,11 @@ impl LayoutBuilder<'_> {
             // The caller sizes it; left alone it is one dot.
             ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
             // The caller sizes it; left alone it takes the width it is offered.
+            ElementKind::HeatPlot(plot) => {
+                let rows = plot.columns.iter().map(Vec::len).max().unwrap_or(0) as f32;
+                let across = |count: f32| (count * (plot.side + plot.gap) - plot.gap).max(0.0);
+                Size::new(across(plot.columns.len() as f32) + padding, across(rows) + padding)
+            }
             ElementKind::BarPlot(_) | ElementKind::LinePlot(_) | ElementKind::PiePlot(_) | ElementKind::RadarPlot(_) => Size::new(
                 if available.width.is_finite() { available.width } else { 480.0 },
                 240.0 + padding,
@@ -10817,6 +10824,7 @@ impl LayoutBuilder<'_> {
             ElementKind::LinePlot(plot) => self.paint_line_plot(plot, content, clip),
             ElementKind::PiePlot(plot) => self.paint_pie_plot(plot, content, clip),
             ElementKind::RadarPlot(plot) => self.paint_radar_plot(plot, content, clip),
+            ElementKind::HeatPlot(plot) => self.paint_heat_plot(plot, content, clip),
             ElementKind::LevelBars(bars) => {
                 let pitch = bars.bar + bars.gap;
                 let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };

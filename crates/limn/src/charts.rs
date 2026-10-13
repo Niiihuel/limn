@@ -1,7 +1,7 @@
 //! Read-only charts composed from the ordinary, backend-neutral element tree.
 //! The host supplies data, labels and colors; charts never fetch or invent data.
 
-use crate::{Color, Component, ComponentPalette, Element, FontFamily, Tooltip};
+use crate::{Color, Component, ComponentPalette, Element, FontFamily};
 
 fn label(value: impl Into<String>, color: Color, size: f32) -> Element {
     Element::truncated_text(value)
@@ -244,39 +244,26 @@ impl Component for HeatmapChart {
         let pitch = side + gap;
         let plot_width = side * count as f32 + gap * count.saturating_sub(1) as f32;
 
-        let grid = Element::row(
-            self.columns
+        // The cells are one plot the tree draws: it grows the one under the pointer and says what it is.
+        let scale = self.scale;
+        let grid = Element::heat_plot(crate::HeatPlot {
+            id: self.id,
+            columns: self
+                .columns
                 .into_iter()
                 .map(|column| {
-                    let cells = (0..rows)
+                    (0..rows)
                         .map(|row| {
-                            let square = Element::spacer().size(Some(side), Some(side));
-                            let Some(cell) = column.get(row).and_then(Option::as_ref) else {
-                                return square;
-                            };
-                            let square = square
-                                .background(self.scale.color(cell.level))
-                                .radius((side * 0.2).min(2.5));
-                            if cell.tooltip.is_empty() {
-                                square
-                            } else {
-                                Tooltip::new(
-                                    square,
-                                    format!("{}:{}", self.id, cell.id),
-                                    &cell.tooltip,
-                                    self.palette,
-                                )
-                                .render()
-                                .size(Some(side), Some(side))
-                            }
+                            column.get(row).and_then(Option::as_ref).map(|cell| crate::HeatCell { color: scale.color(cell.level), name: cell.tooltip.clone() })
                         })
-                        .collect();
-                    Element::column(cells).gap(gap).size(Some(side), None)
+                        .collect()
                 })
                 .collect(),
-        )
-        .gap(gap)
-        .size(Some(plot_width), None);
+            side,
+            gap,
+            tooltip: self.palette.tooltip_style(),
+        })
+        .size(Some(plot_width), Some(side * rows as f32 + gap * rows.saturating_sub(1) as f32));
 
         let grid = if show_rows {
             let axis = Element::column(
@@ -1062,24 +1049,36 @@ mod tests {
         .width(90.0)
         .cell_size(12.0)
         .render();
-        let frame = UiTree::new(chart).layout(Size::new(90.0, 60.0));
-        let monday = frame
-            .regions
-            .iter()
-            .find(|r| r.id == "calendar:mon")
-            .unwrap();
-        let sunday = frame
-            .regions
-            .iter()
-            .find(|r| r.id == "calendar:sun")
-            .unwrap();
-        assert_eq!(monday.rect.y, 15.0);
-        assert_eq!(sunday.rect.y, 0.0);
-        assert_eq!(sunday.rect.x, 15.0);
-        assert_eq!(frame.regions.len(), 2);
-        assert!(frame.commands.iter().any(|command| matches!(
-            command, DrawCommand::FillRect { color, .. } if *color == palette.raised
-        )));
+        let window = Size::new(90.0, 60.0);
+        let start = web_time::Instant::now();
+        let mut tree = UiTree::new(chart);
+        tree.set_reduced_motion(true);
+        let cells = |frame: &crate::Frame| -> Vec<(crate::Rect, Color)> {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::FillRect { rect, color, .. } if rect.width >= 10.0 && rect.width <= 20.0 && rect.height == rect.width => Some((*rect, *color)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let rest = cells(&tree.layout_at(window, start));
+        // A hole draws nothing; a day with nothing is a cell at level zero.
+        assert_eq!(rest.len(), 2);
+        assert_eq!((rest[0].0.x, rest[0].0.y, rest[0].0.width, rest[0].1), (0.0, 15.0, 12.0, palette.raised));
+        assert_eq!((rest[1].0.x, rest[1].0.y), (15.0, 0.0));
+
+        // Under the pointer a cell grows about its middle and says what it is, and the other recedes.
+        tree.handle_event(crate::UiEvent::PointerMove(crate::Point::new(21.0, 6.0)));
+        tree.layout_at(window, start);
+        let frame = tree.layout_at(window, start);
+        let lit = cells(&frame);
+        let (monday, sunday) = (lit[0], lit[1]);
+        assert!(sunday.0.width > 12.0 && (sunday.0.x + sunday.0.width / 2.0 - 21.0).abs() < 0.01, "{sunday:?}");
+        assert!(monday.0.width == 12.0 && monday.1.a < palette.raised.a, "{monday:?}");
+        assert!(texts(&frame).contains(&"8 contributions".to_owned()));
+        assert!(frame.regions.iter().all(|region| region.kind == crate::HitKind::Hover));
     }
 
     /// The rectangles drawn in `color`, at any strength: the bars of a series.
