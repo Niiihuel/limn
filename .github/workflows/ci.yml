@@ -28,6 +28,8 @@ jobs:
       # Nothing else builds the hot reload feature, and it must keep compiling.
       - run: cargo clippy -p limn-gallery --all-targets --features hot -- -D warnings
       - run: cargo test --workspace
+      # Without grammars, as the browser build is: code views fall back to the line lexer.
+      - run: cargo test -p limn --no-default-features
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings
