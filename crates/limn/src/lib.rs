@@ -67,6 +67,7 @@ mod scheme;
 mod scroll_area;
 mod select;
 mod selector_sizing;
+mod resize_handle;
 mod separator;
 mod sequence;
 mod shortcut;
@@ -178,6 +179,7 @@ pub use scheme::{ControlColors, Scheme, Surface};
 pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement};
 pub use select::Select;
 pub use selector_sizing::SelectorSizing;
+pub use resize_handle::ResizeHandle;
 pub use separator::Separator;
 pub use sequence::{
     SequenceArrow, SequenceBlockKind, SequenceBlockLayout, SequenceDiagram, SequenceEvent, SequenceGraph,

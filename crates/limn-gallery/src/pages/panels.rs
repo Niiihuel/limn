@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx};
 use limn::{
     ButtonVariant, Component, ControlSize, Element, HeaderSizing, Icon, IconButton, ListRow, Pager,
-    PagerSizing, PanelHeader, RadiusRole, SearchField, Separator, SidebarPanel, TextField,
+    PagerSizing, PanelHeader, RadiusRole, ResizeHandle, SearchField, Separator, SidebarPanel, TextField,
     TooltipPlacement, TooltipSpec,
 };
 
@@ -133,6 +133,19 @@ pub fn view(cx: &Cx) -> Element {
             .size(width, 190.0)
             .render(),
             caption(cx, "Margen y separación de 6 sobre la superficie de la paleta."),
+        ]),
+        section(cx, "Tirador entre paneles", vec![
+            caption(cx, "La franja entre dos paneles es el tirador: se ilumina bajo el puntero y el anfitrión mueve el límite con el arrastre."),
+            {
+                let pane = |label: &str| {
+                    Element::panel(caption(cx, label)).padding(12.0).background(palette.surface).radius(RadiusRole::Surface.px()).size(Some(180.0), Some(96.0))
+                };
+                row(vec![Element::row(vec![
+                    pane("Biblioteca"),
+                    ResizeHandle::vertical("panel-resize-demo", palette).render(),
+                    pane("Contenido"),
+                ])])
+            },
         ]),
         section(cx, "Paginador", vec![
             row(vec![
