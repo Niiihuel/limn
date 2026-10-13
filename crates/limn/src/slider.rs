@@ -1,6 +1,6 @@
 //! A value dragged along a track: a seek position, a volume, any share of a range.
 
-use crate::{Color, Component, ComponentPalette, CornerRadii, Element};
+use crate::{Access, Color, Component, ComponentPalette, CornerRadii, Element, Role};
 
 /// Height of the pointer target. The track is thinner and centered in it.
 const HEIGHT: f32 = 16.0;
@@ -20,6 +20,7 @@ pub struct Slider {
     steps: usize,
     enabled: bool,
     ink: Option<Color>,
+    accessibility_label: Option<String>,
 }
 
 impl Slider {
@@ -33,7 +34,15 @@ impl Slider {
             steps: 0,
             enabled: true,
             ink: None,
+            accessibility_label: None,
         }
+    }
+
+    /// What the slider is called to the platform. It shows no text of its
+    /// own, so without this, or a `FormField` around it, it has no name.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
     }
 
     pub fn width(mut self, width: f32) -> Self {
@@ -112,12 +121,21 @@ impl Component for Slider {
             ));
         }
         let track = Element::row(pieces).size(self.width, Some(HEIGHT));
+        // Drawn disabled it is passive, and known by the ID it would have had.
+        let mut access = Access::new(Role::Slider)
+            .id(self.id.clone())
+            .value(self.fraction)
+            .disabled(!self.enabled);
+        if let Some(name) = self.accessibility_label {
+            access = access.name(name);
+        }
         if !self.enabled {
-            return Element::panel(track).size(self.width, Some(HEIGHT));
+            return Element::panel(track).size(self.width, Some(HEIGHT)).accessible(access);
         }
         Element::clickable(self.id, track)
             .slider(self.fraction, self.steps, THUMB / 2.0)
             .size(self.width, Some(HEIGHT))
+            .accessible(access)
     }
 }
 
@@ -238,6 +256,22 @@ mod tests {
         assert!(tree.layout(Size::new(400.0, HEIGHT)).regions.is_empty());
         assert!(!tree.focus("s"));
         assert!(tree.handle_event(UiEvent::PointerDown(Point::new(60.0, HEIGHT / 2.0))).is_empty());
+    }
+
+    #[test]
+    fn the_platform_is_told_a_slider_its_value_and_its_name_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        for enabled in [true, false] {
+            let slider = Slider::new("s", 0.4, palette).width(WIDTH).enabled(enabled);
+            let frame = tree(slider.accessibility_label("Volume")).layout(Size::new(400.0, HEIGHT));
+            let node = frame.access.iter().find(|node| node.id == "s").expect("a node");
+            assert_eq!((node.role, node.name.as_str(), node.value), (Role::Slider, "Volume", Some(0.4)));
+            assert_eq!((node.disabled, node.actionable), (!enabled, enabled));
+            // It shows no number, so it says none in words.
+            assert_eq!(node.value_text, None);
+        }
+        let bare = tree(Slider::new("s", 0.4, palette)).layout(Size::new(400.0, HEIGHT));
+        assert_eq!(bare.access[0].name, "", "nothing names it until the host does");
     }
 
     #[test]

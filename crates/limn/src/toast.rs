@@ -1,8 +1,8 @@
 //! A brief, caller-timed card announcing an event in a corner of the window.
 
 use crate::{
-    AlertColors, AlertTone, ButtonSize, ButtonVariant, Component, ComponentPalette, Element,
-    FontFamily, Icon, IconButton, Point,
+    Access, AlertColors, AlertTone, ButtonSize, ButtonVariant, Component, ComponentPalette,
+    Element, FontFamily, Icon, IconButton, Point, Role,
 };
 
 const EDGE_INSET: f32 = 12.0;
@@ -101,6 +101,15 @@ impl Component for Toast {
         // The card fades in when it appears and out in place when the host
         // drops it, and is known between frames by its ID, or by its title.
         let presence = format!("toast:{}", self.id.as_deref().unwrap_or(&self.title));
+        // The platform knows the card as it is known between frames.
+        let said = Access::new(Role::Alert)
+            .id(self.id.clone().unwrap_or_else(|| presence.clone()))
+            .name(self.title.clone());
+        let said = if self.description.trim().is_empty() {
+            said
+        } else {
+            said.description(self.description.clone())
+        };
         let colors = AlertColors::for_tone(self.tone, self.palette);
         // Copy wraps inside the card's width and the card grows downward: a
         // notice is never cut with an ellipsis.
@@ -136,7 +145,8 @@ impl Component for Toast {
                 IconButton::new(id, Icon::Close, self.palette)
                     .button_size(ButtonSize::IconSmall)
                     .variant(ButtonVariant::Ghost)
-                    .render(),
+                    .render()
+                    .accessibility_label(crate::labels().dismiss_notice),
                 Element::spacer().flex(1.0),
             ]));
             cells.push(Element::spacer().size(Some(8.0), None));
@@ -149,6 +159,7 @@ impl Component for Toast {
             .shadow(self.palette.shadow, Point::new(0.0, 3.0), 10.0, 0.0)
             .size(Some(self.width), None)
             .animate_presence(presence)
+            .accessible(said)
     }
 }
 
@@ -166,6 +177,27 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_card_is_an_alert_named_by_its_title_and_its_close_button_has_a_name() {
+        let palette = ComponentPalette::neutral_dark();
+        let card = Toast::new("Copia guardada", palette)
+            .id("saved")
+            .description("En Documentos.")
+            .action("open")
+            .dismissible("close");
+        let frame = UiTree::new(Toast::layer(base(), vec![card.render()], 0.0)).layout(Size::new(800.0, 500.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let said = node("saved");
+        assert_eq!((said.role, said.name.as_str()), (Role::Alert, "Copia guardada"));
+        assert_eq!(said.description.as_deref(), Some("En Documentos."));
+        assert!(!said.actionable);
+        assert_eq!((node("open").role, node("open").name.as_str()), (Role::Button, "Copia guardada En Documentos."));
+        assert_eq!((node("close").role, node("close").name.as_str()), (Role::Button, crate::labels().dismiss_notice));
+        // Without an ID it is known as it is between frames: by its title.
+        let untold = UiTree::new(Toast::new("Listo", palette).render()).layout(Size::new(800.0, 500.0));
+        assert_eq!((untold.access[0].id.as_str(), untold.access[0].description.as_deref()), ("toast:Listo", None));
     }
 
     fn base() -> Element {

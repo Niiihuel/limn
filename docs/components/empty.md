@@ -84,3 +84,15 @@ The description wraps, and wrapped copy or actions make the state taller.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | One of its `action` buttons is activated, with the ID given to that action. |
+
+## Accessibility
+
+With an `id` the title is a heading the platform knows by that ID, described
+by the reason under it. The actions are buttons named by their labels. Without
+an `id` only the actions are known.
+
+```rust
+Empty::new("No results", "Try another search.", palette)
+    .id("no-results")
+    .render()
+```

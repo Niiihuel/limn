@@ -5,13 +5,17 @@ date. The [changelog](CHANGELOG.md) is what has shipped.
 
 ## Accessibility
 
-limn draws its own controls and tells the platform nothing about them, so a
-screen reader sees an empty window. This is the largest gap.
+A frame now tells the platform what is in it: each control with a role, a
+name and its state, published through AccessKit by `limn-egui`. See the
+[accessibility guide](docs/accessibility.md). What is still missing:
 
-- Give every interactive element a role, a name and a state in the tree.
-- Publish that tree to the platform through AccessKit from `limn-egui`.
-- Check keyboard reach for every component, and document the keys.
-- Honor the platform's reduced-motion and contrast preferences by default.
+- A tree, not a list: a menu's rows as children of the menu, a table's cells
+  in rows.
+- The caret and the selection of a text field, for the platform to follow.
+- More than "activate" and "focus": stepping a slider, scrolling a region.
+- The platform's preferences for reduced motion and contrast, read by
+  default.
+- A check of every component with a screen reader, on each platform.
 
 ## Platforms
 

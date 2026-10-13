@@ -31,6 +31,7 @@ pub struct Composer {
     border_color: Color,
     shadow_color: Color,
     card_radius: f32,
+    enabled: bool,
 }
 
 impl Composer {
@@ -68,6 +69,7 @@ impl Composer {
             border_color: palette.border,
             shadow_color: palette.shadow,
             card_radius: crate::tokens().radius.panel,
+            enabled: true,
         }
     }
 
@@ -188,6 +190,21 @@ impl Composer {
         }
         self
     }
+
+    /// A disabled composer shows its draft, or its placeholder, as muted
+    /// text in the editor's place: it has no hit region, takes no focus and
+    /// no typing, and draws no highlights. The elements the host passes in,
+    /// such as the footer, the attachments and the controls, are the host's
+    /// to disable.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 impl Component for Composer {
@@ -222,21 +239,56 @@ impl Component for Composer {
 
 impl Composer {
     fn card(self) -> Element {
-        if let Some((leading, trailing)) = self.pill_controls {
-            let editor = Element::text_area(self.editor_id, self.prompt, self.placeholder)
-                .text_area_highlights(self.editor_highlights)
-                .background(self.palette.selected)
-                .foreground(self.palette.text)
-                .font_family(FontFamily::Sans)
-                .font_size(self.editor_font_size)
-                .padding(if self.inline_controls { 5.0 } else { 6.0 })
+        let (id, prompt, placeholder) = (self.editor_id, self.prompt, self.placeholder);
+        let (highlights, palette, enabled) = (self.editor_highlights, self.palette, self.enabled);
+        let (font_size, height, auto_grow) = (self.editor_font_size, self.editor_height, self.auto_grow);
+        let editor = move |padding: f32| {
+            if !enabled {
+                // Text in the editor's box, as a disabled `TextArea` is: no
+                // region, so no focus, caret or typing. It is still there for
+                // the platform, as the editor is: named by its placeholder.
+                let mut said = crate::Access::new(crate::Role::MultilineTextInput)
+                    .id(id)
+                    .value_text(prompt.clone())
+                    .disabled(true);
+                if !placeholder.is_empty() {
+                    said = said.name(placeholder.clone());
+                }
+                let mut text = Element::panel(
+                    Element::text(if prompt.is_empty() { placeholder } else { prompt })
+                        .foreground(palette.muted)
+                        .font_family(FontFamily::Sans)
+                        .font_size(font_size),
+                )
+                .background(palette.selected)
+                .padding(padding)
                 .radius(crate::tokens().radius.surface)
-                .size(None, Some(self.editor_height));
-            let editor = if let Some((minimum, maximum)) = self.auto_grow {
+                .clip_children()
+                .size(None, Some(height))
+                .accessible(said);
+                if let Some((minimum, maximum)) = auto_grow {
+                    text = text.size(None, None).min_size(0.0, minimum);
+                    text.style.max_height = Some(maximum);
+                }
+                return text;
+            }
+            let editor = Element::text_area(id, prompt, placeholder)
+                .text_area_highlights(highlights)
+                .background(palette.selected)
+                .foreground(palette.text)
+                .font_family(FontFamily::Sans)
+                .font_size(font_size)
+                .padding(padding)
+                .radius(crate::tokens().radius.surface)
+                .size(None, Some(height));
+            if let Some((minimum, maximum)) = auto_grow {
                 editor.text_area_auto_grow(minimum, maximum)
             } else {
                 editor
-            };
+            }
+        };
+        if let Some((leading, trailing)) = self.pill_controls {
+            let editor = editor(if self.inline_controls { 5.0 } else { 6.0 });
             let mut contents = self.attachments;
             if self.inline_controls {
                 contents.push(
@@ -278,20 +330,7 @@ impl Composer {
                 pill
             };
         }
-        let editor = Element::text_area(self.editor_id, self.prompt, self.placeholder)
-            .text_area_highlights(self.editor_highlights)
-            .background(self.palette.selected)
-            .foreground(self.palette.text)
-            .font_family(FontFamily::Sans)
-            .font_size(self.editor_font_size)
-            .padding(8.0)
-            .radius(crate::tokens().radius.surface)
-            .size(None, Some(self.editor_height));
-        let editor = if let Some((minimum, maximum)) = self.auto_grow {
-            editor.text_area_auto_grow(minimum, maximum)
-        } else {
-            editor
-        };
+        let editor = editor(8.0);
         let mut contents = self.attachments;
         contents.push(editor);
         if let Some(preview) = self.link_preview {
@@ -326,6 +365,21 @@ impl Composer {
 mod tests {
     use super::*;
     use crate::{Key, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn the_editor_is_named_by_its_placeholder_and_gives_its_draft_enabled_or_not() {
+        for enabled in [true, false] {
+            let composer = Composer::new("prompt", "Borrador", "Escribe una tarea", 480.0, ComponentPalette::neutral_dark())
+                .footer(Element::button("send", "Enviar"))
+                .enabled(enabled)
+                .render();
+            let frame = UiTree::new(composer).layout(Size::new(480.0, 250.0));
+            let said = frame.access.iter().find(|node| node.id == "prompt").unwrap();
+            assert_eq!((said.role, said.name.as_str()), (crate::Role::MultilineTextInput, "Escribe una tarea"));
+            assert_eq!(said.value_text.as_deref(), Some("Borrador"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
+    }
 
     #[test]
     fn composer_keeps_context_outside_editor_and_routes_text_to_one_id() {
@@ -380,6 +434,78 @@ mod tests {
                 value: "hola\n".into(),
             }]
         );
+    }
+
+    #[test]
+    fn a_disabled_composer_shows_its_draft_takes_no_typing_and_keeps_its_layout() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(480.0, 400.0);
+        let draft = "primera línea\nsegunda línea";
+        type Build = fn(Composer) -> Composer;
+        let layouts: [Build; 4] = [
+            |composer| composer,
+            |composer| composer.auto_grow(28.0, 200.0),
+            |composer| composer.pill_controls(Element::button("add", "+"), Element::button("go", "Ir")),
+            |composer| {
+                composer
+                    .pill_controls(Element::button("add", "+"), Element::button("go", "Ir"))
+                    .inline_controls(true)
+                    .auto_grow(28.0, 200.0)
+            },
+        ];
+        for (index, build) in layouts.into_iter().enumerate() {
+            for prompt in [draft, ""] {
+                let frame_of = |enabled: bool| {
+                    let composer = build(Composer::new("prompt", prompt, "Escribe una tarea", 480.0, palette))
+                        .footer(Element::button("send", "Enviar"))
+                        .enabled(enabled)
+                        .render();
+                    let mut tree = UiTree::new(Element::column(vec![composer, Element::spacer().flex(1.0)]));
+                    tree.set_reduced_motion(true);
+                    let frame = tree.layout(size);
+                    (tree, frame)
+                };
+                let (mut tree, frame) = frame_of(false);
+                assert!(frame.regions.iter().all(|region| region.id != "prompt"), "{:?}", frame.regions);
+                assert!(!tree.focus("prompt"));
+                let (_, enabled) = frame_of(true);
+                let region = |frame: &crate::Frame, id: &str| {
+                    frame.regions.iter().find(|region| region.id == id).unwrap().rect
+                };
+                let editor = region(&enabled, "prompt");
+                let point = crate::Point::new(editor.x + 20.0, editor.y + 10.0);
+                assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+                assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+                assert!(tree.handle_event(UiEvent::Text("hola".into())).is_empty());
+                let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+                assert!(tree.handle_event(enter).is_empty());
+                // The draft, or the placeholder, is there in muted ink.
+                let shown = frame
+                    .commands
+                    .iter()
+                    .filter_map(|command| match command {
+                        crate::DrawCommand::Text { text, position, color, .. }
+                            if *color == palette.muted =>
+                        {
+                            Some((text.as_str(), *position))
+                        }
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                let lines: Vec<&str> = if prompt.is_empty() {
+                    vec!["Escribe una tarea"]
+                } else {
+                    prompt.lines().collect()
+                };
+                assert_eq!(shown.iter().map(|line| line.0).collect::<Vec<_>>(), lines, "layout {index}");
+                assert!(shown.iter().all(|line| line.1.x >= editor.x && line.1.y >= editor.y));
+                // The host's controls stand where they did.
+                assert_eq!(region(&frame, "send"), region(&enabled, "send"), "layout {index}");
+                if index >= 2 {
+                    assert_eq!(region(&frame, "go"), region(&enabled, "go"), "layout {index}");
+                }
+            }
+        }
     }
 
     #[test]

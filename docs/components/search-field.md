@@ -70,3 +70,14 @@ or the placeholder in the muted ink, and is not an input.
 | --- | --- |
 | `UiAction::InputChanged { id, value }` | The query changes. |
 | `UiAction::Submitted { id, value }` | Enter is pressed in the field. |
+
+## Accessibility
+
+The platform is told a search field named by its placeholder, and the query
+it holds. Where the placeholder is not its name, give one with
+`accessibility_label`. A disabled field is still there and says it cannot be
+used.
+
+```rust
+SearchField::new("search", query, "Type to filter", palette).accessibility_label("Search files")
+```

@@ -2,7 +2,7 @@
 //! while a session is live. Beside it, the level of what the microphone hears.
 
 use crate::{
-    ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, Icon, IconButton,
+    Access, ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, Icon, IconButton,
     LevelBars, Skeleton, Spinner,
 };
 
@@ -39,6 +39,7 @@ pub struct DictationButton {
     size: ControlSize,
     enabled: bool,
     hover_ink: Option<Color>,
+    accessibility_label: Option<String>,
 }
 
 impl DictationButton {
@@ -54,7 +55,15 @@ impl DictationButton {
             size: ControlSize::Regular,
             enabled: true,
             hover_ink: None,
+            accessibility_label: None,
         }
+    }
+
+    /// What the button is called to the platform. It is a mark alone in
+    /// every state, so without this it has no name.
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
+        self
     }
 
     /// The colors of a live session: `surface` fills the circle and `text`
@@ -90,6 +99,12 @@ impl DictationButton {
 
 impl Component for DictationButton {
     fn render(self) -> Element {
+        // On while a session is live, as it is drawn: disabled it is the
+        // resting microphone in any state.
+        let mut access = Access::default().toggled(self.enabled && self.state != DictationState::Idle);
+        if let Some(name) = self.accessibility_label {
+            access = access.name(name);
+        }
         if self.state == DictationState::Idle || !self.enabled {
             let mut button = IconButton::new(self.id, Icon::Microphone, self.palette)
                 .variant(ButtonVariant::Ghost)
@@ -99,7 +114,7 @@ impl Component for DictationButton {
             if let Some(ink) = self.hover_ink {
                 button = button.hover_ink(ink);
             }
-            return button.render();
+            return button.render().accessible(access);
         }
         let ink = self.live.text;
         let (mark, mark_side) = if self.state != DictationState::Listening {
@@ -137,6 +152,7 @@ impl Component for DictationButton {
             .background(self.live.surface)
             .radius(side / 2.0)
             .size(Some(side), Some(side))
+            .accessible(access)
     }
 }
 
@@ -303,6 +319,34 @@ mod tests {
             .iter()
             .find(|region| region.id == "mic")
             .map(|region| region.rect)
+    }
+
+    #[test]
+    fn the_platform_is_told_a_button_that_is_on_while_a_session_is_live() {
+        let palette = ComponentPalette::neutral_dark();
+        let node = |state, enabled| {
+            let button = DictationButton::new("mic", state, palette).enabled(enabled).accessibility_label("Dictate");
+            let frame = UiTree::new(Element::row(vec![button.render(), Element::spacer().flex(1.0)]))
+                .layout(Size::new(120.0, 40.0));
+            frame.access.iter().find(|node| node.id == "mic").cloned().expect("a node")
+        };
+        for (state, live) in [
+            (DictationState::Idle, false),
+            (DictationState::Starting, true),
+            (DictationState::Listening, true),
+            (DictationState::Transcribing, true),
+        ] {
+            let said = node(state, true);
+            assert_eq!((said.role, said.name.as_str(), said.toggled), (crate::Role::Button, "Dictate", Some(live)));
+            assert!(said.actionable && !said.disabled);
+            // Disabled it is drawn at rest whatever the state.
+            let off = node(state, false);
+            assert_eq!((off.role, off.name.as_str(), off.toggled), (crate::Role::Button, "Dictate", Some(false)));
+            assert!(off.disabled && !off.actionable);
+        }
+        let bare = UiTree::new(DictationButton::new("mic", DictationState::Listening, palette).render())
+            .layout(Size::new(120.0, 40.0));
+        assert_eq!(bare.access[0].name, "", "nothing names it until the host does");
     }
 
     #[test]

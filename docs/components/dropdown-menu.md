@@ -124,3 +124,11 @@ place at once.
 | --- | --- |
 | `UiAction::Clicked { id }` with an item's ID | The item is activated. |
 | `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the menu. |
+
+## Accessibility
+
+The platform is told each item is a menu item named by its label, with its
+annotation as a description, and that a disabled item is there and cannot be
+used. In a menu with checks, every item says whether it is selected. The
+trigger is the host's: the menu adds to it whether it is open, and a section's
+heading says whether it is expanded.

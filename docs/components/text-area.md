@@ -79,3 +79,14 @@ text is empty, and is not an input: it reports nothing.
 | --- | --- |
 | `UiAction::InputChanged { id, value }` | The text changes. |
 | `UiAction::Submitted { id, value }` | Ctrl+Enter is pressed in the area. |
+
+## Accessibility
+
+The platform is told a multi-line field named by its placeholder, and the
+text it holds. Where the placeholder is not its name, give one with
+`accessibility_label`, or with the label of a [Form field](form-field.md).
+A disabled area is still there and says it cannot be used.
+
+```rust
+TextArea::new("notes", value, "What changed?", palette).accessibility_label("Release notes")
+```

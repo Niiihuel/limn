@@ -5,9 +5,21 @@
 //! and trailing hint never creates separate hover patches.
 
 use crate::{
-    ButtonSize, ButtonVariant, Color, Component, ComponentPalette, Element, FontFamily, Icon,
-    IconButton, Kbd, SelectorSizing, TooltipSpec, ICON_SIZE,
+    Access, ButtonSize, ButtonVariant, Color, Component, ComponentPalette, Element, ElementKind,
+    FontFamily, Icon, IconButton, Kbd, Role, SelectorSizing, TooltipSpec, ICON_SIZE,
 };
+
+/// Name the control inside `element` for the platform by the title of the
+/// hint around it: an icon alone has nothing else to be called.
+pub(crate) fn named_by_hint(element: Element) -> Element {
+    match &element.kind {
+        ElementKind::Tooltip { title, .. } if !title.is_empty() => {
+            let title = title.clone();
+            element.accessibility_label(title)
+        }
+        _ => element,
+    }
+}
 
 /// The editor's context menu defines the visual standard for action menus.
 /// Selector menus can keep their own density and richer option content.
@@ -74,6 +86,14 @@ impl DetailRow {
         } else {
             palette.muted
         };
+        // The label names the row; its second line is said after it.
+        let mut access = Access::new(Role::MenuItem).name(&self.label);
+        if !self.description.is_empty() {
+            access = access.description(&self.description);
+        }
+        if let Some(selected) = self.selected.filter(|_| !self.chevron) {
+            access = access.selected(selected);
+        }
         let detail = Element::truncated_text(self.description)
             .font_family(if self.mono {
                 FontFamily::Monospace
@@ -135,9 +155,9 @@ impl DetailRow {
         }
         let visual = Element::row(children).gap(sizing.gap).clip_children();
         let row = if self.enabled {
-            Element::clickable(self.action_id, visual).action_menu_item()
+            Element::clickable(self.action_id, visual).action_menu_item().accessible(access)
         } else {
-            Element::panel(visual)
+            Element::panel(visual).accessible(access.id(self.action_id).disabled(true))
         };
         palette
             .interactive_surface(row)
@@ -381,11 +401,11 @@ impl Component for MenuItem {
         if let Some(target) = action.dispatch_as {
             button = button.dispatch_as(target);
         }
-        let button = action.tooltip.wrap(
+        let button = named_by_hint(action.tooltip.wrap(
             stepped.interactive_surface(button.menu_secondary_action()),
             action.id,
             palette,
-        );
+        ));
         let main = main
             .hover_background(Color::TRANSPARENT)
             .pressed_background(Color::TRANSPARENT);
@@ -412,6 +432,11 @@ impl MenuItem {
             self.palette.muted
         };
         let content_height = self.height;
+        // The label alone names the row: its keys are not part of what it is called.
+        let mut access = Access::new(Role::MenuItem).name(&self.label);
+        if let Some(trailing) = self.trailing.as_deref().filter(|text| !text.is_empty()) {
+            access = access.description(trailing);
+        }
         let mut children = Vec::with_capacity(3);
         if let Some(icon) = self.icon {
             children.push(
@@ -463,10 +488,11 @@ impl MenuItem {
         if !self.enabled {
             return Element::panel(content)
                 .clip_children()
-                .size(None, Some(self.height));
+                .size(None, Some(self.height))
+                .accessible(access.id(self.action_id).disabled(true));
         }
         self.palette
-            .interactive_surface(Element::clickable(self.action_id, content))
+            .interactive_surface(Element::clickable(self.action_id, content).accessible(access))
             .foreground(ink)
             .action_menu_item()
             .transition_ms(0)
@@ -503,6 +529,43 @@ mod tests {
     use crate::{DrawCommand, Point, Size, UiEvent, UiTree};
 
     use super::*;
+
+    #[test]
+    fn a_menu_item_tells_the_platform_its_label_its_state_and_its_second_action() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = UiTree::new(Element::column(vec![
+            MenuItem::new("rename", "Rename", palette).shortcut("Ctrl+R").render(),
+            MenuItem::new("shell", "Terminal 1", palette)
+                .trailing("Active")
+                .trailing_action("close", Icon::Close, TooltipSpec::new("Close"))
+                .render(),
+            MenuItem::new("plain", "Plain", palette).disabled().render(),
+            MenuItem::new("project", "limn", palette).description("/home/user/limn").selected(true).render(),
+            MenuItem::new("gone", "Missing", palette).description("/home/user/gone").selected(false).disabled().render(),
+            MenuItem::new("more", "More", palette).description("Other projects").chevron().render(),
+            MenuSeparator::new(220.0, palette.border).render(),
+        ]))
+        .layout(Size::new(260.0, 320.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+        let rename = node("rename");
+        assert_eq!((rename.role, rename.name.as_str(), rename.selected), (Role::MenuItem, "Rename", None));
+        assert!(rename.actionable && !rename.disabled);
+        let shell = node("shell");
+        assert_eq!((shell.name.as_str(), shell.description.as_deref()), ("Terminal 1", Some("Active")));
+        let close = node("close");
+        assert_eq!((close.role, close.name.as_str()), (Role::Button, "Close"));
+        let plain = node("plain");
+        assert_eq!((plain.role, plain.name.as_str()), (Role::MenuItem, "Plain"));
+        assert!(plain.disabled && !plain.actionable);
+        let project = node("project");
+        assert_eq!((project.role, project.name.as_str()), (Role::MenuItem, "limn"));
+        assert_eq!((project.description.as_deref(), project.selected), (Some("/home/user/limn"), Some(true)));
+        let gone = node("gone");
+        assert_eq!((gone.role, gone.name.as_str(), gone.selected), (Role::MenuItem, "Missing", Some(false)));
+        assert!(gone.disabled && !gone.actionable);
+        assert_eq!(node("more").selected, None, "a row that leads somewhere is not a choice");
+        assert_eq!(frame.access.len(), 7, "a separator says nothing");
+    }
 
     #[test]
     fn a_row_with_an_action_has_one_hover_behind_both_and_the_action_one_of_its_own() {

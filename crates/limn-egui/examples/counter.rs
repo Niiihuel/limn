@@ -80,6 +80,10 @@ impl eframe::App for App {
                 limn::hot::call(|| update(&mut self.state, &action));
             }
         }
+        // What a screen reader asked of a control is an action like any other.
+        for action in limn_egui::apply_access_requests(&ctx, &mut self.tree) {
+            limn::hot::call(|| update(&mut self.state, &action));
+        }
         // 4. Describe the new state and paint it.
         self.tree.set_root(limn::hot::call(|| view(&self.state, window)));
         let frame = self.tree.layout(window);

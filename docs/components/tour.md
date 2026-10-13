@@ -103,3 +103,9 @@ the last target to the new one. See [Tours](../tours.md#motion).
 | `UiAction::Clicked { id }` with `{id}:next` | The primary action, or the Right arrow. On the last step the tour is over. |
 | `UiAction::Clicked { id }` with `{id}:back` | The secondary action, or the Left arrow. |
 | `UiAction::Clicked { id }` with `{id}:skip` | The skip action. |
+
+## Accessibility
+
+The bubble is a dialog named by the step's title and described by its body,
+known as `{id}:dialog`. Its close button is named by `labels().close`, and the
+other actions by their labels.

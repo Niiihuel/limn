@@ -90,6 +90,16 @@ fn update(state: &mut State, action: &UiAction) {
 `action` makes the whole marker a control at least 32 px high, with a hover
 fill, that can be focused.
 
+## Disabled
+
+```rust
+Marker::new("result", "See result", palette).action("open-result").enabled(false).render()
+```
+
+A disabled marker keeps the place and the look of its action, without the
+hover fill. It takes no pointer or focus and reports nothing. A marker
+without an action is passive already.
+
 ## Motion
 
 The highlight of a loading, shimmering or thinking label and the spinner are
@@ -101,3 +111,9 @@ label is drawn in its plain color.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | A marker with `action` is activated by pointer or Enter, with the ID given to `action`. |
+
+## Accessibility
+
+A marker with an `action` is a button named by its label, and stays there as
+disabled when it is disabled. Without an action it is text and the platform is
+told nothing more.

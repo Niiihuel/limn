@@ -118,3 +118,14 @@ a circle.
 
 `dispatch_as(action_id)` reports another ID while the button keeps its own
 for focus, hover and its hint.
+
+## Accessibility
+
+The platform is told a button named by its label, and described by its hint's
+title when it has one. A button of an icon alone is named by that title
+instead, or by `accessibility_label`, which goes over both. Disabled or
+loading, the button is still there and says it cannot be used.
+
+```rust
+IconButton::new("close", Icon::Close, palette).accessibility_label("Close")
+```

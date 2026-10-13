@@ -8,7 +8,7 @@
 use web_time::{SystemTime, UNIX_EPOCH};
 
 use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
-use crate::{Color, Element, FontFamily, Icon};
+use crate::{Access, Color, Element, FontFamily, Icon, Role};
 
 // Seven columns plus gaps and panel padding stay within a 248 px modal body.
 const CELL_WIDTH: f32 = 30.0;
@@ -25,6 +25,7 @@ pub struct DatePicker {
     value: String,
     display_year: i32,
     display_month: u32,
+    enabled: bool,
     palette: ComponentPalette,
 }
 
@@ -39,6 +40,7 @@ impl DatePicker {
             value,
             display_year,
             display_month,
+            enabled: true,
             palette,
         }
     }
@@ -51,6 +53,19 @@ impl DatePicker {
             self.display_month = month;
         }
         self
+    }
+
+    /// A disabled picker shows its date and its month in muted ink and is
+    /// passive: the field, the month buttons and the days take no pointer or
+    /// focus and report nothing.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
     }
 
     pub fn is_valid_date(value: &str) -> bool {
@@ -101,32 +116,40 @@ impl DatePicker {
         };
         let date = format!("{year:04}-{month:02}-{day:02}");
         let selected = self.value == date;
-        let ink = if selected || in_month {
+        let ink = if self.enabled && (selected || in_month) {
             self.palette.text
         } else {
             self.palette.muted
         };
-        self.palette
-            .interactive_surface(Element::clickable(
-                format!("{}:day:{date}", self.id),
-                Element::text(day.to_string())
-                    .foreground(ink)
-                    .font_family(FontFamily::Sans)
-                    .font_size(12.0),
-            ))
-            .size(Some(CELL_WIDTH), Some(CELL_HEIGHT))
-            .center_content()
-            .background(if selected {
-                self.palette.selected
-            } else {
-                Color::TRANSPARENT
-            })
-            .hover_background(if selected {
-                self.palette.selected
-            } else {
-                self.palette.hover
-            })
-            .focus_border(self.palette.border, 1.0)
+        let label = Element::text(day.to_string())
+            .foreground(ink)
+            .font_family(FontFamily::Sans)
+            .font_size(12.0);
+        // Named by its number; the chosen day says so.
+        let id = format!("{}:day:{date}", self.id);
+        let said = Access::new(Role::Button).name(day.to_string()).selected(selected);
+        let cell = if self.enabled {
+            self.palette
+                .interactive_surface(Element::clickable(id, label).accessible(said))
+        } else {
+            Element::panel(label).accessible(said.id(id).disabled(true))
+        }
+        .size(Some(CELL_WIDTH), Some(CELL_HEIGHT))
+        .center_content()
+        .background(if selected {
+            self.palette.selected
+        } else {
+            Color::TRANSPARENT
+        });
+        if !self.enabled {
+            return cell;
+        }
+        cell.hover_background(if selected {
+            self.palette.selected
+        } else {
+            self.palette.hover
+        })
+        .focus_border(self.palette.border, 1.0)
     }
 }
 
@@ -134,30 +157,38 @@ impl Component for DatePicker {
     fn render(self) -> Element {
         let first_weekday = weekday_monday_zero(self.display_year, self.display_month, 1);
         let month_days = days_in_month(self.display_year, self.display_month);
-        let previous = IconButton::new(
-            format!("{}:month_prev", self.id),
+        // An arrow alone is named by the month it goes to. Drawn disabled it
+        // is passive, and still there for the platform.
+        let month = |suffix: &str, icon: Icon, delta: i32, enabled: bool| {
+            let id = format!("{}:{suffix}", self.id);
+            let (year, month) = Self::shift_month(self.display_year, self.display_month, delta);
+            let said = Access::new(Role::Button)
+                .name(format!("{} {year}", crate::labels().months[month as usize - 1]));
+            IconButton::new(&id, icon, self.palette)
+                .size(ControlSize::Compact)
+                .variant(crate::ButtonVariant::Ghost)
+                .enabled(enabled)
+                .render()
+                .accessible(if enabled { said } else { said.id(id).disabled(true) })
+        };
+        let previous = month(
+            "month_prev",
             Icon::ArrowLeft,
-            self.palette,
-        )
-        .size(ControlSize::Compact)
-        .variant(crate::ButtonVariant::Ghost)
-        .enabled(!(self.display_year == 1 && self.display_month == 1))
-        .render();
-        let next = IconButton::new(
-            format!("{}:month_next", self.id),
+            -1,
+            self.enabled && !(self.display_year == 1 && self.display_month == 1),
+        );
+        let next = month(
+            "month_next",
             Icon::ArrowRight,
-            self.palette,
-        )
-        .size(ControlSize::Compact)
-        .variant(crate::ButtonVariant::Ghost)
-        .enabled(!(self.display_year == 9999 && self.display_month == 12))
-        .render();
+            1,
+            self.enabled && !(self.display_year == 9999 && self.display_month == 12),
+        );
         let title = Element::text(format!(
             "{} {}",
             crate::labels().months[self.display_month as usize - 1],
             self.display_year
         ))
-        .foreground(self.palette.text)
+        .foreground(if self.enabled { self.palette.text } else { self.palette.muted })
         .font_family(FontFamily::Sans)
         .font_size(13.0)
         .flex(1.0)
@@ -196,6 +227,7 @@ impl Component for DatePicker {
         let input = TextField::new(&self.id, &self.value, "AAAA-MM-DD", self.palette)
             .size(ControlSize::Compact)
             .width(126.0)
+            .enabled(self.enabled)
             .render();
         Element::column(vec![
             input,
@@ -282,7 +314,26 @@ fn current_utc_month() -> (i32, u32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Key, Size, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn the_arrows_are_named_by_the_month_they_go_to_and_the_chosen_day_says_so() {
+        let labels = crate::labels();
+        for enabled in [true, false] {
+            let picker = DatePicker::new("date", "2025-01-15", ComponentPalette::neutral_dark()).enabled(enabled);
+            let frame = UiTree::new(picker.render()).layout(Size::new(260.0, 320.0));
+            let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+            let previous = node("date:month_prev");
+            assert_eq!((previous.role, previous.name.clone()), (Role::Button, format!("{} 2024", labels.months[11])));
+            assert_eq!(node("date:month_next").name, format!("{} 2025", labels.months[1]));
+            let chosen = node("date:day:2025-01-15");
+            assert_eq!((chosen.role, chosen.name.as_str(), chosen.selected), (Role::Button, "15", Some(true)));
+            assert_eq!(node("date:day:2025-01-16").selected, Some(false));
+            for said in [previous, chosen] {
+                assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+            }
+        }
+    }
 
     #[test]
     fn validates_gregorian_dates_and_strict_iso_text() {
@@ -358,5 +409,49 @@ mod tests {
                 value: "2025-05-146".into(),
             }]
         );
+    }
+
+    #[test]
+    fn a_disabled_picker_takes_no_pointer_or_focus_and_keeps_its_place() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(340.0, 330.0);
+        let picker =
+            |enabled| DatePicker::new("date", "2025-05-14", palette).display_month(2025, 5).enabled(enabled);
+        // Where each day's number is painted, and in what color.
+        let days = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, color, .. } if text.len() <= 2 => {
+                        Some((text.clone(), *position, *color))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let enabled = UiTree::new(picker(true).render()).layout(size);
+        let day = enabled.regions.iter().find(|region| region.id == "date:day:2025-05-14").unwrap().rect;
+        let mut tree = UiTree::new(picker(false).render());
+        let frame = tree.layout(size);
+        assert!(frame
+            .regions
+            .iter()
+            .all(|region| !matches!(region.kind, HitKind::Button | HitKind::TextInput)));
+        for id in ["date", "date:month_prev", "date:month_next", "date:day:2025-05-14"] {
+            assert!(!tree.focus(id), "{id}");
+        }
+        let point = Point::new(day.x + day.width / 2.0, day.y + day.height / 2.0);
+        assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert!(tree.handle_event(UiEvent::Text("6".into())).is_empty());
+        // The same days in the same places, all muted.
+        let (passive, active) = (days(&frame), days(&enabled));
+        assert!(passive.len() >= 35 && passive.iter().all(|day| day.2 == palette.muted));
+        let places = |days: &[(String, Point, crate::Color)]| {
+            days.iter().map(|day| (day.0.clone(), day.1)).collect::<Vec<_>>()
+        };
+        assert_eq!(places(&passive), places(&active));
     }
 }

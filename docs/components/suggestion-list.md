@@ -100,6 +100,16 @@ list opens above the start of its anchor (`TopStart`) unless set. Rows are 42
 high and at most seven show; the rest scroll, and only the rows in view are
 built.
 
+## Disabled
+
+```rust
+SuggestionItem::new("complete=/deploy", "/deploy").description("No remote configured").disabled()
+```
+
+A disabled suggestion keeps its row with icon and label in muted ink and
+reports no click. It does not take the highlight, so the host's
+`selected_index` should step over it.
+
 ## Motion
 
 The list appears and leaves with the motion tokens' `enter_ms` and `exit_ms`.
@@ -111,3 +121,9 @@ The list appears and leaves with the motion tokens' `enter_ms` and `exit_ms`.
 | --- | --- |
 | `UiAction::Clicked { id }` with an item's ID | The item is clicked. |
 | `UiAction::Clicked { id }` with the dismiss ID | The pointer is pressed outside the list. |
+
+## Accessibility
+
+A suggestion is an item of a list named by its label, with its description
+said after it. It says whether it is the selected one, the row under the
+host's highlight, and a disabled suggestion is there and cannot be used.

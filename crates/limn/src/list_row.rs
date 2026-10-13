@@ -2,8 +2,8 @@
 //! trailing edge, all under one hover surface.
 
 use crate::{
-    page::px, Color, Component, ComponentPalette, Element, FontFamily, Icon, RadiusRole, Text,
-    TooltipSpec,
+    page::px, Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, RadiusRole,
+    Role, Text, TooltipSpec,
 };
 
 // Width over which a faded title goes transparent.
@@ -318,6 +318,12 @@ impl Component for ListRow {
             }
         };
         let two_lines = !self.subtitle.is_empty();
+        // A row that can be clicked is named by all it shows; a passive one
+        // has to be told its lines.
+        let mut disabled = Access::named(&self.title);
+        if two_lines {
+            disabled = disabled.description(&self.subtitle);
+        }
         let ink = self
             .title_ink
             .unwrap_or(if self.enabled { palette.text } else { palette.muted });
@@ -407,8 +413,9 @@ impl Component for ListRow {
                 .background(Color::TRANSPARENT)
                 .transition_ms(0),
             (true, false) => palette.interactive_surface(Element::clickable(&self.id, content)),
-            (false, _) => Element::panel(content),
+            (false, _) => Element::panel(content).accessible(disabled.id(&self.id).disabled(true)),
         }
+        .accessible(Access::new(Role::ListItem))
         .padding(px(sizing.padding));
         let mut tooltip = self.tooltip;
         let mut hint = |row: Element| match tooltip.take() {
@@ -554,6 +561,28 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_row_tells_the_platform_it_is_an_item_of_a_list_enabled_or_not() {
+        let frame = tree_of(Element::column(vec![
+            ListRow::new("open", TITLE, palette()).subtitle(WHY).meta("2 h").render(),
+            ListRow::new("shared", TITLE, palette())
+                .trailing_action("more", Element::icon_button("more", Icon::More, ""))
+                .render(),
+            ListRow::new("gone", TITLE, palette()).subtitle(WHY).disabled().render(),
+        ]))
+        .layout(Size::new(360.0, 240.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let open = node("open");
+        assert_eq!(open.role, Role::ListItem);
+        assert!(open.name.starts_with(TITLE) && open.name.contains(WHY) && open.name.contains("2 h"), "{}", open.name);
+        assert!(open.actionable && !open.disabled);
+        assert_eq!((node("shared").role, node("more").role), (Role::ListItem, Role::Button));
+        let gone = node("gone");
+        assert_eq!((gone.role, gone.name.as_str(), gone.description.as_deref()), (Role::ListItem, TITLE, Some(WHY)));
+        assert!(gone.disabled && !gone.actionable);
     }
 
     #[test]

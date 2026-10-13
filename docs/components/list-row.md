@@ -178,3 +178,14 @@ The hint is shown over the row, enabled or not.
 | --- | --- |
 | `UiAction::Clicked { id }` with the row's ID | An enabled row is activated. |
 | `UiAction::Clicked { id }` with a trailing action's ID | The control given to `trailing_action` is activated, if the host built it as a click target with that ID. |
+
+## Accessibility
+
+A row is an item of a list. One that can be clicked is named by everything it
+shows; a disabled one is named by its title, with its subtitle as a
+description, and says it cannot be used. The row keeps no selection of its
+own, so the host says which one is chosen:
+
+```rust
+ListRow::new("inbox", "Inbox", palette).render().accessible(Access::default().selected(true))
+```

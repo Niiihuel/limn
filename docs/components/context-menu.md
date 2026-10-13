@@ -81,3 +81,9 @@ The menu fades in and settles, and fades out; see
 
 A click outside the menu closes it and reports nothing: it does not reach the
 control under the pointer.
+
+## Accessibility
+
+While the menu is open the platform is told each item is a menu item named by
+its label, and that a disabled one is there and cannot be used. A separator
+says nothing.

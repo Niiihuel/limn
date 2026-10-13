@@ -2,8 +2,8 @@
 
 use crate::components::{Component, ComponentPalette, Tooltip};
 use crate::{
-    Color, Element, FontFamily, Icon, Point, PopoverPlacement, ScrollArea, ScrollbarAppearance,
-    TextSpan,
+    Access, Color, Element, FontFamily, Icon, Point, PopoverPlacement, Role, ScrollArea,
+    ScrollbarAppearance, TextSpan,
 };
 
 /// A shared compact close icon with a mouse/keyboard target.
@@ -11,6 +11,7 @@ use crate::{
 pub struct DismissButton {
     id: String,
     action_id: Option<String>,
+    enabled: bool,
     palette: ComponentPalette,
 }
 
@@ -19,6 +20,7 @@ impl DismissButton {
         Self {
             id: id.into(),
             action_id: None,
+            enabled: true,
             palette,
         }
     }
@@ -27,29 +29,45 @@ impl DismissButton {
         self.action_id = Some(action.into());
         self
     }
+
+    /// A disabled one is passive: the same icon and hint in the same place,
+    /// with no hover, hit region or focus, and nothing dispatched.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 impl Component for DismissButton {
     fn render(self) -> Element {
-        let mut button = self
-            .palette
-            .interactive_surface(Element::clickable(
-                self.id.clone(),
-                Element::column(vec![
-                    Element::spacer().flex(1.0),
-                    Element::row(vec![
-                        Element::spacer().flex(1.0),
-                        Element::icon(Icon::Close)
-                            .foreground(self.palette.muted)
-                            .size(Some(16.0), Some(16.0)),
-                        Element::spacer().flex(1.0),
-                    ])
-                    .size(None, Some(16.0)),
-                    Element::spacer().flex(1.0),
-                ]),
-            ))
-            .size(Some(24.0), Some(24.0));
-        if let Some(action) = self.action_id {
+        let icon = Element::column(vec![
+            Element::spacer().flex(1.0),
+            Element::row(vec![
+                Element::spacer().flex(1.0),
+                Element::icon(Icon::Close)
+                    .foreground(self.palette.muted)
+                    .size(Some(16.0), Some(16.0)),
+                Element::spacer().flex(1.0),
+            ])
+            .size(None, Some(16.0)),
+            Element::spacer().flex(1.0),
+        ]);
+        // An icon alone: its hint is its name.
+        let said = Access::new(Role::Button).name(crate::labels().close);
+        let mut button = if self.enabled {
+            self.palette
+                .interactive_surface(Element::clickable(self.id.clone(), icon))
+                .accessible(said)
+        } else {
+            Element::panel(icon).accessible(said.id(self.id.clone()).disabled(true))
+        }
+        .size(Some(24.0), Some(24.0));
+        if let Some(action) = self.action_id.filter(|_| self.enabled) {
             button = button.dispatch_as(action);
         }
         Tooltip::new(button, self.id, crate::labels().close, self.palette)
@@ -82,6 +100,8 @@ pub struct Modal {
     return_focus: Option<String>,
     backdrop_dismiss: bool,
     animation_ms: u16,
+    role: Role,
+    spoken_description: String,
 }
 
 impl Modal {
@@ -108,7 +128,17 @@ impl Modal {
             return_focus: None,
             backdrop_dismiss: false,
             animation_ms: crate::tokens().motion.enter_ms,
+            role: Role::Dialog,
+            spoken_description: String::new(),
         }
+    }
+
+    /// An alert dialog shows its description in its body: say it is one,
+    /// described by that.
+    pub(crate) fn alert(mut self, description: &str) -> Self {
+        self.role = Role::AlertDialog;
+        self.spoken_description = description.to_owned();
+        self
     }
 
     pub fn width(mut self, width: f32) -> Self {
@@ -187,6 +217,13 @@ impl Component for Modal {
             .dispatch_as(self.close_id.clone())
             .render();
 
+        // Known by an ID of its own: `close_id` may be a button's inside it.
+        let mut said = Access::new(self.role).id(format!("{}:dialog", self.close_id)).name(self.title.clone());
+        let description = if self.description.is_empty() { self.spoken_description } else { self.description.clone() };
+        if !description.is_empty() {
+            said = said.description(description);
+        }
+
         let mut sections = vec![Element::row(vec![
             Element::formatted_text(vec![TextSpan::new(
                 self.title,
@@ -237,7 +274,8 @@ impl Component for Modal {
             .border(self.palette.border, 1.0)
             .radius(crate::tokens().radius.panel)
             .shadow(self.palette.shadow, Point::new(0.0, 16.0), 32.0, 0.0)
-            .clip_children();
+            .clip_children()
+            .accessible(said);
 
         let mut popover =
             Element::popover(self.base, card, self.close_id, PopoverPlacement::Center)
@@ -258,6 +296,29 @@ impl Component for Modal {
 mod tests {
     use super::*;
     use crate::{HitKind, Key, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn a_modal_is_a_dialog_named_by_its_title_and_its_close_button_is_named_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = UiTree::new(
+            Modal::new(Element::spacer(), true, "Nuevo proyecto", "Elige una carpeta.", "new", palette)
+                .footer(DismissButton::new("locked", palette).disabled().render())
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let dialog = node("new:dialog");
+        assert_eq!((dialog.role, dialog.name.as_str()), (Role::Dialog, "Nuevo proyecto"));
+        assert_eq!(dialog.description.as_deref(), Some("Elige una carpeta."));
+        assert!(!dialog.actionable && dialog.rect.width == 520.0);
+        let close = node("new:close");
+        assert_eq!((close.role, close.name.as_str()), (Role::Button, crate::labels().close));
+        assert!(close.actionable && !close.disabled);
+        let locked = node("locked");
+        assert_eq!((locked.role, locked.name.as_str()), (Role::Button, crate::labels().close));
+        assert!(locked.disabled && !locked.actionable);
+    }
 
     #[test]
     fn dismiss_icon_is_centered_at_rest_hover_and_focus_and_dispatches_once() {
@@ -319,6 +380,45 @@ mod tests {
                 id: "dismiss".into()
             }]
         );
+    }
+
+    #[test]
+    fn a_disabled_dismiss_icon_keeps_its_place_and_takes_no_pointer_or_focus() {
+        let palette = ComponentPalette::neutral_dark();
+        let tree_of = |enabled| {
+            let mut tree = UiTree::new(
+                DismissButton::new("close", palette)
+                    .dispatch_as("dismiss")
+                    .enabled(enabled)
+                    .render(),
+            );
+            tree.set_reduced_motion(true);
+            tree
+        };
+        let icon = |frame: &crate::Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                crate::DrawCommand::Icon { rect, icon: Icon::Close, tint } => Some((*rect, *tint)),
+                _ => None,
+            })
+        };
+        let viewport = Size::new(24.0, 24.0);
+        let enabled = tree_of(true).layout(viewport);
+        let mut tree = tree_of(false);
+        let disabled = tree.layout(viewport);
+        assert!(!disabled.regions.iter().any(|region| region.kind == HitKind::Button));
+        let point = Point::new(12.0, 12.0);
+        tree.handle_event(UiEvent::PointerMove(point));
+        assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        for id in ["close", "dismiss"] {
+            assert!(!tree.focus(id));
+        }
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        assert!(tree.handle_event(enter).is_empty());
+        assert_eq!(icon(&disabled), icon(&enabled));
+        assert_eq!(icon(&disabled).unwrap().1, palette.muted);
+        // No hover fill: under the pointer it paints what it did at rest.
+        assert_eq!(tree.layout(viewport).commands, disabled.commands);
     }
 
     #[test]

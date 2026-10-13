@@ -72,3 +72,9 @@ The selection slides to the chosen item over the `move_ms` motion token.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | An item is chosen by pointer or keyboard. The ID is the item's. |
+
+## Accessibility
+
+Each item is told to the platform as a tab named by its label, and says
+whether it is the chosen one. A disabled item is still there and says it
+cannot be used.

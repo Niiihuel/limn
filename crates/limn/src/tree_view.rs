@@ -4,7 +4,8 @@
 //! presentation of depth, continuation lines, hit area, and row spacing.
 
 use crate::{
-    Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon, TextRole, ICON_SIZE,
+    Access, Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon, Role,
+    TextRole, ICON_SIZE,
 };
 
 const DEFAULT_STEP: f32 = 12.0;
@@ -226,9 +227,15 @@ impl<F: FnOnce(Element) -> Element> Component for TreeRow<F> {
         let content = Element::row(children)
             .gap(0.0)
             .size(self.width, Some(self.height));
+        // The caller's action is the control; what is said here reaches it.
+        let mut access = Access::new(Role::TreeItem).selected(self.selected);
+        if let Some(open) = self.disclosure {
+            access = access.expanded(open);
+        }
         let mut row = self
             .palette
             .interactive_surface((self.action)(content))
+            .accessible(access)
             .size(self.width, Some(self.height))
             .hover_background(if self.selected {
                 self.palette.selected
@@ -292,6 +299,33 @@ mod tests {
     use crate::{DrawCommand, Icon, Size, UiTree};
 
     use super::*;
+
+    #[test]
+    fn a_row_tells_the_platform_it_is_an_item_of_a_tree_and_whether_it_is_open() {
+        let palette = ComponentPalette::neutral_dark();
+        let row = |id: &'static str, title: &str| {
+            TreeRow::new(
+                move |content| Element::clickable(id, content),
+                Element::icon(Icon::Folder),
+                Element::text(title),
+                TreeGuides::root(),
+                palette,
+            )
+        };
+        let frame = UiTree::new(Element::column(vec![
+            row("src", "src").disclosure(true).selected(true).render(),
+            row("docs", "docs").disclosure(false).render(),
+            row("readme", "README.md").render(),
+        ]))
+        .layout(Size::new(240.0, 120.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (src, docs, readme) = (node("src"), node("docs"), node("readme"));
+        assert_eq!((src.role, src.name.as_str()), (Role::TreeItem, "src"));
+        assert_eq!((src.selected, src.expanded), (Some(true), Some(true)));
+        assert_eq!((docs.role, docs.selected, docs.expanded), (Role::TreeItem, Some(false), Some(false)));
+        assert_eq!((readme.name.as_str(), readme.expanded), ("README.md", None), "a leaf opens nothing");
+    }
 
     #[test]
     fn guides_follow_depth_first_branches_without_crossing_roots() {

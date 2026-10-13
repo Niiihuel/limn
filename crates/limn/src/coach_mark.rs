@@ -246,6 +246,13 @@ impl Component for CoachMark {
         let next_action = self.next_action.unwrap_or_else(|| next_id.clone());
         let back_action = back_id.as_ref().map(|id| self.back_action.unwrap_or_else(|| id.clone()));
 
+        // Known by an ID of its own, as the close control is.
+        let mut said = crate::Access::new(crate::Role::Dialog)
+            .id(format!("{}:dialog", self.id))
+            .name(self.title.clone());
+        if !self.body.is_empty() {
+            said = said.description(self.body.clone());
+        }
         let mut rows = Vec::with_capacity(4);
         if let Some(illustration) = self.illustration {
             rows.push(illustration);
@@ -324,7 +331,8 @@ impl Component for CoachMark {
             .size(Some(self.width), None)
             .background(fill)
             .radius(crate::tokens().radius.surface)
-            .shadow(self.palette.shadow, Point::new(0.0, 9.0), 22.0, 0.0);
+            .shadow(self.palette.shadow, Point::new(0.0, 9.0), 22.0, 0.0)
+            .accessible(said);
         let key = self
             .key
             .unwrap_or_else(|| format!("{}:{index}", self.targets.join("+")));
@@ -443,5 +451,32 @@ impl Tour {
 impl Component for Tour {
     fn render(self) -> Element {
         self.coach_mark().render()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Role, Size, UiTree};
+
+    #[test]
+    fn a_coach_mark_is_a_dialog_named_by_its_title_with_a_named_close_control() {
+        let palette = ComponentPalette::neutral_dark();
+        let base = Element::column(vec![Element::button("tasks", "Tareas").size(Some(80.0), Some(32.0))]);
+        let mut tree = UiTree::new(
+            CoachMark::new(base, "tour", "tasks", palette)
+                .title("Tareas")
+                .body("Cada tarea es una conversación.")
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let dialog = node("tour:dialog");
+        assert_eq!((dialog.role, dialog.name.as_str()), (Role::Dialog, "Tareas"));
+        assert_eq!(dialog.description.as_deref(), Some("Cada tarea es una conversación."));
+        assert!(!dialog.actionable);
+        assert_eq!((node("tour:close").role, node("tour:close").name.as_str()), (Role::Button, crate::labels().close));
+        assert_eq!(node("tour:next").name, crate::labels().done);
     }
 }

@@ -70,3 +70,13 @@ A disabled slider shows its value and takes no pointer or focus.
 | Action | When |
 | --- | --- |
 | `UiAction::SliderChanged { id, fraction, committed }` | The value changes: during a drag with `committed` false, on release or from the keyboard with it true. |
+
+## Accessibility
+
+The platform is told a slider and where it stands from 0 to 1, disabled or
+not. A slider shows no text, so the host names it, or puts it in a
+[Form field](form-field.md), whose label names it.
+
+```rust
+Slider::new("volume", volume, palette).accessibility_label("Volume")
+```

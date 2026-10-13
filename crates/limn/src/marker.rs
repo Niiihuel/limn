@@ -1,6 +1,8 @@
 //! Conversation event rows. The caller supplies the observed state and label.
 
-use crate::{Color, Component, ComponentPalette, Element, FontFamily, Icon, Spinner, TextShimmer};
+use crate::{
+    Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Role, Spinner, TextShimmer,
+};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum MarkerVariant {
@@ -37,6 +39,7 @@ pub struct Marker {
     thinking: bool,
     truncate: bool,
     action: Option<String>,
+    enabled: bool,
     ink: Option<Color>,
 }
 
@@ -53,6 +56,7 @@ impl Marker {
             thinking: false,
             truncate: false,
             action: None,
+            enabled: true,
             ink: None,
         }
     }
@@ -90,6 +94,18 @@ impl Marker {
         self.action = Some(action.into());
         self
     }
+    /// A disabled marker keeps the place and the look of its `action` and is
+    /// passive: no hover, hit region or focus. Without an action a marker is
+    /// passive already and this changes nothing.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
     /// A status color from the host, such as its failure ink, for the label,
     /// the icon and the spinner in place of the palette's muted.
     pub fn ink(mut self, ink: Color) -> Self {
@@ -103,6 +119,7 @@ impl Component for Marker {
         if let Some(ink) = self.ink {
             self.palette.muted = ink;
         }
+        let said = Access::new(Role::Button).name(self.label.clone());
         let label = if self.thinking || self.loading || self.shimmer {
             let highlight = if self.thinking {
                 thinking_highlight(self.palette)
@@ -184,11 +201,16 @@ impl Component for Marker {
             .gap(10.0),
         };
         match self.action {
-            Some(action) => self
+            Some(action) if self.enabled => self
                 .palette
-                .interactive_surface(Element::clickable(action, body))
+                .interactive_surface(Element::clickable(action, body).accessible(said))
                 .padding(6.0)
                 .min_size(0.0, 32.0),
+            // The row is muted as it is; only the control goes.
+            Some(action) => Element::panel(body)
+                .padding(6.0)
+                .min_size(0.0, 32.0)
+                .accessible(said.id(action).disabled(true)),
             None => body,
         }
     }
@@ -199,6 +221,23 @@ mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
     use web_time::{Duration, Instant};
+
+    #[test]
+    fn a_marker_with_an_action_is_a_button_named_by_its_label_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let nodes = |marker: Marker| UiTree::new(marker.render()).layout(Size::new(240.0, 40.0)).access;
+        for shimmer in [false, true] {
+            let marker = || Marker::new("event", "Revisar cambios", palette).shimmer(shimmer).action("review");
+            let enabled = nodes(marker());
+            assert_eq!((enabled[0].id.as_str(), enabled[0].role, enabled[0].name.as_str()), ("review", Role::Button, "Revisar cambios"));
+            assert!(enabled[0].actionable && !enabled[0].disabled);
+            let disabled = nodes(marker().disabled());
+            assert_eq!((disabled[0].id.as_str(), disabled[0].role, disabled[0].name.as_str()), ("review", Role::Button, "Revisar cambios"));
+            assert!(disabled[0].disabled && !disabled[0].actionable);
+        }
+        // Without an action it is text, not a control.
+        assert!(nodes(Marker::new("event", "Revisar cambios", palette)).is_empty());
+    }
 
     #[test]
     fn thinking_marker_keeps_the_brain_static_and_only_shimmers_the_text() {
@@ -555,5 +594,51 @@ mod tests {
         ));
         assert_eq!(inked.commands, by_palette.commands);
         assert_eq!(plain.text_layouts(), inked.text_layouts());
+    }
+
+    #[test]
+    fn a_disabled_action_keeps_its_place_and_takes_no_pointer_or_focus() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(260.0, 50.0);
+        for variant in [MarkerVariant::Default, MarkerVariant::Separator, MarkerVariant::Border] {
+            let tree_of = |enabled| {
+                let mut tree = UiTree::new(Element::column(vec![
+                    Marker::new("event", "Ver resultado", palette)
+                        .variant(variant)
+                        .icon(Icon::File)
+                        .action("open-result")
+                        .enabled(enabled)
+                        .render(),
+                    Element::spacer().flex(1.0),
+                ]));
+                tree.set_reduced_motion(true);
+                tree
+            };
+            let mut tree = tree_of(true);
+            let enabled = tree.layout(size);
+            let [target] = enabled.regions.as_slice() else {
+                panic!("one region, got {:?}", enabled.regions);
+            };
+            let point = Point::new(target.rect.x + 5.0, target.rect.y + 5.0);
+
+            let mut tree = tree_of(false);
+            let disabled = tree.layout(size);
+            assert!(disabled.regions.is_empty());
+            tree.handle_event(UiEvent::PointerMove(point));
+            assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+            assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+            for id in ["event", "open-result"] {
+                assert!(!tree.focus(id));
+            }
+            let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+            assert!(tree.handle_event(enter).is_empty());
+            // Muted as ever and in the same place, hovered or not: only the control is gone.
+            assert_eq!(disabled.commands, enabled.commands);
+            assert_eq!(tree.layout(size).commands, disabled.commands);
+        }
+        // Without an action there is nothing to disable.
+        let passive = |enabled| Marker::new("event", "Ver resultado", palette).enabled(enabled).render();
+        let frame = |element| UiTree::new(element).layout(size);
+        assert_eq!(frame(passive(false)), frame(passive(true)));
     }
 }

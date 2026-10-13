@@ -108,3 +108,16 @@ Notice::new(&state.status, palette).sizing(BAR).width(420.0).render()
 A profile with a `height` cuts each line of copy with an ellipsis instead of
 wrapping it. `title_height` and `description_height` are the boxes a cut line
 is centered in; without them a line follows the font. `width` fixes the width.
+
+## Accessibility
+
+With an `id` the platform is told of a status known by that ID, named by the
+title and described by the description. Without one only the controls the host
+put in the notice are known.
+
+```rust
+Notice::new("No skills installed", palette)
+    .id("no-skills")
+    .description("Choose one from the catalog.")
+    .render()
+```

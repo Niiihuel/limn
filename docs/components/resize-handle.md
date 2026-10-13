@@ -84,6 +84,15 @@ through `UiTree::cursor` and the host's backend applies it; with egui that
 is `limn_egui::set_cursor(ctx, tree.cursor())` once a frame, after the
 layout.
 
+## Disabled
+
+```rust
+ResizeHandle::vertical("split", palette).enabled(state.resizable).render()
+```
+
+A disabled handle keeps its place and its thickness, so the panes do not
+move. It cannot be dragged or focused, and the pointer keeps its shape.
+
 ## Actions
 
 | Action | When |
@@ -95,3 +104,14 @@ layout.
 | `UiAction::Clicked { id }` | A press is released without moving. The host may ignore it. |
 
 The handle has no keyboard resize.
+
+## Accessibility
+
+The handle is a button known by its ID. It shows no text, so it has no name
+until the host gives it one; disabled, it is still there as disabled.
+
+```rust
+ResizeHandle::vertical("sidebar-split", palette)
+    .accessibility_label("Resize sidebar")
+    .render()
+```

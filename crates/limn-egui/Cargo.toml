@@ -21,7 +21,8 @@ hot = ["limn/hot"]
 
 [dependencies]
 limn = { version = "0.1.39", path = "../limn", default-features = false }
-eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+# `accesskit` publishes what `Frame::access` holds to the platform.
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland", "accesskit"] }
 resvg = { version = "0.48.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 base64 = "0.22"

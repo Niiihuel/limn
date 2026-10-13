@@ -3,8 +3,8 @@
 
 use crate::page::px;
 use crate::{
-    tokens, Color, Component, ComponentPalette, CornerRadii, Element, FontFamily, Icon,
-    RadiusRole, Separator, TextRole, Tooltip, TooltipPlacement, ICON_SIZE,
+    tokens, Access, Color, Component, ComponentPalette, CornerRadii, Element, FontFamily, Icon,
+    RadiusRole, Role, Separator, TextRole, Tooltip, TooltipPlacement, ICON_SIZE,
 };
 
 
@@ -26,6 +26,7 @@ pub struct TabItem {
     close: Option<Element>,
     title_ink: Option<Color>,
     tooltip_placement: TooltipPlacement,
+    enabled: bool,
 }
 
 impl TabItem {
@@ -48,6 +49,7 @@ impl TabItem {
             close: None,
             title_ink: None,
             tooltip_placement: TooltipPlacement::Above,
+            enabled: true,
         }
     }
 
@@ -86,10 +88,25 @@ impl TabItem {
         self
     }
 
+    /// A disabled tab keeps its place, its tooltip and its close slot, with
+    /// icon and title in `muted` whatever its `title_ink`. It is passive: it
+    /// has no hit region, takes no focus and the arrow keys step over it.
+    /// The close control is the host's to leave out.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
+
     /// The tab alone, for a group that shows a single resource. Colors follow
     /// the roles documented on [`TabStrip`].
     pub fn render(self, palette: ComponentPalette) -> Element {
-        let ink = if self.active { palette.text } else { palette.muted };
+        let ink = if self.active && self.enabled { palette.text } else { palette.muted };
+        let title_ink = self.title_ink.filter(|_| self.enabled).unwrap_or(ink);
         let close = self
             .close
             .map_or_else(Element::spacer, Element::centered)
@@ -101,7 +118,7 @@ impl TabItem {
             Element::faded_text(&self.title, 14.0)
                 .font_family(FontFamily::Sans)
                 .font_size(TextRole::Label.size())
-                .foreground(self.title_ink.unwrap_or(ink))
+                .foreground(title_ink)
                 .flex(1.0)
                 .size(None, Some(TabStrip::CLOSE_SIZE)),
             close,
@@ -115,11 +132,23 @@ impl TabItem {
             Element::spacer().size(Some(2.0), None),
         ])
         .size(None, Some(TabStrip::TOOL_SIZE));
+        // The title names the tab, not the close control it holds.
+        let access = Access::new(Role::Tab).name(&self.title).selected(self.active);
         let tooltip = self.tooltip.unwrap_or(self.title);
-        let select = TabStrip::surface(&self.id, content, self.active, self.width, palette);
-        let select = Tooltip::new(select, self.id, &tooltip, palette)
-            .placement(self.tooltip_placement)
-            .render();
+        let select = if self.enabled {
+            let select = TabStrip::surface(&self.id, content, self.active, self.width, palette)
+                .accessible(access);
+            Tooltip::new(select, self.id, &tooltip, palette)
+                .placement(self.tooltip_placement)
+                .render()
+        } else {
+            // No region of its own: the extent below still opens the tooltip.
+            Element::panel(TabStrip::surface_content(content, self.active, palette))
+                .background(if self.active { palette.surface } else { Color::TRANSPARENT })
+                .corner_radii(CornerRadii::top(RadiusRole::Card.px()))
+                .size(Some(self.width), Some(TabStrip::TAB_HEIGHT))
+                .accessible(access.id(&self.id).disabled(true))
+        };
         // Passive full-width extent includes the independently clickable close.
         Tooltip::new(select, self.extent_id, tooltip, palette)
             .placement(self.tooltip_placement)
@@ -209,6 +238,19 @@ impl TabStrip {
         width: f32,
         palette: ComponentPalette,
     ) -> Element {
+        Element::clickable(id, Self::surface_content(content, active, palette))
+            .accessible(Access::new(Role::Tab).selected(active))
+            .background(if active { palette.surface } else { Color::TRANSPARENT })
+            .hover_background(if active { palette.surface } else { palette.hover })
+            .pressed_background(palette.surface)
+            .transition_ms(tokens().motion.hover_ms)
+            .corner_radii(CornerRadii::top(RadiusRole::Card.px()))
+            .size(Some(px(width)), Some(Self::TAB_HEIGHT))
+    }
+
+    /// What a tab's surface holds, clickable or not: the content over the
+    /// connection to the body.
+    fn surface_content(content: Element, active: bool, palette: ComponentPalette) -> Element {
         let connection = if active {
             Element::spacer()
         } else {
@@ -219,16 +261,7 @@ impl TabStrip {
             ])
         }
         .size(None, Some(Self::TAB_HEIGHT - Self::TOOL_SIZE));
-        Element::clickable(
-            id,
-            Element::column(vec![content.size(None, Some(Self::TOOL_SIZE)), connection]),
-        )
-        .background(if active { palette.surface } else { Color::TRANSPARENT })
-        .hover_background(if active { palette.surface } else { palette.hover })
-        .pressed_background(palette.surface)
-        .transition_ms(tokens().motion.hover_ms)
-        .corner_radii(CornerRadii::top(RadiusRole::Card.px()))
-        .size(Some(px(width)), Some(Self::TAB_HEIGHT))
+        Element::column(vec![content.size(None, Some(Self::TOOL_SIZE)), connection])
     }
 
     /// Set a row of tabs on the bottom of a [`TabStrip::HEADER_HEIGHT`] bar.
@@ -363,7 +396,7 @@ impl Component for TabStripHeader {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, Frame, Point, Rect, Size, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, Frame, Key, Point, Rect, Size, UiAction, UiEvent, UiTree};
 
     const NAMES: [&str; 3] = ["main.rs", "a_much_longer_file_name.rs", "lib.rs"];
 
@@ -439,6 +472,29 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_tab_tells_the_platform_its_title_and_whether_it_is_the_chosen_one() {
+        let mut tabs = items(3, Some(1), 120.0);
+        let last = tabs.pop().unwrap().close(Element::icon_button("close:2", Icon::Close, "")).disabled();
+        tabs.push(last);
+        let frame = UiTree::new(TabStrip::new("tabs", tabs, palette()).render()).layout(Size::new(480.0, 60.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (first, chosen, off) = (node("tab:0"), node("tab:1"), node("tab:2"));
+        assert_eq!((first.role, first.name.as_str(), first.selected), (Role::Tab, NAMES[0], Some(false)));
+        assert_eq!((chosen.role, chosen.name.as_str(), chosen.selected), (Role::Tab, NAMES[1], Some(true)));
+        assert!(chosen.actionable && !chosen.disabled);
+        assert_eq!((off.role, off.name.as_str(), off.selected), (Role::Tab, NAMES[2], Some(false)));
+        assert!(off.disabled && !off.actionable);
+        // The host's close control stays its own, and does not take the tab's name.
+        assert_eq!((node("close:2").role, node("close:2").name.as_str()), (Role::Button, ""));
+        // A tab that is only the host's content says as much.
+        let bare = TabStrip::surface("bare", Element::text("Notes"), true, 80.0, palette());
+        let frame = UiTree::new(bare).layout(Size::new(200.0, 60.0));
+        let bare = &frame.access[0];
+        assert_eq!((bare.role, bare.name.as_str(), bare.selected), (Role::Tab, "Notes", Some(true)));
     }
 
     #[test]
@@ -567,6 +623,58 @@ mod tests {
             tree.handle_event(UiEvent::PointerUp(point)),
             vec![UiAction::Clicked { id: "tab:0".into() }]
         );
+    }
+
+    #[test]
+    fn a_disabled_tab_keeps_its_place_and_takes_no_pointer_focus_or_arrow_key() {
+        let palette = palette();
+        let frame_of = |enabled: bool| {
+            let mut items = items(3, Some(0), 120.0);
+            let middle = items.remove(1).title_ink(Color::rgb(200, 150, 50)).enabled(enabled);
+            items.insert(1, middle);
+            let mut tree = UiTree::new(TabStrip::new("tabs", items, palette).render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(420.0, 80.0));
+            (tree, frame)
+        };
+        let (mut tree, frame) = frame_of(false);
+        assert!(frame.regions.iter().all(|region| region.id != "tab:1"), "{:?}", frame.regions);
+        assert!(!tree.focus("tab:1"));
+        let extent = region(&frame, "extent:1");
+        let point = Point::new(extent.x + 20.0, extent.y + 12.0);
+        tree.handle_event(UiEvent::PointerMove(point));
+        assert!(tab_fills(&tree.layout(Size::new(420.0, 80.0)), palette.hover).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        // The arrow keys go from one neighbour to the other, both ways.
+        let key = |tree: &mut UiTree, key| tree.handle_event(UiEvent::Key { key, ctrl: false, shift: false });
+        assert!(tree.focus("tab:0"));
+        assert_eq!(key(&mut tree, Key::ArrowRight), vec![UiAction::Clicked { id: "tab:2".into() }]);
+        assert_eq!(key(&mut tree, Key::ArrowLeft), vec![UiAction::Clicked { id: "tab:0".into() }]);
+        assert!(key(&mut tree, Key::Enter).iter().all(|action| {
+            !matches!(action, UiAction::Clicked { id } if id == "tab:1")
+        }));
+        // Icon and title are muted, whatever the title's own ink.
+        let inks = |frame: &Frame| -> Vec<(Point, Color)> {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { position, color, .. } => Some((*position, *color)),
+                    DrawCommand::Icon { rect, tint, .. } => Some((Point::new(rect.x, rect.y), *tint)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let disabled = inks(&frame);
+        assert!(disabled[2..4].iter().all(|ink| ink.1 == palette.muted), "{disabled:?}");
+        // The same layout as the enabled tab, so the strip does not move.
+        let (_, enabled) = frame_of(true);
+        let places = |inks: Vec<(Point, Color)>| inks.into_iter().map(|ink| ink.0).collect::<Vec<_>>();
+        assert_eq!(places(disabled), places(inks(&enabled)));
+        for id in ["tab:0", "extent:1", "tab:2"] {
+            assert_eq!(region(&frame, id), region(&enabled, id), "{id}");
+        }
     }
 
     #[test]

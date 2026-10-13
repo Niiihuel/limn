@@ -1,10 +1,10 @@
 //! A table: a header of column labels over rows whose cells line up under it.
 
 use crate::{
-    page::px, ButtonVariant, Color, Component, ComponentPalette, ContextMenu, ContextMenuEntry,
+    page::px, Access, ButtonVariant, Color, Component, ComponentPalette, ContextMenu, ContextMenuEntry,
     ContextMenuItem, ControlSize, DropdownMenu, DropdownMenuItem, Element, FontFamily, Icon,
-    IconButton, PopoverPlacement, RadiusRole, ResizeHandle, Separator, Text, TextRole, Tooltip,
-    TooltipPlacement, TooltipSpec,
+    IconButton, PopoverPlacement, RadiusRole, ResizeHandle, Role, Separator, Text, TextRole,
+    Tooltip, TooltipPlacement, TooltipSpec,
 };
 
 // Width of the strip that takes the pointer on a boundary between two columns.
@@ -347,7 +347,14 @@ impl Table {
                     .font_size(sizing.label_role.size())
                     .padding(0.0)
                     .gap(px(sizing.caret_gap))
-                    .max_width(width);
+                    .max_width(width)
+                    // The column the rows are ordered by is the chosen one.
+                    .accessible(Access::default().selected(sorted.is_some()));
+                // A glyph alone is named by its column, as its hint is.
+                let button = match column.icon {
+                    Some(_) if !column.label.is_empty() => button.accessibility_label(&column.label),
+                    _ => button,
+                };
                 (button, sort_id)
             } else {
                 let label = match column.icon {
@@ -403,9 +410,11 @@ impl Table {
             let trigger = IconButton::new(format!("{id}:columns"), Icon::Sliders, palette)
                 .variant(ButtonVariant::Ghost)
                 .size(ControlSize::Dense)
-                .tooltip_with(TooltipSpec::new(title).placement(TooltipPlacement::Below).suppressed(open))
+                .tooltip_with(TooltipSpec::new(&title).placement(TooltipPlacement::Below).suppressed(open))
                 .active(open)
-                .render();
+                .render()
+                // The hint is put away while the menu is open; the name stays.
+                .accessibility_label(title);
             bar.push(Element::spacer().size(Some(gap), None));
             bar.push(
                 DropdownMenu::new(trigger, entries, open, format!("{id}:columns:dismiss"), menu_palette)
@@ -454,6 +463,7 @@ impl Table {
                 // The target paints nothing: the surface around it is lit
                 // for the row and for the controls in its cells alike.
                 let target = Element::clickable(&row.id, content)
+                    .accessible(Access::new(Role::ListItem).selected(row.selected))
                     .background(Color::TRANSPARENT)
                     .transition_ms(0)
                     .radius(radius.px())
@@ -635,6 +645,26 @@ mod tests {
 
     fn clicked(id: &str) -> Vec<UiAction> {
         vec![UiAction::Clicked { id: id.into() }]
+    }
+
+    #[test]
+    fn a_sortable_header_and_a_row_tell_the_platform_which_is_the_chosen_one() {
+        let table = Table::new("songs", columns(), WIDTH, palette())
+            .rows(rows(2))
+            .sort(Some(TableSort { key: "duration".into(), descending: true }))
+            .columns_menu(false, "Columnas");
+        let frame = UiTree::new(table.render()).layout(SIZE);
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (title, duration) = (node("songs:sort:title"), node("songs:sort:duration"));
+        assert_eq!((title.role, title.name.as_str(), title.selected), (Role::Button, "Título", Some(false)));
+        // A glyph alone is named by its column.
+        assert_eq!((duration.role, duration.name.as_str(), duration.selected), (Role::Button, "Duración", Some(true)));
+        let columns = node("songs:columns");
+        assert_eq!((columns.role, columns.name.as_str(), columns.expanded), (Role::Button, "Columnas", Some(false)));
+        let row = node("row:0");
+        assert_eq!((row.role, row.selected), (Role::ListItem, Some(false)));
+        assert!(!row.name.is_empty() && row.actionable);
     }
 
     #[test]

@@ -5,8 +5,8 @@
 //! represented by its content.
 
 use crate::{
-    ButtonVariant, Collapse, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
-    Icon, IconButton, Spinner, Tooltip, TooltipPlacement,
+    Access, ButtonVariant, Collapse, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
+    Icon, IconButton, Role, Spinner, Tooltip, TooltipPlacement,
 };
 
 const HEADER_HEIGHT: f32 = 28.0;
@@ -32,6 +32,7 @@ pub struct Collapsible {
     thinking: bool,
     detail: Option<String>,
     collapse_footer: bool,
+    enabled: bool,
     ink: Option<Color>,
 }
 
@@ -53,6 +54,7 @@ impl Collapsible {
             thinking: false,
             detail: None,
             collapse_footer: false,
+            enabled: true,
             ink: None,
         }
     }
@@ -103,6 +105,19 @@ impl Collapsible {
         self.ink = Some(ink);
         self
     }
+
+    /// A disabled one cannot be opened or closed: its header is passive, with
+    /// a muted title and no hover, hit region or focus, and so is its footer.
+    /// It stays as `expanded` says, and its content is the host's as ever.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 fn centered_icon(icon: Element) -> Element {
@@ -118,6 +133,11 @@ impl Component for Collapsible {
     fn render(mut self) -> Element {
         if let Some(ink) = self.ink {
             self.palette.muted = ink;
+        }
+        // The header opens what is under it; the detail beside the title describes it.
+        let mut said = Access::new(Role::Button).name(self.title.clone()).expanded(self.expanded);
+        if let Some(detail) = self.detail.as_deref().filter(|detail| !detail.is_empty()) {
+            said = said.description(detail);
         }
         let leading = if self.thinking {
             Element::icon(Icon::Brain).foreground(self.palette.muted)
@@ -136,7 +156,8 @@ impl Component for Collapsible {
             )
             .foreground(self.palette.muted)
         } else {
-            Element::truncated_text(self.title).foreground(self.palette.text)
+            let ink = if self.enabled { self.palette.text } else { self.palette.muted };
+            Element::truncated_text(self.title).foreground(ink)
         };
         let mut header = vec![
             centered_icon(leading),
@@ -171,16 +192,17 @@ impl Component for Collapsible {
             })
             .foreground(self.palette.muted),
         ));
-        let header = self
-            .palette
-            .interactive_surface(Element::clickable(
-                &self.id,
-                Element::row(header).gap(6.0).clip_children(),
-            ))
-            .padding(HEADER_PADDING)
-            .size(None, Some(HEADER_HEIGHT));
+        let header = Element::row(header).gap(6.0).clip_children();
+        let header = if self.enabled {
+            self.palette.interactive_surface(Element::clickable(&self.id, header).accessible(said))
+        } else {
+            Element::panel(header).accessible(said.id(self.id.clone()).disabled(true))
+        }
+        .padding(HEADER_PADDING)
+        .size(None, Some(HEADER_HEIGHT));
         let body_id = format!("{}:body", self.id);
         let footer = self.collapse_footer;
+        let enabled = self.enabled;
         let (id, palette) = (self.id, self.palette);
         let content = self.content;
         let body = self.expanded.then(|| {
@@ -202,7 +224,7 @@ impl Component for Collapsible {
             ];
             if footer {
                 rows.push(Element::spacer().size(None, Some(2.0)));
-                rows.push(collapse_footer(&id, palette));
+                rows.push(footer_row(&id, palette, enabled));
             }
             Element::column(rows)
         });
@@ -224,6 +246,10 @@ impl Component for Collapsible {
 /// Public so a host's own disclosures can end with the same control. `id` is
 /// the header's action ID.
 pub fn collapse_footer(id: &str, palette: ComponentPalette) -> Element {
+    footer_row(id, palette, true)
+}
+
+fn footer_row(id: &str, palette: ComponentPalette, enabled: bool) -> Element {
     let button_id = format!("{id}:collapse");
     let button = IconButton::new(
         &button_id,
@@ -235,8 +261,16 @@ pub fn collapse_footer(id: &str, palette: ComponentPalette) -> Element {
     )
     .variant(ButtonVariant::Ghost)
     .size(ControlSize::Dense)
-    .render()
-    .dispatch_as(id);
+    .enabled(enabled)
+    .render();
+    // An icon alone: its hint is its name.
+    let said = Access::new(Role::Button).name(crate::labels().collapse);
+    // A disabled footer is passive content and has nothing to dispatch.
+    let button = if enabled {
+        button.dispatch_as(id).accessible(said)
+    } else {
+        button.accessible(said.id(button_id.clone()).disabled(true))
+    };
     Element::row(vec![
         Element::spacer().flex(1.0),
         Tooltip::new(button, button_id, crate::labels().collapse, palette)
@@ -258,8 +292,37 @@ pub fn collapse_footer(id: &str, palette: ComponentPalette) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, Key, Point, Size, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
     use web_time::{Duration, Instant};
+
+    #[test]
+    fn the_header_says_whether_it_is_open_and_the_footer_has_a_name_enabled_or_not() {
+        let make = |expanded: bool, enabled: bool| {
+            let element = Collapsible::new("details", "Actividad", Element::text("Contenido"), ComponentPalette::neutral_dark())
+                .detail("3 pasos")
+                .expanded(expanded)
+                .collapse_footer(true)
+                .enabled(enabled)
+                .render();
+            let mut tree = UiTree::new(element);
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(360.0, 400.0)).access
+        };
+        for (expanded, enabled) in [(false, true), (true, true), (true, false), (false, false)] {
+            let nodes = make(expanded, enabled);
+            let header = nodes.iter().find(|node| node.id == "details").unwrap();
+            assert_eq!((header.role, header.name.as_str()), (Role::Button, "Actividad"));
+            assert_eq!(header.description.as_deref(), Some("3 pasos"));
+            assert_eq!(header.expanded, Some(expanded));
+            assert_eq!((header.disabled, header.actionable), (!enabled, enabled));
+            let footer = nodes.iter().find(|node| node.id == "details:collapse");
+            assert_eq!(footer.is_some(), expanded);
+            if let Some(footer) = footer {
+                assert_eq!((footer.role, footer.name.as_str()), (Role::Button, crate::labels().collapse));
+                assert_eq!((footer.disabled, footer.actionable), (!enabled, enabled));
+            }
+        }
+    }
 
     #[test]
     fn footer_collapses_the_same_disclosure_and_does_not_duplicate_its_identity() {
@@ -767,5 +830,71 @@ mod tests {
             make(ComponentPalette { muted: ink, ..palette }, None).commands
         );
         assert_ne!(inked.commands, make(palette, None).commands);
+    }
+
+    #[test]
+    fn a_disabled_one_stays_as_it_is_with_a_passive_header_and_footer_in_place() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(360.0, 200.0);
+        for expanded in [false, true] {
+            let tree_of = |enabled| {
+                let mut tree = UiTree::new(
+                    Collapsible::new(
+                        "details",
+                        "Actividad",
+                        Element::button("inside", "Resultado"),
+                        palette,
+                    )
+                    .icon(Icon::Search)
+                    .detail("2 pasos")
+                    .expanded(expanded)
+                    .collapse_footer(true)
+                    .enabled(enabled)
+                    .render(),
+                );
+                tree.set_reduced_motion(true);
+                tree
+            };
+            // Every icon and line of text, with its place.
+            let places = |frame: &crate::Frame| {
+                frame
+                    .commands
+                    .iter()
+                    .filter_map(|command| match command {
+                        DrawCommand::Icon { rect, .. } => Some((rect.x, rect.y)),
+                        DrawCommand::Text { position, .. } => Some((position.x, position.y)),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>()
+            };
+            let enabled = tree_of(true).layout(size);
+            let rect_of = |id: &str| enabled.regions.iter().find(|r| r.id == id).map(|r| r.rect);
+            let mut tree = tree_of(false);
+            let disabled = tree.layout(size);
+            // Only the host's own content can still be pressed.
+            let buttons = disabled
+                .regions
+                .iter()
+                .filter(|region| region.kind == HitKind::Button)
+                .map(|region| region.id.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(buttons, if expanded { vec!["inside"] } else { Vec::new() });
+            for rect in [rect_of("details"), rect_of("details:collapse")].into_iter().flatten() {
+                let point = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+                tree.handle_event(UiEvent::PointerMove(point));
+                assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+                assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+            }
+            for id in ["details", "details:collapse"] {
+                assert!(!tree.focus(id));
+            }
+            let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+            assert!(tree.handle_event(enter).is_empty());
+            assert_eq!(places(&disabled), places(&enabled));
+            assert!(disabled.commands.iter().any(|command| matches!(command,
+                DrawCommand::Text { text, color, .. } if text == "Actividad" && *color == palette.muted
+            )));
+            assert_eq!(tree.focus("inside"), expanded);
+        }
     }
 }

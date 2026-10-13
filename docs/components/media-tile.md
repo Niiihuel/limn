@@ -88,3 +88,8 @@ the layout of an enabled one, so a shelf does not move.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | The tile is clicked, on its artwork or its copy. |
+
+## Accessibility
+
+The tile is a button named by its title and described by its second line. A
+disabled tile is still there for the platform, as disabled.

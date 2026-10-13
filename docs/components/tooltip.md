@@ -88,3 +88,10 @@ that holds it beneath, no wider than 320.
 
 The hint fades in and out, and moving between neighbouring controls does not
 blink; see [Animation](../animation.md).
+
+## Accessibility
+
+A hint is not seen by who cannot hover, so its title is told to the platform
+as the description of the first control in its anchor. The hint of a `Button`
+or an `IconButton` names an icon alone and describes a button with a label. A
+passive anchor is not told to the platform at all.

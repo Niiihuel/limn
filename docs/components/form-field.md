@@ -82,3 +82,10 @@ Element::column(rows).gap(7.0)
 `rows()` returns the field's lines in order instead of the rendered column,
 for a form that sets every line of every field in one column of its own. The
 form then owns the gap.
+
+## Accessibility
+
+The label names the control to the platform, over a placeholder or a name
+the control was given, and the hints and the error, in that order, are its
+description. When the host passes several controls as one, the first takes
+both.

@@ -5,6 +5,8 @@ in any release.
 
 ## 0.1.39 — unreleased
 
+- Accessibility: every frame lists its controls for the platform (`Frame::access`) with a role, a name and a state; `Element::accessible` and `accessibility_label` say what the tree cannot work out, and `limn-egui` publishes it through AccessKit and carries out what a screen reader asks with `apply_access_requests`
+- Sixteen more components can be disabled: `Link`, `Clipboard`, `DismissButton`, `Marker`, `Collapsible`, `DatePicker`, `TimePicker`, `DateTimePicker`, `Step`, `ActionRow`, `ResizeHandle`, `TabItem`, `MenuBarMenu`, `SuggestionItem`, `BreadcrumbItem` and `Composer`
 - Every component that can be disabled takes both `disabled()` and `enabled(bool)`: twelve had only one
 - Sizes that are not finite are ignored by `Tab::new`, `Tabs::height`, `SegmentedControl::height`, `CodeEditor::height`, `CodeDiff::height`, `TreeRow::width`, `MenuSeparator::new` and `Toast::layer`
 - Hot reload is part of the library: `limn::hot` (`connect`, `call`, `on_patch`, `remember`, `restore`) and `hot_shape!`, which notices a patch that changes a state's fields, behind the `hot` feature, and `limn_egui::repaint_on_patch`; the gallery uses them

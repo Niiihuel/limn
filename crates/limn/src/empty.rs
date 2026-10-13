@@ -8,6 +8,7 @@ use crate::{
 /// The state of a page, pane or list with nothing in it: an icon, a title,
 /// a reason and a next step.
 pub struct Empty {
+    id: Option<String>,
     title: String,
     description: String,
     icon: Option<Icon>,
@@ -28,6 +29,7 @@ impl Empty {
         palette: ComponentPalette,
     ) -> Self {
         Self {
+            id: None,
             title: title.into(),
             description: description.into(),
             icon: None,
@@ -39,6 +41,14 @@ impl Empty {
             compact: false,
             framed: false,
         }
+    }
+
+    /// Make the title known to the platform by this ID, as a heading
+    /// described by the reason under it. Without one only the actions are
+    /// known.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// Show an icon over the title.
@@ -118,13 +128,22 @@ impl Component for Empty {
             ));
             content.push(Element::spacer().size(None, Some(2.0)));
         }
-        content.push(
-            Element::text(self.title)
-                .foreground(self.palette.text)
-                .font_family(FontFamily::Sans)
-                .font_size(if self.compact { 14.0 } else { 16.0 })
-                .center_content(),
-        );
+        let title = Element::text(self.title.clone())
+            .foreground(self.palette.text)
+            .font_family(FontFamily::Sans)
+            .font_size(if self.compact { 14.0 } else { 16.0 })
+            .center_content();
+        content.push(match self.id {
+            Some(id) => {
+                let said = crate::Access::new(crate::Role::Heading).id(id).name(self.title);
+                title.accessible(if self.description.is_empty() {
+                    said
+                } else {
+                    said.description(self.description.clone())
+                })
+            }
+            None => title,
+        });
         if !self.description.is_empty() {
             content.push(center(
                 Element::text(self.description)
@@ -176,6 +195,24 @@ const COPY_WIDTH: f32 = 440.0;
 mod tests {
     use super::*;
     use crate::{DrawCommand, Point, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn the_title_of_an_empty_state_with_an_id_is_a_heading_and_its_actions_are_buttons() {
+        let palette = ComponentPalette::neutral_dark();
+        let empty = || {
+            Empty::new("Sin resultados", "Prueba con otra búsqueda.", palette)
+                .action("clear", "Limpiar", ButtonVariant::Secondary)
+        };
+        let frame = UiTree::new(empty().id("no-results").render()).layout(Size::new(480.0, 320.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let said = node("no-results");
+        assert_eq!((said.role, said.name.as_str()), (crate::Role::Heading, "Sin resultados"));
+        assert_eq!(said.description.as_deref(), Some("Prueba con otra búsqueda."));
+        assert!(!said.actionable);
+        assert_eq!((node("clear").role, node("clear").name.as_str()), (crate::Role::Button, "Limpiar"));
+        let frame = UiTree::new(empty().render()).layout(Size::new(480.0, 320.0));
+        assert_eq!(frame.access.iter().map(|node| node.id.as_str()).collect::<Vec<_>>(), ["clear"]);
+    }
 
     #[test]
     fn wrapped_empty_grows_without_overlapping_its_action_or_next_sibling() {

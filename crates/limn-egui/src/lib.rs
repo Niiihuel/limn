@@ -1111,6 +1111,123 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
     paint_at_impl(ui, frame, origin, None, None);
 }
 
+/// The ID a limn control has in the platform's accessibility tree.
+fn access_id(id: &str) -> egui::Id {
+    egui::Id::new(("limn-access", id))
+}
+
+/// Tell the platform what is in the frame: each control with its role, its
+/// name and its state, where it is. Nothing is built unless something on
+/// the platform is listening.
+fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
+    use egui::accesskit::{Action, Role as Platform, Toggled};
+    use limn::Role;
+    for node in &frame.access {
+        let bounds = rect(origin, node.rect);
+        ui.ctx().accesskit_node_builder(access_id(&node.id), |built| {
+            built.set_role(match node.role {
+                Role::Button => Platform::Button,
+                Role::Link => Platform::Link,
+                Role::CheckBox => Platform::CheckBox,
+                Role::Switch => Platform::Switch,
+                Role::RadioButton => Platform::RadioButton,
+                Role::Slider => Platform::Slider,
+                Role::TextInput => Platform::TextInput,
+                Role::PasswordInput => Platform::PasswordInput,
+                Role::MultilineTextInput => Platform::MultilineTextInput,
+                Role::SearchInput => Platform::SearchInput,
+                Role::ComboBox => Platform::ComboBox,
+                Role::Tab => Platform::Tab,
+                Role::MenuItem => Platform::MenuItem,
+                Role::ListItem => Platform::ListItem,
+                Role::TreeItem => Platform::TreeItem,
+                Role::Dialog => Platform::Dialog,
+                Role::AlertDialog => Platform::AlertDialog,
+                Role::Alert => Platform::Alert,
+                Role::Status => Platform::Status,
+                Role::Tooltip => Platform::Tooltip,
+                Role::ProgressIndicator => Platform::ProgressIndicator,
+                Role::Image => Platform::Image,
+                Role::Heading => Platform::Heading,
+                Role::Label => Platform::Label,
+                // A role this backend does not know yet is still a thing with a name.
+                _ => Platform::Group,
+            });
+            built.set_bounds(egui::accesskit::Rect {
+                x0: bounds.min.x.into(),
+                y0: bounds.min.y.into(),
+                x1: bounds.max.x.into(),
+                y1: bounds.max.y.into(),
+            });
+            if !node.name.is_empty() {
+                built.set_label(node.name.as_str());
+            }
+            if let Some(description) = &node.description {
+                built.set_description(description.as_str());
+            }
+            if node.disabled {
+                built.set_disabled();
+            }
+            if let Some(on) = node.toggled {
+                built.set_toggled(if on { Toggled::True } else { Toggled::False });
+            }
+            if let Some(selected) = node.selected {
+                built.set_selected(selected);
+            }
+            if let Some(expanded) = node.expanded {
+                built.set_expanded(expanded);
+            }
+            if let Some(value) = node.value {
+                built.set_numeric_value(f64::from(value));
+                built.set_min_numeric_value(0.0);
+                built.set_max_numeric_value(1.0);
+            }
+            if let Some(text) = &node.value_text {
+                built.set_value(text.as_str());
+            }
+            if node.actionable {
+                built.add_action(Action::Focus);
+                built.add_action(Action::Click);
+            }
+        });
+        if node.focused {
+            ui.ctx().memory_mut(|memory| memory.request_focus(access_id(&node.id)));
+        }
+    }
+}
+
+/// Do what the platform asked of the controls in the tree's last frame: a
+/// screen reader's "activate" is a click on the control, and its "focus"
+/// gives it the keyboard. Call it each frame beside [`events`], and apply
+/// the actions it returns as you do the tree's own.
+pub fn apply_access_requests(ctx: &egui::Context, tree: &mut limn::UiTree) -> Vec<limn::UiAction> {
+    use egui::accesskit::Action;
+    let asked: Vec<(String, limn::Rect, bool)> = ctx.input(|input| {
+        tree.frame()
+            .access
+            .iter()
+            .filter(|node| node.actionable)
+            .filter_map(|node| {
+                let id = access_id(&node.id);
+                let click = input.has_accesskit_action_request(id, Action::Click);
+                (click || input.has_accesskit_action_request(id, Action::Focus)).then(|| (node.id.clone(), node.rect, click))
+            })
+            .collect()
+    });
+    let mut actions = Vec::new();
+    for (id, rect, click) in asked {
+        if click {
+            // The same path a pointer takes, so a control answers it as it answers a click.
+            let middle = limn::Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+            actions.extend(tree.handle_event(UiEvent::PointerDown(middle)));
+            actions.extend(tree.handle_event(UiEvent::PointerUp(middle)));
+        } else {
+            tree.focus(&id);
+        }
+    }
+    actions
+}
+
 #[derive(Clone, Copy)]
 struct BackdropSurface<'a> {
     id: &'a str,
@@ -1125,6 +1242,7 @@ fn paint_at_impl(
     glass: Option<(&GlassRenderer, EguiRect)>,
     backdrop_surface: Option<BackdropSurface<'_>>,
 ) {
+    publish_access(ui, frame, origin);
     let mut clips = vec![ui.clip_rect()];
     for command in &frame.commands {
         match command {
@@ -2566,6 +2684,45 @@ mod tests {
                 masks.push(alpha);
             }
         }
+    }
+
+    #[test]
+    fn the_platform_is_told_each_control_with_its_role_name_and_state() {
+        use limn::{Access, Button, Component, ComponentPalette, Element, Role, Size, UiTree};
+        let palette = ComponentPalette::neutral_dark();
+        let frame = UiTree::new(Element::column(vec![
+            Button::new("save", "Save changes", palette).render(),
+            Element::clickable("wifi", Element::text("Wi-Fi")).accessible(Access::new(Role::Switch).toggled(true)),
+        ]))
+        .layout(Size::new(320.0, 200.0));
+        let context = egui::Context::default();
+        context.enable_accesskit();
+        let origin = egui::pos2(10.0, 20.0);
+        let mut output = context.run_ui(
+            egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(400.0, 300.0))),
+                ..Default::default()
+            },
+            |ui| paint_at(ui, &frame, origin),
+        );
+        output.textures_delta.clear();
+        let update = output.platform_output.accesskit_update.take().expect("a tree for the platform");
+        let node = |id: &str| {
+            let wanted = access_id(id).accesskit_id();
+            update.nodes.iter().find(|(node, _)| *node == wanted).map(|(_, node)| node).unwrap_or_else(|| panic!("no node {id}"))
+        };
+        let save = node("save");
+        assert_eq!(save.role(), egui::accesskit::Role::Button);
+        assert_eq!(save.label(), Some("Save changes"));
+        assert!(save.supports_action(egui::accesskit::Action::Click));
+        // Where it is on the window, not in the frame.
+        let placed = frame.access.iter().find(|node| node.id == "save").unwrap().rect;
+        let bounds = save.bounds().unwrap();
+        assert_eq!((bounds.x0 as f32, bounds.y0 as f32), (placed.x + origin.x, placed.y + origin.y));
+        let wifi = node("wifi");
+        assert_eq!(wifi.role(), egui::accesskit::Role::Switch);
+        assert_eq!(wifi.label(), Some("Wi-Fi"));
+        assert_eq!(wifi.toggled(), Some(egui::accesskit::Toggled::True));
     }
 
     #[test]

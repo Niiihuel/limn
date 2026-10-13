@@ -194,3 +194,10 @@ a hairline under the header. The popover keeps placement, width and surface.
 | `UiAction::Clicked { id }` with the back ID | The header's back button. |
 | `UiAction::InputChanged { id, value }` with the search ID | The query changes. |
 | `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the menu. |
+
+## Accessibility
+
+A `MenuItem` is a menu item named by its label. Its trailing text or its
+description is said after the name, a two-line row given `selected` says
+whether it is, and a disabled one is there and cannot be used. A trailing
+action is a button named by the title of its hint.

@@ -1,9 +1,9 @@
 //! The application menus across the top of a window, or behind one button.
 
 use crate::{
-    page::px, ActiveHover, Button, ButtonSize, ButtonVariant, Component, ComponentPalette,
-    ControlSize, ControlState, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, Element, Icon,
-    IconButton, TooltipSpec,
+    components::control_radius, page::px, Access, ActiveHover, Button, ButtonSize, ButtonVariant,
+    Component, ComponentPalette, ControlSize, ControlState, DropdownMenu, DropdownMenuEntry,
+    DropdownMenuItem, Element, FontFamily, Icon, IconButton, Role, TooltipSpec,
 };
 
 const FONT_SIZE: f32 = 12.0;
@@ -18,6 +18,7 @@ pub struct MenuBarMenu {
     dismiss_id: String,
     compact_id: Option<String>,
     entries: Vec<DropdownMenuEntry>,
+    enabled: bool,
 }
 
 impl MenuBarMenu {
@@ -38,6 +39,7 @@ impl MenuBarMenu {
             dismiss_id: dismiss_id.into(),
             compact_id: None,
             entries,
+            enabled: true,
         }
     }
 
@@ -46,6 +48,19 @@ impl MenuBarMenu {
     pub fn compact_id(mut self, id: impl Into<String>) -> Self {
         self.compact_id = Some(id.into());
         self
+    }
+
+    /// A disabled menu keeps its trigger's place with a muted label and
+    /// cannot be opened: the trigger is passive, and an `open_id` that names
+    /// it opens nothing. In the compact bar it is a disabled row.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
     }
 }
 
@@ -122,7 +137,10 @@ impl Component for MenuBar {
                     .into_iter()
                     .map(|menu| {
                         let id = menu.compact_id.unwrap_or_else(|| format!("{}:compact", menu.id));
-                        DropdownMenuItem::new(id, menu.label).submenu(menu.entries).into()
+                        DropdownMenuItem::new(id, menu.label)
+                            .submenu(menu.entries)
+                            .enabled(menu.enabled)
+                            .into()
                     })
                     .collect()
             } else {
@@ -135,6 +153,8 @@ impl Component for MenuBar {
                 .active_hover(ActiveHover::Palette)
                 .tooltip_with(compact.tooltip)
                 .render();
+            // The glyph is named by its hint; the menu says whether it is open.
+            let button = crate::menu::named_by_hint(button);
             return DropdownMenu::new(
                 Element::panel(button).size(Some(width), Some(Self::HEIGHT)),
                 items,
@@ -150,6 +170,21 @@ impl Component for MenuBar {
             .menus
             .into_iter()
             .map(|menu| {
+                if !menu.enabled {
+                    let access = Access::new(Role::Button).id(menu.id).name(&menu.label);
+                    // The label where the button draws its own, and nothing to press.
+                    return Element::text(menu.label)
+                        .accessible(access.expanded(false).disabled(true))
+                        .font_family(FontFamily::Sans)
+                        .font_size(FONT_SIZE)
+                        .foreground(palette.muted)
+                        .center_content()
+                        .centered_y()
+                        .padding(PADDING)
+                        .background(palette.surface)
+                        .radius(control_radius())
+                        .size(Some(menu.width), Some(Self::HEIGHT));
+                }
                 let open = open_id.as_deref() == Some(menu.id.as_str());
                 let anchor = palette.interactive_surface(
                     Button::new(menu.id, menu.label, palette)
@@ -239,6 +274,29 @@ mod tests {
     }
 
     #[test]
+    fn a_trigger_tells_the_platform_whether_its_menu_is_open() {
+        let mut menus = bar(Some("edit"));
+        menus.menus[2].enabled = false;
+        let frame = tree_of(menus).layout(SIZE);
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (file, edit, view) = (node("file"), node("edit"), node("view"));
+        assert_eq!((file.role, file.name.as_str(), file.expanded), (Role::Button, "File", Some(false)));
+        assert_eq!((edit.role, edit.name.as_str(), edit.expanded), (Role::Button, "Edit", Some(true)));
+        assert!(edit.actionable && !edit.disabled);
+        assert_eq!((view.role, view.name.as_str(), view.expanded), (Role::Button, "View", Some(false)));
+        assert!(view.disabled && !view.actionable);
+        assert_eq!((node("undo").role, node("undo").name.as_str()), (Role::MenuItem, "Undo"));
+
+        // Folded into one button, the glyph is named by its hint.
+        for open in [None, Some("file")] {
+            let frame = tree_of(bar(open).compact("menu", "menu:dismiss", TooltipSpec::new("Menu"))).layout(SIZE);
+            let button = frame.access.iter().find(|node| node.id == "menu").unwrap();
+            assert_eq!((button.role, button.name.as_str(), button.expanded), (Role::Button, "Menu", Some(open.is_some())));
+        }
+    }
+
+    #[test]
     fn triggers_take_their_widths_and_report_their_ids() {
         assert_eq!(bar(None).width(), 40.0 + 44.0 + 48.0 + 2.0 * MenuBar::GAP);
         let mut tree = tree_of(bar(None));
@@ -277,6 +335,52 @@ mod tests {
         let mut tree = tree_of(bar(Some("view")));
         tree.layout(SIZE);
         assert!(key(&mut tree, Key::Escape).contains(&UiAction::Clicked { id: "view:dismiss".into() }));
+    }
+
+    #[test]
+    fn a_disabled_menu_keeps_its_place_and_cannot_be_opened_by_pointer_or_keyboard() {
+        let with_edit = |enabled: bool, open: Option<&str>| {
+            let mut bar = bar(open);
+            let edit = bar.menus.remove(1).enabled(enabled);
+            bar.menus.insert(1, edit);
+            bar
+        };
+        let labels = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, color, .. } => Some((text.clone(), *position, *color)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(with_edit(false, None).width(), bar(None).width());
+        let mut tree = tree_of(with_edit(false, None));
+        let frame = tree.layout(SIZE);
+        assert!(frame.regions.iter().all(|region| region.id != "edit"), "{:?}", frame.regions);
+        assert!(!tree.focus("edit"));
+        let center = Point::new(60.0, 12.0);
+        assert!(tree.handle_event(UiEvent::PointerDown(center)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(center)).is_empty());
+        assert!(tree.focus("file"));
+        assert_eq!(key(&mut tree, Key::Enter), vec![UiAction::Clicked { id: "file".into() }]);
+        // The label is muted and stands where the enabled one does.
+        let enabled = tree_of(with_edit(true, None)).layout(SIZE);
+        let (shown, was) = (labels(&frame), labels(&enabled));
+        assert_eq!(shown[1], ("Edit".to_owned(), was[1].1, palette().muted));
+        assert_eq!((&shown[0], &shown[2]), (&was[0], &was[2]));
+        assert_eq!((rect(&frame, "file"), rect(&frame, "view")), (rect(&enabled, "file"), rect(&enabled, "view")));
+        // A host that names it open opens nothing.
+        let mut tree = tree_of(with_edit(false, Some("edit")));
+        let frame = tree.layout(SIZE);
+        assert!(!tree.has_open_popover() && rect(&frame, "undo").is_none());
+        // In the compact bar it is a row that opens no submenu.
+        let compact = with_edit(false, Some("file")).compact("all", "dismiss", TooltipSpec::new("Main menu"));
+        let mut tree = tree_of(compact);
+        let frame = tree.layout(SIZE);
+        assert!(rect(&frame, "file:compact").is_some() && rect(&frame, "edit:compact").is_none());
+        assert!(!tree.focus("edit:compact"));
     }
 
     #[test]

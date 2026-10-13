@@ -127,3 +127,16 @@ Element::column(vec![header, body])
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | The back arrow or the close button is clicked, with the ID given to `back` or `dismiss`. |
+
+## Accessibility
+
+The back and close buttons are named by the tooltips given to `back` and
+`dismiss`; with an empty tooltip they have no name. With an `id` the title is
+a heading the platform knows by that ID.
+
+```rust
+PanelHeader::new("Files", palette)
+    .id("files-heading")
+    .dismiss("files-close", "Close")
+    .render()
+```

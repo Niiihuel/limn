@@ -1,8 +1,8 @@
 //! Controlled image gallery. The host owns the images and navigation state.
 
 use crate::{
-    ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon,
-    IconButton, PopoverPlacement, RasterImage, Size, Spinner, Tooltip,
+    Access, ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
+    Icon, IconButton, PopoverPlacement, RasterImage, Role, Size, Spinner, Tooltip,
 };
 
 pub struct ImageViewer {
@@ -114,7 +114,19 @@ impl ImageViewer {
     pub const MAX_ZOOM: f32 = 8.0;
 }
 
-pub(crate) fn control(id: &str, icon: Icon, title: &str, enabled: bool, palette: ComponentPalette) -> Element {
+/// An icon alone: `name` is what it is called, `title` its hint, which may
+/// add a shortcut.
+pub(crate) fn control(
+    id: &str,
+    icon: Icon,
+    name: &str,
+    title: &str,
+    enabled: bool,
+    palette: ComponentPalette,
+) -> Element {
+    let said = Access::new(Role::Button).name(name);
+    // Drawn disabled it is passive, and still there for the platform.
+    let said = if enabled { said } else { said.id(id).disabled(true) };
     let button = IconButton::new(id, icon, palette)
         .variant(ButtonVariant::Subtle)
         .size(ControlSize::Spacious)
@@ -122,7 +134,8 @@ pub(crate) fn control(id: &str, icon: Icon, title: &str, enabled: bool, palette:
         .render()
         // Half as round again as a panel, as a full-window preview.
         .radius(crate::tokens().radius.panel * 1.5)
-        .size(Some(36.0), Some(36.0));
+        .size(Some(36.0), Some(36.0))
+        .accessible(said);
     Tooltip::new(button, id, title, palette)
         .render()
         .size(Some(36.0), Some(36.0))
@@ -154,13 +167,15 @@ impl Component for ImageViewer {
             .size(None, Some(36.0))];
         let zoomed = self.zoom > 1.0;
         if let Some([out, fit, zoom_in]) = &self.zoom_actions {
-            header.push(control(out, Icon::Minus, crate::labels().zoom_out, zoomed, controls));
-            header.push(control(fit, Icon::Collapse, crate::labels().fit_to_window, zoomed, controls));
-            header.push(control(zoom_in, Icon::Add, crate::labels().zoom_in, self.zoom < Self::MAX_ZOOM, controls));
+            let labels = crate::labels();
+            header.push(control(out, Icon::Minus, labels.zoom_out, labels.zoom_out, zoomed, controls));
+            header.push(control(fit, Icon::Collapse, labels.fit_to_window, labels.fit_to_window, zoomed, controls));
+            header.push(control(zoom_in, Icon::Add, labels.zoom_in, labels.zoom_in, self.zoom < Self::MAX_ZOOM, controls));
         }
         header.push(control(
             &self.close_id,
             Icon::Close,
+            crate::labels().close_image,
             &format!("{} · Esc", crate::labels().close_image),
             true,
             controls,
@@ -222,6 +237,7 @@ impl Component for ImageViewer {
                         control(
                             id,
                             Icon::ArrowLeft,
+                            crate::labels().previous_image,
                             &format!("{} · ←", crate::labels().previous_image),
                             self.index > 0,
                             controls,
@@ -241,6 +257,7 @@ impl Component for ImageViewer {
                         control(
                             id,
                             Icon::ArrowRight,
+                            crate::labels().next_image,
                             &format!("{} · →", crate::labels().next_image),
                             self.index + 1 < self.total,
                             controls,
@@ -264,7 +281,9 @@ impl Component for ImageViewer {
         .background(self.palette.surface)
         .radius(crate::tokens().radius.panel)
         .clip_children()
-        .size(Some(width), Some(height));
+        .size(Some(width), Some(height))
+        // Known by an ID of its own: `close_id` is its close control's.
+        .accessible(Access::new(Role::Dialog).id(format!("{}:dialog", self.close_id)).name(&self.title));
         let mut popover =
             Element::popover(self.base, viewer, &self.close_id, PopoverPlacement::Center)
                 .popover_scrim(Color::rgba(0, 0, 0, 230))
@@ -315,6 +334,29 @@ mod tests {
         tree.handle_event(UiEvent::PointerMove(center));
         tree.handle_event(UiEvent::PointerDown(center));
         tree.handle_event(UiEvent::PointerUp(center))
+    }
+
+    #[test]
+    fn the_viewer_is_a_dialog_named_by_its_title_and_its_icons_are_named_enabled_or_not() {
+        let mut tree = UiTree::new(viewer(1.0));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(WINDOW);
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let dialog = node("close:dialog");
+        assert_eq!((dialog.role, dialog.name.as_str()), (Role::Dialog, "picture.png"));
+        assert!(!dialog.actionable);
+        let labels = crate::labels();
+        // Fitted, there is nothing to zoom out of: those two are drawn disabled.
+        for (id, name, enabled) in [
+            ("out", labels.zoom_out, false),
+            ("fit", labels.fit_to_window, false),
+            ("in", labels.zoom_in, true),
+            ("close", labels.close_image, true),
+        ] {
+            let said = node(id);
+            assert_eq!((said.role, said.name.as_str()), (Role::Button, name));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled), "{id}");
+        }
     }
 
     #[test]

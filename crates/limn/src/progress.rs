@@ -1,10 +1,11 @@
 //! A thin bar for work whose completed share is known.
 
-use crate::{Component, ComponentPalette, CornerRadii, Element};
+use crate::{Access, Component, ComponentPalette, CornerRadii, Element, Role};
 
 /// The host owns the value and passes it on every rebuild. Without a width
 /// the bar fills the available horizontal space.
 pub struct Progress {
+    id: Option<String>,
     fraction: f32,
     palette: ComponentPalette,
     width: Option<f32>,
@@ -16,12 +17,21 @@ impl Progress {
     /// `fraction` runs from 0 to 1; values outside are clamped and NaN is empty.
     pub fn new(fraction: f32, palette: ComponentPalette) -> Self {
         Self {
+            id: None,
             fraction: if fraction.is_nan() { 0.0 } else { fraction.clamp(0.0, 1.0) },
             palette,
             width: None,
             height: 4.0,
             flat: false,
         }
+    }
+
+    /// Make the bar known to the platform by this ID, as a progress
+    /// indicator with its value. Without one it is only paint. Name it on
+    /// what it renders, with [`Element::accessibility_label`].
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn width(mut self, width: f32) -> Self {
@@ -51,6 +61,11 @@ impl Progress {
 
 impl Component for Progress {
     fn render(self) -> Element {
+        let said = self.id.map(|id| Access::new(Role::ProgressIndicator).id(id).value(self.fraction));
+        let say = |bar: Element| match said {
+            Some(said) => bar.accessible(said),
+            None => bar,
+        };
         if self.flat {
             let mut pieces = Vec::with_capacity(2);
             if self.fraction > 0.0 {
@@ -64,9 +79,9 @@ impl Component for Progress {
                 );
             }
             // Clipped so a rounding error in the split cannot paint past the bar.
-            return Element::row(pieces)
+            return say(Element::row(pieces)
                 .size(self.width, Some(self.height))
-                .clip_children();
+                .clip_children());
         }
         let round = self.height / 2.0;
         // The fill ends flat against the remaining track until it is complete.
@@ -81,13 +96,13 @@ impl Component for Progress {
             })
             .size(None, Some(self.height))
             .flex(self.fraction);
-        Element::panel(Element::row(vec![
+        say(Element::panel(Element::row(vec![
             fill,
             Element::spacer().flex(1.0 - self.fraction),
         ]))
         .background(self.palette.selected)
         .radius(round)
-        .size(self.width, Some(self.height))
+        .size(self.width, Some(self.height)))
     }
 }
 
@@ -147,5 +162,22 @@ mod tests {
         assert_eq!(pieces(0.0), vec![(0.0, 200.0, palette.selected)]);
         assert_eq!(pieces(1.0), vec![(0.0, 200.0, palette.text)]);
         assert_eq!(pieces(f32::NAN), pieces(0.0));
+    }
+
+    #[test]
+    fn a_bar_with_an_id_is_a_progress_indicator_with_its_value_and_the_name_it_is_given() {
+        let palette = ComponentPalette::neutral_dark();
+        for flat in [false, true] {
+            let bar = Progress::new(0.25, palette).id("upload").width(200.0);
+            let bar = if flat { bar.flat() } else { bar };
+            let root = Element::row(vec![bar.render().accessibility_label("Uploading")]);
+            let frame = UiTree::new(root).layout(Size::new(400.0, 40.0));
+            let node = frame.access.iter().find(|node| node.id == "upload").unwrap();
+            assert_eq!((node.role, node.name.as_str(), node.value), (Role::ProgressIndicator, "Uploading", Some(0.25)));
+            assert!(!node.actionable && node.rect.width == 200.0);
+        }
+        // Without an ID there is nothing to know it by.
+        let frame = UiTree::new(Progress::new(0.25, palette).render()).layout(Size::new(400.0, 40.0));
+        assert!(frame.access.is_empty());
     }
 }

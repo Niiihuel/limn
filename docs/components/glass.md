@@ -138,3 +138,11 @@ control answers the pointer over `motion.hover_ms`. With
 | `UiAction::Clicked { id }` with a workspace's `action_id` | An enabled workspace is activated. |
 | `UiAction::Clicked { id }` with the ID given to `clock_action` | The clock is activated. |
 | `UiAction::Clicked { id }` with an action's `action_id` | An enabled action is activated. |
+
+## Accessibility
+
+A workspace is a tab named by its label that says whether it is the selected
+one. An action is a button named by its label, with its value as its value;
+an active one says it is on. A clock with an action is a button named by the
+time, with the date as a description. A disabled workspace or action is there
+and cannot be used.

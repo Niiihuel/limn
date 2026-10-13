@@ -100,3 +100,9 @@ label. `PagerSizing::DEFAULT` is 4.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` | An enabled arrow is activated, with the ID passed to `previous` or `next`. |
+
+## Accessibility
+
+Each arrow is a button named by the title of its hint, so give the arrows
+`tooltips`: without them they have no name. An end that cannot be taken is
+there and says it cannot be used.

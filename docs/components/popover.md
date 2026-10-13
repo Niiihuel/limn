@@ -87,3 +87,8 @@ two durations, `open_scale` the scale it starts from (0.5 to 1.25), and
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the surface. |
+
+## Accessibility
+
+The first control of the anchor says whether what it opens is open. The
+content says of itself what its own controls say.

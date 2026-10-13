@@ -86,3 +86,15 @@ reports the click and stays until the host hides it.
 | `UiAction::Clicked { id }` | The close button is activated, with the ID given to `dismiss`. |
 
 A control passed to `action` reports its own actions.
+
+## Accessibility
+
+With an `id` the platform is told of an alert known by that ID, named by its
+title and described by its description. The close button is a button named by
+`labels().dismiss_notice`. Without an `id` only the alert's controls are known.
+
+```rust
+Alert::new("Offline", "Changes are kept on this device.", palette)
+    .id("offline")
+    .render()
+```

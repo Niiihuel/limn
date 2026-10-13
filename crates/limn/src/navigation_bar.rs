@@ -1,8 +1,8 @@
 //! A floating desktop bar with workspaces, a clock and status actions.
 
 use crate::{
-    Color, Component, ComponentPalette, Element, FontFamily, GlassMaterial, Icon, Point,
-    TooltipPlacement, TooltipSpec,
+    Access, Color, Component, ComponentPalette, Element, FontFamily, GlassMaterial, Icon, Point,
+    Role, TooltipPlacement, TooltipSpec,
 };
 
 const CONTROL: f32 = 40.0;
@@ -146,14 +146,23 @@ impl NavigationAction {
             }
         }
         let content = Element::row(content).gap(4.0).centered_x();
+        // The icon says nothing: the label names it, and the status is its value.
+        let mut access = Access::new(Role::Button).name(&self.label);
+        if let Some(value) = &self.value {
+            access = access.value_text(value);
+        }
+        if self.active {
+            access = access.toggled(true);
+        }
         let control = if self.disabled {
-            Element::panel(content)
+            Element::panel(content).accessible(access.id(&id).disabled(true))
         } else {
             Element::clickable(&id, content)
                 .dispatch_as(self.action_id)
                 .hover_background(palette.hover)
                 .pressed_background(palette.selected)
                 .transition_ms(crate::tokens().motion.hover_ms)
+                .accessible(access)
         }
         .padding(10.0)
         .radius(CONTROL / 2.0)
@@ -281,8 +290,9 @@ impl NavigationBar {
                     .indicator_slot(&id),
             );
             markers.push(Element::spacer().size(Some((width - marker_width) / 2.0), Some(DOT)));
+            let access = Access::new(Role::Tab).name(&workspace.label).selected(active);
             let control = if workspace.disabled {
-                Element::panel(Element::spacer())
+                Element::panel(Element::spacer()).accessible(access.id(&id).disabled(true))
             } else {
                 enabled.push(id.clone());
                 Element::clickable(&id, Element::spacer())
@@ -290,6 +300,7 @@ impl NavigationBar {
                     .hover_background(self.palette.hover)
                     .pressed_background(self.palette.selected)
                     .transition_ms(crate::tokens().motion.hover_ms)
+                    .accessible(access)
             }
             .size(Some(width), Some(CONTROL))
             .radius(CONTROL / 2.0);
@@ -356,6 +367,8 @@ impl Component for NavigationBar {
                     .foreground(ink)
                     .centered_x()
             };
+            // A compact bar keeps the date in the hint; the platform keeps it too.
+            let access = Access::named(&time).description(&date);
             let mut lines = vec![
                 text(time, if compact { 18.0 } else { 22.0 }, self.palette.text)
                     .size(None, Some(if compact { CONTROL } else { 25.0 })),
@@ -370,7 +383,8 @@ impl Component for NavigationBar {
                     .dispatch_as(action)
                     .hover_background(self.palette.hover)
                     .pressed_background(self.palette.selected)
-                    .transition_ms(crate::tokens().motion.hover_ms),
+                    .transition_ms(crate::tokens().motion.hover_ms)
+                    .accessible(access),
                 None => Element::panel(content),
             }
             .radius(crate::tokens().radius.control)
@@ -473,6 +487,40 @@ mod tests {
             .find(|r| r.id == format!("desktop:{suffix}") && r.kind == HitKind::Button)
             .unwrap()
             .rect
+    }
+
+    #[test]
+    fn every_control_of_the_bar_tells_the_platform_its_name_and_its_state() {
+        let mut tree = UiTree::new(root(
+            bar(1, 720.0).actions(vec![
+                NavigationAction::new("network", Icon::Globe, "Network").value("Connected").active(true),
+                NavigationAction::new("settings", Icon::Settings, "Settings"),
+                NavigationAction::new("disabled", Icon::More, "Unavailable").disabled(true),
+            ]),
+        ));
+        let frame = tree.layout(Size::new(720.0, 120.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (first, chosen, off) =
+            (node("desktop:workspace:workspace-0"), node("desktop:workspace:workspace-1"), node("desktop:workspace:workspace-3"));
+        assert_eq!((first.role, first.name.as_str(), first.selected), (Role::Tab, "Workspace 0", Some(false)));
+        assert_eq!((chosen.role, chosen.name.as_str(), chosen.selected), (Role::Tab, "Workspace 1", Some(true)));
+        assert!(chosen.actionable && !chosen.disabled);
+        assert_eq!((off.role, off.name.as_str(), off.selected), (Role::Tab, "Workspace 3", Some(false)));
+        assert!(off.disabled && !off.actionable);
+
+        let clock = node("desktop:clock");
+        assert_eq!((clock.role, clock.name.as_str()), (Role::Button, "11:06:46"));
+        assert_eq!(clock.description.as_deref(), Some("TUE 13 OCT"));
+
+        let network = node("desktop:action:network");
+        assert_eq!((network.role, network.name.as_str()), (Role::Button, "Network"));
+        assert_eq!((network.value_text.as_deref(), network.toggled), (Some("Connected"), Some(true)));
+        let settings = node("desktop:action:settings");
+        assert_eq!((settings.name.as_str(), settings.value_text.as_deref(), settings.toggled), ("Settings", None, None));
+        let unavailable = node("desktop:action:disabled");
+        assert_eq!((unavailable.role, unavailable.name.as_str()), (Role::Button, "Unavailable"));
+        assert!(unavailable.disabled && !unavailable.actionable);
     }
 
     #[test]

@@ -119,3 +119,16 @@ cannot be focused.
 | `UiAction::Clicked { id }` with the trigger's ID | The trigger is activated. The host opens or closes the list. |
 | `UiAction::Clicked { id }` with an option's ID | An enabled option is chosen. |
 | `UiAction::Clicked { id }` with the dismiss ID | Escape is pressed or the pointer clicks outside the list. |
+
+## Accessibility
+
+The trigger is told to the platform as a combo box that says whether its
+list is open, with the current label as its value; each option is a menu item
+that says whether it is the selected one. The trigger shows the choice and
+not what is being chosen, so the host names it, or puts it in a
+[Form field](form-field.md), whose label names it. A disabled select is
+still there and says it cannot be used.
+
+```rust
+Select::new("shell", "Bash", options, open, "shell:dismiss", palette).accessibility_label("Shell")
+```

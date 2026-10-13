@@ -174,3 +174,12 @@ A row's fill answers the pointer over `motion.hover_ms`.
 | `Clicked` on `{id}:column:{key}` | An optional column is toggled, in the columns menu or in the header's context menu. |
 | `Clicked` on `{id}:columns`, and on `{id}:columns:dismiss` | The columns button is activated; its menu is dismissed. |
 | `Clicked` on a row's ID | The row is activated. |
+
+## Accessibility
+
+The header of a sortable column is a button named by the column's label, also
+when it shows only an icon, and says whether it is the selected one, the
+column the rows are sorted by. The columns button is named by its title and
+says whether its menu is expanded. A row is an item of a list named by the
+text of its cells, and says whether it is selected. The platform is not told
+the direction of the sort, nor that the rows and columns form a table.

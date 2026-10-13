@@ -5,7 +5,7 @@
 use crate::menu::action_style::{
     self, GAP, HORIZONTAL_PADDING, SCROLLBAR_GUTTER, SEPARATOR_HEIGHT,
 };
-use crate::{Component, ComponentPalette, Element, FontFamily, Icon, Kbd, ScrollArea};
+use crate::{Access, Component, ComponentPalette, Element, FontFamily, Icon, Kbd, Role, ScrollArea};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContextMenuItem {
@@ -239,10 +239,12 @@ pub(crate) fn surface(
                     Element::row(children).gap(GAP).flex(1.0),
                     Element::spacer().size(Some(HORIZONTAL_PADDING), None),
                 ]);
+                // The label alone names the row: its keys are not part of what it is called.
+                let access = Access::new(Role::MenuItem).name(&item.label);
                 let row = if item.enabled {
-                    Element::clickable(row_id(index), content).action_menu_item()
+                    Element::clickable(row_id(index), content).action_menu_item().accessible(access)
                 } else {
-                    Element::panel(content)
+                    Element::panel(content).accessible(access.id(row_id(index)).disabled(true))
                 };
                 palette
                     .interactive_surface(row)
@@ -268,4 +270,31 @@ pub(crate) fn surface(
 
 pub(crate) fn row_id(index: usize) -> String {
     format!("__context_menu:item:{index}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Point, Size, UiEvent, UiTree};
+
+    #[test]
+    fn an_open_menu_tells_the_platform_each_item_by_its_label_enabled_or_not() {
+        let entries = vec![
+            ContextMenuEntry::Item(ContextMenuItem::new("rename", "Rename").shortcut("Ctrl+R")),
+            ContextMenuEntry::Separator,
+            ContextMenuEntry::Item(ContextMenuItem::new("delete", "Delete").icon(Icon::Trash).disabled()),
+        ];
+        let owner = Element::button("owner", "Editor").size(Some(180.0), Some(32.0));
+        let mut tree = UiTree::new(ContextMenu::new("owner", owner, entries, ComponentPalette::neutral_dark()).render());
+        tree.layout(Size::new(520.0, 400.0));
+        tree.handle_event(UiEvent::ContextMenu { position: Point::new(20.0, 16.0) });
+        let frame = tree.layout(Size::new(520.0, 400.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+        let (rename, delete) = (node(&row_id(0)), node(&row_id(2)));
+        assert_eq!((rename.role, rename.name.as_str()), (Role::MenuItem, "Rename"));
+        assert!(rename.actionable && !rename.disabled);
+        assert_eq!((delete.role, delete.name.as_str()), (Role::MenuItem, "Delete"));
+        assert!(delete.disabled && !delete.actionable);
+        assert!(frame.access.iter().all(|node| node.id != row_id(1)), "a separator says nothing");
+    }
 }

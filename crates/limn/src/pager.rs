@@ -1,8 +1,8 @@
 //! Two arrows around a position: the step-through control of a sequence.
 
 use crate::{
-    page::px, ButtonVariant, Component, ComponentPalette, ControlSize, Element, Icon, IconButton,
-    Text, TextRole, TooltipSpec,
+    page::px, Access, ButtonVariant, Component, ComponentPalette, ControlSize, Element,
+    ElementKind, Icon, IconButton, Role, Text, TextRole, TooltipSpec,
 };
 
 /// Density of a [`Pager`], in logical pixels.
@@ -117,15 +117,25 @@ impl Component for Pager {
     fn render(self) -> Element {
         let palette = self.palette;
         let arrow = |end: End| {
-            let button = IconButton::new(end.id, end.icon, palette)
+            let button = IconButton::new(&end.id, end.icon, palette)
                 .variant(ButtonVariant::Ghost)
                 .size(ControlSize::Dense)
                 .enabled(end.enabled);
-            match end.tooltip {
+            let button = match end.tooltip {
                 Some(tooltip) => button.tooltip_with(tooltip),
                 None => button,
             }
-            .render()
+            .render();
+            // An arrow alone says nothing: its hint's title names it.
+            let mut access = Access::new(Role::Button);
+            if let ElementKind::Tooltip { title, .. } = &button.kind {
+                access = access.name(title);
+            }
+            if end.enabled {
+                button.accessible(access)
+            } else {
+                button.accessible(access.id(end.id).disabled(true))
+            }
         };
         let label = Text::new(self.label, palette)
             .role(TextRole::Small)
@@ -177,6 +187,27 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn an_arrow_is_named_by_its_hint_and_a_disabled_end_is_still_there() {
+        let palette = ComponentPalette::neutral_dark();
+        let pager = Pager::new("1 / 12", palette)
+            .previous("prev", false)
+            .next("next", true)
+            .tooltips(TooltipSpec::new("Previous page"), TooltipSpec::new("Next page"));
+        let frame = tree(pager).layout(Size::new(400.0, 100.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+
+        let (previous, next) = (node("prev"), node("next"));
+        assert_eq!((previous.role, previous.name.as_str()), (Role::Button, "Previous page"));
+        assert!(previous.disabled && !previous.actionable);
+        assert_eq!((next.role, next.name.as_str()), (Role::Button, "Next page"));
+        assert!(next.actionable && !next.disabled);
+        // Without hints there is nothing to call them.
+        let bare = tree(Pager::new("1", palette).previous("prev", false).next("next", true)).layout(Size::new(400.0, 100.0));
+        assert_eq!(bare.access.iter().map(|node| (node.id.as_str(), node.name.as_str())).collect::<Vec<_>>(),
+            [("prev", ""), ("next", "")]);
     }
 
     #[test]

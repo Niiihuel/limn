@@ -1,8 +1,8 @@
 //! File and image cards. The host owns payloads, metadata and removal actions.
 
 use crate::{
-    ButtonVariant, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon, IconButton,
-    RasterImage, Tooltip,
+    Access, ButtonVariant, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon, IconButton,
+    RasterImage, Role, Tooltip,
 };
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -174,7 +174,9 @@ impl Component for Attachment {
                 .size(ControlSize::Dense)
                 .render()
                 .radius(panel)
-                .size(Some(24.0), Some(24.0));
+                .size(Some(24.0), Some(24.0))
+                // An icon alone: its hint is its name.
+                .accessibility_label(format!("{} {}", crate::labels().remove, self.title));
             Tooltip::new(button, id, format!("{} {}", crate::labels().remove, self.title), self.palette)
                 .render()
                 .size(Some(24.0), Some(24.0))
@@ -216,7 +218,13 @@ impl Component for Attachment {
             .radius(if preview_only { panel * 16.0 / 12.0 } else { panel * 10.0 / 12.0 })
             .size(Some(self.width), Some(height));
         let card = if let Some(id) = self.open_action {
-            Tooltip::new(Element::clickable(&id, card), id, &self.title, self.palette)
+            // Named by its title whatever the card shows: a preview alone has no text.
+            let mut said = Access::new(Role::Button).name(&self.title);
+            let about = self.help.as_deref().unwrap_or(&self.description);
+            if !about.is_empty() {
+                said = said.description(about);
+            }
+            Tooltip::new(Element::clickable(&id, card).accessible(said), id, &self.title, self.palette)
                 .description(self.help.as_deref().unwrap_or(&self.description))
                 .render()
                 .size(Some(self.width), Some(height))
@@ -239,5 +247,28 @@ impl Component for Attachment {
             }
         }
         card
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{Size, UiTree};
+
+    #[test]
+    fn the_remove_button_is_named_for_what_it_removes_and_the_card_by_its_title() {
+        let palette = ComponentPalette::neutral_dark();
+        for attachment in [
+            Attachment::new("file", "notas.md", palette).description("2 KB"),
+            Attachment::new("file", "notas.md", palette).description("2 KB").preview_only(),
+        ] {
+            let element = attachment.open_action("open").remove_action("remove").render();
+            let frame = UiTree::new(Element::row(vec![element])).layout(Size::new(400.0, 300.0));
+            let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+            let remove = node("remove");
+            assert_eq!((remove.role, remove.name.clone()), (Role::Button, format!("{} notas.md", crate::labels().remove)));
+            assert_eq!((node("open").role, node("open").name.as_str()), (Role::Button, "notas.md"));
+            assert!(remove.actionable && node("open").actionable);
+        }
     }
 }

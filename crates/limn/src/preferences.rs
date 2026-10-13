@@ -125,6 +125,7 @@ pub struct ActionRow {
     align_top: bool,
     trailing_top: bool,
     icon_muted: bool,
+    enabled: bool,
 }
 impl ActionRow {
     /// A row with a title in the palette's text color.
@@ -142,6 +143,7 @@ impl ActionRow {
             align_top: false,
             trailing_top: false,
             icon_muted: false,
+            enabled: true,
         }
     }
     /// Supporting copy under the title, in the muted color. It wraps.
@@ -179,6 +181,16 @@ impl ActionRow {
     pub fn action(mut self, id: impl Into<String>) -> Self {
         self.action = Some(id.into());
         self
+    }
+    /// A disabled row is passive: a muted title and icon, and no button even
+    /// with an action. A trailing control is the host's to disable.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
     }
     /// The row's density. [`ActionRowSizing::DEFAULT`] unless set.
     pub fn sizing(mut self, sizing: ActionRowSizing) -> Self {
@@ -219,6 +231,12 @@ impl Component for ActionRow {
         } else {
             sizing.min_height
         });
+        // With an action the row is a button named by its title and
+        // described by its subtitle, whatever else sits in it.
+        let mut said = crate::Access::new(crate::Role::Button).name(self.title.clone());
+        if let Some(subtitle) = &self.subtitle {
+            said = said.description(subtitle.clone());
+        }
         let title = if self.wrap_title {
             Element::text(self.title)
         } else {
@@ -227,7 +245,7 @@ impl Component for ActionRow {
         let mut copy = vec![title
             .font_family(FontFamily::Sans)
             .font_size(12.0)
-            .foreground(self.palette.text)];
+            .foreground(if self.enabled { self.palette.text } else { self.palette.muted })];
         if let Some(subtitle) = self.subtitle {
             copy.push(
                 Element::text(subtitle)
@@ -256,7 +274,7 @@ impl Component for ActionRow {
             let mut children = Vec::new();
             if let Some(icon) = self.icon {
                 let column = px(sizing.icon_column);
-                let icon = Element::icon(icon).foreground(if self.icon_muted {
+                let icon = Element::icon(icon).foreground(if self.icon_muted || !self.enabled {
                     self.palette.muted
                 } else {
                     self.palette.text
@@ -274,11 +292,12 @@ impl Component for ActionRow {
             Element::row(children).gap(px(sizing.gap)).min_size(0.0, minimum_height)
         }
         .padding(PADDING);
-        if let Some(id) = self.action {
-            self.palette
-                .interactive_surface(Element::clickable(id, content))
-        } else {
-            content
+        match self.action {
+            Some(id) if self.enabled => self
+                .palette
+                .interactive_surface(Element::clickable(id, content).accessible(said)),
+            Some(id) => content.accessible(said.id(id).disabled(true)),
+            None => content,
         }
     }
 }
@@ -286,7 +305,22 @@ impl Component for ActionRow {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, Frame, Point, Rect, Size, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, Frame, Key, Point, Rect, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn a_row_with_an_action_is_a_button_named_by_its_title_and_described_by_its_subtitle() {
+        let palette = ComponentPalette::neutral_dark();
+        let row = || ActionRow::new("Idioma", palette).subtitle("Español").value("es");
+        for enabled in [true, false] {
+            let frame = UiTree::new(row().action("language").enabled(enabled).render()).layout(Size::new(320.0, 80.0));
+            let said = frame.access.iter().find(|node| node.id == "language").unwrap();
+            assert_eq!((said.role, said.name.as_str()), (crate::Role::Button, "Idioma"));
+            assert_eq!(said.description.as_deref(), Some("Español"));
+            assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
+        // Without an action it is copy, not a control.
+        assert!(UiTree::new(row().render()).layout(Size::new(320.0, 80.0)).access.is_empty());
+    }
 
     fn same_bounds(rect: Rect, bounds: Rect) -> bool {
         (rect.x - bounds.x).abs() < 0.001
@@ -700,6 +734,50 @@ mod tests {
                     id: "provider_disconnect:codex".into()
                 }]
             );
+        }
+    }
+
+    #[test]
+    fn a_disabled_row_is_muted_takes_no_pointer_or_focus_and_keeps_its_place() {
+        let palette = ComponentPalette::neutral_dark();
+        let row = |enabled: bool| {
+            ActionRow::new("Atajos", palette)
+                .subtitle("Abre la lista de atajos.")
+                .icon(Icon::Grid)
+                .trailing(switch(palette))
+                .wrap_title(true)
+                .action("shortcuts")
+                .enabled(enabled)
+                .render()
+        };
+        // The icon, the copy and the trailing control, wherever they are painted.
+        let places = |frame: &Frame| {
+            let icon = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Icon { rect, .. } => Some(*rect),
+                _ => None,
+            });
+            (icon, runs(frame, "Atajos"), runs(frame, "Abre la lista de atajos."), region(frame, "toggle"))
+        };
+        for width in WIDTHS {
+            let enabled = frame_of(row(true), width);
+            let bounds = region(&enabled, "shortcuts");
+            let mut tree = UiTree::new(Element::column(vec![row(false), Element::spacer().flex(1.0)]));
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(width, 600.0));
+            assert!(!frame.regions.iter().any(|region| region.id == "shortcuts"));
+            assert!(!tree.focus("shortcuts"));
+            let point = Point::new(bounds.x + 1.0, bounds.y + 1.0);
+            assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+            assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+            assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+            assert!(frame.commands.iter().all(|command| match command {
+                DrawCommand::Text { color, .. } => *color == palette.muted,
+                DrawCommand::Icon { tint, .. } => *tint == palette.muted,
+                _ => true,
+            }));
+            assert_eq!(places(&frame), places(&enabled));
+            // The trailing control is the host's, and still answers.
+            assert!(tree.focus("toggle"));
         }
     }
 }

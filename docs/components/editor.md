@@ -130,6 +130,17 @@ wrapped lines between two heights, and `editor_height` fixes it instead.
 its sides and filled with that palette's `surface`. Build the strip's content
 `Composer::header_strip_width(width)` wide.
 
+### Disabled
+
+```rust
+Composer::new("composer", &state.draft, "Describe a task", width, palette).enabled(!state.sending).render()
+```
+
+A disabled composer shows its draft, or its placeholder, as muted text in the
+editor's place and takes no pointer, focus or typing. The elements the host
+passes in, such as the controls, the footer and the attachments, are the
+host's to disable.
+
 ## Dictation
 
 ```rust
@@ -166,3 +177,12 @@ the palette's muted. `Collapsible` takes the same `ink`.
 | `UiAction::InputChanged { id, value }` | The find bar's query or replacement changes, or the composer's text. |
 | `UiAction::Clicked { id }` | A button of the find bar is activated: an option, the replace toggle, previous, next, replace, replace all or close. |
 | `UiAction::Clicked { id }` | The dictation button is activated, in any state. |
+
+## Accessibility
+
+The composer's editor is a multiline field named by its placeholder, with the
+draft as its value; disabled, it is still there as disabled. The find bar's
+buttons are named by their `FindLabels`: the case, word, regular expression
+and selection options say whether they are toggled, the replace toggle whether
+it is expanded, and a button that cannot be used is disabled. The count is a
+status and the error an alert.

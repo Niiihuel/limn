@@ -936,6 +936,9 @@ pub struct HitRegion {
 pub struct Frame {
     pub commands: Vec<DrawCommand>,
     pub regions: Vec<HitRegion>,
+    /// What the platform should know of the frame: one node for each control
+    /// and each thing a component described, in the order they were placed.
+    pub access: Vec<crate::AccessNode>,
     action_menu_items: HashSet<String>,
     menu_secondary_actions: HashSet<String>,
     draggables: HashSet<String>,
@@ -3062,6 +3065,7 @@ impl UiTree {
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 pointer: self.pointer,
                 region_hovered: false,
+                access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
                 slider_motion: &mut self.slider_motion,
                 focused: self.focused.as_deref(),
@@ -5697,6 +5701,81 @@ fn focusable_id(element: &Element) -> Option<&str> {
     }
 }
 
+/// What an element's kind tells of it: a button is a button named by its
+/// label, a field is a field named by its placeholder.
+fn inferred_access(element: &Element) -> crate::Access {
+    use crate::{Access, Role};
+    match &element.kind {
+        ElementKind::Button { label, .. } | ElementKind::IconButton { label, .. } => {
+            Access { name: (!label.is_empty()).then(|| label.clone()), ..Access::new(Role::Button) }
+        }
+        ElementKind::Clickable { child, .. } => {
+            let role = if element.slider.is_some() { Role::Slider } else { Role::Button };
+            let name = spoken_text(child);
+            Access { name: (!name.is_empty()).then_some(name), ..Access::new(role) }
+        }
+        ElementKind::TextInput { initial_value, placeholder, password, .. } => Access {
+            name: (!placeholder.is_empty()).then(|| placeholder.clone()),
+            // What is typed into a password field is nobody's to read out.
+            value_text: (!*password).then(|| initial_value.clone()),
+            ..Access::new(if *password { Role::PasswordInput } else { Role::TextInput })
+        },
+        ElementKind::TextArea { initial_value, placeholder, .. } => Access {
+            name: (!placeholder.is_empty()).then(|| placeholder.clone()),
+            value_text: Some(initial_value.clone()),
+            ..Access::new(Role::MultilineTextInput)
+        },
+        ElementKind::EffortSlider { fraction, .. } => Access::new(Role::Slider).value(*fraction),
+        ElementKind::CodeEditor(_) => Access::new(Role::MultilineTextInput),
+        _ => Access::default(),
+    }
+}
+
+/// The text an element shows, as one line: what names a control that was
+/// given no name of its own.
+fn spoken_text(element: &Element) -> String {
+    fn gather(element: &Element, out: &mut String) {
+        // A name is a phrase, not a page.
+        if out.len() >= 160 {
+            return;
+        }
+        let mut say = |text: &str| {
+            let text = text.trim();
+            if !text.is_empty() {
+                if !out.is_empty() {
+                    out.push(' ');
+                }
+                out.push_str(text);
+            }
+        };
+        match &element.kind {
+            ElementKind::Text(text)
+            | ElementKind::TruncatedText(text)
+            | ElementKind::FadedText { text, .. }
+            | ElementKind::ShimmerText { text, .. } => say(text),
+            ElementKind::Button { label, .. } | ElementKind::IconButton { label, .. } => say(label),
+            ElementKind::FormattedText(spans) => {
+                say(&spans.iter().map(|span| span.text.as_str()).collect::<String>())
+            }
+            ElementKind::Column(children) | ElementKind::Row(children) | ElementKind::Stack(children) => {
+                children.iter().for_each(|child| gather(child, out))
+            }
+            ElementKind::TabStrip { children, .. } => children.iter().for_each(|child| gather(child, out)),
+            ElementKind::Panel(child)
+            | ElementKind::Clickable { child, .. }
+            | ElementKind::ShortcutHint { child, .. }
+            | ElementKind::Scroll { child, .. }
+            | ElementKind::HorizontalScroll { child, .. } => gather(child, out),
+            ElementKind::Overlay { base, .. } => gather(base, out),
+            ElementKind::Popover { anchor, .. } | ElementKind::Tooltip { anchor, .. } => gather(anchor, out),
+            _ => {}
+        }
+    }
+    let mut out = String::new();
+    gather(element, &mut out);
+    out
+}
+
 /// Whether a hover-revealed element must stay painted without the pointer:
 /// a popover inside it is open, or the keyboard focus is on one of its
 /// controls.
@@ -5797,6 +5876,8 @@ struct LayoutBuilder<'a> {
     pointer: Option<Point>,
     /// The pointer is over the `hover_region` being placed.
     region_hovered: bool,
+    /// What a wrapper said of the control inside it, until that control takes it.
+    access_above: Option<crate::Access>,
     slider_drag: Option<&'a SliderDrag>,
     slider_motion: &'a mut HashMap<String, SliderMotion>,
     focused: Option<&'a str>,
@@ -8085,10 +8166,26 @@ impl LayoutBuilder<'_> {
                 .zip(visible)
                 .is_some_and(|(point, visible)| visible.contains(point));
         }
+        // A wrapper that is not itself a control speaks for the control inside
+        // it: a field in its frame, a switch in its row.
+        let hands_down = element.access.as_deref().filter(|said| said.id.is_none() && focusable_id(element).is_none());
+        // The outermost control inside a wrapper is the one it spoke for: it
+        // takes what was said before anything inside it can.
+        let known = focusable_id(element).is_some() || element.access.as_deref().is_some_and(|said| said.id.is_some());
+        let for_this = if known { self.access_above.take() } else { None };
+        let above = self.access_above.take();
+        self.access_above = match (hands_down, &above) {
+            (Some(said), Some(outer)) => Some(outer.clone().over(said.clone())),
+            (Some(said), None) => Some(said.clone()),
+            (None, _) => above.clone(),
+        };
         match (&element.presence, element.animate_height) {
             (Some((id, _)), Some(_)) => self.place_flow_height(element, id, rect, clip),
             _ => self.place_inner(element, rect, clip),
         }
+        // Whoever was inside took it, or nobody was: either way it goes no further.
+        let taken = self.access_above.is_none();
+        self.access_above = if taken || known { None } else { above };
         self.region_hovered = around;
         if let Some((id, radius)) = element.kept.as_ref().and_then(|kept| kept.soft.as_ref()) {
             self.soften(id, *radius, start);
@@ -8108,6 +8205,52 @@ impl LayoutBuilder<'_> {
         if dragged {
             self.drag_ghost = Some(start..self.frame.commands.len());
         }
+        self.note_access(element, rect, clip, for_this);
+    }
+
+    /// Record what the platform should know of `element`: what it says of
+    /// itself over what its kind tells.
+    fn note_access(&mut self, element: &Element, rect: Rect, clip: Option<Rect>, above: Option<crate::Access>) {
+        let own = focusable_id(element);
+        if own.is_none() && element.access.is_none() {
+            return;
+        }
+        let mut said = element.access.as_deref().cloned().unwrap_or_default();
+        let Some(id) = said.id.clone().or_else(|| own.map(str::to_owned)) else {
+            // Something described without a name to know it by: what it said
+            // was for the control inside it.
+            return;
+        };
+        // What a wrapper said is for the control inside it, whether that is a
+        // control or one drawn disabled and known by the ID it was given.
+        if let Some(above) = above {
+            said = above.over(said);
+        }
+        let Some(rect) = clip.map_or(Some(rect), |clip| rect.intersection(clip)) else {
+            return;
+        };
+        // One control drawn in pieces, such as a link wrapped over two lines, is one node.
+        if self.frame.access.iter().any(|node| node.id == id) {
+            return;
+        }
+        let access = said.over(inferred_access(element));
+        let actionable = own.is_some() && !access.disabled;
+        self.frame.access.push(crate::AccessNode {
+            focused: actionable && self.focused == Some(id.as_str()),
+            id,
+            rect,
+            role: access.role.unwrap_or(crate::Role::Group),
+            // A hint names what nothing else names, and describes what has a name.
+            description: access.description.or_else(|| access.name.as_ref().and(access.hint.clone())).filter(|said| Some(said) != access.name.as_ref()),
+            name: access.name.or(access.hint).unwrap_or_default(),
+            disabled: access.disabled,
+            toggled: access.toggled,
+            selected: access.selected,
+            expanded: access.expanded,
+            value: access.value,
+            value_text: access.value_text,
+            actionable,
+        });
     }
 
     fn place_inner(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {

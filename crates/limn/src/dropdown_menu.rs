@@ -5,8 +5,8 @@ use crate::components::{
 };
 use crate::menu::{DetailRow, action_style};
 use crate::{
-    Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, PopoverPlacement, ScrollArea,
-    ScrollbarAppearance, SelectorSizing, Separator, Skeleton, TooltipSpec,
+    Access, Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, PopoverPlacement, Role,
+    ScrollArea, ScrollbarAppearance, SelectorSizing, Separator, Skeleton, TooltipSpec,
 };
 
 // The height of the viewport that holds an error too long for one row.
@@ -264,7 +264,8 @@ impl DropdownMenuSection {
         palette
             .interactive_surface(
                 Element::clickable(self.id, Element::row(children).gap(sizing.gap))
-                    .action_menu_item(),
+                    .action_menu_item()
+                    .accessible(Access::default().expanded(!self.collapsed)),
             )
             .padding(sizing.padding)
             .size(self.width, Some(sizing.row_height))
@@ -360,6 +361,8 @@ pub struct DropdownMenu {
     inline: bool,
     context_menu_style: bool,
     hints_in_tooltips: bool,
+    // A submenu opens under the pointer: only the tree knows when.
+    submenu: bool,
 }
 
 impl DropdownMenu {
@@ -389,6 +392,7 @@ impl DropdownMenu {
             inline: false,
             context_menu_style: false,
             hints_in_tooltips: false,
+            submenu: false,
         }
     }
 
@@ -485,6 +489,10 @@ impl DropdownMenu {
 
 impl Component for DropdownMenu {
     fn render(mut self) -> Element {
+        if !self.submenu {
+            // The trigger is the host's; whether its menu is open is known here.
+            self.anchor = self.anchor.accessible(Access::default().expanded(self.open));
+        }
         if !self.open {
             return self.anchor;
         }
@@ -717,6 +725,15 @@ impl Component for DropdownMenu {
                                 .min((main_width - 40.0 - gap).max(0.0))
                         })
                         .filter(|width| *width >= 28.0);
+                    // The label alone names the row: its keys are not part of what it is called.
+                    let mut access = Access::new(Role::MenuItem).name(&item.label);
+                    if let Some(annotation) = &item.annotation {
+                        access = access.description(annotation);
+                    }
+                    // A menu with a check column is a set of choices.
+                    if reserve_check {
+                        access = access.selected(item.selected);
+                    }
                     let submenu_id = item.action_id.clone();
                     let submenu = if enabled { item.submenu } else { None };
                     let ink = item.destructive.unwrap_or(palette.text);
@@ -857,9 +874,12 @@ impl Component for DropdownMenu {
                         visual
                     };
                     let row = if enabled {
-                        Element::clickable(item.action_id, visual)
-                    } else {
+                        Element::clickable(item.action_id, visual).accessible(access)
+                    } else if item.action_id.is_empty() {
+                        // Nothing to know it by: a disabled row with no action.
                         Element::panel(visual)
+                    } else {
+                        Element::panel(visual).accessible(access.id(item.action_id).disabled(true))
                     };
                     // The popover paints one continuous surface. Resting rows
                     // are transparent so their fills cannot stack with that
@@ -918,6 +938,7 @@ impl Component for DropdownMenu {
                         } else if let Some(sizing) = self.sizing {
                             submenu = submenu.sizing(sizing);
                         }
+                        submenu.submenu = true;
                         submenu
                             .width(self.width)
                             .hints_in_tooltips(self.hints_in_tooltips)
@@ -1069,6 +1090,61 @@ mod tests {
 
     fn trigger() -> Element {
         Element::button("trigger", "Open").size(Some(80.0), Some(28.0))
+    }
+
+    #[test]
+    fn the_trigger_says_whether_the_menu_is_open_and_each_item_what_it_is() {
+        let palette = ComponentPalette::neutral_dark();
+        let menu = |open: bool, contextual: bool| {
+            let menu = DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuItem::new("wrap", "Word wrap").shortcut("Alt+Z").selected(true).into(),
+                    DropdownMenuItem::new("map", "Minimap").annotation("Off").into(),
+                    DropdownMenuItem::new("zen", "Zen mode").disabled().into(),
+                    DropdownMenuItem::new("more", "More")
+                        .submenu(vec![DropdownMenuItem::new("deep", "Deep").into()])
+                        .into(),
+                    DropdownMenuItem::new("model", "Opus").description("The largest").selected(true).into(),
+                    DropdownMenuItem::new("gone", "Retired").description("No longer served").disabled().into(),
+                    DropdownMenuSection::new("group", "Group").collapsed(true).into(),
+                ],
+                open,
+                "dismiss",
+                palette,
+            )
+            .max_visible_items(12);
+            if contextual { menu.context_menu_style() } else { menu }
+        };
+        let closed = open_menu(menu(false, false)).layout(Size::new(520.0, 640.0));
+        assert_eq!(closed.access.len(), 1);
+        assert_eq!((closed.access[0].role, closed.access[0].name.as_str()), (Role::Button, "Open"));
+        assert_eq!(closed.access[0].expanded, Some(false));
+        for contextual in [false, true] {
+            let frame = open_menu(menu(true, contextual)).layout(Size::new(520.0, 640.0));
+            let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap_or_else(|| panic!("no node {id}"));
+            assert_eq!(node("trigger").expanded, Some(true));
+            let wrap = node("wrap");
+            assert_eq!((wrap.role, wrap.name.as_str(), wrap.selected), (Role::MenuItem, "Word wrap", Some(true)));
+            assert!(wrap.actionable && !wrap.disabled);
+            let map = node("map");
+            assert_eq!((map.name.as_str(), map.description.as_deref(), map.selected), ("Minimap", Some("Off"), Some(false)));
+            let zen = node("zen");
+            assert_eq!((zen.role, zen.name.as_str(), zen.selected), (Role::MenuItem, "Zen mode", Some(false)));
+            assert!(zen.disabled && !zen.actionable);
+            // Its submenu opens under the pointer: the item does not claim to know.
+            // Outside the contextual style the shared popover speaks for its anchor.
+            let more = node("more");
+            assert_eq!((more.role, more.name.as_str()), (Role::MenuItem, "More"));
+            assert!(!contextual || more.expanded.is_none());
+            let model = node("model");
+            assert_eq!((model.role, model.name.as_str()), (Role::MenuItem, "Opus"));
+            assert_eq!((model.description.as_deref(), model.selected), (Some("The largest"), Some(true)));
+            let gone = node("gone");
+            assert_eq!((gone.role, gone.name.as_str(), gone.selected), (Role::MenuItem, "Retired", Some(false)));
+            assert!(gone.disabled && !gone.actionable);
+            assert_eq!((node("group").role, node("group").expanded), (Role::Button, Some(false)));
+        }
     }
 
     #[test]
