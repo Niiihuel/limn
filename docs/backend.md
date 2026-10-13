@@ -68,6 +68,7 @@ the regions of the last layout.
 | Command | Paints |
 | --- | --- |
 | `FillRect { rect, color, radius }` | A filled rectangle with uniformly rounded corners. |
+| `Glass { rect, radius, material, opacity }` | A rounded surface sampling an explicit host backdrop. Paint its blur, refractive edge and tint before foreground controls. A backend without a backdrop uses an opaque tint, multiplied by the command's animation opacity. |
 | `FillCornerRect { rect, color, radii }` | A filled rectangle with a radius per corner. |
 | `StrokeRect { rect, color, width, radius }` | An outline drawn inside the rectangle. |
 | `StrokeCornerRect { .. }` | An outline with a radius per corner. |
@@ -121,6 +122,8 @@ The egui backend exposes:
 | `normalize_keyboard_input(&ctx)` | Fixes key and text events on remapped layouts. Each frame, before `events`. |
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
+| `GlassRenderer::new(&render_state)` | Creates the native wgpu optical renderer. Supply the backdrop using `set_backdrop_rgba` or `set_backdrop_texture`, then call its `paint_at`. |
+| `GlassRenderer::paint_at_surface(ui, &frame, origin, backdrop_rect, surface_id)` | Displays the shared backdrop texture at a named surface's paint depth and renders the glass above it. This opt-in path stretches the texture to the explicit backdrop rectangle; ordinary host-fed surfaces retain their pixel mapping. See [Native glass navigation](liquid-glass.md). |
 | `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Each image is decoded on a thread of its own and painted from the frame after it lands. |
 | `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |

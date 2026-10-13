@@ -35,6 +35,7 @@ own content, and how to switch movement off.
 | An element with `conceal_on_hover` | Fades in when the pointer leaves the region. | Fades out when it comes over it. | `enter_ms`, `exit_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
+| `NavigationBar` | The workspace capsule springs to the selected workspace; control fills cross-fade and tooltips fade. | | `move_ms`, `hover_ms`, tooltip tokens |
 | `Switch` | The thumb springs across. | | `move_ms` |
 | `Stepper` | The badge cross-fades between active and inactive. | | `move_ms` |
 | An element with `soft_focus` | Shown as given. | Its radius springs to a new one. | `move_ms` |
