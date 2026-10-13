@@ -1,11 +1,13 @@
 ---
 import '../styles/site.css';
+import '../styles/docs.css';
 import Icon from '../components/Icon.astro';
 import { REPO } from '../data/site';
-const { title, description = 'A native UI library for Rust.' } = Astro.props;
+const { title, description = 'A native UI library for Rust.', variant = 'docs', bodyClass, canonical = Astro.url.pathname } = Astro.props;
 const path = Astro.url.pathname;
 const nav = [
   ['/docs/', 'Docs', 'book'],
+  ['/design-system/', 'Design system', 'palette'],
   ['/components/', 'Components', 'grid'],
   ['/gallery/', 'Gallery', 'window-stack'],
 ];
@@ -16,6 +18,7 @@ const nav = [
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
     <title>{title ? `${title} · limn` : 'limn — a native UI library for Rust'}</title>
     <script is:inline>
       // Before the first paint, so a light page never flashes dark.
@@ -23,11 +26,12 @@ const nav = [
       if (saved ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : '')) document.documentElement.dataset.theme = saved ?? 'light';
     </script>
   </head>
-  <body>
+  <body class={bodyClass} data-layout={variant}>
+    <a class="skip-link" href="#content">Skip to content</a>
     <header class="bar">
       <a class="brand" href="/">limn</a>
       <nav aria-label="Site">
-        {nav.map(([href, label, icon]) => <a href={href} aria-current={path.startsWith(href) ? 'page' : undefined}><Icon name={icon} />{label}</a>)}
+        {nav.map(([href, label, icon]) => <a href={href} data-nav={href} aria-current={path.startsWith(href) ? 'page' : undefined}><Icon name={icon} />{label}</a>)}
       </nav>
       <div class="end">
         <a href={`${REPO}/blob/main/CHANGELOG.md`}><Icon name="journal-text" />Changelog</a>
@@ -74,7 +78,7 @@ const nav = [
       addEventListener('message', (event) => {
         if (event.data !== 'limn:grow') return;
         for (const frame of document.querySelectorAll('iframe.live')) {
-          if (frame.contentWindow === event.source && frame.offsetHeight < 900) frame.style.height = `${frame.offsetHeight + 24}px`;
+          if (frame.contentWindow === event.source && frame.offsetHeight > 0 && frame.offsetHeight < 900) frame.style.height = `${frame.offsetHeight + 24}px`;
         }
       });
       document.getElementById('theme').addEventListener('click', () => {

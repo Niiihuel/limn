@@ -1,0 +1,9 @@
+---
+import Foundation from '../../components/Foundation.astro';
+import { FOUNDATIONS } from '../../data/site';
+export function getStaticPaths() {
+  return FOUNDATIONS.map((foundation) => ({ params: { id: foundation.id }, props: { foundation } }));
+}
+const { foundation } = Astro.props;
+---
+<Foundation foundation={foundation} />

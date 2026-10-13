@@ -1,7 +1,8 @@
 ---
 import { getCollection, render } from 'astro:content';
 import Shell from '../../layouts/Shell.astro';
-import { GUIDES } from '../../data/site';
+import Moved from '../../components/Moved.astro';
+import { FOUNDATIONS } from '../../data/site';
 
 export async function getStaticPaths() {
   const guides = await getCollection('docs');
@@ -10,13 +11,11 @@ export async function getStaticPaths() {
 }
 
 const { guide } = Astro.props;
+const foundation = FOUNDATIONS.find(({ guide: id }) => id === guide.id);
 const { Content, headings } = await render(guide);
-const side = [
-  { group: 'Documentation', items: [{ href: '/docs/', label: 'Overview' }] },
-  ...GUIDES.map(({ group, items }) => ({ group, items: items.map(([slug, label]) => ({ href: `/docs/${slug}/`, label })) })),
-];
 const title = headings.find((heading) => heading.depth === 1)?.text ?? guide.id;
 ---
-<Shell title={title} side={side} toc={headings.filter((heading) => heading.depth === 2 || heading.depth === 3)}>
+{foundation ? <Moved href={`/design-system/${foundation.id}/`} title={foundation.title} /> : <Shell title={title} toc={headings.filter((heading) => heading.depth === 2 || heading.depth === 3)}>
+  <p class="docs-breadcrumb">Documentation<span>/</span>{title}</p>
   <article class="prose"><Content /></article>
-</Shell>
+</Shell>}

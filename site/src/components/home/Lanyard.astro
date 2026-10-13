@@ -1,0 +1,156 @@
+<div class="lanyard" data-lanyard>
+  <div class="lanyard-scene" data-lanyard-scene>
+    <div class="lanyard-glow" aria-hidden="true"></div>
+    <svg class="lanyard-strap" viewBox="0 0 600 650" preserveAspectRatio="none" aria-hidden="true">
+      <defs>
+        <linearGradient id="strap-material"><stop stop-color="#101011"/><stop offset=".5" stop-color="#222225"/><stop offset="1" stop-color="#0d0d0f"/></linearGradient>
+        <pattern id="strap-weave" width="3" height="3" patternUnits="userSpaceOnUse"><path d="M0 0H3" stroke="#ffffff" stroke-opacity=".055"/></pattern>
+      </defs>
+      <path class="strap-edge" d="M300 -20C300 55 338 118 316 184" />
+      <path class="strap-fabric" id="limn-strap" d="M300 -20C300 55 338 118 316 184" />
+      <path class="strap-weave" d="M300 -20C300 55 338 118 316 184" />
+      <text class="strap-wordmark"><textPath href="#limn-strap" startOffset="24">limn · limn · limn · limn · limn</textPath></text>
+    </svg>
+    <button class="lanyard-badge" type="button" data-lanyard-badge aria-label="Interactive limn badge. Drag it, or use arrow keys to tilt it. Press Home to reset." aria-describedby="badge-hint">
+      <span class="badge-hardware" data-badge-hardware aria-hidden="true"><span class="badge-ring"></span><span class="badge-neck"></span></span>
+      <span class="badge-face" aria-hidden="true">
+        <span class="badge-slot"></span>
+        <span class="badge-topline"><span>NATIVE INTERFACE LAB</span><span>RUST</span></span>
+        <span class="badge-logo">limn<span>↗</span></span>
+        <span class="badge-tagline">Native by design.</span>
+        <svg class="badge-art" viewBox="0 0 220 150">
+          <defs><pattern id="badge-grid" width="11" height="11" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".6" fill="#606067"/></pattern></defs>
+          <rect width="220" height="150" fill="url(#badge-grid)" opacity=".65"/>
+          <g fill="none" stroke="#626268" stroke-width=".8"><path d="M0 124C48 124 26 32 82 32H137C174 32 153 117 220 117"/><path d="M0 108C47 108 39 46 81 46H137C175 46 167 101 220 101"/><path d="M0 92C43 92 50 60 81 60H137C166 60 179 85 220 85"/><path d="M0 76H220"/></g>
+          <g fill="#0d0d0f" stroke="#84848c" stroke-width=".8"><rect x="78" y="24" width="63" height="48" rx="5"/><circle cx="43" cy="97" r="8"/><circle cx="178" cy="102" r="8"/></g>
+          <path d="M94 40H125M94 48H116M94 56H121" stroke="#d5d5dc" stroke-width="1.2"/>
+        </svg>
+        <span class="badge-bottom"><span>STATE → SCREEN<br /><span>OPEN SOURCE</span></span><span class="badge-edition">001<br /><span>BUILDER</span></span></span>
+      </span>
+    </button>
+  </div>
+  <p class="lanyard-hint" id="badge-hint"><span class="hint-cross" aria-hidden="true">↔</span> Drag the badge. Find its balance.</p>
+</div>
+
+<script>
+  const scene = document.querySelector<HTMLElement>('[data-lanyard-scene]');
+  const badge = document.querySelector<HTMLButtonElement>('[data-lanyard-badge]');
+  const hardware = document.querySelector<HTMLElement>('[data-badge-hardware]');
+  if (scene && badge && hardware) {
+    const reduce = matchMedia('(prefers-reduced-motion: reduce)');
+    const paths = scene.querySelectorAll<SVGPathElement>('.strap-edge, .strap-fabric, .strap-weave');
+    const rest = { x: 0, y: 0, rx: 7, ry: -12, rz: -5 };
+    const position = { ...rest }, target = { ...rest }, velocity = { x: 0, y: 0, rx: 0, ry: 0, rz: 0 };
+    const keys = Object.keys(rest) as (keyof typeof rest)[];
+    const clamp = (value: number, limit: number) => Math.max(-limit, Math.min(limit, value));
+    let dragging = false, hovering = false, keyboard = false, visible = false, raf = 0, previous = 0;
+    let start = { x: 0, y: 0 }, origin = { x: 0, y: 0 };
+    const reset = () => { Object.assign(target, rest); keyboard = false; };
+    const draw = () => {
+      badge.style.transform = `translate(calc(-50% + ${position.x}px), ${position.y}px) rotateX(${position.rx}deg) rotateY(${position.ry}deg) rotateZ(${position.rz}deg)`;
+      badge.style.setProperty('--sheen', `${50 + position.ry * 1.5}%`);
+      const area = scene.getBoundingClientRect(), clip = hardware.getBoundingClientRect();
+      const x = (clip.x + clip.width / 2 - area.x) * 600 / area.width;
+      const y = (clip.y + 7 - area.y) * 650 / area.height;
+      const bend = 300 + (x - 300) * .28;
+      for (const path of paths) path.setAttribute('d', `M300 -20C300 45 ${bend + 24} ${y * .62} ${x} ${y}`);
+    };
+    const tick = (time: number) => {
+      const step = previous ? Math.min((time - previous) / 16.67, 2) : 1;
+      previous = time;
+      if (!dragging && !hovering && !keyboard) {
+        target.rz = rest.rz + Math.sin(time / 2500) * 1.1;
+        target.ry = rest.ry + Math.sin(time / 3100) * 2;
+      }
+      for (const key of keys) {
+        velocity[key] = (velocity[key] + (target[key] - position[key]) * .045 * step) * Math.pow(.79, step);
+        position[key] += velocity[key] * step;
+      }
+      draw();
+      raf = visible && !reduce.matches ? requestAnimationFrame(tick) : 0;
+    };
+    const update = () => {
+      if (reduce.matches) { Object.assign(position, target); draw(); }
+      else if (visible && !raf) { previous = 0; raf = requestAnimationFrame(tick); }
+    };
+    badge.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      dragging = true; keyboard = false;
+      start = { x: event.clientX, y: event.clientY }; origin = { x: position.x, y: position.y };
+      badge.setPointerCapture(event.pointerId); badge.focus({ preventScroll: true });
+      badge.classList.add('is-dragging');
+    });
+    badge.addEventListener('pointerenter', () => { hovering = true; });
+    badge.addEventListener('pointermove', (event) => {
+      if (dragging) {
+        target.x = clamp(origin.x + event.clientX - start.x, scene.clientWidth * .24);
+        target.y = clamp(origin.y + event.clientY - start.y, scene.clientHeight * .15);
+        target.rz = rest.rz + target.x * .04;
+      } else if (!keyboard) {
+        const rect = badge.getBoundingClientRect();
+        target.ry = rest.ry + ((event.clientX - rect.x) / rect.width - .5) * 18;
+        target.rx = rest.rx - ((event.clientY - rect.y) / rect.height - .5) * 12;
+      }
+      update();
+    });
+    const release = () => { dragging = false; badge.classList.remove('is-dragging'); reset(); update(); };
+    badge.addEventListener('pointerup', release);
+    badge.addEventListener('pointercancel', release);
+    badge.addEventListener('pointerleave', () => { hovering = false; if (!dragging && !keyboard) { reset(); update(); } });
+    badge.addEventListener('blur', release);
+    badge.addEventListener('keydown', (event) => {
+      if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'Escape'].includes(event.key)) return;
+      event.preventDefault(); keyboard = true;
+      if (event.key === 'Home' || event.key === 'Escape') reset();
+      else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+        target.ry = clamp(target.ry + (event.key === 'ArrowLeft' ? -6 : 6), 28);
+        target.rz = clamp(target.rz + (event.key === 'ArrowLeft' ? -2 : 2), 12);
+      } else target.rx = clamp(target.rx + (event.key === 'ArrowUp' ? -5 : 5), 22);
+      update();
+    });
+    reduce.addEventListener('change', () => { cancelAnimationFrame(raf); raf = 0; reset(); update(); });
+    new IntersectionObserver(([entry]) => {
+      visible = entry.isIntersecting;
+      if (!visible) { cancelAnimationFrame(raf); raf = 0; }
+      else update();
+    }).observe(scene);
+    window.addEventListener('resize', draw, { passive: true });
+    draw();
+  }
+</script>
+
+<style>
+  .lanyard { position: relative; min-width: 0; }
+  .lanyard-scene { position: relative; width: 100%; max-width: 600px; margin: 0 auto; aspect-ratio: 600 / 650; perspective: 1100px; }
+  .lanyard-glow { position: absolute; inset: 10% -10% 2%; border-radius: 50%; background: radial-gradient(ellipse at 50% 60%, #3b3b3f20, transparent 67%); pointer-events: none; }
+  .lanyard-strap { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+  .strap-edge { fill: none; stroke: #363638; stroke-width: 24; }
+  .strap-fabric { fill: none; stroke: url(#strap-material); stroke-width: 22; }
+  .strap-weave { fill: none; stroke: url(#strap-weave); stroke-width: 20; }
+  .strap-wordmark { fill: #b4b4ba; font: 10px var(--mono); letter-spacing: 14px; }
+  .lanyard-badge { all: unset; box-sizing: border-box; position: absolute; left: 50%; top: 31%; width: 46%; height: 56%; transform: translate(-50%, 0) rotateX(7deg) rotateY(-12deg) rotateZ(-5deg); transform-style: preserve-3d; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+  .lanyard-badge.is-dragging { cursor: grabbing; touch-action: none; }
+  .lanyard-badge:focus-visible { outline: 2px solid #ceced5; outline-offset: 10px; border-radius: 16px; }
+  .lanyard-badge::before { content: ''; position: absolute; inset: 0; background: #333338; border: 1px solid #5f5f65; border-radius: 16px; transform: translateZ(-7px) translateX(4px); box-shadow: 18px 32px 45px #0009; }
+  .badge-face { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 26px 21px 22px; border: 1px solid #545459; border-radius: 16px; background: linear-gradient(135deg, #151518, #070709 50%, #232327); box-shadow: inset 0 1px 1px #ffffff28, inset 1px 0 1px #ffffff18, 0 0 1px #eeeeee80; transform: translateZ(2px); overflow: hidden; }
+  .badge-face::after { content: ''; position: absolute; inset: 0; background: linear-gradient(115deg, transparent 22%, #ffffff08 40%, #ffffff17 48%, transparent 69%); background-position: var(--sheen, 50%) 0; background-size: 200% 100%; pointer-events: none; }
+  .badge-slot { position: absolute; top: 10px; left: 50%; width: 45px; height: 8px; transform: translateX(-50%); border-radius: 6px; background: #000; border-top: 1px solid #343439; border-bottom: 1px solid #5c5c64; }
+  .badge-hardware { position: absolute; top: -43px; left: 50%; width: 36px; height: 64px; transform: translateX(-50%) translateZ(5px); z-index: 2; pointer-events: none; }
+  .badge-ring { position: absolute; top: 0; left: 0; width: 36px; height: 26px; border: 4px solid #737378; border-radius: 9px; background: #030303; box-shadow: inset 1px 1px 1px #fff8, 1px 1px 1px #000, 0 1px 1px #fff7; }
+  .badge-ring::after { content: ''; position: absolute; inset: -4px; border-radius: 9px; border: 1px solid #c2c2c4; }
+  .badge-neck { position: absolute; top: 18px; left: 11px; width: 15px; height: 43px; border: 1px solid #7c7c80; border-radius: 5px 5px 7px 7px; background: linear-gradient(90deg, #343437, #d8d8db 24%, #727277 44%, #c0c0c3 62%, #3b3b3f); box-shadow: 2px 2px 4px #000a; }
+  .badge-neck::after { content: ''; position: absolute; top: 6px; bottom: 7px; left: 3px; width: 3px; border-radius: 4px; background: #0e0e10; box-shadow: 1px 0 #bdbdc5; }
+  .badge-topline { display: flex; justify-content: space-between; gap: 10px; margin-top: 5px; color: #92929a; font: 6.5px var(--mono); letter-spacing: .09em; }
+  .badge-logo { display: block; margin-top: 17px; color: #f1f1f2; font-size: clamp(40px, 4.3vw, 61px); font-weight: 740; line-height: 1; letter-spacing: -.08em; }
+  .badge-logo > span { display: inline-block; margin-left: 6px; font: 9px var(--mono); vertical-align: top; padding-top: 8px; }
+  .badge-tagline { display: block; margin-top: 10px; color: #d9d9dc; font-size: 12px; font-weight: 500; letter-spacing: -.025em; }
+  .badge-art { display: block; width: calc(100% + 16px); height: auto; flex: 1; min-height: 0; margin: 18px -8px 13px; }
+  .badge-bottom { display: flex; align-items: end; justify-content: space-between; gap: 15px; color: #c5c5cf; font: 7px/1.7 var(--mono); letter-spacing: .07em; }
+  .badge-bottom span span { color: #74747e; }
+  .badge-edition { text-align: right; }
+  .lanyard-hint { display: flex; align-items: center; justify-content: center; gap: 12px; margin: -2px 0 0; color: #77777e; font: 10px var(--mono); letter-spacing: .02em; }
+  .hint-cross { color: #a3a3ae; font-size: 16px; }
+  @media (max-width: 900px) and (min-width: 651px) { .badge-face { padding: 23px 15px 16px; }.badge-logo { margin-top: 14px; }.badge-topline { font-size: 5px; }.badge-tagline { font-size: 10px; }.badge-bottom { font-size: 6px; }.lanyard-hint { font-size: 8px; gap: 8px; } }
+  @media (max-width: 650px) { .lanyard { max-width: 430px; margin: 5px auto 25px; width: 100%; }.lanyard-scene { aspect-ratio: 600 / 620; }.lanyard-badge { width: 54%; height: 68%; top: 25%; }.badge-face { padding: 23px 17px 17px; border-radius: 13px; }.badge-logo { font-size: clamp(40px, 12vw, 55px); margin-top: 13px; }.badge-topline { font-size: 5px; }.badge-tagline { font-size: 10px; margin-top: 9px; }.badge-art { margin-block: 12px; }.badge-bottom { font-size: 5.5px; }.lanyard-hint { font-size: 9px; margin-top: 8px; } }
+  @media (max-width: 360px) { .badge-face { padding-inline: 13px; }.badge-topline { font-size: 4.5px; }.badge-logo { font-size: 40px; }.badge-tagline { font-size: 9px; }.badge-bottom { font-size: 5px; } }
+</style>

@@ -1,0 +1,53 @@
+---
+import { getEntry, render } from 'astro:content';
+import Shell from '../layouts/Shell.astro';
+import Example from './Example.astro';
+import { REPO } from '../data/site';
+const { foundation } = Astro.props;
+const guide = await getEntry('docs', foundation.guide);
+if (!guide) throw new Error(`Missing foundation guide: ${foundation.guide}`);
+const { Content, headings } = await render(guide);
+const colors = foundation.id === 'colors';
+const code = colors
+  ? `use limn::{Color, Theme};\n\nlet theme = Theme {\n    background: Color::rgb(255, 255, 255),\n    foreground: Color::rgb(24, 26, 31),\n    accent: Color::rgb(9, 105, 218),\n};\nlet palette = theme.palette();`
+  : `use limn::{set_tokens, Motion, Radius, Tokens};\n\nset_tokens(Tokens {\n    radius: Radius::DEFAULT.scaled(1.5),\n    motion: Motion::DEFAULT,\n});`;
+// The three inputs of Theme::DARK, from crates/limn/src/theme.rs.
+const inputs = [
+  { name: 'background', value: '#1e1f22', rgb: '30, 31, 34', purpose: 'The window background.' },
+  { name: 'foreground', value: '#ffffff', rgb: '255, 255, 255', purpose: 'The source for text and feedback.' },
+  { name: 'accent', value: '#19aad8', rgb: '25, 170, 216', purpose: 'The source for accent fills and ink.' },
+];
+const radius = [['control', 4, 'Controls and keycaps'], ['surface', 6, 'Floating surfaces'], ['card', 8, 'Groups in the page'], ['panel', 12, 'Large containers']];
+const motion = [['hover_ms', 120, 'Pointer feedback'], ['enter_ms', 140, 'Arriving surfaces'], ['exit_ms', 110, 'Leaving surfaces'], ['move_ms', 170, 'Changes in place']];
+const toc = [{ depth: 2, slug: 'preview', text: 'Preview' }, { depth: 2, slug: 'reference', text: colors ? 'Theme defaults' : 'Token defaults' }, ...headings.filter(({ depth }) => depth === 2 || depth === 3)];
+---
+<Shell title={foundation.title} description={foundation.description} canonical={`/design-system/${foundation.id}/`} toc={toc}>
+  <header class="docs-heading">
+    <p class="docs-breadcrumb"><a href="/design-system/">Design system</a><span>/</span>{foundation.title}</p>
+    <h1>{foundation.title}</h1>
+    <p class="lead">{colors ? 'Choose three inputs with Theme, or name every color role with Scheme. Pass the resulting ComponentPalette to each component.' : 'Set the radius scale and animation durations once for the process. Color remains a palette passed to each component.'}</p>
+    <div class="docs-meta"><code>{colors ? 'Theme · Scheme · ComponentPalette' : 'Tokens · Radius · Motion'}</code><span>Foundation</span></div>
+  </header>
+  <section class="docs-section" aria-labelledby="preview">
+    <h2 id="preview">Preview</h2>
+    <Example page={foundation.page} title={foundation.title} code={code} codeSource={`${REPO}/blob/main/docs/${foundation.guide}.md`} height={colors ? 480 : 380} />
+  </section>
+  <section class="docs-section" aria-labelledby="reference">
+    <h2 id="reference">{colors ? 'Theme defaults' : 'Token defaults'}</h2>
+    {colors ? <>
+      <p class="docs-muted">The inputs of <code>Theme::DARK</code>. The native preview shows the roles derived from the selected theme.</p>
+      <div class="color-reference">
+        {inputs.map(({ name, value, rgb, purpose }) => <div class="color-role"><span class="color-swatch" style={`--swatch:${value}`} aria-hidden="true"></span><div><code>{name}</code><p>{purpose}</p></div><div class="color-value"><code>{value}</code><span>RGB {rgb}</span></div></div>)}
+      </div>
+      <p class="docs-source">Values from <a href={`${REPO}/blob/main/crates/limn/src/theme.rs`}>theme.rs</a>. <code>Theme</code> derives roles; <code>Scheme</code> can store a host's explicit values.</p>
+    </> : <>
+      <div class="radius-reference">
+        {radius.map(([name, value, purpose]) => <div><span class="radius-sample" style={`border-radius:${value}px`} aria-hidden="true"></span><code>{name}</code><strong>{value} px</strong><p>{purpose}</p></div>)}
+      </div>
+      <div class="motion-reference">{motion.map(([name, value, purpose]) => <div><code>{name}</code><strong>{value} ms</strong><span>{purpose}</span></div>)}</div>
+      <p class="docs-source">Logical pixels and milliseconds, from <a href={`${REPO}/blob/main/crates/limn/src/tokens.rs`}>tokens.rs</a>. These tokens apply to the whole process.</p>
+    </>}
+  </section>
+  <div class="legacy-anchors" aria-hidden="true"><span id="import"></span><span id="usage"></span>{colors ? <><span id="palettes"></span><span id="an-action-on-a-color-of-its-own"></span></> : <span id="reading-the-tokens"></span>}</div>
+  <article class="prose guide foundation-guide"><Content /></article>
+</Shell>
