@@ -468,6 +468,40 @@ mod tests {
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
 
     #[test]
+    fn search_shortcut_changes_the_hint_without_binding_keys() {
+        let render = |shortcut: &str| {
+            Breadcrumb::new("path", vec![BreadcrumbItem::new("main.rs")], ComponentPalette::neutral_dark())
+                .search_action("find")
+                .search_shortcut(shortcut)
+                .render()
+        };
+        let size = Size::new(500.0, 160.0);
+        let mut tree = UiTree::new(render("Ctrl+K"));
+        tree.set_reduced_motion(true);
+        let initial = tree.layout(size);
+        assert!(tree.focus("find"));
+        let hint = tree.layout(size);
+        let texts = |frame: &crate::Frame| {
+            frame.commands.iter().filter_map(|command| match command {
+                DrawCommand::Text { text, .. } => Some(text.clone()),
+                _ => None,
+            }).collect::<Vec<_>>()
+        };
+        let shown = texts(&hint);
+        assert!(shown.iter().any(|text| text == "Ctrl") && shown.iter().any(|text| text == "K"), "{shown:?}");
+        assert!(!shown.iter().any(|text| text == "F"), "{shown:?}");
+        assert_eq!(hint.regions, initial.regions, "the shortcut is only a hint");
+        assert!(tree.handle_event(UiEvent::Key { key: Key::K, ctrl: true, shift: false }).is_empty());
+        assert_eq!(tree.handle_event(UiEvent::Key { key: Key::Enter, ctrl: false, shift: false }),
+            [UiAction::Clicked { id: "find".into() }]);
+
+        tree.set_root(render(""));
+        let empty = texts(&tree.layout(size));
+        assert!(empty.iter().any(|text| text == crate::labels().search));
+        assert!(!empty.iter().any(|text| ["K", "Ctrl", "F"].contains(&text.as_str())), "{empty:?}");
+    }
+
+    #[test]
     fn current_resource_hover_hugs_label_and_leaves_blank_header_passive() {
         for width in [180.0, 520.0, 1200.0] {
             let mut tree = UiTree::new(

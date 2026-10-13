@@ -41,7 +41,7 @@ const GROUPS: Record<string, string> = {
 };
 
 /**
- * One entry per component: the gallery's own list, printed by
+ * One entry per gallery page: the gallery's own list, printed by
  * `limn-gallery --pages` into pages.json. `id` is the page there, the address
  * here and the name of the guide in docs/components.
  */

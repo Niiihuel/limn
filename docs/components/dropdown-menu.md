@@ -64,7 +64,7 @@ DropdownMenuItem::new("sync", "Sync").annotation("2 pending").into()
 text. `selected` checks the item, `disabled` (or `enabled(false)`) takes it
 out of reach, and `destructive` draws it in an ink of the host's.
 `tooltip_with(TooltipSpec)` adds a hint. `description` and the two-line row
-are in [Picker](picker.md).
+are in [Catalog menus](picker.md).
 
 ## Submenus
 
@@ -86,7 +86,7 @@ submenu, or with the keyboard.
 `DropdownMenuEntry::custom(element)` puts a control of the host's in the menu.
 `Message(text)`, `Loading { id, rows }` and `Error { id, text }` stand in for
 items that are not there, and `DropdownMenuSection` is a heading that folds;
-see [Picker](picker.md).
+see [Catalog menus](picker.md).
 
 ## Size and placement
 

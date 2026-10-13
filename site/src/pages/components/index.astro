@@ -12,10 +12,10 @@ const side = [
 ];
 const toc = byGroup.map(({ group }) => ({ depth: 2, slug: group.toLowerCase(), text: group }));
 ---
-<Shell title="Components" description="Every limn component, each on a page of its own with a live example." side={side} toc={toc}>
+<Shell title="Components" description="limn components and patterns, each with a guide and a live example." side={side} toc={toc}>
   <div class="prose">
     <h1>Components</h1>
-    <p class="lead">Each component has a page of its own: the component running, compiled to WebAssembly, and its guide. The <a href="/docs/components/">components table</a> lists every one with its options.</p>
+    <p class="lead">Browse components and the patterns that combine them, with live examples compiled to WebAssembly and guides naming the types to use. The <a href="/docs/components/">components table</a> lists every component with its options.</p>
     {byGroup.map(({ group, items }) => (
       <>
         <h2 id={group.toLowerCase()}>{group}</h2>

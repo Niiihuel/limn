@@ -1,4 +1,4 @@
-# Dialog
+# Modal / AlertDialog
 
 A centered surface over a dimmed window that takes the keyboard until it is
 answered. There are two types: `Modal` for a form or other content, and

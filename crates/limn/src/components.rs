@@ -1269,7 +1269,8 @@ impl Kbd {
         self
     }
 
-    /// Omit the complete hint if its measured keys cannot fit this budget.
+    /// Omit the complete hint, including alternatives and caption, if its
+    /// measured width cannot fit this budget.
     /// A truncated combination would imply a different keyboard shortcut.
     pub fn max_width(mut self, width: f32) -> Self {
         if width.is_finite() {
@@ -1292,8 +1293,9 @@ impl Component for Kbd {
                 if !parts.is_empty() {
                     parts.push(Element::text("/").font_size(small).foreground(palette.muted));
                 }
-                // Each key is drawn as the whole would be: as an accelerator, within its budget.
-                parts.push(Kbd { keys, menu: self.menu, max_width: self.max_width, ..Kbd::new("", palette) }.render());
+                parts.push(
+                    Kbd { keys, menu: self.menu, ..Kbd::new("", palette) }.render(),
+                );
             }
             if let Some(caption) = caption {
                 parts.push(
@@ -1304,8 +1306,7 @@ impl Component for Kbd {
                 );
             }
             // One pixel of air above and below the keycaps.
-            return Element::row(parts)
-                .gap(4.0)
+            return Element::shortcut_hint(Element::row(parts).gap(4.0), self.max_width)
                 .size(None, Some(crate::shortcut::HEIGHT + 2.0));
         }
         if crate::shortcut::label(&self.keys).is_empty() {
@@ -2369,12 +2370,69 @@ mod tests {
     use crate::{DrawCommand, ElementKind, Point, Size, UiAction, UiEvent, UiTree};
 
     #[test]
-    fn a_keycap_with_a_caption_keeps_its_style_and_its_budget() {
+    fn a_captioned_shortcut_uses_one_budget_for_keys_separators_and_caption() {
         let palette = ComponentPalette::neutral_dark();
-        let plain = Kbd::new("Ctrl+K", palette).menu().max_width(80.0).render();
-        let captioned = Kbd::new("Ctrl+K", palette).menu().max_width(80.0).caption("Open").render();
-        let ElementKind::Row(parts) = captioned.kind else { panic!("keys and caption are a row") };
-        assert_eq!(format!("{:?}", parts[0]), format!("{plain:?}"));
+        for menu in [false, true] {
+            let key_width = |keys: &str| {
+                if menu {
+                    crate::shortcut::menu_label(keys).chars().count() as f32 * 7.0
+                } else {
+                    crate::shortcut::width(keys, |key| key.chars().count() as f32 * 7.0)
+                }
+            };
+            let width = key_width("Enter") + key_width("Tab") + 7.0 + 42.0 + 12.0;
+            for (budget, visible) in [(0.0, false), (width - 1.0, false), (width, true)] {
+                let mut hint = Kbd::new("Enter", palette)
+                    .alternative("Tab")
+                    .caption("Accept")
+                    .max_width(budget);
+                if menu {
+                    hint = hint.menu();
+                }
+                let mut tree = UiTree::new(
+                    Element::row(vec![hint.render(), Element::text("after")]).gap(4.0),
+                );
+                tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
+                let frame = tree.layout(Size::new(400.0, 28.0));
+                let texts: Vec<_> = frame.commands.iter()
+                    .filter_map(|command| match command {
+                        DrawCommand::Text { text, position, .. } => Some((text.as_str(), position.x)),
+                        _ => None,
+                    }).collect();
+                assert_eq!(texts.iter().any(|(text, _)| *text == "Accept"), visible);
+                assert_eq!(texts.iter().any(|(text, _)| *text == "/"), visible);
+                assert_eq!(texts.iter().any(|(text, _)| *text == "Enter"), visible);
+                assert_eq!(texts.iter().any(|(text, _)| *text == "Tab"), visible);
+                assert_eq!(
+                    texts.iter().find(|(text, _)| *text == "after").unwrap().1,
+                    if visible { width + 4.0 } else { 4.0 },
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_captioned_shortcut_disappears_and_returns_as_the_row_resizes() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = UiTree::new(
+            Element::row(vec![
+                Element::text("Action").min_size(60.0, 0.0).flex(1.0),
+                Kbd::new("Enter", palette).alternative("Tab").caption("Accept").render(),
+            ]).gap(4.0),
+        );
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
+        for (width, visible) in [(400.0, true), (100.0, false), (400.0, true)] {
+            let frame = tree.layout(Size::new(width, 28.0));
+            let texts: Vec<_> = frame.commands.iter().filter_map(|command| match command {
+                DrawCommand::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            }).collect();
+            assert_eq!(texts.contains(&"Accept"), visible);
+            assert_eq!(texts.contains(&"/"), visible);
+            assert_eq!(texts.contains(&"Enter"), visible);
+            assert_eq!(texts.contains(&"Tab"), visible);
+            assert!(texts.contains(&"Action"));
+        }
     }
 
     #[test]

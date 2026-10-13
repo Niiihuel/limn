@@ -5601,6 +5601,7 @@ fn collect_focus_order(
         | ElementKind::Text(_)
         | ElementKind::ShimmerText { .. }
         | ElementKind::KeyboardShortcut { .. }
+        | ElementKind::ShortcutHint { .. }
         | ElementKind::TruncatedText(_)
         | ElementKind::FadedText { .. }
         | ElementKind::RasterImage(_)
@@ -5654,6 +5655,7 @@ fn collect_action_metadata(
         | ElementKind::Text(_)
         | ElementKind::ShimmerText { .. }
         | ElementKind::KeyboardShortcut { .. }
+        | ElementKind::ShortcutHint { .. }
         | ElementKind::TruncatedText(_)
         | ElementKind::FadedText { .. }
         | ElementKind::FormattedText(_)
@@ -7582,7 +7584,8 @@ impl LayoutBuilder<'_> {
             }
             if child.style.flex <= 0.0
                 && child.style.width.is_none()
-                && matches!(child.kind, ElementKind::KeyboardShortcut { .. })
+                && matches!(child.kind,
+                    ElementKind::KeyboardShortcut { .. } | ElementKind::ShortcutHint { .. })
             {
                 let budget = (available.width - minimum - (fixed - size.width)).max(0.0);
                 let constrained = self.measure(child, Size::new(budget, available.height));
@@ -7781,6 +7784,14 @@ impl LayoutBuilder<'_> {
                         0.0
                     },
                     shortcut::HEIGHT + padding,
+                )
+            }
+            ElementKind::ShortcutHint { child, max_width } => {
+                let natural = self.measure(child, Size::new(f32::INFINITY, inner.height));
+                let budget = max_width.unwrap_or(f32::INFINITY).min(inner.width);
+                Size::new(
+                    if natural.width <= budget { natural.width + padding } else { 0.0 },
+                    natural.height + padding,
                 )
             }
             ElementKind::FormattedText(spans) => {
@@ -9039,6 +9050,12 @@ impl LayoutBuilder<'_> {
                         font_size: style.font_size,
                         font_family: style.font_family,
                     });
+                }
+            }
+            ElementKind::ShortcutHint { child, max_width } => {
+                let natural = self.measure(child, Size::new(f32::INFINITY, content.height));
+                if natural.width <= max_width.unwrap_or(f32::INFINITY).min(content.width) {
+                    self.place(child, content, clip);
                 }
             }
             ElementKind::KeyboardShortcut {
