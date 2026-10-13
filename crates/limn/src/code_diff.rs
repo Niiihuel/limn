@@ -50,8 +50,12 @@ impl CodeDiff {
         self.palette = palette;
         self
     }
+    /// Set the height, in logical pixels, never below 24. A height that is
+    /// not finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
-        self.height = height.max(24.0);
+        if height.is_finite() {
+            self.height = height.max(24.0);
+        }
         self
     }
     pub fn tab_width(mut self, width: usize) -> Self {

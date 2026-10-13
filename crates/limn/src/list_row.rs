@@ -254,6 +254,11 @@ impl ListRow {
         self
     }
 
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
+
     /// Fill the row with the palette's surface at rest, for a row that
     /// stands on its own instead of on the surface of its list.
     pub fn filled(mut self) -> Self {

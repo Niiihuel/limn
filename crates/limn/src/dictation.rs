@@ -76,6 +76,11 @@ impl DictationButton {
         self
     }
 
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
+
     /// The ink of the resting microphone under the pointer.
     pub fn hover_ink(mut self, color: Color) -> Self {
         self.hover_ink = Some(color);

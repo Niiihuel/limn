@@ -78,6 +78,11 @@ impl MediaTile {
         self.enabled = enabled;
         self
     }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 impl Component for MediaTile {
