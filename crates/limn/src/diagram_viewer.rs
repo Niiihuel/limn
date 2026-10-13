@@ -10,7 +10,7 @@ use crate::{Color, Component, ComponentPalette, Diagram, Element, FontFamily, Ic
 pub struct DiagramViewer {
     base: Element,
     title: String,
-    close_title: String,
+    close_title: Option<String>,
     close_id: String,
     palette: ComponentPalette,
     viewport: Size,
@@ -30,7 +30,7 @@ impl DiagramViewer {
         Self {
             base,
             title: title.into(),
-            close_title: "Close · Esc".into(),
+            close_title: None,
             close_id: close_id.into(),
             palette,
             viewport: Size::new(900.0, 620.0),
@@ -38,9 +38,10 @@ impl DiagramViewer {
         }
     }
 
-    /// The hint of the close control, in the host's language.
+    /// The hint of the close control. Without one it is the library's own
+    /// word for closing and the key that does it.
     pub fn close_title(mut self, title: impl Into<String>) -> Self {
-        self.close_title = title.into();
+        self.close_title = Some(title.into());
         self
     }
 
@@ -56,6 +57,7 @@ impl DiagramViewer {
 
 impl Component for DiagramViewer {
     fn render(self) -> Element {
+        let close_title = self.close_title.clone().unwrap_or_else(|| format!("{} · Esc", crate::labels().close));
         let mut controls = self.palette;
         controls.surface = self.palette.hover;
         let header = Element::row(vec![
@@ -68,8 +70,8 @@ impl Component for DiagramViewer {
             crate::image_viewer::control(
                 &self.close_id,
                 Icon::Close,
-                &self.close_title,
-                &self.close_title,
+                &close_title,
+                &close_title,
                 true,
                 controls,
             ),

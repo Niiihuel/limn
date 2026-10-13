@@ -26,6 +26,7 @@ pub struct DatePicker {
     display_year: i32,
     display_month: u32,
     enabled: bool,
+    accessibility_label: Option<String>,
     palette: ComponentPalette,
 }
 
@@ -43,6 +44,7 @@ impl DatePicker {
             display_year,
             display_month,
             enabled: true,
+            accessibility_label: None,
             palette,
         }
     }
@@ -54,6 +56,13 @@ impl DatePicker {
             self.display_year = year;
             self.display_month = month;
         }
+        self
+    }
+
+    /// What the field is called to the platform, in place of the library's
+    /// own word for it: "Start date" says more than "Date".
+    pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
+        self.accessibility_label = Some(name.into());
         self
     }
 
@@ -128,9 +137,10 @@ impl DatePicker {
             .foreground(ink)
             .font_family(FontFamily::Sans)
             .font_size(12.0);
-        // Named by its number; the chosen day says so.
+        // Named by its whole date, since a number alone is in no month; the chosen day says so.
         let id = format!("{}:day:{date}", self.id);
-        let said = Access::new(Role::Button).name(day.to_string()).selected(selected);
+        let name = format!("{day} {} {year}", crate::labels().months[month as usize - 1]);
+        let said = Access::new(Role::Button).name(name).selected(selected);
         let cell = if self.enabled {
             self.palette
                 .interactive_surface(Element::clickable(id, label).accessible(said))
@@ -227,10 +237,11 @@ impl Component for DatePicker {
                 .collect(),
         )
         .gap(CELL_GAP);
-        let input = TextField::new(&self.id, &self.value, "AAAA-MM-DD", self.palette)
+        let input = TextField::new(&self.id, &self.value, crate::labels().date_placeholder, self.palette)
             .size(ControlSize::Compact)
             .width(126.0)
             .enabled(self.enabled)
+            .accessibility_label(self.accessibility_label.as_deref().unwrap_or(crate::labels().date))
             .render();
         Element::column(vec![
             input,
@@ -330,7 +341,7 @@ mod tests {
             assert_eq!((previous.role, previous.name.clone()), (Role::Button, format!("{} 2024", labels.months[11])));
             assert_eq!(node("date:month_next").name, format!("{} 2025", labels.months[1]));
             let chosen = node("date:day:2025-01-15");
-            assert_eq!((chosen.role, chosen.name.as_str(), chosen.selected), (Role::Button, "15", Some(true)));
+            assert_eq!((chosen.role, chosen.name.as_str(), chosen.selected), (Role::Button, "15 January 2025", Some(true)));
             assert_eq!(node("date:day:2025-01-16").selected, Some(false));
             for said in [previous, chosen] {
                 assert_eq!((said.disabled, said.actionable), (!enabled, enabled));

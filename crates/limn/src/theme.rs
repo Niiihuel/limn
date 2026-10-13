@@ -10,8 +10,14 @@ use crate::{Color, ComponentPalette, ControlColors, Element, Scheme};
 /// The three colors a whole palette is derived from.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Theme {
+    /// What the surfaces are built on. Each surface level mixes a share of the
+    /// foreground into it.
     pub background: Color,
+    /// The ink. Text is this color at 90, 60, 40 or 20 % opacity, and the hover and
+    /// pressed veils are it at 10 and 20 %.
     pub foreground: Color,
+    /// The color of selection and emphasis, mixed into the background for accent
+    /// fills and into the foreground for accent text.
     pub accent: Color,
 }
 

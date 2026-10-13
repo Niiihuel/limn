@@ -57,12 +57,11 @@ Then declare it in `crates/limn/src/lib.rs`: a `mod` line and a `pub use`.
 | A name that changes keeps its old form, marked `#[deprecated]` with the new name in its note. | An application built on an earlier version still compiles, and is told what to change. |
 | What can be disabled has both `disabled()` and `enabled(bool)`. | The first reads well for a fixed case, the second takes a state the host computes; a caller should not have to remember which one a component has. |
 
-| Every public function, type, trait and constant has a doc comment that says what the name does not: the unit, what a value is clamped to, what it makes the component report. | The reference is read without the source beside it. |
+| Everything public has a doc comment that says what the name does not: the unit, what a value is clamped to, what it makes the component report. That is every function, type, trait and constant, and every public field and variant. The crates carry `#![warn(missing_docs)]`, so one without fails the build in CI. | The reference is read without the source beside it. |
 
 `crates/limn/tests/conventions.rs` holds the components to the rules that can
-be checked across all of them: both spellings of disabling, sizes that are
-not numbers, and a doc comment on every public item. A component that joins a
-family joins its row there.
+be checked across all of them: both spellings of disabling and sizes that
+are not numbers. A component that joins a family joins its row there.
 
 Pills and circles are the exception to the radius rule: a radius of half the
 height is a shape, not a token.

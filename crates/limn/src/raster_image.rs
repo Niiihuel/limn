@@ -30,9 +30,13 @@ impl std::fmt::Debug for RasterImage {
 /// The encoding of an image's bytes, as the host declares it.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum RasterImageFormat {
+    /// PNG.
     Png,
+    /// JPEG.
     Jpeg,
+    /// WebP.
     Webp,
+    /// GIF.
     Gif,
 }
 

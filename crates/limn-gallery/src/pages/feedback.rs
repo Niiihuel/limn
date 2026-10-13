@@ -8,7 +8,9 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(560.0);
     let alert = |tone: AlertTone, title: &str, description: &str| {
-        Element::panel(Alert::new(title, description, palette).tone(tone).render()).size(Some(width), None)
+        // An ID makes the alert itself known to a screen reader, not only its controls.
+        let id = format!("feedback-alert-{tone:?}");
+        Element::panel(Alert::new(title, description, palette).tone(tone).id(id).render()).size(Some(width), None)
     };
     let percent: u32 = cx.state.choice("feedback-progress", "66").parse().unwrap_or(66);
     let progress = percent as f32 / 100.0;
@@ -31,6 +33,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Alerts with actions", vec![
             Element::panel(
                 Alert::new("Dark mode is now available", "Enable it in your profile settings.", palette)
+                    .id("feedback-alert-dark-mode")
                     .action(Button::new("feedback-alert-enable", "Enable", palette).variant(ButtonVariant::Outline).render())
                     .render(),
             )
@@ -46,6 +49,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 Element::panel(
                     Alert::new("Your subscription expires in 3 days", "Renew it to keep access.", palette)
                         .tone(AlertTone::Warning)
+                        .id("feedback-alert-subscription")
                         .dismiss("feedback-alert-dismiss")
                         .render(),
                 )
@@ -53,7 +57,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             },
         ]),
         section(cx, "Progress", vec![
-            Progress::new(progress, palette).width(width.min(336.0)).render(),
+            Progress::new(progress, palette)
+                .id("feedback-progress-bar")
+                .width(width.min(336.0))
+                .render()
+                .accessibility_label("Upload"),
             row(vec![
                 Button::new(format!("feedback-progress={}", (percent + 85) % 100), "Back", palette)
                     .variant(ButtonVariant::Outline)
@@ -62,8 +70,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .variant(ButtonVariant::Outline)
                     .render(),
             ]),
-            Progress::new(1.0, palette).width(width.min(336.0)).height(8.0).render(),
-            Progress::new(progress, palette).width(width.min(336.0)).flat().render(),
+            Progress::new(1.0, palette)
+                .id("feedback-progress-done")
+                .width(width.min(336.0))
+                .height(8.0)
+                .render()
+                .accessibility_label("Download"),
+            Progress::new(progress, palette)
+                .id("feedback-progress-flat")
+                .width(width.min(336.0))
+                .flat()
+                .render()
+                .accessibility_label("Disk space used"),
             caption(cx, "Flat: square ends for a meter in a dense list."),
         ]),
         section(cx, "Loading", vec![

@@ -18,8 +18,14 @@ pub(super) const REMOVED_MARKER: Color = Color::rgb(210, 115, 122);
 /// Each removed string is one old physical line, with an optional final CR/LF.
 #[derive(Clone, Debug)]
 pub struct CodeReviewHunk {
+    /// Rows of the current text this hunk added or changed; they get the added tint. Hunks
+    /// must come in ascending order without overlapping, inside the document.
     pub new_rows: Range<usize>,
+    /// Zero-based row of the first removed line in the old text; the removed rows are numbered
+    /// from it, one-based, in the gutter.
     pub old_start_row: usize,
+    /// The old lines this hunk removed, drawn as extra rows above `new_rows`. Empty for a pure
+    /// addition.
     pub removed_lines: Arc<[String]>,
 }
 
@@ -27,14 +33,23 @@ pub struct CodeReviewHunk {
 /// Acceptance and rejection execute in the host, never in this renderer.
 #[derive(Clone, Debug, Default)]
 pub struct CodeReviewHunkActions {
+    /// Identifier of the button that keeps the hunk. Not empty, at most 1024 bytes, no control
+    /// characters and different from `reject_id`, or the hunk gets no controls.
     pub accept_id: String,
+    /// Identifier of the button that undoes the hunk, under the same rules as `accept_id`.
     pub reject_id: String,
     /// Optional, snapshot-scoped navigation actions. Keep them distinct from
     /// the header's IDs: both controls can be visible in the same UI tree.
     pub previous_id: Option<String>,
+    /// Identifier of the arrow to the next hunk. The stepper is drawn only when this and
+    /// `previous_id` are both set, valid and different from each other and from the two above.
     pub next_id: Option<String>,
+    /// Whether the keep button and the two arrows respond. False in `Default`.
     pub enabled: bool,
+    /// Whether the undo button responds, independently of `enabled`. False in `Default`.
     pub reject_enabled: bool,
+    /// Tooltip of a disabled keep or undo button. `None` uses the library's
+    /// `review_unavailable` label.
     pub disabled_reason: Option<String>,
 }
 
@@ -42,9 +57,13 @@ pub struct CodeReviewHunkActions {
 /// compare accept_id with the active review token before publishing its index.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct CodeReviewPosition {
+    /// `document_id` of the buffer snapshot the review was laid out for.
     pub document_id: u64,
+    /// Revision of that snapshot.
     pub revision: u64,
+    /// Zero-based index of the active hunk in the editor's review hunks.
     pub index: usize,
+    /// `accept_id` of that hunk's actions.
     pub accept_id: String,
 }
 
@@ -707,7 +726,7 @@ impl EditorView {
             ),
         ] {
             let hint = if enabled {
-                format!("{label} este bloque")
+                (if *id == actions.accept_id { crate::labels().keep_block } else { crate::labels().undo_block }).to_owned()
             } else {
                 actions
                     .disabled_reason

@@ -122,7 +122,7 @@ impl Component for DictationButton {
         let ink = self.live.text;
         let (mark, mark_side) = if self.state != DictationState::Listening {
             let side = self.size.button_sizing().icon_size;
-            let spinner = Spinner::new(format!("{}:busy", self.id), ink).size(side);
+            let spinner = Spinner::new(format!("{}:busy", self.id), ink).size(side).decorative();
             (spinner.render(), side)
         } else {
             // The stop square is a `Skeleton`, so it breathes on the library's

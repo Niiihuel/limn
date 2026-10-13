@@ -1,5 +1,6 @@
 //! Renderer-neutral, versioned language analysis and bounded LSP transport.
 //! No process is started and no grammar is loaded until explicitly requested.
+#![warn(missing_docs)]
 mod coordinates;
 pub mod lsp;
 mod syntax;

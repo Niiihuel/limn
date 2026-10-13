@@ -416,10 +416,16 @@ fn an_avatar_listens_to_nothing() {
 }
 
 #[test]
-fn an_avatar_tells_the_platform_nothing() {
-    // known: no node for the letter or for the photo, whose own `alt` is not said either.
+fn an_avatar_is_decoration_until_the_host_names_it() {
+    // Beside a person's name it would only be said twice.
     assert!(frame(Avatar::new("Ana", palette()).render()).access.is_empty());
     assert!(frame(Avatar::new("Ana", palette()).image(picture()).render()).access.is_empty());
+    for avatar in [Avatar::new("Ana", palette()), Avatar::new("Ana", palette()).image(picture())] {
+        let named = frame(avatar.render().accessible(Access::new(Role::Image).id("ana").name("Ana")));
+        let node = named.access.iter().find(|node| node.id == "ana").expect("a node for the avatar");
+        assert_eq!((node.role, node.name.as_str()), (Role::Image, "Ana"));
+        assert_eq!((node.rect.width, node.rect.height), (32.0, 32.0));
+    }
 }
 
 // ChartLegend
@@ -472,11 +478,20 @@ fn a_legend_without_colors_is_its_two_labels() {
 }
 
 #[test]
-fn a_legend_does_not_cut_its_labels_to_the_width_it_is_given() {
+fn a_legend_cuts_its_labels_to_the_width_it_is_given() {
     let held = Element::panel(ChartLegend::new(SCALE, LONG, LONG, palette()).render()).size(Some(NARROW), None);
-    let drawn: Vec<String> = texts(&frame(held)).into_iter().map(|(text, _)| text).collect();
-    // known: each label takes the width of its text, so in 90 pixels both are whole and the legend runs past them.
-    assert_eq!(drawn, [LONG, LONG]);
+    let frame = frame(held);
+    let drawn = texts(&frame);
+    assert!(drawn.iter().all(|(text, _)| text != LONG), "{drawn:?}");
+    assert!(drawn.iter().any(|(text, _)| text.ends_with('…')), "{drawn:?}");
+    // The squares stay whole and inside.
+    for color in SCALE {
+        let square = fills(&frame, color)[0];
+        assert!(square.width == 10.0 && square.x + square.width <= NARROW, "{square:?}");
+    }
+    // With room, nothing is cut.
+    let roomy: Vec<String> = texts(&self::frame(legend())).into_iter().map(|(text, _)| text).collect();
+    assert_eq!(roomy, ["Less", "More"]);
 }
 
 #[test]

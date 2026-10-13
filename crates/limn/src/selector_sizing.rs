@@ -8,18 +8,34 @@
 /// heights, its type sizes and how many rows show before the list scrolls.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SelectorSizing {
+    /// Width of the content when the host has room: the upper bound of `fit_width`,
+    /// and the width a menu takes from `sizing`.
     pub preferred_width: f32,
+    /// The lower bound of `fit_width`: the narrowest the content gets, however
+    /// little room is offered.
     pub min_width: f32,
+    /// Height of a one-line row.
     pub row_height: f32,
+    /// Height of a two-line row: a label over a detail.
     pub detail_row_height: f32,
+    /// Height of a heading row and of a menu header's title line.
     pub header_height: f32,
+    /// Width of the slot kept for a row's icon, its check or its chevron.
     pub icon_size: f32,
+    /// Font size of a row's label.
     pub label_size: f32,
+    /// Font size of a two-line row's second line and of its status text.
     pub detail_size: f32,
+    /// Space between a one-line row's edge and its content.
     pub padding: f32,
+    /// Space between a row's icon, its label and its trailing parts.
     pub gap: f32,
+    /// Width the rows give up to the scrollbar while the list scrolls.
     pub scrollbar_gutter: f32,
+    /// The widest a row's tooltip should get. No component reads it: a host
+    /// passes it to its tooltip's `max_width`.
     pub tooltip_width: f32,
+    /// How many entries a `DropdownMenu` shows before its list scrolls.
     pub max_visible_items: usize,
 }
 

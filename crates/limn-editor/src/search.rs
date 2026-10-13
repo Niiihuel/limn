@@ -8,6 +8,7 @@ const MATCH_LIMIT: usize = 4096;
 /// literal search of the whole document.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SearchOptions {
+    /// Match letter case exactly. When false, the default, case is ignored.
     pub case_sensitive: bool,
     /// Reject a match that has a letter, digit or underscore directly before or after it.
     pub whole_word: bool,
@@ -19,7 +20,9 @@ pub struct SearchOptions {
 /// The matches of one search and the snapshot revision they were found in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchResults {
+    /// `document_id` of the snapshot that was searched.
     pub document_id: u64,
+    /// Revision of that snapshot; the ranges are only valid for it.
     pub revision: u64,
     /// Character ranges in document order.
     pub matches: Vec<Range<usize>>,
@@ -29,10 +32,14 @@ pub struct SearchResults {
 /// Why a search or a replacement failed.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SearchError {
+    /// The query did not compile as a regular expression, or compiles past the 2 MiB size
+    /// limit. Carries the message of the `regex` crate.
     InvalidPattern(String),
+    /// `scope` starts after its end or ends past the document.
     InvalidScope,
     /// A replacement was refused because the search found more than 4096 matches.
     TooManyMatches,
+    /// The buffer refused an offset or the replacement edit.
     Edit(EditorError),
 }
 impl fmt::Display for SearchError {

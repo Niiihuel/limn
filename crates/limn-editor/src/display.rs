@@ -10,7 +10,9 @@ const MAX_WINDOW_BYTES: usize = 64 * 1024;
 /// The physical lines a view asks for.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Viewport {
+    /// Zero-based first visible line. Past the last line, the result is empty or only overscan.
     pub first_row: usize,
+    /// Number of visible lines, from `first_row` down.
     pub row_count: usize,
     /// Extra rows included before and after the `row_count` visible ones.
     pub overscan: usize,
@@ -19,7 +21,9 @@ pub struct Viewport {
 /// One line of a viewport: its row and its characters, without the line terminator.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisibleLine {
+    /// Zero-based line of the document.
     pub row: usize,
+    /// Character offsets of the line's content in the snapshot.
     pub char_range: Range<usize>,
 }
 
@@ -27,10 +31,18 @@ pub struct VisibleLine {
 /// one exceeds the byte budget (then the text is clipped and `truncated` is set).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DisplayLine {
+    /// The text to paint, with each tab replaced by the spaces that reach its tab stop.
     pub text: String,
+    /// Character offsets in the snapshot of the graphemes in `text`. Empty at the end of the
+    /// line when the window shows nothing.
     pub char_range: Range<usize>,
+    /// Display cell of the first grapheme in `text`, from the start of the line. It is less
+    /// than the requested first column when a wide grapheme or a tab straddles it.
     pub start_column: usize,
+    /// Display cell just past the last grapheme in `text`.
     pub end_column: usize,
+    /// True when the line continues after `char_range`, because the window ended or a
+    /// grapheme went over the 64 KiB text budget.
     pub truncated: bool,
 }
 

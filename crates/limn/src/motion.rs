@@ -10,7 +10,11 @@ use crate::Color;
 /// both transitions by stable ID and snaps them under reduced motion.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct MenuMotion {
+    /// How long the menu's surface takes to open, in milliseconds. The default is
+    /// the `enter_ms` token.
     pub open_ms: u16,
+    /// How long an item's hover and press feedback takes, in milliseconds. The
+    /// default is the `hover_ms` token.
     pub item_ms: u16,
 }
 
@@ -30,6 +34,7 @@ impl Default for MenuMotion {
 pub struct ScrollMotion {
     /// Zero disables interpolation. The host also snaps under reduced motion.
     pub duration_ms: u16,
+    /// The curve the offset follows over `duration_ms`. `Easing::OutCubic` by default.
     pub easing: Easing,
 }
 
@@ -163,7 +168,11 @@ impl ScalarTransition {
 /// without overshoot; lower values bounce.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SpringMotion {
+    /// 1.0 settles without overshoot and lower values bounce. Negative values are
+    /// read as zero. 1.0 by default.
     pub damping_ratio: f32,
+    /// The spring constant: the natural angular frequency, in radians per second,
+    /// is its square root. 800 by default.
     pub stiffness: f32,
 }
 

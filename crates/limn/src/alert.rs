@@ -9,10 +9,17 @@ use crate::{
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum AlertTone {
     #[default]
+    /// A notice with no status. The icon is the information circle, in the palette's text color.
     Neutral,
+    /// Something worth knowing. The icon is the information circle, as `Neutral`,
+    /// in the tone's own color.
     Info,
+    /// Something that went well. The icon is a check in a circle.
     Success,
+    /// Something to look at before going on. The icon is a warning triangle.
     Warning,
+    /// Something that failed. The icon is an error circle, and the title and the
+    /// description take its hue as well.
     Error,
 }
 
@@ -29,11 +36,11 @@ impl AlertTone {
 
     fn label(self) -> &'static str {
         match self {
-            Self::Neutral => "Notice",
-            Self::Info => "Information",
-            Self::Success => "Done",
-            Self::Warning => "Warning",
-            Self::Error => "Error",
+            Self::Neutral => crate::labels().notice,
+            Self::Info => crate::labels().information,
+            Self::Success => crate::labels().success,
+            Self::Warning => crate::labels().warning,
+            Self::Error => crate::labels().error,
         }
     }
 }
@@ -43,10 +50,17 @@ impl AlertTone {
 /// copy; the other tones keep ordinary ink so a page of notices stays calm.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct AlertColors {
+    /// The alert's fill. `for_tone` takes the palette's `surface`.
     pub surface: Color,
+    /// The one-pixel line around it. `for_tone` takes the palette's `border`.
     pub border: Color,
+    /// The icon's color. `for_tone` keeps it at a contrast of 3 or more on the surface.
     pub accent: Color,
+    /// The title's color, and the ink of the close button. `for_tone` keeps it at
+    /// a contrast of 4.5 or more on the surface.
     pub title: Color,
+    /// The description's color. `for_tone` keeps it at a contrast of 4.5 or more
+    /// on the surface.
     pub description: Color,
 }
 

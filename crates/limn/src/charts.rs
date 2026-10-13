@@ -14,6 +14,7 @@ fn label(value: impl Into<String>, color: Color, size: f32) -> Element {
 /// missing observations are represented by `None` in a heatmap column.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct HeatmapScale {
+    /// The five colors, level 0 first.
     pub colors: [Color; 5],
 }
 
@@ -69,7 +70,7 @@ impl ChartLegend {
 
 impl Component for ChartLegend {
     fn render(self) -> Element {
-        let mut items = vec![label(self.low, self.palette.muted, 11.0).size(None, Some(16.0))];
+        let mut items = vec![label(self.low, self.palette.muted, 11.0).size(None, Some(16.0)).shrink_to_fit()];
         items.extend(self.colors.into_iter().map(|color| {
             Element::column(vec![
                 Element::spacer().size(None, Some(3.0)),
@@ -80,7 +81,7 @@ impl Component for ChartLegend {
             ])
             .size(Some(10.0), Some(16.0))
         }));
-        items.push(label(self.high, self.palette.muted, 11.0).size(None, Some(16.0)));
+        items.push(label(self.high, self.palette.muted, 11.0).size(None, Some(16.0)).shrink_to_fit());
         Element::row(items).gap(5.0).size(None, Some(16.0))
     }
 }
@@ -88,6 +89,8 @@ impl Component for ChartLegend {
 /// One observed heatmap cell with a stable, chart-local identity.
 #[derive(Clone, Debug, PartialEq)]
 pub struct HeatmapCell {
+    /// Scopes the cell's tooltip within its chart; unique among the chart's cells.
+    /// A cell with no tooltip does not use it.
     pub id: String,
     /// From 0 to 4.
     pub level: u8,
@@ -110,7 +113,11 @@ impl HeatmapCell {
 /// A label anchored to a column, such as a month above a calendar's weeks.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChartAxisLabel {
+    /// The column the label starts at, counted from zero. A label at or past the
+    /// number of columns is not drawn.
     pub column: usize,
+    /// The text. It is left out when it starts under 32 pixels after the label
+    /// before it, and of two labels on one column only one is drawn.
     pub label: String,
 }
 
@@ -332,9 +339,15 @@ impl Component for HeatmapChart {
 /// non-finite are displayed as zero. IDs are scoped to their chart.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ChartDatum {
+    /// Scopes the datum's tooltip within its chart; unique among the chart's data.
     pub id: String,
+    /// The name of what was observed.
     pub label: String,
+    /// The observation. A chart draws a negative or non-finite one as zero, and
+    /// `new` stores it as zero.
     pub value: f64,
+    /// The text shown for the value. `new` writes the value with no decimals when
+    /// it is whole and with one otherwise.
     pub value_label: String,
     /// `None` shows the label and the value label.
     pub tooltip: Option<String>,

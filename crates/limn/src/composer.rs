@@ -18,7 +18,6 @@ pub struct Composer {
     width: f32,
     editor_height: f32,
     auto_grow: Option<(f32, f32)>,
-    compact: bool,
     context: Option<Element>,
     context_height: f32,
     attachments: Vec<Element>,
@@ -59,7 +58,6 @@ impl Composer {
             },
             editor_height: 64.0,
             auto_grow: None,
-            compact: false,
             context: None,
             context_height: 28.0,
             attachments: Vec::new(),
@@ -98,9 +96,9 @@ impl Composer {
         self
     }
 
-    /// Has no effect at present: the flag is stored and nothing reads it.
-    pub fn compact(mut self, compact: bool) -> Self {
-        self.compact = compact;
+    /// It never changed what is drawn. `inline_controls` is the compact form.
+    #[deprecated(note = "it has no effect; use `inline_controls` for the compact form")]
+    pub fn compact(self, _compact: bool) -> Self {
         self
     }
 

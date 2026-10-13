@@ -12,17 +12,28 @@ pub use limn_language::Language as CodeLanguage;
 #[cfg(not(feature = "syntax"))]
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum CodeLanguage {
+    /// Text in no language: nothing is colored. The default.
     #[default]
     Plain,
+    /// Rust source.
     Rust,
+    /// JSON.
     Json,
+    /// JavaScript, with or without JSX.
     JavaScript,
+    /// TypeScript.
     TypeScript,
+    /// TypeScript with JSX.
     Tsx,
+    /// Python source.
     Python,
+    /// TOML.
     Toml,
+    /// A CSS style sheet.
     Css,
+    /// HTML markup.
     Html,
+    /// Markdown.
     Markdown,
 }
 

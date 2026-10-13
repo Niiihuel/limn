@@ -11,12 +11,22 @@ pub const ICON_SIZE: f32 = 16.0;
 /// vertically when the preferred side would leave the viewport.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PopoverPlacement {
+    /// Below the anchor, their left edges aligned.
     BottomStart,
+    /// Below the anchor, their right edges aligned.
     BottomEnd,
+    /// Above the anchor, their left edges aligned.
     TopStart,
+    /// Above the anchor, their right edges aligned.
     TopEnd,
+    /// To the right of the anchor, their tops aligned: a submenu. It goes to
+    /// the left instead when the right has no room.
     RightStart,
+    /// To the left of the anchor, their tops aligned. It goes to the right
+    /// instead when the left has no room.
     LeftStart,
+    /// Centered in the viewport, wherever the anchor is: a modal. The gap is
+    /// not used.
     Center,
 }
 
@@ -34,17 +44,26 @@ pub enum Cursor {
 /// side, then the other axis, when the preferred one has no room.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoachSide {
+    /// Over the target, the caret pointing down at it.
     Above,
+    /// Under the target, the caret pointing up at it.
     Below,
+    /// To the left of the target, the caret pointing right at it.
     Left,
+    /// To the right of the target, the caret pointing left at it.
     Right,
 }
 
 /// Where a coach mark sits along its target's edge.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CoachAlign {
+    /// Left edges together above or below the target; top edges together
+    /// beside it.
     Start,
+    /// Centered on the target along that edge.
     Center,
+    /// Right edges together above or below the target; bottom edges together
+    /// beside it.
     End,
 }
 
@@ -71,9 +90,15 @@ pub struct CoachAnchor {
 /// opposite side when the preferred one would leave the viewport.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TooltipPlacement {
+    /// Over the anchor, centered on it horizontally.
     Above,
+    /// Under the anchor, centered on it horizontally.
     Below,
+    /// To the left of the anchor, centered on it vertically. Inside a popover
+    /// it stands clear of the whole surface.
     Left,
+    /// To the right of the anchor, centered on it vertically. Inside a
+    /// popover it stands clear of the whole surface.
     Right,
 }
 
@@ -81,20 +106,36 @@ pub enum TooltipPlacement {
 /// available width; separators divide related pieces of information.
 #[derive(Clone, Debug, PartialEq)]
 pub enum TooltipSection {
+    /// A wrapped paragraph in the tooltip's text color. Blank text is left
+    /// out.
     Description(String),
+    /// A caption followed by passive items, which wrap onto further lines.
     IconRow {
+        /// Caption in the muted color: beside the items, or over them in a
+        /// narrow tooltip. Blank draws none.
         label: String,
+        /// The items in order. One with a blank label is skipped.
         items: Vec<TooltipItem>,
     },
+    /// A hairline in the border color before the next block. A repeated or
+    /// trailing one is ignored.
     Separator,
+    /// A wrapped paragraph in the muted color, slightly smaller. Blank text
+    /// is left out.
     Footer(String),
 }
 
 /// A labeled, passive item in a tooltip row. Icons keep their canonical size.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TooltipItem {
+    /// Text of the item, shortened to the row's width. An item with a blank
+    /// label is not drawn.
     pub label: String,
+    /// Drawn before the label, the two inside a hairline box. `None` draws
+    /// the label alone, in the muted color.
     pub icon: Option<Icon>,
+    /// Draw the icon without the label; set by [`Self::icon_only`]. It has no
+    /// effect on an item without an icon.
     pub icon_only: bool,
 }
 
@@ -126,140 +167,258 @@ impl TooltipItem {
 /// The colors a tooltip is painted with.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TooltipStyle {
+    /// Fill of the body and of its pointer.
     pub background: Color,
+    /// The one pixel outline, the separators and the boxes around icon
+    /// items.
     pub border: Color,
+    /// Fill of the shortcut's key caps.
     pub keycap: Color,
+    /// Ink of the title, descriptions, shortcut and icon items.
     pub text: Color,
+    /// Ink of footers, row captions and items without an icon.
     pub muted: Color,
+    /// Color of the shadow under the body.
     pub shadow: Color,
 }
 
 /// Semantic icon names. A host chooses the concrete artwork for each name.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Icon {
+    /// A window with a side panel on its left: the left sidebar.
     PanelLeft,
+    /// The left panel filled in: the sidebar while shown. It is what
+    /// [`Self::filled`] gives for [`Self::PanelLeft`].
     PanelLeftOpen,
+    /// Hiding the left sidebar. The bundled host draws it as
+    /// [`Self::PanelLeftOpen`].
     PanelLeftClose,
+    /// A window with a strip along its bottom: the bottom panel.
     PanelBottom,
+    /// A window with a side panel on its right: the right sidebar.
     PanelRight,
+    /// The right panel filled in: the sidebar while shown. It is what
+    /// [`Self::filled`] gives for [`Self::PanelRight`].
     PanelRightOpen,
+    /// Hiding the right sidebar. The bundled host draws it as
+    /// [`Self::PanelRightOpen`].
     PanelRightClose,
+    /// A plus: add or create.
     Add,
     /// A horizontal dash: remove, collapse or unstage.
     Minus,
+    /// A microphone: voice input.
     Microphone,
+    /// A card with lines of text: plain text.
     Text,
+    /// A framed picture: an image file.
     Image,
+    /// A sound wave: an audio file.
     Audio,
+    /// A video camera: a video file.
     Video,
+    /// A sheet with a folded corner and lines: a file of no known type.
     File,
     /// Embedded file/language/folder artwork; hosts preserve its native colors.
     FileType(crate::file_icons::FileIcon),
+    /// The infinity sign.
     Infinity,
+    /// A paperclip: an attachment.
     Paperclip,
+    /// A bullseye.
     Target,
+    /// A list with check marks: a plan and its steps.
     Plan,
+    /// Thought or reasoning. The bundled host draws a light bulb.
     Brain,
+    /// A check mark: done, or the chosen item.
     Check,
+    /// A circled `i`: information.
     InfoCircle,
+    /// A circled check mark: success.
     CheckCircle,
+    /// An exclamation mark in a triangle: a warning.
     WarningTriangle,
+    /// A circled cross: an error.
     ErrorCircle,
+    /// A gear: settings.
     Settings,
+    /// The GitHub mark.
     Github,
     /// Artwork the application supplies: the source of an SVG drawn with
     /// `currentColor`. It is fitted to the icon's square without distortion
     /// and tinted like any other icon, so a brand mark or a product glyph
     /// follows the theme.
     Custom(&'static str),
+    /// A speech bubble with three dots: a conversation.
     Chat,
+    /// An outlined folder.
     Folder,
+    /// A laptop.
     Laptop,
+    /// A globe.
     Globe,
+    /// A git branch. The bundled host draws the Git logo.
     GitBranch,
+    /// Four squares: a grid of items.
     Grid,
+    /// A painter's palette.
     Palette,
+    /// A group of people.
     Users,
+    /// A puzzle piece.
     Puzzle,
+    /// An open book.
     Book,
+    /// Stacked drives: a server.
     Server,
+    /// A lightning bolt.
     Bolt,
+    /// A bar chart.
     ChartBar,
+    /// A keyboard.
     Keyboard,
+    /// A hash sign.
     Hash,
+    /// A slash between angle brackets: code.
     Code,
+    /// A terminal window with a prompt.
     Terminal,
+    /// An arrow pointing up.
     ArrowUp,
+    /// Send a message. The bundled host draws the same arrow as
+    /// [`Self::ArrowUp`].
     Send,
+    /// An arrow pointing down.
     ArrowDown,
+    /// An arrow pointing left.
     ArrowLeft,
+    /// An arrow pointing right.
     ArrowRight,
+    /// A chevron pointing down.
     ChevronDown,
+    /// A chevron pointing right.
     ChevronRight,
+    /// A magnifying glass: search.
     Search,
+    /// An outlined square: stop.
     Stop,
     /// A solid rounded square: stop, on a filled button.
     StopFill,
+    /// An outlined triangle pointing right: play.
     Play,
+    /// Two bars: pause.
     Pause,
+    /// A clock inside a counterclockwise arrow: history.
     History,
+    /// A thin cross: close or dismiss.
     Close,
+    /// A shorter, heavier cross than [`Self::Close`].
     CloseBold,
+    /// A circled cross: clear or remove. The bundled host draws it as
+    /// [`Self::ErrorCircle`].
     CloseCircle,
+    /// A clockwise circular arrow: reload or retry.
     Refresh,
+    /// Three horizontal lines: a menu.
     Menu,
+    /// Three dots in a row: further actions.
     More,
+    /// A tilted pushpin: pin.
     Pin,
+    /// A storage box: archive.
     Archive,
+    /// A box with an arrow leaving it upwards.
     ArchiveUp,
+    /// A waste bin: delete.
     Trash,
+    /// A pencil: edit or rename.
     Edit,
     /// Two overlapping sheets: copy to the clipboard.
     Copy,
+    /// A speech bubble holding three dots, its tail at the left.
     Unread,
+    /// A funnel: filter.
     Filter,
+    /// Lines of decreasing length beside a down arrow: sort.
     Sort,
+    /// Two diagonal arrows pointing inwards: fit or shrink.
     Collapse,
+    /// Two diagonal arrows pointing outwards: enlarge.
     Expand,
     /// Two arrows closing on a line: making something take less room.
     Compact,
     /// Four corners: showing something over the whole window.
     Fullscreen,
+    /// A clock face.
     Clock,
     /// Filled counterparts, for the chosen item of a navigation list.
     FolderFill,
+    /// The solid form of [`Self::Play`].
     PlayFill,
+    /// The solid form of [`Self::Grid`].
     GridFill,
+    /// The solid form of [`Self::Settings`].
     SettingsFill,
+    /// The solid form of [`Self::Palette`].
     PaletteFill,
+    /// The solid form of [`Self::Laptop`].
     LaptopFill,
+    /// The solid form of [`Self::Terminal`].
     TerminalFill,
+    /// The solid form of [`Self::Keyboard`].
     KeyboardFill,
+    /// The solid form of [`Self::Chat`].
     ChatFill,
+    /// The solid form of [`Self::Users`].
     UsersFill,
+    /// The solid form of [`Self::Puzzle`].
     PuzzleFill,
+    /// The solid form of [`Self::Server`].
     ServerFill,
+    /// The solid form of [`Self::Book`].
     BookFill,
+    /// The solid form of [`Self::Clock`].
     ClockFill,
+    /// The solid form of [`Self::Bolt`].
     BoltFill,
+    /// The solid form of [`Self::Archive`].
     ArchiveFill,
+    /// The solid form of [`Self::ChartBar`].
     ChartBarFill,
+    /// A bell: notifications.
     Bell,
+    /// The solid form of [`Self::Bell`].
     BellFill,
+    /// A bell struck through: notifications off.
     BellSlash,
+    /// A solid bar and a triangle pointing left: the previous track.
     SkipBack,
+    /// A solid triangle pointing right and a bar: the next track.
     SkipForward,
+    /// The solid form of [`Self::Pause`].
     PauseFill,
+    /// Two crossing arrows: shuffle.
     Shuffle,
+    /// Two arrows in a loop: repeat.
     Repeat,
+    /// The repeat loop with a 1: repeat one track.
     RepeatOne,
+    /// A loudspeaker with sound waves: volume.
     Volume,
+    /// A loudspeaker with a cross: muted.
     VolumeMuted,
+    /// An outlined heart: like or favorite.
     Heart,
+    /// The solid form of [`Self::Heart`].
     HeartFill,
+    /// Two beamed notes: music, or a track.
     MusicNote,
+    /// A note beside a list: a playlist.
     Playlist,
+    /// A house: home.
     Home,
+    /// A stack of frames: a collection.
     Library,
     /// Three faders: an equalizer, or any set of fine adjustments.
     Sliders,
@@ -311,14 +470,17 @@ pub enum SpinnerVariant {
 /// for each. The default is `Monospace`.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum FontFamily {
+    /// The host's fixed-width face.
     #[default]
     Monospace,
+    /// The host's proportional face, at its regular weight.
     Sans,
     /// Sans slanted by the host. It measures exactly as [`Self::Sans`].
     SansItalic,
     /// The medium and bold faces of the sans family: real faces the host
     /// provides, each measured as itself. A host without one paints Sans.
     SansMedium,
+    /// The bold face of the sans family; see [`Self::SansMedium`].
     SansBold,
 }
 
@@ -327,10 +489,17 @@ pub enum FontFamily {
 /// callers to guess a character advance.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextSpan {
+    /// The run's text. A line feed in it starts a new line.
     pub text: String,
+    /// Ink of the text, and the tint of `icon`.
     pub color: Color,
+    /// Text size in logical pixels. [`Self::new`] replaces one that is not
+    /// finite or not above zero.
     pub font_size: f32,
+    /// Face the run is measured and painted in.
     pub font_family: FontFamily,
+    /// Fill behind the run, with rounded corners and 3 pixels of room on
+    /// each side of the text. `None` paints none.
     pub background: Option<Color>,
     /// Optional inline action. Wrapped fragments share one keyboard target and
     /// dispatch `UiAction::Clicked` using their exact painted text bounds.
@@ -388,7 +557,10 @@ impl TextSpan {
 /// Geometry, selection, clipboard and the stored value are unchanged.
 #[derive(Clone, Debug, PartialEq)]
 pub struct TextHighlight {
+    /// Unicode character offsets into the text area's value, the end
+    /// excluded.
     pub range: std::ops::Range<usize>,
+    /// Ink the text in the range is repainted with.
     pub color: Color,
     /// Slant the range, as for text that is not committed yet.
     pub italic: bool,
@@ -397,7 +569,10 @@ pub struct TextHighlight {
 /// The color of an outline and its width in logical pixels.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Border {
+    /// Color of the stroke.
     pub color: Color,
+    /// Stroke width in logical pixels. The stroke is drawn inside the
+    /// element's bounds.
     pub width: f32,
 }
 
@@ -405,9 +580,13 @@ pub struct Border {
 /// They affect paint only; child clipping and hit regions remain rectangular.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CornerRadii {
+    /// Radius of the top left corner, in logical pixels.
     pub top_left: f32,
+    /// Radius of the top right corner, in logical pixels.
     pub top_right: f32,
+    /// Radius of the bottom right corner, in logical pixels.
     pub bottom_right: f32,
+    /// Radius of the bottom left corner, in logical pixels.
     pub bottom_left: f32,
 }
 
@@ -463,9 +642,14 @@ impl CornerRadii {
 /// layout or pointer hit bounds.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BoxShadow {
+    /// Color of the shadow. [`Element::shadow`] sets none when it is fully
+    /// transparent.
     pub color: Color,
+    /// How far the shadow is moved from the element's bounds.
     pub offset: Point,
+    /// Blur radius; [`Self::new`] keeps it within 0..=64.
     pub blur: f32,
+    /// Spread; [`Self::new`] keeps it within 0..=32.
     pub spread: f32,
 }
 
@@ -473,10 +657,17 @@ pub struct BoxShadow {
 /// stable when children are rebuilt or reordered.
 #[derive(Clone, Debug)]
 pub struct TabSelection {
+    /// Stable ID under which the tree keeps where the indicator is.
     pub group_id: String,
+    /// ID of the tab button, or of the [`Element::indicator_slot`] child, the
+    /// indicator rests on. Without a match none is drawn.
     pub selected_id: String,
+    /// Fill of the indicator, painted under the tabs.
     pub color: Color,
+    /// Corner radius of the indicator, in logical pixels.
     pub radius: f32,
+    /// Time the indicator takes to settle on a newly selected tab, in
+    /// milliseconds. Zero moves it at once.
     pub animation_ms: u16,
 }
 
@@ -541,7 +732,9 @@ pub(crate) struct SliderTravel {
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
 #[derive(Clone, Debug)]
 pub struct Element {
+    /// What the element is, with the content it holds.
     pub kind: ElementKind,
+    /// Its layout and paint properties.
     pub style: Style,
     /// Another action whose pointer hover should also highlight this element.
     /// Useful when a row contains a more specific action such as its menu.
@@ -597,11 +790,19 @@ pub struct Element {
 /// Its stable `id` retains the scroll position across tree rebuilds.
 #[derive(Clone)]
 pub struct UniformList {
+    /// Stable ID under which the tree keeps the scroll position; the one
+    /// `UiTree::scroll_offset` takes.
     pub id: String,
+    /// Number of rows. `build_row` is called with indices below it.
     pub row_count: usize,
+    /// Height of every row in logical pixels. [`Element::uniform_list`] makes
+    /// it at least 1.
     pub row_height: f32,
+    /// Builds the row at a zero-based index, on every layout that shows it.
     pub build_row: Arc<dyn Fn(usize) -> Element + Send + Sync>,
+    /// Scrollbar policy; set by [`Element::scrollbar_appearance`].
     pub appearance: ScrollbarAppearance,
+    /// How a wheel step is followed; set by [`Element::scroll_motion`].
     pub motion: ScrollMotion,
     /// What one row opens under itself: see [`Element::list_expansion`].
     pub expansion: Option<(usize, Arc<Element>)>,
@@ -626,14 +827,22 @@ impl std::fmt::Debug for UniformList {
 /// other parts recede towards `empty`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct UnitGrid {
+    /// Stable ID; with each part's `key`, the name the tree keeps that
+    /// part's count under.
     pub id: String,
+    /// Cells in a row.
     pub columns: u16,
+    /// Rows of cells. Cells past the last one are not drawn.
     pub rows: u16,
     /// Side of a cell and the space between two.
     pub cell: f32,
+    /// Space between two cells, in logical pixels.
     pub gap: f32,
+    /// Corner radius of each cell, in logical pixels.
     pub radius: f32,
+    /// The parts, in the order they take their cells.
     pub parts: Vec<UnitGridPart>,
+    /// Color of a cell that no part takes.
     pub empty: Color,
     /// Index of the part that stands out, if one does.
     pub focus: Option<usize>,
@@ -644,7 +853,10 @@ pub struct UnitGrid {
 pub struct UnitGridPart {
     /// Names the part across rebuilds, whatever its position.
     pub key: String,
+    /// How many cells it takes; below zero counts as zero. A cell taken in
+    /// part shows that share of the color.
     pub cells: f32,
+    /// Color of its cells.
     pub color: Color,
 }
 
@@ -667,13 +879,17 @@ impl UnitGrid {
 /// at once and does not flicker on its way down.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LevelBars {
+    /// Stable ID under which the tree keeps each slot's height.
     pub id: String,
     /// From 0 to 1, oldest first.
     pub levels: Vec<f32>,
     /// Width of a bar and the space between two.
     pub bar: f32,
+    /// Space between two bars, in logical pixels.
     pub gap: f32,
+    /// Color of a bar that stands up.
     pub color: Color,
+    /// Color of the dot a slot at rest shows.
     pub rest: Color,
 }
 
@@ -685,20 +901,32 @@ pub struct LevelBars {
 /// Down move the focus between marks and activate the one they reach.
 #[derive(Clone, Debug, PartialEq)]
 pub struct MarkRail {
+    /// Stable ID under which the tree keeps each mark's length.
     pub id: String,
+    /// The marks, from top to bottom.
     pub marks: Vec<RailMark>,
     /// Index of the mark for what the view shows now, if one is.
     pub active: Option<usize>,
     /// Height each mark takes; less when they do not all fit.
     pub pitch: f32,
+    /// Thickness of a mark in logical pixels, never more than the height it
+    /// takes.
     pub thickness: f32,
+    /// Length of a mark at rest, in logical pixels. The `active` mark rests
+    /// three tenths of the way to `peak`.
     pub rest: f32,
+    /// Length of the mark under the pointer or the focus, in logical pixels;
+    /// also the rail's natural width.
     pub peak: f32,
     /// How many marks away the last raised neighbour is.
     pub reach: u8,
+    /// Color of a mark at rest.
     pub ink: Color,
+    /// Color of the `active` mark at rest.
     pub active_ink: Color,
+    /// Color a mark takes as it reaches `peak`.
     pub lead_ink: Color,
+    /// Colors of the tooltip the raised mark shows.
     pub tooltip: TooltipStyle,
 }
 
@@ -708,7 +936,9 @@ pub struct MarkRail {
 pub struct RailMark {
     /// Reported as `UiAction::Clicked`.
     pub id: String,
+    /// Title of the mark's tooltip.
     pub title: String,
+    /// Muted text under the title. Empty shows the title alone.
     pub preview: String,
 }
 
@@ -731,15 +961,22 @@ impl MarkRail {
 /// constructors of [`Element`] build each kind.
 #[derive(Clone, Debug)]
 pub enum ElementKind {
+    /// Children from top to bottom; see [`Element::column`].
     Column(Vec<Element>),
+    /// Children side by side; see [`Element::row`].
     Row(Vec<Element>),
     /// A row of related, enabled tab actions. Arrow keys move between these
     /// actions and activate the newly focused tab.
     TabStrip {
+        /// The tabs and whatever sits among them, laid out as a row.
         children: Vec<Element>,
+        /// IDs of the enabled tabs, in the order the arrow keys walk them.
         action_ids: Vec<String>,
+        /// The sliding selection surface; set by [`Element::tab_selection`].
         selection: Option<TabSelection>,
     },
+    /// A box around one child, placed inside this element's padding; see
+    /// [`Element::panel`].
     Panel(Box<Element>),
     /// Children laid one over another in the same box; see
     /// [`Element::stack`].
@@ -747,34 +984,70 @@ pub enum ElementKind {
     /// One interactive surface whose children can contain more specific
     /// controls. Child hit regions take precedence over this row's region.
     Clickable {
+        /// Reported as `UiAction::Clicked`, or with `UiAction::SliderChanged`
+        /// after [`Element::slider`]; also its focus ID.
         id: String,
+        /// The content the surface wraps.
         child: Box<Element>,
     },
     /// Paints a floating subtree above the ordinary scene. It shares the
     /// base element's bounds, but may escape clips created by ancestors.
     Overlay {
+        /// Laid out in this element's box; it alone gives it its size.
         base: Box<Element>,
+        /// Placed in the same box and painted after the ordinary scene, or in
+        /// its turn when this element has `clip_children`.
         floating: Box<Element>,
     },
     /// A floating surface tied to its anchor's actual laid-out rectangle.
     /// A transparent dismissal region is inserted behind the surface.
     Popover {
+        /// Laid out in the flow as if the popover were not there; the surface
+        /// is placed against its rectangle.
         anchor: Box<Element>,
+        /// The surface, painted above the ordinary scene and never wider than
+        /// the viewport less 16 pixels.
         floating: Box<Element>,
+        /// Stable ID of the surface. The tree reports it as `UiAction::Clicked`
+        /// for the host to close it: on a click of the backdrop, or on Escape
+        /// while the surface has the keyboard.
         dismiss_id: String,
+        /// Preferred side and alignment against the anchor.
         placement: PopoverPlacement,
+        /// Distance between anchor and surface in logical pixels, 5 by default;
+        /// see [`Element::popover_gap`].
         gap: f32,
+        /// Duration of the entrance in milliseconds; zero shows the surface at
+        /// once. The `enter_ms` motion token by default.
         animation_ms: u16,
+        /// Duration of the exit in milliseconds. `None` takes `animation_ms`, up
+        /// to the `exit_ms` motion token.
         close_animation_ms: Option<u16>,
+        /// Scale the entrance starts from and the exit ends at; 1 does not
+        /// scale. [`Element::popover_open_scale`] keeps it within 0.5..=1.25.
         open_scale: f32,
+        /// Names the view the surface shows. When it changes under the same
+        /// `dismiss_id`, the old content cross-fades into the new.
         view_key: Option<String>,
+        /// Show the surface only while its trigger or its own content is
+        /// hovered or focused; set by [`Element::popover_on_hover`].
         hover_open: bool,
+        /// Whether a region over the whole viewport sits behind the surface and
+        /// keeps the pointer from what is under it.
         backdrop: bool,
         /// Whether this surface owns menu focus and keyboard navigation.
         focus_scope: bool,
+        /// Whether a click on the backdrop reports `dismiss_id`. Without it the
+        /// backdrop only blocks.
         backdrop_dismiss: bool,
+        /// Color painted over the viewport behind the surface, fading with it.
+        /// With one the surface is modal for keyboard focus.
         scrim: Option<Color>,
+        /// Control of the surface that takes the focus when it opens; without
+        /// one a modal focuses its first control.
         initial_focus: Option<String>,
+        /// Control that takes the focus back when a modal closes; `None` is the
+        /// one that had it before.
         return_focus: Option<String>,
         /// Anchors the surface to existing controls instead of `anchor`.
         coach: Option<Box<CoachAnchor>>,
@@ -785,49 +1058,90 @@ pub enum ElementKind {
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
     Tooltip {
+        /// The element the hint describes, laid out as if the tooltip were not
+        /// there.
         anchor: Box<Element>,
+        /// ID whose hover or keyboard focus shows the hint. When no control in
+        /// `anchor` has it, the anchor's box becomes a hover target under it.
         anchor_id: String,
+        /// First line. Shortened to one line unless it holds a line break or
+        /// there are sections; then it wraps.
         title: String,
+        /// Keys drawn as key caps at the title's right. Left out when they
+        /// would leave the title less than 24 pixels.
         shortcut: Option<String>,
+        /// Blocks under the title, from top to bottom.
         sections: Vec<TooltipSection>,
+        /// Widest the hint may be in logical pixels: at least 32, and never
+        /// more than the viewport less 16.
         max_width: f32,
+        /// Preferred side of the anchor.
         placement: TooltipPlacement,
+        /// The colors it is painted with.
         colors: TooltipStyle,
     },
+    /// A vertical scrolling viewport over one child; see [`Element::scroll`].
     Scroll {
+        /// Stable ID under which the tree keeps the scroll position; the one
+        /// `UiTree::scroll_offset` takes.
         id: String,
+        /// The content, laid out at the viewport's width.
         child: Box<Element>,
+        /// Scrollbar policy; set by [`Element::scrollbar_appearance`].
         appearance: ScrollbarAppearance,
+        /// How a wheel step is followed; set by [`Element::scroll_motion`].
         motion: ScrollMotion,
     },
     /// A clipped horizontal viewport; selection changes reveal the target.
     HorizontalScroll {
+        /// Stable ID under which the tree keeps the scroll position.
         id: String,
+        /// The content, laid out at its natural width.
         child: Box<Element>,
+        /// ID of a control inside to bring into view when it changes; set by
+        /// [`Element::reveal_horizontal_item`].
         reveal: Option<String>,
         /// Tab strips translate a vertical wheel into horizontal motion;
         /// two-dimensional document canvases leave it to their vertical parent.
         vertical_wheel: bool,
+        /// Let a drag pan the content and show a thin bar where it sits; set by
+        /// [`Element::drag_to_pan`].
         drag_pan: bool,
     },
+    /// A virtual list of rows of one height; see [`UniformList`].
     UniformList(UniformList),
+    /// A code editor; see `CodeEditor`.
     CodeEditor(crate::CodeEditor),
+    /// A code diff view; see `CodeDiff`.
     CodeDiff(crate::CodeDiff),
     /// A passive diagram at its natural size, measured with the tree's text.
     Flowchart(crate::Flowchart),
+    /// A passive sequence diagram at its natural size.
     SequenceDiagram(crate::SequenceDiagram),
+    /// Plain text wrapped to the width available. The pointer can select
+    /// it.
     Text(String),
     /// Passive, individually measured key caps. A bounded shortcut is omitted
     /// as a group when it cannot fit; a partial chord would be misleading.
     KeyboardShortcut {
+        /// The shortcut as text, such as `Ctrl+K`. A space separates the chords
+        /// of a sequence.
         keys: String,
+        /// Fill of the key caps. Not used by a `menu` shortcut.
         fill: Color,
+        /// Width in logical pixels over which the whole shortcut is left out;
+        /// `None` leaves only the room it is given as a limit.
         max_width: Option<f32>,
+        /// Draw a plain accelerator label in the foreground instead of key
+        /// caps; set by [`Element::menu_shortcut`].
         menu: bool,
     },
     /// Passive keys, alternatives and caption that fit or disappear together.
     ShortcutHint {
+        /// The hint, measured at its natural width.
         child: Box<Element>,
+        /// Width in logical pixels over which the child is not drawn; `None`
+        /// leaves only the room it is given as a limit.
         max_width: Option<f32>,
     },
     /// A single measured line for navigation labels. It uses an ellipsis when
@@ -836,15 +1150,22 @@ pub enum ElementKind {
     /// A measured single line whose overflowing right edge fades to transparent.
     /// The title remains unchanged; fading affects paint, never hit regions.
     FadedText {
+        /// The line. It is never wrapped or shortened.
         text: String,
+        /// Width of the fade at the right edge in logical pixels, used only
+        /// when the text overflows.
         fade_width: f32,
     },
     /// Text with a paint-only moving highlight. Wrapped paragraphs remain
     /// selectable; a truncated label is passive and stays on one measured line.
     ShimmerText {
+        /// Stable ID under which the tree keeps when the sweep began.
         id: String,
+        /// The text, painted in the foreground.
         text: String,
+        /// Color of the moving highlight. Under reduced motion there is none.
         highlight: Color,
+        /// One line ended with an ellipsis instead of wrapped, selectable text.
         truncated: bool,
     },
     /// A paragraph containing inline styles and explicit line breaks.
@@ -855,75 +1176,133 @@ pub enum ElementKind {
     /// A rectangle whose pixels the host hands to the backend under `id`,
     /// outside the frame: a remote screen, a video, an embedded page.
     Surface {
+        /// Names the pixels; the frame carries it in `DrawCommand::Surface`.
         id: String,
+        /// Names the surface for assistive technology.
         label: String,
     },
+    /// An icon centered in the element's box, [`ICON_SIZE`] on a side unless
+    /// [`Style::icon_side`] says otherwise.
     Icon(Icon),
+    /// A text button; see [`Element::button`].
     Button {
+        /// Reported as `UiAction::Clicked`; also its focus ID.
         id: String,
+        /// The text it shows.
         label: String,
+        /// Icon at the far edge; set by [`Element::trailing_icon`].
         trailing_icon: Option<Icon>,
     },
+    /// An icon and an optional label in one control; see
+    /// [`Element::icon_button`].
     IconButton {
+        /// Reported as `UiAction::Clicked`; also its focus ID.
         id: String,
+        /// The icon, drawn [`ICON_SIZE`] on a side.
         icon: Icon,
+        /// Text after the icon. Empty makes an icon-only button.
         label: String,
+        /// Second icon at the far edge; set by [`Element::trailing_icon`].
         trailing_icon: Option<Icon>,
     },
+    /// A single-line text field; see [`Element::text_input`].
     TextInput {
+        /// Stable ID under which the tree keeps the value, the caret and the
+        /// selection; the one `UiTree::input_value` takes.
         id: String,
+        /// The value the first time this ID is laid out. Later the tree's own
+        /// value stands.
         initial_value: String,
+        /// Shown while the value is empty and the field does not have the
+        /// focus.
         placeholder: String,
+        /// Keep the placeholder while the field is focused and still empty.
         persistent_placeholder: bool,
+        /// Decorative icon before the text, inside the field; set by
+        /// [`Element::leading_icon`].
         leading_icon: Option<Icon>,
+        /// Tint of the leading icon while the field is not focused. `None`, or
+        /// the focus, gives it the foreground.
         leading_icon_tint: Option<Color>,
+        /// Keys drawn as key caps at the right edge while the field is empty
+        /// and not focused, when they fit.
         shortcut: Option<String>,
+        /// Fill of those key caps. `None` takes a faint neutral from the
+        /// foreground.
         shortcut_fill: Option<Color>,
+        /// Paint a bullet for each character and keep the value from being
+        /// copied.
         password: bool,
     },
+    /// A multi-line editor; see [`Element::text_area`].
     TextArea {
+        /// Stable ID under which the tree keeps the value, the caret and the
+        /// selection; the one `UiTree::input_value` takes.
         id: String,
+        /// The value the first time this ID is laid out. Later the tree's own
+        /// value stands.
         initial_value: String,
+        /// Shown while the value is empty and the editor does not have the
+        /// focus.
         placeholder: String,
         /// Maximum outer height when content determines the editor's height.
         auto_grow: Option<f32>,
         /// Keep CRLF/CR bytes in editable values instead of normalizing to LF.
         preserve_line_endings: bool,
+        /// Paint-only ranges over `initial_value`, 64 at most. None is painted
+        /// while the edited value differs from it.
         highlights: Vec<TextHighlight>,
     },
     /// Passive loading placeholder. UiTree animates its paint by stable ID.
     Skeleton {
+        /// Stable ID under which the tree keeps when the pulse began.
         id: String,
+        /// Fill at rest, and the only one under reduced motion.
         base: Color,
+        /// Fill the surface eases to and back from.
         highlight: Color,
     },
     /// Passive progress indicator. Its phase is retained by stable ID in UiTree.
     Spinner {
+        /// Stable ID under which the tree keeps when it began to turn.
         id: String,
+        /// Color of the strokes.
         color: Color,
+        /// Which outline is drawn.
         variant: SpinnerVariant,
     },
     /// A record behind its sleeve. Its slide and its turn are retained by
     /// stable ID in UiTree.
     Record {
+        /// Stable ID under which the tree keeps the slide and the angle.
         id: String,
+        /// Picture on the sleeve. `None` fills the sleeve with the style's
+        /// background.
         image: Option<RasterImage>,
+        /// Whether the record is drawn out of the sleeve.
         out: bool,
+        /// Whether the record turns. It does not under reduced motion.
         spinning: bool,
         /// A control whose hover also draws the record out.
         peek: Option<String>,
     },
     /// Passive finite progress. Unknown capacity has no filled arc.
     ProgressRing {
+        /// Share of the ring that is filled, from 0 to 1. `None` fills no arc.
         fraction: Option<f32>,
+        /// Color of the whole ring.
         track: Color,
+        /// Color of the filled arc.
         fill: Color,
     },
     /// An interactive reasoning-effort track. `fraction` is the selected
     /// position; `steps` is the current model's number of available levels.
     EffortSlider {
+        /// Reported with `UiAction::SliderChanged`; also its focus ID.
         id: String,
+        /// The selected position, from 0 to 1.
         fraction: f32,
+        /// Number of stops; [`Element::effort_slider`] makes it at least 2.
         steps: usize,
         /// The final advertised level is Ultra. Other providers can end at
         /// High or Max without receiving the Ultra treatment.
@@ -933,13 +1312,21 @@ pub enum ElementKind {
     /// UiTree keeps the shown value by stable ID and lays the text out as it
     /// reads on each frame, so what follows it keeps to its side.
     RollingNumber {
+        /// Stable ID under which the tree keeps the value it shows.
         id: String,
+        /// The value to count to.
         value: f32,
+        /// Writes the value shown on a frame as the text to draw.
         format: fn(f32) -> String,
     },
+    /// A field of cells shared out among parts; see [`UnitGrid`].
     UnitGrid(UnitGrid),
+    /// A row of level bars; see [`LevelBars`].
     LevelBars(LevelBars),
+    /// A column of marks that rise around the pointer; see [`MarkRail`].
     MarkRail(MarkRail),
+    /// Nothing of its own to draw and no natural size; see
+    /// [`Element::spacer`].
     Spacer,
 }
 
@@ -964,19 +1351,32 @@ impl Default for StickyTop {
 /// methods of [`Element`] set them; lengths are in logical pixels.
 #[derive(Clone, Copy, Debug)]
 pub struct Style {
+    /// Fixed outer width, padding included. `None` leaves it to the content
+    /// and the parent. Set by [`Element::size`].
     pub width: Option<f32>,
+    /// Fixed outer height, padding included. `None` leaves it to the content
+    /// and the parent. Set by [`Element::size`].
     pub height: Option<f32>,
+    /// Lower bound of the measured width; zero by default.
     pub min_width: f32,
+    /// Lower bound of the measured height; zero by default.
     pub min_height: f32,
     /// Upper bound for intrinsic width. An explicit minimum takes precedence.
     pub max_width: Option<f32>,
     /// Upper bound for intrinsic height. An explicit minimum takes precedence.
     pub max_height: Option<f32>,
+    /// Space between the element's edges and its content, the same on the
+    /// four sides. A button's applies to its left and right only.
     pub padding: f32,
+    /// Space between the children of a row, a column or a tab strip, and
+    /// between the icon, label and trailing icon of a button.
     pub gap: f32,
+    /// Share of the space a row or column has left, among its flexible
+    /// children. Zero, the default, keeps the natural size.
     pub flex: f32,
     /// In a row, give up width the row cannot spare instead of overflowing.
     pub shrink: bool,
+    /// Fill of the element's bounds. `None` paints none.
     pub background: Option<Color>,
     /// Paint-only scrim above children, opaque at the top and transparent at
     /// its bottom edge. Useful where scrolling content passes under a header.
@@ -986,14 +1386,20 @@ pub struct Style {
     pub bottom_fade: Option<(Color, f32)>,
     /// Passive bottom background behind children, for dedicated footer space.
     pub bottom_background_fade: Option<(Color, f32)>,
+    /// Passive top background behind children: the color at the top edge,
+    /// transparent this many pixels below it.
     pub top_background_fade: Option<(Color, f32)>,
     /// Paint-only overflow cues at a horizontal scroll viewport's edges.
     pub horizontal_edge_fade: Option<(Color, f32)>,
+    /// Background of a button, clickable or text field while the pointer is
+    /// over it, and of a `hover_surface` while one of its actions is.
     pub hover_background: Option<Color>,
+    /// Background while pressed. `None` falls back to `hover_background`.
     pub pressed_background: Option<Color>,
     /// Ink for an interactive control while hovered or pressed. Unlike a
     /// background treatment this never changes its hit bounds or geometry.
     pub hover_foreground: Option<Color>,
+    /// Ink while pressed. `None` falls back to `hover_foreground`.
     pub pressed_foreground: Option<Color>,
     /// Border painted while an editor owns focus, including pointer focus.
     pub focus_border: Option<Border>,
@@ -1003,21 +1409,38 @@ pub struct Style {
     pub action_menu_item: bool,
     /// Duration of interactive background transitions, in milliseconds.
     pub transition_ms: u16,
+    /// Outline drawn inside the bounds; set by [`Element::border`] or
+    /// [`Element::dashed_border`].
     pub border: Option<Border>,
+    /// Draw `border` as dashes instead of a solid line.
     pub dashed_border: bool,
+    /// Shadow painted under the background, rounded by `radius`. It does not
+    /// change the layout.
     pub shadow: Option<BoxShadow>,
     /// Clip child paint and hit regions to the content rectangle. The parent
     /// background, border and shadow still paint at their normal bounds.
     pub clip_children: bool,
+    /// Center lines of text, or a button's content, across the width instead
+    /// of starting them at the left edge.
     pub center_content: bool,
+    /// Underline the text of a button or clickable while it is hovered or
+    /// has the keyboard focus.
     pub underline_on_hover: bool,
+    /// Color of the text and icons, white by default. A scroll area's
+    /// scrollbar takes it too.
     pub foreground: Color,
+    /// Corner radius in logical pixels for the background, the border and
+    /// the shadow. Zero is square.
     pub radius: f32,
+    /// Radii for each corner, used instead of `radius` by the background, a
+    /// solid border and the focus ring.
     pub corner_radii: Option<CornerRadii>,
     /// Surrounding surface painted outside rounded corners after children.
     /// This is passive paint; use `clip_children` for rectangular child bounds.
     pub corner_mask: Option<Color>,
+    /// Text size in logical pixels; [`DEFAULT_FONT_SIZE`] by default.
     pub font_size: f32,
+    /// Face of the text; `FontFamily::Monospace` by default.
     pub font_family: FontFamily,
     /// Minimum line box for formatted paragraphs, in logical pixels. Glyphs
     /// retain their natural metrics; controls and editors are unaffected.
@@ -1068,6 +1491,16 @@ impl Default for Style {
             line_height: None,
             icon_side: None,
         }
+    }
+}
+
+/// A length a builder was given: never negative, and `current` where it is
+/// not a number a layout can use.
+fn length(value: f32, current: f32) -> f32 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        current
     }
 }
 
@@ -2155,16 +2588,16 @@ impl Element {
     }
 
     /// Space between the element's edges and its content, in logical pixels.
-    /// A negative value becomes zero.
+    /// A negative value becomes zero; one that is not finite is ignored.
     pub fn padding(mut self, value: f32) -> Self {
-        self.style.padding = value.max(0.0);
+        self.style.padding = length(value, self.style.padding);
         self
     }
 
     /// Space between the children of a row or column, in logical pixels. A
-    /// negative value becomes zero.
+    /// negative value becomes zero; one that is not finite is ignored.
     pub fn gap(mut self, value: f32) -> Self {
-        self.style.gap = value.max(0.0);
+        self.style.gap = length(value, self.style.gap);
         self
     }
 
@@ -2340,18 +2773,20 @@ impl Element {
         self
     }
 
-    /// Draw a border inside the element's bounds without changing its layout size.
+    /// Draw a solid border inside the element's bounds without changing its
+    /// layout size. It replaces any border set before, dashed or not; a width
+    /// that is not finite or not above zero removes the border.
     pub fn border(mut self, color: Color, width: f32) -> Self {
         self.style.border = (width > 0.0 && width.is_finite()).then_some(Border { color, width });
+        self.style.dashed_border = false;
         self
     }
 
     /// Draw the border as dashes. It replaces any border set before; a width
-    /// that is not finite or not above zero removes the border. A later
-    /// `border` call stays dashed.
+    /// that is not finite or not above zero removes the border.
     pub fn dashed_border(mut self, color: Color, width: f32) -> Self {
         self.style.border = (width > 0.0 && width.is_finite()).then_some(Border { color, width });
-        self.style.dashed_border = true;
+        self.style.dashed_border = self.style.border.is_some();
         self
     }
 
@@ -2473,26 +2908,32 @@ impl Element {
 
     /// Take a share of the space a row or column has left, in proportion to
     /// this factor among the flexible children. Zero, the default, keeps the
-    /// natural size; a negative factor becomes zero.
+    /// natural size; a negative factor becomes zero, and one that is not
+    /// finite is ignored.
     pub fn flex(mut self, factor: f32) -> Self {
-        self.style.flex = factor.max(0.0);
+        self.style.flex = length(factor, self.style.flex);
         self
     }
 
     /// Fix the width and the height in logical pixels. `None` leaves that
-    /// side to the content and to the parent; a negative value becomes zero.
+    /// side to the content and to the parent; a negative value becomes zero,
+    /// and one that is not finite leaves that side as it was.
     pub fn size(mut self, width: Option<f32>, height: Option<f32>) -> Self {
-        self.style.width = width.map(|value| value.max(0.0));
-        self.style.height = height.map(|value| value.max(0.0));
+        let side = |value: Option<f32>, current: Option<f32>| match value {
+            Some(value) if !value.is_finite() => current,
+            value => value.map(|value| value.max(0.0)),
+        };
+        self.style.width = side(width, self.style.width);
+        self.style.height = side(height, self.style.height);
         self
     }
 
     /// Lower bounds for the width and the height, in logical pixels. They take
     /// precedence over `max_width` and `max_height`. A negative value becomes
-    /// zero.
+    /// zero; one that is not finite is ignored.
     pub fn min_size(mut self, width: f32, height: f32) -> Self {
-        self.style.min_width = width.max(0.0);
-        self.style.min_height = height.max(0.0);
+        self.style.min_width = length(width, self.style.min_width);
+        self.style.min_height = length(height, self.style.min_height);
         self
     }
 
@@ -2518,9 +2959,10 @@ impl Element {
     }
 
     /// Round the four corners by this radius, in logical pixels. It replaces
-    /// any `corner_radii`; a negative value becomes zero.
+    /// any `corner_radii`; a negative value becomes zero, and one that is not
+    /// finite is ignored.
     pub fn radius(mut self, radius: f32) -> Self {
-        self.style.radius = radius.max(0.0);
+        self.style.radius = length(radius, self.style.radius);
         self.style.corner_radii = None;
         self
     }

@@ -38,3 +38,15 @@ Avatar::new("Ada Lovelace", palette).size(48.0).render()
 
 `size` is the diameter, from 16 to 256; the default is 32. The initial scales
 with it. A size that is not finite is ignored.
+
+## Accessibility
+
+An avatar is decoration: it tells the platform nothing, because it usually
+stands beside the person's name, which would be said twice. Where it stands
+alone, give it a node of its own:
+
+```rust
+Avatar::new("Ada Lovelace", palette)
+    .render()
+    .accessible(Access::new(Role::Image).id("author-avatar").name("Ada Lovelace"))
+```

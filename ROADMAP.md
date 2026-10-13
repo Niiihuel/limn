@@ -15,7 +15,8 @@ name and its state, published through AccessKit by `limn-egui`. See the
 - More than "activate" and "focus": stepping a slider, scrolling a region.
 - The platform's preferences for reduced motion and contrast, read by
   default.
-- A check of every component with a screen reader, on each platform.
+- A check of every component with a screen reader speaking, on each
+  platform. What is published on Linux has been read from AT-SPI.
 
 ## Platforms
 

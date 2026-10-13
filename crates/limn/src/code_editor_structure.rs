@@ -6,15 +6,22 @@ use crate::{Icon, Tooltip, TooltipPlacement};
 /// A marker's actual debugger acknowledgement, independent of source edits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum CodeBreakpointState {
+    /// Sent but not acknowledged yet: a hollow red ring. Also drawn for a row the editor was
+    /// told is pending that has no marker.
     Pending,
+    /// The debugger bound it: a solid red dot.
     Verified,
+    /// The debugger refused it: an amber warning triangle.
     Rejected,
+    /// Kept but switched off: a hollow ring in the palette's muted colour.
     Disabled,
 }
 /// A breakpoint as the debugger reports it, on a zero-based row.
 #[derive(Clone, Debug, PartialEq)]
 pub struct CodeBreakpoint {
+    /// Zero-based physical row whose gutter shows the marker.
     pub row: usize,
+    /// What the debugger answered; it picks the marker's shape and tooltip.
     pub state: CodeBreakpointState,
     /// Added to the marker's tooltip when present and not empty.
     pub message: Option<String>,
@@ -22,6 +29,7 @@ pub struct CodeBreakpoint {
 /// A row the debugger is stopped at, zero-based.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct CodeExecutionLine {
+    /// Zero-based physical row that gets the amber band.
     pub row: usize,
     /// The currently executing frame, rather than another inspected stack frame.
     pub primary: bool,
@@ -37,7 +45,11 @@ pub(super) const NUMBER_TRAILING_PADDING: f32 = 8.0;
 pub struct CodeFoldCandidate {
     /// Physical, zero-based rows [start_row, end_row).
     pub start_row: usize,
+    /// One past the last row of the block. A candidate of fewer than two rows, or one that
+    /// ends past the document, is ignored.
     pub end_row: usize,
+    /// Identifier the fold control reports when activated. Ignored when empty or longer than
+    /// 512 bytes.
     pub action_id: String,
 }
 
@@ -46,7 +58,11 @@ pub struct CodeFoldCandidate {
 pub struct CodeStickyScope {
     /// Physical, zero-based rows [start_row, end_row).
     pub start_row: usize,
+    /// One past the last row of the scope. A scope of fewer than two rows, or one that ends
+    /// past the document, is ignored.
     pub end_row: usize,
+    /// Identifier the sticky header reports when activated. Ignored when empty or longer than
+    /// 512 bytes.
     pub action_id: String,
 }
 

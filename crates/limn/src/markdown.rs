@@ -93,7 +93,8 @@ pub struct MarkdownLabels {
 }
 
 impl MarkdownLabels {
-    /// English labels.
+    /// English labels, whatever [`crate::set_labels`] was given. A `Markdown`
+    /// starts from `MarkdownLabels::default()`, which follows it.
     pub const DEFAULT: Self = Self {
         code_fallback: "CODE",
         truncated_note: "Long text: only the first blocks are shown.",
@@ -102,6 +103,21 @@ impl MarkdownLabels {
         show_diagram: "Diagram",
         expand: "Expand",
     };
+}
+
+impl Default for MarkdownLabels {
+    /// The words of [`crate::labels`].
+    fn default() -> Self {
+        let labels = crate::labels();
+        Self {
+            code_fallback: labels.code,
+            truncated_note: labels.long_text,
+            diagram: labels.diagram_heading,
+            show_source: labels.show_source,
+            show_diagram: labels.show_diagram,
+            expand: labels.expand,
+        }
+    }
 }
 
 /// How much of a source is parsed and laid out; the rest is left to
@@ -156,7 +172,9 @@ impl MarkdownPresentation {
 /// twice rewrites them to keep focus targets distinct. `limited` says the
 /// source or its blocks were cut.
 pub struct MarkdownPreview {
+    /// The preview's tree, for the host to place.
     pub element: Element,
+    /// Whether the source or its blocks were cut to fit the preview's limits.
     pub limited: bool,
 }
 
@@ -182,7 +200,7 @@ impl<'a> Markdown<'a> {
                 renderer_version: MARKDOWN_RENDER_VERSION,
                 colors: MarkdownColors::for_palette(palette),
                 palette,
-                labels: MarkdownLabels::DEFAULT,
+                labels: MarkdownLabels::default(),
                 link_action_prefix: "markdown_link:",
                 diagram_action_prefix: "",
                 diagram_sources: 0,
@@ -594,7 +612,10 @@ fn diagram_block(
 pub struct MarkdownSourcePage<'a> {
     /// The page: `source[start_byte..end_byte]`.
     pub text: &'a str,
+    /// Where the page starts in the source, as a UTF-8 byte offset.
     pub start_byte: usize,
+    /// Where the page ends in the source, as a UTF-8 byte offset; the byte at it
+    /// is not part of the page.
     pub end_byte: usize,
     /// Where the page before this one starts, unless this is the first.
     pub previous_byte: Option<usize>,

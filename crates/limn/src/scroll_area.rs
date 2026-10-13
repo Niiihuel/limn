@@ -22,19 +22,34 @@ pub enum ScrollbarPlacement {
 /// width unchanged when the surface leaves room for the scrollbar itself.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollbarAppearance {
+    /// Whether the rail takes its width from the content or paints over it.
+    /// `Reserved` by default.
     pub placement: ScrollbarPlacement,
     /// Show compact up/down controls at the ends of an overflowing rail.
     pub buttons: bool,
+    /// Width of the rail, 14 by default. When laid out it is kept between 1 and
+    /// 24 and under a third of the viewport's width.
     pub rail_width: f32,
+    /// Width of the thumb, 5 by default, centered in the rail. When laid out it
+    /// is at least 1 and at most the rail's width less 2.
     pub thumb_width: f32,
+    /// The shortest the thumb gets, 24 by default, however long the content. It
+    /// is never more than half the track.
     pub min_thumb_length: f32,
     /// `None` uses the scroll element's foreground color, so a theme can tint
     /// the scrollbar through its ordinary typography token.
     pub tint: Option<Color>,
     /// The four opacities run from 0 to 255 and multiply the ink's alpha.
     pub idle_thumb_opacity: u8,
+    /// The thumb while the scrollbar is hovered, and the arrow of an end
+    /// button under the pointer. 118 by default.
     pub hover_thumb_opacity: u8,
+    /// The thumb while it is dragged, and the arrow of an end button held down.
+    /// 164 by default.
     pub active_thumb_opacity: u8,
+    /// The track, which shows only while the scrollbar is hovered or dragged. An
+    /// end button under the pointer is filled at twice this, three times when
+    /// held. 14 by default.
     pub hover_track_opacity: u8,
 }
 

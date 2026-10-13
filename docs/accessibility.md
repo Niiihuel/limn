@@ -75,6 +75,13 @@ for action in limn_egui::apply_access_requests(&ctx, &mut tree) {
 An "activate" takes the path of a click, so a control answers it as it
 answers the pointer.
 
+**Name the window.** egui gives the platform a window with no name. With
+`limn-egui`, say it each frame:
+
+```rust
+limn_egui::name_window(&ctx, "Notes");
+```
+
 ## Testing it
 
 `Frame::access` is plain data, so a test reads it like any other part of a
@@ -89,6 +96,26 @@ assert!(!save.disabled);
 
 A node with an empty name is a control nobody named. A test that walks
 `frame.access` and fails on an empty name finds every one.
+
+To see what a screen reader on Linux is really given, `tools/atspi/run.sh`
+starts a program on an accessibility bus of its own and prints every node it
+publishes there, with its role, name, description and states:
+
+```sh
+nix-shell --run "nix-shell -p at-spi2-core dbus gobject-introspection \
+  'python3.withPackages (p: [p.pygobject3])' --run \
+  'dbus-run-session -- tools/atspi/run.sh target/debug/limn-gallery --page switch'"
+```
+
+```text
+application | 'limn-gallery' | '' |
+  frame | 'limn gallery' | '' | focusable,focused,enabled
+    toggle button | 'Notifications' | '' | focusable,enabled actions=click
+    toggle button | 'Automatic updates' | '' | pressed
+```
+
+The gallery's pages were read this way. It is what the platform is told, not
+what a person hears: nobody has yet used limn with a screen reader speaking.
 
 ## For a backend
 
@@ -112,4 +139,10 @@ you do not know to a group, so the node keeps its name.
   `limn_egui::prefers_reduced_motion()`. On the desktop it is `None` and the
   host sets `UiTree::set_reduced_motion` from its own setting. The preference
   for contrast is not read anywhere.
+- A control scrolled out of view is not in the list: only what is laid out
+  on screen is. Tab still reaches it and brings it into view.
+- A chart tells the platform nothing: its values are only drawn.
+- A disabled button reaches AT-SPI without focus and without an action, but
+  still marked "enabled": AccessKit withholds that state only from fields
+  that can be read-only.
 - It is published on desktop. In a browser the canvas says nothing.

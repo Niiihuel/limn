@@ -26,7 +26,9 @@ pub type RequestId = u64;
 /// How to start a language server process.
 #[derive(Clone, Debug)]
 pub struct ServerConfig {
+    /// The program to run, as `std::process::Command` resolves it.
     pub executable: PathBuf,
+    /// Command-line arguments, in order. Empty from `new`.
     pub args: Vec<String>,
     /// Workspace folder. The process starts in it and it is sent as the workspace root, so it
     /// must be an absolute path.
@@ -49,48 +51,76 @@ impl ServerConfig {
 /// LSP version number it was sent under.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct DocumentVersion {
+    /// The `file://` URI the document was opened under.
     pub uri: String,
+    /// `document_id` of the buffer snapshot that was sent.
     pub document_id: u64,
+    /// Revision of that snapshot.
     pub revision: u64,
+    /// The LSP version it was sent as. One counter serves every document of a server, so it
+    /// goes up with each `open` and `change`, starting at 1.
     pub version: i32,
 }
 /// The kind of a `Request`, without its parameters. It comes back in `Event::Response`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RequestKind {
+    /// `textDocument/completion`.
     Completion,
+    /// `textDocument/hover`.
     Hover,
+    /// `textDocument/definition`.
     Definition,
+    /// `textDocument/references`.
     References,
+    /// `textDocument/rename`.
     Rename,
+    /// `textDocument/formatting`.
     Formatting,
+    /// `textDocument/codeAction`.
     CodeActions,
+    /// `textDocument/documentSymbol`.
     Symbols,
 }
 /// A query about an open document. Positions and ranges are UTF-16 coordinates in the
 /// snapshot passed with the request.
 #[derive(Clone, Debug)]
 pub enum Request {
+    /// Completions at a position. Needs the server's `completionProvider`.
     Completion(Position),
+    /// Hover information for a position. Needs `hoverProvider`.
     Hover(Position),
+    /// Where the symbol at a position is defined. Needs `definitionProvider`.
     Definition(Position),
+    /// Every reference to the symbol at a position. Needs `referencesProvider`.
     References {
+        /// A position on the symbol.
         position: Position,
+        /// Whether the answer lists the declaration itself too.
         include_declaration: bool,
     },
     /// A `new_name` that is empty or longer than 1024 bytes is refused.
     Rename {
+        /// A position on the symbol to rename.
         position: Position,
+        /// The name to give it. Not empty and at most 1024 bytes.
         new_name: String,
     },
     /// `tab_size` is clamped to 1..=32.
     Formatting {
+        /// Columns of one tab stop, sent as `tabSize`.
         tab_size: u32,
+        /// True to indent with spaces, false with tabs. Sent as `insertSpaces`.
         insert_spaces: bool,
     },
+    /// The code actions the server offers for a range. Needs `codeActionProvider`.
     CodeActions {
+        /// The range the actions are asked for; both ends must be valid positions.
         range: Range,
+        /// Diagnostics to send as the request's context, in the server's own JSON form.
+        /// Empty asks for the actions of the range alone.
         diagnostics: Vec<Value>,
     },
+    /// The symbols of the whole document. Needs `documentSymbolProvider`.
     Symbols,
 }
 impl Request {
@@ -135,20 +165,29 @@ impl Request {
 /// One diagnostic, with the fields the server published.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Diagnostic {
+    /// Where it applies, in UTF-16 coordinates of the document version it came for.
     pub range: Range,
+    /// The protocol's severity: 1 error, 2 warning, 3 information, 4 hint. `None` when the
+    /// server sent none.
     #[serde(default)]
     pub severity: Option<u32>,
+    /// The server's code for it, a number or a string in JSON. `None` when absent.
     #[serde(default)]
     pub code: Option<Value>,
+    /// The tool that produced it, such as the name of a linter. `None` when absent.
     #[serde(default)]
     pub source: Option<String>,
+    /// The text to show.
     pub message: String,
 }
 /// A failure reported by the server or raised by this client. `code` is the JSON-RPC error
 /// code; errors raised by this client use -32603.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LspError {
+    /// The JSON-RPC error code. -32603 when the server sent none and for this client's own
+    /// errors.
     pub code: i64,
+    /// A sentence for the person; it is also what `Display` writes.
     pub message: String,
 }
 impl std::fmt::Display for LspError {
@@ -168,30 +207,44 @@ fn error(message: impl Into<String>) -> LspError {
 pub enum Event {
     /// The server answered `initialize`.
     Initialized {
+        /// The server's `capabilities` object. `request` checks it for the provider each
+        /// request needs.
         capabilities: Value,
+        /// The server's `serverInfo`, with its name and version. JSON null when it sent none.
         server_info: Value,
     },
     /// The answer to a request, or its failure. A request with no answer after 30 seconds is
     /// cancelled and reported here as an error.
     Response {
+        /// The id `request` returned.
         id: RequestId,
+        /// The document version the request was made for. A response for a version that is
+        /// no longer the open one is dropped instead of reported.
         document: DocumentVersion,
+        /// What was asked.
         kind: RequestKind,
+        /// The `result` of the server's answer as JSON, or its error.
         result: Result<Value, LspError>,
     },
     /// Diagnostics for a document version that is still the one open.
     Diagnostics {
+        /// The open version the server said the diagnostics are for.
         document: DocumentVersion,
+        /// All of the document's diagnostics, replacing the earlier ones. At most 4096; an item
+        /// that cannot be read is skipped.
         items: Vec<Diagnostic>,
     },
     /// A server without versioned diagnostics cannot prove they describe the current buffer.
     UnversionedDiagnostics {
+        /// URI of an open document.
         uri: String,
+        /// All of the document's diagnostics, under the same bounds as in `Diagnostics`.
         items: Vec<Diagnostic>,
     },
     /// The server process or its connection stopped, or `initialize` was not answered within 15
     /// seconds. Later `open`, `change` and `request` calls fail.
     Stopped {
+        /// What happened, as a sentence for the person.
         reason: String,
     },
 }
@@ -399,15 +452,15 @@ impl LanguageServer {
         let mut stdin = child
             .stdin
             .take()
-            .ok_or_else(|| error("Falta stdin del servidor"))?;
+            .ok_or_else(|| error("The server has no stdin"))?;
         let stdout = child
             .stdout
             .take()
-            .ok_or_else(|| error("Falta stdout del servidor"))?;
+            .ok_or_else(|| error("The server has no stdout"))?;
         let stderr = child
             .stderr
             .take()
-            .ok_or_else(|| error("Falta stderr del servidor"))?;
+            .ok_or_else(|| error("The server has no stderr"))?;
         let (sender, receiver) = mpsc::sync_channel::<Outgoing>(16);
         let bytes = Arc::new(AtomicUsize::new(0));
         let wire = Wire {
@@ -550,12 +603,12 @@ impl LanguageServer {
     ) -> Result<DocumentVersion, LspError> {
         let uri = file_uri(path)?;
         if snapshot.byte_count() > 8 * 1024 * 1024 {
-            return Err(error("Documento demasiado grande para LSP"));
+            return Err(error("The document is too large for LSP"));
         }
         let mut state = self
             .state
             .lock()
-            .map_err(|_| error("Estado LSP no disponible"))?;
+            .map_err(|_| error("The LSP state is not available"))?;
         self.require_ready(&state)?;
         if state.documents.contains_key(&uri) {
             return Err(error("The document is already open in the language server"));
@@ -587,17 +640,17 @@ impl LanguageServer {
     ) -> Result<DocumentVersion, LspError> {
         let uri = file_uri(path)?;
         if snapshot.byte_count() > 8 * 1024 * 1024 {
-            return Err(error("Documento demasiado grande para LSP"));
+            return Err(error("The document is too large for LSP"));
         }
         let mut state = self
             .state
             .lock()
-            .map_err(|_| error("Estado LSP no disponible"))?;
+            .map_err(|_| error("The LSP state is not available"))?;
         self.require_ready(&state)?;
         let prior = state
             .documents
             .get(&uri)
-            .ok_or_else(|| error("Documento LSP cerrado"))?;
+            .ok_or_else(|| error("The document is not open in the language server"))?;
         if prior.document_id != snapshot.document_id() {
             return Err(error(
                 "The document's identity changed: close it and open it again",
@@ -632,7 +685,7 @@ impl LanguageServer {
         let mut state = self
             .state
             .lock()
-            .map_err(|_| error("Estado LSP no disponible"))?;
+            .map_err(|_| error("The LSP state is not available"))?;
         if !state.documents.contains_key(&uri) {
             return Ok(());
         }
@@ -655,11 +708,11 @@ impl LanguageServer {
         let mut state = self
             .state
             .lock()
-            .map_err(|_| error("Estado LSP no disponible"))?;
+            .map_err(|_| error("The LSP state is not available"))?;
         self.require_ready(&state)?;
         let capability = &state.capabilities.as_ref().unwrap()[request.capability()];
         if capability.is_null() || capability == &Value::Bool(false) {
-            return Err(error(format!("El servidor no ofrece {}", request.method())));
+            return Err(error(format!("The server does not offer {}", request.method())));
         }
         let document = state
             .documents
@@ -671,7 +724,7 @@ impl LanguageServer {
             .cloned()
             .ok_or_else(|| error("Synchronize the current revision before making an LSP request"))?;
         if state.pending.len() >= MAX_REQUESTS {
-            return Err(error("Demasiadas solicitudes LSP pendientes"));
+            return Err(error("Too many LSP requests are pending"));
         }
         let mut params = json!({"textDocument":{"uri":uri}});
         match &request {
@@ -820,7 +873,7 @@ impl Drop for LanguageServer {
 pub fn file_uri(path: &Path) -> Result<String, LspError> {
     url::Url::from_file_path(path)
         .map(String::from)
-        .map_err(|_| error("LSP requiere una ruta absoluta"))
+        .map_err(|_| error("LSP needs an absolute path"))
 }
 /// The local path of a `file://` URI. Any other scheme is an error.
 pub fn uri_path(uri: &str) -> Result<PathBuf, LspError> {
@@ -829,7 +882,7 @@ pub fn uri_path(uri: &str) -> Result<PathBuf, LspError> {
         return Err(error("The LSP location is not a local file"));
     }
     url.to_file_path()
-        .map_err(|_| error("La URI LSP no identifica una ruta local"))
+        .map_err(|_| error("The LSP URI does not name a local path"))
 }
 /// Decode a server edit list against the exact response snapshot before handing it to an
 /// editor transaction. Invalid UTF-16, backwards ranges and overlapping edits are rejected.
@@ -842,7 +895,7 @@ pub fn text_edits(
         .as_array()
         .ok_or_else(|| error("The response has no list of changes"))?;
     if items.len() > 4096 {
-        return Err(error("Demasiados cambios en una respuesta LSP"));
+        return Err(error("The LSP response has too many changes"));
     }
     let mut edits = Vec::with_capacity(items.len());
     let mut bytes = 0usize;
@@ -872,7 +925,7 @@ pub fn text_edits(
     if edits.windows(2).any(|pair| {
         pair[0].range.end > pair[1].range.start || pair[0].range.start == pair[1].range.start
     }) {
-        return Err(error("Los cambios LSP se superponen"));
+        return Err(error("The LSP changes overlap"));
     }
     Ok(edits)
 }
@@ -1036,7 +1089,7 @@ fn receive(
             };
             let document = state
                 .lock()
-                .map_err(|_| "estado LSP no disponible")?
+                .map_err(|_| "The LSP state is not available")?
                 .documents
                 .get(uri)
                 .cloned();
@@ -1093,7 +1146,7 @@ fn receive(
             .map_err(|error| error.to_string())?;
         state
             .lock()
-            .map_err(|_| "estado LSP no disponible")?
+            .map_err(|_| "The LSP state is not available")?
             .capabilities = Some(capabilities.clone());
         events
             .send(Event::Initialized {
@@ -1105,7 +1158,7 @@ fn receive(
     }
     let pending = state
         .lock()
-        .map_err(|_| "estado LSP no disponible")?
+        .map_err(|_| "The LSP state is not available")?
         .pending
         .remove(&id);
     if let Some(pending) = pending {
@@ -1114,7 +1167,7 @@ fn receive(
                 code: failure["code"].as_i64().unwrap_or(-32603),
                 message: failure["message"]
                     .as_str()
-                    .unwrap_or("Solicitud LSP fallida")
+                    .unwrap_or("The LSP request failed")
                     .into(),
             }),
             None => Ok(message["result"].clone()),
@@ -1140,7 +1193,7 @@ pub fn probe(executable: &Path, args: &[&str]) -> Result<String, LspError> {
         .stderr(Stdio::null())
         .spawn()
         .map_err(|source| error(source.to_string()))?;
-    let stdout = child.stdout.take().ok_or_else(|| error("sin stdout"))?;
+    let stdout = child.stdout.take().ok_or_else(|| error("no stdout"))?;
     let (sender, receiver) = mpsc::sync_channel(1);
     std::thread::spawn(move || {
         let mut output = String::new();
@@ -1157,7 +1210,7 @@ pub fn probe(executable: &Path, args: &[&str]) -> Result<String, LspError> {
                     .trim()
                     .into())
             }
-            Ok(Some(_)) => return Err(error("El ejecutable no pudo iniciar el servidor")),
+            Ok(Some(_)) => return Err(error("The executable could not start the server")),
             Ok(None) if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
             _ => {
                 let _ = child.kill();

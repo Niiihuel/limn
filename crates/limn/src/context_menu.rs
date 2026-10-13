@@ -55,7 +55,9 @@ impl ContextMenuItem {
 /// One row of a context menu: an action, or a line between groups of actions.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ContextMenuEntry {
+    /// An action the pointer or the keyboard can choose.
     Item(ContextMenuItem),
+    /// A line between two groups of actions. It is not a target.
     Separator,
 }
 

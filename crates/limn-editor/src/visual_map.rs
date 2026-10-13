@@ -7,12 +7,15 @@ use unicode_width::UnicodeWidthStr;
 /// One row as drawn: a whole physical line, or one wrapped segment of it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct VisualRow {
+    /// Zero-based line of the document this row shows.
     pub physical_row: usize,
     /// Characters shown on this row, without the line terminator.
     pub range: Range<usize>,
     /// Display cells from the start of the physical line to the row's first cell and, in
     /// `end_column`, past its last. Both are 0 when wrapping is off.
     pub start_column: usize,
+    /// Display cells from the start of the physical line to the end of this row. 0 when
+    /// wrapping is off.
     pub end_column: usize,
     /// True for every wrapped segment after the first of its line.
     pub continuation: bool,
@@ -22,8 +25,11 @@ pub struct VisualRow {
 /// The visual rows of one snapshot, in order, after wrapping and folding.
 #[derive(Clone, Debug)]
 pub struct VisualMap {
+    /// Every visible row, top to bottom. Lines hidden by a fold have no row.
     pub rows: Vec<VisualRow>,
+    /// `document_id` of the snapshot the rows were laid out from.
     pub document_id: u64,
+    /// Revision of that snapshot. `update` rebuilds the whole map when it is given another one.
     pub revision: u64,
 }
 impl VisualMap {

@@ -66,9 +66,12 @@ const MARGIN: f32 = 2.0;
 /// `participant` is drawn as a box and `actor` as a figure.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct SequenceParticipant {
+    /// The name the source uses for it in messages and notes.
     pub id: String,
     /// The alias after `as`, or the id. Lines are separated by `\n`.
     pub label: String,
+    /// True when the last declaration of it used `actor`: a figure over the name instead of
+    /// a box. False for one that is only named in a message or a note.
     pub actor: bool,
 }
 
@@ -76,9 +79,13 @@ pub struct SequenceParticipant {
 /// a cross and `-)` an open head.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SequenceArrow {
+    /// `->>` or `-->>`: a filled triangle at the receiver.
     Filled,
+    /// `->` or `-->`: the line alone.
     Plain,
+    /// `-x` or `--x`: two crossed strokes just before the receiver.
     Cross,
+    /// `-)` or `--)`: two strokes that meet at the receiver, not filled.
     Open,
 }
 
@@ -88,11 +95,13 @@ pub struct SequenceMessage {
     /// Indexes into [`SequenceGraph::participants`]; the same for a message
     /// a participant sends itself.
     pub from: usize,
+    /// The receiver, as an index into the same list.
     pub to: usize,
     /// Empty when the message has none. Lines are separated by `\n`.
     pub text: String,
     /// A second dash (`-->>`) draws the line dotted.
     pub dotted: bool,
+    /// What the line ends in at the receiver.
     pub arrow: SequenceArrow,
     /// `+` after the arrow starts an activation of the receiver.
     pub activates: bool,
@@ -105,19 +114,29 @@ pub struct SequenceMessage {
 /// Beside one participant, or over one or two (the lower index first).
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SequenceNotePlace {
+    /// `left of`: beside the lifeline of the participant at this index, on its left.
     LeftOf(usize),
+    /// `right of`: beside the lifeline of the participant at this index, on its right.
     RightOf(usize),
+    /// `over`: across the lifelines from the first index to the second. The two are equal for
+    /// a note over one participant.
     Over(usize, usize),
 }
 
 /// `loop`, `alt`, `opt`, `par`, `critical`, `break` and `rect`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SequenceBlockKind {
+    /// `loop`: a frame with that keyword in its tab. It takes no sections.
     Loop,
+    /// `alt`: its further sections start with `else`.
     Alt,
+    /// `opt`: a frame with that keyword in its tab. It takes no sections.
     Opt,
+    /// `par`: its further sections start with `and`.
     Par,
+    /// `critical`: its further sections start with `option`.
     Critical,
+    /// `break`: a frame with that keyword in its tab. It takes no sections.
     Break,
     /// A highlighted region: no keyword and no label.
     Rect,
@@ -140,14 +159,32 @@ impl SequenceBlockKind {
 /// One statement, in the order written.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SequenceEvent {
+    /// An arrow between two participants.
     Message(SequenceMessage),
-    Note { place: SequenceNotePlace, text: String },
+    /// `note`: a box of text beside or over lifelines.
+    Note {
+        /// Which lifelines the note sits beside or over.
+        place: SequenceNotePlace,
+        /// Never empty. Lines are separated by `\n`.
+        text: String,
+    },
+    /// `activate`: a bar starts on the lifeline of the participant at this index.
     Activate(usize),
+    /// `deactivate`: the innermost open bar of the participant at this index ends. The parser
+    /// refuses one without an activation before it.
     Deactivate(usize),
     /// A block opens; `label` is the text after its keyword.
-    Open { kind: SequenceBlockKind, label: String },
+    Open {
+        /// The keyword that opened the block.
+        kind: SequenceBlockKind,
+        /// On one line; always empty for a `rect`.
+        label: String,
+    },
     /// `else`, `and` or `option`: the next section of the open block.
-    Section { label: String },
+    Section {
+        /// The text after the keyword, on one line. Empty when there is none.
+        label: String,
+    },
     /// `end`.
     Close,
 }
@@ -159,6 +196,8 @@ pub struct SequenceGraph {
     pub title: String,
     /// In the order declared or first named.
     pub participants: Vec<SequenceParticipant>,
+    /// Every message, note, activation and block boundary, in source order. Each `Open` has
+    /// its `Close` when the graph comes from `parse`.
     pub events: Vec<SequenceEvent>,
 }
 
@@ -924,10 +963,13 @@ fn tab_width(kind: SequenceBlockKind, measure: &dyn Fn(&str, f32) -> f32) -> f32
 /// One participant: its box over the lifeline and the same box under it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SequenceParticipantLayout {
+    /// The box at the top, or for an actor the room of the figure and the name under it.
     pub head: Rect,
+    /// The same thing again at the bottom, at the size of `head`.
     pub foot: Rect,
     /// The lifeline, from the bottom of `head` to the top of `foot`.
     pub x: f32,
+    /// The label wrapped to at most 140 pixels, one string per row, drawn in both boxes.
     pub lines: Vec<String>,
 }
 
@@ -946,14 +988,18 @@ pub struct SequenceMessageLayout {
 /// The box of one note and its wrapped lines.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SequenceNoteLayout {
+    /// The outline of the note, padding included.
     pub rect: Rect,
+    /// The text wrapped to the note, one string per row, centered in `rect`.
     pub lines: Vec<String>,
 }
 
 /// The frame of one block, with its tab, the labels of its sections and their dividers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct SequenceBlockLayout {
+    /// The keyword written in the tab. A `rect` gets a fill instead of an outline and a tab.
     pub kind: SequenceBlockKind,
+    /// The whole frame, from the tab's row to under its last statement.
     pub rect: Rect,
     /// The corner that names the kind; empty for a `rect`.
     pub tab: Rect,
@@ -967,11 +1013,15 @@ pub struct SequenceBlockLayout {
 /// Participants and messages keep the graph's order.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct SequenceLayout {
+    /// The natural size of the diagram, feet and margin included. Zero for an empty graph.
     pub size: Size,
     /// Where the title starts; `None` without one.
     pub title: Option<Point>,
+    /// One per participant of the graph, left to right.
     pub participants: Vec<SequenceParticipantLayout>,
+    /// One per `Message` event, top to bottom.
     pub messages: Vec<SequenceMessageLayout>,
+    /// One per `Note` event, top to bottom.
     pub notes: Vec<SequenceNoteLayout>,
     /// An outer block before the ones inside it.
     pub blocks: Vec<SequenceBlockLayout>,

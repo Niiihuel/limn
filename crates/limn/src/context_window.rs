@@ -20,12 +20,19 @@ const UNMEASURED: &str = "–";
 /// One share of the window, such as the conversation or the tools.
 #[derive(Clone, Debug)]
 pub struct ContextShare {
+    /// Names the share in the window's actions and keys its cells and its count
+    /// across rebuilds; unique among the window's shares.
     pub id: String,
+    /// The name on the share's row, and the caption while the share is in focus.
     pub label: String,
+    /// How many tokens it takes. A share with any takes at least one cell; one
+    /// with zero takes none.
     pub tokens: u64,
+    /// The color of its cells and of the square before its label.
     pub color: Color,
     /// What the share is made of. A share with items opens to list them.
     pub items: Vec<ContextItem>,
+    /// What it offers to make it smaller. `None`, the default, shows no action.
     pub action: Option<ContextShareAction>,
     /// Whether `tokens` was measured. A share that was not reads "–" where
     /// its count would be, and takes no cells.
@@ -70,8 +77,12 @@ impl ContextShare {
 /// One thing inside a share, such as an attached file. It can be removed.
 #[derive(Clone, Debug)]
 pub struct ContextItem {
+    /// Names the item in `"{id}:remove:{share}:{item}"`; unique within its share.
     pub id: String,
+    /// The name on its row, cut with an ellipsis when it does not fit, and the
+    /// name of its remove button.
     pub label: String,
+    /// How many tokens it takes, shown in the window's format.
     pub tokens: u64,
 }
 
@@ -90,8 +101,11 @@ pub enum ContextShareAction {
 /// full, and a share that was made smaller.
 #[derive(Clone, Copy, Debug)]
 pub struct ContextTones {
+    /// The percentage's ink from 80 % of the capacity.
     pub warning: Color,
+    /// The percentage's ink from 95 % of the capacity.
     pub danger: Color,
+    /// The ink of a share's action once it is done, and of a status that is done.
     pub success: Color,
 }
 
@@ -475,6 +489,7 @@ impl ContextWindow {
                     Element::row(vec![
                         Spinner::new(format!("{action_id}:busy"), palette.muted)
                             .size(12.0)
+                            .decorative()
                             .render()
                             .centered_y(),
                         sans(busy, 12.0, palette.muted).centered_y(),

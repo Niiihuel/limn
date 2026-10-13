@@ -4,6 +4,7 @@
 //! retains interaction state by stable IDs, and emits backend-neutral drawing
 //! commands. A host such as eframe translates pointer and keyboard events to
 //! [`UiEvent`] and paints the resulting [`Frame`].
+#![warn(missing_docs)]
 
 mod alert;
 mod alert_dialog;

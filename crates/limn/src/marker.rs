@@ -181,7 +181,7 @@ impl Component for Marker {
                 .size(Some(16.0), None),
             );
         } else if self.loading {
-            let spinner = Spinner::new(format!("{}:spinner", self.id), self.palette.muted).render();
+            let spinner = Spinner::new(format!("{}:spinner", self.id), self.palette.muted).decorative().render();
             content.push(if separator {
                 centered(spinner)
             } else {

@@ -1,3 +1,10 @@
+//! The egui and eframe backend of limn.
+//!
+//! [`paint`] draws a `Frame` of draw commands with an egui painter and publishes the frame's
+//! controls to the platform's accessibility tree through AccessKit. [`events`] turns egui's
+//! input into `UiEvent`s and [`apply_access_requests`] applies what a screen reader asked for.
+//! The rest is fonts, icon packs, the image cache and externally rendered surfaces.
+#![warn(missing_docs)]
 use eframe::egui::{
     self, Align2, Color32, CornerRadius, FontId, Pos2, Rect as EguiRect, Stroke, StrokeKind,
 };
@@ -15,9 +22,16 @@ pub use glass::GlassRenderer;
 /// Colors of the effort slider, the only command without colors of its own.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EffortPalette {
+    /// The track behind the filled part. Default `rgb(43, 43, 43)`.
     pub input: Color,
+    /// The step dots to the right of the filled part. Default `rgb(136, 136, 136)`.
     pub foreground_subtle: Color,
+    /// The filled part of the track, and the left end of its gradient. Default
+    /// `rgb(80, 145, 255)`.
     pub blue: Color,
+    /// The right end of the gradient, which is drawn over the filled part with the command's
+    /// `ultra_mix` as its opacity. Default
+    /// `rgb(190, 126, 255)`.
     pub ultra: Color,
 }
 
@@ -65,6 +79,12 @@ pub fn prefers_reduced_motion() -> Option<bool> {
     }
     #[cfg(not(target_arch = "wasm32"))]
     None
+}
+
+/// Tell the platform what the window is called. egui gives a screen reader
+/// a window with no name; call this each frame with the window's title.
+pub fn name_window(ctx: &egui::Context, name: &str) {
+    ctx.accesskit_node_builder(egui::accesskit_root_id(), |window| window.set_label(name));
 }
 
 /// Paint again when a hot patch lands, so an idle window shows the new code
