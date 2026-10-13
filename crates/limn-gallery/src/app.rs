@@ -202,10 +202,7 @@ pub fn view(state: &State, window: Size) -> Element {
     // Embedded in a site's page, the gallery is only the component: the site
     // has the navigation and the title.
     // A site that embeds a page gives it its own ground, as `embed-bg=rrggbb`.
-    let ground = u32::from_str_radix(state.text("embed-bg"), 16)
-        .ok()
-        .filter(|_| state.flag("embed") && state.text("embed-bg").len() == 6)
-        .map_or(theme.background, |rgb| limn::Color::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8));
+    let ground = pages::ground(&cx);
     let content = if state.flag("embed") && !state.text("embed-diagram").is_empty() {
         // A site's own diagram, drawn here from its Mermaid source.
         let diagram = match limn::Diagram::parse(state.text("embed-diagram"), palette) {

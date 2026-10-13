@@ -240,6 +240,15 @@ pub struct Cx<'a> {
     pub width: f32,
 }
 
+/// The color the page stands on: the theme's, or the one a site that embeds
+/// the page gave it as `embed-bg=rrggbb`.
+pub fn ground(cx: &Cx) -> limn::Color {
+    u32::from_str_radix(cx.state.text("embed-bg"), 16)
+        .ok()
+        .filter(|_| cx.state.flag("embed") && cx.state.text("embed-bg").len() == 6)
+        .map_or(cx.state.theme().background, |rgb| limn::Color::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8))
+}
+
 pub fn caption(cx: &Cx, text: &str) -> Element {
     Element::text(text)
         .font_family(FontFamily::Sans)

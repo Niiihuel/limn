@@ -5,9 +5,12 @@ in any release.
 
 ## 0.1.40 — unreleased
 
+- TimePicker: a card under the field with a column for each unit: the arrow that raises it, large digits, the arrow that lowers it and its name; the actions it reports are unchanged
+- DatePicker: a day's number stands in the middle of its cell, so the fill of the chosen day is around it
+- A background fade follows its element's rounded corners: a `MediaCard` showed square corners at its foot
 - Kbd: a caption and the slash between alternatives stand on the keycaps' middle line; they hung from the top
 - Gallery: one section or one variant of a page alone, as `&section=` and `&variant=` in its address, centered in what it is given
-- Documentation site: a new landing, every example of a component on a card of its own with its code, branches in the sidebar, a search opened with Ctrl+K, and no gallery page
+- Documentation site: a new landing, every example of a component on a card of its own with its code, branches in the sidebar, a search opened with Ctrl+K, one header on every page, and no gallery page
 
 ## 0.1.39 — 2026-10-13
 

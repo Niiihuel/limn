@@ -52,10 +52,14 @@ fn menus(group: &str) -> Vec<MenuBarMenu> {
 
 /// A bar in an outline of the width it was fitted to.
 fn framed(cx: &Cx, width: f32, bar: Element) -> Element {
+    // A bar's cells are square, as at the foot of a window: the frame's
+    // corners stay round over them.
     Element::panel(bar)
         .background(cx.palette.surface)
         .border(cx.palette.border, 1.0)
         .radius(RadiusRole::Surface.px())
+        .corner_mask(super::ground(cx))
+        .clip_children()
         .size(Some(width), None)
 }
 

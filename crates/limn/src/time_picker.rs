@@ -91,28 +91,39 @@ impl TimePicker {
             .accessible(if self.enabled { said } else { said.id(id).disabled(true) })
     }
 
+    /// One unit as a column: the arrow that raises it, its two digits, the
+    /// arrow that lowers it, and its name under them.
     fn unit(&self, label: &str, display: String, down: &str, up: &str) -> Element {
         let ink = if self.enabled { self.palette.text } else { self.palette.muted };
+        let centered = |element: Element| Element::row(vec![Element::spacer().flex(1.0), element, Element::spacer().flex(1.0)]);
         Element::column(vec![
-            Element::text(label)
-                .font_family(FontFamily::Sans)
-                .font_size(11.0)
-                .foreground(self.palette.muted),
-            Element::row(vec![
-                self.adjustment(label, down, Icon::ArrowDown),
+            centered(self.adjustment(label, up, Icon::ArrowUp)),
+            centered(
                 Element::text(display)
                     .font_family(FontFamily::Sans)
-                    .font_size(13.0)
-                    .foreground(ink)
-                    .size(Some(28.0), Some(28.0))
-                    .center_content(),
-                self.adjustment(label, up, Icon::ArrowUp),
-            ])
-            .gap(2.0),
+                    .font_size(DIGITS)
+                    .foreground(ink),
+            )
+            .size(None, Some(DIGITS + 8.0)),
+            centered(self.adjustment(label, down, Icon::ArrowDown)),
+            centered(
+                Element::text(label)
+                    .font_family(FontFamily::Sans)
+                    .font_size(10.0)
+                    .foreground(self.palette.muted),
+            ),
         ])
-        .gap(3.0)
+        .gap(2.0)
+        .size(Some(UNIT_WIDTH), None)
     }
 }
+
+/// The size of the hour's and the minute's digits.
+const DIGITS: f32 = 24.0;
+/// A unit's column: room for two digits at that size, so a change of value moves nothing.
+const UNIT_WIDTH: f32 = 56.0;
+/// The field and the card under it: two units, the colon between them and the card's padding.
+const WIDTH: f32 = 2.0 * UNIT_WIDTH + 34.0;
 
 impl Component for TimePicker {
     fn render(self) -> Element {
@@ -125,16 +136,37 @@ impl Component for TimePicker {
             .unwrap_or_else(|| "--".into());
         let input = TextField::new(&self.id, &self.value, crate::labels().time_placeholder, self.palette)
             .size(ControlSize::Compact)
-            .width(92.0)
+            .width(WIDTH)
             .enabled(self.enabled)
             .accessibility_label(self.accessibility_label.as_deref().unwrap_or(crate::labels().time))
             .render();
+        // Between the two, on the line of the digits: under one arrow and over the other.
+        let colon = Element::column(vec![
+            Element::spacer().size(None, Some(ControlSize::Compact.height() + 2.0)),
+            Element::text(":")
+                .font_family(FontFamily::Sans)
+                .font_size(DIGITS)
+                .foreground(self.palette.muted)
+                .size(None, Some(DIGITS + 8.0)),
+        ]);
         let controls = Element::row(vec![
             self.unit(crate::labels().hour, hour, "hour_down", "hour_up"),
+            colon,
             self.unit(crate::labels().minute, minute, "minute_down", "minute_up"),
         ])
-        .gap(10.0);
-        Element::column(vec![input, controls]).gap(6.0)
+        .gap(4.0);
+        // The same card as a date picker's calendar, so the two stand together.
+        Element::column(vec![
+            input,
+            // As wide as its field, wherever it is put.
+            Element::panel(controls)
+                .padding(8.0)
+                .background(self.palette.surface)
+                .border(self.palette.border, 1.0)
+                .radius(crate::tokens().radius.card)
+                .size(Some(WIDTH), None),
+        ])
+        .gap(7.0)
     }
 }
 
