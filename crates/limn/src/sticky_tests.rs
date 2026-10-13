@@ -276,3 +276,29 @@ fn revealing_a_pinned_anchor_scrolls_back_to_where_its_section_starts() {
     assert_eq!(tree.scroll_offset("list"), 120.0);
     assert_eq!(tree.anchor_offset("a1"), Some(0.0));
 }
+
+#[test]
+fn a_pinned_control_that_is_an_anchor_keeps_both_places() {
+    let mut children = Vec::new();
+    for section in 0..3 {
+        children.push(
+            Element::button(format!("h{section}"), "Header")
+                .size(None, Some(20.0))
+                .anchor(format!("a{section}"))
+                .sticky_top(),
+        );
+        children.extend((0..5).map(|_| Element::text("Row").size(None, Some(20.0))));
+    }
+    let mut tree = UiTree::new(Element::scroll("list", Element::column(children)));
+    tree.set_reduced_motion(true);
+    tree.layout(SIZE);
+    tree.handle_event(UiEvent::ScrollDirect { position: Point::new(5.0, 5.0), delta_y: -170.0 });
+    tree.layout(SIZE);
+    // The control is where it can be clicked; the anchor where its section starts.
+    tree.reveal_with_margin("h1", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 170.0);
+    tree.reveal_with_margin("a1", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 120.0);
+}

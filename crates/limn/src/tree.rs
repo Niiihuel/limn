@@ -10076,19 +10076,23 @@ impl LayoutBuilder<'_> {
         if let ElementKind::Tooltip { anchor, .. } = &element.kind {
             self.record_scroll_focus_target(anchor, rect.inset(element.style.padding));
         }
-        let id = focusable_id(element).or(element.anchor.as_deref());
-        if let (Some(scroll), Some(id)) = (self.scroll_focus_context.last(), id) {
-            let ancestors = self.scroll_focus_ancestors();
-            self.frame.scroll_focus_targets.insert(
-                id.to_owned(),
-                ScrollFocusTarget {
-                    scroll_id: scroll.id.clone(),
-                    rect,
-                    viewport: scroll.viewport,
-                    layout_offset: scroll.offset,
-                    ancestors,
-                },
-            );
+        // A control that is also an anchor answers to both names.
+        let ids = [focusable_id(element), element.anchor.as_deref()];
+        if let Some(scroll) = self.scroll_focus_context.last() {
+            let (scroll_id, viewport, layout_offset) = (scroll.id.clone(), scroll.viewport, scroll.offset);
+            for id in ids.into_iter().flatten() {
+                let ancestors = self.scroll_focus_ancestors();
+                self.frame.scroll_focus_targets.insert(
+                    id.to_owned(),
+                    ScrollFocusTarget {
+                        scroll_id: scroll_id.clone(),
+                        rect,
+                        viewport,
+                        layout_offset,
+                        ancestors,
+                    },
+                );
+            }
         }
     }
 
@@ -10304,8 +10308,9 @@ impl LayoutBuilder<'_> {
         let mut element = child.clone();
         // An anchor stays where the column has it, so revealing it scrolls
         // back to the start of what it pins over.
-        self.record_scroll_focus_target(child, rects[index]);
-        element.anchor = None;
+        if let Some(anchor) = element.anchor.take() {
+            self.record_scroll_focus_target(&Element::spacer().anchor(anchor), rects[index]);
+        }
         if rect.height < natural {
             element.style.clip_children = true;
             element.style.bottom_fade = element
