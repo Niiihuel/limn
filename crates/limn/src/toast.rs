@@ -312,4 +312,41 @@ mod tests {
         still.set_root(base());
         assert_eq!(surface(&still.layout_at(size, after(10))), None);
     }
+
+    #[test]
+    fn ids_let_same_title_cards_leave_independently() {
+        use web_time::{Duration, Instant};
+        let palette = ComponentPalette::neutral_dark();
+        let shown = |both| {
+            let mut cards = Vec::new();
+            if both {
+                cards.push(Toast::new("Saved", palette).id("first").description("First file").render());
+            }
+            cards.push(Toast::new("Saved", palette).id("second").description("Second file").render());
+            Toast::layer(base(), cards, 0.0)
+        };
+        let opacity = |frame: &Frame, label: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, color, .. } if text == label => Some(color.a),
+                _ => None,
+            })
+        };
+        let size = Size::new(800.0, 500.0);
+        let start = Instant::now();
+        let after = |ms| start + Duration::from_millis(ms);
+        let mut tree = UiTree::new(shown(true));
+        tree.layout_at(size, start);
+        tree.layout_at(size, after(200));
+        tree.set_root(shown(false));
+        let dropped = tree.layout_at(size, after(240));
+        assert_eq!(opacity(&dropped, "First file"), Some(255), "the removed card starts its exit");
+        assert_eq!(opacity(&dropped, "Second file"), Some(255));
+        let leaving = tree.layout_at(size, after(290));
+        let first = opacity(&leaving, "First file").unwrap();
+        assert!(first > 0 && first < 255, "{first}");
+        assert_eq!(opacity(&leaving, "Second file"), Some(255), "the retained card stays visible");
+        let gone = tree.layout_at(size, after(500));
+        assert_eq!(opacity(&gone, "First file"), None);
+        assert_eq!(opacity(&gone, "Second file"), Some(255));
+    }
 }
