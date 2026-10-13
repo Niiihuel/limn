@@ -66,8 +66,10 @@ menu row shows its accelerator.
 Kbd::new("Ctrl+Shift+M", palette).max_width(80.0).render()
 ```
 
-With `max_width`, a hint whose keys do not fit is left out whole. It is
+With `max_width`, a hint whose measured width does not fit is left out whole. It is
 never cut, because a truncated combination would read as another shortcut.
 
-A hint with a caption or an alternative draws each of its keys the same
-way: as an accelerator with `menu`, and within the budget of `max_width`.
+The budget covers the complete hint: all alternatives, slash separators,
+gaps and the caption. They disappear together, without leaving a caption
+or slash on its own. A narrow parent row also omits the complete hint.
+`menu` applies to every alternative.

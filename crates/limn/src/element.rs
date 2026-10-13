@@ -794,6 +794,11 @@ pub enum ElementKind {
         max_width: Option<f32>,
         menu: bool,
     },
+    /// Passive keys, alternatives and caption that fit or disappear together.
+    ShortcutHint {
+        child: Box<Element>,
+        max_width: Option<f32>,
+    },
     /// A single measured line for navigation labels. It uses an ellipsis when
     /// the available width is shorter than the painted text.
     TruncatedText(String),
@@ -1743,6 +1748,13 @@ impl Element {
             fill: Color::rgba(0, 0, 0, 0),
             max_width,
             menu: true,
+        })
+    }
+
+    pub(crate) fn shortcut_hint(child: Element, max_width: Option<f32>) -> Self {
+        Self::new(ElementKind::ShortcutHint {
+            child: Box::new(child),
+            max_width,
         })
     }
 
