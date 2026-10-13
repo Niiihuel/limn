@@ -27,7 +27,7 @@ const path = Astro.url.pathname;
       const side = document.querySelector('.side');
       // Not scrollIntoView: that would move the page as well as the list.
       const current = side.querySelector('[aria-current]');
-      if (current) side.scrollTop = current.offsetTop - side.offsetTop - side.clientHeight / 2;
+      if (current) side.scrollTop = current.offsetTop - side.clientHeight / 2;
       let hide;
       side.addEventListener('scroll', () => {
         side.dataset.scrolling = '';
