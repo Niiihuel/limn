@@ -678,6 +678,37 @@ fn paint_progress_ring(
     }
 }
 
+/// A vinyl record behind `sleeve`: at `out` 0 it is centered on the sleeve
+/// and hidden by it, at 1 it shows `RECORD_REACH` of the sleeve's side
+/// beyond its end. The sheen turns with `angle`; the grooves are the same
+/// at any angle.
+fn paint_record(painter: &egui::Painter, sleeve: EguiRect, out: f32, angle: f32, opacity: f32) {
+    let side = sleeve.width();
+    if !side.is_finite() || side <= 0.0 {
+        return;
+    }
+    let radius = side * limn::RECORD_SHARE / 2.0;
+    let rest = sleeve.center().x;
+    let drawn = sleeve.max.x + side * limn::RECORD_REACH - radius;
+    let center = Pos2::new(rest + (drawn - rest) * out.clamp(0.0, 1.0), sleeve.center().y);
+    let opacity = opacity.clamp(0.0, 1.0);
+    let white = |alpha: f32| Color32::from_white_alpha((alpha * opacity * 255.0) as u8);
+    let dark = |value: u8| Color32::from_gray(value).gamma_multiply(opacity);
+    painter.circle_filled(center, radius, dark(8));
+    for share in [0.93, 0.87, 0.8, 0.7, 0.6] {
+        painter.circle_stroke(center, radius * share, Stroke::new(0.6, white(0.16)));
+    }
+    // Four soft wedges of light, a quarter turn apart.
+    let spread = 0.17;
+    for quarter in 0..4 {
+        let theta = angle + std::f32::consts::FRAC_PI_2 * quarter as f32;
+        let edge = |theta: f32| center + egui::vec2(theta.cos(), theta.sin()) * radius;
+        painter.add(egui::Shape::convex_polygon(vec![center, edge(theta - spread), edge(theta + spread)], white(0.08), Stroke::NONE));
+    }
+    painter.circle_filled(center, radius * 0.14, dark(54));
+    painter.circle_filled(center, radius * 0.05, dark(8));
+}
+
 fn paint_spinner(
     painter: &egui::Painter,
     area: EguiRect,
@@ -1341,6 +1372,34 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     color(*track),
                     color(*fill),
                 );
+            }
+            DrawCommand::Record {
+                rect: area,
+                image,
+                fill,
+                out,
+                angle,
+                radius,
+                opacity,
+            } => {
+                let area = rect(origin, *area);
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let side = area.width().min(area.height());
+                let sleeve = EguiRect::from_min_size(area.min, egui::vec2(side, side));
+                paint_record(&painter, sleeve, *out, *angle, *opacity);
+                let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
+                let corner = CornerRadius::same(radius.clamp(0.0, 255.0) as u8);
+                match image.as_ref().and_then(|image| raster_texture(ui, image)) {
+                    Some((texture, pixels)) => {
+                        painter.add(
+                            egui::epaint::RectShape::filled(sleeve, corner, Color32::from_white_alpha(alpha))
+                                .with_texture(texture, cover_uv(sleeve, pixels)),
+                        );
+                    }
+                    None => {
+                        painter.rect_filled(sleeve, corner, color(*fill).gamma_multiply(opacity.clamp(0.0, 1.0)));
+                    }
+                }
             }
             DrawCommand::Spinner {
                 rect: area,

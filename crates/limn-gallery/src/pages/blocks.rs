@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx};
 use limn::{
     Button, ButtonVariant, Card, CardDensity, CodeBlock, CodeBlockSizing, Component, Element,
-    FontFamily, Icon, ListRow, MediaTile, OutputBlock, RadiusRole, Separator, Text, TextRole, TextSpan,
+    FontFamily, Icon, ListRow, MediaCard, MediaTile, OutputBlock, RadiusRole, Separator, Text, TextRole, TextSpan,
 };
 
 fn card_copy(cx: &Cx, title: &str, detail: &str) -> Element {
@@ -112,6 +112,28 @@ pub fn view(cx: &Cx) -> Element {
                     .render(),
             ]),
             caption(cx, "Dos álbumes, un artista con .round(true), uno sin portada y uno deshabilitado; el título largo se corta sin ensanchar el mosaico."),
+        ]),
+        section(cx, "Tarjeta de pista", vec![
+            row(vec![
+                MediaCard::new("blocks-card-rest", "Past Won't Leave My Bed", palette)
+                    .artist("Joji")
+                    .mark(Element::icon(Icon::Audio).foreground(palette.muted))
+                    .render(),
+                MediaCard::new("blocks-card-playing", "Kind of Blue", palette)
+                    .artist("Miles Davis")
+                    .tint(limn::Color::rgb(150, 48, 44))
+                    .mark(Element::icon(Icon::Audio).foreground(palette.muted))
+                    .playing(true)
+                    .render(),
+            ]),
+            row(vec![
+                MediaCard::new("blocks-card-long", "The Rise and Fall of Ziggy Stardust and the Spiders from Mars", palette)
+                    .artist("David Bowie")
+                    .tint(limn::Color::rgb(44, 84, 150))
+                    .render(),
+                MediaCard::new("blocks-card-disabled", "No disponible", palette).artist("Deshabilitada").enabled(false).render(),
+            ]),
+            caption(cx, "La funda es el control: bajo el puntero el disco asoma, y mientras suena queda afuera y gira. El anfitrión da la portada, el tinte y el estado."),
         ]),
         section(cx, "Bloque de salida", vec![
             caption(cx, "4000 líneas: sólo se construyen las visibles, y la nota avisa del recorte"),

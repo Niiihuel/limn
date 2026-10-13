@@ -46,6 +46,7 @@ mod markdown;
 mod markdown_cache;
 mod markdown_parser;
 mod marker;
+mod media_card;
 mod media_tile;
 mod menu;
 mod menu_bar;
@@ -156,6 +157,7 @@ pub use list_row::{DiffStat, ListRow, RowSizing};
 pub use markdown::{Markdown, MarkdownColors, MarkdownLabels, MarkdownLimits, MarkdownPreview, MarkdownSourcePage};
 pub use markdown_cache::MarkdownFrame;
 pub use marker::{thinking_highlight, Marker, MarkerVariant};
+pub use media_card::MediaCard;
 pub use media_tile::MediaTile;
 pub use menu::{MenuItem, MenuSeparator};
 pub use menu_bar::{MenuBar, MenuBarMenu};
@@ -203,7 +205,7 @@ pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
 pub use theme::Theme;
 pub use tree::{
     DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, TextLayoutBlock, TextLayoutRun,
-    UiAction, UiEvent, UiTree,
+    UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
 };
 pub use tree_view::{guides_for_depths, TreeGuides, TreeRow};
 pub use typography::{truncate_measured, wrap_measured, TextRole};

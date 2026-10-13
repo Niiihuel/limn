@@ -786,6 +786,16 @@ pub enum ElementKind {
         color: Color,
         variant: SpinnerVariant,
     },
+    /// A record behind its sleeve. Its slide and its turn are retained by
+    /// stable ID in UiTree.
+    Record {
+        id: String,
+        image: Option<RasterImage>,
+        out: bool,
+        spinning: bool,
+        /// A control whose hover also draws the record out.
+        peek: Option<String>,
+    },
     /// Passive finite progress. Unknown capacity has no filled arc.
     ProgressRing {
         fraction: Option<f32>,
@@ -1823,6 +1833,27 @@ impl Element {
             color,
             variant,
         })
+    }
+
+    /// A record in its sleeve. `image` is the sleeve, a square on the
+    /// element's height that fills with the picture, or with the style's
+    /// background without one; the style's radius rounds it. The record
+    /// waits behind it. `out` draws the record out towards the end, where it
+    /// shows a fifth of the sleeve's side beyond it: leave it that room.
+    /// `spinning` turns it, a turn every three seconds, and stopped it keeps
+    /// the angle it reached. It is passive: wrap it in a clickable to play
+    /// what it stands for.
+    pub fn record(id: impl Into<String>, image: Option<RasterImage>, out: bool, spinning: bool) -> Self {
+        Self::new(ElementKind::Record { id: id.into(), image, out, spinning, peek: None })
+    }
+
+    /// Also draw a record out while the pointer is over the control `id`,
+    /// usually the clickable that holds it, as an invitation to play it.
+    pub fn record_peek(mut self, id: impl Into<String>) -> Self {
+        if let ElementKind::Record { peek, .. } = &mut self.kind {
+            *peek = Some(id.into());
+        }
+        self
     }
 
     /// Build a reasoning-effort slider with model-specific stops.

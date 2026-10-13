@@ -421,6 +421,19 @@ pub enum DrawCommand {
         angle: f32,
         variant: SpinnerVariant,
     },
+    /// A record behind its sleeve. `rect` is the sleeve; the record's
+    /// diameter is `RECORD_SHARE` of its side and at `out` 1 it shows
+    /// `RECORD_REACH` of the side beyond the sleeve's end. `fill` paints a
+    /// sleeve with no picture.
+    Record {
+        rect: Rect,
+        image: Option<RasterImage>,
+        fill: Color,
+        out: f32,
+        angle: f32,
+        radius: f32,
+        opacity: f32,
+    },
     ProgressRing {
         rect: Rect,
         fraction: Option<f32>,
@@ -483,6 +496,7 @@ impl DrawCommand {
                 fade(fill);
             }
             Self::RasterImage { rect, opacity, .. }
+            | Self::Record { rect, opacity, .. }
             | Self::Surface { rect, opacity, .. }
             | Self::EffortSlider { rect, opacity, .. } => {
                 shift(rect);
@@ -524,6 +538,42 @@ fn mix(from: Color, to: Color, amount: f32) -> Color {
         channel(from.b, to.b),
         channel(from.a, to.a),
     )
+}
+
+/// A record turns once in this long.
+const RECORD_TURN: Duration = Duration::from_secs(3);
+/// The record's diameter, as a share of the sleeve's side.
+pub const RECORD_SHARE: f32 = 0.8;
+/// How much of the sleeve's side a record drawn out shows beyond it.
+pub const RECORD_REACH: f32 = 0.22;
+
+/// How far out of its sleeve a record is, and how far it has turned.
+#[derive(Clone, Debug)]
+struct RecordMotion {
+    out: ScalarTransition,
+    /// The angle reached when it last stopped, in radians.
+    turned: f32,
+    spinning_since: Option<Instant>,
+}
+
+impl RecordMotion {
+    fn angle(&self, now: Instant) -> f32 {
+        let since = self.spinning_since.map_or(0.0, |since| now.saturating_duration_since(since).as_secs_f32());
+        (self.turned + std::f32::consts::TAU * since / RECORD_TURN.as_secs_f32()) % std::f32::consts::TAU
+    }
+
+    /// Starts or stops the turn, keeping the angle across a stop.
+    fn spin(&mut self, spinning: bool, now: Instant) {
+        if spinning == self.spinning_since.is_some() {
+            return;
+        }
+        self.turned = self.angle(now);
+        self.spinning_since = spinning.then_some(now);
+    }
+
+    fn is_moving(&self, now: Instant) -> bool {
+        self.spinning_since.is_some() || self.out.is_active(now)
+    }
 }
 
 fn paint_spinner(
@@ -779,6 +829,16 @@ fn animate_popover_command(
         DrawCommand::Spinner { rect, color, .. } => {
             scale_rect(rect, scale, origin, slide_y);
             fade(color, opacity);
+        }
+        DrawCommand::Record {
+            rect,
+            opacity: record_opacity,
+            radius,
+            ..
+        } => {
+            scale_rect(rect, scale, origin, slide_y);
+            *record_opacity *= opacity.clamp(0.0, 1.0);
+            *radius *= scale;
         }
         DrawCommand::ProgressRing {
             rect, track, fill, ..
@@ -2282,6 +2342,7 @@ pub struct UiTree {
     skeleton_started: HashMap<String, Instant>,
     shimmer_started: HashMap<String, Instant>,
     spinner_started: HashMap<String, Instant>,
+    record_motion: HashMap<String, RecordMotion>,
     reduced_motion: bool,
     static_selection: Option<StaticSelection>,
     context_menu: Option<ContextMenuState>,
@@ -2352,6 +2413,7 @@ impl UiTree {
             skeleton_started: HashMap::new(),
             shimmer_started: HashMap::new(),
             spinner_started: HashMap::new(),
+            record_motion: HashMap::new(),
             reduced_motion: false,
             static_selection: None,
             context_menu: None,
@@ -2608,6 +2670,7 @@ impl UiTree {
             self.skeleton_started.clear();
             self.shimmer_started.clear();
             self.spinner_started.clear();
+            self.record_motion.clear();
             self.slider_motion.clear();
         }
         self.reduced_motion = reduced;
@@ -2697,7 +2760,8 @@ impl UiTree {
         let ambient = (!self.reduced_motion
             && (!self.skeleton_started.is_empty()
                 || !self.shimmer_started.is_empty()
-                || !self.spinner_started.is_empty()))
+                || !self.spinner_started.is_empty()
+                || self.record_motion.values().any(|record| record.is_moving(now))))
             || self.scroll_button_hold.is_some();
         let transition = (!self.reduced_motion
             && (self.slider_drag.is_some()
@@ -2875,6 +2939,7 @@ impl UiTree {
         let mut observed_skeletons = HashSet::new();
         let mut observed_shimmers = HashSet::new();
         let mut observed_spinners = HashSet::new();
+        let mut observed_records = HashSet::new();
         let mut observed_sliders = HashSet::new();
         let viewport_rect = Rect::new(0.0, 0.0, viewport.width, viewport.height);
         let context_menu_paint = self.context_menu_paint(viewport_rect);
@@ -2951,6 +3016,8 @@ impl UiTree {
                 skeleton_started: &mut self.skeleton_started,
                 shimmer_started: &mut self.shimmer_started,
                 spinner_started: &mut self.spinner_started,
+                record_motion: &mut self.record_motion,
+                observed_records: &mut observed_records,
                 observed_buttons: &mut observed_buttons,
                 hover_surface_fill: None,
                 surface_gaps_lit: self.context_menu.is_none() && self.hovered.is_none(),
@@ -3529,6 +3596,8 @@ impl UiTree {
             .retain(|id, _| observed_shimmers.contains(id));
         self.spinner_started
             .retain(|id, _| observed_spinners.contains(id));
+        self.record_motion
+            .retain(|id, _| observed_records.contains(id));
         self.slider_motion
             .retain(|id, _| observed_sliders.contains(id));
         self.tooltip_triggers = observed_tooltips;
@@ -5415,6 +5484,7 @@ fn collect_focus_order(
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
+        | ElementKind::Record { .. }
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
         | ElementKind::UnitGrid(_)
@@ -5490,6 +5560,7 @@ fn collect_action_metadata(
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
+        | ElementKind::Record { .. }
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
         | ElementKind::UnitGrid(_)
@@ -5631,6 +5702,8 @@ struct LayoutBuilder<'a> {
     skeleton_started: &'a mut HashMap<String, Instant>,
     shimmer_started: &'a mut HashMap<String, Instant>,
     spinner_started: &'a mut HashMap<String, Instant>,
+    record_motion: &'a mut HashMap<String, RecordMotion>,
+    observed_records: &'a mut HashSet<String>,
     observed_buttons: &'a mut HashSet<String>,
     /// The fill of the shared hover surface the pointer is over, if any.
     hover_surface_fill: Option<Color>,
@@ -7661,6 +7734,7 @@ impl LayoutBuilder<'_> {
             // A rolling number was measured as its text above.
             ElementKind::Skeleton { .. }
             | ElementKind::Spinner { .. }
+            | ElementKind::Record { .. }
             | ElementKind::RollingNumber { .. }
             | ElementKind::Spacer => Size::new(0.0, 0.0),
             ElementKind::Panel(child) | ElementKind::Clickable { child, .. } => {
@@ -9799,6 +9873,33 @@ impl LayoutBuilder<'_> {
                     track: *track,
                     fill: *fill,
                 });
+            }
+            ElementKind::Record { id, image, out, spinning, peek } => {
+                self.observed_records.insert(id.clone());
+                let now = self.now;
+                let peeked = peek.as_deref().is_some_and(|control| self.hovered == Some(control));
+                let target = if *out || peeked { 1.0 } else { 0.0 };
+                let motion = self.record_motion.entry(id.clone()).or_insert_with(|| RecordMotion {
+                    out: ScalarTransition::new(target, now),
+                    turned: 0.0,
+                    spinning_since: None,
+                });
+                if motion.out.target() != target {
+                    let travel = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
+                    motion.out.retarget_with_motion(target, now, travel, self.reduced_motion);
+                }
+                motion.spin(*spinning && !self.reduced_motion, now);
+                if rect.width > 0.0 && rect.height > 0.0 {
+                    self.frame.commands.push(DrawCommand::Record {
+                        rect,
+                        image: image.clone(),
+                        fill: style.background.unwrap_or(Color::TRANSPARENT),
+                        out: motion.out.value(now),
+                        angle: motion.angle(now),
+                        radius: style.radius,
+                        opacity: 1.0,
+                    });
+                }
             }
             ElementKind::Spinner { id, color, variant } => {
                 if !self.reduced_motion {
