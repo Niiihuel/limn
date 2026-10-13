@@ -121,7 +121,7 @@ The egui backend exposes:
 | `normalize_keyboard_input(&ctx)` | Fixes key and text events on remapped layouts. Each frame, before `events`. |
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
-| `set_image_cache_entries(n)` | Size of the decoded image cache. |
+| `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Each image is decoded on a thread of its own and painted from the frame after it lands. |
 | `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |

@@ -98,7 +98,17 @@ pub fn set_image_cache_entries(entries: usize) {
 }
 
 enum RasterCacheEntry {
+    Decoding(std::sync::mpsc::Receiver<Option<egui::ColorImage>>),
     Ready(egui::TextureHandle),
+    Unavailable,
+}
+
+/// What a paint pass has of an image.
+#[derive(Debug, PartialEq)]
+enum RasterTexture {
+    Ready(egui::TextureId, [usize; 2]),
+    /// Still being decoded; a repaint is asked for when it lands.
+    Decoding,
     Unavailable,
 }
 
@@ -175,7 +185,7 @@ fn raster_cache_key(image: &RasterImage) -> (String, RasterImageFormat, bool) {
     )
 }
 
-fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> Option<(egui::TextureId, [usize; 2])> {
+fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
     RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
@@ -184,25 +194,41 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> Option<(egui::TextureId
             cache.context = Some(ui.ctx().clone());
         }
         let key = raster_cache_key(image);
-        if let Some(entry) = cache.entries.get(&key) {
+        if let Some(entry) = cache.entries.get_mut(&key) {
+            if let RasterCacheEntry::Decoding(decoded) = entry {
+                match decoded.try_recv() {
+                    Ok(Some(bitmap)) => {
+                        *entry = RasterCacheEntry::Ready(ui.ctx().load_texture(
+                            format!("user-image:{}", image.sha256()),
+                            bitmap,
+                            egui::TextureOptions::LINEAR,
+                        ));
+                    }
+                    Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        *entry = RasterCacheEntry::Unavailable;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                }
+            }
             return match entry {
-                RasterCacheEntry::Ready(texture) => Some((texture.id(), texture.size())),
-                RasterCacheEntry::Unavailable => None,
+                RasterCacheEntry::Ready(texture) => {
+                    RasterTexture::Ready(texture.id(), texture.size())
+                }
+                RasterCacheEntry::Decoding(_) => RasterTexture::Decoding,
+                RasterCacheEntry::Unavailable => RasterTexture::Unavailable,
             };
         }
-        let entry =
-            decode_raster_thumbnail(image).map_or(RasterCacheEntry::Unavailable, |bitmap| {
-                RasterCacheEntry::Ready(ui.ctx().load_texture(
-                    format!("user-image:{}", image.sha256()),
-                    bitmap,
-                    egui::TextureOptions::LINEAR,
-                ))
-            });
-        let result = match &entry {
-            RasterCacheEntry::Ready(texture) => Some((texture.id(), texture.size())),
-            RasterCacheEntry::Unavailable => None,
-        };
-        cache.entries.insert(key.clone(), entry);
+        // Decoding costs milliseconds an image: on the UI thread, a row of
+        // pictures scrolling into view drops a frame for each of them.
+        let (landed, decoded) = std::sync::mpsc::channel();
+        let (source, ctx) = (image.clone(), ui.ctx().clone());
+        std::thread::spawn(move || {
+            let _ = landed.send(decode_raster_thumbnail(&source));
+            ctx.request_repaint();
+        });
+        cache
+            .entries
+            .insert(key.clone(), RasterCacheEntry::Decoding(decoded));
         cache.order.push_back(key);
         let full = image.is_full_resolution();
         let limit = if full {
@@ -216,7 +242,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> Option<(egui::TextureId
                 cache.entries.remove(&oldest);
             }
         }
-        result
+        RasterTexture::Decoding
     })
 }
 
@@ -1305,7 +1331,8 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     egui::WidgetInfo::labeled(egui::WidgetType::Image, true, image.alt())
                 });
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                if let Some((texture, pixels)) = raster_texture(ui, image) {
+                let texture = raster_texture(ui, image);
+                if let RasterTexture::Ready(texture, pixels) = texture {
                     let (target, uv) = if image.is_cover() {
                         (area, cover_uv(area, pixels))
                     } else {
@@ -1319,7 +1346,7 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                         )
                         .with_texture(texture, uv),
                     );
-                } else {
+                } else if texture == RasterTexture::Unavailable {
                     painter.rect_filled(area, CornerRadius::same(6), Color32::from_gray(37));
                     painter.text(
                         area.center(),
@@ -1389,14 +1416,14 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 paint_record(&painter, sleeve, *out, *angle, *opacity);
                 let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
                 let corner = CornerRadius::same(radius.clamp(0.0, 255.0) as u8);
-                match image.as_ref().and_then(|image| raster_texture(ui, image)) {
-                    Some((texture, pixels)) => {
+                match image.as_ref().map(|image| raster_texture(ui, image)) {
+                    Some(RasterTexture::Ready(texture, pixels)) => {
                         painter.add(
                             egui::epaint::RectShape::filled(sleeve, corner, Color32::from_white_alpha(alpha))
                                 .with_texture(texture, cover_uv(sleeve, pixels)),
                         );
                     }
-                    None => {
+                    _ => {
                         painter.rect_filled(sleeve, corner, color(*fill).gamma_multiply(opacity.clamp(0.0, 1.0)));
                     }
                 }
@@ -1940,6 +1967,33 @@ mod tests {
             RasterImageFormat::Png,
         );
         assert!(decode_raster_thumbnail(&oversized).is_none());
+    }
+
+    #[test]
+    fn an_image_is_decoded_away_from_the_paint_pass_and_lands_on_a_later_one() {
+        let ctx = egui::Context::default();
+        let image = raster(test_png(2, 1), RasterImageFormat::Png);
+        let broken = raster(b"not a picture".to_vec(), RasterImageFormat::Png);
+        let paint = |image: &RasterImage| {
+            let mut texture = RasterTexture::Unavailable;
+            let mut output = ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, image));
+            output.textures_delta.clear();
+            texture
+        };
+        assert_eq!(paint(&image), RasterTexture::Decoding, "the first pass does not wait for it");
+        assert_eq!(paint(&broken), RasterTexture::Decoding);
+        let settled = |image: &RasterImage| {
+            for _ in 0..400 {
+                let texture = paint(image);
+                if texture != RasterTexture::Decoding {
+                    return texture;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            RasterTexture::Decoding
+        };
+        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+        assert_eq!(settled(&broken), RasterTexture::Unavailable);
     }
 
     #[test]
