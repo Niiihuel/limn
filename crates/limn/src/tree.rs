@@ -1061,6 +1061,8 @@ struct ScrollFocusContext {
 #[derive(Clone, Debug, PartialEq)]
 struct TabFocusScope {
     action_ids: Vec<String>,
+    /// Up and Down step it, and it stops at its ends.
+    vertical: bool,
 }
 
 #[derive(Debug)]
@@ -2341,7 +2343,9 @@ pub struct UiTree {
     caret_blink: crate::caret_blink::CaretBlink,
     modal_return_focus: Option<String>,
     pending_scroll_focus: Option<String>,
-    pending_reveal: Option<(String, f32)>,
+    /// The control to bring into view, its margin, and whether it goes to
+    /// the start of the viewport instead of just into it.
+    pending_reveal: Option<(String, f32, bool)>,
     pending_center: Option<String>,
     hovered: Option<String>,
     pointer: Option<Point>,
@@ -2925,7 +2929,25 @@ impl UiTree {
     /// shrinks until the control fits; one that is not finite is ignored.
     pub fn reveal_with_margin(&mut self, id: &str, margin: f32) {
         let margin = if margin.is_finite() { margin.max(0.0) } else { REVEAL_MARGIN };
-        self.pending_reveal = Some((id.to_owned(), margin));
+        self.pending_reveal = Some((id.to_owned(), margin, false));
+    }
+
+    /// Scrolls so the control or anchor `id` starts `margin` under the top
+    /// of its scroll area, wherever it was: also when it is already in view,
+    /// which [`UiTree::reveal`] leaves alone. It is how a table of contents
+    /// jumps to a section. The scroll areas around that one only show it,
+    /// and the end of the content stops it short.
+    pub fn reveal_at_start(&mut self, id: &str, margin: f32) {
+        let margin = if margin.is_finite() { margin.max(0.0) } else { REVEAL_MARGIN };
+        self.pending_reveal = Some((id.to_owned(), margin, true));
+    }
+
+    /// Where the `Element::anchor` named `id` was at the last layout: how far
+    /// its top is below the top of the scroll area around it, negative once
+    /// it has scrolled past. `None` when it was not laid out.
+    pub fn anchor_offset(&self, id: &str) -> Option<f32> {
+        let target = self.frame.scroll_focus_targets.get(id)?;
+        Some(target.rect.y - target.viewport.y)
     }
 
     /// Brings the control `id` to the middle of the scroll area that holds
@@ -2975,7 +2997,7 @@ impl UiTree {
         let probe = self
             .pending_scroll_focus
             .as_deref()
-            .or(self.pending_reveal.as_ref().map(|(id, _)| id.as_str()));
+            .or(self.pending_reveal.as_ref().map(|(id, ..)| id.as_str()));
         let mut focus_path = HashSet::new();
         if let Some(id) = probe {
             find_focus_path(&self.root, id, &mut focus_path);
@@ -3763,7 +3785,7 @@ impl UiTree {
                 let focus = coach.focus.clone().filter(|id| {
                     !coach.missing && self.focus_order.iter().any(|(candidate, _)| candidate == id)
                 });
-                self.pending_reveal = Some((coach.target.clone(), REVEAL_MARGIN));
+                self.pending_reveal = Some((coach.target.clone(), REVEAL_MARGIN, false));
                 if focus.is_some() {
                     self.focused = focus;
                 }
@@ -3772,10 +3794,10 @@ impl UiTree {
         }
         // A pending focus was this layout's probe; a reveal waits its turn.
         let located = match self.pending_scroll_focus.take() {
-            Some(id) => Some((id, None)),
-            None => self.pending_reveal.take().map(|(id, margin)| (id, Some(margin))),
+            Some(id) => Some((id, None, false)),
+            None => self.pending_reveal.take().map(|(id, margin, start)| (id, Some(margin), start)),
         };
-        if let Some((id, margin)) = located {
+        if let Some((id, margin, start)) = located {
             let offsets = |tree: &Self| {
                 tree.frame.scroll_focus_targets.get(&id).map(|target| {
                     target
@@ -3788,12 +3810,12 @@ impl UiTree {
                 })
             };
             let previous = offsets(self);
-            self.reveal_scroll_focus(&id, margin.unwrap_or(0.0));
+            self.reveal_scroll_focus(&id, margin.unwrap_or(0.0), start);
             let moved = offsets(self) != previous;
             if let Some(margin) = margin.filter(|_| moved) {
                 // A scroll area that was itself out of view only gives the
                 // control its place once the one around it has moved.
-                self.pending_reveal.get_or_insert((id, margin));
+                self.pending_reveal.get_or_insert((id, margin, start));
             }
             if moved || self.pending_reveal.is_some() {
                 return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
@@ -4930,7 +4952,15 @@ impl UiTree {
                     self.keyboard_tooltip_focus = true;
                 } else if !shift
                     && !ctrl
-                    && matches!(key, Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End)
+                    && matches!(
+                        key,
+                        Key::ArrowLeft
+                            | Key::ArrowRight
+                            | Key::ArrowUp
+                            | Key::ArrowDown
+                            | Key::Home
+                            | Key::End
+                    )
                     && self.step_tab(key, &mut actions)
                 {
                     // A tab strip activates the newly focused tab.
@@ -5106,7 +5136,7 @@ impl UiTree {
 
     fn request_scroll_focus(&mut self, id: &str) {
         if self.frame.scroll_focus_targets.contains_key(id) {
-            self.reveal_scroll_focus(id, 0.0);
+            self.reveal_scroll_focus(id, 0.0, false);
             self.pending_scroll_focus = None;
         } else {
             self.pending_scroll_focus = Some(id.to_owned());
@@ -5189,7 +5219,11 @@ impl UiTree {
         for index in candidates {
             let row = (list.build_row)(index);
             let mut focusables = Vec::new();
-            collect_focus_order(&row, &mut focusables, &mut HashSet::new());
+            let mut seen = HashSet::new();
+            collect_focus_order(&row, &mut focusables, &mut seen);
+            if let Some((_, opened)) = list.expansion.as_ref().filter(|(open, _)| *open == index) {
+                collect_focus_order(opened, &mut focusables, &mut seen);
+            }
             let target = if reverse {
                 focusables.last()
             } else {
@@ -5230,14 +5264,15 @@ impl UiTree {
 
     /// Scroll every area around the control so it shows whole, `margin`
     /// clear of the viewport's edges where the control leaves that room.
-    fn reveal_scroll_focus(&mut self, id: &str, margin: f32) {
+    fn reveal_scroll_focus(&mut self, id: &str, margin: f32, start: bool) {
         let Some(target) = self.frame.scroll_focus_targets.get(id) else {
             return;
         };
         let rect = target.rect;
         let mut areas = target.ancestors.clone();
         areas.push((target.scroll_id.clone(), target.viewport, target.layout_offset));
-        for (scroll_id, viewport, layout_offset) in areas {
+        let innermost = areas.len() - 1;
+        for (index, (scroll_id, viewport, layout_offset)) in areas.into_iter().enumerate() {
             let max_offset = self.scroll_max(&scroll_id);
             self.scroll_transitions.remove(&scroll_id);
             if self
@@ -5254,7 +5289,11 @@ impl UiTree {
             let viewport_top = viewport.y + margin;
             let viewport_bottom = viewport.y + viewport.height - margin;
             // Half a pixel is in view: a second pass must find nothing to do.
-            if top < viewport_top - 0.5 {
+            if start && index == innermost {
+                if (top - viewport_top).abs() > 0.5 {
+                    *offset = (*offset + top - viewport_top).clamp(0.0, max_offset);
+                }
+            } else if top < viewport_top - 0.5 {
                 *offset = (*offset - (viewport_top - top)).clamp(0.0, max_offset);
             } else if bottom > viewport_bottom + 0.5 {
                 // A control taller than its viewport keeps its start in view.
@@ -5326,11 +5365,13 @@ impl UiTree {
         let Some(index) = tabs.iter().position(|id| id.as_str() == focused) else {
             return false;
         };
-        let next = match key {
-            Key::ArrowLeft => (index + tabs.len() - 1) % tabs.len(),
-            Key::ArrowRight => (index + 1) % tabs.len(),
-            Key::Home => 0,
-            Key::End => tabs.len() - 1,
+        let next = match (key, scope.vertical) {
+            (Key::ArrowLeft, false) => (index + tabs.len() - 1) % tabs.len(),
+            (Key::ArrowRight, false) => (index + 1) % tabs.len(),
+            (Key::ArrowUp, true) => index.saturating_sub(1),
+            (Key::ArrowDown, true) => (index + 1).min(tabs.len() - 1),
+            (Key::Home, _) => 0,
+            (Key::End, _) => tabs.len() - 1,
             _ => return false,
         };
         if next != index {
@@ -5504,6 +5545,13 @@ fn collect_focus_order(
             }
         }
         ElementKind::Tooltip { anchor, .. } => collect_focus_order(anchor, order, seen),
+        ElementKind::MarkRail(rail) => {
+            for mark in &rail.marks {
+                if seen.insert(mark.id.clone()) {
+                    order.push((mark.id.clone(), HitKind::Button));
+                }
+            }
+        }
         ElementKind::Button { id, .. }
         | ElementKind::IconButton { id, .. }
         | ElementKind::EffortSlider { id, .. }
@@ -5628,6 +5676,7 @@ fn collect_action_metadata(
         | ElementKind::RollingNumber { .. }
         | ElementKind::UnitGrid(_)
         | ElementKind::LevelBars(_)
+        | ElementKind::MarkRail(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -7848,6 +7897,12 @@ impl LayoutBuilder<'_> {
             }
             // The caller sizes it; left alone it is one dot.
             ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
+            ElementKind::MarkRail(rail) => {
+                // With less room than its marks ask for, they sit closer.
+                let height = rail.marks.len() as f32 * rail.pitch;
+                let room = (available.height - padding).max(0.0);
+                Size::new(rail.peak + padding, height.min(room) + padding)
+            }
             ElementKind::Flowchart(flowchart) => {
                 let size = flowchart.layout(&|text, size| self.sans_width(text, size), &|size| {
                     self.sans_metrics.at_size(size).line_height
@@ -7919,11 +7974,17 @@ impl LayoutBuilder<'_> {
                 Size::new(available.width, height)
             }
             ElementKind::UniformList(list) => {
-                let content_height = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
                 let height = if available.height.is_finite() {
                     available.height
                 } else {
-                    content_height + padding
+                    let rows = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
+                    let open = match &list.expansion {
+                        Some((index, content)) if *index < list.row_count => {
+                            self.measure(content, Size::new(inner.width, f32::INFINITY)).height
+                        }
+                        _ => 0.0,
+                    };
+                    rows + open + padding
                 };
                 Size::new(available.width, height)
             }
@@ -8461,6 +8522,7 @@ impl LayoutBuilder<'_> {
                 }
                 self.frame.tab_focus.push(TabFocusScope {
                     action_ids: action_ids.clone(),
+                    vertical: false,
                 });
             }
             ElementKind::Panel(child) => self.place(child, content, clip),
@@ -8747,7 +8809,27 @@ impl LayoutBuilder<'_> {
             ElementKind::UniformList(list) => {
                 let id = list.id.as_str();
                 self.add_region(id, rect, HitKind::Scroll, clip);
-                let content_height = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
+                let rows_height = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
+                // What a row opened under itself, at the height it takes in
+                // the width the rows have: the narrower one while a bar shows.
+                let open = list
+                    .expansion
+                    .as_ref()
+                    .filter(|(index, _)| *index < list.row_count);
+                let mut extra = 0.0;
+                if let Some((_, opened)) = open {
+                    let narrow = list.appearance.content_width(content.width, true);
+                    extra = self.measure(opened, Size::new(narrow, f32::INFINITY)).height;
+                    if rows_height + extra <= content.height && narrow != content.width {
+                        extra = self.measure(opened, Size::new(content.width, f32::INFINITY)).height;
+                    }
+                }
+                // The rows from `split` on stand under what was opened.
+                let split = open.map_or(usize::MAX, |(index, _)| index + 1);
+                let parted = open.map_or(f32::INFINITY, |(index, _)| (index + 1) as f32 * list.row_height);
+                let row_top =
+                    |index: usize| index as f32 * list.row_height + if index >= split { extra } else { 0.0 };
+                let content_height = rows_height + extra;
                 let max_offset = (content_height - content.height).max(0.0);
                 self.frame
                     .scroll_extents
@@ -8758,7 +8840,7 @@ impl LayoutBuilder<'_> {
                         snap.unwrap_or_else(|| self.scroll_offsets.get(id).copied().unwrap_or(0.0));
                     if list.row_count > 0 {
                         let index = index.min(list.row_count - 1);
-                        let top = index as f32 * list.row_height;
+                        let top = row_top(index);
                         let bottom = top + list.row_height;
                         if top < offset {
                             offset = top;
@@ -8774,11 +8856,23 @@ impl LayoutBuilder<'_> {
                 let row_width = list
                     .appearance
                     .content_width(content.width, scrollbar.is_some());
-                let first_visible = (current_offset / list.row_height).floor() as usize;
-                let end_visible =
-                    ((current_offset + content.height) / list.row_height).ceil() as usize;
-                let first_visible = first_visible.min(list.row_count);
+                // A height of the content as a height of the rows alone: what
+                // was opened stands between two of them and holds no row.
+                let among_rows = |y: f32| if y <= parted { y } else { (y - extra).max(parted) };
+                let first_visible = (among_rows(current_offset) / list.row_height).floor() as usize;
+                let end_visible = (among_rows(current_offset + content.height) / list.row_height)
+                    .ceil() as usize;
+                let mut first_visible = first_visible.min(list.row_count);
                 let end_visible = end_visible.min(list.row_count);
+                // What a row opened is built with its row and only with it, so
+                // the keyboard walks from one into the other. Its row is built
+                // while any of it shows, even once the row itself scrolled off.
+                let opened_shows = extra > 0.0
+                    && parted + extra > current_offset
+                    && parted < current_offset + content.height;
+                if opened_shows && first_visible >= split {
+                    first_visible = split - 1;
+                }
                 let visible = clip
                     .and_then(|outer| outer.intersection(content))
                     .or_else(|| clip.is_none().then_some(content));
@@ -8791,17 +8885,30 @@ impl LayoutBuilder<'_> {
                         let mut focusables = Vec::new();
                         let mut seen = HashSet::new();
                         collect_focus_order(&row, &mut focusables, &mut seen);
-                        rows.push((index, focusables));
                         self.place(
                             &row,
                             Rect::new(
                                 content.x,
-                                content.y + index as f32 * list.row_height - current_offset,
+                                content.y + row_top(index) - current_offset,
                                 row_width,
                                 list.row_height,
                             ),
                             Some(visible),
                         );
+                        if let Some((_, opened)) = open.filter(|(open, _)| *open == index) {
+                            collect_focus_order(opened, &mut focusables, &mut seen);
+                            self.place(
+                                opened,
+                                Rect::new(
+                                    content.x,
+                                    content.y + parted - current_offset,
+                                    row_width,
+                                    extra,
+                                ),
+                                Some(visible),
+                            );
+                        }
+                        rows.push((index, focusables));
                         self.measurement_scope = previous_scope;
                     }
                     self.frame.commands.push(DrawCommand::PopClip);
@@ -10065,6 +10172,60 @@ impl LayoutBuilder<'_> {
                     });
                 }
             }
+            ElementKind::MarkRail(rail) => {
+                let pitch = (content.height / rail.marks.len().max(1) as f32).min(rail.pitch);
+                let at = |id: Option<&str>| {
+                    id.and_then(|id| rail.marks.iter().position(|mark| mark.id == id))
+                };
+                // As for a tooltip, the keyboard leads until the pointer moves again.
+                let lead = at(self.focused.filter(|_| self.keyboard_tooltip_focus)).or(at(self.hovered));
+                let thickness = rail.thickness.min(pitch);
+                for (index, mark) in rail.marks.iter().enumerate() {
+                    let row = Rect::new(
+                        content.x,
+                        content.y + index as f32 * pitch,
+                        content.width,
+                        pitch,
+                    );
+                    self.add_region(&mark.id, row, HitKind::Button, clip);
+                    let rest = rail.length(index, None);
+                    let length =
+                        self.spring(&format!("{}/{}", rail.id, mark.id), rail.length(index, lead));
+                    // The ink follows the length, so only the raised mark is lit.
+                    let lit = ((length - rest) / (rail.peak - rest).max(1.0)).clamp(0.0, 1.0);
+                    let base = if rail.active == Some(index) { rail.active_ink } else { rail.ink };
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect: Rect::new(row.x, row.y + (pitch - thickness) / 2.0, length, thickness),
+                        color: mix(base, rail.lead_ink, lit.powi(3)),
+                        radius: thickness / 2.0,
+                    });
+                }
+                if let Some(index) = lead {
+                    let mark = &rail.marks[index];
+                    // Muted under the title, which is what the turn is known by.
+                    let preview = (!mark.preview.is_empty())
+                        .then(|| TooltipSection::Footer(mark.preview.clone()));
+                    // A rail is read by moving along it: no wait before the hint.
+                    self.overlays.push_back(DeferredOverlay::Tooltip {
+                        anchor: Rect::new(
+                            content.x,
+                            content.y + index as f32 * pitch,
+                            rail.peak,
+                            pitch,
+                        ),
+                        title: mark.title.clone(),
+                        shortcut: None,
+                        sections: preview.into_iter().collect(),
+                        max_width: 320.0,
+                        placement: TooltipPlacement::Right,
+                        colors: rail.tooltip,
+                    });
+                }
+                self.frame.tab_focus.push(TabFocusScope {
+                    action_ids: rail.marks.iter().map(|mark| mark.id.clone()).collect(),
+                    vertical: true,
+                });
+            }
             ElementKind::ProgressRing {
                 fraction,
                 track,
@@ -10272,19 +10433,23 @@ impl LayoutBuilder<'_> {
         if let ElementKind::Tooltip { anchor, .. } = &element.kind {
             self.record_scroll_focus_target(anchor, rect.inset(element.style.padding));
         }
-        if let (Some(scroll), Some(id)) = (self.scroll_focus_context.last(), focusable_id(element))
-        {
-            let ancestors = self.scroll_focus_ancestors();
-            self.frame.scroll_focus_targets.insert(
-                id.to_owned(),
-                ScrollFocusTarget {
-                    scroll_id: scroll.id.clone(),
-                    rect,
-                    viewport: scroll.viewport,
-                    layout_offset: scroll.offset,
-                    ancestors,
-                },
-            );
+        // A control that is also an anchor answers to both names.
+        let ids = [focusable_id(element), element.anchor.as_deref()];
+        if let Some(scroll) = self.scroll_focus_context.last() {
+            let (scroll_id, viewport, layout_offset) = (scroll.id.clone(), scroll.viewport, scroll.offset);
+            for id in ids.into_iter().flatten() {
+                let ancestors = self.scroll_focus_ancestors();
+                self.frame.scroll_focus_targets.insert(
+                    id.to_owned(),
+                    ScrollFocusTarget {
+                        scroll_id: scroll_id.clone(),
+                        rect,
+                        viewport,
+                        layout_offset,
+                        ancestors,
+                    },
+                );
+            }
         }
     }
 
@@ -10504,6 +10669,11 @@ impl LayoutBuilder<'_> {
         rect.height = (rect.y + natural - top).clamp(cap, natural);
         rect.y = top.min(limit - rect.height).max(rect.y);
         let mut element = child.clone();
+        // An anchor stays where the column has it, so revealing it scrolls
+        // back to the start of what it pins over.
+        if let Some(anchor) = element.anchor.take() {
+            self.record_scroll_focus_target(&Element::spacer().anchor(anchor), rects[index]);
+        }
         if rect.height < natural {
             element.style.clip_children = true;
             element.style.bottom_fade = element
@@ -15732,6 +15902,144 @@ mod tests {
         tree.layout(Size::new(160.0, 100.0));
         assert_eq!(tree.scroll_offset("sessions"), 19_900.0);
         assert_eq!(built.load(Ordering::SeqCst), 15);
+    }
+
+    #[test]
+    fn a_row_of_a_uniform_list_opens_content_under_itself_and_the_list_stays_lazy() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        const SIZE: Size = Size::new(160.0, 100.0);
+        let built = Arc::new(AtomicUsize::new(0));
+        let list = |built: Arc<AtomicUsize>, open: Option<(usize, f32)>| {
+            let list = Element::uniform_list("sessions", 1_000, 20.0, move |index| {
+                built.fetch_add(1, Ordering::SeqCst);
+                Element::button(format!("session:{index}"), format!("Session {index}"))
+            });
+            match open {
+                Some((index, height)) => list.list_expansion(
+                    index,
+                    Element::button("detail", "Detail").size(None, Some(height)),
+                ),
+                None => list,
+            }
+        };
+        let rect = |frame: &Frame, id: &str| {
+            frame.regions.iter().find(|region| region.id == id).map(|region| region.rect)
+        };
+        let mut tree = UiTree::new(list(built.clone(), Some((1, 50.0))));
+        let frame = tree.layout(SIZE);
+        // Under its row, as wide as a row and as tall as it asked to be; the
+        // rows after it start where it ends.
+        let (row, detail, next) = (
+            rect(&frame, "session:1").unwrap(),
+            rect(&frame, "detail").unwrap(),
+            rect(&frame, "session:2").unwrap(),
+        );
+        assert_eq!((detail.y, detail.height), (row.y + row.height, 50.0));
+        assert_eq!((detail.x, detail.width), (row.x, row.width));
+        assert_eq!(next.y, detail.y + detail.height);
+        // The list is that much longer, and builds only the rows that show.
+        assert_eq!(frame.scroll_extents["sessions"], 19_900.0 + 50.0);
+        assert_eq!(built.load(Ordering::SeqCst), 3);
+        assert_eq!(frame.hit_test(Point::new(30.0, 60.0)), Some("detail"));
+        assert_eq!(frame.hit_test(Point::new(30.0, 95.0)), Some("session:2"));
+
+        // Scrolled into it, its row is still built with it and nothing above.
+        tree.handle_event(UiEvent::ScrollDirect { position: Point::new(30.0, 50.0), delta_y: -60.0 });
+        let frame = tree.layout(SIZE);
+        assert_eq!(tree.scroll_offset("sessions"), 60.0);
+        // Its part in view: the last thirty of its fifty.
+        let detail = rect(&frame, "detail").unwrap();
+        assert_eq!((detail.y, detail.height), (0.0, 30.0));
+        assert!(rect(&frame, "session:0").is_none());
+        assert_eq!(rect(&frame, "session:2").unwrap().y, 30.0);
+        assert_eq!(frame.hit_test(Point::new(30.0, 10.0)), Some("detail"));
+
+        // Far from it, neither it nor its row is built, and a row is revealed
+        // where it stands under what was opened.
+        tree.scroll_to_index("sessions", 500);
+        let frame = tree.layout(SIZE);
+        assert_eq!(tree.scroll_offset("sessions"), 501.0 * 20.0 + 50.0 - 100.0);
+        assert!(rect(&frame, "detail").is_none() && rect(&frame, "session:1").is_none());
+        assert_eq!(rect(&frame, "session:500").unwrap().y, 80.0);
+        tree.scroll_to_index("sessions", 999);
+        let frame = tree.layout(SIZE);
+        assert_eq!(tree.scroll_offset("sessions"), 19_950.0);
+        assert_eq!(frame.hit_test(Point::new(30.0, 90.0)), Some("session:999"));
+
+        // Closed again, the list is the rows alone.
+        tree.set_root(list(built.clone(), None));
+        let frame = tree.layout(SIZE);
+        assert_eq!(frame.scroll_extents["sessions"], 19_900.0);
+        assert!(rect(&frame, "detail").is_none());
+        // An index past the rows opens nothing.
+        tree.set_root(list(built, Some((1_000, 50.0))));
+        assert_eq!(tree.layout(SIZE).scroll_extents["sessions"], 19_900.0);
+    }
+
+    #[test]
+    fn the_keyboard_walks_from_a_row_into_what_it_opened_and_on_to_the_next() {
+        let list = Element::uniform_list("sessions", 10, 20.0, |index| {
+            Element::button(format!("row:{index}"), format!("Task {index}"))
+        })
+        .list_expansion(
+            3,
+            Element::column(vec![
+                Element::button("detail:first", "First").size(None, Some(20.0)),
+                Element::button("detail:last", "Last").size(None, Some(20.0)),
+            ]),
+        );
+        let tab = |tree: &mut UiTree, shift: bool| {
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift, ctrl: false });
+            tree.layout(Size::new(120.0, 60.0));
+        };
+        let mut tree = UiTree::new(list);
+        tree.layout(Size::new(120.0, 60.0));
+        // Row 3 is under the viewport: reaching it brings what it opened too.
+        assert!(tree.focus("row:2"));
+        for expected in ["row:3", "detail:first", "detail:last", "row:4"] {
+            tab(&mut tree, false);
+            assert_eq!(tree.focused_id(), Some(expected));
+        }
+        // And back, from the row after it into its last control.
+        for expected in ["detail:last", "detail:first", "row:3", "row:2"] {
+            tab(&mut tree, true);
+            assert_eq!(tree.focused_id(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn what_a_row_opens_can_open_on_the_spring_and_the_rows_follow_it() {
+        let list = |open: bool| {
+            Element::uniform_list("sessions", 100, 20.0, |index| {
+                Element::button(format!("row:{index}"), format!("Task {index}"))
+            })
+            .list_expansion(
+                0,
+                crate::Collapse::new(
+                    "detail",
+                    open.then(|| Element::button("detail:body", "Body").size(None, Some(60.0))),
+                )
+                .expand()
+                .render(),
+            )
+        };
+        let size = Size::new(160.0, 200.0);
+        let next = |frame: &Frame| {
+            frame.regions.iter().find(|region| region.id == "row:1").unwrap().rect.y
+        };
+        let start = Instant::now() - Duration::from_secs(10);
+        let mut tree = UiTree::new(list(false));
+        assert_eq!(next(&tree.layout_at(size, start)), 20.0);
+        tree.set_root(list(true));
+        tree.layout_at(size, start);
+        let settle = Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3 / 2);
+        let midway = next(&tree.layout_at(size, start + settle / 2));
+        assert!(20.0 < midway && midway < 80.0, "{midway}");
+        let open = tree.layout_at(size, start + settle * 3);
+        assert_eq!(next(&open), 80.0);
+        assert_eq!(open.scroll_extents["sessions"], 100.0 * 20.0 + 60.0 - 200.0);
+        assert!(!tree.is_animating());
     }
 
     #[test]

@@ -203,21 +203,38 @@ pub fn view(cx: &Cx) -> Element {
             SegmentedControl::new(tabs("nav-segments"), palette).render(),
         ])]),
         section(cx, "Pasos", vec![
+            caption(cx, "Los pasos hasta el activo tienen la insignia y la línea llenas; los que faltan, apagadas. Un clic en un paso lo informa."),
             Stepper::new(
                 vec![
-                    Step::new("nav-step=0", "Contenido"),
-                    Step::new("nav-step=1", "Horario"),
-                    Step::new("nav-step=2", "Agente"),
+                    Step::new("nav-step=0", "Contenido").icon(Icon::File),
+                    Step::new("nav-step=1", "Horario").icon(Icon::Clock),
+                    Step::new("nav-step=2", "Agente").icon(Icon::Settings),
+                    Step::new("nav-step=3", "Resumen").icon(Icon::InfoCircle),
                 ],
                 step,
                 palette,
             )
-            .width(cx.width.min(420.0))
+            .width(cx.width.min(520.0))
             .render(),
             // Its own ID: sharing the step's would share its hover and fill.
             row(vec![limn::Button::new("nav-next", "Siguiente", palette)
                 .render()
-                .dispatch_as(format!("nav-step={}", (step + 1) % 3))]),
+                .dispatch_as(format!("nav-step={}", (step + 1) % 4))]),
+            caption(cx, "En columna, con la descripción al lado; sin icono, la insignia lleva el número del paso."),
+            Stepper::new(
+                (0..4)
+                    .map(|index| {
+                        let step = Step::new(format!("nav-column-step={index}"), format!("Paso {}", index + 1))
+                            .description(format!("Descripción del paso {}.", index + 1));
+                        if index == 3 { step.icon(Icon::CheckCircle) } else { step }
+                    })
+                    .collect(),
+                cx.state.choice("nav-column-step", "2").parse().unwrap_or(2),
+                palette,
+            )
+            .vertical()
+            .width(cx.width.min(280.0))
+            .render(),
         ]),
         section(cx, "Enlaces", vec![row(vec![
             Link::new("nav-link", "Ver documentación", palette).render(),

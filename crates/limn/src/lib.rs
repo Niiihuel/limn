@@ -14,7 +14,9 @@ mod button_group;
 mod card;
 mod caret_blink;
 mod charts;
+mod chat_minimap;
 mod chip;
+mod clipboard;
 mod coach_mark;
 mod code_block;
 mod code_diff;
@@ -143,7 +145,7 @@ pub use element::{
     Border, BoxShadow, CoachAlign, CoachSide, CornerRadii, Element, ElementKind, FontFamily, Icon, LevelBars,
     PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
-    TooltipStyle, UniformList, UnitGrid, UnitGridPart, DEFAULT_FONT_SIZE, ICON_SIZE,
+    TooltipStyle, UniformList, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};
@@ -199,6 +201,8 @@ pub use skeleton::{Skeleton, SkeletonGroup};
 pub use slider::Slider;
 pub use spinner::Spinner;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
+pub use chat_minimap::{ChatMinimap, ChatMinimapMark};
+pub use clipboard::{Clipboard, ClipboardCopied};
 pub use stepper::{Step, Stepper};
 pub use suggestion_list::{SuggestionItem, SuggestionList};
 pub use tab_strip::{TabItem, TabStrip, TabStripHeader};

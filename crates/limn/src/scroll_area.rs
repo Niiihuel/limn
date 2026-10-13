@@ -160,6 +160,13 @@ impl ScrollArea {
         }
     }
 
+    /// What row `index` of a uniform list opens under itself: see
+    /// [`Element::list_expansion`].
+    pub fn expansion(mut self, index: usize, content: Element) -> Self {
+        self.element = self.element.list_expansion(index, content);
+        self
+    }
+
     pub fn appearance(mut self, appearance: ScrollbarAppearance) -> Self {
         self.element = self.element.scrollbar_appearance(appearance);
         self

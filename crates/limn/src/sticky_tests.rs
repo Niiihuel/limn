@@ -234,3 +234,93 @@ fn popover_with_no_gap_starts_at_its_zero_height_anchor() {
     assert_eq!(top(Some(f32::NAN)), 35.0);
     assert_eq!(top(Some(-3.0)), 35.0);
 }
+
+/// Three sections whose passive headers are anchors `a0`, `a1` and `a2`.
+fn anchored(sticky: bool) -> UiTree {
+    let mut children = Vec::new();
+    for section in 0..3 {
+        let header = Element::text("Header").size(None, Some(20.0)).anchor(format!("a{section}"));
+        children.push(if sticky { header.sticky_top() } else { header });
+        children.extend((0..5).map(|_| Element::text("Row").size(None, Some(20.0))));
+    }
+    let mut tree = UiTree::new(Element::scroll("list", Element::column(children)));
+    tree.set_reduced_motion(true);
+    tree.layout(SIZE);
+    tree
+}
+
+#[test]
+fn a_passive_anchor_is_revealed_and_says_where_it_is() {
+    let mut tree = anchored(false);
+    // Laid out below the viewport, where nothing of it is painted.
+    assert_eq!(tree.anchor_offset("a2"), Some(240.0));
+    tree.reveal_with_margin("a2", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 160.0);
+    assert_eq!(tree.anchor_offset("a2"), Some(80.0));
+    assert_eq!(tree.anchor_offset("a0"), Some(-160.0));
+    assert_eq!(tree.anchor_offset("missing"), None);
+    // It is still no control: nothing to focus or click.
+    assert!(tree.frame().regions.iter().all(|region| region.id == "list"));
+}
+
+#[test]
+fn revealing_a_pinned_anchor_scrolls_back_to_where_its_section_starts() {
+    let mut tree = anchored(true);
+    tree.handle_event(UiEvent::ScrollDirect { position: Point::new(5.0, 5.0), delta_y: -170.0 });
+    tree.layout(SIZE);
+    // Pinned at the top of the viewport, it answers for its place in the column.
+    assert_eq!(tree.anchor_offset("a1"), Some(-50.0));
+    tree.reveal_with_margin("a1", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 120.0);
+    assert_eq!(tree.anchor_offset("a1"), Some(0.0));
+}
+
+#[test]
+fn a_pinned_control_that_is_an_anchor_keeps_both_places() {
+    let mut children = Vec::new();
+    for section in 0..3 {
+        children.push(
+            Element::button(format!("h{section}"), "Header")
+                .size(None, Some(20.0))
+                .anchor(format!("a{section}"))
+                .sticky_top(),
+        );
+        children.extend((0..5).map(|_| Element::text("Row").size(None, Some(20.0))));
+    }
+    let mut tree = UiTree::new(Element::scroll("list", Element::column(children)));
+    tree.set_reduced_motion(true);
+    tree.layout(SIZE);
+    tree.handle_event(UiEvent::ScrollDirect { position: Point::new(5.0, 5.0), delta_y: -170.0 });
+    tree.layout(SIZE);
+    // The control is where it can be clicked; the anchor where its section starts.
+    tree.reveal_with_margin("h1", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 170.0);
+    tree.reveal_with_margin("a1", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 120.0);
+}
+
+#[test]
+fn an_anchor_already_in_view_still_goes_to_the_start_when_asked_to() {
+    let mut tree = anchored(false);
+    tree.handle_event(UiEvent::ScrollDirect { position: Point::new(5.0, 5.0), delta_y: -60.0 });
+    tree.layout(SIZE);
+    assert_eq!(tree.anchor_offset("a1"), Some(60.0));
+    // In view: revealing it moves nothing.
+    tree.reveal_with_margin("a1", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 60.0);
+    tree.reveal_at_start("a1", 10.0);
+    tree.layout(SIZE);
+    assert_eq!((tree.scroll_offset("list"), tree.anchor_offset("a1")), (110.0, Some(10.0)));
+    // Back up to one above it, and no further than the content goes.
+    tree.reveal_at_start("a0", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 0.0);
+    tree.reveal_at_start("a2", 0.0);
+    tree.layout(SIZE);
+    assert_eq!(tree.scroll_offset("list"), 240.0);
+}

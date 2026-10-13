@@ -352,6 +352,7 @@ impl Component for MenuItem {
                 (self.action_row(), height)
             }
         };
+        let row_id = id.clone();
         let hint = |main: Element| match tooltip {
             Some(tooltip) => tooltip.wrap(main, id, palette),
             None => main,
@@ -359,8 +360,16 @@ impl Component for MenuItem {
         let Some(action) = trailing_action else {
             return hint(main.size(Some(width), Some(height)));
         };
+        // The row answers the pointer over either of its targets with one
+        // fill behind both; the action answers with a fill of its own, a
+        // shade over the row's, so it reads as a button inside the row.
+        let surface = [row_id, action.id.clone()];
+        let stepped = ComponentPalette {
+            hover: palette.selected,
+            ..palette
+        };
         let size = ButtonSize::IconExtraSmall.sizing().height;
-        let mut button = IconButton::new(&action.id, action.icon, palette)
+        let mut button = IconButton::new(&action.id, action.icon, stepped)
             .variant(ButtonVariant::Ghost)
             .button_size(ButtonSize::IconExtraSmall)
             .render();
@@ -368,16 +377,23 @@ impl Component for MenuItem {
             button = button.dispatch_as(target);
         }
         let button = action.tooltip.wrap(
-            palette.interactive_surface(button.menu_secondary_action()),
+            stepped.interactive_surface(button.menu_secondary_action()),
             action.id,
             palette,
         );
+        let main = main
+            .hover_background(Color::TRANSPARENT)
+            .pressed_background(Color::TRANSPARENT);
         Element::row(vec![
             hint(main.size(None, Some(height)).flex(1.0)).flex(1.0),
             button.centered_y().size(Some(size), Some(height)),
         ])
         .gap(2.0)
         .size(Some(width), Some(height))
+        .radius(action_style::row_radius())
+        .hover_background(palette.hover)
+        .pressed_background(palette.selected)
+        .hover_surface(format!("{}:surface", surface[0]), surface)
         .clip_children()
     }
 }
@@ -480,6 +496,45 @@ mod tests {
     use crate::{DrawCommand, Point, Size, UiEvent, UiTree};
 
     use super::*;
+
+    #[test]
+    fn a_row_with_an_action_has_one_hover_behind_both_and_the_action_one_of_its_own() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = UiTree::new(Element::column(vec![
+            MenuItem::new("select", "Terminal 1", palette)
+                .icon(Icon::Terminal)
+                .trailing_action("close", Icon::Close, TooltipSpec::new("Close"))
+                .width(240.0)
+                .render(),
+            Element::spacer().flex(1.0),
+        ]));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(240.0, 120.0));
+        let rect = |id: &str| frame.regions.iter().find(|row| row.id == id).unwrap().rect;
+        let (select, close) = (rect("select"), rect("close"));
+        let fills = |tree: &mut UiTree, color: Color| -> Vec<crate::Rect> {
+            tree.layout(Size::new(240.0, 120.0))
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    crate::DrawCommand::FillRect { rect, color: fill, .. } if *fill == color => Some(*rect),
+                    _ => None,
+                })
+                .collect()
+        };
+        let center = |rect: crate::Rect| Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+        let whole = crate::Rect::new(0.0, 0.0, 240.0, action_style::ROW_HEIGHT);
+        // At rest neither paints.
+        assert!(fills(&mut tree, palette.hover).is_empty());
+        // Over the row: one fill behind the row and its action, nothing on the action.
+        tree.handle_event(UiEvent::PointerMove(center(select)));
+        assert_eq!(fills(&mut tree, palette.hover), vec![whole]);
+        assert!(fills(&mut tree, palette.selected).is_empty());
+        // Over the action: the row keeps its fill, and the action adds its own.
+        tree.handle_event(UiEvent::PointerMove(center(close)));
+        assert_eq!(fills(&mut tree, palette.hover), vec![whole]);
+        assert_eq!(fills(&mut tree, palette.selected), vec![close]);
+    }
 
     #[test]
     fn a_trailing_action_is_a_square_of_24_in_a_row_of_26_with_its_own_target() {

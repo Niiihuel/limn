@@ -1,7 +1,7 @@
 use super::{caption, section, Cx};
 use limn::{
-    Card, Component, DropdownMenuEntry, DropdownMenuItem, Element, Icon, MessageAction,
-    MessageActions, MessageActionsVisibility, Pager, Text, TextRole,
+    Card, ChatMinimap, ChatMinimapMark, Component, DropdownMenuEntry, DropdownMenuItem, Element,
+    Icon, MessageAction, MessageActions, MessageActionsVisibility, Pager, Text, TextRole,
 };
 
 fn prose(cx: &Cx, text: &str) -> Element {
@@ -41,6 +41,33 @@ fn bubble(cx: &Cx, id: &str, text: &str, visibility: MessageActionsVisibility) -
         .border(false)
         .render()
         .hover_region()
+}
+
+/// A conversation's turns as marks; a click on one puts that turn in view.
+fn minimap(cx: &Cx) -> Element {
+    const TURNS: [(&str, &str); 9] = [
+        ("¿Por qué salta el contenido al pasar el puntero?", "El fallo está en el cálculo del margen: la fila reserva su alto aunque no se pinte."),
+        ("Mostrá las acciones siempre.", "Listo: la fila queda visible en el último mensaje y aparece con el puntero en los demás."),
+        ("Revisá también el modo estrecho.", "En 360 px la leyenda se corta antes que los botones, que conservan su tamaño."),
+        ("Agregá una prueba para el modo estrecho.", "Agregué una que mide la fila a 360 y a 720 px y compara el alto del mensaje."),
+        ("El hover no llega a las curvas de la tarjeta.", "Corregí el relleno: ahora usa el radio de la tarjeta menos el margen interior."),
+        ("Pasalo a la galería.", "Hay una sección nueva en esta página con los tres modos de visibilidad."),
+        ("¿Cuánto tarda la animación?", "170 ms en un resorte sin rebote: si cambia de destino a mitad de camino conserva la velocidad."),
+        ("Probalo con el tema claro.", "En claro la tinta atenuada baja a 60 % de opacidad y la activa usa el color del texto."),
+        ("Hacé el commit.", "Hecho: un commit con el componente, sus pruebas y la página de la galería."),
+    ];
+    let marks = TURNS
+        .iter()
+        .enumerate()
+        .map(|(index, (title, preview))| {
+            ChatMinimapMark::new(format!("messages-turn={index}"), *title).preview(preview)
+        })
+        .collect();
+    let chosen = format!("messages-turn={}", cx.state.choice("messages-turn", "6"));
+    Element::row(vec![
+        ChatMinimap::new("messages-minimap", marks, cx.palette).active(chosen).render(),
+        Element::spacer().flex(1.0),
+    ])
 }
 
 pub fn view(cx: &Cx) -> Element {
@@ -103,6 +130,10 @@ pub fn view(cx: &Cx) -> Element {
                 .role(TextRole::Small)
                 .muted()
                 .render(),
+        ]),
+        section(cx, "Minimapa de la conversación", vec![
+            caption(cx, "Una marca por turno. La del puntero crece y sus vecinas bajan en escalera; muestra el turno sin espera. Arriba y Abajo recorren las marcas."),
+            minimap(cx),
         ]),
     ])
     .gap(32.0)

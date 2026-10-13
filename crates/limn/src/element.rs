@@ -551,6 +551,8 @@ pub struct Element {
     pub(crate) drag_in_place: bool,
     pub(crate) cursor: Option<Cursor>,
     pub(crate) sticky_top: Option<StickyTop>,
+    /// Names a passive element for `UiTree::reveal` and `anchor_offset`.
+    pub(crate) anchor: Option<String>,
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
@@ -578,6 +580,8 @@ pub struct UniformList {
     pub build_row: Arc<dyn Fn(usize) -> Element + Send + Sync>,
     pub appearance: ScrollbarAppearance,
     pub motion: ScrollMotion,
+    /// What one row opens under itself: see [`Element::list_expansion`].
+    pub expansion: Option<(usize, Arc<Element>)>,
 }
 
 impl std::fmt::Debug for UniformList {
@@ -647,6 +651,54 @@ pub struct LevelBars {
     pub gap: f32,
     pub color: Color,
     pub rest: Color,
+}
+
+/// A column of short marks, one for each part of a long view, such as the
+/// turns of a conversation. The mark under the pointer or the keyboard focus
+/// grows to `peak` and its neighbours step down to `rest` over `reach` marks,
+/// each on a spring UiTree keeps by stable ID. That mark shows its title and
+/// preview in a tooltip at once, and reports a click like a button. Up and
+/// Down move the focus between marks and activate the one they reach.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MarkRail {
+    pub id: String,
+    pub marks: Vec<RailMark>,
+    /// Index of the mark for what the view shows now, if one is.
+    pub active: Option<usize>,
+    /// Height each mark takes; less when they do not all fit.
+    pub pitch: f32,
+    pub thickness: f32,
+    pub rest: f32,
+    pub peak: f32,
+    /// How many marks away the last raised neighbour is.
+    pub reach: u8,
+    pub ink: Color,
+    pub active_ink: Color,
+    pub lead_ink: Color,
+    pub tooltip: TooltipStyle,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct RailMark {
+    /// Reported as `UiAction::Clicked`.
+    pub id: String,
+    pub title: String,
+    pub preview: String,
+}
+
+impl MarkRail {
+    /// Length a mark tends to, `distance` marks from the raised one.
+    pub(crate) fn length(&self, index: usize, lead: Option<usize>) -> f32 {
+        let rest = if self.active == Some(index) {
+            self.rest + (self.peak - self.rest) * 0.3
+        } else {
+            self.rest
+        };
+        let Some(lead) = lead else { return rest };
+        let steps = f32::from(self.reach) + 1.0;
+        let lift = (1.0 - index.abs_diff(lead) as f32 / steps).max(0.0);
+        rest.max(self.rest + (self.peak - self.rest) * lift)
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -851,6 +903,7 @@ pub enum ElementKind {
     },
     UnitGrid(UnitGrid),
     LevelBars(LevelBars),
+    MarkRail(MarkRail),
     Spacer,
 }
 
@@ -1009,6 +1062,7 @@ impl Element {
             drag_in_place: false,
             cursor: None,
             sticky_top: None,
+            anchor: None,
             animate_height: None,
             kept: None,
             hover_reveal: HoverReveal::None,
@@ -1016,6 +1070,15 @@ impl Element {
             menu_navigation: false,
             context_menu: None,
         }
+    }
+
+    /// Name this element as a place to scroll to, without making it a
+    /// control: `UiTree::reveal(id)` brings it into view and
+    /// `UiTree::anchor_offset(id)` says where it is. It has to be laid out
+    /// by a column of a scroll area, as a message of a conversation is.
+    pub fn anchor(mut self, id: impl Into<String>) -> Self {
+        self.anchor = Some(id.into());
+        self
     }
 
     /// Group a menu trigger, optional search input and its inline options.
@@ -1579,7 +1642,22 @@ impl Element {
             build_row: Arc::new(build_row),
             appearance: ScrollbarAppearance::default(),
             motion: ScrollMotion::default(),
+            expansion: None,
         }))
+    }
+
+    /// Show `content` under row `index` of a uniform list, at the height it
+    /// takes: what an item of the list opens in place. It scrolls with the
+    /// rows, the rows after it move down by its height, and the list still
+    /// builds only what is in view. One row is open at a time; pass
+    /// `content` on every rebuild while it is. A [`crate::Collapse`] as
+    /// `content` opens and closes it on the spring. Does nothing on an
+    /// element that is not a uniform list.
+    pub fn list_expansion(mut self, index: usize, content: Self) -> Self {
+        if let ElementKind::UniformList(list) = &mut self.kind {
+            list.expansion = Some((index, Arc::new(content)));
+        }
+        self
     }
 
     /// Use the same scrollbar policy for ordinary scroll content and virtual
@@ -1894,6 +1972,13 @@ impl Element {
     /// it the size it draws in.
     pub fn level_bars(bars: LevelBars) -> Self {
         Self::new(ElementKind::LevelBars(bars))
+    }
+
+    /// A column of marks that rise around the pointer. It is as wide as its
+    /// longest mark and as tall as its marks, or as the room it is given;
+    /// see [`MarkRail`].
+    pub fn mark_rail(rail: MarkRail) -> Self {
+        Self::new(ElementKind::MarkRail(rail))
     }
 
     /// A non-interactive loading surface with paint-only motion.

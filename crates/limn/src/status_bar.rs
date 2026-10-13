@@ -29,8 +29,12 @@ impl StatusBarItemSizing {
     pub const COUNTS: Self = Self { gap: 3.0, ..Self::LABEL };
 }
 
+// Height of the hairline of a divider, centered in the bar.
+const DIVIDER: f32 = 11.0;
+
 enum Part {
-    Icon(Icon),
+    /// With the color of its own, if it has one.
+    Icon(Icon, Option<Color>),
     Label(String),
     Count(usize),
 }
@@ -53,6 +57,7 @@ pub struct StatusBarItem {
     priority: i32,
     passive: bool,
     centered: bool,
+    strong: bool,
     ink: Option<Color>,
     tooltip: Option<TooltipSpec>,
     action: Option<String>,
@@ -72,6 +77,7 @@ impl StatusBarItem {
             priority: 0,
             passive: false,
             centered: false,
+            strong: false,
             ink: None,
             tooltip: None,
             action: None,
@@ -82,9 +88,23 @@ impl StatusBarItem {
         }
     }
 
+    /// A hairline between two groups of cells, shorter than the bar: a
+    /// passive cell one pixel wide.
+    pub fn divider(id: impl Into<String>, palette: ComponentPalette) -> Self {
+        let rule = Separator::vertical(palette).length(DIVIDER).centered_in(StatusBar::HEIGHT);
+        Self::new(id, 1.0, palette).hosted(rule.render())
+    }
+
     /// A glyph. Each call adds one more.
     pub fn icon(mut self, icon: Icon) -> Self {
-        self.parts.push(Part::Icon(icon));
+        self.parts.push(Part::Icon(icon, None));
+        self
+    }
+
+    /// A glyph in a color of its own whatever the cell's ink, such as the
+    /// one of a severity. Each call adds one more.
+    pub fn tinted_icon(mut self, icon: Icon, color: Color) -> Self {
+        self.parts.push(Part::Icon(icon, Some(color)));
         self
     }
 
@@ -123,6 +143,13 @@ impl StatusBarItem {
     /// edge, for a glyph alone or with its count.
     pub fn centered(mut self) -> Self {
         self.centered = true;
+        self
+    }
+
+    /// Set the label in the text ink instead of the muted one, for the one
+    /// value the bar is read for, such as the branch. Counts stay muted.
+    pub fn strong(mut self) -> Self {
+        self.strong = true;
         self
     }
 
@@ -181,11 +208,11 @@ impl Component for StatusBarItem {
         }
         let palette = self.palette;
         let passive = self.passive;
-        let text = |value: String| {
+        let text = |value: String, ink: Color| {
             let text = Element::faded_text(value, FADE)
                 .font_family(FontFamily::Sans)
                 .font_size(FONT_SIZE)
-                .foreground(palette.muted);
+                .foreground(ink);
             // Passive text takes the cell's own height instead of the line
             // box, as the cells this replaced had it: half a pixel lower.
             if passive {
@@ -196,13 +223,16 @@ impl Component for StatusBarItem {
         };
         let icon_width = px(self.sizing.icon_width);
         let ink = self.ink.unwrap_or(palette.muted);
+        let label_ink = if self.strong { palette.text } else { palette.muted };
         let children = self
             .parts
             .into_iter()
             .map(|part| match part {
-                Part::Icon(icon) => Element::icon(icon).foreground(ink).size(Some(icon_width), Some(LINE)),
-                Part::Label(label) => text(label).flex(1.0),
-                Part::Count(count) => text(count.to_string()),
+                Part::Icon(icon, tint) => {
+                    Element::icon(icon).foreground(tint.unwrap_or(ink)).size(Some(icon_width), Some(LINE))
+                }
+                Part::Label(label) => text(label, label_ink).flex(1.0),
+                Part::Count(count) => text(count.to_string(), palette.muted),
             })
             .collect();
         let mut content = Element::row(children).gap(px(self.sizing.gap));
@@ -470,6 +500,25 @@ mod tests {
     }
 
     #[test]
+    fn a_divider_is_a_passive_hairline_between_two_cells() {
+        let cell = |id: &str| StatusBarItem::new(id, 60.0, palette()).label("x");
+        let bar = StatusBar::new(
+            vec![cell("a"), StatusBarItem::divider("rule", palette()), cell("b")],
+            Vec::new(),
+            palette(),
+        )
+        .width(300.0);
+        let frame = tree_of(bar.render()).layout(Size::new(300.0, 100.0));
+        let top = 100.0 - StatusBar::HEIGHT;
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { rect, color, .. }
+                if *rect == Rect::new(64.0, top + 5.0, 1.0, DIVIDER) && *color == palette().border)));
+        assert!(frame.regions.iter().all(|region| region.id != "rule"));
+        // It takes its pixel and a gap, like any cell.
+        assert_eq!(button(&frame, "b").map(|rect| rect.x), Some(69.0));
+    }
+
+    #[test]
     fn a_cell_fills_the_bar_hovers_square_and_reports_its_action() {
         let item = StatusBarItem::new("branch", 80.0, palette())
             .icon(Icon::GitBranch)
@@ -515,6 +564,34 @@ mod tests {
         assert_eq!(texts, vec![(17.0, "3", palette().muted), (41.0, "12", palette().muted)]);
         assert!(frame.commands.iter().all(|command| !matches!(command,
             DrawCommand::Icon { tint, .. } if *tint != ink)));
+
+        // A glyph with a color of its own keeps it; the label can stand out.
+        let item = StatusBarItem::new("state", 120.0, palette())
+            .tinted_icon(Icon::CheckCircle, Color::rgb(1, 2, 3))
+            .count(0)
+            .icon(Icon::GitBranch)
+            .label("main")
+            .strong()
+            .ink(ink);
+        let frame = tree_of(item.render()).layout(Size::new(120.0, 100.0));
+        let tints: Vec<Color> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Icon { tint, .. } => Some(*tint),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(tints, vec![Color::rgb(1, 2, 3), ink]);
+        let inks: Vec<(&str, Color)> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, color, .. } => Some((text.as_str(), *color)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(inks, vec![("0", palette().muted), ("main", palette().text)]);
 
         let alone = |centered: bool| {
             let item = StatusBarItem::new("bell", 28.0, palette())

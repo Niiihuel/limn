@@ -114,6 +114,7 @@ slanted by the host.
 | `Element::overlay(base, floating)` | Paints `floating` over `base` without affecting its layout. |
 | `ScrollArea::new(id, child)` | A vertically scrolling viewport. |
 | `ScrollArea::uniform_list(id, count, row_height, build_row)` | A virtualized list: only visible rows are built. |
+| `ScrollArea::uniform_list(…).expansion(index, content)` | What row `index` opens under itself, at the height it takes: it scrolls with the rows, the rows after it move down, and the list stays virtual. One row at a time; a `Collapse` as `content` opens and closes it on the spring. The keyboard walks from the row into it and on to the next row. |
 | `Element::horizontal_scroll(id, child)` | A horizontally scrolling strip. |
 
 `.clip_children()` keeps a container's descendants, and their click targets,
@@ -157,6 +158,8 @@ that is resolved at the next layout, once sizes are known.
 | `tree.center(control_id)` | Bring a button or a clickable to the middle of the scroll area that holds it, travelling there by that area's scroll motion, or at once under reduced motion. For content that follows a clock, such as the line being sung. Near either end of the content it goes as far as the area scrolls; nothing happens when no control has that ID, and focus stays where it was. |
 | `tree.reveal(control_id)` | Bring a button, a clickable or a field into view wherever it is: every scroll area around it scrolls just enough to show it whole, 12 px clear of the edge. Rows need no fixed height. Nothing moves when it is already in view, and nothing happens when no control has that ID. Focus stays where it was. |
 | `tree.reveal_with_margin(control_id, margin)` | The same with a margin of the host's own, for a viewport whose edge is covered by a fade or a fixed header. A margin with no room shrinks until the control fits. |
+| `tree.reveal_at_start(id, margin)` | Scroll so a control or an anchor starts `margin` under the top of its scroll area, also when it is already in view, which `reveal` leaves alone: how a table of contents or a rail of turns jumps to a section. The end of the content stops it short. |
+| `element.anchor(id)`, `tree.anchor_offset(id)` | Name a passive element, such as a message or a heading, as a place to scroll to: `reveal(id)` then brings it into view like a control, and a pinned `sticky_top` anchor is revealed where its column has it, so the view returns to the start of what it pins over. `anchor_offset(id)` is how far its top was below the top of its scroll area at the last layout, negative once it has scrolled past: the last anchor at or above a line of the viewport is the part in view. The element has to be laid out by a column of the scroll area. |
 
 `reveal` finds a control by its ID, so give the thing to reveal one: a row
 that is not otherwise interactive can be an `Element::clickable`. Rows of a
