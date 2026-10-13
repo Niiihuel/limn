@@ -5,6 +5,7 @@ in any release.
 
 ## 0.1.39 — unreleased
 
+- `CodeEditor` without the `syntax` feature, as in a browser, colors its buffer with the line lexer; it panicked on the first frame
 - Everything public in the five library crates has a doc comment, fields and variants included; the crates carry `#![warn(missing_docs)]`
 - Accessibility, read from AT-SPI as a screen reader gets it (`tools/atspi/run.sh`): `limn_egui::name_window` names the window; a date or time picker's field is called "Date" or "Time", or what `accessibility_label` says, and a day by its whole date; `Spinner::decorative` keeps a spinner inside a control out of the list, and the library's own nested spinners use it
 - Labels: the texts that were still fixed now come from `set_labels`: the pickers' placeholders, an alert's default titles, the find bar, Markdown's block labels, the code review hints and the editor's status line; `MarkdownLabels::default()` follows them

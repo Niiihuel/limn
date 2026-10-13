@@ -354,7 +354,11 @@ fn work(jobs: &Mutex<mpsc::Receiver<Job>>, wait: bool) {
                     break;
                 }
                 let line = match &job.source {
-                    Source::Buffer(_) => unreachable!("buffers use Tree-sitter"),
+                    // Without grammars a buffer is colored a line at a time, as a diff is.
+                    Source::Buffer(snapshot) => match (snapshot.line_text(row), snapshot.line_range(row)) {
+                        (Ok(text), Ok(range)) => highlight_line(&text, range.start, job.language, &mut state),
+                        _ => Vec::new(),
+                    },
                     Source::Diff(lines) => {
                         let line = &lines[row];
                         let text = line.text.trim_end_matches(['\r', '\n']);
