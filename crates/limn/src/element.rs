@@ -1,4 +1,4 @@
-use crate::{Color, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 pub const DEFAULT_FONT_SIZE: f32 = 14.0;
@@ -498,10 +498,12 @@ pub(crate) enum HoverReveal {
     Concealed,
 }
 
-/// The IDs under which the tree keeps an element's ink and a column's
-/// children across rebuilds.
+/// Rare paint effects and the IDs under which the tree keeps an element's
+/// ink and a column's children across rebuilds.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Kept {
+    /// Stored off the common element path: most elements have no material.
+    pub(crate) glass: Option<GlassMaterial>,
     pub(crate) foreground: Option<String>,
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
@@ -552,9 +554,8 @@ pub struct Element {
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
-    /// Set by [`Element::animate_foreground`] and [`Element::keep_leaving`].
-    /// Boxed together: few elements have either, and every element pays for
-    /// the field in the caches that hold built trees.
+    /// Rare paint and retained effects, including [`Element::glass`]. Boxed
+    /// together so ordinary elements do not grow in cached trees.
     pub(crate) kept: Option<Box<Kept>>,
     /// Set by [`Element::hover_region`] and [`Element::reveal_on_hover`];
     /// the latter keeps its ID in `presence`. One byte of existing padding.
@@ -1972,6 +1973,13 @@ impl Element {
 
     pub fn background(mut self, color: Color) -> Self {
         self.style.background = Some(color);
+        self
+    }
+
+    /// Add a backdrop material behind the element's background and children.
+    /// Leave the background transparent for the sampled scene to show through.
+    pub fn glass(mut self, material: GlassMaterial) -> Self {
+        self.kept.get_or_insert_default().glass = Some(material.normalized());
         self
     }
 

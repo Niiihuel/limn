@@ -9,6 +9,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
+mod glass;
+pub use glass::GlassRenderer;
 
 /// Colors of the effort slider, the only command without colors of its own.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1065,9 +1067,51 @@ pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
 }
 
 pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
+    paint_at_impl(ui, frame, origin, None, None);
+}
+
+#[derive(Clone, Copy)]
+struct BackdropSurface<'a> {
+    id: &'a str,
+    texture: egui::TextureId,
+    rect: EguiRect,
+}
+
+fn paint_at_impl(
+    ui: &egui::Ui,
+    frame: &Frame,
+    origin: Pos2,
+    glass: Option<(&GlassRenderer, EguiRect)>,
+    backdrop_surface: Option<BackdropSurface<'_>>,
+) {
     let mut clips = vec![ui.clip_rect()];
     for command in &frame.commands {
         match command {
+            DrawCommand::Glass {
+                rect: area,
+                radius,
+                material,
+                opacity,
+            } => {
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
+                let painted = glass.is_some_and(|(renderer, backdrop)| {
+                    renderer.paint_glass(ui, &painter, area, *radius, *material, *opacity, backdrop)
+                });
+                if !painted {
+                    let tint = material.tint;
+                    painter.rect_filled(
+                        area,
+                        CornerRadius::same(*radius as u8),
+                        Color32::from_rgba_unmultiplied(
+                            tint.r,
+                            tint.g,
+                            tint.b,
+                            (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+                        ),
+                    );
+                }
+            }
             DrawCommand::PushClip(area) => {
                 let next = clips
                     .last()
@@ -1372,11 +1416,17 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 response.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label)
                 });
-                // Nothing is painted until the host presents a first frame.
-                if let Some((texture, pixels, density)) = surface_texture(ui, id) {
-                    let painter = ui
-                        .painter()
-                        .with_clip_rect(clips.last().unwrap().intersect(area));
+                let painter = ui
+                    .painter()
+                    .with_clip_rect(clips.last().unwrap().intersect(area));
+                if let Some(backdrop) = backdrop_surface.filter(|backdrop| backdrop.id == id) {
+                    painter.image(
+                        backdrop.texture,
+                        backdrop.rect,
+                        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                        Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
+                    );
+                } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
                     painter.image(
                         texture,
                         surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),

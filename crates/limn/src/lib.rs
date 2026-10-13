@@ -39,6 +39,7 @@ mod flowchart;
 mod form_field;
 mod framed_card;
 mod geometry;
+mod glass;
 mod diagram_viewer;
 mod image_viewer;
 mod list_row;
@@ -52,6 +53,7 @@ mod menu;
 mod menu_bar;
 mod menu_header;
 mod modal;
+mod navigation_bar;
 mod motion;
 mod notice;
 mod output_block;
@@ -153,6 +155,7 @@ pub use flowchart::{
 pub use find_bar::{FindBar, FindIds, FindLabels, FindOptions};
 pub use file_icons::{file_icon, folder_icon, language_icon, FileIcon};
 pub use geometry::{Color, Point, Rect, Size};
+pub use glass::GlassMaterial;
 pub use diagram_viewer::DiagramViewer;
 pub use image_viewer::ImageViewer;
 pub use list_row::{DiffStat, ListRow, RowSizing};
@@ -169,6 +172,7 @@ pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
 pub use notice::{Notice, NoticeSizing};
+pub use navigation_bar::{NavigationAction, NavigationBar, NavigationWorkspace};
 pub use output_block::OutputBlock;
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
 pub use message_actions::{
