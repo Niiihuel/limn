@@ -139,6 +139,9 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     // Every message is as wide as the conversation it is in.
     sections
         .into_iter()
-        .map(|section| Section { body: section.body.size(Some(width), None), ..section })
+        .map(|section| Section {
+            demos: vec![Element::column(section.demos).gap(12.0).size(Some(width), None)],
+            ..section
+        })
         .collect()
 }

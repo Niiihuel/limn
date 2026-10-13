@@ -4,7 +4,7 @@
 //! `fn view(&Cx) -> Vec<Section>`, and list the component in [`PAGES`].
 
 use crate::app::State;
-use limn::{ComponentPalette, Element, FontFamily, UiAction};
+use limn::{ComponentPalette, Element, ElementKind, FontFamily, UiAction};
 
 mod blocks;
 mod buttons;
@@ -51,12 +51,15 @@ pub struct Page {
 impl Page {
     /// This page's sections, one under another.
     pub fn render(&self, cx: &Cx) -> Element {
-        let sections = (self.view)(cx)
+        let mut sections: Vec<Section> = (self.view)(cx)
             .into_iter()
             .filter(|section| self.sections.is_empty() || self.sections.contains(&section.title.as_str()))
-            .map(|section| section.render(cx))
             .collect();
-        Element::column(sections).gap(32.0)
+        // Embedded under the component's name, a lone section's title repeats it.
+        if cx.state.flag("embed") && sections.len() == 1 {
+            sections[0].title.clear();
+        }
+        Element::column(sections.into_iter().map(|section| section.render(cx)).collect()).gap(32.0)
     }
 }
 
@@ -154,7 +157,7 @@ pub struct Cx<'a> {
 pub fn caption(cx: &Cx, text: &str) -> Element {
     Element::text(text)
         .font_family(FontFamily::Sans)
-        .font_size(12.0)
+        .font_size(CAPTION_SIZE)
         .foreground(cx.palette.muted)
 }
 
@@ -162,28 +165,72 @@ pub fn caption(cx: &Cx, text: &str) -> Element {
 /// several a module draws.
 pub struct Section {
     pub title: String,
-    pub body: Element,
+    pub demos: Vec<Element>,
 }
 
 impl Section {
     fn render(self, cx: &Cx) -> Element {
+        if cx.state.flag("embed") {
+            return self.showcase(cx);
+        }
+        let body = Element::column(self.demos).gap(12.0);
         if self.title.is_empty() {
-            self.body
+            body
         } else {
-            titled(cx, &self.title, vec![self.body])
+            titled(cx, &self.title, vec![body])
         }
     }
+
+    /// As a site shows it: each variant apart from the next and centered, a
+    /// demo with the captions that follow it being one variant.
+    fn showcase(self, cx: &Cx) -> Element {
+        let mut variants: Vec<Vec<Element>> = Vec::new();
+        for demo in self.demos {
+            match variants.last_mut() {
+                // A caption before any demo opens the first variant.
+                Some(variant) if is_caption(&demo) || variant.iter().all(is_caption) => variant.push(demo),
+                _ => variants.push(vec![demo]),
+            }
+        }
+        let mut rows = Vec::new();
+        if !self.title.is_empty() {
+            rows.push(titled(cx, &self.title, Vec::new()).centered_x());
+        }
+        for (index, variant) in variants.into_iter().enumerate() {
+            if index > 0 {
+                rows.push(Element::panel(Element::spacer()).background(cx.palette.border).size(None, Some(1.0)));
+            }
+            rows.push(Element::column(variant.into_iter().map(|demo| natural(demo).centered_x()).collect()).gap(10.0));
+        }
+        Element::column(rows).gap(20.0)
+    }
+}
+
+const CAPTION_SIZE: f32 = 12.0;
+
+fn is_caption(element: &Element) -> bool {
+    matches!(element.kind, ElementKind::Text(_)) && element.style.font_size == CAPTION_SIZE
+}
+
+/// A `row` without the spacer that keeps it at the left, so it can be centered.
+fn natural(mut element: Element) -> Element {
+    if let ElementKind::Row(children) = &mut element.kind {
+        if matches!(children.last().map(|child| &child.kind), Some(ElementKind::Spacer)) {
+            children.pop();
+        }
+    }
+    element
 }
 
 /// What a module shows without a title of its own.
 impl From<Element> for Section {
-    fn from(body: Element) -> Self {
-        Section { title: String::new(), body }
+    fn from(demo: Element) -> Self {
+        Section { title: String::new(), demos: vec![demo] }
     }
 }
 
 pub fn section(_cx: &Cx, title: &str, demos: Vec<Element>) -> Section {
-    Section { title: title.to_owned(), body: Element::column(demos).gap(12.0) }
+    Section { title: title.to_owned(), demos }
 }
 
 /// Demos under a title, as one element.

@@ -1,6 +1,7 @@
 ---
 import { getEntry, render } from 'astro:content';
 import Shell from '../../layouts/Shell.astro';
+import Icon from '../../components/Icon.astro';
 import { COMPONENTS, REPO, groups } from '../../data/site';
 import { lead } from '../../data/guide';
 
@@ -18,17 +19,13 @@ const side = [
   { group: 'Components', items: [{ href: '/components/', label: 'All components' }] },
   ...groups(COMPONENTS).map(({ group, items }) => ({ group, items: items.map(({ id, title }) => ({ href: `/components/${id}/`, label: title })) })),
 ];
-const toc = [{ depth: 2, slug: 'example', text: 'Example' }, ...headings.filter(({ depth }) => depth === 2 || depth === 3)];
+const toc = [...headings.filter(({ depth }) => depth === 2 || depth === 3)];
 ---
 <Shell title={component.title} description={about || `${component.title}, a limn component.`} side={side} toc={toc}>
   <h1>{component.title}</h1>
   {about && <p class="lead">{about}</p>}
 
-  <div class="example" id="example"><span class="eyebrow">Example</span><span class="eyebrow">Rust &amp; WebAssembly</span></div>
-  <div class="window">
-    <header><i></i><i></i><i></i><span>{component.title} — limn</span></header>
-    <iframe title={`${component.title}, live`} data-page={component.id} loading="lazy"></iframe>
-  </div>
+  <iframe class="live" id="example" title={`${component.title}, live`} data-page={component.id} style={`height:${component.group === 'Overlays' ? 420 : 200}px`}></iframe>
 
   {Content ? (
     <article class="prose guide"><Content /></article>
@@ -41,5 +38,5 @@ const toc = [{ depth: 2, slug: 'example', text: 'Example' }, ...headings.filter(
       </p>
     </div>
   )}
-  <p class="source">The example is drawn by <a href={`${REPO}/blob/main/${file}`}><code>{file}</code></a>.</p>
+  <p class="source"><Icon name="code-slash" size={14} /> The example is drawn by <a href={`${REPO}/blob/main/${file}`}><code>{file}</code></a>.</p>
 </Shell>

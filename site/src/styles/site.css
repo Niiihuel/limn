@@ -65,8 +65,6 @@ code, pre, kbd { font-family: var(--mono); font-size: 13px; }
 .window header span { margin: 0 auto; transform: translateX(-27px); }
 .window iframe { display: block; width: 100%; height: 560px; border: 0; background: var(--card); }
 .window pre { margin: 0; border: 0 !important; border-radius: 0 !important; }
-.example { display: flex; justify-content: space-between; margin: 28px 0 8px; }
-.example .eyebrow:last-child { color: var(--accent); }
 
 .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: center; max-width: 1440px; margin: 0 auto; padding: 84px clamp(16px, 5vw, 80px) 72px; }
 .hero h1 { margin: 18px 0; font-size: clamp(36px, 5vw, 56px); line-height: 1.04; letter-spacing: -0.03em; }
@@ -96,4 +94,18 @@ footer { padding: 28px clamp(16px, 5vw, 80px); border-top: 1px solid var(--line)
 .guide > h2:first-of-type { margin-top: 36px; }
 .source { margin-top: 40px; color: var(--muted); font-size: 13px; }
 .source a { color: var(--link); }
-.window iframe { height: 440px; }
+/* A live example is a block like a code block: a line around its ground. */
+.live { display: block; width: 100%; margin: 28px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--code); }
+.toc a.active { color: var(--fg); border-left-color: var(--fg); }
+/* Bootstrap icons sit on the text's line and take its color. */
+svg.bi { flex: none; vertical-align: -0.125em; }
+.bar nav a, .bar .end a, .button, .grid h3, .cargo { display: inline-flex; align-items: center; gap: 7px; }
+.bar button { display: inline-flex; padding: 7px 9px; }
+:root[data-theme="light"] .when-dark, :root:not([data-theme="light"]) .when-light { display: none; }
+.code { position: relative; }
+.copy { all: unset; position: absolute; top: 8px; right: 8px; display: inline-flex; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 120ms; }
+.code:hover .copy, .copy:focus-visible, .copy.copied { opacity: 1; }
+.copy:hover { color: var(--fg); }
+.copy .done, .copy.copied .idle { display: none; }
+.copy.copied .done { display: inline-flex; color: var(--accent); }
+.window .code pre { margin: 0; }

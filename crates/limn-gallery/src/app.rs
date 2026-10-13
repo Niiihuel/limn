@@ -215,7 +215,13 @@ pub fn view(state: &State, window: Size) -> Element {
         ]
     };
     let root = Element::panel(Element::row(content))
-    .background(theme.background)
+    // A site that embeds a page gives it its own ground, as `embed-bg=rrggbb`.
+    .background(
+        u32::from_str_radix(state.text("embed-bg"), 16)
+            .ok()
+            .filter(|_| state.flag("embed"))
+            .map_or(theme.background, |rgb| limn::Color::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)),
+    )
     .size(Some(window.width), Some(window.height));
     // Dialogs and toasts float over the whole window, whatever the page.
     pages::layers(&cx, root)
@@ -235,6 +241,10 @@ mod tests {
                     let mut state = State::starting_at(page.id);
                     if light {
                         state.set("light", "on");
+                    }
+                    // The widest window is also the page alone, as a site embeds it.
+                    if width > 2000.0 {
+                        state.set("embed", "on");
                     }
                     let window = Size::new(width, 800.0);
                     let frame = UiTree::new(view(&state, window)).layout(window);

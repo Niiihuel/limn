@@ -20,4 +20,22 @@ const path = Astro.url.pathname;
       {toc.map(({ depth, slug, text }) => <a href={`#${slug}`} class={depth > 2 ? 'sub' : undefined}>{text}</a>)}
     </aside>
   </div>
+  <script is:inline>
+    // The heading being read is marked in "On this page": the last one above a line near the top.
+    {
+      const links = [...document.querySelectorAll('.toc a')];
+      const heads = links.map((link) => document.getElementById(decodeURIComponent(link.hash.slice(1)))).filter(Boolean);
+      const mark = () => {
+        let current = heads[0];
+        for (const head of heads) if (head.getBoundingClientRect().top <= 96) current = head;
+        // At the end of the page the last headings never reach the line.
+        if (innerHeight + scrollY >= document.documentElement.scrollHeight - 2) current = heads.at(-1);
+        for (const link of links) link.classList.toggle('active', current && link.hash === `#${current.id}`);
+      };
+      if (heads.length) {
+        addEventListener('scroll', mark, { passive: true });
+        mark();
+      }
+    }
+  </script>
 </Base>

@@ -1,6 +1,7 @@
 ---
 import { Code } from 'astro:components';
 import Base from '../layouts/Base.astro';
+import Icon from '../components/Icon.astro';
 import { COMPONENTS, REPO } from '../data/site';
 
 const counter = `fn view(state: &State, palette: ComponentPalette) -> Element {
@@ -21,15 +22,15 @@ fn update(state: &mut State, action: &UiAction) {
 }`;
 
 const capabilities = [
-  ['Declarative', 'The window is a function of your state, rebuilt every frame. Controls keep their own state by ID.', ['Element', 'UiTree', 'UiAction']],
-  ['Backend-neutral', 'The core has no window or graphics dependency: it produces drawing commands. An egui and wgpu backend is included.', ['Frame', 'DrawCommand', 'limn-egui']],
-  ['Animated by default', 'Menus, dialogs, tooltips and controls move without application code, and one switch turns all of it off.', ['Motion', 'set_reduced_motion']],
-  ['Themeable', 'Three colors define a palette; tokens set corner radii and pace for the whole application.', ['Theme', 'ComponentPalette', 'Tokens']],
-  ['Testable', 'A test lays out a tree and inspects the frame. No window, no GPU, no screenshots to compare.', ['UiTree::layout', 'Frame::regions']],
-  ['A real code editor', 'A rope-backed editor with folding, a minimap, search and Vim keys, and Tree-sitter highlighting behind a feature.', ['CodeEditor', 'limn-editor', 'limn-language']],
-  ['Native Markdown and diagrams', 'Markdown, Mermaid flowcharts and sequence diagrams are laid out and drawn by the library, not by a web view.', ['Markdown', 'DiagramViewer']],
-  ['Liquid glass', 'A material that blurs, tints and refracts the scene behind a surface, with a rim that bends what enters it.', ['GlassMaterial', 'NavigationBar']],
-  ['Runs in a browser', 'The same tree compiles to WebAssembly. Every example on this site is the library, not a recording.', ['wasm32', 'WebGL 2', 'WebGPU']],
+  ['Declarative', 'The window is a function of your state, rebuilt every frame. Controls keep their own state by ID.', ['Element', 'UiTree', 'UiAction'], 'diagram-3'],
+  ['Backend-neutral', 'The core has no window or graphics dependency: it produces drawing commands. An egui and wgpu backend is included.', ['Frame', 'DrawCommand', 'limn-egui'], 'layers'],
+  ['Animated by default', 'Menus, dialogs, tooltips and controls move without application code, and one switch turns all of it off.', ['Motion', 'set_reduced_motion'], 'lightning-charge'],
+  ['Themeable', 'Three colors define a palette; tokens set corner radii and pace for the whole application.', ['Theme', 'ComponentPalette', 'Tokens'], 'palette'],
+  ['Testable', 'A test lays out a tree and inspects the frame. No window, no GPU, no screenshots to compare.', ['UiTree::layout', 'Frame::regions'], 'check2-circle'],
+  ['A real code editor', 'A rope-backed editor with folding, a minimap, search and Vim keys, and Tree-sitter highlighting behind a feature.', ['CodeEditor', 'limn-editor', 'limn-language'], 'code-slash'],
+  ['Native Markdown and diagrams', 'Markdown, Mermaid flowcharts and sequence diagrams are laid out and drawn by the library, not by a web view.', ['Markdown', 'DiagramViewer'], 'markdown'],
+  ['Liquid glass', 'A material that blurs, tints and refracts the scene behind a surface, with a rim that bends what enters it.', ['GlassMaterial', 'NavigationBar'], 'droplet-half'],
+  ['Runs in a browser', 'The same tree compiles to WebAssembly. Every example on this site is the library, not a recording.', ['wasm32', 'WebGL 2', 'WebGPU'], 'globe2'],
 ];
 ---
 <Base>
@@ -42,13 +43,13 @@ const capabilities = [
         commands. {COMPONENTS.length} components with a live page each, animated by default, testable without a window.
       </p>
       <div class="actions">
-        <a class="button primary" href="/docs/getting-started/">Get started →</a>
-        <a class="button" href="/components/">Browse components</a>
+        <a class="button primary" href="/docs/getting-started/">Get started<Icon name="arrow-right" /></a>
+        <a class="button" href="/components/"><Icon name="grid" />Browse components</a>
       </div>
       <ul class="facts">
         <li>Linux today, and the browser through WebAssembly · version 0.1, the API still changes</li>
       </ul>
-      <code class="cargo">limn = {`{ git = "${REPO}" }`}</code>
+      <code class="cargo"><Icon name="box-seam" size={14} /> limn = {`{ git = "${REPO}" }`}</code>
     </div>
     <div class="window">
       <header><i></i><i></i><i></i><span>main.rs</span></header>
@@ -70,9 +71,9 @@ const capabilities = [
     <p class="eyebrow">Capabilities</p>
     <h2>What a desktop application needs, in one tree.</h2>
     <div class="grid">
-      {capabilities.map(([title, text, tags]) => (
+      {capabilities.map(([title, text, tags, icon]) => (
         <article>
-          <h3>{title}</h3>
+          <h3><Icon name={icon} />{title}</h3>
           <p>{text}</p>
           <div class="tags">{tags.map((tag) => <code>{tag}</code>)}</div>
         </article>

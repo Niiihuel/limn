@@ -437,6 +437,26 @@ const LOGO: &str = include_str!("../assets/logo.svg");
 Element::icon(Icon::Custom(LOGO)).foreground(palette.text)
 ```
 
+To draw the semantic icons from another set, give the backend a pack: a
+function from an `Icon` to the SVG that draws it, or `None` to leave that one
+to Bootstrap. Call it once, when the window is created:
+
+```rust
+fn lucide(icon: Icon) -> Option<&'static str> {
+    match icon {
+        Icon::Search => Some(include_str!("../assets/lucide/search.svg")),
+        Icon::Trash => Some(include_str!("../assets/lucide/trash-2.svg")),
+        _ => None,
+    }
+}
+
+limn_egui::set_icon_pack(lucide);
+```
+
+The artwork must draw with `currentColor`, as `Icon::Custom` does, and is
+fitted to the icon's square. Components keep asking for `Icon::Search`; only
+what it looks like changes.
+
 `icon.filled()` returns the solid form of an icon, for the chosen item of a
 navigation list; an icon without one is returned unchanged.
 
