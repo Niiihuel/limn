@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "Original retained-state UI tree, layout, events and backend-neutral drawing"
 
+[lints]
+workspace = true
+
 [features]
 default = ["syntax"]
 # Tree-sitter highlighting. Without it code views fall back to the line lexer.

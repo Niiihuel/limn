@@ -316,6 +316,8 @@ impl FindBar {
     }
 }
 
+// A width that is not a number counts as narrow.
+#[allow(clippy::neg_cmp_op_on_partial_ord)]
 fn options_below(width: f32, replace_open: bool) -> bool {
     !(width >= INLINE_OPTIONS_WIDTH) || replace_open
 }

@@ -1,5 +1,5 @@
 //! Compact native resource hierarchy, inspired by Rust/UI's composition.
-//! Reference: https://rust-ui.com/docs/components/breadcrumb
+//! Reference: <https://rust-ui.com/docs/components/breadcrumb>
 //! Labels and actions are supplied by the host; no navigation is inferred.
 use crate::{
     Component, ComponentPalette, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, Element,

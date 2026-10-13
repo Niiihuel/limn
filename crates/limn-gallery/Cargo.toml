@@ -8,6 +8,9 @@ repository.workspace = true
 description = "Component gallery for limn, with hot-patched views"
 publish = false
 
+[lints]
+workspace = true
+
 [features]
 # Hot-patch views while running under `dx serve --hot-patch`.
 # The crate versions must match the `dx` binary.

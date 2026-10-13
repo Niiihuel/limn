@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "File drag and drop with other applications for windows limn does not own (Wayland)"
 
+[lints]
+workspace = true
+
 [dependencies]
 raw-window-handle = "0.6"
 

@@ -331,10 +331,7 @@ pub(crate) fn url_token_len(value: &str) -> usize {
         }
     }
     let mut candidate = &value[..end];
-    loop {
-        let Some(last) = candidate.chars().last() else {
-            break;
-        };
+    while let Some(last) = candidate.chars().last() {
         let closing = match last {
             ')' => Some(0),
             ']' => Some(1),

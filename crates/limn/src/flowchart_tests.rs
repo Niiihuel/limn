@@ -273,7 +273,7 @@ fn a_child_a_few_pixels_off_its_parent_is_joined_by_a_straight_line() {
         for path in &layout.edges {
             let (first, last) = (path.points[0], path.points[path.points.len() - 1]);
             let across = (first.x - last.x).abs();
-            assert!(across < 0.01 || across >= 16.0, "a {across} px jog at scale {scale}: {:?}", path.points);
+            assert!(!(0.01..16.0).contains(&across), "a {across} px jog at scale {scale}: {:?}", path.points);
         }
     }
 }

@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "Independent Unicode text buffer and viewport primitives"
 
+[lints]
+workspace = true
+
 [dependencies]
 ropey = "1.6.1"
 unicode-segmentation = "1.13.3"

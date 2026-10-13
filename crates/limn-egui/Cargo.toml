@@ -7,6 +7,9 @@ license.workspace = true
 repository.workspace = true
 description = "egui/wgpu renderer and input adapter for limn frames"
 
+[lints]
+workspace = true
+
 [features]
 default = ["syntax"]
 syntax = ["limn/syntax"]

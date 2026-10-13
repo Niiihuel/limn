@@ -561,7 +561,7 @@ fn tick_text(value: f64, integer: bool) -> String {
     if value == 0.0 {
         return "0".into();
     }
-    if value >= 1_000_000.0 || value < 0.01 {
+    if !(0.01..1_000_000.0).contains(&value) {
         return format!("{value:.0e}");
     }
     if integer || value.fract() == 0.0 {

@@ -115,7 +115,7 @@ impl EditorView {
             height: layout.content_height.to_bits(),
             text: self.editor.palette.text,
             highlight_identity: external_syntax
-                .then(|| Arc::as_ptr(&self.editor.highlights) as *const CodeHighlight as usize),
+                .then_some(Arc::as_ptr(&self.editor.highlights) as *const CodeHighlight as usize),
             syntax_pending: !external_syntax && self.syntax.pending(),
         };
         if self.minimap_cache.key.as_ref() != Some(&key) {

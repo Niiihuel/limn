@@ -9956,7 +9956,7 @@ impl LayoutBuilder<'_> {
                         4.0,
                         height,
                     );
-                    if clip.map_or(true, |clip| clip.intersection(thumb).is_some()) {
+                    if clip.is_none_or(|clip| clip.intersection(thumb).is_some()) {
                         self.frame.commands.push(DrawCommand::FillRect {
                             rect: thumb,
                             color: crate::ScrollbarAppearance::default().thumb_color(

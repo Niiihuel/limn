@@ -317,7 +317,7 @@ mod tests {
         );
         assert!(advance_phase(phase, Duration::from_secs(60), true, 1.0) - phase <= 0.201);
         assert!(advance_phase(phase, Duration::from_millis(16), true, f32::NAN).is_finite());
-        assert!(advance_phase(6.28, Duration::from_secs(1), true, 1.0) < std::f32::consts::TAU);
+        assert!(advance_phase(std::f32::consts::TAU - 0.003, Duration::from_secs(1), true, 1.0) < std::f32::consts::TAU);
     }
 
     #[test]
