@@ -13,6 +13,7 @@ use crate::{Element, FontFamily, Icon};
 pub struct TimePicker {
     id: String,
     value: String,
+    enabled: bool,
     palette: ComponentPalette,
 }
 
@@ -21,8 +22,22 @@ impl TimePicker {
         Self {
             id: id.into(),
             value: value.into(),
+            enabled: true,
             palette,
         }
+    }
+
+    /// A disabled picker shows its time in muted ink and is passive: the field
+    /// and the hour and minute buttons take no pointer or focus and report
+    /// nothing.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
     }
 
     pub fn is_valid_time(value: &str) -> bool {
@@ -50,11 +65,12 @@ impl TimePicker {
         IconButton::new(format!("{}:{suffix}", self.id), icon, self.palette)
             .size(ControlSize::Compact)
             .variant(crate::ButtonVariant::Ghost)
+            .enabled(self.enabled)
             .render()
     }
 
     fn unit(&self, label: &str, display: String, down: &str, up: &str) -> Element {
-        let ink = self.palette.text;
+        let ink = if self.enabled { self.palette.text } else { self.palette.muted };
         Element::column(vec![
             Element::text(label)
                 .font_family(FontFamily::Sans)
@@ -88,6 +104,7 @@ impl Component for TimePicker {
         let input = TextField::new(&self.id, &self.value, "HH:MM", self.palette)
             .size(ControlSize::Compact)
             .width(92.0)
+            .enabled(self.enabled)
             .render();
         let controls = Element::row(vec![
             self.unit(crate::labels().hour, hour, "hour_down", "hour_up"),
@@ -117,7 +134,7 @@ fn parse_time(value: &str) -> Option<(u8, u8)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Key, Size, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, HitKind, Key, Point, Rect, Size, UiAction, UiEvent, UiTree};
 
     #[test]
     fn validates_exact_24_hour_times() {
@@ -176,5 +193,55 @@ mod tests {
                 id: "time:minute_up".into()
             }]
         );
+    }
+
+    #[test]
+    fn a_disabled_picker_takes_no_pointer_or_focus_and_keeps_its_place() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(300.0, 100.0);
+        let picker = |enabled| TimePicker::new("time", "09:05", palette).enabled(enabled).render();
+        // The hour and the minute, and the arrows either side of each.
+        let places = |frame: &crate::Frame| {
+            let digits: Vec<Point> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, .. } if text == "09" || text == "05" => Some(*position),
+                    _ => None,
+                })
+                .collect();
+            let arrows: Vec<Rect> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Icon { rect, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect();
+            (digits, arrows)
+        };
+        let enabled = UiTree::new(picker(true)).layout(size);
+        let up = enabled.regions.iter().find(|region| region.id == "time:minute_up").unwrap().rect;
+        let mut tree = UiTree::new(picker(false));
+        let frame = tree.layout(size);
+        assert!(frame
+            .regions
+            .iter()
+            .all(|region| !matches!(region.kind, HitKind::Button | HitKind::TextInput)));
+        for id in ["time", "time:hour_up", "time:hour_down", "time:minute_up", "time:minute_down"] {
+            assert!(!tree.focus(id), "{id}");
+        }
+        let point = Point::new(up.x + up.width / 2.0, up.y + up.height / 2.0);
+        assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert!(frame.commands.iter().all(|command| match command {
+            DrawCommand::Text { color, .. } => *color == palette.muted,
+            DrawCommand::Icon { tint, .. } => *tint == palette.muted,
+            _ => true,
+        }));
+        let (digits, arrows) = places(&frame);
+        assert_eq!((digits.len(), arrows.len()), (2, 4));
+        assert_eq!((digits, arrows), places(&enabled));
     }
 }

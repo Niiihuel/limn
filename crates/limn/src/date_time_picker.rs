@@ -15,6 +15,7 @@ pub struct DateTimePicker {
     date_value: String,
     time_value: String,
     display_month: Option<(i32, u32)>,
+    enabled: bool,
     palette: ComponentPalette,
 }
 
@@ -32,6 +33,7 @@ impl DateTimePicker {
             date_value: date_value.into(),
             time_value: time_value.into(),
             display_month: None,
+            enabled: true,
             palette,
         }
     }
@@ -40,11 +42,25 @@ impl DateTimePicker {
         self.display_month = Some((year, month));
         self
     }
+
+    /// A disabled picker disables its date and its time alike: both show
+    /// their values in muted ink and nothing in them takes the pointer or
+    /// focus.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 impl Component for DateTimePicker {
     fn render(self) -> Element {
-        let mut date = DatePicker::new(self.date_id, self.date_value, self.palette);
+        let mut date =
+            DatePicker::new(self.date_id, self.date_value, self.palette).enabled(self.enabled);
         if let Some((year, month)) = self.display_month {
             date = date.display_month(year, month);
         }
@@ -58,7 +74,9 @@ impl Component for DateTimePicker {
             label(crate::labels().date),
             date.render(),
             label(crate::labels().local_time),
-            TimePicker::new(self.time_id, self.time_value, self.palette).render(),
+            TimePicker::new(self.time_id, self.time_value, self.palette)
+                .enabled(self.enabled)
+                .render(),
         ])
         .gap(6.0)
     }
@@ -67,7 +85,7 @@ impl Component for DateTimePicker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Size, UiTree};
+    use crate::{DrawCommand, HitKind, Key, Point, Size, UiEvent, UiTree};
 
     #[test]
     fn exposes_date_and_time_as_independent_controls() {
@@ -115,5 +133,51 @@ mod tests {
                 region.rect
             );
         }
+    }
+
+    #[test]
+    fn a_disabled_picker_disables_its_date_and_its_time_and_keeps_its_place() {
+        let size = Size::new(340.0, 480.0);
+        let picker = |enabled| {
+            DateTimePicker::new(
+                "task_date",
+                "task_time",
+                "2025-05-14",
+                "09:30",
+                ComponentPalette::neutral_dark(),
+            )
+            .display_month(2025, 5)
+            .enabled(enabled)
+            .render()
+        };
+        // The day numbers, the hour and the minute: everything under both fields.
+        let places = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, .. } if text.len() <= 2 => {
+                        Some((text.clone(), *position))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let enabled = UiTree::new(picker(true)).layout(size);
+        let mut tree = UiTree::new(picker(false));
+        let frame = tree.layout(size);
+        assert!(frame
+            .regions
+            .iter()
+            .all(|region| !matches!(region.kind, HitKind::Button | HitKind::TextInput)));
+        for id in ["task_date", "task_date:day:2025-05-14", "task_time", "task_time:minute_up"] {
+            assert!(!tree.focus(id), "{id}");
+            let rect = enabled.regions.iter().find(|region| region.id == id).unwrap().rect;
+            let point = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+            assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty(), "{id}");
+            assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty(), "{id}");
+        }
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert_eq!(places(&frame), places(&enabled));
     }
 }

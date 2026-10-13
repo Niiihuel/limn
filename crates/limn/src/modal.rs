@@ -11,6 +11,7 @@ use crate::{
 pub struct DismissButton {
     id: String,
     action_id: Option<String>,
+    enabled: bool,
     palette: ComponentPalette,
 }
 
@@ -19,6 +20,7 @@ impl DismissButton {
         Self {
             id: id.into(),
             action_id: None,
+            enabled: true,
             palette,
         }
     }
@@ -27,29 +29,41 @@ impl DismissButton {
         self.action_id = Some(action.into());
         self
     }
+
+    /// A disabled one is passive: the same icon and hint in the same place,
+    /// with no hover, hit region or focus, and nothing dispatched.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 impl Component for DismissButton {
     fn render(self) -> Element {
-        let mut button = self
-            .palette
-            .interactive_surface(Element::clickable(
-                self.id.clone(),
-                Element::column(vec![
-                    Element::spacer().flex(1.0),
-                    Element::row(vec![
-                        Element::spacer().flex(1.0),
-                        Element::icon(Icon::Close)
-                            .foreground(self.palette.muted)
-                            .size(Some(16.0), Some(16.0)),
-                        Element::spacer().flex(1.0),
-                    ])
-                    .size(None, Some(16.0)),
-                    Element::spacer().flex(1.0),
-                ]),
-            ))
-            .size(Some(24.0), Some(24.0));
-        if let Some(action) = self.action_id {
+        let icon = Element::column(vec![
+            Element::spacer().flex(1.0),
+            Element::row(vec![
+                Element::spacer().flex(1.0),
+                Element::icon(Icon::Close)
+                    .foreground(self.palette.muted)
+                    .size(Some(16.0), Some(16.0)),
+                Element::spacer().flex(1.0),
+            ])
+            .size(None, Some(16.0)),
+            Element::spacer().flex(1.0),
+        ]);
+        let mut button = if self.enabled {
+            self.palette.interactive_surface(Element::clickable(self.id.clone(), icon))
+        } else {
+            Element::panel(icon)
+        }
+        .size(Some(24.0), Some(24.0));
+        if let Some(action) = self.action_id.filter(|_| self.enabled) {
             button = button.dispatch_as(action);
         }
         Tooltip::new(button, self.id, crate::labels().close, self.palette)
@@ -319,6 +333,45 @@ mod tests {
                 id: "dismiss".into()
             }]
         );
+    }
+
+    #[test]
+    fn a_disabled_dismiss_icon_keeps_its_place_and_takes_no_pointer_or_focus() {
+        let palette = ComponentPalette::neutral_dark();
+        let tree_of = |enabled| {
+            let mut tree = UiTree::new(
+                DismissButton::new("close", palette)
+                    .dispatch_as("dismiss")
+                    .enabled(enabled)
+                    .render(),
+            );
+            tree.set_reduced_motion(true);
+            tree
+        };
+        let icon = |frame: &crate::Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                crate::DrawCommand::Icon { rect, icon: Icon::Close, tint } => Some((*rect, *tint)),
+                _ => None,
+            })
+        };
+        let viewport = Size::new(24.0, 24.0);
+        let enabled = tree_of(true).layout(viewport);
+        let mut tree = tree_of(false);
+        let disabled = tree.layout(viewport);
+        assert!(!disabled.regions.iter().any(|region| region.kind == HitKind::Button));
+        let point = Point::new(12.0, 12.0);
+        tree.handle_event(UiEvent::PointerMove(point));
+        assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        for id in ["close", "dismiss"] {
+            assert!(!tree.focus(id));
+        }
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        assert!(tree.handle_event(enter).is_empty());
+        assert_eq!(icon(&disabled), icon(&enabled));
+        assert_eq!(icon(&disabled).unwrap().1, palette.muted);
+        // No hover fill: under the pointer it paints what it did at rest.
+        assert_eq!(tree.layout(viewport).commands, disabled.commands);
     }
 
     #[test]

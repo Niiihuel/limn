@@ -84,6 +84,15 @@ through `UiTree::cursor` and the host's backend applies it; with egui that
 is `limn_egui::set_cursor(ctx, tree.cursor())` once a frame, after the
 layout.
 
+## Disabled
+
+```rust
+ResizeHandle::vertical("split", palette).enabled(state.resizable).render()
+```
+
+A disabled handle keeps its place and its thickness, so the panes do not
+move. It cannot be dragged or focused, and the pointer keeps its shape.
+
 ## Actions
 
 | Action | When |

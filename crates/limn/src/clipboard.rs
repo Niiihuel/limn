@@ -22,6 +22,7 @@ pub struct Clipboard {
     copied: bool,
     size: ControlSize,
     variant: ButtonVariant,
+    enabled: bool,
 }
 
 impl Clipboard {
@@ -36,6 +37,7 @@ impl Clipboard {
             copied: false,
             size: ControlSize::Compact,
             variant: ButtonVariant::Ghost,
+            enabled: true,
         }
     }
 
@@ -66,6 +68,18 @@ impl Clipboard {
         self.variant = variant;
         self
     }
+
+    /// A disabled one is passive: a muted icon and label with the hint kept,
+    /// and no hover, hit region or focus.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 impl Component for Clipboard {
@@ -74,6 +88,7 @@ impl Component for Clipboard {
         let mut button = IconButton::new(self.id, icon, self.palette)
             .variant(self.variant)
             .size(self.size)
+            .enabled(self.enabled)
             .tooltip(self.title);
         if let Some(label) = self.label {
             button = button.label(label);
@@ -90,7 +105,7 @@ impl Component for Clipboard {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, Frame, Point, Size, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, Frame, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
     use std::time::{Duration, Instant};
 
     const SIZE: Size = Size::new(200.0, 60.0);
@@ -138,5 +153,50 @@ mod tests {
         assert!(copied.shows("copy-link", now + Duration::from_millis(1400)));
         assert!(!copied.shows("copy-link", now + Duration::from_millis(1600)));
         assert!(!copied.shows("copy-path", now));
+    }
+
+    #[test]
+    fn a_disabled_one_is_muted_takes_no_pointer_or_focus_and_keeps_its_place() {
+        let palette = ComponentPalette::neutral_dark();
+        let tree_of = |enabled| {
+            let button = Clipboard::new("copy-link", "Copiar enlace", palette)
+                .label("Copiar enlace")
+                .enabled(enabled)
+                .render();
+            let mut tree = UiTree::new(Element::column(vec![
+                Element::row(vec![button, Element::text("after")]),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(true);
+            tree
+        };
+        // The icon and each line of text, with its place and its ink.
+        let marks = |frame: &Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Icon { rect, tint, .. } => Some((Point::new(rect.x, rect.y), *tint)),
+                    DrawCommand::Text { position, color, .. } => Some((*position, *color)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let enabled = tree_of(true).layout(SIZE);
+        let mut tree = tree_of(false);
+        let disabled = tree.layout(SIZE);
+        assert!(!disabled.regions.iter().any(|region| region.kind == HitKind::Button));
+        let point = Point::new(10.0, 10.0);
+        tree.handle_event(UiEvent::PointerMove(point));
+        assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        assert!(!tree.focus("copy-link"));
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        assert!(tree.handle_event(enter).is_empty());
+        let (was, now) = (marks(&enabled), marks(&disabled));
+        // The icon and the label are muted; the text beside it is not the button's.
+        assert_eq!((now[0].1, now[1].1), (palette.muted, palette.muted));
+        let places = |marks: &[(Point, crate::Color)]| marks.iter().map(|mark| mark.0).collect::<Vec<_>>();
+        assert_eq!(places(&now), places(&was));
     }
 }

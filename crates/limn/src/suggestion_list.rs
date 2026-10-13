@@ -24,6 +24,7 @@ pub struct SuggestionItem {
     description: String,
     icon: Option<Icon>,
     section: Option<String>,
+    enabled: bool,
 }
 
 impl SuggestionItem {
@@ -35,6 +36,7 @@ impl SuggestionItem {
             description: String::new(),
             icon: None,
             section: None,
+            enabled: true,
         }
     }
 
@@ -55,6 +57,19 @@ impl SuggestionItem {
     pub fn section(mut self, label: impl Into<String>) -> Self {
         self.section = Some(label.into());
         self
+    }
+
+    /// A disabled suggestion keeps its row with icon and label in `muted`.
+    /// It is passive: a click on it reports nothing, and it does not take
+    /// the highlight, so the host's `selected_index` should step over it.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
     }
 }
 
@@ -238,11 +253,12 @@ impl Component for SuggestionList {
                         .size(Some(row_width), Some(ROW_HEIGHT)),
                         Slot::Item(index) => {
                             let item = &items[index];
+                            let ink = if item.enabled { palette.text } else { palette.muted };
                             let mut row = Vec::with_capacity(2);
                             if let Some(icon) = item.icon {
                                 row.push(
                                     Element::icon(icon)
-                                        .foreground(palette.text)
+                                        .foreground(ink)
                                         .size(Some(sizing.icon_size), Some(30.0)),
                                 );
                             }
@@ -251,7 +267,7 @@ impl Component for SuggestionList {
                                     Element::truncated_text(&item.label)
                                         .font_family(FontFamily::Sans)
                                         .font_size(sizing.label_size)
-                                        .foreground(palette.text)
+                                        .foreground(ink)
                                         .size(None, Some(16.0)),
                                     Element::truncated_text(&item.description)
                                         .font_family(FontFamily::Sans)
@@ -261,11 +277,12 @@ impl Component for SuggestionList {
                                 ])
                                 .flex(1.0),
                             );
+                            let row = Element::row(row).gap(sizing.gap).padding(sizing.padding);
+                            if !item.enabled {
+                                return Element::panel(row).size(Some(row_width), Some(ROW_HEIGHT));
+                            }
                             palette
-                                .interactive_surface(Element::clickable(
-                                    &item.id,
-                                    Element::row(row).gap(sizing.gap).padding(sizing.padding),
-                                ))
+                                .interactive_surface(Element::clickable(&item.id, row))
                                 // The host's selection, not the pointer, owns
                                 // the highlight: it follows the arrow keys.
                                 .background(if index == selected {
@@ -432,6 +449,51 @@ mod tests {
             vec![UiAction::Clicked { id: "pick:2".into() }]
         );
         assert!(!tree.focus("pick:2") || tree.focus("editor"), "the input stays reachable");
+    }
+
+    #[test]
+    fn a_disabled_suggestion_is_muted_keeps_its_row_and_cannot_be_chosen() {
+        let size = Size::new(600.0, 600.0);
+        let items = |enabled: bool| {
+            let mut items = commands(4);
+            let item = items.remove(2).enabled(enabled);
+            items.insert(2, item);
+            items
+        };
+        let drawn = |frame: &Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, color, .. } => Some((text.clone(), *position, *color)),
+                    DrawCommand::Icon { rect, tint, .. } => {
+                        Some((String::new(), Point::new(rect.x, rect.y), *tint))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        // Selected by the host all the same: it is not highlighted.
+        let mut tree = list(items(false), 2, 600.0);
+        let frame = tree.layout(size);
+        assert!(frame.regions.iter().all(|region| region.id != "pick:2"), "{:?}", frame.regions);
+        assert!(!tree.focus("pick:2"));
+        assert!(!frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { color, .. } if *color == palette().hover)));
+        let enabled = list(items(true), 2, 600.0).layout(size);
+        let place = row(&enabled, "pick:2").unwrap();
+        let point = Point::new(place.x + 30.0, place.y + 10.0);
+        tree.handle_event(UiEvent::PointerDown(point));
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        // Icon and label are muted; everything stands where it did.
+        let (shown, was) = (drawn(&frame), drawn(&enabled));
+        assert_eq!(shown.len(), was.len());
+        for (shown, was) in shown.iter().zip(&was) {
+            assert_eq!((&shown.0, shown.1), (&was.0, was.1));
+            let inside = (place.y..place.y + place.height).contains(&shown.1.y);
+            assert_eq!(shown.2, if inside { palette().muted } else { was.2 }, "{shown:?}");
+        }
+        assert_eq!(row(&frame, "pick:3"), row(&enabled, "pick:3"));
     }
 
     #[test]

@@ -1044,7 +1044,9 @@ pub struct Link {
     action_id: String,
     label: String,
     color: Color,
+    muted: Color,
     font_size: f32,
+    enabled: bool,
 }
 
 impl Link {
@@ -1058,7 +1060,9 @@ impl Link {
             action_id: action_id.into(),
             label: label.into(),
             color: palette.link(),
+            muted: palette.muted,
             font_size: 13.0,
+            enabled: true,
         }
     }
 
@@ -1076,10 +1080,30 @@ impl Link {
         }
         self
     }
+
+    /// A disabled link is passive text: its label in the palette's muted, in
+    /// place of any `color`, with no underline, hit region or focus.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 impl Component for Link {
     fn render(self) -> Element {
+        if !self.enabled {
+            // The engine's Button element always registers a hit target, so
+            // a disabled link is its label alone, on one line as a button's.
+            return Element::truncated_text(self.label)
+                .foreground(self.muted)
+                .font_family(FontFamily::Sans)
+                .font_size(self.font_size);
+        }
         Element::button(self.action_id, self.label)
             .foreground(self.color)
             .font_family(FontFamily::Sans)
@@ -4841,5 +4865,60 @@ mod tests {
         .render();
         let frame = UiTree::new(dropdown).layout(Size::new(300.0, 200.0));
         assert!(!frame.regions.iter().any(|region| region.id == "offline"));
+    }
+
+    #[test]
+    fn a_disabled_link_is_muted_text_with_no_target_in_the_place_of_the_enabled_one() {
+        let palette = ComponentPalette::neutral_dark();
+        let tree_of = |enabled| {
+            let link = Link::new("docs", "Read the documentation", palette)
+                .color(palette.text)
+                .font_size(11.0)
+                .enabled(enabled);
+            let mut tree = UiTree::new(Element::column(vec![
+                Element::row(vec![link.render(), Element::text("after")]).gap(4.0),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(true);
+            tree
+        };
+        let texts = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, color, .. } => {
+                        Some((text.clone(), *position, *color))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let size = Size::new(400.0, 80.0);
+        let mut tree = tree_of(true);
+        let enabled = tree.layout(size);
+        let [region] = enabled.regions.as_slice() else {
+            panic!("one region, got {:?}", enabled.regions);
+        };
+        let point = Point::new(region.rect.x + 4.0, region.rect.y + 4.0);
+
+        let mut tree = tree_of(false);
+        let disabled = tree.layout(size);
+        assert!(disabled.regions.is_empty());
+        tree.handle_event(UiEvent::PointerMove(point));
+        assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        assert!(!tree.focus("docs"));
+        let enter = UiEvent::Key { key: crate::Key::Enter, shift: false, ctrl: false };
+        assert!(tree.handle_event(enter).is_empty());
+        // Hovered, it is still the same muted line with no underline.
+        assert_eq!(tree.layout(size).commands, disabled.commands);
+        let (was, now) = (texts(&enabled), texts(&disabled));
+        assert_eq!((was[0].2, now[0].2), (palette.text, palette.muted));
+        // The label and what follows it stay where they were.
+        let places = |lines: &[(String, Point, Color)]| {
+            lines.iter().map(|line| (line.0.clone(), line.1)).collect::<Vec<_>>()
+        };
+        assert_eq!(places(&now), places(&was));
     }
 }

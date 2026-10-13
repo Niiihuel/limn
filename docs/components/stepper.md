@@ -70,6 +70,16 @@ Stepper::new(steps, state.step, palette).vertical().width(280.0).render()
 `vertical()` stacks the steps, each with its label and description beside its
 badge and the rule running down to the next.
 
+## Disabled
+
+```rust
+Step::new("step=2", "Summary").disabled()
+```
+
+A disabled step keeps its place, its badge and its rule, with a muted label.
+It takes no pointer or focus and reports nothing. `enabled(bool)` is the
+same for a state the host computes.
+
 ## Motion
 
 The fills of the badges and the rules cross-fade over the `move_ms` motion

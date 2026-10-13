@@ -47,6 +47,15 @@ Link::new("terms", "Terms", palette).font_size(11.0).render()
 
 `font_size` sets the label's size in pixels. The default is 13.
 
+## Disabled
+
+```rust
+Link::new("docs", "Read the documentation", palette).enabled(false).render()
+```
+
+A disabled link is its label in the palette's muted, whatever its `color`,
+in the same place. It takes no pointer or focus and reports nothing.
+
 ## Actions
 
 | Action | When |

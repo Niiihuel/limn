@@ -130,6 +130,17 @@ wrapped lines between two heights, and `editor_height` fixes it instead.
 its sides and filled with that palette's `surface`. Build the strip's content
 `Composer::header_strip_width(width)` wide.
 
+### Disabled
+
+```rust
+Composer::new("composer", &state.draft, "Describe a task", width, palette).enabled(!state.sending).render()
+```
+
+A disabled composer shows its draft, or its placeholder, as muted text in the
+editor's place and takes no pointer, focus or typing. The elements the host
+passes in, such as the controls, the footer and the attachments, are the
+host's to disable.
+
 ## Dictation
 
 ```rust

@@ -22,6 +22,7 @@ pub struct Step {
     label: String,
     description: Option<String>,
     icon: Option<Icon>,
+    enabled: bool,
 }
 
 impl Step {
@@ -32,6 +33,7 @@ impl Step {
             label: label.into(),
             description: None,
             icon: None,
+            enabled: true,
         }
     }
 
@@ -46,13 +48,25 @@ impl Step {
         self.icon = Some(icon);
         self
     }
+
+    /// A disabled step cannot be chosen: it keeps its place, its badge and
+    /// its rule, with a muted label, and takes no pointer or focus.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 /// The steps of a short form: a round badge per step with its number or
 /// glyph, a rule from each badge to the next, and the step's label under it.
 /// The steps up to the active one have a filled badge, and the rules between
 /// them are filled too; the ones still to come are quiet. Each step reports
-/// a click on its ID; the host owns the active index.
+/// a click on its ID, unless it is disabled; the host owns the active index.
 pub struct Stepper {
     steps: Vec<Step>,
     active_index: usize,
@@ -110,10 +124,13 @@ impl Stepper {
         for (index, step) in self.steps.into_iter().enumerate() {
             let last = index + 1 == count;
             let reached = index <= active_index;
+            let enabled = step.enabled;
+            let quiet = if enabled { palette.text } else { palette.muted };
+            // A filled badge keeps its ink when disabled: muted would not read on it.
             let (fill, ink) = if reached {
                 (palette.text, palette.surface)
             } else {
-                (palette.selected, palette.text)
+                (palette.selected, quiet)
             };
             let glyph = match step.icon {
                 Some(icon) => Element::icon(icon)
@@ -130,8 +147,8 @@ impl Stepper {
             // changes; a step still to come lifts under the pointer.
             let badge = Element::panel(middle(glyph))
                 .background(fill)
-                .hover_background(if reached { fill } else { palette.hover })
-                .hover_surface(format!("{}:badge", step.id), [step.id.as_str()])
+                .hover_background(if reached || !enabled { fill } else { palette.hover })
+                .hover_surface(format!("{}:badge", step.id), enabled.then_some(step.id.as_str()))
                 .transition_ms(crate::tokens().motion.move_ms)
                 .radius(BADGE / 2.0)
                 .size(Some(BADGE), Some(BADGE));
@@ -144,7 +161,7 @@ impl Stepper {
                     .radius(RULE / 2.0)
             });
             let mut copy = vec![Element::text(step.label)
-                .foreground(palette.text)
+                .foreground(quiet)
                 .font_family(FontFamily::Sans)
                 .font_size(LABEL_SIZE)];
             if let Some(description) = step.description {
@@ -188,7 +205,8 @@ impl Stepper {
                 };
                 Element::column(vec![head, copy]).gap(COPY_GAP)
             };
-            let item = Element::clickable(step.id, content).radius(crate::RadiusRole::Control.px());
+            let item = if enabled { Element::clickable(step.id, content) } else { Element::panel(content) }
+                .radius(crate::RadiusRole::Control.px());
             // Every step but the last takes an equal share, rule included.
             items.push(if vertical || last { item } else { item.flex(1.0) });
         }
@@ -209,7 +227,7 @@ impl Component for Stepper {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Color, DrawCommand, Frame, HitKind, Point, Rect, Size, UiAction, UiEvent, UiTree};
+    use crate::{Color, DrawCommand, Frame, HitKind, Key, Point, Rect, Size, UiAction, UiEvent, UiTree};
 
     fn palette() -> ComponentPalette {
         ComponentPalette::neutral_dark()
@@ -341,6 +359,60 @@ mod tests {
                 tree.handle_event(UiEvent::PointerUp(point)),
                 [UiAction::Clicked { id: "two".into() }]
             );
+        }
+    }
+
+    #[test]
+    fn a_disabled_step_takes_no_pointer_or_focus_and_keeps_its_place() {
+        let size = Size::new(420.0, 120.0);
+        let stepper = |enabled| {
+            let mut steps = steps();
+            let two = steps.remove(1).enabled(enabled);
+            steps.insert(1, two);
+            Stepper::new(steps, 0, palette()).width(420.0)
+        };
+        let texts = |frame: &Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, color, .. } => Some((text.clone(), *position, *color)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let enabled = frame(stepper(true), size);
+        let two = step(&enabled, "two");
+        let mut tree = UiTree::new(Element::column(vec![stepper(false).render(), Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let passive = tree.layout(size);
+        assert!(!passive.regions.iter().any(|region| region.id == "two"));
+        assert!(!tree.focus("two"));
+        // Its badge, its rule and its label: none of them answers.
+        for point in [
+            Point::new(two.x + 12.0, two.y + 12.0),
+            Point::new(two.x + two.width - 20.0, two.y + 12.0),
+            Point::new(two.x + 12.0, two.y + two.height - 4.0),
+        ] {
+            tree.handle_event(UiEvent::PointerMove(point));
+            assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+            assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        }
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        // The pointer is still over it: its badge does not lift.
+        let hovered = tree.layout(size);
+        assert_eq!(fills(&hovered, true), fills(&enabled, true));
+        assert_eq!(fills(&hovered, false), fills(&enabled, false));
+        // The others still answer, and nothing has moved.
+        assert_eq!(step(&passive, "one"), step(&enabled, "one"));
+        assert_eq!(step(&passive, "three"), step(&enabled, "three"));
+        let (muted, plain) = (texts(&passive), texts(&enabled));
+        let places = |texts: &[(String, Point, Color)]| texts.iter().map(|text| text.1).collect::<Vec<_>>();
+        assert_eq!(places(&muted), places(&plain));
+        for (text, _, color) in &muted {
+            let own = text == "2" || text == "Horario" || text == "Elige cuándo";
+            let was = plain.iter().find(|other| other.0 == *text).unwrap().2;
+            assert_eq!(*color, if own { palette().muted } else { was }, "{text}");
         }
     }
 }

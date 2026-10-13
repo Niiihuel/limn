@@ -87,6 +87,16 @@ as a button that reports the header's ID. The free function
 `collapse_footer(id, palette)` builds the same footer for a disclosure of
 the host's own.
 
+## Disabled
+
+```rust
+Collapsible::new("log", "Output", content, palette).expanded(true).enabled(false).render()
+```
+
+A disabled collapsible stays as `expanded` says: its header, with a muted
+title, and its footer take no pointer or focus and report nothing. The
+content is the host's and works as before.
+
 ## Motion
 
 The content opens and closes in place instead of appearing at once. Under

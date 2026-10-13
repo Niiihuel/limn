@@ -20,6 +20,7 @@ pub struct ResizeHandle {
     id: String,
     vertical: bool,
     thickness: f32,
+    enabled: bool,
     palette: ComponentPalette,
 }
 
@@ -37,7 +38,7 @@ impl ResizeHandle {
     }
 
     fn new(id: impl Into<String>, vertical: bool, palette: ComponentPalette) -> Self {
-        Self { id: id.into(), vertical, thickness: DEFAULT_THICKNESS, palette }
+        Self { id: id.into(), vertical, thickness: DEFAULT_THICKNESS, enabled: true, palette }
     }
 
     /// How much room the handle takes across the boundary, which is also its
@@ -49,12 +50,28 @@ impl ResizeHandle {
         }
         self
     }
+
+    /// A disabled handle is passive: it keeps its place and its thickness,
+    /// and cannot be dragged or focused. It draws nothing and leaves the
+    /// pointer its shape.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
 }
 
 impl Component for ResizeHandle {
     fn render(self) -> Element {
         let across = Some(self.thickness);
         let (width, height) = if self.vertical { (across, None) } else { (None, across) };
+        if !self.enabled {
+            return Element::spacer().size(width, height);
+        }
         self.palette
             .interactive_surface(Element::clickable(self.id, Element::spacer()))
             .draggable_in_place()
@@ -68,7 +85,7 @@ impl Component for ResizeHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{HitKind, Point, Size, UiAction, UiEvent, UiTree};
+    use crate::{HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
 
     fn palette() -> ComponentPalette {
         ComponentPalette::neutral_dark()
@@ -168,5 +185,37 @@ mod tests {
         assert_eq!(width(ResizeHandle::vertical("split", palette()).thickness(f32::NAN)), 8.0);
         assert_eq!(width(ResizeHandle::vertical("split", palette()).thickness(0.0)), 2.0);
         assert_eq!(width(ResizeHandle::vertical("split", palette()).thickness(12.0)), 12.0);
+    }
+
+    #[test]
+    fn a_disabled_handle_keeps_its_place_and_cannot_be_dragged_or_focused() {
+        // The pane after the handle is a target, so its place can be read.
+        let tree_of = |enabled: bool| {
+            let mut tree = UiTree::new(Element::row(vec![
+                Element::spacer().size(Some(100.0), None),
+                ResizeHandle::vertical("split", palette()).thickness(12.0).enabled(enabled).render(),
+                Element::clickable("pane", Element::spacer()).size(Some(100.0), None),
+            ]));
+            tree.set_reduced_motion(true);
+            tree
+        };
+        let size = Size::new(212.0, 60.0);
+        let pane = |tree: &mut UiTree| {
+            tree.layout(size).regions.iter().find(|region| region.id == "pane").unwrap().rect
+        };
+        let mut tree = tree_of(false);
+        let frame = tree.layout(size);
+        assert!(!frame.regions.iter().any(|region| region.id == "split"));
+        assert!(!tree.focus("split"));
+        let at = |x: f32| Point::new(x, 30.0);
+        tree.handle_event(UiEvent::PointerMove(at(106.0)));
+        assert_eq!(tree.cursor(), None);
+        assert!(tree.handle_event(UiEvent::PointerDown(at(106.0))).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerMove(at(60.0))).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(at(60.0))).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert!(tree.layout(size).commands.is_empty(), "it draws nothing, under the pointer or held");
+        assert_eq!(pane(&mut tree), pane(&mut tree_of(true)));
+        assert_eq!(pane(&mut tree).x, 112.0);
     }
 }

@@ -137,9 +137,19 @@ your own, 24 px tall, for tabs that are only a label or an icon.
 `TabStrip::align` sets a row of tabs on the bottom of the bar. For a group
 that shows a single resource, `TabItem::render(palette)` gives the tab alone.
 
+## Disabled folder tabs
+
+```rust
+TabItem::new("file=2", "file-extent-2", icon, "build.log", 112.0).enabled(false)
+```
+
+A disabled folder tab keeps its place, its tooltip and its close slot, with
+icon and title in muted ink, and takes no pointer or focus. The close control
+is the host's to leave out.
+
 ## Keyboard
 
-With the focus on a tab, in either kind:
+With the focus on a tab, in either kind; a disabled tab is stepped over:
 
 | Key | Effect |
 | --- | --- |

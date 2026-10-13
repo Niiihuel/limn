@@ -89,6 +89,15 @@ ActionRow::new("Keyboard shortcuts", palette)
 `action(id)` makes the whole row a button that reports `UiAction::Clicked`
 with that ID.
 
+## Disabled
+
+```rust
+ActionRow::new("Keyboard shortcuts", palette).action("open-shortcuts").enabled(false).render()
+```
+
+A disabled row is drawn muted and is not a button: it takes no pointer or
+focus and reports nothing. A control in `trailing` is the host's to disable.
+
 ## Long copy and narrow panes
 
 ```rust

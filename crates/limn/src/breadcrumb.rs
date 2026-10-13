@@ -69,6 +69,7 @@ pub struct BreadcrumbItem {
     action: Option<String>,
     icon: Option<Icon>,
     tooltip: Option<String>,
+    enabled: bool,
 }
 
 impl BreadcrumbItem {
@@ -79,6 +80,7 @@ impl BreadcrumbItem {
             action: None,
             icon: None,
             tooltip: None,
+            enabled: true,
         }
     }
     /// Make the segment a link that reports this action.
@@ -96,6 +98,22 @@ impl BreadcrumbItem {
     pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
+    }
+    /// A disabled segment with an action is text like one without: passive,
+    /// in `muted` ink even when it is the current resource, and a disabled
+    /// row in the overflow menu. It keeps its place and its tooltip. Without
+    /// an action there is nothing to disable.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
+    /// The action it reports, which a disabled segment does not.
+    fn link(&self) -> Option<&String> {
+        self.action.as_ref().filter(|_| self.enabled)
     }
 }
 
@@ -335,7 +353,7 @@ impl Component for Breadcrumb {
             let Some(index) = index else {
                 let navigable = hidden
                     .iter()
-                    .any(|index| self.items[*index].action.is_some());
+                    .any(|index| self.items[*index].link().is_some());
                 let visual = Element::text("…")
                     .font_family(FontFamily::Sans)
                     .font_size(FONT_SIZE)
@@ -367,11 +385,11 @@ impl Component for Breadcrumb {
                         let item = &self.items[*index];
                         let label = item.tooltip.as_deref().unwrap_or(&item.label);
                         let mut entry =
-                            DropdownMenuItem::new(item.action.as_deref().unwrap_or(""), label);
+                            DropdownMenuItem::new(item.link().map_or("", String::as_str), label);
                         if let Some(icon) = item.icon {
                             entry = entry.icon(icon);
                         }
-                        if item.action.is_none() {
+                        if item.link().is_none() {
                             entry = entry.disabled();
                         }
                         DropdownMenuEntry::Item(entry)
@@ -391,7 +409,8 @@ impl Component for Breadcrumb {
                 continue;
             };
             let item = &self.items[index];
-            let current = index == last;
+            // A disabled segment is muted wherever it stands.
+            let current = index == last && item.enabled;
             let mut content = Vec::new();
             if let Some(icon) = item.icon.filter(|_| self.width >= 40.0) {
                 content.push(
@@ -410,7 +429,7 @@ impl Component for Breadcrumb {
                     .font_size(FONT_SIZE)
                     .foreground(if current {
                         self.palette.text
-                    } else if item.action.is_some() {
+                    } else if item.link().is_some() {
                         self.palette.link()
                     } else {
                         self.palette.muted
@@ -420,7 +439,7 @@ impl Component for Breadcrumb {
                     .flex(1.0),
             );
             let visual = Element::row(content).gap(4.0).clip_children();
-            let action = item.action.as_ref();
+            let action = item.link();
             let anchor_id = action
                 .cloned()
                 .unwrap_or_else(|| format!("{}:item:{index}", self.id));
@@ -441,7 +460,7 @@ impl Component for Breadcrumb {
                 tooltip
             };
             let segment = tooltip.render();
-            if current {
+            if index == last {
                 // The slot may stretch, but its action must hug the resource.
                 // Keeping the spare space outside the trigger avoids a header-
                 // wide hover and a misleading clickable blank area. The
@@ -465,7 +484,7 @@ impl Component for Breadcrumb {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
+    use crate::{Color, DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
 
     #[test]
     fn search_shortcut_changes_the_hint_without_binding_keys() {
@@ -810,6 +829,120 @@ mod tests {
             })
             .iter()
             .any(|a| matches!(a, UiAction::Clicked { id } if id == "path:overflow_dismiss")));
+    }
+
+    #[test]
+    fn a_disabled_segment_is_muted_text_in_its_place_and_reports_nothing() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame_of = |enabled: bool| {
+            let mut tree = UiTree::new(
+                Breadcrumb::new(
+                    "path",
+                    vec![
+                        BreadcrumbItem::new("Home").action("home"),
+                        BreadcrumbItem::new("Components").action("components").enabled(enabled),
+                        BreadcrumbItem::new("main.rs").icon(Icon::File).action("file").enabled(enabled),
+                    ],
+                    palette,
+                )
+                .width(360.0)
+                .render(),
+            );
+            tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 6.0);
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(360.0, 28.0));
+            (tree, frame)
+        };
+        let drawn = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { position, color, .. } => Some((*position, *color)),
+                    DrawCommand::Icon { rect, tint, .. } => Some((Point::new(rect.x, rect.y), *tint)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let (mut tree, frame) = frame_of(false);
+        let buttons = frame
+            .regions
+            .iter()
+            .filter(|region| region.kind == HitKind::Button)
+            .map(|region| region.id.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(buttons, ["home"]);
+        assert!(frame.regions.iter().all(|region| region.id != "components" && region.id != "file"));
+        let (_, enabled) = frame_of(true);
+        for id in ["components", "file"] {
+            assert!(!tree.focus(id));
+            let rect = enabled.regions.iter().find(|region| region.id == id).unwrap().rect;
+            let point = Point::new(rect.x + 4.0, 14.0);
+            assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+            assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        }
+        // Home stays a link; the rest is muted, the current resource and its icon too.
+        let (shown, was) = (drawn(&frame), drawn(&enabled));
+        assert_eq!(shown[0], was[0]);
+        assert!(shown[1..].iter().all(|ink| ink.1 == palette.muted), "{shown:?}");
+        let places = |drawn: &[(Point, Color)]| drawn.iter().map(|ink| ink.0).collect::<Vec<_>>();
+        assert_eq!(places(&shown), places(&was));
+    }
+
+    #[test]
+    fn a_disabled_segment_is_a_disabled_row_of_the_overflow_menu() {
+        let render = |enabled: bool, open: bool| {
+            Breadcrumb::new(
+                "path",
+                vec![
+                    BreadcrumbItem::new("a_very_long_workspace_name").action("open_root").enabled(enabled),
+                    BreadcrumbItem::new("nested").action("open_nested").enabled(enabled),
+                    BreadcrumbItem::new("main.rs").action("copy_file"),
+                ],
+                ComponentPalette::neutral_dark(),
+            )
+            .width(180.0)
+            .overflow_open(open)
+            .render()
+        };
+        let size = Size::new(240.0, 320.0);
+        let layout = |enabled: bool, open: bool| {
+            let mut tree = UiTree::new(render(enabled, open));
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(size);
+            (tree, frame)
+        };
+        let toggle = |frame: &crate::Frame| {
+            frame.regions.iter().find(|region| region.id == "path:overflow_toggle").map(|r| (r.rect, r.kind))
+        };
+        // Nothing hidden can be reached, so the menu has no trigger.
+        let (mut tree, frame) = layout(false, true);
+        let (place, kind) = toggle(&frame).unwrap();
+        assert_ne!(kind, HitKind::Button);
+        assert!(!tree.has_open_popover() && !tree.focus("open_nested"));
+        assert_eq!(Some(place), toggle(&layout(true, false).1).map(|toggle| toggle.0));
+        // One disabled among enabled: a row that cannot be chosen.
+        let mut tree = UiTree::new(
+            Breadcrumb::new(
+                "path",
+                vec![
+                    BreadcrumbItem::new("a_very_long_workspace_name").action("open_root"),
+                    BreadcrumbItem::new("nested").action("open_nested").disabled(),
+                    BreadcrumbItem::new("main.rs").action("copy_file"),
+                ],
+                ComponentPalette::neutral_dark(),
+            )
+            .width(180.0)
+            .overflow_open(true)
+            .render(),
+        );
+        tree.set_reduced_motion(true);
+        let open = tree.layout(size);
+        let button = |id: &str| open.regions.iter().any(|r| r.id == id && r.kind == HitKind::Button);
+        assert!(button("open_root") && !button("open_nested"));
+        assert!(open.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, .. } if text == "nested")));
+        assert!(!tree.focus("open_nested"));
     }
 
     #[test]

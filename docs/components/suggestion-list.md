@@ -100,6 +100,16 @@ list opens above the start of its anchor (`TopStart`) unless set. Rows are 42
 high and at most seven show; the rest scroll, and only the rows in view are
 built.
 
+## Disabled
+
+```rust
+SuggestionItem::new("complete=/deploy", "/deploy").description("No remote configured").disabled()
+```
+
+A disabled suggestion keeps its row with icon and label in muted ink and
+reports no click. It does not take the highlight, so the host's
+`selected_index` should step over it.
+
 ## Motion
 
 The list appears and leaves with the motion tokens' `enter_ms` and `exit_ms`.

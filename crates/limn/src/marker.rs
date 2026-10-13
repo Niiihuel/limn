@@ -37,6 +37,7 @@ pub struct Marker {
     thinking: bool,
     truncate: bool,
     action: Option<String>,
+    enabled: bool,
     ink: Option<Color>,
 }
 
@@ -53,6 +54,7 @@ impl Marker {
             thinking: false,
             truncate: false,
             action: None,
+            enabled: true,
             ink: None,
         }
     }
@@ -89,6 +91,18 @@ impl Marker {
     pub fn action(mut self, action: impl Into<String>) -> Self {
         self.action = Some(action.into());
         self
+    }
+    /// A disabled marker keeps the place and the look of its `action` and is
+    /// passive: no hover, hit region or focus. Without an action a marker is
+    /// passive already and this changes nothing.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
     }
     /// A status color from the host, such as its failure ink, for the label,
     /// the icon and the spinner in place of the palette's muted.
@@ -184,11 +198,13 @@ impl Component for Marker {
             .gap(10.0),
         };
         match self.action {
-            Some(action) => self
+            Some(action) if self.enabled => self
                 .palette
                 .interactive_surface(Element::clickable(action, body))
                 .padding(6.0)
                 .min_size(0.0, 32.0),
+            // The row is muted as it is; only the control goes.
+            Some(_) => Element::panel(body).padding(6.0).min_size(0.0, 32.0),
             None => body,
         }
     }
@@ -555,5 +571,51 @@ mod tests {
         ));
         assert_eq!(inked.commands, by_palette.commands);
         assert_eq!(plain.text_layouts(), inked.text_layouts());
+    }
+
+    #[test]
+    fn a_disabled_action_keeps_its_place_and_takes_no_pointer_or_focus() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(260.0, 50.0);
+        for variant in [MarkerVariant::Default, MarkerVariant::Separator, MarkerVariant::Border] {
+            let tree_of = |enabled| {
+                let mut tree = UiTree::new(Element::column(vec![
+                    Marker::new("event", "Ver resultado", palette)
+                        .variant(variant)
+                        .icon(Icon::File)
+                        .action("open-result")
+                        .enabled(enabled)
+                        .render(),
+                    Element::spacer().flex(1.0),
+                ]));
+                tree.set_reduced_motion(true);
+                tree
+            };
+            let mut tree = tree_of(true);
+            let enabled = tree.layout(size);
+            let [target] = enabled.regions.as_slice() else {
+                panic!("one region, got {:?}", enabled.regions);
+            };
+            let point = Point::new(target.rect.x + 5.0, target.rect.y + 5.0);
+
+            let mut tree = tree_of(false);
+            let disabled = tree.layout(size);
+            assert!(disabled.regions.is_empty());
+            tree.handle_event(UiEvent::PointerMove(point));
+            assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+            assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+            for id in ["event", "open-result"] {
+                assert!(!tree.focus(id));
+            }
+            let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+            assert!(tree.handle_event(enter).is_empty());
+            // Muted as ever and in the same place, hovered or not: only the control is gone.
+            assert_eq!(disabled.commands, enabled.commands);
+            assert_eq!(tree.layout(size).commands, disabled.commands);
+        }
+        // Without an action there is nothing to disable.
+        let passive = |enabled| Marker::new("event", "Ver resultado", palette).enabled(enabled).render();
+        let frame = |element| UiTree::new(element).layout(size);
+        assert_eq!(frame(passive(false)), frame(passive(true)));
     }
 }

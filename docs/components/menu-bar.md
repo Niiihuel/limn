@@ -80,6 +80,15 @@ let width = bar.width();
 `MenuBar::COMPACT_WIDTH` (32) when compact. The bar is `MenuBar::HEIGHT` (24)
 high and its triggers are `MenuBar::GAP` (2) apart.
 
+## Disabled
+
+```rust
+MenuBarMenu::new("menu-edit", "Edit", 44.0, "menu-close", entries).enabled(state.has_document)
+```
+
+A disabled menu keeps its trigger's place with a muted label and cannot be
+opened, even when `open_id` names it. In the compact bar it is a disabled row.
+
 ## Keyboard
 
 | Key | Effect |

@@ -2,10 +2,12 @@
 //! component that joins a family joins its row here.
 
 use limn::{
-    Button, ButtonVariant, Component, ComponentPalette, ContextMenuItem, DictationButton, DictationState,
-    DropdownMenuItem, DropdownOption, Element, Icon, IconButton, ListRow, MediaCard, MediaTile, MenuItem,
-    MenuSeparator, NavigationAction, NavigationWorkspace, SearchField, SegmentedControl, Select, Size, Slider,
-    Switch, Tab, Tabs, TextArea, TextField, Toast, TreeGuides, TreeRow, UiTree,
+    ActionRow, BreadcrumbItem, Button, ButtonVariant, Clipboard, Collapsible, Component, ComponentPalette,
+    Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
+    DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Marker, MediaCard, MediaTile,
+    MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
+    SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TextArea,
+    TextField, TimePicker, Toast, TreeGuides, TreeRow, UiTree,
 };
 
 fn palette() -> ComponentPalette {
@@ -51,6 +53,22 @@ fn what_can_be_disabled_takes_both_spellings() {
     let _ = ContextMenuItem::new("a", "A").enabled(false).disabled();
     let _ = NavigationWorkspace::new("a", "A").enabled(false);
     let _ = NavigationAction::new("a", Icon::Search, "A").enabled(false);
+    let _ = Link::new("a", "A", palette).enabled(false).disabled();
+    let _ = Clipboard::new("a", "Copy", palette).enabled(false).disabled();
+    let _ = DismissButton::new("a", palette).enabled(false).disabled();
+    let _ = Marker::new("a", "A", palette).enabled(false).disabled();
+    let _ = Collapsible::new("a", "A", Element::spacer(), palette).enabled(false).disabled();
+    let _ = DatePicker::new("a", "2026-10-13", palette).enabled(false).disabled();
+    let _ = TimePicker::new("a", "11:06", palette).enabled(false).disabled();
+    let _ = DateTimePicker::new("a", "b", "2026-10-13", "11:06", palette).enabled(false).disabled();
+    let _ = Step::new("a", "A").enabled(false).disabled();
+    let _ = ActionRow::new("A", palette).enabled(false).disabled();
+    let _ = ResizeHandle::vertical("a", palette).enabled(false).disabled();
+    let _ = TabItem::new("a", "a:extent", Icon::Folder, "A", 120.0).enabled(false).disabled();
+    let _ = MenuBarMenu::new("a", "A", 60.0, "a:dismiss", Vec::new()).enabled(false).disabled();
+    let _ = SuggestionItem::new("a", "A").enabled(false).disabled();
+    let _ = BreadcrumbItem::new("A").enabled(false).disabled();
+    let _ = Composer::new("a", "", "", 320.0, palette).enabled(false).disabled();
 }
 
 /// The two spellings mean the same: a disabled control takes no pointer.

@@ -110,6 +110,16 @@ input ID, and leaves this mode by not calling `editing`.
 The button's hint shows `Ctrl+F`; `search_shortcut(keys)` shows the keys the
 host binds instead, and an empty string none.
 
+## Disabled
+
+```rust
+BreadcrumbItem::new("archive").action("open=archive").enabled(state.can_open_archive)
+```
+
+A disabled segment with an action is text like one without, in muted ink even
+when it is the current resource, and a disabled row in the menu of collapsed
+segments. It keeps its place and its hint.
+
 ## Actions
 
 | Action | When |

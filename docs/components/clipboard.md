@@ -82,6 +82,15 @@ Clipboard::new("copy-key", "Copy key", palette)
 `ButtonVariant::Ghost` and `ControlSize::Compact`. The muted ink belongs to
 the ghost variant; another variant keeps its own.
 
+## Disabled
+
+```rust
+Clipboard::new("copy-link", "Copy link", palette).enabled(false).render()
+```
+
+A disabled one keeps its place and its hint, with a muted icon and label. It
+takes no pointer or focus and reports nothing.
+
 ## Actions
 
 | Action | When |
