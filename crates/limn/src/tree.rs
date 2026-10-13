@@ -5020,7 +5020,11 @@ impl UiTree {
         for index in candidates {
             let row = (list.build_row)(index);
             let mut focusables = Vec::new();
-            collect_focus_order(&row, &mut focusables, &mut HashSet::new());
+            let mut seen = HashSet::new();
+            collect_focus_order(&row, &mut focusables, &mut seen);
+            if let Some((_, opened)) = list.expansion.as_ref().filter(|(open, _)| *open == index) {
+                collect_focus_order(opened, &mut focusables, &mut seen);
+            }
             let target = if reverse {
                 focusables.last()
             } else {
@@ -7666,11 +7670,17 @@ impl LayoutBuilder<'_> {
                 Size::new(available.width, height)
             }
             ElementKind::UniformList(list) => {
-                let content_height = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
                 let height = if available.height.is_finite() {
                     available.height
                 } else {
-                    content_height + padding
+                    let rows = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
+                    let open = match &list.expansion {
+                        Some((index, content)) if *index < list.row_count => {
+                            self.measure(content, Size::new(inner.width, f32::INFINITY)).height
+                        }
+                        _ => 0.0,
+                    };
+                    rows + open + padding
                 };
                 Size::new(available.width, height)
             }
@@ -8447,7 +8457,27 @@ impl LayoutBuilder<'_> {
             ElementKind::UniformList(list) => {
                 let id = list.id.as_str();
                 self.add_region(id, rect, HitKind::Scroll, clip);
-                let content_height = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
+                let rows_height = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
+                // What a row opened under itself, at the height it takes in
+                // the width the rows have: the narrower one while a bar shows.
+                let open = list
+                    .expansion
+                    .as_ref()
+                    .filter(|(index, _)| *index < list.row_count);
+                let mut extra = 0.0;
+                if let Some((_, opened)) = open {
+                    let narrow = list.appearance.content_width(content.width, true);
+                    extra = self.measure(opened, Size::new(narrow, f32::INFINITY)).height;
+                    if rows_height + extra <= content.height && narrow != content.width {
+                        extra = self.measure(opened, Size::new(content.width, f32::INFINITY)).height;
+                    }
+                }
+                // The rows from `split` on stand under what was opened.
+                let split = open.map_or(usize::MAX, |(index, _)| index + 1);
+                let parted = open.map_or(f32::INFINITY, |(index, _)| (index + 1) as f32 * list.row_height);
+                let row_top =
+                    |index: usize| index as f32 * list.row_height + if index >= split { extra } else { 0.0 };
+                let content_height = rows_height + extra;
                 let max_offset = (content_height - content.height).max(0.0);
                 self.frame
                     .scroll_extents
@@ -8458,7 +8488,7 @@ impl LayoutBuilder<'_> {
                         snap.unwrap_or_else(|| self.scroll_offsets.get(id).copied().unwrap_or(0.0));
                     if list.row_count > 0 {
                         let index = index.min(list.row_count - 1);
-                        let top = index as f32 * list.row_height;
+                        let top = row_top(index);
                         let bottom = top + list.row_height;
                         if top < offset {
                             offset = top;
@@ -8474,11 +8504,23 @@ impl LayoutBuilder<'_> {
                 let row_width = list
                     .appearance
                     .content_width(content.width, scrollbar.is_some());
-                let first_visible = (current_offset / list.row_height).floor() as usize;
-                let end_visible =
-                    ((current_offset + content.height) / list.row_height).ceil() as usize;
-                let first_visible = first_visible.min(list.row_count);
+                // A height of the content as a height of the rows alone: what
+                // was opened stands between two of them and holds no row.
+                let among_rows = |y: f32| if y <= parted { y } else { (y - extra).max(parted) };
+                let first_visible = (among_rows(current_offset) / list.row_height).floor() as usize;
+                let end_visible = (among_rows(current_offset + content.height) / list.row_height)
+                    .ceil() as usize;
+                let mut first_visible = first_visible.min(list.row_count);
                 let end_visible = end_visible.min(list.row_count);
+                // What a row opened is built with its row and only with it, so
+                // the keyboard walks from one into the other. Its row is built
+                // while any of it shows, even once the row itself scrolled off.
+                let opened_shows = extra > 0.0
+                    && parted + extra > current_offset
+                    && parted < current_offset + content.height;
+                if opened_shows && first_visible >= split {
+                    first_visible = split - 1;
+                }
                 let visible = clip
                     .and_then(|outer| outer.intersection(content))
                     .or_else(|| clip.is_none().then_some(content));
@@ -8491,17 +8533,30 @@ impl LayoutBuilder<'_> {
                         let mut focusables = Vec::new();
                         let mut seen = HashSet::new();
                         collect_focus_order(&row, &mut focusables, &mut seen);
-                        rows.push((index, focusables));
                         self.place(
                             &row,
                             Rect::new(
                                 content.x,
-                                content.y + index as f32 * list.row_height - current_offset,
+                                content.y + row_top(index) - current_offset,
                                 row_width,
                                 list.row_height,
                             ),
                             Some(visible),
                         );
+                        if let Some((_, opened)) = open.filter(|(open, _)| *open == index) {
+                            collect_focus_order(opened, &mut focusables, &mut seen);
+                            self.place(
+                                opened,
+                                Rect::new(
+                                    content.x,
+                                    content.y + parted - current_offset,
+                                    row_width,
+                                    extra,
+                                ),
+                                Some(visible),
+                            );
+                        }
+                        rows.push((index, focusables));
                         self.measurement_scope = previous_scope;
                     }
                     self.frame.commands.push(DrawCommand::PopClip);
@@ -15337,6 +15392,144 @@ mod tests {
         tree.layout(Size::new(160.0, 100.0));
         assert_eq!(tree.scroll_offset("sessions"), 19_900.0);
         assert_eq!(built.load(Ordering::SeqCst), 15);
+    }
+
+    #[test]
+    fn a_row_of_a_uniform_list_opens_content_under_itself_and_the_list_stays_lazy() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        const SIZE: Size = Size::new(160.0, 100.0);
+        let built = Arc::new(AtomicUsize::new(0));
+        let list = |built: Arc<AtomicUsize>, open: Option<(usize, f32)>| {
+            let list = Element::uniform_list("sessions", 1_000, 20.0, move |index| {
+                built.fetch_add(1, Ordering::SeqCst);
+                Element::button(format!("session:{index}"), format!("Session {index}"))
+            });
+            match open {
+                Some((index, height)) => list.list_expansion(
+                    index,
+                    Element::button("detail", "Detail").size(None, Some(height)),
+                ),
+                None => list,
+            }
+        };
+        let rect = |frame: &Frame, id: &str| {
+            frame.regions.iter().find(|region| region.id == id).map(|region| region.rect)
+        };
+        let mut tree = UiTree::new(list(built.clone(), Some((1, 50.0))));
+        let frame = tree.layout(SIZE);
+        // Under its row, as wide as a row and as tall as it asked to be; the
+        // rows after it start where it ends.
+        let (row, detail, next) = (
+            rect(&frame, "session:1").unwrap(),
+            rect(&frame, "detail").unwrap(),
+            rect(&frame, "session:2").unwrap(),
+        );
+        assert_eq!((detail.y, detail.height), (row.y + row.height, 50.0));
+        assert_eq!((detail.x, detail.width), (row.x, row.width));
+        assert_eq!(next.y, detail.y + detail.height);
+        // The list is that much longer, and builds only the rows that show.
+        assert_eq!(frame.scroll_extents["sessions"], 19_900.0 + 50.0);
+        assert_eq!(built.load(Ordering::SeqCst), 3);
+        assert_eq!(frame.hit_test(Point::new(30.0, 60.0)), Some("detail"));
+        assert_eq!(frame.hit_test(Point::new(30.0, 95.0)), Some("session:2"));
+
+        // Scrolled into it, its row is still built with it and nothing above.
+        tree.handle_event(UiEvent::ScrollDirect { position: Point::new(30.0, 50.0), delta_y: -60.0 });
+        let frame = tree.layout(SIZE);
+        assert_eq!(tree.scroll_offset("sessions"), 60.0);
+        // Its part in view: the last thirty of its fifty.
+        let detail = rect(&frame, "detail").unwrap();
+        assert_eq!((detail.y, detail.height), (0.0, 30.0));
+        assert!(rect(&frame, "session:0").is_none());
+        assert_eq!(rect(&frame, "session:2").unwrap().y, 30.0);
+        assert_eq!(frame.hit_test(Point::new(30.0, 10.0)), Some("detail"));
+
+        // Far from it, neither it nor its row is built, and a row is revealed
+        // where it stands under what was opened.
+        tree.scroll_to_index("sessions", 500);
+        let frame = tree.layout(SIZE);
+        assert_eq!(tree.scroll_offset("sessions"), 501.0 * 20.0 + 50.0 - 100.0);
+        assert!(rect(&frame, "detail").is_none() && rect(&frame, "session:1").is_none());
+        assert_eq!(rect(&frame, "session:500").unwrap().y, 80.0);
+        tree.scroll_to_index("sessions", 999);
+        let frame = tree.layout(SIZE);
+        assert_eq!(tree.scroll_offset("sessions"), 19_950.0);
+        assert_eq!(frame.hit_test(Point::new(30.0, 90.0)), Some("session:999"));
+
+        // Closed again, the list is the rows alone.
+        tree.set_root(list(built.clone(), None));
+        let frame = tree.layout(SIZE);
+        assert_eq!(frame.scroll_extents["sessions"], 19_900.0);
+        assert!(rect(&frame, "detail").is_none());
+        // An index past the rows opens nothing.
+        tree.set_root(list(built, Some((1_000, 50.0))));
+        assert_eq!(tree.layout(SIZE).scroll_extents["sessions"], 19_900.0);
+    }
+
+    #[test]
+    fn the_keyboard_walks_from_a_row_into_what_it_opened_and_on_to_the_next() {
+        let list = Element::uniform_list("sessions", 10, 20.0, |index| {
+            Element::button(format!("row:{index}"), format!("Task {index}"))
+        })
+        .list_expansion(
+            3,
+            Element::column(vec![
+                Element::button("detail:first", "First").size(None, Some(20.0)),
+                Element::button("detail:last", "Last").size(None, Some(20.0)),
+            ]),
+        );
+        let tab = |tree: &mut UiTree, shift: bool| {
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift, ctrl: false });
+            tree.layout(Size::new(120.0, 60.0));
+        };
+        let mut tree = UiTree::new(list);
+        tree.layout(Size::new(120.0, 60.0));
+        // Row 3 is under the viewport: reaching it brings what it opened too.
+        assert!(tree.focus("row:2"));
+        for expected in ["row:3", "detail:first", "detail:last", "row:4"] {
+            tab(&mut tree, false);
+            assert_eq!(tree.focused_id(), Some(expected));
+        }
+        // And back, from the row after it into its last control.
+        for expected in ["detail:last", "detail:first", "row:3", "row:2"] {
+            tab(&mut tree, true);
+            assert_eq!(tree.focused_id(), Some(expected));
+        }
+    }
+
+    #[test]
+    fn what_a_row_opens_can_open_on_the_spring_and_the_rows_follow_it() {
+        let list = |open: bool| {
+            Element::uniform_list("sessions", 100, 20.0, |index| {
+                Element::button(format!("row:{index}"), format!("Task {index}"))
+            })
+            .list_expansion(
+                0,
+                crate::Collapse::new(
+                    "detail",
+                    open.then(|| Element::button("detail:body", "Body").size(None, Some(60.0))),
+                )
+                .expand()
+                .render(),
+            )
+        };
+        let size = Size::new(160.0, 200.0);
+        let next = |frame: &Frame| {
+            frame.regions.iter().find(|region| region.id == "row:1").unwrap().rect.y
+        };
+        let start = Instant::now() - Duration::from_secs(10);
+        let mut tree = UiTree::new(list(false));
+        assert_eq!(next(&tree.layout_at(size, start)), 20.0);
+        tree.set_root(list(true));
+        tree.layout_at(size, start);
+        let settle = Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3 / 2);
+        let midway = next(&tree.layout_at(size, start + settle / 2));
+        assert!(20.0 < midway && midway < 80.0, "{midway}");
+        let open = tree.layout_at(size, start + settle * 3);
+        assert_eq!(next(&open), 80.0);
+        assert_eq!(open.scroll_extents["sessions"], 100.0 * 20.0 + 60.0 - 200.0);
+        assert!(!tree.is_animating());
     }
 
     #[test]

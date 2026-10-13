@@ -113,6 +113,7 @@ slanted by the host.
 | `Element::overlay(base, floating)` | Paints `floating` over `base` without affecting its layout. |
 | `ScrollArea::new(id, child)` | A vertically scrolling viewport. |
 | `ScrollArea::uniform_list(id, count, row_height, build_row)` | A virtualized list: only visible rows are built. |
+| `ScrollArea::uniform_list(…).expansion(index, content)` | What row `index` opens under itself, at the height it takes: it scrolls with the rows, the rows after it move down, and the list stays virtual. One row at a time; a `Collapse` as `content` opens and closes it on the spring. The keyboard walks from the row into it and on to the next row. |
 | `Element::horizontal_scroll(id, child)` | A horizontally scrolling strip. |
 
 `.clip_children()` keeps a container's descendants, and their click targets,

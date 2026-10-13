@@ -532,6 +532,8 @@ pub struct UniformList {
     pub build_row: Arc<dyn Fn(usize) -> Element + Send + Sync>,
     pub appearance: ScrollbarAppearance,
     pub motion: ScrollMotion,
+    /// What one row opens under itself: see [`Element::list_expansion`].
+    pub expansion: Option<(usize, Arc<Element>)>,
 }
 
 impl std::fmt::Debug for UniformList {
@@ -1432,7 +1434,22 @@ impl Element {
             build_row: Arc::new(build_row),
             appearance: ScrollbarAppearance::default(),
             motion: ScrollMotion::default(),
+            expansion: None,
         }))
+    }
+
+    /// Show `content` under row `index` of a uniform list, at the height it
+    /// takes: what an item of the list opens in place. It scrolls with the
+    /// rows, the rows after it move down by its height, and the list still
+    /// builds only what is in view. One row is open at a time; pass
+    /// `content` on every rebuild while it is. A [`crate::Collapse`] as
+    /// `content` opens and closes it on the spring. Does nothing on an
+    /// element that is not a uniform list.
+    pub fn list_expansion(mut self, index: usize, content: Self) -> Self {
+        if let ElementKind::UniformList(list) = &mut self.kind {
+            list.expansion = Some((index, Arc::new(content)));
+        }
+        self
     }
 
     /// Use the same scrollbar policy for ordinary scroll content and virtual
