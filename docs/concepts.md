@@ -10,8 +10,8 @@ A limn application never mutates widgets. Every frame it describes the whole
 window again and hands that description to a `UiTree`:
 
 ```mermaid
-flowchart LR
-    state[view of your state] --> tree[UiTree]
+flowchart TB
+    state[view(state)] --> tree[UiTree]
     input([UiEvent]) --> tree
     tree -->|layout| frame[Frame]
     frame -->|backend| pixels([Pixels])
