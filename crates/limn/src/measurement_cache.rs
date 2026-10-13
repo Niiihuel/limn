@@ -84,6 +84,7 @@ pub(super) fn fills_available_width(kind: &ElementKind) -> bool {
     matches!(
         kind,
         ElementKind::Column(_)
+            | ElementKind::Stack(_)
             | ElementKind::Row(_)
             | ElementKind::TabStrip { .. }
             | ElementKind::Panel(_)

@@ -32,6 +32,7 @@ own content, and how to switch movement off.
 | `CoachMark`, `Tour` | Fades in and settles; its ring fades in on the target. On a new step both spring from the last target to the new one. | Fades out. | `enter_ms`, `exit_ms`, `move_ms` |
 | Body of a `Collapsible` | Opens from zero height under its header and fades in. | Closes in place while its last paint fades; what follows moves with it. | a spring, one and a half `move_ms` |
 | An element with `reveal_on_hover`, such as a `MessageActions` row | Fades in where it already is. | Fades out. Its place in the layout is kept. | `enter_ms`, `exit_ms` |
+| An element with `conceal_on_hover` | Fades in when the pointer leaves the region. | Fades out when it comes over it. | `enter_ms`, `exit_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `Switch` | The thumb springs across. | | `move_ms` |
@@ -222,6 +223,19 @@ popover inside them is open. They keep their place in the layout and in the
 Tab order, so nothing moves when they appear and Tab reaches them. The
 region is passive and the host mirrors no hover state. A pinned
 `sticky_top` child is a region where it is drawn.
+
+`conceal_on_hover(id)` is the opposite: painted except while the pointer is
+over the region. Put one of each in an `Element::stack` and the two give way
+to each other, such as a mark over a picture that turns into what a click
+would do:
+
+```rust
+let cover = Element::stack(vec![
+    picture,
+    playing_mark.conceal_on_hover("row-7-mark"),
+    pause_icon.reveal_on_hover("row-7-pause"),
+]);
+```
 
 ### A control's fill
 

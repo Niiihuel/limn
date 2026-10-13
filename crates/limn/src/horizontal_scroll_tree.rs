@@ -164,6 +164,7 @@ impl LayoutBuilder<'_> {
             | ElementKind::Popover { anchor: child, .. } => {
                 self.horizontal_item_rect(child, content, id)
             }
+            ElementKind::Stack(children) => children.iter().find_map(|child| self.horizontal_item_rect(child, content, id)),
             _ => None,
         }
     }

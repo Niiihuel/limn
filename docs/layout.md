@@ -110,6 +110,7 @@ slanted by the host.
 | --- | --- |
 | `Element::panel(child)` | A box around one child: background, border, radius, padding. |
 | `Element::clickable(id, child)` | A panel that is also one click target. |
+| `Element::stack(children)` | Lays its children one over another in the same box, as large as the largest unless sized. They are painted in the order given, the last on top, inside whatever clips the stack, and where two take the pointer the later one has it. For a mark over a picture, or two faces of one spot that give way to each other under the pointer. |
 | `Element::overlay(base, floating)` | Paints `floating` over `base` without affecting its layout. |
 | `ScrollArea::new(id, child)` | A vertically scrolling viewport. |
 | `ScrollArea::uniform_list(id, count, row_height, build_row)` | A virtualized list: only visible rows are built. |

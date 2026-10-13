@@ -22,6 +22,9 @@ mod top_fade_tests;
 #[cfg(test)]
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
+#[cfg(test)]
+#[path = "stack_tests.rs"]
+mod stack_tests;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -5418,7 +5421,8 @@ fn find_uniform_list<'a>(element: &'a Element, id: &str) -> Option<&'a UniformLi
         ElementKind::UniformList(list) if list.id == id => Some(list),
         ElementKind::Column(children)
         | ElementKind::Row(children)
-        | ElementKind::TabStrip { children, .. } => children
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => children
             .iter()
             .find_map(|child| find_uniform_list(child, id)),
         ElementKind::Panel(child)
@@ -5444,7 +5448,8 @@ fn collect_focus_order(
     match &element.kind {
         ElementKind::Column(children)
         | ElementKind::Row(children)
-        | ElementKind::TabStrip { children, .. } => {
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
             for child in children {
                 collect_focus_order(child, order, seen);
             }
@@ -5558,7 +5563,8 @@ fn collect_action_metadata(
     match &element.kind {
         ElementKind::Column(children)
         | ElementKind::Row(children)
-        | ElementKind::TabStrip { children, .. } => {
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
             for child in children {
                 collect_action_metadata(child, aliases, secondary_actions);
             }
@@ -5637,7 +5643,8 @@ fn holds_reveal(element: &Element, keyboard_focus: bool, focused: Option<&str>) 
         ElementKind::Popover { .. } => true,
         ElementKind::Column(children)
         | ElementKind::Row(children)
-        | ElementKind::TabStrip { children, .. } => children.iter().any(holds),
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => children.iter().any(holds),
         ElementKind::Panel(child)
         | ElementKind::Clickable { child, .. }
         | ElementKind::Scroll { child, .. }
@@ -5660,7 +5667,8 @@ fn find_focus_path(element: &Element, id: &str, path: &mut HashSet<usize>) -> bo
                 .any(|span| !span.text.is_empty() && span.action.as_deref() == Some(id)),
             ElementKind::Column(children)
             | ElementKind::Row(children)
-            | ElementKind::TabStrip { children, .. } => children
+            | ElementKind::TabStrip { children, .. }
+            | ElementKind::Stack(children) => children
                 .iter()
                 .any(|child| find_focus_path(child, id, path)),
             ElementKind::Panel(child)
@@ -6007,7 +6015,8 @@ fn find_radius(element: &Element, id: &str) -> Option<f32> {
     match &element.kind {
         ElementKind::Column(children)
         | ElementKind::Row(children)
-        | ElementKind::TabStrip { children, .. } => {
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
             children.iter().find_map(|child| find_radius(child, id))
         }
         ElementKind::Panel(child)
@@ -6214,8 +6223,12 @@ impl LayoutBuilder<'_> {
     /// Paint only: fade what was painted since command `start` in or out
     /// with the hover of the region around it. Layout, hit regions and the
     /// focus order are the same either way.
-    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize) {
-        let shown = self.region_hovered || holds_reveal(element, self.keyboard_focus, self.focused);
+    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize, concealed: bool) {
+        let shown = if concealed {
+            !self.region_hovered
+        } else {
+            self.region_hovered || holds_reveal(element, self.keyboard_focus, self.focused)
+        };
         let target = if shown { 1.0 } else { 0.0 };
         let now = self.now;
         self.observed_popovers.insert(id.to_owned());
@@ -7844,6 +7857,13 @@ impl LayoutBuilder<'_> {
                 let child = self.measure(child, inner);
                 Size::new(child.width + padding, child.height + padding)
             }
+            // As large as the largest of what it holds.
+            ElementKind::Stack(children) => {
+                let (width, height) = children.iter().map(|child| self.measure(child, inner)).fold((0.0f32, 0.0f32), |(width, height), size| {
+                    (width.max(size.width), height.max(size.height))
+                });
+                Size::new(width + padding, height + padding)
+            }
             ElementKind::Overlay { base, .. } => {
                 let base = self.measure(base, inner);
                 Size::new(base.width + padding, base.height + padding)
@@ -7987,8 +8007,8 @@ impl LayoutBuilder<'_> {
             self.soften(id, *radius, start);
         }
         match &element.presence {
-            Some((id, _)) if reveal == HoverReveal::Revealed => {
-                self.reveal_on_hover(element, id, start)
+            Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed) => {
+                self.reveal_on_hover(element, id, start, reveal == HoverReveal::Concealed)
             }
             Some((id, leaves)) if element.animate_height.is_none() => {
                 self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);
@@ -8412,6 +8432,11 @@ impl LayoutBuilder<'_> {
                 });
             }
             ElementKind::Panel(child) => self.place(child, content, clip),
+            ElementKind::Stack(children) => {
+                for child in children {
+                    self.place(child, content, clip);
+                }
+            }
             ElementKind::Clickable { id, child } => {
                 self.add_region(id, rect, HitKind::Button, clip);
                 if let Some(travel) = element.slider.as_deref() {
@@ -10323,6 +10348,12 @@ impl LayoutBuilder<'_> {
             | ElementKind::Clickable { child, .. }
             | ElementKind::Tooltip { anchor: child, .. } => {
                 self.probe_scroll_focus(child, content, clip);
+            }
+            ElementKind::Stack(children) => {
+                let path = &self.focus_path;
+                if let Some(child) = children.iter().find(|child| path.contains(&(*child as *const Element as usize))) {
+                    self.probe_scroll_focus(child, content, clip);
+                }
             }
             ElementKind::Scroll {
                 id,

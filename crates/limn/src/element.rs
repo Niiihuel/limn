@@ -494,6 +494,8 @@ pub(crate) enum HoverReveal {
     Region,
     /// Painted only while revealed; `presence` holds its ID.
     Revealed,
+    /// Painted except while the region is hovered; `presence` holds its ID.
+    Concealed,
 }
 
 /// The IDs under which the tree keeps an element's ink and a column's
@@ -658,6 +660,9 @@ pub enum ElementKind {
         selection: Option<TabSelection>,
     },
     Panel(Box<Element>),
+    /// Children laid one over another in the same box; see
+    /// [`Element::stack`].
+    Stack(Vec<Element>),
     /// One interactive surface whose children can contain more specific
     /// controls. Child hit regions take precedence over this row's region.
     Clickable {
@@ -1298,11 +1303,30 @@ impl Element {
         self
     }
 
+    /// The opposite of [`reveal_on_hover`](Self::reveal_on_hover): painted
+    /// except while the pointer is over the
+    /// [`hover_region`](Self::hover_region) around it, fading the same way.
+    /// In a [`stack`](Self::stack) with a revealed element, one gives way to
+    /// the other. `id` must be unique in the window.
+    pub fn conceal_on_hover(mut self, id: impl Into<String>) -> Self {
+        self.presence = Some((id.into(), false));
+        self.hover_reveal = HoverReveal::Concealed;
+        self
+    }
+
     /// Accept drops. Applies to buttons, clickables and scroll surfaces
     /// (including virtual lists), which are the elements with a pointer region.
     pub fn drop_target(mut self) -> Self {
         self.drop_target = true;
         self
+    }
+
+    /// Lay children one over another. Each takes the whole of the stack's
+    /// box, which is as large as the largest of them unless it is sized.
+    /// They are painted in the order given, the last on top, inside whatever
+    /// clips the stack; where two take the pointer, the later one has it.
+    pub fn stack(children: Vec<Self>) -> Self {
+        Self::new(ElementKind::Stack(children))
     }
 
     /// Layer a popover or modal over a base tree. The base determines layout;

@@ -94,7 +94,26 @@ pub fn view(cx: &Cx) -> Element {
             .render()
     };
     let hint = |title: &str| TooltipSpec::new(title).placement(TooltipPlacement::Right);
+    // A mark over a picture that turns into what a click would do while the pointer is on its row.
+    let palette = cx.palette;
+    let over = |content: Element| Element::panel(content.centered()).background(limn::Color::rgba(0, 0, 0, 150)).radius(limn::tokens().radius.control);
+    let picture = Element::panel(Element::spacer()).background(palette.selected).radius(limn::tokens().radius.control);
+    let stacked = Element::stack(vec![
+        picture,
+        over(Element::icon(Icon::Audio).foreground(palette.text)).conceal_on_hover("lists-stack-mark"),
+        over(Element::icon(Icon::PauseFill).foreground(palette.text)).reveal_on_hover("lists-stack-does"),
+    ])
+    .size(Some(40.0), Some(40.0));
+    let stacked_row = ListRow::new("lists-stack-row", "Una fila con su tapa", palette)
+        .subtitle("La marca cede su lugar bajo el puntero")
+        .leading(stacked)
+        .render()
+        .hover_region();
     Element::column(vec![
+        section(cx, "Capas en un mismo lugar", vec![
+            card(cx, width, vec![stacked_row]),
+            caption(cx, "Element::stack con conceal_on_hover y reveal_on_hover: en reposo la marca, bajo el puntero lo que haría un clic."),
+        ]),
         section(cx, "Compacta", vec![card(cx, width, vec![
             ListRow::new("list-branch", "ui-separation", on_card)
                 .icon(Icon::GitBranch)
