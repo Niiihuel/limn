@@ -7566,20 +7566,27 @@ impl LayoutBuilder<'_> {
     /// As `scalar`, on a spring that covers its way in one move: for a value
     /// that is followed, and redirected before it arrives.
     fn spring(&self, key: &str, target: f32) -> f32 {
-        let rest = |value| {
-            let settle = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
-            ScalarSpring::new(value, self.now).motion(crate::SpringMotion::settling_in(settle))
-        };
+        let motion = crate::tokens().motion.move_ms;
+        self.spring_paced(key, target, motion, motion)
+    }
+
+    /// As `spring`, covering its way in `rise_ms` towards a greater value
+    /// and in `fall_ms` towards a lesser one.
+    fn spring_paced(&self, key: &str, target: f32, rise_ms: u16, fall_ms: u16) -> f32 {
+        let paced = |settle_ms: u16| crate::SpringMotion::settling_in(Duration::from_millis(u64::from(settle_ms)));
         let mut springs = self.springs.borrow_mut();
         let state = springs.entry(key.to_owned()).or_insert_with(|| AnimatedSpring {
-            value: rest(target),
+            value: ScalarSpring::new(target, self.now),
             seen: self.now,
         });
         state.seen = self.now;
         if self.reduced_motion {
-            state.value = rest(target);
-        } else {
+            state.value = ScalarSpring::new(target, self.now);
+        } else if target != state.value.target() {
+            let pace = paced(if target > state.value.target() { rise_ms } else { fall_ms });
+            // It turns from where it is, at the speed it has, and only then takes its new pace.
             state.value.retarget(target, self.now);
+            state.value = state.value.motion(pace);
         }
         state.value.value(self.now)
     }
@@ -9980,7 +9987,12 @@ impl LayoutBuilder<'_> {
                         .and_then(|index| bars.levels.get(skipped + index))
                         .filter(|level| level.is_finite())
                         .map_or(0.0, |level| level.clamp(0.0, 1.0));
-                    let shown = self.spring(&format!("{}/{slot}", bars.id), level).clamp(0.0, 1.0);
+                    // A peak shows almost at once and falls back slowly, as a
+                    // meter's needle does: a bar that chased every dip would flicker.
+                    let motion = crate::tokens().motion;
+                    let shown = self
+                        .spring_paced(&format!("{}/{slot}", bars.id), level, motion.hover_ms, motion.move_ms * 2)
+                        .clamp(0.0, 1.0);
                     let height = bars.bar + (content.height - bars.bar).max(0.0) * shown;
                     self.frame.commands.push(DrawCommand::FillRect {
                         rect: Rect::new(

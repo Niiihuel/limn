@@ -631,7 +631,9 @@ impl UnitGrid {
 /// before. A slot without a level, or with a level of zero, is a dot `bar`
 /// wide in `rest`; a level of one stands the element's whole height in
 /// `color`. UiTree keeps each slot's height by `id` and springs it to a new
-/// level, so a level that moves on to the next slot is followed there.
+/// level, so a level that moves on to the next slot is followed there. A bar
+/// rises at the pace of a hover and falls back over two moves: a peak shows
+/// at once and does not flicker on its way down.
 #[derive(Clone, Debug, PartialEq)]
 pub struct LevelBars {
     pub id: String,
