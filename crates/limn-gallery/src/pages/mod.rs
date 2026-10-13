@@ -12,6 +12,7 @@ mod diagrams;
 mod editor;
 mod empty;
 mod feedback;
+pub mod glass;
 mod inputs;
 mod lists;
 mod markdown;
@@ -53,6 +54,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "diagrams", group: "Controles", title: "Diagramas", view: diagrams::view },
     Page { id: "messages", group: "Controles", title: "Acciones de mensaje", view: messages::view },
     Page { id: "chrome", group: "Controles", title: "Barras de menús y de estado", view: chrome::view },
+    Page { id: "glass", group: "Controles", title: "Liquid Glass", view: glass::view },
     Page { id: "editor", group: "Controles", title: "Editor y compositor", view: editor::view },
     Page { id: "empty", group: "Estados", title: "Estado vacío", view: empty::view },
     Page { id: "feedback", group: "Estados", title: "Avisos y carga", view: feedback::view },
