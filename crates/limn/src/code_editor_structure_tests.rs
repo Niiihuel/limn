@@ -424,7 +424,7 @@ fn debugger_acknowledgements_are_distinct_and_update_without_editing_the_documen
         now + std::time::Duration::from_secs(1),
     );
     assert!(frame.commands.iter().any(
-        |command| matches!(command, DrawCommand::Text {text,..} if text.contains("rechazado"))
+        |command| matches!(command, DrawCommand::Text {text,..} if text.contains("rejected"))
     ));
     assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::Text {text,..} if text.contains("código ejecutable"))));
     let mut changed = markers;

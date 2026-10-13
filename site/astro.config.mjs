@@ -5,11 +5,37 @@ const REPO = 'https://github.com/Niiihuel/limn';
 // The guides are written to be read on GitHub: `layout.md#gaps` there is
 // `/docs/layout/#gaps` here, and a path into the repository is a link to it.
 function guideLinks() {
+  const page = (dir, name, hash = '') => (name === 'README' ? '/docs/' : `/${dir}/${name}/`) + hash;
+  return (tree, file) => {
+    // A component's guide links to its neighbours by name and to the general guides one level up.
+    const inComponents = /[\\/]docs[\\/]components[\\/]/.test(file.path ?? '');
+    const visit = (node) => {
+      if (node.type === 'link' && !/^(https?:|#|\/|mailto:)/.test(node.url)) {
+        const guide = node.url.match(/^(\.\.\/|components\/)?([\w-]+)\.md(#.*)?$/);
+        if (!guide) node.url = `${REPO}/blob/main/${node.url.replace(/^(\.\.\/)+/, '')}`;
+        else if (guide[1] === 'components/' || (inComponents && !guide[1])) node.url = page('components', guide[2], guide[3]);
+        else node.url = page('docs', guide[2], guide[3]);
+      }
+      node.children?.forEach(visit);
+    };
+    visit(tree);
+  };
+}
+
+// In a table of keys, each key is a keycap: `Left, Right` and `Ctrl+Enter`.
+function keycaps() {
+  const text = (node) => node.value ?? node.children?.map(text).join('') ?? '';
+  const escape = (value) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const visit = (node) => {
-    if (node.type === 'link' && !/^(https?:|#|\/|mailto:)/.test(node.url)) {
-      const guide = node.url.match(/^([\w-]+)\.md(#.*)?$/);
-      if (guide) node.url = (guide[1] === 'README' ? '/docs/' : `/docs/${guide[1]}/`) + (guide[2] ?? '');
-      else node.url = `${REPO}/blob/main/${node.url.replace(/^(\.\.\/)+/, '')}`;
+    if (node.type === 'table' && /^keys?$/i.test(text(node.children[0]?.children[0] ?? {}).trim())) {
+      for (const row of node.children.slice(1)) {
+        const cell = row.children[0];
+        const keys = text(cell).split(/(\s*,\s*|\s+or\s+|\s*\/\s*|\+)/);
+        // A cell that describes keys in words, not names them, stays prose.
+        if (keys.some((part, index) => index % 2 === 0 && !/^[A-Z←→↑↓][\w ]{0,11}$/.test(part.trim()))) continue;
+        const html = keys.map((part, index) => (index % 2 ? escape(part) : part.trim() && `<kbd>${escape(part.trim())}</kbd>`)).join('');
+        cell.children = [{ type: 'html', value: html }];
+      }
     }
     node.children?.forEach(visit);
   };
@@ -18,7 +44,7 @@ function guideLinks() {
 
 export default defineConfig({
   markdown: {
-    remarkPlugins: [guideLinks],
+    remarkPlugins: [guideLinks, keycaps],
     shikiConfig: { themes: { light: 'github-light', dark: 'github-dark-default' } },
   },
 });

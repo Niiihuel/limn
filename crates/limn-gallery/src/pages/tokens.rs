@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     Alert, AlertTone, Button, ButtonVariant, Component, Element, Icon, SegmentedControl,
     Switch, Tab, TextField,
@@ -17,12 +17,12 @@ fn choice(cx: &Cx, group: &str, options: &[(&str, &str)]) -> Element {
     .render()
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let tokens = limn::tokens();
     let width = cx.width.min(520.0);
-    Element::column(vec![
-        caption(cx, "Una llamada a set_tokens cambia la forma y el ritmo de toda la biblioteca."),
+    vec![
+        caption(cx, "Una llamada a set_tokens cambia la forma y el ritmo de toda la biblioteca.").into(),
         section(cx, "Esquinas", vec![
             row(vec![choice(cx, "tokens-radius", &[("square", "Rectas"), ("default", "Normales"), ("round", "Redondas")])]),
             caption(cx, &format!(
@@ -62,6 +62,5 @@ pub fn view(cx: &Cx) -> Element {
                 .radius(tokens.radius.panel)
                 .size(Some(width), None),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

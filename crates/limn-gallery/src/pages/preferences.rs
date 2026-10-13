@@ -1,4 +1,4 @@
-use super::Cx;
+use super::{Cx, Section};
 use limn::{
     ActionRow, ActionRowSizing, Button, ButtonVariant, Chip, Component, Element, Icon, Kbd, PreferencesGroup,
     Switch,
@@ -13,14 +13,14 @@ const NOTE: ActionRowSizing = ActionRowSizing {
     ..ActionRowSizing::DEFAULT
 };
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
     let toggle = |id: &str| Switch::new(id, state.flag(id), palette).render();
     let plugin = |id: &str, name: &str, skills: &str| {
         ActionRow::new(name, palette).subtitle(skills).trailing(toggle(id)).render()
     };
-    Element::column(vec![
+    vec![
         PreferencesGroup::new(
             "Plugins",
             vec![
@@ -35,7 +35,7 @@ pub fn view(cx: &Cx) -> Element {
             palette,
         )
         .description("Instrucciones instaladas para el agente.")
-        .render(),
+        .render().into(),
         PreferencesGroup::new(
             "Marketplace",
             vec![
@@ -55,7 +55,7 @@ pub fn view(cx: &Cx) -> Element {
             ],
             palette,
         )
-        .render(),
+        .render().into(),
         PreferencesGroup::new(
             "Valores, notas y filas apiladas",
             vec![
@@ -95,7 +95,7 @@ pub fn view(cx: &Cx) -> Element {
             ],
             palette,
         )
-        .render(),
+        .render().into(),
         PreferencesGroup::new(
             "Filas que son acciones",
             vec![
@@ -118,7 +118,6 @@ pub fn view(cx: &Cx) -> Element {
             ],
             palette,
         )
-        .render(),
-    ])
-    .gap(28.0)
+        .render().into(),
+    ]
 }

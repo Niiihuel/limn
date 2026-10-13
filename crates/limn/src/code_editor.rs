@@ -2563,7 +2563,7 @@ fn paint_editor_status(
         cursor.clone()
     };
     let language = match language {
-        CodeLanguage::Plain => "Texto",
+        CodeLanguage::Plain => crate::labels().plain_text,
         CodeLanguage::Rust => "Rust",
         CodeLanguage::Json => "JSON",
         CodeLanguage::JavaScript => "JavaScript",
@@ -2580,15 +2580,16 @@ fn paint_editor_status(
         limn_editor::LineEnding::CrLf => "CRLF",
         limn_editor::LineEnding::Cr => "CR",
     };
+    let labels = crate::labels();
     let state = if read_only {
-        "Solo lectura"
+        labels.read_only
     } else if snapshot.is_dirty() {
-        "Sin guardar"
+        labels.unsaved
     } else {
-        "Guardado"
+        labels.saved
     };
     let compact_state = if read_only {
-        format!("{language} · Solo lectura")
+        format!("{language} · {}", labels.read_only)
     } else {
         format!("{language}{}", if snapshot.is_dirty() { " •" } else { "" })
     };

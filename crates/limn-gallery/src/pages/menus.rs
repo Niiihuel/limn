@@ -1,7 +1,7 @@
 //! Selectors, popover panels and suggestion lists: what a menu needs once it
 //! lists more than actions.
 
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     Button, ButtonVariant, Component, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
     DropdownMenuSection, Element, FontFamily, HeaderSizing, Icon, IconButton, Kbd, MenuHeader,
@@ -356,8 +356,8 @@ fn hints(cx: &Cx) -> Vec<Element> {
     ]
 }
 
-pub fn view(cx: &Cx) -> Element {
-    Element::column(vec![
+pub fn view(cx: &Cx) -> Vec<Section> {
+    vec![
         section(cx, "Selector y catálogo", vec![
             row(vec![selector(cx), catalog(cx), states(cx)]),
             row(vec![actions(cx)]),
@@ -377,6 +377,5 @@ pub fn view(cx: &Cx) -> Element {
             caption(cx, &format!("Elegido: {}", cx.state.text("menus-suggest-pick"))),
         ]),
         section(cx, "Teclas con leyenda", vec![row(hints(cx))]),
-    ])
-    .gap(32.0)
+    ]
 }

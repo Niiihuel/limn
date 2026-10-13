@@ -160,7 +160,7 @@ mod tests {
             width: width - 40.0,
         };
         Element::panel(Element::column(vec![
-            pages::glass::view(&cx),
+            pages::find("glass").render(&cx),
             Element::spacer().flex(1.0),
         ]))
         .padding(20.0)

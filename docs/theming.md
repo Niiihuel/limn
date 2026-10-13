@@ -141,6 +141,28 @@ Call it once when the window is created. Without it egui's default
 proportional face, Ubuntu Light, is used, whose thin strokes look washed out
 at small sizes.
 
+## Language
+
+The words the library says by itself, such as the hint of a close button, the
+default actions of an alert dialog or the names in the text context menu, are
+in one value. They are English unless the host sets them, once:
+
+```rust
+limn::set_labels(limn::Labels::SPANISH);
+
+// Or a few of them, in any language:
+limn::set_labels(limn::Labels {
+    close: "Fermer",
+    cancel: "Annuler",
+    ..limn::Labels::ENGLISH
+});
+```
+
+`Labels::ENGLISH` and `Labels::SPANISH` are complete. A component that takes
+a label of its own, such as `AlertDialog::confirm_label`, uses these only
+when it is given none. `FindBar`, `Markdown` and `DiagramViewer` take their
+own labels, in `FindLabels`, `MarkdownLabels` and `close_title`.
+
 ## What cannot be themed yet
 
 - The easing curve of transitions.

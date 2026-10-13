@@ -1,6 +1,7 @@
 ---
 // The gallery alone on a canvas: what the pages embed and /gallery/ shows.
-// `?embed` leaves only the page named by the fragment, `?light` its theme.
+// `?embed` leaves only the page named by the fragment, `?light` its theme,
+// `&bg=rrggbb` its ground.
 ---
 <!doctype html>
 <html lang="en">
@@ -20,6 +21,8 @@
     <canvas id="limn"></canvas>
     <script is:inline type="module">
       if (location.search.includes('light')) document.documentElement.classList.add('light');
+      const ground = new URLSearchParams(location.search).get('bg');
+      if (/^[0-9a-f]{6}$/.test(ground ?? '')) document.body.style.background = document.documentElement.style.background = `#${ground}`;
       try {
         const { default: init } = await import('/wasm/limn-gallery.js');
         await init();

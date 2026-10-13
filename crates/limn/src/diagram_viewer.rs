@@ -18,6 +18,8 @@ pub struct DiagramViewer {
 }
 
 impl DiagramViewer {
+    /// A diagram shown over `base`, under this title, with a control that
+    /// reports `close_id`. The host shows it while its own flag is set.
     pub fn new(
         base: Element,
         title: impl Into<String>,
@@ -42,6 +44,8 @@ impl DiagramViewer {
         self
     }
 
+    /// The size of the window the viewer stands in: its panel takes that less
+    /// a margin. 900 by 620 unless set; a size that is not finite is ignored.
     pub fn viewport(mut self, size: Size) -> Self {
         if size.width.is_finite() && size.height.is_finite() {
             self.viewport = Size::new(size.width.max(0.0), size.height.max(0.0));

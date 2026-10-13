@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     file_icon, Breadcrumb, BreadcrumbItem, ButtonSizing, ButtonVariant, Collapsible, Component, ContextMenu,
     ContextMenuEntry, ContextMenuItem, ControlSize, Element, FontFamily, Icon, IconButton, Link,
@@ -166,7 +166,7 @@ fn bar(header: Element, cx: &Cx) -> Element {
     .size(Some(width), None)
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
     let tabs = |group: &str| -> Vec<Tab> {
@@ -179,7 +179,7 @@ pub fn view(cx: &Cx) -> Element {
             .collect()
     };
     let step = state.choice("nav-step", "0").parse().unwrap_or(0);
-    Element::column(vec![
+    vec![
         section(cx, "Pestañas", vec![
             row(vec![Tabs::new(tabs("nav-tabs"), palette).id("nav-tabs").render()]),
             row(vec![Tabs::new(tabs("nav-fill"), palette)
@@ -292,6 +292,5 @@ pub fn view(cx: &Cx) -> Element {
             ),
             caption(cx, "Icon::filled() da la forma sólida; un icono sin ella, como la lupa, queda igual."),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

@@ -49,6 +49,7 @@ pub struct ChatMinimap {
 }
 
 impl ChatMinimap {
+    /// A rail of these marks, one for each turn, first to last.
     pub fn new(
         id: impl Into<String>,
         marks: Vec<ChatMinimapMark>,
@@ -68,6 +69,7 @@ impl ChatMinimap {
         self
     }
 
+    /// The rail as an element; the same as [`Component::render`](crate::Component::render).
     pub fn render(self) -> Element {
         let active = self
             .active
@@ -96,6 +98,12 @@ impl ChatMinimap {
             lead_ink: self.palette.text,
             tooltip: self.palette.tooltip_style(),
         })
+    }
+}
+
+impl crate::Component for ChatMinimap {
+    fn render(self) -> Element {
+        ChatMinimap::render(self)
     }
 }
 

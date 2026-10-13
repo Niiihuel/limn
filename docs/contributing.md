@@ -85,9 +85,12 @@ See [Testing](testing.md).
 
 ## 4. Show it in the gallery
 
-Add it to an existing page in `crates/limn-gallery/src/pages/`, or add a
-page. Show each state, not one happy example: disabled, loading, empty, long
-text. See [Gallery and hot reload](gallery.md#adding-a-page).
+Every component has a page of its own in the gallery. Write its sections in a
+module of `crates/limn-gallery/src/pages/`, one `section` for each aspect:
+variants, sizes, states. Show each state, not one happy example: disabled,
+loading, empty, long text. Then list the component in `PAGES`, with the titles
+of the sections that are its own. See
+[Gallery and hot reload](gallery.md#adding-a-page).
 
 Then look at it, in both themes and with square corners. Tests do not catch a
 label that sits two pixels low.
@@ -97,35 +100,40 @@ label that sits two pixels low.
 Add a row to the right table in [Components](components.md), and a doc comment
 on the struct and on every public method.
 
-If the component needs more than a row, give it a section that follows this
-template, in this order, omitting what does not apply:
+Then write its guide, `docs/components/<id>.md`, named after its page in the
+gallery. The site shows the guide under the component running, so the two are
+read together. Every guide follows this outline, in this order, omitting what
+does not apply after `Usage`:
 
 ```markdown
-## ComponentName
+# ComponentName
 
-One sentence: what it is for and when to use it.
+One or two sentences: what it is for and when to use it.
 
-### Example
-The smallest useful snippet.
+## Import
+The `use` line a file needs.
 
-### Options
-| Builder | Effect |
+## Usage
+The smallest complete use: the view, and the action handled.
 
-### Actions
-| Action | When |
+## One heading for each thing it can do
+Variants, sizes, icons, steps: a snippet and what it changes.
 
-### States
-Disabled, loading, empty, selected: how each looks and behaves.
-
-### Keyboard
+## Keyboard
 | Key | Effect |
 
-### Motion
+## Motion
 What animates, and with which duration token.
 
-### Notes
-Constraints and anything the host must do.
+## Actions
+| Action | When |
 ```
+
+A test in the gallery checks that a guide belongs to a page, starts with the
+component's name and has `Import` and `Usage`. Snippets use `palette` and
+`state` as a reader's own view would have them; they are fragments, not
+programs. [Button](components/button.md), [Slider](components/slider.md) and
+[Switch](components/switch.md) are the models.
 
 ## Writing style for these pages
 

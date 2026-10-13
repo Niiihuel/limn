@@ -202,7 +202,7 @@ impl Component for Alert {
                 IconButton::new(id, Icon::CloseBold, palette)
                     .variant(ButtonVariant::Ghost)
                     .size(ControlSize::Compact)
-                    .tooltip("Cerrar aviso")
+                    .tooltip(crate::labels().dismiss_notice)
                     // The tooltip is the direct row child. Its own square
                     // bounds keep a long message from stretching the button.
                     .render()

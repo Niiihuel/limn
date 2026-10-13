@@ -143,6 +143,8 @@ pub fn update(state: &mut State, action: &UiAction) {
 pub fn view(state: &State, window: Size) -> Element {
     // Before anything is built: elements read the tokens as they are made.
     limn::set_tokens(state.tokens());
+    // The gallery speaks Spanish; the library does unless told.
+    limn::set_labels(limn::Labels::SPANISH);
     let theme = state.theme();
     let palette = theme.palette();
     let current = pages::find(state.choice("page", pages::PAGES[0].id));
@@ -178,7 +180,8 @@ pub fn view(state: &State, window: Size) -> Element {
                 .render(),
         );
     }
-    sidebar.push(Element::spacer().flex(1.0));
+    // A page for each component is more than a window's height of them.
+    let mut sidebar = vec![ScrollArea::new("sidebar-scroll", Element::column(sidebar).gap(2.0)).render().flex(1.0)];
     sidebar.push(
         Button::new("light", if state.flag("light") { "Tema oscuro" } else { "Tema claro" }, palette)
             .variant(ButtonVariant::Outline)
@@ -193,7 +196,7 @@ pub fn view(state: &State, window: Size) -> Element {
             .font_family(FontFamily::Sans)
             .font_size(24.0)
             .foreground(palette.text),
-        (current.view)(&cx),
+        current.render(&cx),
     ])
     .gap(24.0)
     .padding(32.0);
@@ -201,7 +204,7 @@ pub fn view(state: &State, window: Size) -> Element {
     // Embedded in a site's page, the gallery is only the component: the site
     // has the navigation and the title.
     let content = if state.flag("embed") {
-        vec![ScrollArea::new("page-scroll", (current.view)(&cx).padding(24.0))
+        vec![ScrollArea::new("page-scroll", current.render(&cx).padding(24.0))
             .render()
             .flex(1.0)]
     } else {
@@ -214,7 +217,13 @@ pub fn view(state: &State, window: Size) -> Element {
         ]
     };
     let root = Element::panel(Element::row(content))
-    .background(theme.background)
+    // A site that embeds a page gives it its own ground, as `embed-bg=rrggbb`.
+    .background(
+        u32::from_str_radix(state.text("embed-bg"), 16)
+            .ok()
+            .filter(|_| state.flag("embed") && state.text("embed-bg").len() == 6)
+            .map_or(theme.background, |rgb| limn::Color::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8)),
+    )
     .size(Some(window.width), Some(window.height));
     // Dialogs and toasts float over the whole window, whatever the page.
     pages::layers(&cx, root)
@@ -230,12 +239,16 @@ mod tests {
     fn every_page_lays_out_in_both_themes_at_several_widths() {
         for page in pages::PAGES {
             for light in [false, true] {
-                for width in [640.0, 1280.0, 2200.0] {
+                // The last is the page alone, at the size a site embeds it.
+                for (width, height, embed) in [(640.0, 800.0, false), (1280.0, 800.0, false), (2200.0, 800.0, false), (700.0, 200.0, true)] {
                     let mut state = State::starting_at(page.id);
                     if light {
                         state.set("light", "on");
                     }
-                    let window = Size::new(width, 800.0);
+                    if embed {
+                        state.set("embed", "on");
+                    }
+                    let window = Size::new(width, height);
                     let frame = UiTree::new(view(&state, window)).layout(window);
                     assert!(!frame.commands.is_empty(), "{} paints nothing", page.id);
                     // Two controls with one ID would share hover, fill and focus.

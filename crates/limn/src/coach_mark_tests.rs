@@ -431,13 +431,13 @@ fn tour_counts_its_steps_and_names_the_last_action() {
     };
     let has = |texts: &[String], value: &str| texts.iter().any(|text| text == value);
     let (frame, first) = texts(Some(0));
-    assert!(has(&first, "1 de 3") && has(&first, "Siguiente") && has(&first, "Uno"));
-    assert!(!has(&first, "Atrás"));
+    assert!(has(&first, "1 of 3") && has(&first, "Next") && has(&first, "Uno"));
+    assert!(!has(&first, "Back"));
     assert!(!frame.regions.iter().any(|region| region.id == "tour:back"));
     let (_, second) = texts(Some(1));
-    assert!(has(&second, "2 de 3") && has(&second, "Atrás") && has(&second, "Siguiente"));
+    assert!(has(&second, "2 of 3") && has(&second, "Back") && has(&second, "Next"));
     let (_, last) = texts(Some(2));
-    assert!(has(&last, "3 de 3") && has(&last, "Entendido") && !has(&last, "Siguiente"));
+    assert!(has(&last, "3 of 3") && has(&last, "Got it") && !has(&last, "Next"));
     // Over, or not started: the page alone.
     let (_, plain) = settled(page());
     for current in [None, Some(3)] {

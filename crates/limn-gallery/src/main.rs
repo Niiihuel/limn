@@ -7,6 +7,7 @@
 //! the pointer over a control first, to capture its hover state or tooltip,
 //! `--end` scrolls the page to its end and `--set <id=value>` starts as if
 //! that control had been clicked, to capture an open menu or dialog.
+//! `--pages` prints the components as JSON, one page each, and exits.
 
 mod app;
 mod glass_content;
@@ -29,6 +30,12 @@ fn hot<T>(call: impl FnMut() -> T) -> T {
         let mut call = call;
         call()
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+thread_local! {
+    /// The height an embedded page last asked to grow from.
+    static ASKED_AT: std::cell::Cell<f32> = const { std::cell::Cell::new(0.0) };
 }
 
 struct Host {
@@ -159,6 +166,18 @@ impl eframe::App for Host {
             }
         }
         let frame = self.tree.layout(window);
+        // A page embedded in a site is shown whole: while it scrolls, it asks for room.
+        #[cfg(target_arch = "wasm32")]
+        if self.state.flag("embed")
+            && !self.tree.is_scroll_at_end("page-scroll", 1.0)
+            // Once for each height: the room arrives some frames after it is asked for.
+            && ASKED_AT.with(|asked| asked.replace(window.height)) != window.height
+        {
+            if let Some(parent) = eframe::web_sys::window().and_then(|window| window.parent().ok().flatten()) {
+                let _ = parent.post_message(&"limn:grow".into(), "*");
+            }
+            ctx.request_repaint();
+        }
         if let Some(glass) = &mut self.glass {
             let animate = self.screenshot.is_none()
                 && !self.state.flag("tokens-reduced")
@@ -186,7 +205,9 @@ impl eframe::App for Host {
 
 /// In a page the gallery fills the canvas `limn`; the address's fragment
 /// (`#glass`) chooses the page, so a site can link to one component, and
-/// `?embed` leaves only that page, `?light` in the light theme.
+/// `?embed` leaves only that page, `?light` in the light theme, on the
+/// ground `&bg=rrggbb`. An embedded page that does not fit asks the page
+/// around it for room with the message `limn:grow`.
 #[cfg(target_arch = "wasm32")]
 fn main() {
     use eframe::wasm_bindgen::JsCast as _;
@@ -203,6 +224,9 @@ fn main() {
         if query.contains(flag) {
             state.set(flag, "on");
         }
+    }
+    if let Some(ground) = query.split(['?', '&']).find_map(|part| part.strip_prefix("bg=")) {
+        state.set("embed-bg", ground);
     }
     let canvas = window
         .document()
@@ -258,6 +282,11 @@ fn main() -> eframe::Result {
                 page_chosen = true;
             }
             "--light" => light = true,
+            // What a site needs to give every component its page.
+            "--pages" => {
+                print!("{}", pages::pages_json());
+                return Ok(());
+            }
             "--screenshot" => screenshot = arguments.next().map(PathBuf::from),
             "--hover" => hover = arguments.next(),
             "--end" => scroll_end = true,

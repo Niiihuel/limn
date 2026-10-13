@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{Color, Component, ComponentPalette, Element, FontFamily, Scheme, Surface, Text, TextRole};
 
 fn swatch(cx: &Cx, name: &str, color: Color) -> Element {
@@ -45,7 +45,7 @@ fn on(scheme: Scheme, id: &str, label: &str, surface: Surface, ink: Color) -> El
     )
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let theme = cx.state.theme();
     let scheme = theme.scheme();
     let wrap = |items: Vec<Element>, item_width: f32| {
@@ -57,8 +57,8 @@ pub fn view(cx: &Cx) -> Element {
         }
         Element::column(rows).gap(10.0)
     };
-    Element::column(vec![
-        caption(cx, "Un Scheme nombra cada color por su papel. Ningún componente lo recibe: sólo produce paletas."),
+    vec![
+        caption(cx, "Un Scheme nombra cada color por su papel. Ningún componente lo recibe: sólo produce paletas.").into(),
         section(cx, "Papeles", vec![wrap(vec![
             swatch(cx, "canvas", scheme.canvas),
             swatch(cx, "panel", scheme.panel),
@@ -95,6 +95,5 @@ pub fn view(cx: &Cx) -> Element {
                 swatch(cx, "step(raised)", scheme.step(scheme.raised)),
             ]),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

@@ -45,6 +45,33 @@ fn effort_palette() -> EffortPalette {
     EFFORT_PALETTE.with(std::cell::Cell::get)
 }
 
+/// The artwork of another icon set: the source of an SVG drawn with
+/// `currentColor` for each icon it has, and `None` for the ones it leaves to
+/// Bootstrap Icons.
+pub type IconPack = fn(Icon) -> Option<&'static str>;
+
+thread_local! {
+    static ICON_PACK: std::cell::Cell<Option<IconPack>> = const { std::cell::Cell::new(None) };
+}
+
+/// Draw the semantic icons from another set. Bootstrap Icons stay for
+/// whatever the pack does not have, so a pack can replace a few or all.
+/// Artwork of any proportion is fitted to the icon's square. File type
+/// icons and `Icon::Custom` are not asked for.
+///
+/// Call it once on the UI thread when the window is created, before the
+/// first frame: an icon already drawn stays as it was cached.
+pub fn set_icon_pack(pack: IconPack) {
+    ICON_PACK.with(|cell| cell.set(Some(pack)));
+}
+
+fn packed_svg(icon: Icon) -> Option<&'static str> {
+    if matches!(icon, Icon::FileType(_) | Icon::Custom(_)) {
+        return None;
+    }
+    ICON_PACK.with(std::cell::Cell::get).and_then(|pack| pack(icon))
+}
+
 const MAX_IMAGE_SOURCE_BYTES: usize = 8 * 1024 * 1024;
 
 #[path = "corner_mask_render.rs"]
@@ -574,17 +601,18 @@ fn monochrome_svg(source: &str) -> String {
 }
 
 fn raster_icon(key: IconKey) -> Option<egui::ColorImage> {
+    let packed = packed_svg(key.icon);
     let source = if matches!(key.icon, Icon::FileType(_)) {
         std::borrow::Cow::Borrowed(icon_svg(key.icon))
     } else {
-        std::borrow::Cow::Owned(monochrome_svg(icon_svg(key.icon)))
+        std::borrow::Cow::Owned(monochrome_svg(packed.unwrap_or_else(|| icon_svg(key.icon))))
     };
     let tree = resvg::usvg::Tree::from_str(&source, &resvg::usvg::Options::default()).ok()?;
     let pixels = u32::from(key.pixels);
     let mut pixmap = resvg::tiny_skia::Pixmap::new(pixels, pixels)?;
-    let transform = if matches!(key.icon, Icon::Custom(_)) {
-        // Application artwork comes in any aspect ratio. Contain it in the
-        // icon's square instead of stretching it.
+    let transform = if packed.is_some() || matches!(key.icon, Icon::Custom(_)) {
+        // Application artwork and another set's come in any aspect ratio.
+        // Contain it in the icon's square instead of stretching it.
         let scale = pixels as f32 / tree.size().width().max(tree.size().height());
         resvg::tiny_skia::Transform::from_row(
             scale,
@@ -1400,7 +1428,7 @@ fn paint_at_impl(
                     painter.text(
                         area.center(),
                         Align2::CENTER_CENTER,
-                        "Vista previa no disponible",
+                        limn::labels().preview_unavailable,
                         FontId::proportional(12.0),
                         Color32::from_gray(190),
                     );
@@ -2530,6 +2558,18 @@ mod tests {
                 masks.push(alpha);
             }
         }
+    }
+
+    #[test]
+    fn an_icon_pack_replaces_the_icons_it_has_and_leaves_the_rest() {
+        const WIDE: &str = r#"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 100"><rect width="200" height="100" fill="currentColor"/></svg>"#;
+        let raster = |icon| raster_icon(IconKey { icon, pixels: 16 }).unwrap();
+        let (search, trash) = (raster(Icon::Search), raster(Icon::Trash));
+        set_icon_pack(|icon| (icon == Icon::Search).then_some(WIDE));
+        // The pack's artwork is fitted like an application's own.
+        assert!(raster(Icon::Search) == raster(Icon::Custom(WIDE)));
+        assert!(raster(Icon::Search) != search);
+        assert!(raster(Icon::Trash) == trash);
     }
 
     #[test]

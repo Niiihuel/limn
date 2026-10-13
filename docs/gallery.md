@@ -66,23 +66,38 @@ lands on the same page with the same values. Passing `--page` starts clean.
 
 ## Adding a page
 
-1. Create `crates/limn-gallery/src/pages/<name>.rs` with one function:
+The gallery has a page for each component. A module draws sections, and
+`PAGES` gives each component the sections that are its own, so components
+that are shown together can share a module and still have their own pages.
+
+1. Write the sections in `crates/limn-gallery/src/pages/<name>.rs`:
 
    ```rust
-   use super::{row, section, Cx};
-   use limn::{Button, Component, Element};
+   use super::{row, section, Cx, Section};
+   use limn::{Component, Switch};
 
-   pub fn view(cx: &Cx) -> Element {
-       section(cx, "Buttons", vec![row(vec![
-           Button::new("demo-save", "Save", cx.palette).render(),
-       ])])
+   pub fn view(cx: &Cx) -> Vec<Section> {
+       vec![section(cx, "Switch", vec![row(vec![
+           Switch::new("demo-switch", cx.state.flag("demo-switch"), cx.palette).render(),
+       ])])]
    }
    ```
 
-2. Declare the module and add one line to `PAGES` in `pages/mod.rs`.
+2. Declare the module and list the component in `PAGES` in `pages/mod.rs`:
 
-`Cx` gives a page the palette, the state and the width available to it.
-`section`, `row` and `caption` are layout helpers shared by the pages.
+   ```rust
+   Page { id: "switch", group: "Entradas", title: "Switch", source: "inputs", view: inputs::view, sections: &["Switch"] },
+   ```
+
+   `title` is the name of the type and `id` that name in kebab-case: the
+   address of the component's page on the site and the name of its guide,
+   `docs/components/<id>.md`. `sections` lists the titles of its sections;
+   leave it empty when the whole module is one component.
+
+A test fails when a section is on no page or a page names a section that does
+not exist. `Cx` gives a module the palette, the state and the width available
+to it. `section`, `row` and `caption` are layout helpers shared by the
+modules; an element without a title becomes a section with `.into()`.
 
 ### Demo state without update code
 
@@ -107,12 +122,13 @@ column widths of the table page, answers its actions in `pages::update`.
 ## Capturing a page
 
 ```sh
-cargo run -p limn-gallery -- --page overlays --set overlay-menu=open --screenshot menu.png
+cargo run -p limn-gallery -- --page dropdown-menu --set overlay-menu=open --screenshot menu.png
 ```
 
 | Option | Effect |
 | --- | --- |
 | `--page <id>` | The page to open. IDs are in `PAGES`. |
+| `--pages` | Print the components as JSON, one page each, and exit. |
 | `--light` | Light theme. |
 | `--set <id=value>` | Start as if that control had been clicked. Repeatable. Use it to capture an open menu or dialog. |
 | `--hover <id>` | Hold the pointer over a control, to capture its hover state or tooltip. |

@@ -1,0 +1,10 @@
+---
+// A Bootstrap icon, inlined so it takes the color of the text around it.
+// Bootstrap Icons is also the set limn draws its own icons from.
+const icons = import.meta.glob('/node_modules/bootstrap-icons/icons/*.svg', { query: '?raw', import: 'default' });
+const { name, size = 16 } = Astro.props;
+const load = icons[`/node_modules/bootstrap-icons/icons/${name}.svg`];
+if (!load) throw new Error(`Bootstrap Icons has no "${name}"`);
+const svg = ((await load()) as string).replace('width="16" height="16"', `width="${size}" height="${size}" aria-hidden="true"`);
+---
+<Fragment set:html={svg} />

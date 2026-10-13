@@ -175,7 +175,7 @@ impl Component for Attachment {
                 .render()
                 .radius(panel)
                 .size(Some(24.0), Some(24.0));
-            Tooltip::new(button, id, format!("Quitar {}", self.title), self.palette)
+            Tooltip::new(button, id, format!("{} {}", crate::labels().remove, self.title), self.palette)
                 .render()
                 .size(Some(24.0), Some(24.0))
         });

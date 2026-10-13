@@ -1,13 +1,13 @@
-use super::{caption, row, section, Cx};
-use limn::{Button, ButtonVariant, Component, Element, Icon, IconButton, Tooltip, TooltipPlacement};
+use super::{caption, row, section, Cx, Section};
+use limn::{Button, ButtonVariant, Component, Icon, IconButton, Tooltip, TooltipPlacement};
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let anchor = |id: &str, label: &str| {
         Button::new(id, label, palette).variant(ButtonVariant::Outline).render()
     };
-    Element::column(vec![
-        caption(cx, "Aparecen tras 350 ms de puntero quieto, o al instante con el foco del teclado."),
+    vec![
+        caption(cx, "Aparecen tras 350 ms de puntero quieto, o al instante con el foco del teclado.").into(),
         section(cx, "Título y atajo", vec![row(vec![
             Button::new("tooltip-plain", "Sólo título", palette)
                 .variant(ButtonVariant::Outline)
@@ -45,6 +45,5 @@ pub fn view(cx: &Cx) -> Element {
                 .placement(TooltipPlacement::Right)
                 .render(),
         ])]),
-    ])
-    .gap(32.0)
+    ]
 }

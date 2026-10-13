@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     Button, ButtonVariant, CoachAlign, CoachMark, CoachSide, Color, Component, Element, Icon, Switch,
     TextField,
@@ -29,7 +29,7 @@ const STEPS: [(&str, &str, &str, CoachSide, CoachAlign); 3] = [
     ),
 ];
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
     let toolbar = Element::row(vec![
@@ -45,7 +45,7 @@ pub fn view(cx: &Cx) -> Element {
     let option = |id: &str, label: &str| {
         Element::row(vec![Switch::new(id, state.flag(id), palette).render(), caption(cx, label)]).gap(8.0)
     };
-    Element::column(vec![
+    vec![
         section(
             cx,
             "Recorrido de tres pasos",
@@ -69,8 +69,7 @@ pub fn view(cx: &Cx) -> Element {
                 option("tour-dim", "Atenuar la ventana alrededor del control"),
             ],
         ),
-    ])
-    .gap(32.0)
+    ]
 }
 
 /// Wrap the window in the step the page is on.

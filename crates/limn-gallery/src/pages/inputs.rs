@@ -1,4 +1,4 @@
-use super::{caption, row, section, Cx};
+use super::{caption, row, section, Cx, Section};
 use limn::{
     Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
     SearchField, Select, SelectorSizing, Slider, Switch, TextArea, TextField, TextRole,
@@ -37,11 +37,11 @@ fn shell_select(cx: &Cx, group: &str) -> Select {
     )
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
     let width = cx.width.min(360.0);
-    Element::column(vec![
+    vec![
         section(cx, "Campo de texto", vec![
             TextField::new("input-name", state.text("input-name"), "Nombre del proyecto", palette)
                 .width(width)
@@ -190,6 +190,5 @@ pub fn view(cx: &Cx) -> Element {
             Slider::new("input-slider-disabled", 0.6, palette).enabled(false).width(280.0).render(),
             caption(cx, "Deshabilitado: muestra el valor y no recibe puntero ni foco."),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }

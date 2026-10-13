@@ -55,9 +55,9 @@ impl Component for DateTimePicker {
                 .foreground(self.palette.muted)
         };
         Element::column(vec![
-            label("Fecha"),
+            label(crate::labels().date),
             date.render(),
-            label("Hora local"),
+            label(crate::labels().local_time),
             TimePicker::new(self.time_id, self.time_value, self.palette).render(),
         ])
         .gap(6.0)

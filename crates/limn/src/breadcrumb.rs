@@ -62,6 +62,7 @@ impl PathSegments {
     }
 }
 
+/// One segment of a [`Breadcrumb`]: a label, with an action when it is a link.
 #[derive(Clone, Debug)]
 pub struct BreadcrumbItem {
     label: String,
@@ -71,6 +72,7 @@ pub struct BreadcrumbItem {
 }
 
 impl BreadcrumbItem {
+    /// A segment that is only text until it is given an [`action`](Self::action).
     pub fn new(label: impl Into<String>) -> Self {
         Self {
             label: label.into(),
@@ -79,20 +81,26 @@ impl BreadcrumbItem {
             tooltip: None,
         }
     }
+    /// Make the segment a link that reports this action.
     pub fn action(mut self, action: impl Into<String>) -> Self {
         self.action = Some(action.into());
         self
     }
+    /// Show an icon before the label.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
     }
+    /// A longer name for the segment, such as its full path: its label in the
+    /// overflow menu, where there is room for it.
     pub fn tooltip(mut self, tooltip: impl Into<String>) -> Self {
         self.tooltip = Some(tooltip.into());
         self
     }
 }
 
+/// A path of segments. Those with an action are links and the last is the
+/// current resource; the middle ones collapse into a menu when room is short.
 pub struct Breadcrumb {
     id: String,
     items: Vec<BreadcrumbItem>,
@@ -101,11 +109,13 @@ pub struct Breadcrumb {
     height: f32,
     overflow_open: bool,
     search_action: Option<String>,
+    search_shortcut: String,
     editing: Option<(String, String, String)>,
     path: Option<PathSegments>,
 }
 
 impl Breadcrumb {
+    /// A path from its segments, first to last. The ID names its overflow menu.
     pub fn new(
         id: impl Into<String>,
         items: Vec<BreadcrumbItem>,
@@ -119,6 +129,7 @@ impl Breadcrumb {
             height: 28.0,
             overflow_open: false,
             search_action: None,
+            search_shortcut: "Ctrl+F".into(),
             editing: None,
             path: None,
         }
@@ -168,12 +179,15 @@ impl Breadcrumb {
         self
     }
 
+    /// Fix the width, in logical pixels. A width that is not finite is ignored and a negative one is zero.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = width.max(0.0);
         }
         self
     }
+    /// Set the height, in logical pixels, never below 20. A height that is not
+    /// finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.height = height.max(20.0);
@@ -193,6 +207,13 @@ impl Breadcrumb {
     /// gives up the button's width, so the bar keeps its size.
     pub fn search_action(mut self, action: impl Into<String>) -> Self {
         self.search_action = Some(action.into());
+        self
+    }
+
+    /// The keys shown in the search button's hint, in place of `Ctrl+F`. The
+    /// bar does not bind them: the host does. Empty shows none.
+    pub fn search_shortcut(mut self, keys: impl Into<String>) -> Self {
+        self.search_shortcut = keys.into();
         self
     }
 
@@ -225,8 +246,8 @@ impl Component for Breadcrumb {
                 .interactive_surface(Element::icon_button(action.clone(), Icon::Search, ""))
                 .foreground(palette.muted)
                 .size(Some(height), Some(height));
-            let button = Tooltip::new(button, action, "Buscar", palette)
-                .shortcut("Ctrl+F")
+            let button = Tooltip::new(button, action, crate::labels().search, palette)
+                .shortcut(self.search_shortcut.clone())
                 .render();
             self.width = (width - height - GAP).max(0.0);
             return Element::row(vec![self.render(), button])
@@ -330,7 +351,7 @@ impl Component for Breadcrumb {
                 let anchor = Tooltip::new(
                     anchor.padding(2.0).size(Some(18.0), Some(self.height)),
                     format!("{}:overflow_toggle", self.id),
-                    "Ruta completa",
+                    crate::labels().full_path,
                     self.palette,
                 )
                 .description(&full_path)

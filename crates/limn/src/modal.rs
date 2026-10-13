@@ -52,7 +52,7 @@ impl Component for DismissButton {
         if let Some(action) = self.action_id {
             button = button.dispatch_as(action);
         }
-        Tooltip::new(button, self.id, "Cerrar", self.palette)
+        Tooltip::new(button, self.id, crate::labels().close, self.palette)
             .shortcut("Esc")
             .render()
     }
@@ -64,8 +64,9 @@ const RAIL_WIDTH: f32 = 14.0;
 // The least space kept between the card and the window, both sides together.
 const VIEWPORT_MARGIN: f32 = 24.0;
 
-/// A controlled modal with a fixed header and footer. When `height` is set,
-/// only the body scrolls, keeping its actions visible in a short viewport.
+/// A controlled modal with a fixed header and footer. Only the body scrolls,
+/// up to `height` or to 480 without one, keeping its actions visible in a
+/// short viewport.
 pub struct Modal {
     base: Element,
     open: bool,

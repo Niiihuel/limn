@@ -1,9 +1,14 @@
 ---
 import '../styles/site.css';
+import Icon from '../components/Icon.astro';
 import { REPO } from '../data/site';
 const { title, description = 'A native UI library for Rust.' } = Astro.props;
 const path = Astro.url.pathname;
-const nav = [['/docs/', 'Docs'], ['/components/', 'Components'], ['/gallery/', 'Gallery']];
+const nav = [
+  ['/docs/', 'Docs', 'book'],
+  ['/components/', 'Components', 'grid'],
+  ['/gallery/', 'Gallery', 'window-stack'],
+];
 ---
 <!doctype html>
 <html lang="en">
@@ -22,26 +27,55 @@ const nav = [['/docs/', 'Docs'], ['/components/', 'Components'], ['/gallery/', '
     <header class="bar">
       <a class="brand" href="/">limn</a>
       <nav aria-label="Site">
-        {nav.map(([href, label]) => <a href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>)}
+        {nav.map(([href, label, icon]) => <a href={href} aria-current={path.startsWith(href) ? 'page' : undefined}><Icon name={icon} />{label}</a>)}
       </nav>
       <div class="end">
-        <a href={`${REPO}/blob/main/CHANGELOG.md`}>Changelog</a>
-        <a href={REPO}>GitHub</a>
-        <button id="theme" type="button">Theme</button>
+        <a href={`${REPO}/blob/main/CHANGELOG.md`}><Icon name="journal-text" />Changelog</a>
+        <a href={REPO}><Icon name="github" />GitHub</a>
+        <button id="theme" type="button" aria-label="Switch between the light and the dark theme">
+          <span class="when-dark"><Icon name="sun" /></span><span class="when-light"><Icon name="moon-stars" /></span>
+        </button>
       </div>
     </header>
     <slot />
+    <template id="copy"><button class="copy" type="button" aria-label="Copy the code"><span class="idle"><Icon name="clipboard" size={14} /></span><span class="done"><Icon name="check2" size={14} /></span></button></template>
     <footer>limn is free software under MIT or Apache-2.0. The examples on this site are the library itself, compiled to WebAssembly.</footer>
     <script is:inline>
       // An embedded gallery follows the site's theme.
       const paint = () => {
         const light = document.documentElement.dataset.theme === 'light';
         for (const frame of document.querySelectorAll('iframe[data-page]')) {
-          const src = `/frame/?embed${light ? '&light' : ''}#${frame.dataset.page}`;
+          // The example stands on the ground of a code block.
+          const src = `/frame/?embed${light ? '&light' : ''}&bg=${light ? 'f6f6f7' : '0f0f11'}#${frame.dataset.page}`;
           if (frame.getAttribute('src') !== src) frame.src = src;
         }
       };
       paint();
+      // Every block of code can be copied.
+      for (const block of document.querySelectorAll('pre')) {
+        const button = document.getElementById('copy').content.firstElementChild.cloneNode(true);
+        button.addEventListener('click', async () => {
+          // Without a secure origin there is no clipboard, and nothing was copied.
+          try {
+            await navigator.clipboard.writeText(block.querySelector('code')?.innerText ?? block.innerText);
+          } catch {
+            return;
+          }
+          button.classList.add('copied');
+          setTimeout(() => button.classList.remove('copied'), 1400);
+        });
+        const holder = document.createElement('div');
+        holder.className = 'code';
+        block.replaceWith(holder);
+        holder.append(block, button);
+      }
+      // An example that does not fit asks for room, a little at a time.
+      addEventListener('message', (event) => {
+        if (event.data !== 'limn:grow') return;
+        for (const frame of document.querySelectorAll('iframe[data-page]')) {
+          if (frame.contentWindow === event.source && frame.offsetHeight < 900) frame.style.height = `${frame.offsetHeight + 24}px`;
+        }
+      });
       document.getElementById('theme').addEventListener('click', () => {
         const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
         document.documentElement.dataset.theme = next;

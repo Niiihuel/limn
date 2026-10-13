@@ -270,11 +270,11 @@ pub(super) fn fold_control(
         .size(Some(12.0), Some(12.0))
         .padding(3.0),
         if folded {
-            "Expandir bloque"
+            crate::labels().expand_block
         } else {
-            "Plegar bloque"
+            crate::labels().fold_block
         },
-        &format!("Líneas {}–{}", candidate.start_row + 1, candidate.end_row),
+        &format!("{} {}–{}", crate::labels().lines, candidate.start_row + 1, candidate.end_row),
         rect,
         clip,
         palette,
@@ -302,34 +302,34 @@ pub(super) fn breakpoint_control(
                 .size(Some(8.0), Some(8.0))
                 .background(red)
                 .radius(4.0),
-            "Punto de interrupción verificado",
-            "El adaptador confirmó este punto de interrupción.",
+            crate::labels().breakpoint_verified,
+            crate::labels().breakpoint_verified_detail,
         ),
         Some(CodeBreakpointState::Rejected) => (
             Element::icon(Icon::WarningTriangle)
                 .foreground(Color::rgb(221, 170, 80))
                 .size(Some(8.0), Some(8.0)),
-            "Punto de interrupción rechazado",
-            "El adaptador no pudo verificar este punto. Revisa el mensaje de la sesión.",
+            crate::labels().breakpoint_rejected,
+            crate::labels().breakpoint_rejected_detail,
         ),
         Some(CodeBreakpointState::Disabled) => (
             Element::spacer()
                 .size(Some(8.0), Some(8.0))
                 .border(palette.muted, 1.0)
                 .radius(4.0),
-            "Punto de interrupción desactivado",
-            "Este punto está desactivado y no detiene la ejecución.",
+            crate::labels().breakpoint_disabled,
+            crate::labels().breakpoint_disabled_detail,
         ),
         Some(CodeBreakpointState::Pending) => (
             Element::spacer()
                 .size(Some(8.0), Some(8.0))
                 .border(red, 1.5)
                 .radius(4.0),
-            "Punto de interrupción pendiente",
+            crate::labels().breakpoint_pending,
             if marker.is_some() {
-                "El adaptador todavía no confirmó este punto de interrupción."
+                crate::labels().breakpoint_pending_detail
             } else {
-                "Marca local · sin depurador conectado. No detiene la ejecución. Se borra al editar el archivo."
+                crate::labels().breakpoint_local_detail
             },
         ),
         None => (
@@ -341,8 +341,8 @@ pub(super) fn breakpoint_control(
             } else {
                 Element::spacer().size(Some(8.0), Some(8.0))
             },
-            "Marcar punto de interrupción",
-            "Alternar punto de interrupción en esta línea.",
+            crate::labels().breakpoint_add,
+            crate::labels().breakpoint_add_detail,
         ),
     };
     let mut detail = explanation.to_string();
@@ -393,8 +393,8 @@ pub(super) fn sticky_control(
     control(
         &scope.action_id,
         Element::spacer(),
-        "Volver al inicio del bloque",
-        &format!("Línea {}", scope.start_row + 1),
+        crate::labels().block_start,
+        &format!("{} {}", crate::labels().line, scope.start_row + 1),
         rect,
         clip,
         palette,

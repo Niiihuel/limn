@@ -1,4 +1,4 @@
-use super::{caption, section, Cx};
+use super::{caption, section, Cx, Section};
 use crate::app::State;
 use limn::{
     ButtonVariant, Component, ComponentPalette, ControlSize, Element, Empty, Icon, IconButton, RadiusRole,
@@ -228,7 +228,7 @@ fn documents(cx: &Cx, width: f32, palette: ComponentPalette) -> Element {
     Table::new(FILES, columns, width, palette).rows(rows).sort(sort).menu_palette(cx.palette).render()
 }
 
-pub fn view(cx: &Cx) -> Element {
+pub fn view(cx: &Cx) -> Vec<Section> {
     let width = cx.width.min(760.0);
     // A table sits on its card: the header pinned over the rows takes the card's fill.
     let palette = ComponentPalette { surface: cx.palette.raised, ..cx.palette };
@@ -242,7 +242,7 @@ pub fn view(cx: &Cx) -> Element {
         .render()
         .size(None, Some(360.0));
     let narrow = width.min(380.0);
-    Element::column(vec![
+    vec![
         section(cx, "Lista de canciones", vec![
             caption(cx, "El encabezado queda fijo mientras las filas pasan por debajo. Un clic en una etiqueta ordena: ascendente, descendente y sin orden. Los límites de Álbum y Agregada se arrastran, y el botón del final, o un clic secundario en el encabezado, elige las columnas."),
             SearchField::new("demo-table-query", query, "Filtrar canciones", cx.palette).width(narrow).render(),
@@ -261,8 +261,7 @@ pub fn view(cx: &Cx) -> Element {
             caption(cx, "Sin filas queda el encabezado; el anfitrión pone debajo su estado vacío."),
             card(width, tracks(cx, "demo-table-empty", width - 16.0, "no existe", palette)),
         ]),
-    ])
-    .gap(32.0)
+    ]
 }
 
 #[cfg(test)]

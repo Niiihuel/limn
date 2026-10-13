@@ -65,8 +65,6 @@ code, pre, kbd { font-family: var(--mono); font-size: 13px; }
 .window header span { margin: 0 auto; transform: translateX(-27px); }
 .window iframe { display: block; width: 100%; height: 560px; border: 0; background: var(--card); }
 .window pre { margin: 0; border: 0 !important; border-radius: 0 !important; }
-.example { display: flex; justify-content: space-between; margin: 28px 0 8px; }
-.example .eyebrow:last-child { color: var(--accent); }
 
 .hero { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 56px; align-items: center; max-width: 1440px; margin: 0 auto; padding: 84px clamp(16px, 5vw, 80px) 72px; }
 .hero h1 { margin: 18px 0; font-size: clamp(36px, 5vw, 56px); line-height: 1.04; letter-spacing: -0.03em; }
@@ -91,3 +89,50 @@ code, pre, kbd { font-family: var(--mono); font-size: 13px; }
 @media (max-width: 900px) { .hero { grid-template-columns: 1fr; padding-top: 48px; } }
 footer { padding: 28px clamp(16px, 5vw, 80px); border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+/* The page shows a guide's title and first paragraph itself, over the example. */
+.guide > h1:first-child, .guide > h1:first-child + p { display: none; }
+.guide > h2:first-of-type { margin-top: 36px; }
+.source { margin-top: 40px; color: var(--muted); font-size: 13px; }
+.source a { color: var(--link); }
+/* A live example is a block like a code block: a line around its ground. */
+.live { display: block; width: 100%; margin: 28px 0 8px; border: 1px solid var(--line); border-radius: 10px; background: var(--code); }
+.toc a.active { color: var(--fg); border-left-color: var(--fg); }
+/* Bootstrap icons sit on the text's line and take its color. */
+svg.bi { flex: none; vertical-align: -0.125em; }
+.bar nav a, .bar .end a, .button, .grid h3, .cargo { display: inline-flex; align-items: center; gap: 7px; }
+/* The theme switch is its icon: it lights up, with no box around it. */
+.bar button { display: inline-flex; padding: 4px; border: 0; border-radius: 6px; color: var(--muted); transition: color 140ms; }
+.bar button:hover, .bar button:focus-visible { color: var(--fg); }
+:root[data-theme="light"] .when-dark, :root:not([data-theme="light"]) .when-light { display: none; }
+.code { position: relative; }
+.copy { all: unset; position: absolute; top: 8px; right: 8px; display: inline-flex; padding: 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--code); color: var(--muted); cursor: pointer; opacity: 0; transition: opacity 120ms; }
+.code:hover .copy, .copy:focus-visible, .copy.copied { opacity: 1; }
+.copy:hover { color: var(--fg); }
+.copy .done, .copy.copied .idle { display: none; }
+.copy.copied .done { display: inline-flex; color: var(--accent); }
+.window .code pre { margin: 0; }
+/* Scrollbars: a thin pill everywhere, and in the list of pages one that shows
+   only while it moves or the pointer is over the list. */
+:root { --thumb: #fafafa38; --thumb-hover: #fafafa66; }
+:root[data-theme="light"] { --thumb: #0a0a0a24; --thumb-hover: #0a0a0a6b; }
+* { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--thumb); background-clip: padding-box; border: 2px solid transparent; border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: var(--thumb-hover); background-clip: padding-box; }
+/* The standard properties would take the list's scrollbar out of our hands. */
+.side { scrollbar-gutter: stable; scrollbar-width: auto; scrollbar-color: auto; padding: 24px 8px 40px 0; }
+.side::-webkit-scrollbar-track { margin-block: 24px; }
+.side::-webkit-scrollbar-thumb { background-color: transparent; border: 0 solid transparent; border-right-width: 4px; border-radius: 2px; min-height: 40px; }
+.side[data-scrolling]::-webkit-scrollbar-thumb, .side:hover::-webkit-scrollbar-thumb { background-color: var(--thumb); }
+.side::-webkit-scrollbar-thumb:hover { background-color: var(--thumb-hover); }
+@supports not selector(::-webkit-scrollbar) { .side { scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; } }
+.shell { grid-template-columns: 232px minmax(0, 1fr) 220px; }
+@media (max-width: 1100px) { .shell { grid-template-columns: 212px minmax(0, 1fr); } }
+@media (max-width: 760px) { .shell { display: block; } }
+.side h2 { margin: 0 0 3px; padding: 6px 8px; font: 620 11px/1 var(--mono); }
+.side h2:not(:first-child) { margin-top: 20px; }
+.side a { margin: 0; padding: 4px 8px; border-radius: 6px; font-size: 13.5px; line-height: 1.5; transition: color 140ms, background 140ms; }
+.side a[aria-current="page"] { font-weight: 650; }
+/* A key is a keycap. */
+kbd { display: inline-block; min-width: 1.7em; padding: 1px 6px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 5px; background: var(--card); color: var(--fg); font: 600 12px/1.5 var(--mono); text-align: center; white-space: nowrap; }

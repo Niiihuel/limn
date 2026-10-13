@@ -10,6 +10,7 @@ const EDGE_INSET: f32 = 12.0;
 /// One announcement. The host decides when it appears and when it goes away;
 /// the card itself has no timer and never takes keyboard focus.
 pub struct Toast {
+    id: Option<String>,
     title: String,
     description: String,
     tone: AlertTone,
@@ -22,6 +23,7 @@ pub struct Toast {
 impl Toast {
     pub fn new(title: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
+            id: None,
             title: title.into(),
             description: String::new(),
             tone: AlertTone::Neutral,
@@ -30,6 +32,14 @@ impl Toast {
             dismiss: None,
             width: 360.0,
         }
+    }
+
+    /// Tell this toast from another with the same title. Two shown at once
+    /// are told apart by their titles unless each has an ID: with neither,
+    /// they would appear and leave as one.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     pub fn description(mut self, description: impl Into<String>) -> Self {
@@ -86,9 +96,9 @@ impl Toast {
 
 impl Component for Toast {
     fn render(self) -> Element {
-        // Identified by its title: the card fades in when it appears and out
-        // in place when the host drops it.
-        let presence = format!("toast:{}", self.title);
+        // The card fades in when it appears and out in place when the host
+        // drops it, and is known between frames by its ID, or by its title.
+        let presence = format!("toast:{}", self.id.as_deref().unwrap_or(&self.title));
         let colors = AlertColors::for_tone(self.tone, self.palette);
         // Copy wraps inside the card's width and the card grows downward: a
         // notice is never cut with an ellipsis.

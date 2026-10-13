@@ -90,6 +90,7 @@ mod text_width_cache;
 mod ticker;
 mod time_picker;
 mod toast;
+mod labels;
 mod tokens;
 mod tree;
 mod tree_view;
@@ -212,6 +213,7 @@ pub use text_shimmer::TextShimmer;
 pub use ticker::Ticker;
 pub use time_picker::TimePicker;
 pub use toast::Toast;
+pub use labels::{labels, set_labels, Labels};
 pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
 pub use theme::Theme;
 pub use tree::{

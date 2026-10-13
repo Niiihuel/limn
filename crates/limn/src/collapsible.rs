@@ -239,7 +239,7 @@ pub fn collapse_footer(id: &str, palette: ComponentPalette) -> Element {
     .dispatch_as(id);
     Element::row(vec![
         Element::spacer().flex(1.0),
-        Tooltip::new(button, button_id, "Contraer", palette)
+        Tooltip::new(button, button_id, crate::labels().collapse, palette)
             .placement(TooltipPlacement::Above)
             .render(),
         Element::spacer().flex(1.0),

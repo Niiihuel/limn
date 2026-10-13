@@ -20,4 +20,38 @@ const path = Astro.url.pathname;
       {toc.map(({ depth, slug, text }) => <a href={`#${slug}`} class={depth > 2 ? 'sub' : undefined}>{text}</a>)}
     </aside>
   </div>
+  <script is:inline>
+    // The list keeps the page being read in view, and shows its scrollbar
+    // only while it moves or the pointer is over it.
+    {
+      const side = document.querySelector('.side');
+      // Not scrollIntoView: that would move the page as well as the list.
+      const current = side.querySelector('[aria-current]');
+      if (current) side.scrollTop = current.offsetTop - side.clientHeight / 2;
+      let hide;
+      side.addEventListener('scroll', () => {
+        side.dataset.scrolling = '';
+        clearTimeout(hide);
+        hide = setTimeout(() => delete side.dataset.scrolling, 900);
+      }, { passive: true });
+    }
+  </script>
+  <script is:inline>
+    // The heading being read is marked in "On this page": the last one above a line near the top.
+    {
+      const links = [...document.querySelectorAll('.toc a')];
+      const heads = links.map((link) => document.getElementById(decodeURIComponent(link.hash.slice(1)))).filter(Boolean);
+      const mark = () => {
+        let current = heads[0];
+        for (const head of heads) if (head.getBoundingClientRect().top <= 96) current = head;
+        // At the end of the page the last headings never reach the line.
+        if (scrollY > 0 && innerHeight + scrollY >= document.documentElement.scrollHeight - 2) current = heads.at(-1);
+        for (const link of links) link.classList.toggle('active', current && decodeURIComponent(link.hash) === `#${current.id}`);
+      };
+      if (heads.length) {
+        addEventListener('scroll', mark, { passive: true });
+        mark();
+      }
+    }
+  </script>
 </Base>
