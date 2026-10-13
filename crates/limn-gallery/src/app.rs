@@ -117,8 +117,10 @@ impl State {
 
 /// Apply one action. A click on `group=value` chooses within a group, and
 /// `a=1&b=2` makes several choices at once; any other click flips the flag
-/// named by its ID. Pages need no update code.
+/// named by its ID. Pages need no update code, except a demo whose state is
+/// neither, which answers in [`pages::update`].
 pub fn update(state: &mut State, action: &UiAction) {
+    pages::update(state, action);
     match action {
         UiAction::Clicked { id } => {
             for part in id.split('&') {

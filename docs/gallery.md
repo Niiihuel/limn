@@ -101,6 +101,9 @@ Text typed into an input is stored under the input's ID and read with
 So a switch is one line: `Switch::new("demo-switch",
 cx.state.flag("demo-switch"), cx.palette)`.
 
+A demo whose state is neither a flag nor a choice, such as the sort and the
+column widths of the table page, answers its actions in `pages::update`.
+
 ## Capturing a page
 
 ```sh
