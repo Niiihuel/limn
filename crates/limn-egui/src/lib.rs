@@ -995,6 +995,18 @@ pub fn paint(ui: &egui::Ui, frame: &Frame) {
 }
 
 /// Paint a tree laid out in its own coordinate space at a window position.
+/// Give the pointer the shape the tree asks for: `set_cursor(ctx, tree.cursor())`
+/// once a frame, after the layout. egui goes back to its own shape every
+/// frame, so `None` needs nothing done.
+pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
+    if let Some(cursor) = cursor {
+        ctx.set_cursor_icon(match cursor {
+            limn::Cursor::ResizeColumn => egui::CursorIcon::ResizeColumn,
+            limn::Cursor::ResizeRow => egui::CursorIcon::ResizeRow,
+        });
+    }
+}
+
 pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
     let mut clips = vec![ui.clip_rect()];
     for command in &frame.commands {

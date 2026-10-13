@@ -135,6 +135,7 @@ pub use dropdown_menu::{
     DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
 };
 pub use element::{
+    Cursor,
     Border, BoxShadow, CoachAlign, CoachSide, CornerRadii, Element, ElementKind, FontFamily, Icon, PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
     TooltipStyle, UniformList, UnitGrid, UnitGridPart, DEFAULT_FONT_SIZE, ICON_SIZE,

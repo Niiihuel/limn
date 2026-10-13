@@ -1,13 +1,14 @@
 //! The strip between two panes that the pointer drags to move their boundary.
 
-use crate::{Component, ComponentPalette, Element};
+use crate::{Component, ComponentPalette, Cursor, Element};
 
 const DEFAULT_THICKNESS: f32 = 8.0;
 const MIN_THICKNESS: f32 = 2.0;
 
 /// The handle draws nothing at rest, so a gap between two panes can be the
 /// handle itself; under the pointer it fills with `palette.hover`, and while
-/// held with `palette.selected`. It is controlled: it reports `DragStarted`,
+/// held with `palette.selected`. The pointer takes the resize shape over it
+/// and keeps it through the drag. It is controlled: it reports `DragStarted`,
 /// `DragMoved` and `Dropped` (or `DragCancelled`) on its ID with the
 /// pointer's position, and the host, which owns the panes' sizes, adds how
 /// far the pointer has travelled to the size the pane had when the drag
@@ -54,6 +55,7 @@ impl Component for ResizeHandle {
         self.palette
             .interactive_surface(Element::clickable(self.id, Element::spacer()))
             .draggable()
+            .cursor(if self.vertical { Cursor::ResizeColumn } else { Cursor::ResizeRow })
             .size(width, height)
             // Rounded ends, whatever the thickness.
             .radius(self.thickness / 2.0)
@@ -117,6 +119,28 @@ mod tests {
             tree.handle_event(UiEvent::PointerUp(at(20.0))),
             vec![UiAction::Dropped { id: "split".into(), position: at(20.0), target: None }]
         );
+    }
+
+    #[test]
+    fn the_pointer_takes_the_resize_shape_over_the_handle_and_through_the_drag() {
+        let mut tree = columns(ResizeHandle::vertical("split", palette()));
+        let at = |x: f32| Point::new(x, 30.0);
+        tree.handle_event(UiEvent::PointerMove(at(50.0)));
+        assert_eq!(tree.cursor(), None, "a pane is not a boundary");
+        tree.handle_event(UiEvent::PointerMove(at(104.0)));
+        assert_eq!(tree.cursor(), Some(Cursor::ResizeColumn));
+        tree.handle_event(UiEvent::PointerDown(at(104.0)));
+        tree.handle_event(UiEvent::PointerMove(at(20.0)));
+        assert_eq!(tree.cursor(), Some(Cursor::ResizeColumn), "the drag keeps it away from the strip");
+        tree.handle_event(UiEvent::PointerUp(at(20.0)));
+        tree.handle_event(UiEvent::PointerMove(at(21.0)));
+        assert_eq!(tree.cursor(), None);
+
+        let pane = || Element::spacer().size(None, Some(40.0));
+        let mut rows = UiTree::new(Element::column(vec![pane(), ResizeHandle::horizontal("split", palette()).render(), pane()]));
+        rows.layout(Size::new(120.0, 88.0));
+        rows.handle_event(UiEvent::PointerMove(Point::new(60.0, 44.0)));
+        assert_eq!(rows.cursor(), Some(Cursor::ResizeRow));
     }
 
     #[test]

@@ -50,7 +50,7 @@ use context_menu_tree::{ContextMenuRegion, ContextMenuState};
 mod ime_tree;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement,
+    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextSpan, TooltipItem,
     TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -858,6 +858,7 @@ pub struct Frame {
     action_menu_items: HashSet<String>,
     menu_secondary_actions: HashSet<String>,
     draggables: HashSet<String>,
+    cursors: HashMap<String, Cursor>,
     drop_targets: HashSet<String>,
     submenu_targets: HashMap<String, String>,
     submenu_triggers: HashSet<String>,
@@ -2536,6 +2537,14 @@ impl UiTree {
 
     pub fn hovered_id(&self) -> Option<&str> {
         self.hovered.as_deref()
+    }
+
+    /// The shape the pointer should have: that of the element being dragged,
+    /// wherever the pointer went with it, or else of the element under it.
+    /// `None` leaves it to the platform.
+    pub fn cursor(&self) -> Option<Cursor> {
+        let dragged = self.pointer_drag.as_ref().filter(|drag| drag.active).map(|drag| drag.id.as_str());
+        self.frame.cursors.get(dragged.or(self.hovered.as_deref())?).copied()
     }
 
     /// Focus an interactive element after layout. Returns false for an unknown ID.
@@ -7877,6 +7886,11 @@ impl LayoutBuilder<'_> {
         if element.draggable {
             if let Some(id) = focusable_id(element) {
                 self.frame.draggables.insert(id.to_owned());
+            }
+        }
+        if let Some(cursor) = element.cursor {
+            if let Some(id) = focusable_id(element) {
+                self.frame.cursors.insert(id.to_owned(), cursor);
             }
         }
         if element.drop_target {

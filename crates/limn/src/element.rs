@@ -19,6 +19,16 @@ pub enum PopoverPlacement {
     Center,
 }
 
+/// A shape for the pointer other than the platform's own, asked for with
+/// [`Element::cursor`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Cursor {
+    /// Two arrows pointing sideways: the boundary between two columns.
+    ResizeColumn,
+    /// Two arrows pointing up and down: the boundary between two rows.
+    ResizeRow,
+}
+
 /// Side of its target a coach mark sits on. The engine takes the opposite
 /// side, then the other axis, when the preferred one has no room.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -532,6 +542,7 @@ pub struct Element {
     pub action_alias: Option<String>,
     pub(crate) menu_secondary_action: bool,
     pub(crate) draggable: bool,
+    pub(crate) cursor: Option<Cursor>,
     pub(crate) sticky_top: Option<StickyTop>,
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
@@ -953,6 +964,7 @@ impl Element {
             action_alias: None,
             menu_secondary_action: false,
             draggable: false,
+            cursor: None,
             sticky_top: None,
             animate_height: None,
             kept: None,
@@ -1144,6 +1156,14 @@ impl Element {
     /// Apply to the interactive element before wrapping it in a tooltip.
     pub fn menu_secondary_action(mut self) -> Self {
         self.menu_secondary_action = true;
+        self
+    }
+
+    /// The shape the pointer takes over this button or clickable, and keeps
+    /// for as long as a drag that started on it lasts. The tree reports it
+    /// through `UiTree::cursor`; the host's backend applies it.
+    pub fn cursor(mut self, cursor: Cursor) -> Self {
+        self.cursor = Some(cursor);
         self
     }
 
