@@ -130,6 +130,12 @@ impl Modal {
         (modal_width - 2.0 * PADDING - RAIL_WIDTH).max(0.0)
     }
 
+    /// The width of a body that fits its card without scrolling: no rail is
+    /// reserved, so it reaches the padding on both sides.
+    pub fn fitted_body_width(modal_width: f32) -> f32 {
+        (modal_width - 2.0 * PADDING).max(0.0)
+    }
+
     /// Set a bounded card height. The body receives the remaining space and
     /// becomes scrollable; the viewport can clamp the card further.
     pub fn height(mut self, height: f32) -> Self {
@@ -376,6 +382,9 @@ mod tests {
                 let frame = tree.layout(Size::new(1200.0, 600.0));
                 let field = frame.regions.iter().find(|region| region.id == "fill").unwrap().rect;
                 assert_eq!(field.width, Modal::body_width(width) + rail, "{width} {content}");
+                if rail > 0.0 {
+                    assert_eq!(field.width, Modal::fitted_body_width(width), "{width}");
+                }
             }
         }
         assert_eq!(Modal::body_width(10.0), 0.0);
