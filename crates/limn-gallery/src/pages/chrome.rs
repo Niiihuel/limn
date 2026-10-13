@@ -69,14 +69,18 @@ fn status(cx: &Cx, prefix: &str, width: f32) -> StatusBar {
     let more = id("more");
     StatusBar::new(
         vec![
+            // The one value the bar is read for stands out, under its host's mark.
             StatusBarItem::new(id("branch"), 64.0, palette)
-                .icon(Icon::GitBranch)
+                .icon(Icon::Github)
                 .label("main")
+                .strong()
+                .ink(palette.text)
                 .tooltip_with(TooltipSpec::new("main · Ramas del repositorio")),
+            StatusBarItem::divider(id("rule"), palette),
             StatusBarItem::new(id("problems"), 56.0, palette)
-                .icon(Icon::ErrorCircle)
+                .tinted_icon(Icon::ErrorCircle, limn::Color::rgb(229, 83, 75))
                 .count(2)
-                .icon(Icon::WarningTriangle)
+                .tinted_icon(Icon::WarningTriangle, limn::Color::rgb(224, 179, 106))
                 .count(7)
                 .sizing(StatusBarItemSizing::COUNTS)
                 .tooltip_with(TooltipSpec::new("2 errores · 7 advertencias")),
