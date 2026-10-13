@@ -893,6 +893,73 @@ pub struct LevelBars {
     pub rest: Color,
 }
 
+/// One value of a [`BarSeries`]: a bar, or a segment of a stacked one.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BarValue {
+    /// What the bar measures. Not finite counts as zero; a negative one grows the other way.
+    pub value: f64,
+    /// A color of its own, in place of its series'.
+    pub color: Option<Color>,
+    /// What is written for the value, in place of the number.
+    pub label: Option<String>,
+    /// What the tooltip calls it, in place of its series' name.
+    pub name: Option<String>,
+}
+
+/// One series of a [`BarPlot`]: a value for each category, a name and a color.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BarSeries {
+    /// Said beside its values in the plot's tooltip. Empty for a plot of one unnamed series.
+    pub name: String,
+    /// Fill of its bars.
+    pub color: Color,
+    /// One for each category, in their order; a missing one counts as zero.
+    pub values: Vec<BarValue>,
+}
+
+/// Bars over categories, drawn and kept by the tree: a value axis with round
+/// ticks, a dashed grid, and one bar for each series of each category, side
+/// by side or stacked. UiTree keeps the plot's motion by `id`: the bars grow
+/// from the zero line when the plot first appears, and under the pointer the
+/// category it is over is lit by a band that glides from one to the next
+/// while the others recede, and a tooltip that follows the pointer lists its
+/// values.
+#[derive(Clone, Debug, PartialEq)]
+pub struct BarPlot {
+    /// Stable ID under which the tree keeps the plot's motion and its hover.
+    pub id: String,
+    /// The name of each category, along the band axis.
+    pub categories: Vec<String>,
+    /// The series, in the order they are drawn and listed.
+    pub series: Vec<BarSeries>,
+    /// True to pile a category's bars on one another; false to set them side by side.
+    pub stacked: bool,
+    /// True for bars that run from left to right, with the categories down the side.
+    pub horizontal: bool,
+    /// True to fade each bar from a third of its color at its foot to all of it at its tip.
+    pub gradient: bool,
+    /// Radius of a bar's tip, in logical pixels. Its foot is square.
+    pub radius: f32,
+    /// The widest a bar is drawn, in logical pixels.
+    pub max_bar: f32,
+    /// True to draw a dashed line at each tick of the value axis.
+    pub grid: bool,
+    /// True to write the ticks of the value axis.
+    pub value_axis: bool,
+    /// True to write each bar's value at its tip.
+    pub value_labels: bool,
+    /// Ink of value labels.
+    pub text: Color,
+    /// Ink of the ticks and of the categories' names.
+    pub muted: Color,
+    /// Color of the grid and of the zero line.
+    pub line: Color,
+    /// Colors of the tooltip.
+    pub tooltip: TooltipStyle,
+    /// The name of a last row that sums a stacked category in the tooltip, if it has one.
+    pub total: Option<String>,
+}
+
 /// A column of short marks, one for each part of a long view, such as the
 /// turns of a conversation. The mark under the pointer or the keyboard focus
 /// grows to `peak` and its neighbours step down to `rest` over `reach` marks,
@@ -1323,6 +1390,8 @@ pub enum ElementKind {
     UnitGrid(UnitGrid),
     /// A row of level bars; see [`LevelBars`].
     LevelBars(LevelBars),
+    /// A bar chart; see [`BarPlot`].
+    BarPlot(Box<BarPlot>),
     /// A column of marks that rise around the pointer; see [`MarkRail`].
     MarkRail(MarkRail),
     /// Nothing of its own to draw and no natural size; see
@@ -2511,6 +2580,13 @@ impl Element {
     /// it the size it draws in.
     pub fn level_bars(bars: LevelBars) -> Self {
         Self::new(ElementKind::LevelBars(bars))
+    }
+
+    /// Bars over categories that the tree draws, animates and answers the
+    /// pointer for; see [`BarPlot`]. Give it a size: left alone it takes the
+    /// width it is offered and 240 pixels of height.
+    pub fn bar_plot(plot: BarPlot) -> Self {
+        Self::new(ElementKind::BarPlot(Box::new(plot)))
     }
 
     /// A column of marks that rise around the pointer. It is as wide as its

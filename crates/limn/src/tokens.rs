@@ -35,6 +35,16 @@ impl Radius {
         panel: 12.0,
     };
 
+    /// Controls as pills and everything else generously round: 16 for controls,
+    /// which is half the height of a regular one, 16 for surfaces, 20 for cards and
+    /// 28 for panels.
+    pub const ROUND: Self = Self {
+        control: 16.0,
+        surface: 16.0,
+        card: 20.0,
+        panel: 28.0,
+    };
+
     /// Right angles everywhere.
     pub const SQUARE: Self = Self {
         control: 0.0,

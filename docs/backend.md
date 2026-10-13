@@ -73,6 +73,7 @@ the regions of the last layout.
 | `StrokeRect { rect, color, width, radius }` | An outline drawn inside the rectangle. |
 | `StrokeCornerRect { .. }` | An outline with a radius per corner. |
 | `FillVerticalGradient { .. }` | A vertical gradient, used for fades at scroll edges. |
+| `FillHorizontalGradient { .. }` | A gradient from left to right, with square corners: the length of a bar that lies down. |
 | `FillTriangle { points, color }` | A triangle, used for tooltip pointers. |
 | `Polyline { points, color, width, dashed }` | An open stroked path centered on its points, dashed in short marks when asked: the connectors and the decision outline of a `Flowchart`, the lifelines and messages of a `SequenceDiagram`. |
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |

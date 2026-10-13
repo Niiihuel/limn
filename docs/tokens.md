@@ -42,6 +42,7 @@ Corner radii in logical pixels, named for what they round.
 | --- | --- |
 | `Radius::DEFAULT` | The table above. |
 | `Radius::SQUARE` | Every radius zero. |
+| `Radius::ROUND` | Controls as pills: 16, 16, 20 and 28. |
 | `radius.scaled(factor)` | Every radius multiplied by `factor`. A factor that is negative or not finite leaves it unchanged. |
 
 A radius that is negative or not finite is replaced by its default when the

@@ -1439,6 +1439,40 @@ fn paint_at_impl(
                 mesh.indices.extend([0, 1, 2, 0, 2, 3]);
                 painter.add(egui::Shape::mesh(mesh));
             }
+            DrawCommand::FillHorizontalGradient {
+                rect: area,
+                left,
+                right,
+            } => {
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
+                let mut mesh = egui::Mesh::default();
+                let uv = egui::epaint::WHITE_UV;
+                mesh.vertices.extend([
+                    egui::epaint::Vertex {
+                        pos: area.left_top(),
+                        uv,
+                        color: color(*left),
+                    },
+                    egui::epaint::Vertex {
+                        pos: area.right_top(),
+                        uv,
+                        color: color(*right),
+                    },
+                    egui::epaint::Vertex {
+                        pos: area.right_bottom(),
+                        uv,
+                        color: color(*right),
+                    },
+                    egui::epaint::Vertex {
+                        pos: area.left_bottom(),
+                        uv,
+                        color: color(*left),
+                    },
+                ]);
+                mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+                painter.add(egui::Shape::mesh(mesh));
+            }
             DrawCommand::StrokeRect {
                 rect: area,
                 color: ink,
