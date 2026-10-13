@@ -65,3 +65,9 @@ Everything is in [`docs/`](docs/README.md).
 
 Version 0.1. The API changes without notice. The library is used from a
 checkout, not from crates.io.
+
+## License
+
+Licensed under either of the [Apache License, Version 2.0](LICENSE-APACHE) or the
+[MIT license](LICENSE-MIT), at your option. Unless you say otherwise, what you
+contribute is licensed the same way.

@@ -3,6 +3,8 @@ name = "limn"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
 description = "Original retained-state UI tree, layout, events and backend-neutral drawing"
 
 [features]
