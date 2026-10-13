@@ -1,0 +1,22 @@
+---
+import { getCollection, render } from 'astro:content';
+import Shell from '../../layouts/Shell.astro';
+import { GUIDES } from '../../data/site';
+
+export async function getStaticPaths() {
+  const guides = await getCollection('docs');
+  // docs/README.md is the index of the guides.
+  return guides.map((guide) => ({ params: { slug: guide.id === 'readme' ? undefined : guide.id }, props: { guide } }));
+}
+
+const { guide } = Astro.props;
+const { Content, headings } = await render(guide);
+const side = [
+  { group: 'Documentation', items: [{ href: '/docs/', label: 'Overview' }] },
+  ...GUIDES.map(({ group, items }) => ({ group, items: items.map(([slug, label]) => ({ href: `/docs/${slug}/`, label })) })),
+];
+const title = headings.find((heading) => heading.depth === 1)?.text ?? guide.id;
+---
+<Shell title={title} side={side} toc={headings.filter((heading) => heading.depth === 2 || heading.depth === 3)}>
+  <article class="prose"><Content /></article>
+</Shell>

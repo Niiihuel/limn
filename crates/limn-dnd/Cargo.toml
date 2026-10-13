@@ -3,7 +3,15 @@ name = "limn-dnd"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "File drag and drop with other applications for windows limn does not own (Wayland)"
+
+[lints]
+workspace = true
 
 [dependencies]
 raw-window-handle = "0.6"

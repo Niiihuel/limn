@@ -2,7 +2,7 @@
 //!
 //! A transition belongs to a stable widget ID, not to a transient element.
 
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 use crate::Color;
 

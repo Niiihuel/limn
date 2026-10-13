@@ -1,4 +1,4 @@
-use crate::{Color, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 pub const DEFAULT_FONT_SIZE: f32 = 14.0;
@@ -17,6 +17,16 @@ pub enum PopoverPlacement {
     RightStart,
     LeftStart,
     Center,
+}
+
+/// A shape for the pointer other than the platform's own, asked for with
+/// [`Element::cursor`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum Cursor {
+    /// Two arrows pointing sideways: the boundary between two columns.
+    ResizeColumn,
+    /// Two arrows pointing up and down: the boundary between two rows.
+    ResizeRow,
 }
 
 /// Side of its target a coach mark sits on. The engine takes the opposite
@@ -233,6 +243,22 @@ pub enum Icon {
     Bell,
     BellFill,
     BellSlash,
+    SkipBack,
+    SkipForward,
+    PauseFill,
+    Shuffle,
+    Repeat,
+    RepeatOne,
+    Volume,
+    VolumeMuted,
+    Heart,
+    HeartFill,
+    MusicNote,
+    Playlist,
+    Home,
+    Library,
+    /// Three faders: an equalizer, or any set of fine adjustments.
+    Sliders,
 }
 
 impl Icon {
@@ -245,6 +271,8 @@ impl Icon {
             Self::Bell => Self::BellFill,
             Self::Folder => Self::FolderFill,
             Self::Play => Self::PlayFill,
+            Self::Pause => Self::PauseFill,
+            Self::Heart => Self::HeartFill,
             Self::Grid => Self::GridFill,
             Self::Settings => Self::SettingsFill,
             Self::Palette => Self::PaletteFill,
@@ -466,14 +494,28 @@ pub(crate) enum HoverReveal {
     Region,
     /// Painted only while revealed; `presence` holds its ID.
     Revealed,
+    /// Painted except while the region is hovered; `presence` holds its ID.
+    Concealed,
 }
 
-/// The IDs under which the tree keeps an element's ink and a column's
-/// children across rebuilds.
+/// Rare paint effects and the IDs under which the tree keeps an element's
+/// ink and a column's children across rebuilds.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Kept {
+    /// Stored off the common element path: most elements have no material.
+    pub(crate) glass: Option<GlassMaterial>,
     pub(crate) foreground: Option<String>,
     pub(crate) leaving: Option<String>,
+    /// The ID a soft focus is kept under, and its radius.
+    pub(crate) soft: Option<(String, f32)>,
+}
+
+/// Where a slider's value sits and how the pointer maps onto it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SliderTravel {
+    pub(crate) fraction: f32,
+    pub(crate) steps: usize,
+    pub(crate) inset: f32,
 }
 
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
@@ -484,6 +526,9 @@ pub struct Element {
     /// Another action whose pointer hover should also highlight this element.
     /// Useful when a row contains a more specific action such as its menu.
     pub hover_peer: Option<String>,
+    /// Makes a clickable report [`UiAction::SliderChanged`](crate::UiAction::SliderChanged)
+    /// instead of a click. Boxed: few elements have one.
+    pub(crate) slider: Option<Box<SliderTravel>>,
     /// ID under which this element fades in when it is first placed, and
     /// whether its last paint is left behind to fade out once it is gone.
     pub presence: Option<(String, bool)>,
@@ -503,15 +548,16 @@ pub struct Element {
     pub action_alias: Option<String>,
     pub(crate) menu_secondary_action: bool,
     pub(crate) draggable: bool,
+    pub(crate) drag_in_place: bool,
+    pub(crate) cursor: Option<Cursor>,
     pub(crate) sticky_top: Option<StickyTop>,
     /// Names a passive element for `UiTree::reveal` and `anchor_offset`.
     pub(crate) anchor: Option<String>,
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
-    /// Set by [`Element::animate_foreground`] and [`Element::keep_leaving`].
-    /// Boxed together: few elements have either, and every element pays for
-    /// the field in the caches that hold built trees.
+    /// Rare paint and retained effects, including [`Element::glass`]. Boxed
+    /// together so ordinary elements do not grow in cached trees.
     pub(crate) kept: Option<Box<Kept>>,
     /// Set by [`Element::hover_region`] and [`Element::reveal_on_hover`];
     /// the latter keeps its ID in `presence`. One byte of existing padding.
@@ -587,6 +633,26 @@ impl UnitGrid {
     }
 }
 
+/// A row of level bars, as many as fit its width: one slot per `bar + gap`,
+/// the newest level in the last slot and the ones before it in the slots
+/// before. A slot without a level, or with a level of zero, is a dot `bar`
+/// wide in `rest`; a level of one stands the element's whole height in
+/// `color`. UiTree keeps each slot's height by `id` and springs it to a new
+/// level, so a level that moves on to the next slot is followed there. A bar
+/// rises at the pace of a hover and falls back over two moves: a peak shows
+/// at once and does not flicker on its way down.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LevelBars {
+    pub id: String,
+    /// From 0 to 1, oldest first.
+    pub levels: Vec<f32>,
+    /// Width of a bar and the space between two.
+    pub bar: f32,
+    pub gap: f32,
+    pub color: Color,
+    pub rest: Color,
+}
+
 /// A column of short marks, one for each part of a long view, such as the
 /// turns of a conversation. The mark under the pointer or the keyboard focus
 /// grows to `peak` and its neighbours step down to `rest` over `reach` marks,
@@ -647,6 +713,9 @@ pub enum ElementKind {
         selection: Option<TabSelection>,
     },
     Panel(Box<Element>),
+    /// Children laid one over another in the same box; see
+    /// [`Element::stack`].
+    Stack(Vec<Element>),
     /// One interactive surface whose children can contain more specific
     /// controls. Child hit regions take precedence over this row's region.
     Clickable {
@@ -798,6 +867,16 @@ pub enum ElementKind {
         color: Color,
         variant: SpinnerVariant,
     },
+    /// A record behind its sleeve. Its slide and its turn are retained by
+    /// stable ID in UiTree.
+    Record {
+        id: String,
+        image: Option<RasterImage>,
+        out: bool,
+        spinning: bool,
+        /// A control whose hover also draws the record out.
+        peek: Option<String>,
+    },
     /// Passive finite progress. Unknown capacity has no filled arc.
     ProgressRing {
         fraction: Option<f32>,
@@ -823,6 +902,7 @@ pub enum ElementKind {
         format: fn(f32) -> String,
     },
     UnitGrid(UnitGrid),
+    LevelBars(LevelBars),
     MarkRail(MarkRail),
     Spacer,
 }
@@ -868,6 +948,7 @@ pub struct Style {
     pub bottom_fade: Option<(Color, f32)>,
     /// Passive bottom background behind children, for dedicated footer space.
     pub bottom_background_fade: Option<(Color, f32)>,
+    pub top_background_fade: Option<(Color, f32)>,
     /// Paint-only overflow cues at a horizontal scroll viewport's edges.
     pub horizontal_edge_fade: Option<(Color, f32)>,
     pub hover_background: Option<Color>,
@@ -924,6 +1005,7 @@ impl Default for Style {
             top_fade: None,
             bottom_fade: None,
             bottom_background_fade: None,
+            top_background_fade: None,
             horizontal_edge_fade: None,
             hover_background: None,
             pressed_background: None,
@@ -969,6 +1051,7 @@ impl Element {
             kind,
             style: Style::default(),
             hover_peer: None,
+            slider: None,
             presence: None,
             replacement: None,
             hover_surface: None,
@@ -976,6 +1059,8 @@ impl Element {
             action_alias: None,
             menu_secondary_action: false,
             draggable: false,
+            drag_in_place: false,
+            cursor: None,
             sticky_top: None,
             anchor: None,
             animate_height: None,
@@ -1102,6 +1187,17 @@ impl Element {
         self
     }
 
+    /// Paint this element's text out of focus by `radius` logical pixels, the
+    /// way lines away from the one being read are held back. The radius is
+    /// kept under `id` and springs to a new one in one move, or changes at
+    /// once under reduced motion. Zero is sharp; a radius that is not finite
+    /// counts as zero and none goes over 8.
+    pub fn soft_focus(mut self, id: impl Into<String>, radius: f32) -> Self {
+        let radius = if radius.is_finite() { radius.clamp(0.0, 8.0) } else { 0.0 };
+        self.kept.get_or_insert_default().soft = Some((id.into(), radius));
+        self
+    }
+
     /// On a column: a child with [`Element::animate_height`] that stops being
     /// passed closes where it was, its last paint fading, instead of
     /// vanishing with a jump. The tree remembers the children under `id`
@@ -1128,6 +1224,21 @@ impl Element {
             child: Box::new(child),
         })
         .transition_ms(crate::tokens().motion.hover_ms)
+    }
+
+    /// Turn a clickable into a slider. Pressing or dragging over it reports
+    /// `SliderChanged` with the pointer's share of its width, measured
+    /// between `inset` pixels from each end; arrows, Home and End move it
+    /// from the keyboard. `steps` below 2 is continuous, otherwise the value
+    /// snaps to that many evenly spaced stops. The element paints nothing of
+    /// its own: the child draws the track at the `fraction` it is given.
+    pub fn slider(mut self, fraction: f32, steps: usize, inset: f32) -> Self {
+        self.slider = Some(Box::new(SliderTravel {
+            fraction: if fraction.is_finite() { fraction.clamp(0.0, 1.0) } else { 0.0 },
+            steps,
+            inset: if inset.is_finite() { inset.max(0.0) } else { 0.0 },
+        }));
+        self
     }
 
     /// Keep one visual hover surface across a parent action and one nested
@@ -1165,10 +1276,27 @@ impl Element {
         self
     }
 
+    /// The shape the pointer takes over this button or clickable, and keeps
+    /// for as long as a drag that started on it lasts. The tree reports it
+    /// through `UiTree::cursor`; the host's backend applies it.
+    pub fn cursor(mut self, cursor: Cursor) -> Self {
+        self.cursor = Some(cursor);
+        self
+    }
+
     /// Let a button or clickable start a drag once the pointer leaves the
     /// click tolerance. A press released inside it is still a click.
     pub fn draggable(mut self) -> Self {
         self.draggable = true;
+        self
+    }
+
+    /// As [`draggable`](Self::draggable), without a copy of the element
+    /// following the pointer: for a handle the host itself moves as the drag
+    /// goes on, which stays where the host puts it.
+    pub fn draggable_in_place(mut self) -> Self {
+        self.draggable = true;
+        self.drag_in_place = true;
         self
     }
 
@@ -1241,11 +1369,30 @@ impl Element {
         self
     }
 
+    /// The opposite of [`reveal_on_hover`](Self::reveal_on_hover): painted
+    /// except while the pointer is over the
+    /// [`hover_region`](Self::hover_region) around it, fading the same way.
+    /// In a [`stack`](Self::stack) with a revealed element, one gives way to
+    /// the other. `id` must be unique in the window.
+    pub fn conceal_on_hover(mut self, id: impl Into<String>) -> Self {
+        self.presence = Some((id.into(), false));
+        self.hover_reveal = HoverReveal::Concealed;
+        self
+    }
+
     /// Accept drops. Applies to buttons, clickables and scroll surfaces
     /// (including virtual lists), which are the elements with a pointer region.
     pub fn drop_target(mut self) -> Self {
         self.drop_target = true;
         self
+    }
+
+    /// Lay children one over another. Each takes the whole of the stack's
+    /// box, which is as large as the largest of them unless it is sized.
+    /// They are painted in the order given, the last on top, inside whatever
+    /// clips the stack; where two take the pointer, the later one has it.
+    pub fn stack(children: Vec<Self>) -> Self {
+        Self::new(ElementKind::Stack(children))
     }
 
     /// Layer a popover or modal over a base tree. The base determines layout;
@@ -1821,6 +1968,12 @@ impl Element {
         Self::new(ElementKind::UnitGrid(grid))
     }
 
+    /// Levels as bars that spring to their height; see [`LevelBars`]. Give
+    /// it the size it draws in.
+    pub fn level_bars(bars: LevelBars) -> Self {
+        Self::new(ElementKind::LevelBars(bars))
+    }
+
     /// A column of marks that rise around the pointer. It is as wide as its
     /// longest mark and as tall as its marks, or as the room it is given;
     /// see [`MarkRail`].
@@ -1843,6 +1996,27 @@ impl Element {
             color,
             variant,
         })
+    }
+
+    /// A record in its sleeve. `image` is the sleeve, a square on the
+    /// element's height that fills with the picture, or with the style's
+    /// background without one; the style's radius rounds it. The record
+    /// waits behind it. `out` draws the record out towards the end, where it
+    /// shows a fifth of the sleeve's side beyond it: leave it that room.
+    /// `spinning` turns it, a turn every three seconds, and stopped it keeps
+    /// the angle it reached. It is passive: wrap it in a clickable to play
+    /// what it stands for.
+    pub fn record(id: impl Into<String>, image: Option<RasterImage>, out: bool, spinning: bool) -> Self {
+        Self::new(ElementKind::Record { id: id.into(), image, out, spinning, peek: None })
+    }
+
+    /// Also draw a record out while the pointer is over the control `id`,
+    /// usually the clickable that holds it, as an invitation to play it.
+    pub fn record_peek(mut self, id: impl Into<String>) -> Self {
+        if let ElementKind::Record { peek, .. } = &mut self.kind {
+            *peek = Some(id.into());
+        }
+        self
     }
 
     /// Build a reasoning-effort slider with model-specific stops.
@@ -1887,6 +2061,13 @@ impl Element {
         self
     }
 
+    /// Add a backdrop material behind the element's background and children.
+    /// Leave the background transparent for the sampled scene to show through.
+    pub fn glass(mut self, material: GlassMaterial) -> Self {
+        self.kept.get_or_insert_default().glass = Some(material.normalized());
+        self
+    }
+
     /// Fade content at this element's top edge without changing its layout,
     /// clipping, scroll range, or pointer regions.
     pub fn top_fade(mut self, color: Color, height: f32) -> Self {
@@ -1905,6 +2086,14 @@ impl Element {
     /// space so the tint never covers the last line or the collapse control.
     pub fn bottom_background_fade(mut self, color: Color, height: f32) -> Self {
         self.style.bottom_background_fade =
+            (height.is_finite() && height > 0.0).then_some((color, height));
+        self
+    }
+
+    /// The same from the top edge down: a colour behind a page's header
+    /// that gives way to the surface below it.
+    pub fn top_background_fade(mut self, color: Color, height: f32) -> Self {
+        self.style.top_background_fade =
             (height.is_finite() && height > 0.0).then_some((color, height));
         self
     }

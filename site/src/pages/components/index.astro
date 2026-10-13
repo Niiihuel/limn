@@ -1,0 +1,25 @@
+---
+import Shell from '../../layouts/Shell.astro';
+import { COMPONENTS, groups } from '../../data/site';
+
+const byGroup = groups(COMPONENTS);
+const side = [
+  { group: 'Components', items: [{ href: '/components/', label: 'All components' }] },
+  ...byGroup.map(({ group, items }) => ({ group, items: items.map(({ id, title }) => ({ href: `/components/${id}/`, label: title })) })),
+];
+const toc = byGroup.map(({ group }) => ({ depth: 2, slug: group.toLowerCase(), text: group }));
+---
+<Shell title="Components" description="Every limn component, by category, each with a live example." side={side} toc={toc}>
+  <div class="prose">
+    <h1>Components</h1>
+    <p class="lead">Each page shows the components running, compiled to WebAssembly, with the source of the example. The <a href="/docs/components/">components guide</a> lists every one with its options.</p>
+    {byGroup.map(({ group, items }) => (
+      <>
+        <h2 id={group.toLowerCase()}>{group}</h2>
+        <ul class="list">
+          {items.map(({ id, title, about }) => <li><a href={`/components/${id}/`}>{title}</a> - {about}</li>)}
+        </ul>
+      </>
+    ))}
+  </div>
+</Shell>

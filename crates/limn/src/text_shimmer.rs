@@ -39,7 +39,7 @@ impl Component for TextShimmer {
 mod tests {
     use super::*;
     use crate::{DrawCommand, Key, Point, ScrollArea, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     #[test]
     fn shimmer_moves_over_measured_text_without_restarting_or_changing_selection() {

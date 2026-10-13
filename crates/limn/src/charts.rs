@@ -561,7 +561,7 @@ fn tick_text(value: f64, integer: bool) -> String {
     if value == 0.0 {
         return "0".into();
     }
-    if value >= 1_000_000.0 || value < 0.01 {
+    if !(0.01..1_000_000.0).contains(&value) {
         return format!("{value:.0e}");
     }
     if integer || value.fract() == 0.0 {
@@ -728,7 +728,7 @@ impl Component for ColumnChart {
 mod tests {
     use super::*;
     use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     fn column_bars(frame: &crate::Frame, color: Color) -> Vec<crate::Rect> {
         frame

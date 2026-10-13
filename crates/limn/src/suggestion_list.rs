@@ -172,6 +172,8 @@ impl Component for SuggestionList {
         }
         let sizing = SelectorSizing::CATALOG;
         let palette = self.palette;
+        // Not `clamp`: a width that is not a number must still give a width.
+        #[allow(clippy::manual_clamp)]
         let width = self.available.min(MAX_WIDTH).max(MIN_WIDTH);
         let inner_width = width - sizing.padding * 2.0;
         let mut contents = Vec::with_capacity(5);

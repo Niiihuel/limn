@@ -40,7 +40,7 @@ impl Component for Collapse {
 mod tests {
     use super::*;
     use crate::{DrawCommand, Point, Size, UiAction, UiEvent, UiTree};
-    use std::time::{Duration, Instant};
+    use web_time::{Duration, Instant};
 
     const SIZE: Size = Size::new(300.0, 200.0);
 

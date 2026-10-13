@@ -9,7 +9,7 @@ use limn_editor::{
     SearchResults, Selection, TextBuffer, VisualMap,
 };
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use web_time::Instant;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 

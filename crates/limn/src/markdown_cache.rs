@@ -18,7 +18,9 @@ use crate::{Element, ElementKind, TextSpan};
 
 pub(crate) const MAX_CACHED_MESSAGES: usize = 64;
 pub(crate) const MAX_CACHED_BYTES: usize = 4 * 1_024 * 1_024;
-pub(crate) const MAX_STREAMING_CACHE_BYTES: usize = 512 * 1_024;
+// A preview at the block limit must fit, and an element is about a kilobyte:
+// at half this, one more field on `Element` left the largest previews uncached.
+pub(crate) const MAX_STREAMING_CACHE_BYTES: usize = 1_024 * 1_024;
 const MAX_PENDING_CACHE_BYTES: usize = 512 * 1_024;
 
 pub(crate) struct MarkdownCacheEntry {

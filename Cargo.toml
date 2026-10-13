@@ -3,9 +3,23 @@ resolver = "2"
 members = ["crates/*"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.1.39"
 edition = "2021"
 rust-version = "1.95"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/Niiihuel/limn"
+readme = "README.md"
+keywords = ["gui", "ui", "widgets", "components", "wgpu"]
+categories = ["gui"]
+
+# Drawing and layout pass geometry as arguments and keep commands in enums;
+# splitting either into structs or boxes would cost more than it explains.
+[workspace.lints.clippy]
+too_many_arguments = "allow"
+large_enum_variant = "allow"
+type_complexity = "allow"
+# A fold is one range of rows; a list holding a single fold is not a mistake.
+single_range_in_vec_init = "allow"
 
 [profile.dev]
 debug = "line-tables-only"

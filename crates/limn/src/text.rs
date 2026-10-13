@@ -143,7 +143,7 @@ impl Component for Text {
 mod tests {
     use super::*;
     use crate::{DrawCommand, ElementKind, HitKind, Point, Size, UiEvent, UiTree};
-    use std::time::Instant;
+    use web_time::Instant;
 
     const ROLES: [(TextRole, f32, FontFamily); 8] = [
         (TextRole::Display, 18.0, FontFamily::Sans),

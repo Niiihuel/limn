@@ -149,6 +149,7 @@ impl SyntaxCache {
                 .fetch_add(1, Ordering::AcqRel)
                 .wrapping_add(1);
             if syntax_pool()
+                .0
                 .try_send(Job {
                     previous: if matches!(&source, Source::Buffer(_)) {
                         self.ready.clone()
@@ -165,6 +166,8 @@ impl SyntaxCache {
                 .is_ok()
             {
                 self.requested = Some(key);
+                #[cfg(target_arch = "wasm32")]
+                work(&syntax_pool().1, false);
             } else {
                 self.requested = None;
             }
@@ -228,170 +231,181 @@ fn highlight_color(kind: limn_language::HighlightKind) -> Color {
         HighlightKind::Variable | HighlightKind::Operator => Color::rgb(205, 205, 205),
     }
 }
-fn syntax_pool() -> &'static mpsc::SyncSender<Job> {
-    static POOL: OnceLock<mpsc::SyncSender<Job>> = OnceLock::new();
+/// Works the queue until it closes or, when not waiting, until it is empty.
+fn work(jobs: &Mutex<mpsc::Receiver<Job>>, wait: bool) {
+        #[cfg(feature = "syntax")]
+        let mut parser = limn_language::ParserEngine::default();
+        loop {
+            let job = {
+                let jobs = jobs.lock().expect("syntax job queue poisoned");
+                if wait { jobs.recv().ok() } else { jobs.try_recv().ok() }
+            };
+            let Some(job) = job else {
+                break;
+            };
+            let current = &job.current;
+            let Some(result_slot) = job.result_slot.upgrade() else {
+                continue;
+            };
+            if current.load(Ordering::Acquire) != job.generation {
+                continue;
+            }
+            #[cfg(feature = "syntax")]
+            if let Source::Buffer(snapshot) = &job.source {
+                let cancel = limn_language::Cancellation::for_generation(
+                    job.current.clone(),
+                    job.generation,
+                );
+                let analysis = parser.analyze(snapshot, job.language, &cancel);
+                if cancel.is_cancelled() {
+                    continue;
+                }
+                let count = job.source.count();
+                let mut rows = vec![Vec::new(); count];
+                if let Ok(analysis) = analysis {
+                    for span in analysis.highlights.iter() {
+                        let Ok(start) = snapshot.position_of(span.range.start) else {
+                            continue;
+                        };
+                        let Ok(end) = snapshot.position_of(span.range.end) else {
+                            continue;
+                        };
+                        for (row, highlights) in rows
+                            .iter_mut()
+                            .enumerate()
+                            .take(end.row.saturating_add(1))
+                            .skip(start.row)
+                        {
+                            let Ok(range) = snapshot.line_range(row) else {
+                                continue;
+                            };
+                            let clipped = span.range.start.max(range.start)
+                                ..span.range.end.min(range.end);
+                            if clipped.start < clipped.end {
+                                highlights.push(CodeHighlight {
+                                    range: clipped,
+                                    color: highlight_color(span.kind),
+                                });
+                            }
+                        }
+                    }
+                }
+                if let Ok(mut slot) = result_slot.lock() {
+                    if !cancel.is_cancelled() {
+                        *slot = Some(Arc::new(ResultRows {
+                            document_id: snapshot.document_id(),
+                            revision: snapshot.revision(),
+                            language: job.language,
+                            rows: rows.into(),
+                            end_states: Arc::from([]),
+                            _diff_identity: None,
+                        }));
+                    }
+                }
+                continue;
+            }
+            let key = job.source.key(job.language);
+            let previous = job.previous.as_ref().filter(|previous| {
+                previous.document_id == key.0 && previous.language == key.2
+            });
+            let prefix = previous.map_or(0, |previous| {
+                job.invalid_from
+                    .min(previous.rows.len())
+                    .min(job.source.count())
+            });
+            let mut state = previous
+                .and_then(|previous| previous.end_states.get(prefix.saturating_sub(1)))
+                .copied()
+                .filter(|_| prefix > 0)
+                .unwrap_or_default();
+            let mut old_state = LexState::default();
+            let mut rows = previous
+                .map_or_else(Vec::new, |previous| previous.rows[..prefix].to_vec());
+            let mut end_states = previous.map_or_else(Vec::new, |previous| {
+                previous.end_states[..prefix].to_vec()
+            });
+            let mut spans = rows.iter().map(Vec::len).sum::<usize>();
+            for row in prefix..job.source.count() {
+                if current.load(Ordering::Acquire) != job.generation {
+                    break;
+                }
+                let line = match &job.source {
+                    Source::Buffer(_) => unreachable!("buffers use Tree-sitter"),
+                    Source::Diff(lines) => {
+                        let line = &lines[row];
+                        let text = line.text.trim_end_matches(['\r', '\n']);
+                        if line.old_line.is_none() && line.new_line.is_none() {
+                            state = LexState::default();
+                            old_state = LexState::default();
+                            rows.push(Vec::new());
+                            end_states.push(state);
+                            continue;
+                        }
+                        match line.kind {
+                            crate::CodeDiffLineKind::Added => {
+                                highlight_line(text, 0, job.language, &mut state)
+                            }
+                            crate::CodeDiffLineKind::Removed => {
+                                highlight_line(text, 0, job.language, &mut old_state)
+                            }
+                            crate::CodeDiffLineKind::Context => {
+                                let _ = highlight_line(
+                                    text,
+                                    0,
+                                    job.language,
+                                    &mut old_state,
+                                );
+                                highlight_line(text, 0, job.language, &mut state)
+                            }
+                        }
+                    }
+                };
+                spans = spans.saturating_add(line.len());
+                // Fixed limits independent of input token density. Remaining
+                // rows stay plain; structural state has still been parsed.
+                rows.push(if spans <= 262_144 { line } else { Vec::new() });
+                end_states.push(state);
+            }
+            if current.load(Ordering::Acquire) == job.generation
+                && rows.len() == job.source.count()
+            {
+                let result = ResultRows {
+                    document_id: key.0,
+                    revision: key.1,
+                    language: job.language,
+                    rows: Arc::from(rows),
+                    end_states: Arc::from(end_states),
+                    _diff_identity: match &job.source {
+                        Source::Diff(lines) => Some(lines.clone()),
+                        Source::Buffer(_) => None,
+                    },
+                };
+                // A single result slot bounds memory. Never block a cancelled
+                // worker behind a view that is no longer rendered.
+                if let Ok(mut slot) = result_slot.lock() {
+                    *slot = Some(Arc::new(result));
+                }
+            }
+        }
+}
+
+type Pool = (mpsc::SyncSender<Job>, Arc<Mutex<mpsc::Receiver<Job>>>);
+
+fn syntax_pool() -> &'static Pool {
+    static POOL: OnceLock<Pool> = OnceLock::new();
     POOL.get_or_init(|| {
         let (sender, jobs) = mpsc::sync_channel::<Job>(8);
         let jobs = Arc::new(Mutex::new(jobs));
+        // A browser has no threads to give: there the caller works the queue.
+        #[cfg(not(target_arch = "wasm32"))]
         for index in 0..2 {
             let jobs = jobs.clone();
             std::thread::Builder::new()
                 .name(format!("code-syntax-{index}"))
-                .spawn(move || {
-                    #[cfg(feature = "syntax")]
-                    let mut parser = limn_language::ParserEngine::default();
-                    loop {
-                        let Ok(job) = jobs.lock().expect("syntax job queue poisoned").recv() else {
-                            break;
-                        };
-                        let current = &job.current;
-                        let Some(result_slot) = job.result_slot.upgrade() else {
-                            continue;
-                        };
-                        if current.load(Ordering::Acquire) != job.generation {
-                            continue;
-                        }
-                        #[cfg(feature = "syntax")]
-                        if let Source::Buffer(snapshot) = &job.source {
-                            let cancel = limn_language::Cancellation::for_generation(
-                                job.current.clone(),
-                                job.generation,
-                            );
-                            let analysis = parser.analyze(snapshot, job.language, &cancel);
-                            if cancel.is_cancelled() {
-                                continue;
-                            }
-                            let count = job.source.count();
-                            let mut rows = vec![Vec::new(); count];
-                            if let Ok(analysis) = analysis {
-                                for span in analysis.highlights.iter() {
-                                    let Ok(start) = snapshot.position_of(span.range.start) else {
-                                        continue;
-                                    };
-                                    let Ok(end) = snapshot.position_of(span.range.end) else {
-                                        continue;
-                                    };
-                                    for (row, highlights) in rows
-                                        .iter_mut()
-                                        .enumerate()
-                                        .take(end.row.saturating_add(1))
-                                        .skip(start.row)
-                                    {
-                                        let Ok(range) = snapshot.line_range(row) else {
-                                            continue;
-                                        };
-                                        let clipped = span.range.start.max(range.start)
-                                            ..span.range.end.min(range.end);
-                                        if clipped.start < clipped.end {
-                                            highlights.push(CodeHighlight {
-                                                range: clipped,
-                                                color: highlight_color(span.kind),
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                            if let Ok(mut slot) = result_slot.lock() {
-                                if !cancel.is_cancelled() {
-                                    *slot = Some(Arc::new(ResultRows {
-                                        document_id: snapshot.document_id(),
-                                        revision: snapshot.revision(),
-                                        language: job.language,
-                                        rows: rows.into(),
-                                        end_states: Arc::from([]),
-                                        _diff_identity: None,
-                                    }));
-                                }
-                            }
-                            continue;
-                        }
-                        let key = job.source.key(job.language);
-                        let previous = job.previous.as_ref().filter(|previous| {
-                            previous.document_id == key.0 && previous.language == key.2
-                        });
-                        let prefix = previous.map_or(0, |previous| {
-                            job.invalid_from
-                                .min(previous.rows.len())
-                                .min(job.source.count())
-                        });
-                        let mut state = previous
-                            .and_then(|previous| previous.end_states.get(prefix.saturating_sub(1)))
-                            .copied()
-                            .filter(|_| prefix > 0)
-                            .unwrap_or_default();
-                        let mut old_state = LexState::default();
-                        let mut rows = previous
-                            .map_or_else(Vec::new, |previous| previous.rows[..prefix].to_vec());
-                        let mut end_states = previous.map_or_else(Vec::new, |previous| {
-                            previous.end_states[..prefix].to_vec()
-                        });
-                        let mut spans = rows.iter().map(Vec::len).sum::<usize>();
-                        for row in prefix..job.source.count() {
-                            if current.load(Ordering::Acquire) != job.generation {
-                                break;
-                            }
-                            let line = match &job.source {
-                                Source::Buffer(_) => unreachable!("buffers use Tree-sitter"),
-                                Source::Diff(lines) => {
-                                    let line = &lines[row];
-                                    let text = line.text.trim_end_matches(['\r', '\n']);
-                                    if line.old_line.is_none() && line.new_line.is_none() {
-                                        state = LexState::default();
-                                        old_state = LexState::default();
-                                        rows.push(Vec::new());
-                                        end_states.push(state);
-                                        continue;
-                                    }
-                                    match line.kind {
-                                        crate::CodeDiffLineKind::Added => {
-                                            highlight_line(text, 0, job.language, &mut state)
-                                        }
-                                        crate::CodeDiffLineKind::Removed => {
-                                            highlight_line(text, 0, job.language, &mut old_state)
-                                        }
-                                        crate::CodeDiffLineKind::Context => {
-                                            let _ = highlight_line(
-                                                text,
-                                                0,
-                                                job.language,
-                                                &mut old_state,
-                                            );
-                                            highlight_line(text, 0, job.language, &mut state)
-                                        }
-                                    }
-                                }
-                            };
-                            spans = spans.saturating_add(line.len());
-                            // Fixed limits independent of input token density. Remaining
-                            // rows stay plain; structural state has still been parsed.
-                            rows.push(if spans <= 262_144 { line } else { Vec::new() });
-                            end_states.push(state);
-                        }
-                        if current.load(Ordering::Acquire) == job.generation
-                            && rows.len() == job.source.count()
-                        {
-                            let result = ResultRows {
-                                document_id: key.0,
-                                revision: key.1,
-                                language: job.language,
-                                rows: Arc::from(rows),
-                                end_states: Arc::from(end_states),
-                                _diff_identity: match &job.source {
-                                    Source::Diff(lines) => Some(lines.clone()),
-                                    Source::Buffer(_) => None,
-                                },
-                            };
-                            // A single result slot bounds memory. Never block a cancelled
-                            // worker behind a view that is no longer rendered.
-                            if let Ok(mut slot) = result_slot.lock() {
-                                *slot = Some(Arc::new(result));
-                            }
-                        }
-                    }
-                })
+                .spawn(move || work(&jobs, true))
                 .expect("syntax worker thread creation failed");
         }
-        sender
+        (sender, jobs)
     })
 }
 
@@ -677,14 +691,14 @@ mod tests {
     use super::*;
     use limn_editor::{EditKind, Selection, TextBuffer};
     fn wait(cache: &mut SyntaxCache, snapshot: &BufferSnapshot, language: CodeLanguage) {
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let until = web_time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
             cache.update(snapshot, language);
             if !cache.pending() {
                 break;
             }
             assert!(
-                std::time::Instant::now() < until,
+                web_time::Instant::now() < until,
                 "lexical worker exceeded bounded test wait"
             );
             std::thread::sleep(std::time::Duration::from_millis(1));
@@ -829,13 +843,13 @@ mod tests {
         ]
         .into();
         let mut cache = SyntaxCache::new();
-        let until = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        let until = web_time::Instant::now() + std::time::Duration::from_secs(3);
         loop {
             cache.update_diff(lines.clone(), CodeLanguage::Rust);
             if !cache.pending() {
                 break;
             }
-            assert!(std::time::Instant::now() < until);
+            assert!(web_time::Instant::now() < until);
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
         assert_eq!(

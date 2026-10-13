@@ -225,7 +225,7 @@ mod tests {
         assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::Icon { icon: Icon::ArrowDown, .. })));
 
         tree.handle_event(UiEvent::PointerMove(Point::new(12.0, 12.0)));
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         tree.layout_at(Size::new(400.0, 100.0), start);
         let hinted = tree.layout_at(Size::new(400.0, 100.0), start + std::time::Duration::from_secs(2));
         assert!(texts(&hinted).iter().any(|(_, text)| text == "Previous page"));
@@ -242,7 +242,7 @@ mod tests {
         let mut tree = tree(pager);
         tree.layout(Size::new(400.0, 100.0));
         tree.handle_event(UiEvent::PointerMove(Point::new(24.0 + 4.0 + 20.0, 12.0)));
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         tree.layout_at(Size::new(400.0, 100.0), start);
         let hinted = tree.layout_at(Size::new(400.0, 100.0), start + std::time::Duration::from_secs(2));
         assert!(texts(&hinted).iter().any(|(_, text)| text == "Change 2 of 5"));

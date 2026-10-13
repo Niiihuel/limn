@@ -41,6 +41,7 @@ mod flowchart;
 mod form_field;
 mod framed_card;
 mod geometry;
+mod glass;
 mod diagram_viewer;
 mod image_viewer;
 mod list_row;
@@ -48,10 +49,13 @@ mod markdown;
 mod markdown_cache;
 mod markdown_parser;
 mod marker;
+mod media_card;
+mod media_tile;
 mod menu;
 mod menu_bar;
 mod menu_header;
 mod modal;
+mod navigation_bar;
 mod motion;
 mod notice;
 mod output_block;
@@ -68,15 +72,18 @@ mod scheme;
 mod scroll_area;
 mod select;
 mod selector_sizing;
+mod resize_handle;
 mod separator;
 mod sequence;
 mod shortcut;
 mod skeleton;
+mod slider;
 mod spinner;
 mod status_bar;
 mod stepper;
 mod suggestion_list;
 mod tab_strip;
+mod table;
 mod text;
 mod text_shimmer;
 mod text_width_cache;
@@ -129,12 +136,14 @@ pub use framed_card::FramedCard;
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
 pub use date_picker::DatePicker;
 pub use date_time_picker::DateTimePicker;
-pub use dictation::{DictationButton, DictationState};
+pub use dictation::{DictationButton, DictationState, DictationWaveform};
 pub use dropdown_menu::{
     DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
 };
 pub use element::{
-    Border, BoxShadow, CoachAlign, CoachSide, CornerRadii, Element, ElementKind, FontFamily, Icon, PopoverPlacement,
+    Cursor,
+    Border, BoxShadow, CoachAlign, CoachSide, CornerRadii, Element, ElementKind, FontFamily, Icon, LevelBars,
+    PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
     TooltipStyle, UniformList, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -148,12 +157,15 @@ pub use flowchart::{
 pub use find_bar::{FindBar, FindIds, FindLabels, FindOptions};
 pub use file_icons::{file_icon, folder_icon, language_icon, FileIcon};
 pub use geometry::{Color, Point, Rect, Size};
+pub use glass::GlassMaterial;
 pub use diagram_viewer::DiagramViewer;
 pub use image_viewer::ImageViewer;
 pub use list_row::{DiffStat, ListRow, RowSizing};
 pub use markdown::{Markdown, MarkdownColors, MarkdownLabels, MarkdownLimits, MarkdownPreview, MarkdownSourcePage};
 pub use markdown_cache::MarkdownFrame;
 pub use marker::{thinking_highlight, Marker, MarkerVariant};
+pub use media_card::MediaCard;
+pub use media_tile::MediaTile;
 pub use menu::{MenuItem, MenuSeparator};
 pub use menu_bar::{MenuBar, MenuBarMenu};
 pub use menu_header::MenuHeader;
@@ -162,6 +174,7 @@ pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
 pub use notice::{Notice, NoticeSizing};
+pub use navigation_bar::{NavigationAction, NavigationBar, NavigationWorkspace};
 pub use output_block::OutputBlock;
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionSizing};
 pub use message_actions::{
@@ -177,6 +190,7 @@ pub use scheme::{ControlColors, Scheme, Surface};
 pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement};
 pub use select::Select;
 pub use selector_sizing::SelectorSizing;
+pub use resize_handle::ResizeHandle;
 pub use separator::Separator;
 pub use sequence::{
     SequenceArrow, SequenceBlockKind, SequenceBlockLayout, SequenceDiagram, SequenceEvent, SequenceGraph,
@@ -184,6 +198,7 @@ pub use sequence::{
     SequenceParticipant, SequenceParticipantLayout,
 };
 pub use skeleton::{Skeleton, SkeletonGroup};
+pub use slider::Slider;
 pub use spinner::Spinner;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
 pub use chat_minimap::{ChatMinimap, ChatMinimapMark};
@@ -191,6 +206,7 @@ pub use clipboard::{Clipboard, ClipboardCopied};
 pub use stepper::{Step, Stepper};
 pub use suggestion_list::{SuggestionItem, SuggestionList};
 pub use tab_strip::{TabItem, TabStrip, TabStripHeader};
+pub use table::{Table, TableColumn, TableRow, TableSizing, TableSort};
 pub use text::Text;
 pub use text_shimmer::TextShimmer;
 pub use ticker::Ticker;
@@ -200,7 +216,7 @@ pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
 pub use theme::Theme;
 pub use tree::{
     DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, TextLayoutBlock, TextLayoutRun,
-    UiAction, UiEvent, UiTree,
+    UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
 };
 pub use tree_view::{guides_for_depths, TreeGuides, TreeRow};
 pub use typography::{truncate_measured, wrap_measured, TextRole};

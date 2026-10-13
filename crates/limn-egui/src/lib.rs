@@ -9,6 +9,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
+mod glass;
+pub use glass::GlassRenderer;
 
 /// Colors of the effort slider, the only command without colors of its own.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -98,7 +100,17 @@ pub fn set_image_cache_entries(entries: usize) {
 }
 
 enum RasterCacheEntry {
+    Decoding(std::sync::mpsc::Receiver<Option<egui::ColorImage>>),
     Ready(egui::TextureHandle),
+    Unavailable,
+}
+
+/// What a paint pass has of an image.
+#[derive(Debug, PartialEq)]
+enum RasterTexture {
+    Ready(egui::TextureId, [usize; 2]),
+    /// Still being decoded; a repaint is asked for when it lands.
+    Decoding,
     Unavailable,
 }
 
@@ -175,7 +187,7 @@ fn raster_cache_key(image: &RasterImage) -> (String, RasterImageFormat, bool) {
     )
 }
 
-fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> Option<(egui::TextureId, [usize; 2])> {
+fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
     RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
@@ -184,25 +196,46 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> Option<(egui::TextureId
             cache.context = Some(ui.ctx().clone());
         }
         let key = raster_cache_key(image);
-        if let Some(entry) = cache.entries.get(&key) {
+        if let Some(entry) = cache.entries.get_mut(&key) {
+            if let RasterCacheEntry::Decoding(decoded) = entry {
+                match decoded.try_recv() {
+                    Ok(Some(bitmap)) => {
+                        *entry = RasterCacheEntry::Ready(ui.ctx().load_texture(
+                            format!("user-image:{}", image.sha256()),
+                            bitmap,
+                            egui::TextureOptions::LINEAR,
+                        ));
+                    }
+                    Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        *entry = RasterCacheEntry::Unavailable;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => {}
+                }
+            }
             return match entry {
-                RasterCacheEntry::Ready(texture) => Some((texture.id(), texture.size())),
-                RasterCacheEntry::Unavailable => None,
+                RasterCacheEntry::Ready(texture) => {
+                    RasterTexture::Ready(texture.id(), texture.size())
+                }
+                RasterCacheEntry::Decoding(_) => RasterTexture::Decoding,
+                RasterCacheEntry::Unavailable => RasterTexture::Unavailable,
             };
         }
-        let entry =
-            decode_raster_thumbnail(image).map_or(RasterCacheEntry::Unavailable, |bitmap| {
-                RasterCacheEntry::Ready(ui.ctx().load_texture(
-                    format!("user-image:{}", image.sha256()),
-                    bitmap,
-                    egui::TextureOptions::LINEAR,
-                ))
-            });
-        let result = match &entry {
-            RasterCacheEntry::Ready(texture) => Some((texture.id(), texture.size())),
-            RasterCacheEntry::Unavailable => None,
+        // Decoding costs milliseconds an image: on the UI thread, a row of
+        // pictures scrolling into view drops a frame for each of them.
+        let (landed, decoded) = std::sync::mpsc::channel();
+        let (source, ctx) = (image.clone(), ui.ctx().clone());
+        let decode = move || {
+            let _ = landed.send(decode_raster_thumbnail(&source));
+            ctx.request_repaint();
         };
-        cache.entries.insert(key.clone(), entry);
+        #[cfg(not(target_arch = "wasm32"))]
+        std::thread::spawn(decode);
+        // A browser has no thread to give; the image lands on the next frame.
+        #[cfg(target_arch = "wasm32")]
+        decode();
+        cache
+            .entries
+            .insert(key.clone(), RasterCacheEntry::Decoding(decoded));
         cache.order.push_back(key);
         let full = image.is_full_resolution();
         let limit = if full {
@@ -216,7 +249,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> Option<(egui::TextureId
                 cache.entries.remove(&oldest);
             }
         }
-        result
+        RasterTexture::Decoding
     })
 }
 
@@ -397,6 +430,21 @@ fn fit_image(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
     EguiRect::from_center_size(area.center(), size)
 }
 
+/// The centered part of an image that fills `area` without distortion, as
+/// texture coordinates.
+fn cover_uv(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
+    let image = pixels[0] as f32 / pixels[1] as f32;
+    let wanted = area.width() / area.height();
+    let shown = if !(image.is_finite() && wanted.is_finite()) {
+        egui::vec2(1.0, 1.0)
+    } else if image > wanted {
+        egui::vec2(wanted / image, 1.0)
+    } else {
+        egui::vec2(1.0, image / wanted)
+    };
+    EguiRect::from_center_size(Pos2::new(0.5, 0.5), shown)
+}
+
 fn icon_svg(icon: Icon) -> &'static str {
     match icon {
         Icon::PanelLeft => include_str!("../assets/bootstrap/layout-sidebar.svg"),
@@ -482,6 +530,21 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Bell => include_str!("../assets/bootstrap/bell.svg"),
         Icon::BellFill => include_str!("../assets/bootstrap/bell-fill.svg"),
         Icon::BellSlash => include_str!("../assets/bootstrap/bell-slash.svg"),
+        Icon::SkipBack => include_str!("../assets/bootstrap/skip-start-fill.svg"),
+        Icon::SkipForward => include_str!("../assets/bootstrap/skip-end-fill.svg"),
+        Icon::PauseFill => include_str!("../assets/bootstrap/pause-fill.svg"),
+        Icon::Shuffle => include_str!("../assets/bootstrap/shuffle.svg"),
+        Icon::Repeat => include_str!("../assets/bootstrap/repeat.svg"),
+        Icon::RepeatOne => include_str!("../assets/bootstrap/repeat-1.svg"),
+        Icon::Volume => include_str!("../assets/bootstrap/volume-up.svg"),
+        Icon::VolumeMuted => include_str!("../assets/bootstrap/volume-mute.svg"),
+        Icon::Heart => include_str!("../assets/bootstrap/heart.svg"),
+        Icon::HeartFill => include_str!("../assets/bootstrap/heart-fill.svg"),
+        Icon::MusicNote => include_str!("../assets/bootstrap/music-note-beamed.svg"),
+        Icon::Playlist => include_str!("../assets/bootstrap/music-note-list.svg"),
+        Icon::Home => include_str!("../assets/bootstrap/house.svg"),
+        Icon::Library => include_str!("../assets/bootstrap/collection.svg"),
+        Icon::Sliders => include_str!("../assets/bootstrap/sliders.svg"),
         Icon::FolderFill => include_str!("../assets/bootstrap/folder-fill.svg"),
         Icon::PlayFill => include_str!("../assets/bootstrap/play-fill.svg"),
         Icon::GridFill => include_str!("../assets/bootstrap/grid-fill.svg"),
@@ -646,6 +709,37 @@ fn paint_progress_ring(
             painter.add(egui::Shape::line(points, Stroke::new(1.7, fill)));
         }
     }
+}
+
+/// A vinyl record behind `sleeve`: at `out` 0 it is centered on the sleeve
+/// and hidden by it, at 1 it shows `RECORD_REACH` of the sleeve's side
+/// beyond its end. The sheen turns with `angle`; the grooves are the same
+/// at any angle.
+fn paint_record(painter: &egui::Painter, sleeve: EguiRect, out: f32, angle: f32, opacity: f32) {
+    let side = sleeve.width();
+    if !side.is_finite() || side <= 0.0 {
+        return;
+    }
+    let radius = side * limn::RECORD_SHARE / 2.0;
+    let rest = sleeve.center().x;
+    let drawn = sleeve.max.x + side * limn::RECORD_REACH - radius;
+    let center = Pos2::new(rest + (drawn - rest) * out.clamp(0.0, 1.0), sleeve.center().y);
+    let opacity = opacity.clamp(0.0, 1.0);
+    let white = |alpha: f32| Color32::from_white_alpha((alpha * opacity * 255.0) as u8);
+    let dark = |value: u8| Color32::from_gray(value).gamma_multiply(opacity);
+    painter.circle_filled(center, radius, dark(8));
+    for share in [0.93, 0.87, 0.8, 0.7, 0.6] {
+        painter.circle_stroke(center, radius * share, Stroke::new(0.6, white(0.16)));
+    }
+    // Four soft wedges of light, a quarter turn apart.
+    let spread = 0.17;
+    for quarter in 0..4 {
+        let theta = angle + std::f32::consts::FRAC_PI_2 * quarter as f32;
+        let edge = |theta: f32| center + egui::vec2(theta.cos(), theta.sin()) * radius;
+        painter.add(egui::Shape::convex_polygon(vec![center, edge(theta - spread), edge(theta + spread)], white(0.08), Stroke::NONE));
+    }
+    painter.circle_filled(center, radius * 0.14, dark(54));
+    painter.circle_filled(center, radius * 0.05, dark(8));
 }
 
 fn paint_spinner(
@@ -965,10 +1059,64 @@ pub fn paint(ui: &egui::Ui, frame: &Frame) {
 }
 
 /// Paint a tree laid out in its own coordinate space at a window position.
+/// Give the pointer the shape the tree asks for: `set_cursor(ctx, tree.cursor())`
+/// once a frame, after the layout. egui goes back to its own shape every
+/// frame, so `None` needs nothing done.
+pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
+    if let Some(cursor) = cursor {
+        ctx.set_cursor_icon(match cursor {
+            limn::Cursor::ResizeColumn => egui::CursorIcon::ResizeColumn,
+            limn::Cursor::ResizeRow => egui::CursorIcon::ResizeRow,
+        });
+    }
+}
+
 pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
+    paint_at_impl(ui, frame, origin, None, None);
+}
+
+#[derive(Clone, Copy)]
+struct BackdropSurface<'a> {
+    id: &'a str,
+    texture: egui::TextureId,
+    rect: EguiRect,
+}
+
+fn paint_at_impl(
+    ui: &egui::Ui,
+    frame: &Frame,
+    origin: Pos2,
+    glass: Option<(&GlassRenderer, EguiRect)>,
+    backdrop_surface: Option<BackdropSurface<'_>>,
+) {
     let mut clips = vec![ui.clip_rect()];
     for command in &frame.commands {
         match command {
+            DrawCommand::Glass {
+                rect: area,
+                radius,
+                material,
+                opacity,
+            } => {
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
+                let painted = glass.is_some_and(|(renderer, backdrop)| {
+                    renderer.paint_glass(ui, &painter, area, *radius, *material, *opacity, backdrop)
+                });
+                if !painted {
+                    let tint = material.tint;
+                    painter.rect_filled(
+                        area,
+                        CornerRadius::same(*radius as u8),
+                        Color32::from_rgba_unmultiplied(
+                            tint.r,
+                            tint.g,
+                            tint.b,
+                            (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
+                        ),
+                    );
+                }
+            }
             DrawCommand::PushClip(area) => {
                 let next = clips
                     .last()
@@ -1232,19 +1380,22 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     egui::WidgetInfo::labeled(egui::WidgetType::Image, true, image.alt())
                 });
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                if let Some((texture, pixels)) = raster_texture(ui, image) {
+                let texture = raster_texture(ui, image);
+                if let RasterTexture::Ready(texture, pixels) = texture {
+                    let (target, uv) = if image.is_cover() {
+                        (area, cover_uv(area, pixels))
+                    } else {
+                        (fit_image(area, pixels), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)))
+                    };
                     painter.add(
                         egui::epaint::RectShape::filled(
-                            fit_image(area, pixels),
+                            target,
                             CornerRadius::same(radius.clamp(0.0, 255.0) as u8),
                             Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
                         )
-                        .with_texture(
-                            texture,
-                            EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                        ),
+                        .with_texture(texture, uv),
                     );
-                } else {
+                } else if texture == RasterTexture::Unavailable {
                     painter.rect_filled(area, CornerRadius::same(6), Color32::from_gray(37));
                     painter.text(
                         area.center(),
@@ -1270,11 +1421,17 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 response.widget_info(|| {
                     egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label)
                 });
-                // Nothing is painted until the host presents a first frame.
-                if let Some((texture, pixels, density)) = surface_texture(ui, id) {
-                    let painter = ui
-                        .painter()
-                        .with_clip_rect(clips.last().unwrap().intersect(area));
+                let painter = ui
+                    .painter()
+                    .with_clip_rect(clips.last().unwrap().intersect(area));
+                if let Some(backdrop) = backdrop_surface.filter(|backdrop| backdrop.id == id) {
+                    painter.image(
+                        backdrop.texture,
+                        backdrop.rect,
+                        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                        Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
+                    );
+                } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
                     painter.image(
                         texture,
                         surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),
@@ -1297,6 +1454,34 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     color(*track),
                     color(*fill),
                 );
+            }
+            DrawCommand::Record {
+                rect: area,
+                image,
+                fill,
+                out,
+                angle,
+                radius,
+                opacity,
+            } => {
+                let area = rect(origin, *area);
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let side = area.width().min(area.height());
+                let sleeve = EguiRect::from_min_size(area.min, egui::vec2(side, side));
+                paint_record(&painter, sleeve, *out, *angle, *opacity);
+                let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
+                let corner = CornerRadius::same(radius.clamp(0.0, 255.0) as u8);
+                match image.as_ref().map(|image| raster_texture(ui, image)) {
+                    Some(RasterTexture::Ready(texture, pixels)) => {
+                        painter.add(
+                            egui::epaint::RectShape::filled(sleeve, corner, Color32::from_white_alpha(alpha))
+                                .with_texture(texture, cover_uv(sleeve, pixels)),
+                        );
+                    }
+                    _ => {
+                        painter.rect_filled(sleeve, corner, color(*fill).gamma_multiply(opacity.clamp(0.0, 1.0)));
+                    }
+                }
             }
             DrawCommand::Spinner {
                 rect: area,
@@ -1482,11 +1667,10 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                         });
                     }
                 }
-                egui::Event::Text(value) => {
-                    if !(enter_pressed && matches!(value.as_str(), "\n" | "\r" | "\r\n")) {
+                egui::Event::Text(value)
+                    if !(enter_pressed && matches!(value.as_str(), "\n" | "\r" | "\r\n")) => {
                         events.push(UiEvent::Text(value.clone()));
                     }
-                }
                 egui::Event::Ime(egui::ImeEvent::Preedit { text: value, .. }) => {
                     events.push(UiEvent::ImePreedit(value.clone()))
                 }
@@ -1601,9 +1785,122 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
     })
 }
 
+/// Use Ubuntu Regular for UI text. egui's default proportional face is
+/// Ubuntu Light, whose thin strokes read as blurry at small sizes. Call once
+/// when the window is created, before the first frame and [`attach_fonts`];
+/// egui's Unicode, emoji and monospace fallbacks are kept.
+pub fn install_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    let name = "Ubuntu-Regular".to_owned();
+    fonts.font_data.insert(
+        name.clone(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
+    );
+    // The weights are faces of their own, with the same fallbacks behind them.
+    let fallbacks = fonts
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .cloned()
+        .unwrap_or_default();
+    for (family, face, bytes) in [
+        (SANS_MEDIUM, "Ubuntu-Medium", &include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")[..]),
+        (SANS_BOLD, "Ubuntu-Bold", &include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")[..]),
+    ] {
+        fonts
+            .font_data
+            .insert(face.to_owned(), egui::FontData::from_static(bytes).into());
+        let mut faces = vec![face.to_owned()];
+        faces.extend(fallbacks.iter().cloned());
+        fonts.families.insert(egui::FontFamily::Name(family.into()), faces);
+    }
+    fonts
+        .families
+        .entry(egui::FontFamily::Proportional)
+        .or_default()
+        .insert(0, name);
+    ctx.set_fonts(fonts);
+}
+
+const SANS_MEDIUM: &str = "limn-sans-medium";
+const SANS_BOLD: &str = "limn-sans-bold";
+
+/// The egui family a limn family is painted and measured with. A host that
+/// set its own fonts without the weighted faces gets the regular one.
+fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
+    let weighted = match family {
+        FontFamily::Monospace => return egui::FontFamily::Monospace,
+        FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
+        FontFamily::SansMedium => SANS_MEDIUM,
+        FontFamily::SansBold => SANS_BOLD,
+    };
+    let named = egui::FontFamily::Name(weighted.into());
+    if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {
+        named
+    } else {
+        egui::FontFamily::Proportional
+    }
+}
+
+/// Make a tree measure text with the fonts egui paints with. Call once per
+/// tree, and again after changing the context's fonts.
+pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
+    let mono = egui::FontId::monospace(14.0);
+    let sans = egui::FontId::proportional(14.0);
+    let (metrics, sans_metrics) = ctx.fonts_mut(|fonts| {
+        (
+            limn::FontMetrics {
+                char_width: fonts.glyph_width(&mono, 'M'),
+                line_height: fonts.row_height(&mono),
+            },
+            limn::FontMetrics {
+                char_width: ('a'..='z')
+                    .map(|character| fonts.glyph_width(&sans, character))
+                    .sum::<f32>()
+                    / 26.0,
+                line_height: fonts.row_height(&sans),
+            },
+        )
+    });
+    tree.set_metrics(metrics);
+    tree.set_sans_metrics(sans_metrics);
+    let heights = ctx.clone();
+    // The family is resolved before the fonts are locked to measure with it.
+    tree.set_text_height_measurer(move |size, font| {
+        let family = egui_family(&heights, font);
+        heights.fonts_mut(|fonts| fonts.row_height(&egui::FontId::new(size, family)))
+    });
+    let widths = ctx.clone();
+    tree.set_text_measurer(move |text, size, font| {
+        let family = egui_family(&widths, font);
+        widths.fonts_mut(|fonts| {
+            fonts
+                .layout_no_wrap(
+                    text.to_owned(),
+                    egui::FontId::new(size, family),
+                    Color32::WHITE,
+                )
+                .size()
+                .x
+        })
+    });
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_covering_image_shows_its_centered_part_at_the_box_proportions() {
+        let square = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 100.0));
+        let wide = cover_uv(square, [300, 100]);
+        assert!((wide.width() - 1.0 / 3.0).abs() < 1e-6 && wide.height() == 1.0, "a banner loses its sides");
+        assert!((wide.center().x - 0.5).abs() < 1e-6);
+        let tall = cover_uv(square, [100, 400]);
+        assert!(tall.width() == 1.0 && (tall.height() - 0.25).abs() < 1e-6, "a portrait loses top and bottom");
+        assert_eq!(cover_uv(square, [64, 64]), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)));
+        let empty = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(0.0, 0.0));
+        assert_eq!(cover_uv(empty, [64, 0]), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), "nothing to divide by");
+    }
     use image::ImageEncoder as _;
     use std::sync::Arc;
 
@@ -1824,6 +2121,33 @@ mod tests {
             RasterImageFormat::Png,
         );
         assert!(decode_raster_thumbnail(&oversized).is_none());
+    }
+
+    #[test]
+    fn an_image_is_decoded_away_from_the_paint_pass_and_lands_on_a_later_one() {
+        let ctx = egui::Context::default();
+        let image = raster(test_png(2, 1), RasterImageFormat::Png);
+        let broken = raster(b"not a picture".to_vec(), RasterImageFormat::Png);
+        let paint = |image: &RasterImage| {
+            let mut texture = RasterTexture::Unavailable;
+            let mut output = ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, image));
+            output.textures_delta.clear();
+            texture
+        };
+        assert_eq!(paint(&image), RasterTexture::Decoding, "the first pass does not wait for it");
+        assert_eq!(paint(&broken), RasterTexture::Decoding);
+        let settled = |image: &RasterImage| {
+            for _ in 0..400 {
+                let texture = paint(image);
+                if texture != RasterTexture::Decoding {
+                    return texture;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            RasterTexture::Decoding
+        };
+        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+        assert_eq!(settled(&broken), RasterTexture::Unavailable);
     }
 
     #[test]
@@ -2120,6 +2444,21 @@ mod tests {
             Icon::Bell,
             Icon::BellFill,
             Icon::BellSlash,
+            Icon::SkipBack,
+            Icon::SkipForward,
+            Icon::PauseFill,
+            Icon::Shuffle,
+            Icon::Repeat,
+            Icon::RepeatOne,
+            Icon::Volume,
+            Icon::VolumeMuted,
+            Icon::Heart,
+            Icon::HeartFill,
+            Icon::MusicNote,
+            Icon::Playlist,
+            Icon::Home,
+            Icon::Library,
+            Icon::Sliders,
             Icon::FolderFill,
             Icon::PlayFill,
             Icon::GridFill,
@@ -2293,104 +2632,4 @@ mod tests {
             assert!(point.y > area.top() && point.y < area.bottom());
         }
     }
-}
-
-/// Use Ubuntu Regular for UI text. egui's default proportional face is
-/// Ubuntu Light, whose thin strokes read as blurry at small sizes. Call once
-/// when the window is created, before the first frame and [`attach_fonts`];
-/// egui's Unicode, emoji and monospace fallbacks are kept.
-pub fn install_fonts(ctx: &egui::Context) {
-    let mut fonts = egui::FontDefinitions::default();
-    let name = "Ubuntu-Regular".to_owned();
-    fonts.font_data.insert(
-        name.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
-    );
-    // The weights are faces of their own, with the same fallbacks behind them.
-    let fallbacks = fonts
-        .families
-        .get(&egui::FontFamily::Proportional)
-        .cloned()
-        .unwrap_or_default();
-    for (family, face, bytes) in [
-        (SANS_MEDIUM, "Ubuntu-Medium", &include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")[..]),
-        (SANS_BOLD, "Ubuntu-Bold", &include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")[..]),
-    ] {
-        fonts
-            .font_data
-            .insert(face.to_owned(), egui::FontData::from_static(bytes).into());
-        let mut faces = vec![face.to_owned()];
-        faces.extend(fallbacks.iter().cloned());
-        fonts.families.insert(egui::FontFamily::Name(family.into()), faces);
-    }
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, name);
-    ctx.set_fonts(fonts);
-}
-
-const SANS_MEDIUM: &str = "limn-sans-medium";
-const SANS_BOLD: &str = "limn-sans-bold";
-
-/// The egui family a limn family is painted and measured with. A host that
-/// set its own fonts without the weighted faces gets the regular one.
-fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
-    let weighted = match family {
-        FontFamily::Monospace => return egui::FontFamily::Monospace,
-        FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
-        FontFamily::SansMedium => SANS_MEDIUM,
-        FontFamily::SansBold => SANS_BOLD,
-    };
-    let named = egui::FontFamily::Name(weighted.into());
-    if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {
-        named
-    } else {
-        egui::FontFamily::Proportional
-    }
-}
-
-/// Make a tree measure text with the fonts egui paints with. Call once per
-/// tree, and again after changing the context's fonts.
-pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
-    let mono = egui::FontId::monospace(14.0);
-    let sans = egui::FontId::proportional(14.0);
-    let (metrics, sans_metrics) = ctx.fonts_mut(|fonts| {
-        (
-            limn::FontMetrics {
-                char_width: fonts.glyph_width(&mono, 'M'),
-                line_height: fonts.row_height(&mono),
-            },
-            limn::FontMetrics {
-                char_width: ('a'..='z')
-                    .map(|character| fonts.glyph_width(&sans, character))
-                    .sum::<f32>()
-                    / 26.0,
-                line_height: fonts.row_height(&sans),
-            },
-        )
-    });
-    tree.set_metrics(metrics);
-    tree.set_sans_metrics(sans_metrics);
-    let heights = ctx.clone();
-    // The family is resolved before the fonts are locked to measure with it.
-    tree.set_text_height_measurer(move |size, font| {
-        let family = egui_family(&heights, font);
-        heights.fonts_mut(|fonts| fonts.row_height(&egui::FontId::new(size, family)))
-    });
-    let widths = ctx.clone();
-    tree.set_text_measurer(move |text, size, font| {
-        let family = egui_family(&widths, font);
-        widths.fonts_mut(|fonts| {
-            fonts
-                .layout_no_wrap(
-                    text.to_owned(),
-                    egui::FontId::new(size, family),
-                    Color32::WHITE,
-                )
-                .size()
-                .x
-        })
-    });
 }

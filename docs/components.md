@@ -45,6 +45,7 @@ it.
 | `TextArea` | Multi-line text. Enter adds a line; Ctrl+Enter submits. `.radius(RadiusRole)` rounds the box with another token. | `InputChanged`, `Submitted` |
 | `SearchField` | A text field with a magnifier and an optional shortcut hint. | `InputChanged`, `Submitted` |
 | `Switch` | An on/off control. | `Clicked` |
+| `Slider` | A value dragged along a track, from 0 to 1: a seek position or a volume. Continuous unless `.steps(n)` gives it evenly spaced stops. `.ink(color)` colors the fill and thumb, `.enabled(false)` shows the value without taking the pointer. The arrows move it by a twentieth or one stop; Home and End go to the ends. | `SliderChanged`, with `committed` false during a drag and true on release and from the keyboard |
 | `DatePicker` | An ISO date field with a navigable month calendar. | `InputChanged`, and `Clicked` for navigation and days |
 | `TimePicker` | A 24-hour `HH:MM` field with step controls. | `InputChanged`, and `Clicked` for the steps |
 | `DateTimePicker` | The two above combined, each keeping its own state. | As above |
@@ -52,11 +53,13 @@ it.
 | `FormField`, `FormFieldSizing` | A label over a control the host owns, which fills the field's width. `.hint` adds a muted line under the control, or between the label and the control with `.hint_above(true)`; `.error(text, ink)` adds a last line in the host's color. `FormFieldSizing` sets the label's role, whether it is muted, the least height of its line, the role of hints and error, and the gap. `.rows()` returns the field's lines instead of the rendered column, for a form that sets every line of every field in one column of its own and owns the gap. | Nothing of its own |
 | `Composer` | A message composition surface. The host owns the text and the actions around it. `.header_strip(element, palette)` joins a 32 px strip of metadata to the top of the card, set in 8 from its sides and filled with that palette's surface; build its content `Composer::header_strip_width(width)` wide. | The actions of the controls the host places in it |
 | `DictationButton`, `DictationState` | The round microphone of a composer. `Idle` is a ghost microphone; `Starting` and `Transcribing` show a `Spinner` and `Listening` a stop square that pulses as a `Skeleton` does, all on a filled circle and all still under reduced motion. The host owns the session and the transcript, and writes recognized text into the composer itself. `.live_palette(palette)` colors a live session (`surface` fills, `text` draws the mark), `.size(ControlSize)`, `.hover_ink`. `.enabled(false)` is a passive microphone in any state. | `Clicked` with its own ID in every state; the host toggles on it |
+| `DictationWaveform` | The level of what the microphone hears, beside the `DictationButton`. Controlled: the host samples the input and passes the recent levels, from 0 to 1 and oldest first; one every 80 ms fills the default width with two seconds. The newest stands at the trailing edge, the ones that do not fit are dropped from the oldest, and silence, or no level at all, is a row of dots. Each bar springs to its level. `.width(96.0)`, `.size(ControlSize)` for the height of a control of that size. A level that is not finite is drawn as silence. | None |
 
 ## Navigation
 
 | Component | Purpose |
 | --- | --- |
+| `NavigationBar`, `NavigationWorkspace`, `NavigationAction` | A floating pill of workspace dots, clock/date and status actions. The selected workspace springs between dots; controls keep tooltips, keyboard focus and host-owned actions. Narrow bars compact labels and scroll horizontally. `.glass(GlassMaterial)` opts into the native optical material; the default surface is opaque. See [Native glass navigation](liquid-glass.md). |
 | `Tabs` | A row of tabs with a selection that slides to the active one. `.fill_width(total)` gives every tab the same width so the track is `total` wide. |
 | `SegmentedControl` | Tabs in one rounded track, for choosing one of a few options. |
 | `TabStrip`, `TabItem` | Folder tabs for open resources. Each `TabItem` has an icon, a title that fades, a tooltip and a 24-pixel slot that centers the host's close button, which should be 20 pixels square; the host gives every tab its width. `.title_ink` colors the title alone for a state the host marks by color, such as a file's status in version control; the slot takes any element, so a host can put a mark of unsaved changes there and swap it for the close button under the pointer. The strip scrolls sideways, keeps the active tab in view and reports `Clicked` with the tab's ID. `.each_tab` wraps a tab in something the host owns, such as a context menu. `TabStrip::header` is the 32-pixel bar that holds a strip and its tools (`.side_inset`, `.gap`); `TabStrip::surface` and `TabStrip::align` build label-only or icon-only tabs. The palette's `surface` is the active tab and the body, `raised` the bar, `hover` an inactive tab under the pointer. |
@@ -72,6 +75,8 @@ it.
 | `ListRow` | One entry of a list under a single hover surface: an `.icon` centered in the row or a caller-owned `.leading` square, a title, a muted `.subtitle` (`.subtitle_mono` for a command or a path), `.meta` text or `.meta_element`s at the end of the title's line, a `.trailing` element and a muted `.trailing_icon` such as a chevron. It hovers to the palette's `hover` and presses to its `selected`, with no fill at rest unless `.filled()`. `.enabled(false)` renders a passive row with a muted title and no hit region; `.title_ink`, `.subtitle_ink` and `.icon_ink` take a color the host owns. `.title_fade(true)` fades a title that does not fit instead of cutting it. `.hover_with(id)` keeps the row hovered while the pointer is over a trailing control, and `.trailing_action(id, control)` adds a control with a hit target of its own under one hover surface shared with the row; the hint then covers the row's own target alone. `.radius(RadiusRole)` rounds the fill and the hover (`Control` unless set). `.outlined()` draws a hairline in the palette's border color around it, for a row that is a card of its own. `.width` fixes the width and clips the content to it, and `.copy_width` holds the copy at a width the host budgets instead of the width the row has left; `.tooltip_with` adds a hint. |
 | `RowSizing` | The density of a `ListRow`: the two heights, padding, gaps, the icon, leading and trailing-icon columns, an optional `leading_height` that boxes the icon or the leading element from the top, the font sizes, and an optional box per line of copy. `RowSizing::COMPACT` (28, or 40 with a subtitle) and `DENSE` (24 / 36) are the presets; a `None` height follows the content. |
 | `Card`, `CardDensity` | A raised surface that sets one group of content into the page: `Card::new(content, palette)` fills with the palette's `raised` under a hairline of its `border`. `.density` pads by 8 (`Compact`), 10 (`Regular`, the default) or 12 (`Roomy`), or not at all (`Flush`) for content whose rows run to the edge; `.border(false)` drops the hairline; `.radius(RadiusRole)` rounds it (`Card` unless set); `.width` fixes the width. It is passive and follows its content's height. The host picks the fill by passing a palette whose `raised` is the color it wants. |
+| `MediaCard` | A track as a card to hand around: its record sleeve beside its title over a muted `.artist`, at the end of the card, over a `.tint` the host takes from the artwork (the palette's `raised` without one) that darkens towards the foot so the copy reads on any color. `MediaCard::new(id, title, palette)` takes the picture with `.artwork(RasterImage)`, cropped to the sleeve's square, and an element for the top corner at the end with `.mark(element)`. The sleeve is the control and reports a click on the card's ID; the host answers by playing or pausing and passing `.playing(bool)`. While it plays the record is out of its sleeve and turning, a turn every three seconds, and stopped it keeps the angle it reached; under the pointer it comes out as an invitation. The sleeve and its record are `Element::record`, for a host that wants them alone. `.width` (325, never under 220) fixes the width and a long title fades without widening it; `.enabled(false)` renders a passive card with its record in. With reduced motion the record shows out and holds still. |
+| `MediaTile` | A tile of a grid or a shelf of albums and artists under a single hover surface: square artwork over a one-line title and a muted `.subtitle`, both cut with an ellipsis. `MediaTile::new(id, title, palette)` takes a caller-owned picture with `.artwork(element)` and holds it in a square of the tile's `.width` (160 unless set, never under 48) with the `Card` radius; a picture of another shape fills the square when its `RasterImage` is marked `.cover()`, which crops it around its center, and is otherwise shown whole inside it. Without one it draws a muted music note on the palette's `selected`, as for a cover that has not loaded. `.round(true)` makes the artwork a circle and centers the copy, for an artist rather than an album. It hovers to the palette's `hover` and presses to its `selected` across artwork and copy, and a click anywhere on it reports its ID. `.enabled(false)` renders a passive tile with a muted title and no hit region. Its height follows the copy. |
 | `OutputBlock` | Read-only monospaced output of a command or a tool: `OutputBlock::new(id, text, palette)`. One clipped 17 px line per row, in a scroll area that builds only the rows in view; the text is cut to 48 KiB, 600 lines and 500 characters per line before it is shaped. `.max_height` bounds the lines before they scroll (200 unless set), `.ink(color)` paints them in a color the host owns, such as an error stream, `.truncation_note(text)` adds a muted line when text was cut, and `.width` fixes the width. The fill is the palette's `surface`. |
 | `CodeBlock`, `CodeBlockSizing` | The labelled card that holds code inside prose: `CodeBlock::new(text, palette)` wraps monospaced code on the palette's `raised` fill inside a hairline. `.label(text)` adds a muted line above it, in the case the host wrote; `.spans(spans)` paints text the host's highlighter already colored; `.width` fixes the width. `CodeBlockSizing::CHAT` (a 10 px monospaced label over 12 px code) and `DOCUMENT` (an 11 px sans label over 13 px code) are the presets. |
 | `Flowchart`, `FlowchartGraph` | A flowchart drawn by the engine from the common subset of Mermaid's `flowchart`/`graph` syntax: `Flowchart::parse(source, palette)?` is the chart at its natural size and `.scrollable(id)` puts it in a horizontal viewport that pans, with an edge fade, when it is wider than its container. Directions `TD`/`TB`/`BT`/`LR`/`RL`; nodes `A[rect]`, `A(rounded)`, `A([stadium])`, `A{decision}`, `A((circle))` and bare ids; connectors `-->`, `---`, `-.->`, `==>` with `-->|text|` or `-- text -->` labels, chains and `A & B --> C`; `subgraph … end` as a titled box when the box holds no other node; `%%` comments; `style`, `classDef`, `class`, `linkStyle` and `click` are read and ignored. Anything else is a `DiagramError` (`FlowchartError` is the same type), for the host to show the source instead. Nodes are ranked by longest path and ordered by barycenter; labels wrap at 220. Nodes fill with the palette's `surface` inside a `border` hairline, connectors and their labels are `muted`, and `.backdrop(color)` names the fill the chart sits on (`raised` unless set). `FlowchartGraph::parse` and `.layout(measure, line_height)` give the graph and its geometry without painting. More than 120 nodes or 240 edges is an error; an edge from a node to itself is not drawn. |
@@ -98,6 +103,7 @@ it.
 | `ContextWindow` | What fills a model's context window: the figure in use, a field of cells shared out among the shares, one row per share with its count, and a foot with a status line and an action. `ContextWindow::new(id, title, shares, capacity, palette, tones)`; a `ContextShare` has a color, optional `items` it opens to list and an optional `ContextShareAction` (`Offer`, `Busy`, `Done`). `.unmeasured()` lists a share the host could not measure: a dash stands where its count would be, also in the figure while it is in focus, and it takes no cells. The host owns every figure: when one changes the counts roll, the cells of a share that shrinks empty from its end and the shares after it follow. An item that is removed closes where it was, and the percentage fades to the colour of its new state. `.focused(share)` makes one share stand out, lending the figure its count while the others recede; pass `ContextWindow::share_under(id, tree.hovered_id())`. `.expanded`, `.caption`, `.status` / `.status_done`, `.status_lead` (the words the status opens with, which read stronger), `.badge`, `.header_icon`, `.footer_action`, `.width` (320 unless set) and `.format` set the rest. It draws its own card on a frame a shade apart, with the foot on the frame, so the host gives it a surface with rounded corners and no padding. A row's hover fill reaches past its content on both sides, and an open share reads as one block with what it lists. Actions: `"{id}:share:{share}"`, `"{id}:action:{share}"`, `"{id}:remove:{share}:{item}"`. |
 | `Element::rolling_number` | A figure that counts from the value it showed under the same ID to the one it is given, written by a `fn(f32) -> String` on every frame and laid out as it reads, so what follows it keeps to its side. Style it as a text. With reduced motion it shows the new value at once. |
 | `Element::unit_grid` | A field of equal cells shared out among parts in reading order (`UnitGrid`: columns, rows, cell, gap, parts, the color of an empty cell and an optional part in focus). Each part's count is kept by ID and moves to a new one, so a part that shrinks gives its cells up from its end; with a part in focus the others recede towards the empty color. |
+| `Element::level_bars` | Levels from 0 to 1 as a row of bars, as many as fit the width it is given (`LevelBars`: the levels oldest first, the width of a bar, the gap, the ink of a bar and of a dot). The newest level takes the last slot; a slot without one is a dot. Each slot's height is kept by ID and springs to a new level. `DictationWaveform` is this with a palette. |
 | `Chip` | A passive pill for a count or a label. `.outline()` draws the border only, with no fill. |
 | `Avatar` | An account photo, or the initial of a name when there is none. |
 
@@ -241,6 +247,7 @@ with the surface radius and a 2 px bar; a code block is a `CodeBlock` in
 | Component | Purpose |
 | --- | --- |
 | `Separator` | A one-pixel rule in the border color. `Separator::horizontal` and `Separator::vertical` fill their axis unless given a `.length`; `.margin` adds space across the rule, `.centered_in` centers a vertical rule in a taller bar, and `.ink` takes a color the host owns. Margin and centering are off by default. |
+| `ResizeHandle` | The strip between two panes that the pointer drags to move their boundary: `ResizeHandle::vertical(id, palette)` stands between two columns and fills their row's height, `ResizeHandle::horizontal` lies between two rows. `.thickness` (8, never under 2) is the room it takes and its pointer target, so the gap between two panes can be the handle itself. It draws nothing at rest, fills with the palette's `hover` under the pointer and with `selected` while held, and the pointer takes the column- or row-resize shape over it and through the drag (`Element::cursor`, which a host applies with `limn_egui::set_cursor(ctx, tree.cursor())` after the layout). It is controlled: it reports `DragStarted`, `DragMoved` and `Dropped` or `DragCancelled` on its ID with the pointer's position, and the host adds the pointer's travel to the size the pane had when the drag began and keeps it within its own limits. It has no keyboard resize. |
 | `ScrollArea` | A scrolling viewport, or a virtualized list of uniform rows. The host scrolls it through the tree: `scroll_to_start`, `scroll_to_end`, `scroll_to_index` for a uniform list, and `reveal(control_id)` or `reveal_with_margin` to bring any control inside it into view; see [Layout](layout.md#scrolling-from-the-host). A child of the column inside it can stay pinned at the top while its section scrolls: `.sticky_top()`, `.sticky_top_inset`, `.sticky_top_max_height`, `.sticky_top_fade`; see [Layout](layout.md#sticky-children). |
 | `PageColumn` | A scrolling page whose content is a centered column: `PageColumn::new(scroll_id, available, palette)`. `.max_width` (960), `.min_width`, `.gutter(narrow, wide, breakpoint)` (14 and 28 at 640), `.gap` (10) and `.reserve_rail`, which keeps a scrollbar rail's width out of the column before the page overflows. `.tint_scrollbar(false)` leaves the scrollbar the scroll area's own color instead of the palette's muted. Read `.content_width()` to size the content, then pass it with `.children`. It fills its parent. |
 | `PageHeader`, `PageHeaderSizing` | The heading of a page: a title, a `.description`, and a `.leading` and a `.trailing` element centered on it. `.stacked` moves the trailing element under the copy, `.trailing_top` keeps it on the title's line instead of centering it, `.truncate` cuts both lines instead of wrapping them. The profile holds the two font sizes, the three gaps and an optional fixed height; `PageHeaderSizing::DEFAULT` is a settings page. |
@@ -265,10 +272,144 @@ Any element can be placed without a component:
 
 | Component | Purpose |
 | --- | --- |
+| `Table`, `TableColumn`, `TableRow`, `TableSizing`, `TableSort` | Rows of cells under a header of column labels: columns that sort, resize, hide and drop out of a narrow table, and a header that stays pinned while the rows scroll; see [Table](#table). |
 | `BarChart`, `ColumnChart` | Horizontal and vertical bar charts. |
 | `HeatmapChart` | A grid of cells colored by value. |
 | `ChartLegend` | A legend for any of the charts. |
 | `DiffStat` | The lines a change adds and removes, as `+N` and `−M`. `.inks(added, removed)` takes the host's two colors; without them both counts are plain text. |
+
+## Table
+
+Rows of cells that line up under a header of column labels, for a list the
+user sorts, filters and reshapes, such as the tracks of a playlist. The host
+owns the rows and every choice; the table lays them out and reports what was
+asked.
+
+### Example
+
+```rust
+let text = |value: &str| Text::new(value, palette).truncate().render();
+let columns = vec![
+    TableColumn::fixed("index", "#", 24.0).align_end(),
+    TableColumn::flexible("title", "Title", 160.0).sortable(),
+    TableColumn::fixed("album", "Album", state.album_width)
+        .sortable()
+        .resizable(80.0)
+        .optional(state.album_shown)
+        .hide_below(460.0),
+    TableColumn::fixed("length", "Length", 56.0).icon(Icon::Clock).sortable().align_end(),
+];
+let rows = state
+    .tracks
+    .iter()
+    .map(|track| {
+        let cells = vec![text(&track.number), text(&track.title), text(&track.album), text(&track.length)];
+        TableRow::new(format!("track:{}", track.id), cells).selected(track.id == state.playing)
+    })
+    .collect();
+let table = Table::new("tracks", columns, width, palette)
+    .rows(rows)
+    .sort(state.sort.clone())
+    .sticky_header()
+    .sizing(TableSizing::ROOMY)
+    .render();
+```
+
+`crates/limn-gallery/src/pages/table.rs` is a whole host: it filters, sorts,
+keeps the widths and toggles the columns.
+
+### Options
+
+| Builder | Effect |
+| --- | --- |
+| `Table::new(id, columns, width, palette)` | A header alone. `width` is the width the table is given: it decides which columns fit and how wide the flexible ones are. |
+| `.rows(rows)` | The rows to show, in order. The host filters and sorts them. |
+| `.sort(Option<TableSort>)` | The sorted column: its label takes the text color and an arrow after it, up for ascending and down for descending. |
+| `.sticky_header()` | Pins the header at the top of the scroll area around the table while its rows scroll under it, filled with the palette's `surface`. |
+| `.columns_menu(open, title)` | Adds a button at the end of the header, with `title` as its hint, that opens the list of optional columns. Rows leave its slot empty. |
+| `.menu_palette(palette)` | Colors the columns menu and the header's context menu; the table's own palette unless set. |
+| `.radius(RadiusRole)` | Rounds the fill of a row; `Control` unless set. |
+| `.sizing(TableSizing)` | The density: both heights, the gap between rows, the side inset, the gap between columns, the role of the labels and the gap before the arrow. `COMPACT` (rows of 28 under a header of 28) unless set; `ROOMY` is 56 under 36, for rows with artwork and two lines. |
+| `.into_parts()` | In place of `.render()`: the header and one element per row, for a host that wraps each row in a `ContextMenu` or a `hover_region`. Stack them in one column: the first row `header_gap` under the header, the rows `row_gap` apart. |
+
+A column:
+
+| Builder | Effect |
+| --- | --- |
+| `TableColumn::fixed(key, label, width)` | A column `width` wide. `key` names it in the actions. |
+| `TableColumn::flexible(key, label, min_width)` | A column that shares the width the fixed ones leave, never under its minimum. Several share it equally. |
+| `.icon(icon)` | Shows a glyph in the header. The label becomes its hint and stays its name in the columns menu. |
+| `.sortable()` | Makes the header a button. |
+| `.resizable(min_width)` | Lets the boundary beside a fixed column be dragged; a short rule in the header marks it. The column is never drawn under `min_width`. A flexible column ignores it. |
+| `.align_end()` | Sets the label and the cells against the end of the column, for figures. |
+| `.optional(shown)` | Lists the column in the columns menu, checked while shown. A column that is not shown is left out. |
+| `.hide_below(width)` | Leaves the column out while the table is narrower than `width`. |
+
+A row:
+
+| Builder | Effect |
+| --- | --- |
+| `TableRow::new(id, cells)` | One cell per column, in the order the columns were given, those not shown included. A missing cell is empty. |
+| `.selected(bool)` | Fills the row with the palette's `selected`: the chosen row, or the one that plays. |
+| `.controls(ids)` | The controls inside its cells. The row stays lit while the pointer is over one of them. |
+
+### Actions
+
+| Action | When |
+| --- | --- |
+| `Clicked` on `{id}:sort:{key}` | The header of a sortable column is activated. `TableSort::toggled(current, key)` gives the sort it leaves: ascending, then descending, then none. |
+| `DragStarted`, `DragMoved`, then `Dropped` or `DragCancelled`, on `{id}:resize:{key}` | The boundary of a resizable column is dragged, as a `ResizeHandle` reports it. The host adds the pointer's travel to the width the column had when the drag began and passes the new width to `TableColumn::fixed`. |
+| `Clicked` on `{id}:column:{key}` | An optional column is toggled, in the columns menu or in the header's context menu. |
+| `Clicked` on `{id}:columns`, and on `{id}:columns:dismiss` | The columns button is activated; its menu is dismissed. |
+| `Clicked` on a row's ID | The row is activated. A control in a cell reports its own ID instead. |
+
+A column before the first flexible one has its handle on its far edge and
+grows as the pointer goes right. A column after it has the handle on its near
+edge and grows as the pointer goes left. The flexible column takes up the
+change, so the boundary follows the pointer.
+
+### States
+
+- **Sorted.** The label of the sorted column is in the text color, with its
+  arrow. The others are muted, and one that sorts takes the text color under
+  the pointer.
+- **Selected.** The row is filled with the palette's `selected`, at rest and
+  under the pointer.
+- **Empty.** With no rows the table is its header. Put an `Empty` under it.
+- **Narrow.** Columns leave at their `hide_below`. If what is left still does
+  not fit, resizable columns give width up in order down to their minimum,
+  then every column shrinks alike. Nothing is painted outside the table.
+
+### Keyboard
+
+| Key | Effect |
+| --- | --- |
+| Tab | Moves through the sortable headers, the handles and the columns button, then the rows and the controls in their cells. |
+| Enter, Space | Activates the header, the button, the row or the control in focus. |
+
+A boundary has no keyboard resize.
+
+### Motion
+
+A row's fill and a label's ink answer the pointer over `hover_ms`. The
+columns menu enters and leaves as any menu does.
+
+### Notes
+
+- Pass the width the table really gets. A scroll area that keeps a rail for
+  its bar gives its content that much less: subtract the rail (14 unless
+  set), or give the scroll area `ScrollbarAppearance::overlay()`.
+- A cell hugs its content at the start of its column, or at its end, and
+  gives width up when the column is narrower: a `Text` with `.truncate()` is
+  cut with an ellipsis. A cell the host made `.flex(1.0)` fills its column.
+  Cells are centered in the row's height and clipped to the row.
+- A resizable column is drawn as wide as the host says only while that fits,
+  so keep what you store within limits of your own; the table does not report
+  the width it drew.
+- A sticky header pins while its table is in view and leaves with the
+  table's last row, so a page can hold more under the table.
+- Every row is built on every frame, and rows out of view are not painted.
+  There is no virtualized table.
 
 ## Code
 

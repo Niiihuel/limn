@@ -1,12 +1,17 @@
 //! The microphone control of a composer: it starts dictation, and stops it
-//! while a session is live.
+//! while a session is live. Beside it, the level of what the microphone hears.
 
 use crate::{
     ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, Icon, IconButton,
-    Skeleton, Spinner,
+    LevelBars, Skeleton, Spinner,
 };
 
 const MARK: f32 = 10.0;
+/// A bar of the waveform and the space between two.
+const BAR: f32 = 2.0;
+const BAR_GAP: f32 = 2.0;
+/// Two seconds of levels sampled every 80 ms.
+const WAVEFORM_WIDTH: f32 = 96.0;
 
 /// Where the host's dictation session stands.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -130,10 +135,151 @@ impl Component for DictationButton {
     }
 }
 
+/// The input level of a live session: a bar for each level the host
+/// sampled, the newest at the trailing edge and as many before it as fit.
+/// Silence, and a session that has not started, is a row of dots. The host
+/// owns the microphone and samples it; this only draws what it is given.
+pub struct DictationWaveform {
+    id: String,
+    levels: Vec<f32>,
+    palette: ComponentPalette,
+    width: f32,
+    size: ControlSize,
+}
+
+impl DictationWaveform {
+    /// `levels` run from 0 to 1, oldest first. One that is not finite is
+    /// drawn as silence; one outside the range is clamped.
+    pub fn new(id: impl Into<String>, levels: &[f32], palette: ComponentPalette) -> Self {
+        Self {
+            id: id.into(),
+            levels: levels.to_vec(),
+            palette,
+            width: WAVEFORM_WIDTH,
+            size: ControlSize::Regular,
+        }
+    }
+
+    /// The width the bars are drawn in, 96 by default. A width that is not
+    /// finite or not positive is ignored.
+    pub fn width(mut self, width: f32) -> Self {
+        if width.is_finite() && width > 0.0 {
+            self.width = width;
+        }
+        self
+    }
+
+    /// The height of a control of this size, so it lines up with the
+    /// `DictationButton` beside it.
+    pub fn size(mut self, size: ControlSize) -> Self {
+        self.size = size;
+        self
+    }
+}
+
+impl Component for DictationWaveform {
+    fn render(self) -> Element {
+        Element::level_bars(LevelBars {
+            id: self.id,
+            levels: self.levels,
+            bar: BAR,
+            gap: BAR_GAP,
+            color: self.palette.text,
+            rest: self.palette.muted,
+        })
+        .size(Some(self.width), Some(self.size.height()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{DrawCommand, Point, Rect, Size, UiAction, UiEvent, UiTree};
+    use web_time::{Duration, Instant};
+
+    const WAVE: Size = Size::new(120.0, 28.0);
+
+    fn waveform(levels: &[f32]) -> Element {
+        Element::row(vec![
+            DictationWaveform::new("wave", levels, ComponentPalette::neutral_dark())
+                .size(ControlSize::Compact)
+                .render(),
+            Element::spacer().flex(1.0),
+        ])
+    }
+
+    fn bars(frame: &crate::Frame) -> Vec<(Rect, Color)> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if rect.width == BAR => Some((*rect, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn silence_is_a_row_of_dots_and_the_newest_level_stands_at_the_trailing_edge() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = UiTree::new(waveform(&[]));
+        tree.set_reduced_motion(true);
+        let dots = bars(&tree.layout(WAVE));
+        assert_eq!(dots.len(), 24, "96 wide holds 24 bars of 2 set 2 apart");
+        assert!(dots.iter().all(|(rect, color)| rect.height == BAR && rect.y == 13.0 && *color == palette.muted));
+        assert_eq!((dots[0].0.x, dots[23].0.x + BAR), (2.0, 96.0), "they end at the trailing edge");
+
+        tree.set_root(waveform(&[0.5, 1.0]));
+        let spoken = bars(&tree.layout(WAVE));
+        assert!(spoken[..22].iter().all(|(rect, _)| rect.height == BAR));
+        assert_eq!((spoken[22].0.y, spoken[22].0.height), (6.5, 15.0), "half way between a dot and the height");
+        assert_eq!((spoken[23].0.y, spoken[23].0.height, spoken[23].1), (0.0, 28.0, palette.text));
+    }
+
+    #[test]
+    fn a_bar_springs_to_its_level_and_follows_it_to_the_next_slot() {
+        let mut tree = UiTree::new(waveform(&[]));
+        let start = Instant::now();
+        tree.layout_at(WAVE, start);
+        tree.set_root(waveform(&[1.0]));
+        tree.layout_at(WAVE, start);
+        let rising = bars(&tree.layout_at(WAVE, start + Duration::from_millis(40)))[23].0.height;
+        assert!(rising > BAR && rising < 28.0, "on its way: {rising}");
+
+        // The level moves on a slot before the bar has arrived: both are in motion.
+        tree.set_root(waveform(&[1.0, 0.0]));
+        let turned = bars(&tree.layout_at(WAVE, start + Duration::from_millis(80)))[23].0.height;
+        assert!(turned > rising && turned < 28.0, "it kept rising until the level left: {turned}");
+        let moved = bars(&tree.layout_at(WAVE, start + Duration::from_millis(120)));
+        assert!(moved[22].0.height > BAR && moved[22].0.height < 28.0);
+        assert!(moved[23].0.height > BAR && moved[23].0.height < turned, "it falls from where it had reached");
+
+        let settled = bars(&tree.layout_at(WAVE, start + Duration::from_secs(2)));
+        assert_eq!((settled[22].0.height, settled[23].0.height), (28.0, BAR));
+    }
+
+    #[test]
+    fn levels_that_do_not_fit_are_the_oldest_and_bad_numbers_never_reach_the_paint() {
+        let mut tree = UiTree::new(waveform(&[f32::NAN, 7.0, -3.0]));
+        tree.set_reduced_motion(true);
+        let drawn = bars(&tree.layout(WAVE));
+        assert_eq!(drawn[21..].iter().map(|(rect, _)| rect.height).collect::<Vec<_>>(), [BAR, 28.0, BAR]);
+
+        let mut long = vec![1.0; 3];
+        long.extend([0.0; 24]);
+        tree.set_root(waveform(&long));
+        assert!(bars(&tree.layout(WAVE)).iter().all(|(rect, _)| rect.height == BAR), "the three loud ones scrolled out");
+
+        for width in [f32::NAN, f32::INFINITY, 0.0, -8.0] {
+            let element = DictationWaveform::new("wave", &[], ComponentPalette::neutral_dark()).width(width).render();
+            let mut tree = UiTree::new(Element::row(vec![element, Element::spacer().flex(1.0)]));
+            assert_eq!(bars(&tree.layout(Size::new(200.0, 40.0))).len(), 24, "{width}");
+        }
+        // Narrower than a bar there is nothing to draw, and nothing breaks.
+        let element = DictationWaveform::new("wave", &[1.0], ComponentPalette::neutral_dark()).width(1.0).render();
+        let mut tree = UiTree::new(Element::row(vec![element, Element::spacer().flex(1.0)]));
+        assert!(bars(&tree.layout(Size::new(200.0, 40.0))).is_empty());
+    }
 
     fn tree(state: DictationState, enabled: bool) -> UiTree {
         UiTree::new(Element::row(vec![

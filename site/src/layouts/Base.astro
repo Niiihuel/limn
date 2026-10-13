@@ -1,0 +1,53 @@
+---
+import '../styles/site.css';
+import { REPO } from '../data/site';
+const { title, description = 'A native UI library for Rust.' } = Astro.props;
+const path = Astro.url.pathname;
+const nav = [['/docs/', 'Docs'], ['/components/', 'Components'], ['/gallery/', 'Gallery']];
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <title>{title ? `${title} · limn` : 'limn — a native UI library for Rust'}</title>
+    <script is:inline>
+      // Before the first paint, so a light page never flashes dark.
+      const saved = localStorage.getItem('theme');
+      if (saved ?? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : '')) document.documentElement.dataset.theme = saved ?? 'light';
+    </script>
+  </head>
+  <body>
+    <header class="bar">
+      <a class="brand" href="/">limn</a>
+      <nav aria-label="Site">
+        {nav.map(([href, label]) => <a href={href} aria-current={path.startsWith(href) ? 'page' : undefined}>{label}</a>)}
+      </nav>
+      <div class="end">
+        <a href={`${REPO}/blob/main/CHANGELOG.md`}>Changelog</a>
+        <a href={REPO}>GitHub</a>
+        <button id="theme" type="button">Theme</button>
+      </div>
+    </header>
+    <slot />
+    <footer>limn is free software under MIT or Apache-2.0. The examples on this site are the library itself, compiled to WebAssembly.</footer>
+    <script is:inline>
+      // An embedded gallery follows the site's theme.
+      const paint = () => {
+        const light = document.documentElement.dataset.theme === 'light';
+        for (const frame of document.querySelectorAll('iframe[data-page]')) {
+          const src = `/frame/?embed${light ? '&light' : ''}#${frame.dataset.page}`;
+          if (frame.getAttribute('src') !== src) frame.src = src;
+        }
+      };
+      paint();
+      document.getElementById('theme').addEventListener('click', () => {
+        const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem('theme', next);
+        paint();
+      });
+    </script>
+  </body>
+</html>

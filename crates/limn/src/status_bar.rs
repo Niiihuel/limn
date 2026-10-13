@@ -625,7 +625,7 @@ mod tests {
         tree.handle_event(UiEvent::PointerMove(Point::new(30.0, 90.0)));
         assert!(!tree.layout(size).commands.iter().any(|command| matches!(command,
             DrawCommand::FillRect { color, .. } if *color == palette().hover)));
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         tree.layout_at(size, start);
         let hinted = tree.layout_at(size, start + std::time::Duration::from_secs(2));
         assert!(hinted.commands.iter().any(|command| matches!(command,

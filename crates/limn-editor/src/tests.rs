@@ -678,7 +678,7 @@ fn snapshots_are_send_sync_and_can_be_saved_after_buffer_changes() {
 #[ignore = "opt-in timing benchmark; run with --ignored --nocapture"]
 fn benchmark_large_document_snapshots_edits_and_visible_rows() {
     use std::hint::black_box;
-    use std::time::Instant;
+    use web_time::Instant;
     let source = "    let value = 123; // Unicode 界😀\r\n".repeat(150_000);
     let start = Instant::now();
     let mut buffer = TextBuffer::new(&source).unwrap();

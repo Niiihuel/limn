@@ -1,13 +1,17 @@
 use super::{caption, row, section, Cx};
 use limn::{
     Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Collapsible, Color, Component, Composer,
-    ComponentPalette, ControlSize, DictationButton, DictationState, Element, FindBar, FindIds,
+    ComponentPalette, ControlSize, DictationButton, DictationState, DictationWaveform, Element, FindBar, FindIds,
     FindLabels, FindOptions, Icon, IconButton, Marker,
 };
 
 const DANGER: Color = Color::rgb(229, 83, 75);
 const WIDTHS: [&str; 3] = ["260", "480", "520"];
 const PATH: &str = "crates/limn/src/find_bar.rs";
+/// Two seconds of someone speaking, a level every 80 ms.
+const SPEECH: [f32; 24] = [
+    0.0, 0.05, 0.3, 0.55, 0.4, 0.7, 0.9, 0.6, 0.35, 0.1, 0.0, 0.0, 0.2, 0.5, 0.8, 1.0, 0.75, 0.45, 0.6, 0.3, 0.15, 0.4, 0.65, 0.35,
+];
 
 fn find_labels() -> FindLabels {
     FindLabels {
@@ -96,13 +100,18 @@ fn composer(cx: &Cx, width: f32) -> Element {
         "transcribing" => (DictationState::Transcribing, "idle"),
         _ => (DictationState::Idle, "starting"),
     };
-    let trailing = Element::row(vec![
+    // While the microphone is open its level stands beside it; before and after, it is silence.
+    let levels: &[f32] = if state == DictationState::Listening { &SPEECH } else { &[] };
+    let mut trailing = vec![
         DictationButton::new(format!("editor-dictation={next}"), state, palette)
             .size(ControlSize::Compact)
             .render(),
         tool("editor-composer-send", Icon::Send),
-    ])
-    .gap(4.0);
+    ];
+    if state != DictationState::Idle {
+        trailing.insert(0, DictationWaveform::new("editor-composer-levels", levels, palette).size(ControlSize::Compact).width(48.0).render());
+    }
+    let trailing = Element::row(trailing).gap(4.0);
     Composer::new("editor-composer", cx.state.text("editor-composer"), "Describe una tarea", width, palette)
         .pill_controls(tool("editor-composer-add", Icon::Add), trailing)
         .auto_grow(28.0, 120.0)
@@ -176,6 +185,22 @@ pub fn view(cx: &Cx) -> Element {
                         .render(),
                 ]),
                 caption(cx, "DictationButton: reposo, iniciando, escuchando, escuchando con la paleta de la app, y sin dictado disponible."),
+                row(vec![
+                    DictationWaveform::new(
+                        "editor-waveform",
+                        match cx.state.choice("editor-levels", "silence") {
+                            "speech" => &SPEECH,
+                            "loud" => &[1.0; 24],
+                            _ => &[],
+                        },
+                        palette,
+                    )
+                    .render(),
+                    Button::new("editor-levels=silence", "Silencio", palette).variant(ButtonVariant::Outline).render(),
+                    Button::new("editor-levels=speech", "Voz", palette).variant(ButtonVariant::Outline).render(),
+                    Button::new("editor-levels=loud", "Tope", palette).variant(ButtonVariant::Outline).render(),
+                ]),
+                caption(cx, "DictationWaveform: el nivel del micrófono, lo más nuevo al final. El silencio son puntos, y cada barra va a su nivel con un resorte."),
             ],
         ),
         section(

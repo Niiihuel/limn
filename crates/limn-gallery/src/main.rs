@@ -9,12 +9,15 @@
 //! that control had been clicked, to capture an open menu or dialog.
 
 mod app;
+mod glass_content;
+mod glass_demo;
+mod glass_drag;
 mod pages;
 
 use eframe::egui;
 use limn::{Element, Point, Size, UiAction, UiEvent, UiTree};
-use std::time::{Duration, Instant};
 use std::path::PathBuf;
+use web_time::{Duration, Instant};
 
 /// Run through the hot-patch jump table when patching is enabled, so the
 /// next frame after a patch calls the new code.
@@ -29,6 +32,7 @@ fn hot<T>(call: impl FnMut() -> T) -> T {
 }
 
 struct Host {
+    glass: Option<glass_demo::GlassDemo>,
     tree: UiTree,
     state: app::State,
     started: bool,
@@ -131,7 +135,9 @@ impl eframe::App for Host {
                         self.tree.reveal(target);
                     }
                 }
-                hot(|| app::update(&mut self.state, &action));
+                if !glass_drag::handle(&mut self.state, &action, self.tree.frame()) {
+                    hot(|| app::update(&mut self.state, &action));
+                }
                 changed = true;
             }
         }
@@ -153,7 +159,22 @@ impl eframe::App for Host {
             }
         }
         let frame = self.tree.layout(window);
-        limn_egui::paint_at(ui, &frame, area.min);
+        if let Some(glass) = &mut self.glass {
+            let animate = self.screenshot.is_none()
+                && !self.state.flag("tokens-reduced")
+                && self.state.choice("glass-animate", "on") != "off";
+            let speed = self.state.text("glass-speed").parse().unwrap_or(0.5);
+            glass.paint(
+                ui,
+                &frame,
+                area.min,
+                self.state.choice("glass-scene", "amber"),
+                animate,
+                speed,
+            );
+        } else {
+            limn_egui::paint_at(ui, &frame, area.min);
+        }
 
         if let Some(path) = self.screenshot.clone() {
             self.capture(&ctx, &path);
@@ -163,6 +184,60 @@ impl eframe::App for Host {
     }
 }
 
+/// In a page the gallery fills the canvas `limn`; the address's fragment
+/// (`#glass`) chooses the page, so a site can link to one component, and
+/// `?embed` leaves only that page, `?light` in the light theme.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use eframe::wasm_bindgen::JsCast as _;
+    let window = eframe::web_sys::window().expect("a window");
+    let page = window.location().hash().unwrap_or_default();
+    let page = page.trim_start_matches('#');
+    let page = pages::PAGES
+        .iter()
+        .find(|known| known.id == page)
+        .map_or(pages::PAGES[0].id, |known| known.id);
+    let mut state = app::State::starting_at(page);
+    let query = window.location().search().unwrap_or_default();
+    for flag in ["light", "embed"] {
+        if query.contains(flag) {
+            state.set(flag, "on");
+        }
+    }
+    let canvas = window
+        .document()
+        .and_then(|document| document.get_element_by_id("limn"))
+        .and_then(|element| element.dyn_into::<eframe::web_sys::HtmlCanvasElement>().ok())
+        .expect("a canvas with the id `limn`");
+    wasm_bindgen_futures::spawn_local(async move {
+        eframe::WebRunner::new()
+            .start(
+                canvas,
+                eframe::WebOptions::default(),
+                Box::new(move |creation| {
+                    limn_egui::install_fonts(&creation.egui_ctx);
+                    Ok(Box::new(Host {
+                        glass: creation
+                            .wgpu_render_state
+                            .as_ref()
+                            .map(glass_demo::GlassDemo::new),
+                        tree: UiTree::new(Element::spacer()),
+                        state,
+                        started: false,
+                        screenshot: None,
+                        hover: None,
+                        scroll_end: false,
+                        opened: Instant::now(),
+                        requested: false,
+                    }))
+                }),
+            )
+            .await
+            .expect("the gallery starts");
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
     #[cfg(feature = "hot")]
     dioxus_devtools::connect_subsecond();
@@ -219,6 +294,10 @@ fn main() -> eframe::Result {
         Box::new(move |creation| {
             limn_egui::install_fonts(&creation.egui_ctx);
             Ok(Box::new(Host {
+                glass: creation
+                    .wgpu_render_state
+                    .as_ref()
+                    .map(glass_demo::GlassDemo::new),
                 tree: UiTree::new(Element::spacer()),
                 state,
                 started: false,

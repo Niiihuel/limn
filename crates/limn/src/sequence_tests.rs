@@ -163,6 +163,7 @@ fn assert_sound(source: &str, graph: &SequenceGraph, layout: &SequenceLayout) {
     });
     for (index, (place, note)) in notes.zip(&layout.notes).enumerate() {
         assert!(!note.lines.is_empty());
+        #[allow(clippy::reversed_empty_ranges)]
         let over = match place {
             SequenceNotePlace::Over(lo, hi) => lo..=hi,
             // Never met: a note beside a participant is over none.

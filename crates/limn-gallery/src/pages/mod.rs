@@ -2,7 +2,7 @@
 //! new module and list it in [`PAGES`].
 
 use crate::app::State;
-use limn::{ComponentPalette, Element, FontFamily};
+use limn::{ComponentPalette, Element, FontFamily, UiAction};
 
 mod blocks;
 mod buttons;
@@ -12,6 +12,7 @@ mod diagrams;
 mod editor;
 mod empty;
 mod feedback;
+pub mod glass;
 mod inputs;
 mod lists;
 mod markdown;
@@ -23,6 +24,7 @@ mod page;
 mod panels;
 mod preferences;
 mod scheme;
+mod table;
 mod tokens;
 mod tooltip;
 mod tour;
@@ -43,6 +45,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "inputs", group: "Controles", title: "Entradas", view: inputs::view },
     Page { id: "navigation", group: "Controles", title: "Navegación", view: navigation::view },
     Page { id: "lists", group: "Controles", title: "Listas", view: lists::view },
+    Page { id: "table", group: "Controles", title: "Tabla", view: table::view },
     Page { id: "preferences", group: "Controles", title: "Preferencias", view: preferences::view },
     Page { id: "page", group: "Controles", title: "Página y secciones", view: page::view },
     Page { id: "panels", group: "Controles", title: "Paneles y paginador", view: panels::view },
@@ -51,6 +54,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "diagrams", group: "Controles", title: "Diagramas", view: diagrams::view },
     Page { id: "messages", group: "Controles", title: "Acciones de mensaje", view: messages::view },
     Page { id: "chrome", group: "Controles", title: "Barras de menús y de estado", view: chrome::view },
+    Page { id: "glass", group: "Controles", title: "Liquid Glass", view: glass::view },
     Page { id: "editor", group: "Controles", title: "Editor y compositor", view: editor::view },
     Page { id: "empty", group: "Estados", title: "Estado vacío", view: empty::view },
     Page { id: "feedback", group: "Estados", title: "Avisos y carga", view: feedback::view },
@@ -65,6 +69,11 @@ pub const PAGES: &[Page] = &[
 /// (a hot patch may remove the page being shown).
 pub fn find(id: &str) -> &'static Page {
     PAGES.iter().find(|page| page.id == id).unwrap_or(&PAGES[0])
+}
+
+/// What a demo keeps that a flag or a choice cannot hold.
+pub fn update(state: &mut State, action: &UiAction) {
+    table::update(state, action);
 }
 
 /// Wrap the window in the layers the pages control.

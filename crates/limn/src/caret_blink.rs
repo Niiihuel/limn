@@ -1,7 +1,7 @@
 //! One retained caret clock, shared by text fields, text areas and editors.
 //! Only a caret actually observed inside the visible clip schedules a wakeup.
 
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 
 const HALF_PERIOD: Duration = Duration::from_millis(500);
 

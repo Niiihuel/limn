@@ -67,6 +67,17 @@ pub fn view(cx: &Cx) -> Element {
             .gap(6.0)
             .size(Some(width.min(280.0)), None),
         ]),
+        section(cx, "Fuera de foco", vec![
+            Element::column(
+                [0.0, 1.0, 2.0, 3.5]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, radius)| Text::new("La línea que todavía no se canta", palette).size(20.0).render().soft_focus(format!("typography-soft:{index}"), radius))
+                    .collect(),
+            )
+            .gap(8.0),
+            caption(cx, "soft_focus: nítido, y a 1, 2 y 3,5 de radio. El radio va al nuevo con un resorte."),
+        ]),
         section(cx, "Separador", vec![
             Element::column(vec![
                 Text::new("Arriba", palette).render(),

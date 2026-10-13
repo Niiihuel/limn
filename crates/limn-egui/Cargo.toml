@@ -3,14 +3,22 @@ name = "limn-egui"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "egui/wgpu renderer and input adapter for limn frames"
+
+[lints]
+workspace = true
 
 [features]
 default = ["syntax"]
 syntax = ["limn/syntax"]
 
 [dependencies]
-limn = { path = "../limn", default-features = false }
+limn = { version = "0.1.39", path = "../limn", default-features = false }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 resvg = { version = "0.48.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
@@ -18,4 +26,4 @@ base64 = "0.22"
 sha2 = "0.10"
 
 [dev-dependencies]
-limn-editor = { path = "../limn-editor" }
+limn-editor = { version = "0.1.39", path = "../limn-editor" }

@@ -1,0 +1,32 @@
+---
+// The gallery alone on a canvas: what the pages embed and /gallery/ shows.
+// `?embed` leaves only the page named by the fragment, `?light` its theme.
+---
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex" />
+    <title>limn gallery</title>
+    <style is:inline>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #1e1f24; }
+      html.light, html.light body { background: #f4f5f6; }
+      canvas { display: block; width: 100%; height: 100%; outline: none; }
+      p { margin: 0; padding: 24px; font: 14px system-ui, sans-serif; color: #9a9aa3; }
+    </style>
+  </head>
+  <body>
+    <canvas id="limn"></canvas>
+    <script is:inline type="module">
+      if (location.search.includes('light')) document.documentElement.classList.add('light');
+      try {
+        const { default: init } = await import('/wasm/limn-gallery.js');
+        await init();
+      } catch (error) {
+        document.body.innerHTML = '<p>The gallery could not start in this browser. It needs WebGL 2 or WebGPU.</p>';
+        console.error(error);
+      }
+    </script>
+  </body>
+</html>

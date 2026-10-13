@@ -3,7 +3,15 @@ name = "limn"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "Original retained-state UI tree, layout, events and backend-neutral drawing"
+
+[lints]
+workspace = true
 
 [features]
 default = ["syntax"]
@@ -11,8 +19,10 @@ default = ["syntax"]
 syntax = ["dep:limn-language"]
 
 [dependencies]
-limn-editor = { path = "../limn-editor" }
-limn-language = { path = "../limn-language", optional = true }
+# The standard clock everywhere but a browser, where std's panics.
+web-time = "1.1"
+limn-editor = { version = "0.1.39", path = "../limn-editor" }
+limn-language = { version = "0.1.39", path = "../limn-language", optional = true }
 unicode-linebreak = "0.1.5"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"

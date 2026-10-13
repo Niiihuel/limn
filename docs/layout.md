@@ -110,6 +110,7 @@ slanted by the host.
 | --- | --- |
 | `Element::panel(child)` | A box around one child: background, border, radius, padding. |
 | `Element::clickable(id, child)` | A panel that is also one click target. |
+| `Element::stack(children)` | Lays its children one over another in the same box, as large as the largest unless sized. They are painted in the order given, the last on top, inside whatever clips the stack, and where two take the pointer the later one has it. For a mark over a picture, or two faces of one spot that give way to each other under the pointer. |
 | `Element::overlay(base, floating)` | Paints `floating` over `base` without affecting its layout. |
 | `ScrollArea::new(id, child)` | A vertically scrolling viewport. |
 | `ScrollArea::uniform_list(id, count, row_height, build_row)` | A virtualized list: only visible rows are built. |
@@ -118,6 +119,11 @@ slanted by the host.
 
 `.clip_children()` keeps a container's descendants, and their click targets,
 inside its bounds.
+
+`.top_background_fade(color, height)` and `.bottom_background_fade(color, height)`
+paint a colour behind a container's children that starts at that edge and is
+gone `height` further in: a tint behind a page's header, or under the last
+lines of a panel. Paint only, and never taller than the container.
 
 ### Sticky children
 
@@ -149,6 +155,7 @@ that is resolved at the next layout, once sizes are known.
 | --- | --- |
 | `tree.scroll_to_start(id)`, `tree.scroll_to_end(id)` | Jump to either end of the scroll area `id`. |
 | `tree.scroll_to_index(id, index)` | Keep one row of a uniform list in view. |
+| `tree.center(control_id)` | Bring a button or a clickable to the middle of the scroll area that holds it, travelling there by that area's scroll motion, or at once under reduced motion. For content that follows a clock, such as the line being sung. Near either end of the content it goes as far as the area scrolls; nothing happens when no control has that ID, and focus stays where it was. |
 | `tree.reveal(control_id)` | Bring a button, a clickable or a field into view wherever it is: every scroll area around it scrolls just enough to show it whole, 12 px clear of the edge. Rows need no fixed height. Nothing moves when it is already in view, and nothing happens when no control has that ID. Focus stays where it was. |
 | `tree.reveal_with_margin(control_id, margin)` | The same with a margin of the host's own, for a viewport whose edge is covered by a fade or a fixed header. A margin with no room shrinks until the control fits. |
 | `tree.reveal_at_start(id, margin)` | Scroll so a control or an anchor starts `margin` under the top of its scroll area, also when it is already in view, which `reveal` leaves alone: how a table of contents or a rail of turns jumps to a section. The end of the content stops it short. |

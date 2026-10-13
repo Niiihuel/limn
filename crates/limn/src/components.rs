@@ -2421,7 +2421,7 @@ mod tests {
 
     #[test]
     fn shared_hover_reaches_tooltip_trigger_without_changing_hits_or_enabling_disabled_actions() {
-        use std::time::{Duration, Instant};
+        use web_time::{Duration, Instant};
         let palette = ComponentPalette::neutral_dark();
         let action = |id, enabled| {
             palette.interactive_surface(
@@ -2579,7 +2579,7 @@ mod tests {
         };
         let root = |loading| Element::row(vec![button(loading), Element::spacer().flex(1.0)]);
         let viewport = Size::new(400.0, 40.0);
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let mut tree = UiTree::new(root(false));
         let idle = tree.layout_at(viewport, start);
         let rect = idle
