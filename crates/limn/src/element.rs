@@ -247,6 +247,8 @@ pub enum Icon {
     Playlist,
     Home,
     Library,
+    /// Three faders: an equalizer, or any set of fine adjustments.
+    Sliders,
 }
 
 impl Icon {
