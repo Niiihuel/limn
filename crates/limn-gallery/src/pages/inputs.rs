@@ -1,10 +1,15 @@
 use super::{caption, row, section, Cx};
 use limn::{
     Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
-    SearchField, Select, SelectorSizing, Switch, TextArea, TextField, TextRole,
+    SearchField, Select, SelectorSizing, Slider, Switch, TextArea, TextField, TextRole,
 };
 
 const SHELLS: [(&str, &str); 4] = [("bash", "Bash"), ("zsh", "Zsh"), ("fish", "Fish"), ("nu", "Nushell")];
+
+/// A slider's value as the gallery keeps it, or `initial` before it is moved.
+fn fraction(cx: &Cx, id: &str, initial: f32) -> f32 {
+    cx.state.text(id).parse().unwrap_or(initial)
+}
 
 /// A select over the demo's shells; `group` keeps its choice and open state.
 fn shell_select(cx: &Cx, group: &str) -> Select {
@@ -174,6 +179,17 @@ pub fn view(cx: &Cx) -> Element {
             Switch::new("input-switch", state.flag("input-switch"), palette).render(),
             Switch::new("input-switch-disabled", true, palette).disabled().render(),
         ])]),
+        section(cx, "Deslizador", vec![
+            Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette).width(280.0).render(),
+            caption(cx, &format!("Continuo: {:.0} %", fraction(cx, "input-slider", 0.35) * 100.0)),
+            Slider::new("input-slider-steps", fraction(cx, "input-slider-steps", 0.5), palette)
+                .steps(5)
+                .width(280.0)
+                .render(),
+            caption(cx, ".steps(5): al soltar queda en una de cinco paradas."),
+            Slider::new("input-slider-disabled", 0.6, palette).enabled(false).width(280.0).render(),
+            caption(cx, "Deshabilitado: muestra el valor y no recibe puntero ni foco."),
+        ]),
     ])
     .gap(32.0)
 }

@@ -70,6 +70,7 @@ mod separator;
 mod sequence;
 mod shortcut;
 mod skeleton;
+mod slider;
 mod spinner;
 mod status_bar;
 mod stepper;
@@ -182,6 +183,7 @@ pub use sequence::{
     SequenceParticipant, SequenceParticipantLayout,
 };
 pub use skeleton::{Skeleton, SkeletonGroup};
+pub use slider::Slider;
 pub use spinner::Spinner;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
 pub use stepper::{Step, Stepper};

@@ -130,6 +130,7 @@ pub fn update(state: &mut State, action: &UiAction) {
             state.set("last-action", &format!("Clicked {id}"));
         }
         UiAction::InputChanged { id, value } => state.set(id, value),
+        UiAction::SliderChanged { id, fraction, .. } => state.set(id, &fraction.to_string()),
         UiAction::Submitted { id, .. } => state.set("last-action", &format!("Submitted {id}")),
         _ => {}
     }

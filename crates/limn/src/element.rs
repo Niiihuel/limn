@@ -233,6 +233,20 @@ pub enum Icon {
     Bell,
     BellFill,
     BellSlash,
+    SkipBack,
+    SkipForward,
+    PauseFill,
+    Shuffle,
+    Repeat,
+    RepeatOne,
+    Volume,
+    VolumeMuted,
+    Heart,
+    HeartFill,
+    MusicNote,
+    Playlist,
+    Home,
+    Library,
 }
 
 impl Icon {
@@ -245,6 +259,8 @@ impl Icon {
             Self::Bell => Self::BellFill,
             Self::Folder => Self::FolderFill,
             Self::Play => Self::PlayFill,
+            Self::Pause => Self::PauseFill,
+            Self::Heart => Self::HeartFill,
             Self::Grid => Self::GridFill,
             Self::Settings => Self::SettingsFill,
             Self::Palette => Self::PaletteFill,
@@ -476,6 +492,14 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
 }
 
+/// Where a slider's value sits and how the pointer maps onto it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct SliderTravel {
+    pub(crate) fraction: f32,
+    pub(crate) steps: usize,
+    pub(crate) inset: f32,
+}
+
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
 #[derive(Clone, Debug)]
 pub struct Element {
@@ -484,6 +508,9 @@ pub struct Element {
     /// Another action whose pointer hover should also highlight this element.
     /// Useful when a row contains a more specific action such as its menu.
     pub hover_peer: Option<String>,
+    /// Makes a clickable report [`UiAction::SliderChanged`](crate::UiAction::SliderChanged)
+    /// instead of a click. Boxed: few elements have one.
+    pub(crate) slider: Option<Box<SliderTravel>>,
     /// ID under which this element fades in when it is first placed, and
     /// whether its last paint is left behind to fade out once it is gone.
     pub presence: Option<(String, bool)>,
@@ -916,6 +943,7 @@ impl Element {
             kind,
             style: Style::default(),
             hover_peer: None,
+            slider: None,
             presence: None,
             replacement: None,
             hover_surface: None,
@@ -1065,6 +1093,21 @@ impl Element {
             child: Box::new(child),
         })
         .transition_ms(crate::tokens().motion.hover_ms)
+    }
+
+    /// Turn a clickable into a slider. Pressing or dragging over it reports
+    /// `SliderChanged` with the pointer's share of its width, measured
+    /// between `inset` pixels from each end; arrows, Home and End move it
+    /// from the keyboard. `steps` below 2 is continuous, otherwise the value
+    /// snaps to that many evenly spaced stops. The element paints nothing of
+    /// its own: the child draws the track at the `fraction` it is given.
+    pub fn slider(mut self, fraction: f32, steps: usize, inset: f32) -> Self {
+        self.slider = Some(Box::new(SliderTravel {
+            fraction: if fraction.is_finite() { fraction.clamp(0.0, 1.0) } else { 0.0 },
+            steps,
+            inset: if inset.is_finite() { inset.max(0.0) } else { 0.0 },
+        }));
+        self
     }
 
     /// Keep one visual hover surface across a parent action and one nested

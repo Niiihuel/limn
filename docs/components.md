@@ -44,6 +44,7 @@ it.
 | `TextArea` | Multi-line text. Enter adds a line; Ctrl+Enter submits. `.radius(RadiusRole)` rounds the box with another token. | `InputChanged`, `Submitted` |
 | `SearchField` | A text field with a magnifier and an optional shortcut hint. | `InputChanged`, `Submitted` |
 | `Switch` | An on/off control. | `Clicked` |
+| `Slider` | A value dragged along a track, from 0 to 1: a seek position or a volume. Continuous unless `.steps(n)` gives it evenly spaced stops. `.ink(color)` colors the fill and thumb, `.enabled(false)` shows the value without taking the pointer. The arrows move it by a twentieth or one stop; Home and End go to the ends. | `SliderChanged`, with `committed` false during a drag and true on release and from the keyboard |
 | `DatePicker` | An ISO date field with a navigable month calendar. | `InputChanged`, and `Clicked` for navigation and days |
 | `TimePicker` | A 24-hour `HH:MM` field with step controls. | `InputChanged`, and `Clicked` for the steps |
 | `DateTimePicker` | The two above combined, each keeping its own state. | As above |

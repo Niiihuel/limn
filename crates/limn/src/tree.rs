@@ -59,6 +59,8 @@ const TOOLTIP_HEIGHT: f32 = 24.0;
 const TOOLTIP_PADDING: f32 = 8.0;
 pub(crate) const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
 const SLIDER_THUMB_INSET: f32 = 17.0;
+/// One arrow press on a slider without stops.
+const CONTINUOUS_SLIDER_KEY_STEP: f32 = 0.05;
 const SLIDER_SETTLE_DURATION: Duration = Duration::from_millis(220);
 const SLIDER_ULTRA_FADE_DURATION: Duration = Duration::from_millis(300);
 const SLIDER_BURST_DURATION: Duration = Duration::from_millis(280);
@@ -1294,15 +1296,22 @@ struct SliderGeometry {
     steps: usize,
     fraction: f32,
     ultra_available: bool,
+    /// Distance from each end of `rect` to the ends of the thumb's travel.
+    inset: f32,
+    /// The effort slider settles on a spring; a plain slider follows the host.
+    animated: bool,
 }
 
 impl SliderGeometry {
     fn fraction_at(self, x: f32) -> f32 {
-        let travel = self.rect.width - SLIDER_THUMB_INSET * 2.0;
+        let travel = self.rect.width - self.inset * 2.0;
         if travel <= 0.0 {
             return 0.5;
         }
-        let raw = ((x - self.rect.x - SLIDER_THUMB_INSET) / travel).clamp(0.0, 1.0);
+        let raw = ((x - self.rect.x - self.inset) / travel).clamp(0.0, 1.0);
+        if self.steps < 2 {
+            return raw;
+        }
         // The reference's magnetic stops attract the thumb continuously during
         // drag, while a release still chooses the nearest advertised level.
         let intervals = self.steps.saturating_sub(1).max(1) as f32;
@@ -1314,6 +1323,9 @@ impl SliderGeometry {
     }
 
     fn snap(self, fraction: f32) -> f32 {
+        if self.steps < 2 {
+            return fraction.clamp(0.0, 1.0);
+        }
         let intervals = self.steps.saturating_sub(1).max(1) as f32;
         (fraction.clamp(0.0, 1.0) * intervals).round() / intervals
     }
@@ -4433,7 +4445,7 @@ impl UiTree {
                 }
                 if let Some(drag) = self.slider_drag.take() {
                     let snapped = drag.geometry.snap(drag.fraction);
-                    if !self.reduced_motion {
+                    if !self.reduced_motion && drag.geometry.animated {
                         let motion = self
                             .slider_motion
                             .entry(drag.id.clone())
@@ -4505,14 +4517,18 @@ impl UiTree {
                         geometry,
                         fraction,
                     });
-                    let motion = self
-                        .slider_motion
-                        .entry(id.clone())
-                        .or_insert_with(|| SliderMotion::new(now));
-                    motion.last_sample = now;
-                    motion.snap = None;
-                    motion.burst_started = None;
-                    motion.displayed_fraction = fraction;
+                    // An entry in `slider_motion` keeps the window repainting,
+                    // so only the animated effort slider gets one.
+                    if geometry.animated {
+                        let motion = self
+                            .slider_motion
+                            .entry(id.clone())
+                            .or_insert_with(|| SliderMotion::new(now));
+                        motion.last_sample = now;
+                        motion.snap = None;
+                        motion.burst_started = None;
+                        motion.displayed_fraction = fraction;
+                    }
                     self.focused = Some(id.clone());
                     self.pressed = None;
                     actions.push(UiAction::SliderChanged {
@@ -4639,7 +4655,7 @@ impl UiTree {
                 if let Some(drag) = self.slider_drag.take() {
                     let released_fraction = drag.geometry.fraction_at(point.x);
                     let snapped = drag.geometry.snap(released_fraction);
-                    if !self.reduced_motion {
+                    if !self.reduced_motion && drag.geometry.animated {
                         let motion = self
                             .slider_motion
                             .entry(drag.id.clone())
@@ -4918,6 +4934,22 @@ impl UiTree {
         let Some(geometry) = self.frame.sliders.get(id) else {
             return false;
         };
+        if geometry.steps < 2 {
+            let current = geometry.fraction.clamp(0.0, 1.0);
+            let fraction = match key {
+                Key::ArrowLeft => (current - CONTINUOUS_SLIDER_KEY_STEP).max(0.0),
+                Key::ArrowRight => (current + CONTINUOUS_SLIDER_KEY_STEP).min(1.0),
+                Key::Home => 0.0,
+                Key::End => 1.0,
+                _ => return false,
+            };
+            actions.push(UiAction::SliderChanged {
+                id: id.clone(),
+                fraction,
+                committed: true,
+            });
+            return true;
+        }
         let intervals = geometry.steps.saturating_sub(1).max(1);
         let current = (geometry.fraction.clamp(0.0, 1.0) * intervals as f32).round() as usize;
         let next = match key {
@@ -8184,6 +8216,19 @@ impl LayoutBuilder<'_> {
             ElementKind::Panel(child) => self.place(child, content, clip),
             ElementKind::Clickable { id, child } => {
                 self.add_region(id, rect, HitKind::Button, clip);
+                if let Some(travel) = element.slider.as_deref() {
+                    self.frame.sliders.insert(
+                        id.clone(),
+                        SliderGeometry {
+                            rect: content,
+                            steps: travel.steps,
+                            fraction: travel.fraction,
+                            ultra_available: false,
+                            inset: travel.inset,
+                            animated: false,
+                        },
+                    );
+                }
                 let first = self.frame.commands.len();
                 self.place(child, content, clip);
                 if style.underline_on_hover
@@ -9795,6 +9840,8 @@ impl LayoutBuilder<'_> {
                         steps: *steps,
                         fraction: *fraction,
                         ultra_available: *ultra_available,
+                        inset: SLIDER_THUMB_INSET,
+                        animated: true,
                     },
                 );
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
@@ -11099,6 +11146,8 @@ mod tests {
             steps: 5,
             fraction: 0.0,
             ultra_available: true,
+            inset: SLIDER_THUMB_INSET,
+            animated: true,
         };
         let three = SliderGeometry { steps: 3, ..five };
         let x = SLIDER_THUMB_INSET + 0.3 * (rect.width - 2.0 * SLIDER_THUMB_INSET);
