@@ -10,6 +10,7 @@ pub struct RasterImage {
     data_base64: Arc<str>,
     alt: String,
     full_resolution: bool,
+    cover: bool,
 }
 
 impl std::fmt::Debug for RasterImage {
@@ -21,6 +22,7 @@ impl std::fmt::Debug for RasterImage {
             .field("size_bytes", &self.size_bytes)
             .field("alt", &self.alt)
             .field("full_resolution", &self.full_resolution)
+            .field("cover", &self.cover)
             .finish()
     }
 }
@@ -63,6 +65,7 @@ impl RasterImage {
             data_base64,
             alt,
             full_resolution: false,
+            cover: false,
         })
     }
 
@@ -94,6 +97,18 @@ impl RasterImage {
 
     pub fn is_full_resolution(&self) -> bool {
         self.full_resolution
+    }
+
+    /// Fill the element's box, cropping what does not fit around the center,
+    /// as artwork does in a square whatever shape it arrived in. Without it
+    /// the whole picture is shown inside the box at its own proportions.
+    pub fn cover(mut self) -> Self {
+        self.cover = true;
+        self
+    }
+
+    pub fn is_cover(&self) -> bool {
+        self.cover
     }
 }
 

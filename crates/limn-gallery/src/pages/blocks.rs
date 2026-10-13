@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx};
 use limn::{
     Button, ButtonVariant, Card, CardDensity, CodeBlock, CodeBlockSizing, Component, Element,
-    FontFamily, ListRow, OutputBlock, RadiusRole, Separator, Text, TextRole, TextSpan,
+    FontFamily, Icon, ListRow, MediaTile, OutputBlock, RadiusRole, Separator, Text, TextRole, TextSpan,
 };
 
 fn card_copy(cx: &Cx, title: &str, detail: &str) -> Element {
@@ -28,6 +28,10 @@ pub fn view(cx: &Cx) -> Element {
         TextSpan::new("() {}  ", palette.muted, 13.0, FontFamily::Monospace),
         TextSpan::new("// coloreado por el host", palette.muted, 13.0, FontFamily::Monospace),
     ];
+    // Five tiles and the four gaps of `row` share the page's width.
+    let tile = ((cx.width - 48.0) / 5.0).min(144.0);
+    // The gallery ships no pictures: a cover here is a glyph on a fill.
+    let cover = |icon| Element::icon(icon).large_icon(40.0).foreground(palette.text).background(palette.raised);
     Element::column(vec![
         section(cx, "Tarjeta", vec![
             row(densities
@@ -77,6 +81,37 @@ pub fn view(cx: &Cx) -> Element {
             .density(CardDensity::Roomy)
             .render()
             .size(Some(width), None),
+        ]),
+        section(cx, "Mosaico de medios", vec![
+            row(vec![
+                MediaTile::new("blocks-tile-album", "Kind of Blue", palette)
+                    .artwork(cover(Icon::Library))
+                    .subtitle("Miles Davis")
+                    .width(tile)
+                    .render(),
+                MediaTile::new("blocks-tile-long", "The Rise and Fall of Ziggy Stardust and the Spiders from Mars", palette)
+                    .artwork(cover(Icon::Playlist))
+                    .subtitle("David Bowie")
+                    .width(tile)
+                    .render(),
+                MediaTile::new("blocks-tile-artist", "Nina Simone", palette)
+                    .artwork(cover(Icon::Heart))
+                    .subtitle("Artista")
+                    .round(true)
+                    .width(tile)
+                    .render(),
+                MediaTile::new("blocks-tile-empty", "Sin portada", palette)
+                    .subtitle("Aún no cargó")
+                    .width(tile)
+                    .render(),
+                MediaTile::new("blocks-tile-disabled", "No disponible", palette)
+                    .artwork(cover(Icon::Library))
+                    .subtitle("Deshabilitado")
+                    .enabled(false)
+                    .width(tile)
+                    .render(),
+            ]),
+            caption(cx, "Dos álbumes, un artista con .round(true), uno sin portada y uno deshabilitado; el título largo se corta sin ensanchar el mosaico."),
         ]),
         section(cx, "Bloque de salida", vec![
             caption(cx, "4000 líneas: sólo se construyen las visibles, y la nota avisa del recorte"),

@@ -397,6 +397,21 @@ fn fit_image(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
     EguiRect::from_center_size(area.center(), size)
 }
 
+/// The centered part of an image that fills `area` without distortion, as
+/// texture coordinates.
+fn cover_uv(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
+    let image = pixels[0] as f32 / pixels[1] as f32;
+    let wanted = area.width() / area.height();
+    let shown = if !(image.is_finite() && wanted.is_finite()) {
+        egui::vec2(1.0, 1.0)
+    } else if image > wanted {
+        egui::vec2(wanted / image, 1.0)
+    } else {
+        egui::vec2(1.0, image / wanted)
+    };
+    EguiRect::from_center_size(Pos2::new(0.5, 0.5), shown)
+}
+
 fn icon_svg(icon: Icon) -> &'static str {
     match icon {
         Icon::PanelLeft => include_str!("../assets/bootstrap/layout-sidebar.svg"),
@@ -1248,16 +1263,18 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 });
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
                 if let Some((texture, pixels)) = raster_texture(ui, image) {
+                    let (target, uv) = if image.is_cover() {
+                        (area, cover_uv(area, pixels))
+                    } else {
+                        (fit_image(area, pixels), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)))
+                    };
                     painter.add(
                         egui::epaint::RectShape::filled(
-                            fit_image(area, pixels),
+                            target,
                             CornerRadius::same(radius.clamp(0.0, 255.0) as u8),
                             Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
                         )
-                        .with_texture(
-                            texture,
-                            EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                        ),
+                        .with_texture(texture, uv),
                     );
                 } else {
                     painter.rect_filled(area, CornerRadius::same(6), Color32::from_gray(37));
@@ -1619,6 +1636,19 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_covering_image_shows_its_centered_part_at_the_box_proportions() {
+        let square = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 100.0));
+        let wide = cover_uv(square, [300, 100]);
+        assert!((wide.width() - 1.0 / 3.0).abs() < 1e-6 && wide.height() == 1.0, "a banner loses its sides");
+        assert!((wide.center().x - 0.5).abs() < 1e-6);
+        let tall = cover_uv(square, [100, 400]);
+        assert!(tall.width() == 1.0 && (tall.height() - 0.25).abs() < 1e-6, "a portrait loses top and bottom");
+        assert_eq!(cover_uv(square, [64, 64]), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)));
+        let empty = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(0.0, 0.0));
+        assert_eq!(cover_uv(empty, [64, 0]), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), "nothing to divide by");
+    }
     use image::ImageEncoder as _;
     use std::sync::Arc;
 
