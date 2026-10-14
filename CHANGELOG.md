@@ -5,6 +5,7 @@ in any release.
 
 ## 0.1.42 — 2026-10-14
 
+- `limn_egui::install_fonts`: bundled Noto Sans Math fallback for mathematical alphabets such as `𝖗𝖚𝖓𝖊` and `𝓡𝓤𝓝𝓔`, in every limn font family. Existing UI faces and egui fallbacks keep their priority. The unmodified font adds about 1 MiB under SIL OFL-1.1; its license and pinned provenance are included. The Text gallery shows synthetic samples
 - `ScrollArea::measured_list` and `Element::measured_list`: a virtualized list of rows of their own heights, such as the messages of a conversation. Rows are built only while in view and measured then; a key per row keeps its height, and holds the row at the top of the viewport still while rows above it are measured, change height or are added. `follow_end` (`Element::list_follow_end`) keeps the end in view as rows arrive while the list is scrolled there. `reveal` and `anchor_offset` reach what the rows in view hold
 - `UiTree::visible_rows(id)`: the rows of a uniform or a measured list built at the last layout
 - `ScalarTransition::shift`: moves a transition's start and end by the same amount, keeping its pace
