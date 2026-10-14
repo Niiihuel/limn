@@ -126,6 +126,12 @@ paint a colour behind a container's children that starts at that edge and is
 gone `height` further in: a tint behind a page's header, or under the last
 lines of a panel. Paint only, and never taller than the container.
 
+`.horizontal_gradient(stops)` and `.vertical_gradient(stops)` fill an element
+with colors spread evenly from its left edge to its right, or from its top to
+its bottom, blending from each to the next, behind its children and over its
+background, its corners rounded by its `radius`: the bar of hues of a
+`ColorPicker`, or a fade of the host's own. One stop is a plain fill.
+
 ### Sticky children
 
 A child of a column inside a scroll area can stay in view while the rows

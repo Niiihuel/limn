@@ -27,6 +27,11 @@ in any release.
 - SearchField: a disabled field shows its shortcut hint only while it has no query, as the enabled one does
 - Select: `variant(SelectVariant::Field)`, a trigger drawn as a text field, with its fill, border and height and the choice at its start, open or focused from the keyboard with a focused field's border; `size(ControlSize)` and `height(px)` for either variant. A select is drawn as it was unless told otherwise
 - `Element::focus_border` on a control whose focus ring is off is shown while it has the keyboard focus, as its mark of that focus; a text input or area shows it on any focus, as before
+- New components: `SwatchPicker` and `Swatch` (one color among a few, a ring around the chosen one, and an optional custom swatch that opens a picker) and `ColorPicker` with `Hsv` (a field of saturation and value, a bar of hues and a hex field; `ColorPicker::color_after` turns its actions into the next color, `hex` and `parse_hex` write and read it), each with a page, a guide and the swatches in the controls harness
+- `Element::area_slider` and `UiAction::AreaSliderChanged`: a slider over an area, dragged in two directions and stepped with all four arrows
+- `Element::horizontal_gradient` and `vertical_gradient`: evenly spaced colors across an element, its corners rounded
+- Gallery: a field shows the text a slider leads to, as it does after a click
+- Labels: `saturation_brightness`, `hue` and `hex`, what a color picker calls its parts to the platform
 
 ## 0.1.41 — 2026-10-13
 

@@ -2,8 +2,8 @@
 //! binary, leaving the library's parallel unit tests in their own language.
 
 use limn::{
-    labels, set_labels, Alert, AlertDialog, AlertTone, Breadcrumb, BreadcrumbItem, Component, ComponentPalette,
-    DatePicker, DrawCommand, Element, FindLabels, Frame, Labels, MarkdownLabels, Size, UiTree,
+    labels, set_labels, Alert, AlertDialog, AlertTone, Breadcrumb, BreadcrumbItem, ColorPicker, Component,
+    ComponentPalette, DatePicker, DrawCommand, Element, FindLabels, Frame, Hsv, Labels, MarkdownLabels, Size, UiTree,
 };
 
 fn texts(frame: &Frame) -> Vec<&str> {
@@ -63,5 +63,8 @@ fn replacing_labels_updates_rebuilt_components_and_preserves_explicit_copy() {
     assert!(drawn(DatePicker::new("date", "", palette).render()).contains(&"AAAA-MM-DD".to_owned()));
     assert_eq!((FindLabels::default().query.as_str(), FindLabels::default().dismiss.as_str()), ("Buscar", "Cerrar"));
     assert_eq!((MarkdownLabels::default().expand, MarkdownLabels::DEFAULT.expand), ("Ampliar", "Expand"));
+    let picker = UiTree::new(ColorPicker::new("c", Hsv::new(0.0, 1.0, 1.0), palette).render()).layout(size);
+    let names: Vec<_> = picker.access.iter().map(|node| node.name.as_str()).collect();
+    assert!(["Saturación y brillo", "Matiz", "Hexadecimal"].iter().all(|name| names.contains(name)), "{names:?}");
     set_labels(original);
 }

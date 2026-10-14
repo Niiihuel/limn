@@ -189,6 +189,13 @@ pub struct Labels {
     pub show_diagram: &'static str,
     /// Markdown: the action that shows a diagram over the window.
     pub expand: &'static str,
+    /// A color picker: what its field of saturation and brightness is called
+    /// to the platform.
+    pub saturation_brightness: &'static str,
+    /// A color picker: what its bar of hues is called to the platform.
+    pub hue: &'static str,
+    /// A color picker: what its field of hex digits is called to the platform.
+    pub hex: &'static str,
 }
 
 impl Labels {
@@ -283,6 +290,9 @@ impl Labels {
         show_source: "Source",
         show_diagram: "Diagram",
         expand: "Expand",
+        saturation_brightness: "Saturation and brightness",
+        hue: "Hue",
+        hex: "Hex",
     };
 
     /// The library's own words in Spanish.
@@ -376,6 +386,9 @@ impl Labels {
         show_source: "Fuente",
         show_diagram: "Diagrama",
         expand: "Ampliar",
+        saturation_brightness: "Saturación y brillo",
+        hue: "Matiz",
+        hex: "Hexadecimal",
     };
 }
 
