@@ -366,10 +366,12 @@ fn controls() -> Vec<Control> {
                 DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
             },
             || {
-                let entries = vec![DropdownMenuItem::new("it", "Mute")
-                    .checkbox(true)
-                    .disabled()
-                    .into()];
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Mute")
+                        .checkbox(true)
+                        .disabled()
+                        .into(),
+                ];
                 DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
             },
         ),
@@ -377,18 +379,22 @@ fn controls() -> Vec<Control> {
             "DropdownMenu radio item",
             "it",
             || {
-                let entries = vec![DropdownMenuItem::new("it", "Only mentions")
-                    .radio(false)
-                    .into()];
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Only mentions")
+                        .radio(false)
+                        .into(),
+                ];
                 DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
                     .context_menu_style()
                     .render()
             },
             || {
-                let entries = vec![DropdownMenuItem::new("it", "Only mentions")
-                    .radio(false)
-                    .disabled()
-                    .into()];
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Only mentions")
+                        .radio(false)
+                        .disabled()
+                        .into(),
+                ];
                 DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
                     .context_menu_style()
                     .render()
@@ -398,16 +404,20 @@ fn controls() -> Vec<Control> {
             "DropdownMenu two-line item",
             "it",
             || {
-                let entries = vec![DropdownMenuItem::new("it", "Notifications")
-                    .description("Only mentions")
-                    .into()];
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Notifications")
+                        .description("Only mentions")
+                        .into(),
+                ];
                 DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
             },
             || {
-                let entries = vec![DropdownMenuItem::new("it", "Notifications")
-                    .description("Needs a permission")
-                    .disabled()
-                    .into()];
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Notifications")
+                        .description("Needs a permission")
+                        .disabled()
+                        .into(),
+                ];
                 DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
             },
         ),
@@ -422,9 +432,11 @@ fn controls() -> Vec<Control> {
                     .render()
             },
             || {
-                let entries = vec![DropdownMenuItem::new("it", "Mark as read")
-                    .disabled()
-                    .into()];
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Mark as read")
+                        .disabled()
+                        .into(),
+                ];
                 DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
                     .context_menu_style()
                     .at(Point::new(60.0, 40.0))

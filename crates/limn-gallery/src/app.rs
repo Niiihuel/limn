@@ -240,7 +240,7 @@ pub fn view(state: &State, window: Size) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use limn::UiTree;
+    use limn::{UiEvent, UiTree};
     use std::collections::HashSet;
 
     #[test]
@@ -309,6 +309,78 @@ mod tests {
             }
         }
         assert!(outside.is_empty(), "text drawn outside the card:\n{}", outside.join("\n"));
+    }
+
+    /// The menu at a point opens where the secondary click was, and against
+    /// its area with Enter or the menu key.
+    #[test]
+    fn the_menu_at_a_point_opens_from_the_pointer_and_the_keyboard() {
+        let window = Size::new(1280.0, 800.0);
+        let area = "overlay-point=area";
+        let shown = |state: &State| {
+            let frame = UiTree::new(view(state, window)).layout(window);
+            frame
+                .regions
+                .iter()
+                .any(|region| region.id == "overlay-items-notify")
+        };
+        let start = || {
+            let state = State::starting_at("context-menu");
+            let mut tree = UiTree::new(view(&state, window));
+            tree.layout(window);
+            (state, tree)
+        };
+        let (mut state, tree) = start();
+        assert!(!shown(&state));
+        let rect = tree
+            .frame()
+            .regions
+            .iter()
+            .find(|region| region.id == area)
+            .unwrap()
+            .rect;
+        let inside = limn::Point::new(rect.x + 10.0, rect.y + 10.0);
+        assert!(pages::context_menu(
+            &mut state,
+            &tree,
+            &UiEvent::ContextMenu { position: inside }
+        ));
+        assert_eq!(
+            state.text("overlay-point"),
+            format!("{},{}", inside.x, inside.y)
+        );
+        assert!(shown(&state));
+        let outside = limn::Point::new(rect.x - 10.0, rect.y - 10.0);
+        assert!(!pages::context_menu(
+            &mut start().0,
+            &tree,
+            &UiEvent::ContextMenu { position: outside }
+        ));
+        // Enter on the area, as a button, and the menu key open it against the area.
+        let (mut state, mut tree) = start();
+        assert!(tree.focus(area));
+        for action in tree.handle_event(UiEvent::Key {
+            key: limn::Key::Enter,
+            shift: false,
+            ctrl: false,
+        }) {
+            update(&mut state, &action);
+        }
+        assert_eq!(state.text("overlay-point"), "area");
+        assert!(shown(&state));
+        let (mut state, mut tree) = start();
+        assert!(!pages::context_menu(
+            &mut state,
+            &tree,
+            &UiEvent::ContextMenuKeyboard
+        ));
+        assert!(tree.focus(area));
+        assert!(pages::context_menu(
+            &mut state,
+            &tree,
+            &UiEvent::ContextMenuKeyboard
+        ));
+        assert!(shown(&state));
     }
 
     #[test]

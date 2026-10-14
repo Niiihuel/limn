@@ -6,9 +6,10 @@ in any release.
 ## Unreleased
 
 - DropdownMenu: `DropdownMenuItem::checkbox` and `radio`, items drawn with a box or a circle at the end of the row and told to the platform as a menu's check box or radio item (`Role::MenuItemCheckBox` and `Role::MenuItemRadio`), on or off
-- DropdownMenu: a two-line item takes the menu's `sizing`, so it lines up with the menu's other rows; one with a `description` and a `submenu` ends with a chevron and opens it; and a disabled one says why on its second line
-- DropdownMenu: a submenu stays open while the pointer or the focus is in a submenu nested in it, and the arrow keys walk in and out of every level; it closed as the pointer went into the nested one
+- DropdownMenu: a two-line item lines up with the menu's one-line rows in every style: it is as tall as the menu's `sizing` says and has their sides, icon slot, label size, gap and check and chevron columns, where it had the catalogs' metrics whatever the menu; one with a `description` and a `submenu` ends with a chevron and opens it; a disabled one says why on its second line; and in a menu with no `selected` item it no longer says it is not selected
+- DropdownMenu: a submenu stays open while the pointer or the focus is in a submenu nested in it, and the arrow keys walk in and out of every level; it closed as the pointer went into the nested one. The pointer on another submenu's row closes the ones the keyboard opened, where both stayed open
 - DropdownMenu: `at(point)` opens the menu at a point of the window, as a context menu at the secondary click, with every kind of item; `Element::popover_at` places any popover so
+- A secondary click outside an open popover or menu reports its dismiss ID, as a primary one does; it left the popover open
 
 ## 0.1.41 — 2026-10-13
 

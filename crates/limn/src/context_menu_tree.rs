@@ -481,6 +481,27 @@ impl UiTree {
     ) -> Option<Vec<UiAction>> {
         match event {
             UiEvent::ContextMenu { position } => {
+                // A secondary click outside an open popover closes it, as a
+                // primary one does: it lands on the popover's backdrop, not on
+                // a control of the popover that reports the same ID.
+                let outside = |region: &HitRegion| {
+                    region.kind == HitKind::Button
+                        && self
+                            .frame
+                            .popover_focus
+                            .iter()
+                            .any(|scope| scope.dismiss_id == region.id)
+                        && !self.frame.regions.iter().any(|surface| {
+                            surface.rect.contains(*position)
+                                && surface.id.strip_prefix("popover_surface:")
+                                    == Some(region.id.as_str())
+                        })
+                };
+                if let Some(backdrop) = self.frame.press_region(*position).filter(|r| outside(r)) {
+                    let id = self.dispatch_id(&backdrop.id);
+                    self.close_context_menu(now);
+                    return Some(vec![UiAction::Clicked { id }]);
+                }
                 self.open_text_context_menu(*position, false, now);
                 return Some(Vec::new());
             }

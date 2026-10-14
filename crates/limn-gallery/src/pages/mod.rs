@@ -263,10 +263,10 @@ pub fn update(state: &mut State, action: &UiAction) {
     toolbar::update(state, action);
 }
 
-/// Answer a secondary click a page opens its own menu for, before the tree
-/// does; `true` when one did.
-pub fn secondary_click(state: &mut State, frame: &limn::Frame, position: limn::Point) -> bool {
-    overlays::secondary_click(state, frame, position)
+/// Answer a secondary click or the menu key a page opens its own menu for,
+/// before the tree does; `true` when one did.
+pub fn context_menu(state: &mut State, tree: &limn::UiTree, event: &limn::UiEvent) -> bool {
+    overlays::context_menu(state, tree, event)
 }
 
 /// The fields whose text a click may have changed, each with its value now.

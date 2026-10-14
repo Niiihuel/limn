@@ -2,12 +2,14 @@ use super::{caption, row, section, Cx, Section};
 use crate::app::State;
 use limn::{
     AlertDialog, AlertTone, Button, ButtonVariant, Color, Component, ContextMenu, ContextMenuEntry,
-    ContextMenuItem, DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption,
-    Element, FontFamily, FormField, Frame, Icon, Modal, Point, Popover, TextField, Toast, TooltipSpec,
+    ContextMenuItem, DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
+    DropdownOption, Element, FontFamily, FormField, Icon, Modal, Point, Popover, TextField, Toast,
+    TooltipSpec, UiEvent, UiTree,
 };
 
-/// The area a secondary click opens the menu at a point on.
-const POINT_AREA: &str = "overlay-point-area";
+/// The area a secondary click opens the menu at a point on. Enter, Space and
+/// the menu key open it against the area: a click sets `overlay-point=area`.
+const POINT_AREA: &str = "overlay-point=area";
 
 const LANGUAGES: [(&str, &str); 3] = [("rust", "Rust"), ("python", "Python"), ("typescript", "TypeScript")];
 
@@ -191,21 +193,27 @@ fn item_entries(state: &State, close: &str) -> Vec<DropdownMenuEntry> {
     ]
 }
 
-/// A menu that opens where the secondary click was, with the same items.
+/// A menu that opens where the secondary click was, with the same items, or
+/// against its area from the keyboard.
 fn point_menu(cx: &Cx) -> Element {
-    let area = Element::clickable(POINT_AREA, caption(cx, "Right-click anywhere here"))
-        .padding(24.0)
-        .border(cx.palette.border, 1.0)
-        .radius(limn::tokens().radius.card);
-    let at = cx
-        .state
-        .text("overlay-point")
+    let area = Element::clickable(
+        POINT_AREA,
+        caption(
+            cx,
+            "Right-click anywhere here, or press Enter or the menu key",
+        ),
+    )
+    .padding(24.0)
+    .border(cx.palette.border, 1.0)
+    .radius(limn::tokens().radius.card);
+    let open = cx.state.text("overlay-point");
+    let at = open
         .split_once(',')
         .and_then(|(x, y)| Some(Point::new(x.parse().ok()?, y.parse().ok()?)));
-    let Some(at) = at else {
+    if at.is_none() && open != "area" {
         return area;
-    };
-    DropdownMenu::new(
+    }
+    let menu = DropdownMenu::new(
         area,
         item_entries(cx.state, "overlay-point=closed"),
         true,
@@ -213,23 +221,38 @@ fn point_menu(cx: &Cx) -> Element {
         cx.palette,
     )
     .context_menu_style()
-    .width(260.0)
-    .at(at)
+    .width(260.0);
+    match at {
+        Some(at) => menu.at(at),
+        None => menu,
+    }
     .render()
 }
 
 /// A secondary click on the area of the menu at a point opens it there, as a
-/// host does: it keeps the point and passes it to `DropdownMenu::at`.
-pub fn secondary_click(state: &mut State, frame: &Frame, position: Point) -> bool {
-    let inside = frame
-        .regions
-        .iter()
-        .any(|region| region.id == POINT_AREA && region.rect.contains(position));
-    if inside {
-        state.set("overlay-point", &format!("{},{}", position.x, position.y));
+/// host does: it keeps the point and passes it to `DropdownMenu::at`. The menu
+/// key on the focused area opens it against the area.
+pub fn context_menu(state: &mut State, tree: &UiTree, event: &UiEvent) -> bool {
+    match event {
+        UiEvent::ContextMenu { position } => {
+            let inside = tree
+                .frame()
+                .regions
+                .iter()
+                .any(|region| region.id == POINT_AREA && region.rect.contains(*position));
+            if inside {
+                state.set("overlay-point", &format!("{},{}", position.x, position.y));
+            }
+            inside
+        }
+        UiEvent::ContextMenuKeyboard if tree.focused_id() == Some(POINT_AREA) => {
+            state.set("overlay-point", "area");
+            true
+        }
+        _ => false,
     }
-    inside
 }
+
 /// Wrap the window in the layers this page controls.
 pub fn layers(cx: &Cx, base: Element) -> Element {
     let palette = cx.palette;

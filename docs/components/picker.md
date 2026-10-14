@@ -84,9 +84,10 @@ DropdownMenuItem::new("model=north/large-2", "North Large")
 ```
 
 With `description` an item is a two-line row, `SelectorSizing::detail_row_height`
-(40) tall, with a column for the check. It takes the menu's `sizing`, so a menu
-with a profile of its own gets two-line rows that line up with its other rows;
-without one it is `SelectorSizing::COMPACT`. `detail_mono` sets the second line in
+(40) tall, with a column for the check. It takes the menu's `sizing` and the
+sides, icon slot, label size and gap of its one-line rows, so a menu with a
+profile of its own gets two-line rows that line up with its other rows; with
+`SelectorSizing::COMPACT` or `CATALOG` the row is as it always was. `detail_mono` sets the second line in
 monospace, `status` puts short muted text at its end and `status_width` fixes
 that slot so the statuses start in a column. `chevron()` ends the row with a
 chevron instead of the check, for a row that opens another view; with a

@@ -114,23 +114,29 @@ impl MenuCheck {
 
 /// The two-line row shared by [`MenuItem`] and `DropdownMenuItem`: a label
 /// over a quiet detail, between a leading icon and a check or a chevron.
-/// Its metrics are its menu's selector profile, so it lines up with the
-/// menu's other rows.
+/// Its metrics are its menu's, so it lines up with the menu's other rows.
 pub(crate) struct DetailRow {
     pub(crate) action_id: String,
     pub(crate) label: String,
     pub(crate) description: String,
     pub(crate) icon: Option<Icon>,
+    /// Keep the icon's slot without an icon, as the menu's other rows do.
+    pub(crate) icon_slot: bool,
     pub(crate) mono: bool,
     pub(crate) status: Option<String>,
     pub(crate) status_width: Option<f32>,
-    pub(crate) chevron: bool,
+    /// `None` leaves out the chevron column; `Some(false)` keeps it empty.
+    /// A row with a chevron leads somewhere: it is not a choice.
+    pub(crate) chevron: Option<bool>,
     /// `None` leaves out the check column; `Some(false)` keeps it empty.
     pub(crate) selected: Option<bool>,
+    /// Whether the platform hears `selected`: the row is one of a set of
+    /// choices, not an action in a menu that has some.
+    pub(crate) choice: bool,
     /// A check box or a radio item in the check column, in place of the tick.
     pub(crate) check: Option<MenuCheck>,
     pub(crate) enabled: bool,
-    /// Its icon slot, text sizes, gap, padding and height.
+    /// Its height, icon slot, text sizes and gap, and `padding` at its sides.
     pub(crate) sizing: SelectorSizing,
 }
 
@@ -138,9 +144,15 @@ impl DetailRow {
     /// The padded row without a width: the caller fixes it or lets it stretch.
     pub(crate) fn render(self, palette: ComponentPalette) -> Element {
         let sizing = self.sizing;
-        // The two lines share what the padding leaves of the row.
-        let body_height = (sizing.detail_row_height - sizing.padding * 2.0).max(0.0);
+        // Two lines of text need about 1.2 times their sizes; the padding
+        // above and below gives way to them, never past zero.
+        let text_height = (sizing.label_size + sizing.detail_size) * 1.2;
+        let inset_y = ((sizing.detail_row_height - text_height) / 2.0)
+            .min(sizing.padding)
+            .max(0.0);
+        let body_height = (sizing.detail_row_height - inset_y * 2.0).max(0.0);
         let line_height = body_height / 2.0;
+        let leads = self.chevron == Some(true);
         let ink = if self.enabled {
             palette.text
         } else {
@@ -151,9 +163,9 @@ impl DetailRow {
         if !self.description.is_empty() {
             access = access.description(&self.description);
         }
-        if let Some(check) = self.check.filter(|_| !self.chevron) {
+        if let Some(check) = self.check.filter(|_| !leads) {
             access = check.access(access);
-        } else if let Some(selected) = self.selected.filter(|_| !self.chevron) {
+        } else if let Some(selected) = self.selected.filter(|_| self.choice && !leads) {
             access = access.selected(selected);
         }
         let detail = Element::truncated_text(self.description)
@@ -178,15 +190,17 @@ impl DetailRow {
             .size(None, Some(line_height)),
             None => detail,
         };
-        let mut children = Vec::with_capacity(3);
+        let slot = |element: Element| element.size(Some(sizing.icon_size), Some(body_height));
+        let mut children = Vec::with_capacity(4);
         if let Some(icon) = self.icon {
-            children.push(
+            children.push(slot(
                 Element::icon(icon)
                     // A row that only leads somewhere keeps its icon as quiet
                     // as its chevron; the label says where it goes.
-                    .foreground(if self.chevron { palette.muted } else { ink })
-                    .size(Some(sizing.icon_size), Some(body_height)),
-            );
+                    .foreground(if leads { palette.muted } else { ink }),
+            ));
+        } else if self.icon_slot {
+            children.push(slot(Element::spacer()));
         }
         children.push(
             Element::column(vec![
@@ -199,30 +213,35 @@ impl DetailRow {
             ])
             .flex(1.0),
         );
-        if self.chevron {
-            children.push(
-                Element::icon(Icon::ChevronRight)
-                    .foreground(palette.muted)
-                    .size(Some(sizing.icon_size), Some(body_height)),
-            );
-        } else if let Some(check) = self.check {
-            children.push(
-                check
+        if self.selected.is_some() || self.check.is_some() {
+            children.push(slot(match (self.check, self.selected) {
+                _ if leads => Element::spacer(),
+                (Some(check), _) => check
                     .mark(sizing.icon_size.min(ICON_SIZE), ink, palette)
-                    .centered()
-                    .size(Some(sizing.icon_size), Some(body_height)),
-            );
-        } else if let Some(selected) = self.selected {
-            children.push(
-                if selected {
-                    Element::icon(Icon::Check).foreground(palette.text)
-                } else {
-                    Element::spacer()
-                }
-                .size(Some(sizing.icon_size), Some(body_height)),
-            );
+                    .centered(),
+                (None, Some(true)) => Element::icon(Icon::Check).foreground(palette.text),
+                (None, _) => Element::spacer(),
+            }));
+        }
+        if let Some(chevron) = self.chevron {
+            children.push(slot(if chevron {
+                Element::icon(Icon::ChevronRight).foreground(palette.muted)
+            } else {
+                Element::spacer()
+            }));
         }
         let visual = Element::row(children).gap(sizing.gap).clip_children();
+        // The sides keep the whole padding, as the one-line rows do.
+        let side = (sizing.padding - inset_y).max(0.0);
+        let visual = if side > 0.0 {
+            Element::row(vec![
+                Element::spacer().size(Some(side), Some(body_height)),
+                visual.flex(1.0),
+                Element::spacer().size(Some(side), Some(body_height)),
+            ])
+        } else {
+            visual
+        };
         let row = if self.enabled {
             Element::clickable(self.action_id, visual).action_menu_item().accessible(access)
         } else {
@@ -231,7 +250,7 @@ impl DetailRow {
         palette
             .interactive_surface(row)
             .transition_ms(0)
-            .padding(sizing.padding)
+            .padding(inset_y)
             .size(None, Some(sizing.detail_row_height))
     }
 }
@@ -445,8 +464,11 @@ impl Component for MenuItem {
                     mono: self.detail_mono,
                     status: self.status,
                     status_width: self.status_width,
-                    chevron: self.chevron,
-                    selected: self.selected,
+                    icon_slot: false,
+                    // A chevron takes the check's place: the row leads somewhere.
+                    chevron: self.chevron.then_some(true),
+                    selected: self.selected.filter(|_| !self.chevron),
+                    choice: true,
                     check: None,
                     enabled: self.enabled,
                     sizing: SelectorSizing::COMPACT,

@@ -93,12 +93,15 @@ DropdownMenuItem::new("edit", "Edit channel")
 ```
 
 `description(text)` puts a quiet second line under the label: the value a
-setting has, or, on a disabled item, why it cannot be chosen. The row takes
-the menu's `sizing` (its `detail_row_height`, icon slot, text sizes, gap and
-padding), so it lines up with the menu's one-line rows; a menu without one
-uses `SelectorSizing::COMPACT`. The second line is cut to one line, so a hint
-says a long reason whole. The platform hears it after the label, disabled or
-not.
+setting has, or, on a disabled item, why it cannot be chosen. The row is as
+tall as the menu's `sizing` says for two lines (`detail_row_height`, 40
+without one) and lines up with the menu's one-line rows: it has their sides,
+icon slot, label size and gap, and keeps their check and chevron columns, so
+labels, marks and chevrons stand in the same columns in every style. The
+second line is at the profile's `detail_size` (12 without one, and in
+`context_menu_style`). The padding above and below the two lines gives way
+when they need the room. The second line is cut to one line, so a hint says a
+long reason whole. The platform hears it after the label, disabled or not.
 
 ## Submenus
 
@@ -114,7 +117,8 @@ DropdownMenuItem::new("settings", "Settings")
 The second menu opens beside its row while the pointer is over the row or the
 submenu, or with the keyboard. A submenu can hold submenus of its own: each
 stays open while the pointer or the focus is in one nested in it, and closes
-when the pointer moves to another row of its parent.
+when the pointer moves to another row of its parent, even one the keyboard
+opened: a single submenu of a menu is open at a time.
 
 An item with a submenu can also have a `description`: it is a two-line row
 that ends with a chevron, such as a setting that shows its value under its
@@ -153,19 +157,27 @@ fn view(state: &State, palette: ComponentPalette) -> Element {
 
 // Before the tree sees the event: the host keeps where the menu opens.
 fn event(state: &mut State, tree: &mut UiTree, event: UiEvent) -> Vec<UiAction> {
-    if let UiEvent::ContextMenu { position } = event {
-        if tree.frame().hit_test(position) == Some("channel") {
+    match event {
+        UiEvent::ContextMenu { position } if tree.frame().hit_test(position) == Some("channel") => {
             state.channel_menu_at = Some(position);
-            return Vec::new();
+            Vec::new()
         }
+        // The menu key and Shift+F10 open it under the row, where the focus is.
+        UiEvent::ContextMenuKeyboard if tree.focused_id() == Some("channel") => {
+            let row = tree.frame().regions.iter().rev().find(|region| region.id == "channel");
+            state.channel_menu_at = row.map(|row| Point::new(row.rect.x, row.rect.y + row.rect.height));
+            Vec::new()
+        }
+        event => tree.handle_event(event),
     }
-    tree.handle_event(event)
 }
 ```
 
 The point is in the tree's coordinates, as `UiEvent::ContextMenu` gives it.
 The host clears it on the dismiss ID and on the items' IDs. The arrow keys
-reach the menu wherever the focus is while it is open.
+reach the menu wherever the focus is while it is open. A secondary click
+outside the menu reports the dismiss ID, as a primary one does; one on the
+row the menu belongs to reaches the host first and moves the menu there.
 
 ## Other entries
 
@@ -210,14 +222,26 @@ place at once.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` with an item's ID | The item is activated. |
-| `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the menu. |
+| `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the menu, primary or secondary. |
 
 ## Accessibility
 
 The platform is told each item is a menu item named by its label, with its
 annotation or its second line as a description, and that a disabled item is
-there and cannot be used. In a menu with checks, every item says whether it is
-selected. A `checkbox` item is a check box of a menu and a `radio` item a
-radio item of a menu, each saying whether it is on. The
-trigger is the host's: the menu adds to it whether it is open, and a section's
-heading says whether it is expanded.
+there and cannot be used. In a menu where an item is `selected`, every item
+says whether it is selected; in one without, none does. A `checkbox` item is a
+check box of a menu and a `radio` item a radio item of a menu, each saying
+whether it is on. The trigger is the host's: the menu adds to it whether it is
+open, and a section's heading says whether it is expanded.
+
+## Limits
+
+- A menu at a point does not open itself. The host catches
+  `UiEvent::ContextMenu` and `UiEvent::ContextMenuKeyboard` before the tree,
+  keeps the point and passes it to `at`, as in [At a point](#at-a-point).
+- A [ContextMenu](context-menu.md), which does open itself, has one flat list
+  of actions: no submenus, check boxes, radio items or second lines.
+- A two-line item ignores `shortcut`, `annotation` and `destructive`, and its
+  second line is one line, cut with an ellipsis.
+- The menu reports IDs; it keeps no value. A check box or a radio item shows
+  the value the host passes, and the host changes it.

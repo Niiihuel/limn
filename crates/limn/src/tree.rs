@@ -5049,10 +5049,19 @@ impl UiTree {
                 // over from keyboard navigation without stealing focus from
                 // inputs inside rich popovers or reacting to a stationary mouse.
                 if moved {
-                    if let Some(id) = target
-                        .as_ref()
-                        .filter(|id| self.frame.action_menu_items.contains(*id))
-                    {
+                    // Focus on a submenu's row or in a submenu holds that one
+                    // open; the pointer onto another submenu's row takes over.
+                    let holds_submenu = self.focused.as_ref().is_some_and(|focused| {
+                        self.frame.submenu_triggers.contains(focused)
+                            || self.frame.popover_focus.iter().any(|scope| {
+                                scope.submenu
+                                    && scope.focusables.iter().any(|(id, _)| id == focused)
+                            })
+                    });
+                    if let Some(id) = target.as_ref().filter(|id| {
+                        self.frame.action_menu_items.contains(*id)
+                            || holds_submenu && self.frame.submenu_triggers.contains(*id)
+                    }) {
                         self.focused = Some(id.clone());
                         self.closed_submenu_triggers.remove(id);
                         self.keyboard_focus = false;
