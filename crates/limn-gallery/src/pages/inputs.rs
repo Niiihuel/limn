@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
-    SearchField, Select, SelectorSizing, Slider, Switch, TextArea, TextField, TextRole,
+    SearchField, Select, SelectorSizing, Slider, Switch, SwitchVariant, TextArea, TextField, TextRole,
 };
 
 const SHELLS: [(&str, &str); 4] = [("bash", "Bash"), ("zsh", "Zsh"), ("fish", "Fish"), ("nu", "Nushell")];
@@ -185,10 +185,51 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .disabled()
                 .render(),
         ]),
-        section(cx, "Switch", vec![row(vec![
-            Switch::new("input-switch", state.flag("input-switch"), palette).accessibility_label("Notifications").render(),
-            Switch::new("input-switch-disabled", true, palette).accessibility_label("Automatic updates").disabled().render(),
-        ])]),
+        section(cx, "Switch", vec![
+            row(vec![
+                Switch::new("input-switch", state.flag("input-switch"), palette).accessibility_label("Notifications").render(),
+                Switch::new("input-switch-disabled", true, palette).accessibility_label("Automatic updates").disabled().render(),
+            ]),
+            caption(cx, "A switch, and one disabled: it keeps its value."),
+            row([
+                ("Dense", ControlSize::Dense),
+                ("Compact", ControlSize::Compact),
+                ("Regular", ControlSize::Regular),
+                ("Spacious", ControlSize::Spacious),
+            ]
+            .into_iter()
+            .map(|(name, size)| {
+                let id = format!("input-switch-{}", name.to_lowercase());
+                Switch::new(id.as_str(), state.flag(&id), palette).size(size).accessibility_label(name).render()
+            })
+            .collect()),
+            caption(cx, ".size(ControlSize): Dense, Compact, Regular and Spacious."),
+            row(vec![
+                Switch::new("input-switch-accent", !state.flag("input-switch-accent"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .size(ControlSize::Spacious)
+                    .accessibility_label("Show embeds")
+                    .render(),
+                Switch::new("input-switch-accent-off", state.flag("input-switch-accent-off"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .size(ControlSize::Spacious)
+                    .accessibility_label("Autoplay GIFs")
+                    .render(),
+                Switch::new("input-switch-accent-ink", !state.flag("input-switch-accent-ink"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .ink(cx.state.theme().accent)
+                    .size(ControlSize::Spacious)
+                    .accessibility_label("Compact mode")
+                    .render(),
+                Switch::new("input-switch-accent-disabled", true, palette)
+                    .variant(SwitchVariant::Accent)
+                    .size(ControlSize::Spacious)
+                    .accessibility_label("Sync")
+                    .disabled()
+                    .render(),
+            ]),
+            caption(cx, "SwitchVariant::Accent: a light thumb on the link color, on the theme's accent with .ink, and disabled."),
+        ]),
         section(cx, "Slider", vec![
             Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette)
                 .accessibility_label("Volume")
@@ -207,6 +248,31 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(280.0)
                 .render(),
             caption(cx, "Disabled: shows the value without pointer input or focus."),
+            Slider::new("input-slider-marks", fraction(cx, "input-slider-marks", 0.25), palette)
+                .steps(5)
+                .marks()
+                .accessibility_label("Zoom")
+                .width(280.0)
+                .render(),
+            caption(cx, ".marks(): a hairline at each stop, behind the thumb."),
+            Slider::new("input-slider-sizes", fraction(cx, "input-slider-sizes", 0.5), palette)
+                .steps(7)
+                .mark_labels(["12px", "14px", "15px", "16px", "18px", "20px", "24px"])
+                .default_stop(3)
+                .ink(cx.state.theme().accent)
+                .accessibility_label("Font size")
+                .width(280.0)
+                .render(),
+            caption(cx, ".mark_labels(..) names the stops and .default_stop(3) shows 16px in the ink."),
+            Slider::new("input-slider-sizes-disabled", 0.5, palette)
+                .steps(3)
+                .mark_labels(["Small", "Medium", "Large"])
+                .default_stop(1)
+                .accessibility_label("Density")
+                .enabled(false)
+                .width(280.0)
+                .render(),
+            caption(cx, "Disabled, every label is muted."),
         ]),
     ]
 }

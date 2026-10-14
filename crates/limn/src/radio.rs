@@ -1,7 +1,7 @@
 //! One choice among several: a circle for each option, with a dot in the
 //! chosen one and a label beside it that is part of the click target.
 
-use crate::{Access, Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Role};
+use crate::{Access, Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon, Role, ICON_SIZE};
 
 /// Space between a circle and its label.
 const GAP: f32 = 8.0;
@@ -34,6 +34,7 @@ pub struct RadioOption {
     value: String,
     label: String,
     description: String,
+    icon: Option<Icon>,
     enabled: bool,
 }
 
@@ -42,7 +43,15 @@ impl RadioOption {
     /// it is chosen, as a [`Tab`](crate::Tab) reports its `action_id`. The
     /// value must be unique in the window.
     pub fn new(value: impl Into<String>, label: impl Into<String>) -> Self {
-        Self { value: value.into(), label: label.into(), description: String::new(), enabled: true }
+        Self { value: value.into(), label: label.into(), description: String::new(), icon: None, enabled: true }
+    }
+
+    /// Draw this icon between the circle and the label, in the label's color
+    /// and at the 16 pixels of every icon in a control. It is clicked with
+    /// the label, and a description starts under the label, past the icon.
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
+        self
     }
 
     /// A muted line under the label, clicked with it and given to the
@@ -188,15 +197,21 @@ impl Component for RadioGroup {
                     .name(option.label.clone())
                     .selected(chosen)
                     .disabled(!enabled);
-                // The circle centers on the label, whatever line height the
-                // host's font gives it; the description goes under the label.
-                let mut lines =
-                    vec![Element::row(vec![circle.centered_y(), text(option.label, font_size, ink)]).gap(GAP)];
+                // The circle and the icon center on the label, whatever line
+                // height the host's font gives it; the description goes under the label.
+                let mut first = vec![circle.centered_y()];
+                let mut indent = side;
+                if let Some(icon) = option.icon {
+                    first.push(Element::icon(icon).foreground(ink).centered_y());
+                    indent += GAP + ICON_SIZE;
+                }
+                first.push(text(option.label, font_size, ink));
+                let mut lines = vec![Element::row(first).gap(GAP)];
                 if !option.description.is_empty() {
                     access = access.description(option.description.clone());
                     lines.push(
                         Element::row(vec![
-                            Element::spacer().size(Some(side), None),
+                            Element::spacer().size(Some(indent), None),
                             text(option.description, font_size - 1.0, palette.muted),
                         ])
                         .gap(GAP),
@@ -562,6 +577,56 @@ mod tests {
                 .collect();
             assert_eq!(sizes, [font, font - 1.0, font, font]);
         }
+    }
+
+    /// Text, with an icon and a description, and Voice, with an icon alone.
+    fn kinds() -> Vec<RadioOption> {
+        vec![
+            RadioOption::new("kind=text", "Text").icon(Icon::Hash).description(HINT),
+            RadioOption::new("kind=voice", "Voice").icon(Icon::Volume),
+        ]
+    }
+
+    /// Every icon of the frame: which, where and in what color.
+    fn icons(frame: &Frame) -> Vec<(Icon, Rect, Color)> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Icon { icon, rect, tint } => Some((*icon, *rect, *tint)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn an_icon_stands_between_the_circle_and_the_label_in_the_labels_color() {
+        for (enabled, size, side) in [(true, ControlSize::Regular, 16.0), (false, ControlSize::Spacious, 18.0)] {
+            let group = RadioGroup::new("kind", kinds(), Some("kind=text"), palette()).size(size).enabled(enabled);
+            let frame = tree_of(group).layout(window());
+            let (circles, icons, texts) = (fills(&frame), icons(&frame), texts(&frame));
+            assert_eq!(icons.iter().map(|icon| icon.0).collect::<Vec<_>>(), [Icon::Hash, Icon::Volume]);
+            let ink = if enabled { palette().text } else { palette().muted };
+            for (index, label) in [(0, 0), (1, 2)] {
+                let (circle, (_, icon, tint), text) = (circles[index * 2].0, icons[index], texts[label]);
+                assert_eq!((icon.width, icon.height, tint), (ICON_SIZE, ICON_SIZE, ink));
+                assert_eq!(icon.x, circle.x + side + GAP);
+                assert_eq!(icon.y + ICON_SIZE / 2.0, circle.y + side / 2.0, "centered on the label as the circle is");
+                assert_eq!(text.1.x, icon.x + ICON_SIZE + GAP);
+            }
+            // The description starts under the label, not under the icon.
+            assert_eq!(texts[1].1.x, texts[0].1.x);
+        }
+    }
+
+    #[test]
+    fn a_click_on_the_icon_reports_the_options_value() {
+        let mut tree = tree_of(RadioGroup::new("kind", kinds(), None, palette()));
+        let frame = tree.layout(window());
+        let icon = icons(&frame)[1].1;
+        let point = Point::new(icon.x + icon.width / 2.0, icon.y + icon.height / 2.0);
+        tree.handle_event(UiEvent::PointerDown(point));
+        assert_eq!(tree.handle_event(UiEvent::PointerUp(point)), clicked("kind=voice"));
     }
 
     #[test]

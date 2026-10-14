@@ -5,7 +5,7 @@ An on/off control for a setting that takes effect at once.
 ## Import
 
 ```rust
-use limn::{Component, Switch};
+use limn::{Component, ControlSize, Switch, SwitchVariant};
 ```
 
 ## Usage
@@ -27,6 +27,48 @@ fn update(state: &mut State, action: &UiAction) {
 }
 ```
 
+## Size
+
+```rust
+Switch::new("notifications", state.notifications, palette).size(ControlSize::Spacious)
+```
+
+| Size | Track | Thumb |
+| --- | --- | --- |
+| `Dense` | 28 × 16 | 10 |
+| `Compact` | 32 × 18 | 12 |
+| `Regular`, the default | 36 × 20 | 14 |
+| `Spacious` | 44 × 24 | 18 |
+
+The thumb is always 3 pixels inside the track.
+
+## Variant
+
+```rust
+Switch::new("embeds", state.embeds, palette).variant(SwitchVariant::Accent)
+```
+
+| Variant | On | Off |
+| --- | --- | --- |
+| `Default` | A thumb of the palette's surface on a track of its text | A thumb of the palette's text on its selected fill |
+| `Accent` | A light thumb on a track of the palette's `link` color | The same thumb on the palette's muted color |
+
+`Accent` is how chat applications draw a switch. Its thumb is the lightest
+color the palette has, at full strength: its text on a dark palette, its
+surface on a light one. Its track, on or off, is darkened where needed until
+the thumb stands at a contrast of 3 or more on it, the least a part that shows
+state needs.
+
+## Ink
+
+```rust
+Switch::new("embeds", state.embeds, palette).variant(SwitchVariant::Accent).ink(theme.accent)
+```
+
+`ink` is the track's color while the switch is on, in either variant. On
+`Accent` a pale ink is darkened as the `link` color is. On `Default` it is
+used as given, so choose one its thumb, the palette's surface, reads on.
+
 ## Disabled
 
 ```rust
@@ -34,7 +76,8 @@ Switch::new("sync", true, palette).disabled().render()
 Switch::new("sync", state.sync, palette).enabled(state.signed_in).render()
 ```
 
-A disabled switch shows its value and takes no pointer or focus.
+A disabled switch shows its value, in the colors it has enabled, and takes no
+pointer or focus.
 
 ## Actions
 
