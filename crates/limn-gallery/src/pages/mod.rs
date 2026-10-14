@@ -180,7 +180,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "marker", group: "States", title: "Marker", source: "feedback", view: feedback::view, sections: &["Markers"], since: "0.1.39" },
     Page { id: "ticker", group: "States", title: "Ticker", source: "feedback", view: feedback::view, sections: &["Ticker"], since: "0.1.39" },
     Page { id: "collapse", group: "States", title: "Collapse", source: "feedback", view: feedback::view, sections: &["Closing slot"], since: "0.1.39" },
-    Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels"], since: "0.1.39" },
+    Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels", "Wrapping"], since: "0.1.39" },
     Page { id: "badge", group: "States", title: "Badge", source: "badge", view: badge::view, sections: &[], since: "0.1.41" },
     Page { id: "avatar", group: "States", title: "Avatar", source: "media", view: media::view, sections: &["Avatar"], since: "0.1.39" },
     Page { id: "avatar-group", group: "States", title: "AvatarGroup", source: "avatars", view: avatars::view, sections: &[], since: "0.1.41" },

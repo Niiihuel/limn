@@ -142,6 +142,17 @@ A disabled chip is drawn in `palette.muted`, keeping its fill and border. Its
 remove button stays in place and is passive: no hit region, no focus, nothing
 reported. A chip without a remove button is only muted.
 
+## Many chips
+
+```rust
+Element::row(tags).gap(6.0).wrap()
+```
+
+A row with `wrap` moves the chips that do not fit its width to the next line,
+so a long list of tags or roles grows downward instead of out of its box.
+`line_gap` sets the space between the lines. See
+[Layout](../layout.md#wrapping-rows).
+
 ## Keyboard
 
 A chip without a remove button takes no keys.

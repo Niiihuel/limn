@@ -16,6 +16,9 @@ in any release.
 - Tabs: `variant(TabsVariant::Underlined)`, text tabs with no track and an underline that slides to the active one over a hairline, the same size as the segmented tabs, with the same actions and keys; `accent` colors the active label and the underline, and `gap` sets the space between tabs
 - Tabs: a disabled tab's label sits at the height of the enabled ones, where it stood higher
 - `Tabs` has public `variant` and `accent` fields; code that builds the struct literally adds `variant: TabsVariant::Segmented, accent: None`
+## 0.1.42 — unreleased
+
+- `Element::wrap` and `Element::line_gap`: a row whose children move onto more lines when they do not fit its width, as tags or role pills do. The row is as tall as its lines; Tab, the pointer and assistive technology find each child where it is, in the order given
 
 ## 0.1.41 — 2026-10-13
 

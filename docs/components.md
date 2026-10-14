@@ -281,6 +281,7 @@ Any element can be placed without a component:
 | `element.centered_x()` | Centers it horizontally in its parent's width. |
 | `element.centered()` | Centers it on both axes. |
 | `element.clip_to(width, height)` | Holds it in a fixed box that does not flex and hides what overflows, while it keeps its own width. |
+| `Element::row(children).wrap()` | Moves the children that do not fit the row's width onto more lines, each as tall as its tallest child, and grows with them: tags, role pills. `.line_gap(px)` spaces the lines, `gap` until set. See [Layout](layout.md#wrapping-rows). |
 
 ## Data
 
