@@ -2,7 +2,8 @@
 //! component that joins a family joins its row here.
 
 use limn::{
-    ActionRow, BreadcrumbItem, Button, ButtonVariant, Clipboard, Collapsible, Component, ComponentPalette,
+    ActionRow, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard, Collapsible, Component, ComponentPalette,
+    NumberInput, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
     DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Marker, MediaCard, MediaTile,
     MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
@@ -40,6 +41,13 @@ fn what_can_be_disabled_takes_both_spellings() {
     let _ = TextArea::new("a", "", "", palette).enabled(false).disabled();
     let _ = SearchField::new("a", "", "", palette).enabled(false).disabled();
     let _ = Switch::new("a", true, palette).enabled(false).disabled();
+    let _ = Checkbox::new("a", true, palette).enabled(false).disabled();
+    let _ = RadioGroup::new("a", Vec::new(), None, palette).enabled(false).disabled();
+    let _ = RadioOption::new("a", "A").enabled(false).disabled();
+    let _ = Toggle::new("a", "A", true, palette).enabled(false).disabled();
+    let _ = ToggleGroup::new("a", Vec::new(), palette).enabled(false).disabled();
+    let _ = ToggleItem::new("a", "A", true).enabled(false).disabled();
+    let _ = NumberInput::new("a", "1", palette).enabled(false).disabled();
     let _ = Slider::new("a", 0.5, palette).enabled(false).disabled();
     let _ = Select::new("a", "A", Vec::new(), false, "a:dismiss", palette).enabled(false).disabled();
     let _ = ListRow::new("a", "A", palette).enabled(false).disabled();

@@ -5,6 +5,9 @@ in any release.
 
 ## 0.1.41 — unreleased
 
+- New components: `Checkbox` (with an indeterminate state), `RadioGroup` and `RadioOption`, `Toggle` and `ToggleGroup`, `NumberInput` (a field with buttons that step it, between a minimum and a maximum) and `Badge` (a count or a dot over the corner of something else), each with a page, a guide and a place in the controls harness
+- Accessibility: `Access::mixed` for a check box that is neither on nor off, published as such
+- `Element::every_arrow`: a tab strip that Up and Down step as Left and Right do, which a radio group uses
 - HeatmapChart: its cells are a plot the tree draws (`Element::heat_plot`). The columns come in one after another as the chart appears; the cell under the pointer grows over its neighbours while the others recede, and says what it is in the charts' tooltip, which follows the pointer
 
 ## 0.1.40 — 2026-10-13

@@ -6,9 +6,11 @@
 use crate::app::State;
 use limn::{ComponentPalette, Element, ElementKind, FontFamily, UiAction};
 
+mod badge;
 mod blocks;
 mod buttons;
 mod charts;
+mod checkbox;
 mod chrome;
 mod code;
 mod context;
@@ -26,13 +28,16 @@ mod media;
 mod menus;
 mod messages;
 mod navigation;
+mod number;
 mod overlays;
 mod page;
 mod panels;
 mod preferences;
+mod radio;
 mod scheme;
 mod surfaces;
 mod table;
+mod toggle;
 mod tokens;
 mod tooltip;
 mod tour;
@@ -103,6 +108,10 @@ pub const PAGES: &[Page] = &[
     Page { id: "search-field", group: "Inputs", title: "SearchField", source: "inputs", view: inputs::view, sections: &["Search"] },
     Page { id: "select", group: "Inputs", title: "Select", source: "inputs", view: inputs::view, sections: &["Select"] },
     Page { id: "switch", group: "Inputs", title: "Switch", source: "inputs", view: inputs::view, sections: &["Switch"] },
+    Page { id: "checkbox", group: "Inputs", title: "Checkbox", source: "checkbox", view: checkbox::view, sections: &[] },
+    Page { id: "radio-group", group: "Inputs", title: "RadioGroup", source: "radio", view: radio::view, sections: &[] },
+    Page { id: "toggle", group: "Inputs", title: "Toggle", source: "toggle", view: toggle::view, sections: &[] },
+    Page { id: "number-input", group: "Inputs", title: "NumberInput", source: "number", view: number::view, sections: &[] },
     Page { id: "slider", group: "Inputs", title: "Slider", source: "inputs", view: inputs::view, sections: &["Slider"] },
     Page { id: "date-picker", group: "Inputs", title: "DatePicker", source: "dates", view: dates::view, sections: &["Date picker"] },
     Page { id: "time-picker", group: "Inputs", title: "TimePicker", source: "dates", view: dates::view, sections: &["Time picker"] },
@@ -152,6 +161,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "ticker", group: "States", title: "Ticker", source: "feedback", view: feedback::view, sections: &["Ticker"] },
     Page { id: "collapse", group: "States", title: "Collapse", source: "feedback", view: feedback::view, sections: &["Closing slot"] },
     Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels"] },
+    Page { id: "badge", group: "States", title: "Badge", source: "badge", view: badge::view, sections: &[] },
     Page { id: "avatar", group: "States", title: "Avatar", source: "media", view: media::view, sections: &["Avatar"] },
     Page { id: "context-window", group: "States", title: "ContextWindow", source: "context", view: context::view, sections: &[] },
     Page { id: "popover", group: "Overlays", title: "Popover", source: "overlays", view: overlays::view, sections: &["Popover"] },
@@ -225,11 +235,13 @@ pub fn find(id: &str) -> &'static Page {
 pub fn update(state: &mut State, action: &UiAction) {
     table::update(state, action);
     dates::update(state, action);
+    number::update(state, action);
+    checkbox::update(state, action);
 }
 
 /// The fields whose text a click may have changed, each with its value now.
 pub fn fields(state: &State) -> Vec<(&'static str, String)> {
-    dates::fields(state)
+    [dates::fields(state), number::fields(state)].concat()
 }
 
 /// Wrap the window in the layers the pages control.

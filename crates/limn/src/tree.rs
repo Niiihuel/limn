@@ -1314,6 +1314,8 @@ struct TabFocusScope {
     action_ids: Vec<String>,
     /// Up and Down step it, and it stops at its ends.
     vertical: bool,
+    /// Every arrow steps it, and it goes round at its ends: a group of choices.
+    every_arrow: bool,
 }
 
 #[derive(Debug)]
@@ -5874,6 +5876,8 @@ impl UiTree {
             return false;
         };
         let next = match (key, scope.vertical) {
+            (Key::ArrowUp, false) if scope.every_arrow => (index + tabs.len() - 1) % tabs.len(),
+            (Key::ArrowDown, false) if scope.every_arrow => (index + 1) % tabs.len(),
             (Key::ArrowLeft, false) => (index + tabs.len() - 1) % tabs.len(),
             (Key::ArrowRight, false) => (index + 1) % tabs.len(),
             (Key::ArrowUp, true) => index.saturating_sub(1),
@@ -8773,6 +8777,7 @@ impl LayoutBuilder<'_> {
             name: access.name.or(access.hint).unwrap_or_default(),
             disabled: access.disabled,
             toggled: access.toggled,
+            mixed: access.mixed,
             selected: access.selected,
             expanded: access.expanded,
             value: access.value,
@@ -9141,6 +9146,7 @@ impl LayoutBuilder<'_> {
                 children,
                 action_ids,
                 selection,
+                every_arrow,
             } => {
                 let command_start = self.frame.commands.len();
                 let rects = self.place_flex(children, content, style.gap, true, clip);
@@ -9199,6 +9205,7 @@ impl LayoutBuilder<'_> {
                 self.frame.tab_focus.push(TabFocusScope {
                     action_ids: action_ids.clone(),
                     vertical: false,
+                    every_arrow: *every_arrow,
                 });
             }
             ElementKind::Panel(child) => self.place(child, content, clip),
@@ -10913,6 +10920,7 @@ impl LayoutBuilder<'_> {
                 self.frame.tab_focus.push(TabFocusScope {
                     action_ids: rail.marks.iter().map(|mark| mark.id.clone()).collect(),
                     vertical: true,
+                    every_arrow: false,
                 });
             }
             ElementKind::ProgressRing {
