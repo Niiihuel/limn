@@ -292,5 +292,25 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ),
             caption(cx, "Icon::filled() returns the solid variant; icons without one, such as the magnifier, stay the same."),
         ]),
+        section(cx, "Servers and settings", vec![
+            row(
+                [
+                    (Icon::Lock, "Lock"),
+                    (Icon::Neutral, "Neutral"),
+                    (Icon::ChevronUp, "ChevronUp"),
+                    (Icon::Invite, "Invite"),
+                    (Icon::Leave, "Leave"),
+                    (Icon::DragHandle, "DragHandle"),
+                ]
+                .into_iter()
+                .flat_map(|(icon, name)| [
+                    Element::icon(icon).foreground(palette.text),
+                    caption(cx, name),
+                    Element::spacer().size(Some(8.0), None),
+                ])
+                .collect(),
+            ),
+            caption(cx, "A private channel, a permission left as inherited, an open menu, an invitation, leaving a server and a handle to drag a row by."),
+        ]),
     ]
 }

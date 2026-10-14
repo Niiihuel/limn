@@ -297,6 +297,10 @@ pub enum Icon {
     ArrowRight,
     /// A chevron pointing down.
     ChevronDown,
+    /// A chevron pointing up: a menu that is open, where a closed one
+    /// shows [`Self::ChevronDown`]. A section that opens in place shows
+    /// [`Self::ChevronDown`] when open and [`Self::ChevronRight`] when closed.
+    ChevronUp,
     /// A chevron pointing right.
     ChevronRight,
     /// A magnifying glass: search.
@@ -440,6 +444,17 @@ pub enum Icon {
     Screen,
     /// A video camera with a slash: the camera is off.
     VideoOff,
+    /// A closed padlock: private or locked.
+    Lock,
+    /// A diagonal stroke: neither on nor off, such as a setting left as
+    /// it is inherited.
+    Neutral,
+    /// A person with a plus: inviting or adding someone.
+    Invite,
+    /// An arrow leaving a box to the left: leaving a group, or signing out.
+    Leave,
+    /// Two columns of dots: a handle to drag an item by.
+    DragHandle,
 }
 
 impl Icon {
