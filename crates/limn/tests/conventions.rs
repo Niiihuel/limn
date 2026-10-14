@@ -8,7 +8,7 @@ use limn::{
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
     DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Marker, MediaCard, MediaTile,
     MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
-    SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TextArea,
+    SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TabsVariant, TextArea,
     TextField, TimePicker, Toast, TreeGuides, TreeRow, UiTree,
 };
 
@@ -124,6 +124,17 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
     let palette = palette();
     for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0] {
         lays_out_with_real_numbers("Tab::new", Tabs::new(vec![Tab::new("t", "Tab", bad)], palette).height(bad).render());
+        lays_out_with_real_numbers(
+            "Tabs::gap",
+            Tabs::new(
+                vec![Tab::new("t", "Tab", 80.0), Tab::new("u", "Tab", 80.0)],
+                palette,
+            )
+            .variant(TabsVariant::Underlined)
+            .gap(bad)
+            .fill_width(bad)
+            .render(),
+        );
         lays_out_with_real_numbers(
             "SegmentedControl::height",
             SegmentedControl::new(vec![Tab::new("t", "Tab", 80.0)], palette).height(bad).render(),

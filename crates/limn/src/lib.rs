@@ -144,7 +144,7 @@ pub use collapsible::{collapse_footer, Collapsible};
 pub use components::{
     ActiveHover, Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component,
     ComponentPalette, ControlSize, ControlState, DropdownList, DropdownOption, IconButton, Kbd, Link,
-    Popover, Search, SearchField, SegmentedControl, Switch, Tab, Tabs, TextArea, TextField, Tooltip,
+    Popover, Search, SearchField, SegmentedControl, Switch, Tab, Tabs, TabsVariant, TextArea, TextField, Tooltip,
     TooltipSpec,
 };
 pub use composer::Composer;

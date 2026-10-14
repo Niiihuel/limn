@@ -2223,13 +2223,31 @@ const TAB_TRACK_PADDING: f32 = 2.0;
 const TAB_ITEM_PADDING: f32 = 4.0;
 const TAB_ICON_GAP: f32 = 4.0;
 const TAB_FONT_SIZE: f32 = 11.5;
+// The underline fills the track's bottom padding, so both variants keep one size.
+const TAB_UNDERLINE: f32 = TAB_TRACK_PADDING;
+const TAB_HAIRLINE: f32 = 1.0;
+
+/// How [`Tabs`] mark the active tab. Both take the same size, report the same
+/// actions and answer the same keys.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TabsVariant {
+    /// A filled selection on a rounded track: the palette's `selected` on its
+    /// `surface`.
+    #[default]
+    Segmented,
+    /// Text tabs with no track: a 2 px underline in the accent under the
+    /// active tab, over a 1 px hairline in the palette's `border` as wide as
+    /// the strip is laid out.
+    Underlined,
+}
 
 /// A row of [`Tab`]s with a selection that slides to the active one.
 pub struct Tabs {
     /// The tabs, in the order they are drawn.
     pub items: Vec<Tab>,
     /// `surface` fills the track and `selected` the sliding selection; `text` is
-    /// the ink of the active tab and `muted` of the others.
+    /// the ink of the active tab and `muted` of the others. Underlined, `border`
+    /// draws the hairline and neither fill is used.
     pub palette: ComponentPalette,
     /// Height of a tab in logical pixels, 24 by default. The track is 4 taller.
     pub height: f32,
@@ -2241,6 +2259,11 @@ pub struct Tabs {
     /// How long the selection takes to slide to another tab, in milliseconds.
     /// The default is the `move_ms` token.
     pub animation_ms: u16,
+    /// How the active tab is marked. [`TabsVariant::Segmented`] by default.
+    pub variant: TabsVariant,
+    /// Ink of the active tab, and color of the underline. `None`, the default,
+    /// takes the palette's `text`.
+    pub accent: Option<Color>,
 }
 
 impl Tabs {
@@ -2253,7 +2276,22 @@ impl Tabs {
             gap: TAB_GAP,
             id: None,
             animation_ms: crate::tokens().motion.move_ms,
+            variant: TabsVariant::Segmented,
+            accent: None,
         }
+    }
+
+    /// Choose how the active tab is marked; see [`TabsVariant`].
+    pub fn variant(mut self, variant: TabsVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// Ink the active tab, and its underline, in this color in place of the
+    /// palette's `text`, such as a theme's `accent_text()`.
+    pub fn accent(mut self, accent: Color) -> Self {
+        self.accent = Some(accent);
+        self
     }
 
     /// A stable ID for the strip's selection animation. Useful when tabs are
@@ -2282,6 +2320,16 @@ impl Tabs {
     /// Take the height of a control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.height = size.height();
+        self
+    }
+
+    /// Set the space between two tabs, in logical pixels, never below 0. A gap
+    /// that is not finite is ignored. Set it before
+    /// [`fill_width`](Self::fill_width), which reads it.
+    pub fn gap(mut self, gap: f32) -> Self {
+        if gap.is_finite() {
+            self.gap = gap.max(0.0);
+        }
         self
     }
 
@@ -2319,12 +2367,25 @@ impl Component for Tabs {
                 .map(|item| format!("tabs:{}", item.action_id))
                 .unwrap_or_else(|| "tabs:empty".to_owned())
         });
+        let accent = self.accent.unwrap_or(self.palette.text);
+        // Underlined, a strip of slots under the tabs gives the sliding
+        // underline its thin target while the tabs keep their full height.
+        let slots = (self.variant == TabsVariant::Underlined).then(|| {
+            self.items
+                .iter()
+                .map(|item| {
+                    Element::spacer()
+                        .size(Some(item.width), Some(TAB_UNDERLINE))
+                        .indicator_slot(item.action_id.clone())
+                })
+                .collect::<Vec<_>>()
+        });
         let items = self
             .items
             .into_iter()
             .map(|item| {
                 let ink = if item.active {
-                    self.palette.text
+                    accent
                 } else {
                     self.palette.muted
                 };
@@ -2337,7 +2398,7 @@ impl Component for Tabs {
                 // obscure the sliding indicator and make the track look
                 // uneven. The active tab retains its selected surface.
                 let hover_ink = if item.active {
-                    lighter(self.palette.text, 12)
+                    lighter(accent, 12)
                 } else {
                     self.palette.text
                 };
@@ -2391,9 +2452,33 @@ impl Component for Tabs {
         let strip = Element::tab_strip(items, enabled_ids)
             .gap(self.gap)
             .padding(TAB_TRACK_PADDING)
-            .background(self.palette.surface)
-            .radius(surface_radius())
             .size(None, Some(self.height + TAB_TRACK_PADDING * 2.0));
+        if let Some(slots) = slots {
+            let mut underline = Element::tab_strip(slots, Vec::new())
+                .gap(self.gap)
+                .size(None, Some(TAB_UNDERLINE));
+            if let Some(selected_id) = selected_id {
+                underline =
+                    underline.tab_selection(group_id, selected_id, accent, 0.0, self.animation_ms);
+            }
+            let foot = |line: Element| Element::column(vec![Element::spacer().flex(1.0), line]);
+            return Element::stack(vec![
+                foot(
+                    Element::spacer()
+                        .size(None, Some(TAB_HAIRLINE))
+                        .background(self.palette.border),
+                ),
+                foot(Element::row(vec![
+                    Element::spacer().size(Some(TAB_TRACK_PADDING), Some(TAB_UNDERLINE)),
+                    underline,
+                ])),
+                strip,
+            ])
+            .size(None, Some(self.height + TAB_TRACK_PADDING * 2.0));
+        }
+        let strip = strip
+            .background(self.palette.surface)
+            .radius(surface_radius());
         if let Some(selected_id) = selected_id {
             strip.tab_selection(
                 group_id,
@@ -5100,6 +5185,198 @@ mod tests {
         }
         assert!(tabs(-10.0).items.iter().all(|item| item.width == 40.0));
         assert!(Tabs::new(Vec::new(), palette).fill_width(200.0).items.is_empty());
+    }
+
+    fn underlined(active: &str, accent: Color) -> Element {
+        Tabs::new(
+            ["general", "roles", "emoji"]
+                .iter()
+                .map(|id| Tab::new(*id, id.to_uppercase(), 80.0).active(*id == active))
+                .chain([Tab::new("audit", "Audit", 80.0).disabled()])
+                .collect(),
+            ComponentPalette::neutral_dark(),
+        )
+        .variant(TabsVariant::Underlined)
+        .accent(accent)
+        .gap(16.0)
+        .id("settings")
+        .render()
+    }
+
+    fn underlined_frame(tree: &mut UiTree) -> crate::Frame {
+        tree.set_reduced_motion(true);
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
+        tree.layout(Size::new(600.0, 28.0))
+    }
+
+    fn fills(frame: &crate::Frame, of: Color) -> Vec<crate::Rect> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *color == of => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn underlined_tabs_draw_the_accent_under_the_active_tab_over_a_hairline() {
+        let palette = ComponentPalette::neutral_dark();
+        let accent = Color::rgb(25, 170, 216);
+        let mut tree = UiTree::new(underlined("roles", accent));
+        let frame = underlined_frame(&mut tree);
+        let roles = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "roles")
+            .unwrap()
+            .rect;
+        assert_eq!(
+            fills(&frame, accent),
+            [crate::Rect::new(roles.x, 26.0, roles.width, 2.0)]
+        );
+        // The hairline runs the width it is given, under the underline.
+        assert_eq!(
+            fills(&frame, palette.border),
+            [crate::Rect::new(0.0, 27.0, 600.0, 1.0)]
+        );
+        assert!(
+            fills(&frame, palette.surface).is_empty() && fills(&frame, palette.selected).is_empty()
+        );
+        let ink = |name: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, color, .. } if text == name => Some(*color),
+                _ => None,
+            })
+        };
+        assert_eq!(ink("ROLES"), Some(accent));
+        assert_eq!(ink("GENERAL"), Some(palette.muted));
+        assert_eq!(ink("Audit"), Some(palette.muted));
+        // Without an accent the active tab takes the palette's text, as segmented.
+        let plain = Tabs::new(vec![Tab::new("a", "A", 60.0).active(true)], palette)
+            .variant(TabsVariant::Underlined)
+            .render();
+        let mut tree = UiTree::new(plain);
+        assert_eq!(fills(&underlined_frame(&mut tree), palette.text).len(), 1);
+    }
+
+    #[test]
+    fn underlined_tabs_keep_the_segmented_geometry_and_hover_ink() {
+        let palette = ComponentPalette::neutral_dark();
+        let items = || {
+            vec![
+                Tab::new("a", "A", 70.0).active(true),
+                Tab::new("b", "B", 90.0),
+            ]
+        };
+        let regions = |variant| {
+            let tabs = Tabs::new(items(), palette)
+                .variant(variant)
+                .fill_width(300.0)
+                .render();
+            let mut tree = UiTree::new(Element::row(vec![tabs, Element::spacer().flex(1.0)]));
+            let frame = underlined_frame(&mut tree);
+            frame
+                .regions
+                .iter()
+                .map(|region| (region.id.clone(), region.rect))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            regions(TabsVariant::Underlined),
+            regions(TabsVariant::Segmented)
+        );
+        let ElementKind::Stack(layers) = Tabs::new(items(), palette)
+            .variant(TabsVariant::Underlined)
+            .accent(palette.border)
+            .render()
+            .kind
+        else {
+            panic!("Underlined tabs must stack the strip over its lines");
+        };
+        let ElementKind::TabStrip { children, .. } = &layers[2].kind else {
+            panic!("The tabs must be the top layer");
+        };
+        assert_eq!(
+            children[0].style.hover_foreground,
+            Some(lighter(palette.border, 12))
+        );
+        assert_eq!(children[1].style.hover_foreground, Some(palette.text));
+        assert_eq!(children[0].style.hover_background, None);
+    }
+
+    #[test]
+    fn underlined_tabs_report_clicks_and_keys_and_the_underline_follows() {
+        let accent = Color::rgb(25, 170, 216);
+        let mut tree = UiTree::new(underlined("general", accent));
+        let frame = underlined_frame(&mut tree);
+        let emoji = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "emoji")
+            .unwrap()
+            .rect;
+        let center = Point::new(emoji.x + emoji.width / 2.0, emoji.y + emoji.height / 2.0);
+        tree.handle_event(UiEvent::PointerDown(center));
+        assert_eq!(
+            tree.handle_event(UiEvent::PointerUp(center)),
+            vec![UiAction::Clicked { id: "emoji".into() }]
+        );
+        assert!(tree.focus("general"));
+        let key = |key| UiEvent::Key {
+            key,
+            shift: false,
+            ctrl: false,
+        };
+        assert_eq!(
+            tree.handle_event(key(crate::Key::ArrowRight)),
+            vec![UiAction::Clicked { id: "roles".into() }]
+        );
+        // The disabled tab is stepped over: from the last enabled one, Right wraps.
+        assert_eq!(
+            tree.handle_event(key(crate::Key::End)),
+            vec![UiAction::Clicked { id: "emoji".into() }]
+        );
+        assert_eq!(
+            tree.handle_event(key(crate::Key::ArrowRight)),
+            vec![UiAction::Clicked {
+                id: "general".into()
+            }]
+        );
+        assert!(!underlined_frame(&mut tree)
+            .regions
+            .iter()
+            .any(|region| region.id == "audit"));
+        tree.set_root(underlined("emoji", accent));
+        let frame = underlined_frame(&mut tree);
+        assert_eq!(
+            fills(&frame, accent),
+            [crate::Rect::new(emoji.x, 26.0, emoji.width, 2.0)]
+        );
+        // A disabled tab marked active draws no underline.
+        tree.set_root(underlined("audit", accent));
+        assert!(fills(&underlined_frame(&mut tree), accent).is_empty());
+    }
+
+    #[test]
+    fn tabs_gap_ignores_bad_input_and_underlined_tabs_fit_a_narrow_width() {
+        let palette = ComponentPalette::neutral_dark();
+        let tabs = || Tabs::new(vec![Tab::new("a", "A", 60.0)], palette);
+        assert_eq!(tabs().gap(f32::NAN).gap, TAB_GAP);
+        assert_eq!(tabs().gap(f32::INFINITY).gap, TAB_GAP);
+        assert_eq!(tabs().gap(-4.0).gap, 0.0);
+        let mut tree = UiTree::new(underlined("general", Color::rgb(25, 170, 216)));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(120.0, 28.0));
+        assert_eq!(
+            fills(&frame, palette.border),
+            [crate::Rect::new(0.0, 27.0, 120.0, 1.0)]
+        );
+        assert!(frame
+            .regions
+            .iter()
+            .all(|region| region.rect.y >= 0.0 && region.rect.height == 24.0));
     }
 
     #[test]
