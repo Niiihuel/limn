@@ -64,7 +64,9 @@ fenced code, list markers and their column, line heights, the space between
 blocks and the note under a cut preview keep their proportion to it: at 21,
 everything is half as large again. A drawn diagram keeps its own size; only
 the words on its card follow. A size that is not finite and positive is
-ignored, and the rest is kept between 8 and 96.
+ignored, and the rest is kept between 8 and 96. In a column too narrow for a
+large size, a list gives up its nesting first and then the width of its marker
+column, so an item's text always starts inside the column.
 
 ## Streaming
 

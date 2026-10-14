@@ -897,7 +897,12 @@ fn render_markdown_blocks(
                     ListMarker::Done => ("✓".to_owned(), colors.success),
                     ListMarker::Todo => ("○".to_owned(), colors.muted),
                 };
-                let indent = (*depth as f32 * 14.0 * scale).min((width - 48.0).max(0.0));
+                // The text keeps room for a few characters, then the marker
+                // column, then the nesting: the item never starts past the
+                // edge. At 14 px this is the old 22 px column and 48 px floor.
+                let marker = (22.0 * scale).min(width - 26.0);
+                let indent = (*depth as f32 * 14.0 * scale)
+                    .min((width - marker - 3.0 - 23.0 * scale).max(0.0));
                 Element::row(vec![
                     Element::spacer().size(Some(indent), Some(1.0)),
                     Element::formatted_text(vec![TextSpan::new(
@@ -910,10 +915,10 @@ fn render_markdown_blocks(
                     .font_size(body)
                     .line_height(BODY_LINE_HEIGHT * scale)
                     .foreground(color)
-                    .size(Some(22.0 * scale), None),
+                    .size(Some(marker), None),
                     render_inline_mode(
                         text,
-                        width - indent - 28.0,
+                        width - indent - marker - 6.0,
                         body,
                         incomplete,
                         url_tail_complete,
@@ -1995,10 +2000,10 @@ mod tests {
 
     #[test]
     fn nothing_escapes_a_narrow_column() {
-        let source = "# Encabezado largo que debe partirse\n\nUn párrafo con `código`, **énfasis** y un [enlace](https://example.test/una/ruta/larga).\n\n- uno\n  - dos\n\n> cita\n\n```rust\nfn main() {}\n```";
-        for (width, size) in [120.0, 360.0, 900.0]
+        let source = "# Encabezado largo que debe partirse\n\nUn párrafo con `código`, **énfasis** y un [enlace](https://example.test/una/ruta/larga).\n\n- uno\n  - dos\n    - tres\n      - cuatro, bien adentro\n\n> cita\n\n```rust\nfn main() {}\n```";
+        for (width, size) in [48.0, 120.0, 360.0, 900.0]
             .into_iter()
-            .flat_map(|width| [(width, 14.0), (width, 28.0)])
+            .flat_map(|width| [(width, 14.0), (width, 28.0), (width, 48.0)])
         {
             let element = Markdown::new(source, palette())
                 .width(width)
@@ -2014,6 +2019,27 @@ mod tests {
                 }
             }
         }
+        // Where there is room, each level still steps in by its scaled indent.
+        let wide = commands(
+            Markdown::new(source, palette())
+                .width(900.0)
+                .font_size(28.0)
+                .render()
+                .element,
+            900.0,
+        );
+        let x = |value: &str| {
+            wide.iter()
+                .find_map(|command| match command {
+                    DrawCommand::Text { text, position, .. } if text.trim() == value => {
+                        Some(position.x)
+                    }
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(x("dos") - x("uno"), 28.0);
+        assert_eq!(x("tres") - x("dos"), 28.0);
     }
 
     fn painted_size(commands: &[DrawCommand], value: &str) -> f32 {
