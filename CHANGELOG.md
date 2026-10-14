@@ -3,6 +3,13 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## Unreleased
+
+- `ScrollArea::measured_list` and `Element::measured_list`: a virtualized list of rows of their own heights, such as the messages of a conversation. Rows are built only while in view and measured then; a key per row keeps its height, and holds the row at the top of the viewport still while rows above it are measured, change height or are added. `follow_end` (`Element::list_follow_end`) keeps the end in view as rows arrive while the list is scrolled there. `reveal` and `anchor_offset` reach what the rows in view hold
+- `UiTree::visible_rows(id)`: the rows of a uniform or a measured list built at the last layout
+- `ScalarTransition::shift`: moves a transition's start and end by the same amount, keeping its pace
+- `UniformList` has a public `measured` field; code that builds the struct literally adds `measured: None`
+
 ## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)

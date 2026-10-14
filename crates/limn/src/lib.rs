@@ -167,7 +167,7 @@ pub use element::{
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
-    TooltipStyle, UniformList, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,
+    TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};

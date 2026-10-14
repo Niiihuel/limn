@@ -36,7 +36,7 @@ use web_time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, UniformList};
+use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, MeasuredRows, UniformList};
 use crate::motion::{
     skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
 };
@@ -1253,6 +1253,36 @@ pub struct TextLayoutRun {
     /// not answer the pointer.
     pub visible: Option<Rect>,
 }
+
+/// What a measured list keeps between layouts.
+#[derive(Debug, Default)]
+struct MeasuredListState {
+    /// The height each row was last measured at, by its key.
+    heights: HashMap<u64, f32>,
+    /// The key of the row at the top of the viewport at the last layout, and
+    /// where its top was in the content. When rows above it change or are
+    /// added, the offset moves by as much and the row stays where it showed.
+    anchor: Option<(u64, f32)>,
+    /// The offset of the end of the content at the last layout.
+    end: f32,
+}
+
+impl MeasuredListState {
+    /// Keep the height row `index`, named `key`, was measured at, in the
+    /// state and in this layout's `heights`. True when it differs from what
+    /// the layout had counted for it.
+    fn learn(&mut self, heights: &mut [f32], key: u64, index: usize, height: f32) -> bool {
+        self.heights.insert(key, height);
+        let changed = (height - heights[index]).abs() > 0.01;
+        heights[index] = height;
+        changed
+    }
+}
+
+/// The most layouts of a measured list's rows one pass runs before it
+/// settles: each one measures the rows that came into view with the heights
+/// the one before learned.
+const MEASURED_LIST_PASSES: usize = 8;
 
 #[derive(Clone, Debug, PartialEq)]
 struct VirtualListFocus {
@@ -2764,6 +2794,8 @@ pub struct UiTree {
     scroll_transitions: HashMap<String, ScalarTransition>,
     scroll_to_end: HashSet<String>,
     scroll_to_index: HashMap<String, usize>,
+    /// What each measured list keeps between layouts, by its ID.
+    measured_lists: HashMap<String, MeasuredListState>,
     scroll_drag: Option<ScrollDrag>,
     // The viewport being dragged sideways, and the pointer x plus offset it was grabbed at.
     horizontal_pan: Option<(String, f32)>,
@@ -2844,6 +2876,7 @@ impl UiTree {
             code_view_epoch: 0,
             scroll_offsets: HashMap::new(),
             scroll_transitions: HashMap::new(),
+            measured_lists: HashMap::new(),
             scroll_to_end: HashSet::new(),
             scroll_to_index: HashMap::new(),
             scroll_drag: None,
@@ -3405,6 +3438,16 @@ impl UiTree {
         Some(target.rect.y - target.viewport.y)
     }
 
+    /// The rows of the virtual list `id` that were built at the last layout,
+    /// as a range of indices: those in view, from the one at the top of the
+    /// viewport to the one at its bottom. `None` when no uniform or measured
+    /// list has that ID. A host reads it to load more rows before the first
+    /// one shows, or to know which messages were seen.
+    pub fn visible_rows(&self, id: &str) -> Option<std::ops::Range<usize>> {
+        let list = self.frame.virtual_lists.get(id)?;
+        Some(list.first_visible..list.end_visible)
+    }
+
     /// Brings the control `id` to the middle of the scroll area that holds
     /// it, on the next layout, travelling there by that area's scroll motion
     /// or at once under reduced motion. For content that follows a clock,
@@ -3514,6 +3557,7 @@ impl UiTree {
                 code_diffs: &mut self.code_diffs,
                 scroll_offsets: &mut self.scroll_offsets,
                 scroll_transitions: &mut self.scroll_transitions,
+                measured_lists: &mut self.measured_lists,
                 scroll_to_end: &mut self.scroll_to_end,
                 scroll_to_index: &mut self.scroll_to_index,
                 hovered_scrollbar: self.hovered_scrollbar.as_deref(),
@@ -6388,6 +6432,7 @@ struct LayoutBuilder<'a> {
     code_diffs: &'a mut HashMap<String, crate::code_editor::DiffView>,
     scroll_offsets: &'a mut HashMap<String, f32>,
     scroll_transitions: &'a mut HashMap<String, ScalarTransition>,
+    measured_lists: &'a mut HashMap<String, MeasuredListState>,
     scroll_to_end: &'a mut HashSet<String>,
     scroll_to_index: &'a mut HashMap<String, usize>,
     hovered_scrollbar: Option<&'a str>,
@@ -7840,6 +7885,242 @@ impl LayoutBuilder<'_> {
         });
     }
 
+    /// Build row `index` of a measured list, once in a layout, and measure it
+    /// at `width` in a measurement scope of its own, kept for placing it.
+    fn measure_list_row(
+        &mut self,
+        list: &UniformList,
+        built: &mut HashMap<usize, (Box<Element>, u64, f32)>,
+        index: usize,
+        width: f32,
+    ) -> f32 {
+        if let Some((_, _, height)) = built.get(&index) {
+            return *height;
+        }
+        let row = Box::new((list.build_row)(index));
+        let previous = self.enter_measurement_scope();
+        let measured = self.measure(&row, Size::new(width, f32::INFINITY)).height;
+        let scope = self.measurement_scope;
+        self.measurement_scope = previous;
+        let height = if measured.is_finite() {
+            measured.max(0.0)
+        } else {
+            list.row_height
+        };
+        built.insert(index, (row, scope, height));
+        height
+    }
+
+    /// A list whose rows take their own heights: see
+    /// [`Element::measured_list`]. Rows are measured as they are built, and
+    /// what the tree learned of them moves the offset so the row at the top
+    /// of the viewport holds still.
+    fn place_measured_list(
+        &mut self,
+        list: &UniformList,
+        rect: Rect,
+        content: Rect,
+        clip: Option<Rect>,
+        foreground: Color,
+    ) {
+        let Some(MeasuredRows { key, follow_end }) = list.measured.as_ref() else {
+            return;
+        };
+        let id = list.id.as_str();
+        self.add_region(id, rect, HitKind::Scroll, clip);
+        let count = list.row_count;
+        let keys: Vec<u64> = (0..count).map(|index| key(index)).collect();
+        let mut state = self.measured_lists.remove(id).unwrap_or_default();
+        let mut heights: Vec<f32> = keys
+            .iter()
+            .map(|key| state.heights.get(key).copied().unwrap_or(list.row_height))
+            .collect();
+        let tops = |heights: &[f32]| {
+            let mut tops = Vec::with_capacity(heights.len() + 1);
+            let mut top = 0.0_f32;
+            tops.push(top);
+            for height in heights {
+                top = (top + height).min(f32::MAX / 4.0);
+                tops.push(top);
+            }
+            tops
+        };
+        let mut top = tops(&heights);
+        // Where the offset is, or is going: a scroll on its way to the end is
+        // at the end.
+        let target = self
+            .scroll_transitions
+            .get(id)
+            .map(ScalarTransition::target)
+            .or_else(|| self.scroll_offsets.get(id).copied())
+            .unwrap_or(0.0);
+        let to_end =
+            self.scroll_to_end.remove(id) || (*follow_end && target >= state.end - 0.5);
+        let to_index = self
+            .scroll_to_index
+            .remove(id)
+            .filter(|_| count > 0)
+            .map(|index| index.min(count - 1));
+        // The row the view holds still: the one at the top of the viewport at
+        // the last layout, and where its top was in the content then.
+        let mut anchor = state
+            .anchor
+            .filter(|_| !to_end && to_index.is_none())
+            .and_then(|(anchor, was)| {
+                keys.iter().position(|key| *key == anchor).map(|index| (index, was))
+            });
+        let viewport = content.height;
+        // Each row built in this layout: the row, the measurement scope it
+        // was measured in, and its height.
+        let mut built: HashMap<usize, (Box<Element>, u64, f32)> = HashMap::new();
+        let mut row_width = f32::NAN;
+        let (mut offset, mut max_offset, mut first, mut end) = (0.0, 0.0, 0, 0);
+        for _ in 0..MEASURED_LIST_PASSES {
+            let width = list
+                .appearance
+                .content_width(content.width, top[count] > viewport);
+            if width != row_width {
+                // Heights measured at another width stand as estimates.
+                built.clear();
+                row_width = width;
+            }
+            let mut changed = false;
+            // The end, or a row to bring into view, is placed by the heights
+            // of the rows around it: measure those first, from the bottom up.
+            if to_end {
+                let mut filled = 0.0;
+                for index in (0..count).rev() {
+                    if filled >= viewport {
+                        break;
+                    }
+                    let height = self.measure_list_row(list, &mut built, index, row_width);
+                    changed |= state.learn(&mut heights, keys[index], index, height);
+                    filled += height;
+                }
+            }
+            if let Some(index) = to_index {
+                let height = self.measure_list_row(list, &mut built, index, row_width);
+                changed |= state.learn(&mut heights, keys[index], index, height);
+            }
+            if changed {
+                top = tops(&heights);
+                changed = false;
+            }
+            // Rows above the one held still were added, measured or changed
+            // height: move the offset, and a scroll on its way, by as much,
+            // so what shows stays where it was.
+            if let Some((index, was)) = anchor.as_mut() {
+                let shift = top[*index] - *was;
+                if shift.abs() > 0.01 {
+                    if let Some(offset) = self.scroll_offsets.get_mut(id) {
+                        *offset += shift;
+                    }
+                    if let Some(motion) = self.scroll_transitions.get_mut(id) {
+                        motion.shift(shift);
+                    }
+                }
+                *was = top[*index];
+            }
+            max_offset = (top[count] - viewport).max(0.0);
+            let mut snap = to_end.then_some(max_offset);
+            if let Some(index) = to_index {
+                let mut target =
+                    snap.unwrap_or_else(|| self.scroll_offsets.get(id).copied().unwrap_or(0.0));
+                if top[index] < target {
+                    target = top[index];
+                } else if top[index + 1] > target + viewport {
+                    target = top[index + 1] - viewport;
+                }
+                snap = Some(target);
+            }
+            offset = self.scroll_position(id, max_offset, list.motion, snap);
+            first = top[1..].partition_point(|bottom| *bottom <= offset).min(count);
+            // A row held still that the scroll took out of view gives way to
+            // the one now at the top.
+            let out_of_view =
+                |index: usize| top[index + 1] <= offset || top[index] >= offset + viewport;
+            if anchor.is_some_and(|(index, _)| out_of_view(index)) {
+                anchor = (first < count).then(|| (first, top[first]));
+            }
+            // From the row at the top of the view down, at the heights they
+            // really take: what fills the viewport.
+            let (mut index, mut y) = (first, top[first]);
+            while index < count && y < offset + viewport {
+                let height = self.measure_list_row(list, &mut built, index, row_width);
+                changed |= state.learn(&mut heights, keys[index], index, height);
+                y += height;
+                index += 1;
+            }
+            end = index;
+            if !changed {
+                break;
+            }
+            top = tops(&heights);
+        }
+        self.frame
+            .scroll_extents
+            .insert(list.id.clone(), max_offset);
+        let scrollbar = ScrollbarGeometry::new(content, max_offset, offset, list.appearance);
+        let visible = clip
+            .and_then(|outer| outer.intersection(content))
+            .or_else(|| clip.is_none().then_some(content));
+        let mut rows = Vec::new();
+        if let Some(visible) = visible {
+            self.frame.commands.push(DrawCommand::PushClip(visible));
+            // Rows are content of a scroll area: `reveal` and anchors find
+            // what they hold, as they do in a column of a `ScrollArea`.
+            self.scroll_focus_context.push(ScrollFocusContext {
+                id: list.id.clone(),
+                viewport: visible,
+                offset,
+            });
+            for (index, row_top) in top.iter().enumerate().take(end).skip(first) {
+                let Some((row, scope, height)) = built.get(&index) else {
+                    continue;
+                };
+                let previous = self.measurement_scope;
+                self.measurement_scope = *scope;
+                let mut focusables = Vec::new();
+                collect_focus_order(row, &mut focusables, &mut HashSet::new());
+                self.place(
+                    row,
+                    Rect::new(
+                        content.x,
+                        content.y + row_top - offset,
+                        row_width,
+                        *height,
+                    ),
+                    Some(visible),
+                );
+                rows.push((index, focusables));
+                self.measurement_scope = previous;
+            }
+            self.scroll_focus_context.pop();
+            self.frame.commands.push(DrawCommand::PopClip);
+        }
+        self.frame.virtual_lists.insert(
+            list.id.clone(),
+            VirtualListFocus {
+                first_visible: first,
+                end_visible: end,
+                row_count: count,
+                rows,
+            },
+        );
+        if let Some(scrollbar) = scrollbar {
+            self.paint_scrollbar(id, scrollbar, content, clip, foreground, list.appearance);
+        }
+        state.anchor = keys.get(first).map(|key| (*key, top[first]));
+        state.end = max_offset;
+        // Rows that left the list leave their heights behind; forget them
+        // once they outnumber the rows still there.
+        if state.heights.len() > keys.len() * 2 + 256 {
+            let present: HashSet<u64> = keys.iter().copied().collect();
+            state.heights.retain(|key, _| present.contains(key));
+        }
+        self.measured_lists.insert(list.id.clone(), state);
+    }
+
     fn paint_scrollbar(
         &mut self,
         id: &str,
@@ -8600,6 +8881,17 @@ impl LayoutBuilder<'_> {
             ElementKind::UniformList(list) => {
                 let height = if available.height.is_finite() {
                     available.height
+                } else if let Some(measured) = &list.measured {
+                    let state = self.measured_lists.get(&list.id);
+                    let rows: f32 = (0..list.row_count)
+                        .map(|index| {
+                            state
+                                .and_then(|state| state.heights.get(&(measured.key)(index)))
+                                .copied()
+                                .unwrap_or(list.row_height)
+                        })
+                        .sum();
+                    rows.min(f32::MAX / 4.0) + padding
                 } else {
                     let rows = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
                     let open = match &list.expansion {
@@ -9490,6 +9782,9 @@ impl LayoutBuilder<'_> {
                         *appearance,
                     );
                 }
+            }
+            ElementKind::UniformList(list) if list.measured.is_some() => {
+                self.place_measured_list(list, rect, content, clip, style.foreground);
             }
             ElementKind::UniformList(list) => {
                 let id = list.id.as_str();

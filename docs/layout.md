@@ -114,6 +114,7 @@ slanted by the host.
 | `Element::overlay(base, floating)` | Paints `floating` over `base` without affecting its layout. |
 | `ScrollArea::new(id, child)` | A vertically scrolling viewport. |
 | `ScrollArea::uniform_list(id, count, row_height, build_row)` | A virtualized list: only visible rows are built. |
+| `ScrollArea::measured_list(id, count, estimated_height, row_key, build_row)` | A virtualized list of rows of their own heights, measured as they come into view. The row at the top of the viewport holds still while rows above it are measured, change or are added; `.follow_end(true)` keeps the end in view as rows arrive. See [ScrollArea](components/scroll-area.md#a-list-of-rows-of-their-own-heights). |
 | `ScrollArea::uniform_list(…).expansion(index, content)` | What row `index` opens under itself, at the height it takes: it scrolls with the rows, the rows after it move down, and the list stays virtual. One row at a time; a `Collapse` as `content` opens and closes it on the spring. The keyboard walks from the row into it and on to the next row. |
 | `Element::horizontal_scroll(id, child)` | A horizontally scrolling strip. |
 
@@ -154,7 +155,8 @@ that is resolved at the next layout, once sizes are known.
 | Method | Effect |
 | --- | --- |
 | `tree.scroll_to_start(id)`, `tree.scroll_to_end(id)` | Jump to either end of the scroll area `id`. |
-| `tree.scroll_to_index(id, index)` | Keep one row of a uniform list in view. |
+| `tree.scroll_to_index(id, index)` | Keep one row of a uniform or a measured list in view. |
+| `tree.visible_rows(id)` | The rows of a uniform or a measured list built at the last layout, as a range of indices. |
 | `tree.center(control_id)` | Bring a button or a clickable to the middle of the scroll area that holds it, travelling there by that area's scroll motion, or at once under reduced motion. For content that follows a clock, such as the line being sung. Near either end of the content it goes as far as the area scrolls; nothing happens when no control has that ID, and focus stays where it was. |
 | `tree.reveal(control_id)` | Bring a button, a clickable or a field into view wherever it is: every scroll area around it scrolls just enough to show it whole, 12 px clear of the edge. Rows need no fixed height. Nothing moves when it is already in view, and nothing happens when no control has that ID. Focus stays where it was. |
 | `tree.reveal_with_margin(control_id, margin)` | The same with a margin of the host's own, for a viewport whose edge is covered by a fade or a fixed header. A margin with no room shrinks until the control fits. |

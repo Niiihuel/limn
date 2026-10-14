@@ -806,6 +806,26 @@ pub struct UniformList {
     pub motion: ScrollMotion,
     /// What one row opens under itself: see [`Element::list_expansion`].
     pub expansion: Option<(usize, Arc<Element>)>,
+    /// Rows of their own heights, measured as they come into view, instead
+    /// of `row_height` each: see [`Element::measured_list`]. `row_height` is
+    /// then the estimate for a row not measured yet.
+    pub measured: Option<MeasuredRows>,
+}
+
+/// What makes a [`UniformList`] a list of rows of their own heights. The
+/// tree measures each row it builds, keeps the height under the row's key,
+/// and holds the row at the top of the viewport still when rows above it are
+/// measured, grow, shrink, or are added.
+#[derive(Clone)]
+pub struct MeasuredRows {
+    /// The stable key of the row at a zero-based index. The height a row was
+    /// measured at, and the place the view holds, follow the key when rows
+    /// are added or removed before it. Hash a key that is not a number.
+    pub key: Arc<dyn Fn(usize) -> u64 + Send + Sync>,
+    /// While the list is scrolled to its end, keep it there when rows are
+    /// added at the end or the last ones grow: a conversation. Set by
+    /// [`Element::list_follow_end`].
+    pub follow_end: bool,
 }
 
 impl std::fmt::Debug for UniformList {
@@ -815,6 +835,7 @@ impl std::fmt::Debug for UniformList {
             .field("id", &self.id)
             .field("row_count", &self.row_count)
             .field("row_height", &self.row_height)
+            .field("measured", &self.measured.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -2383,7 +2404,55 @@ impl Element {
             appearance: ScrollbarAppearance::default(),
             motion: ScrollMotion::default(),
             expansion: None,
+            measured: None,
         }))
+    }
+
+    /// A scrollable list whose rows each take the height they need, such as
+    /// the messages of a conversation. Like [`Element::uniform_list`], only
+    /// the rows in view are built, from their index. Each one is measured at
+    /// the width of the list when it is built, and `estimated_row_height`
+    /// stands for a row not measured yet, so the scrollbar is exact for the
+    /// rows seen and close for the rest.
+    ///
+    /// `row_key` names the row at an index. Under its key the tree keeps the
+    /// height it measured, and the row at the top of the viewport stays where
+    /// it is when rows above it are measured, change height or are added: a
+    /// page of older messages loaded above the ones being read does not move
+    /// them. [`Element::list_follow_end`] keeps the end in view as rows
+    /// arrive. A measured list has no [`Element::list_expansion`]: a row that
+    /// opens grows itself. Set `.flex(1.0)` when it fills the remaining height
+    /// of a column. An estimate that is not finite or under 1 is read as 1.
+    pub fn measured_list(
+        id: impl Into<String>,
+        row_count: usize,
+        estimated_row_height: f32,
+        row_key: impl Fn(usize) -> u64 + Send + Sync + 'static,
+        build_row: impl Fn(usize) -> Self + Send + Sync + 'static,
+    ) -> Self {
+        let mut list = Self::uniform_list(id, row_count, estimated_row_height, build_row);
+        if let ElementKind::UniformList(list) = &mut list.kind {
+            list.measured = Some(MeasuredRows {
+                key: Arc::new(row_key),
+                follow_end: false,
+            });
+        }
+        list
+    }
+
+    /// Keep a [`Element::measured_list`] at its end while it is scrolled
+    /// there: rows added at the end, or a last row that grows, scroll into
+    /// view, the way a conversation follows new messages. Scrolled away from
+    /// the end, the list holds its place. Does nothing on another element.
+    pub fn list_follow_end(mut self, follow: bool) -> Self {
+        if let ElementKind::UniformList(UniformList {
+            measured: Some(measured),
+            ..
+        }) = &mut self.kind
+        {
+            measured.follow_end = follow;
+        }
+        self
     }
 
     /// Show `content` under row `index` of a uniform list, at the height it
