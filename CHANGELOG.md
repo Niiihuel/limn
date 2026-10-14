@@ -3,6 +3,10 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## Unreleased
+
+- Icons for conversations and calls: `Icon::MicrophoneMuted`, `Headphones`, `Emoji`, `Reply`, `At`, `Phone`, `HangUp`, `Screen` and `VideoOff`, drawn with Bootstrap Icons 1.13.2
+
 ## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)
