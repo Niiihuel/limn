@@ -19,6 +19,9 @@ use std::io::Cursor;
 mod glass;
 pub use glass::GlassRenderer;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod image_workers;
+
 /// Colors of the effort slider, the only command without colors of its own.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EffortPalette {
@@ -176,6 +179,15 @@ pub fn set_image_cache_entries(entries: usize) {
     IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 1024)));
 }
 
+/// Release this UI thread's raster textures and queued image sources, for
+/// example after signing out. Call on the thread that paints the images.
+/// Active native decodes (at most two) may finish, but their results are
+/// discarded. The host must also remove the previous account's image data
+/// from its own UI tree and model before the next paint pass.
+pub fn clear_image_cache() {
+    RASTER_CACHE.with(|cache| cache.borrow_mut().clear());
+}
+
 enum RasterCacheEntry {
     Decoding(std::sync::mpsc::Receiver<Option<egui::ColorImage>>),
     Ready(egui::TextureHandle),
@@ -196,6 +208,21 @@ struct RasterCache {
     context: Option<egui::Context>,
     entries: HashMap<(String, RasterImageFormat, bool), RasterCacheEntry>,
     order: VecDeque<(String, RasterImageFormat, bool)>,
+    generation: std::sync::Arc<()>,
+    #[cfg(not(target_arch = "wasm32"))]
+    workers: Option<image_workers::ImageWorkers>,
+}
+
+impl RasterCache {
+    fn clear(&mut self) {
+        self.generation = std::sync::Arc::new(());
+        self.entries.clear();
+        self.order.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(workers) = &self.workers {
+            workers.clear();
+        }
+    }
 }
 
 fn raster_format(format: RasterImageFormat) -> image::ImageFormat {
@@ -264,12 +291,24 @@ fn raster_cache_key(image: &RasterImage) -> (String, RasterImageFormat, bool) {
     )
 }
 
+fn decode_current_image(
+    generation: std::sync::Weak<()>,
+    decode: impl FnOnce() -> Option<egui::ColorImage>,
+    landed: std::sync::mpsc::Sender<Option<egui::ColorImage>>,
+) {
+    if generation.strong_count() != 0 {
+        let bitmap = decode();
+        if generation.strong_count() != 0 {
+            let _ = landed.send(bitmap);
+        }
+    }
+}
+
 fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
     RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
-            cache.entries.clear();
-            cache.order.clear();
+            cache.clear();
             cache.context = Some(ui.ctx().clone());
         }
         let key = raster_cache_key(image);
@@ -301,12 +340,26 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
         // pictures scrolling into view drops a frame for each of them.
         let (landed, decoded) = std::sync::mpsc::channel();
         let (source, ctx) = (image.clone(), ui.ctx().clone());
+        let generation = std::sync::Arc::downgrade(&cache.generation);
         let decode = move || {
-            let _ = landed.send(decode_raster_thumbnail(&source));
+            decode_current_image(generation, || decode_raster_thumbnail(&source), landed);
             ctx.request_repaint();
         };
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(decode);
+        {
+            if cache.workers.is_none() {
+                cache.workers = image_workers::ImageWorkers::new().ok();
+            }
+            let Some(workers) = &cache.workers else {
+                return RasterTexture::Unavailable;
+            };
+            if !workers.submit(image.data_base64().len(), decode) {
+                // A full queue has no entry yet: retry without retaining a
+                // second source. Also wake if all old jobs were just cleared.
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+                return RasterTexture::Decoding;
+            }
+        }
         // A browser has no thread to give; the image lands on the next frame.
         #[cfg(target_arch = "wasm32")]
         decode();
@@ -2056,7 +2109,11 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
 /// Use Ubuntu Regular for UI text. egui's default proportional face is
 /// Ubuntu Light, whose thin strokes read as blurry at small sizes. Call once
 /// when the window is created, before the first frame and [`attach_fonts`];
-/// egui's Unicode, emoji and monospace fallbacks are kept.
+/// egui's Unicode, emoji and monospace fallbacks are kept. Noto Sans Math
+/// and Noto Sans Symbols 2 follow them for mathematical alphabets and
+/// decorative symbols in all families. Noto Emoji supplies missing
+/// monochrome emoji after all existing faces, without reading
+/// system fonts. See `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let name = "Ubuntu-Regular".to_owned();
@@ -2064,6 +2121,36 @@ pub fn install_fonts(ctx: &egui::Context) {
         name.clone(),
         egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
     );
+    let math = "NotoSansMath-Regular".to_owned();
+    fonts.font_data.insert(
+        math.clone(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansMath-Regular.ttf")).into(),
+    );
+    let symbols = "NotoSansSymbols2-Regular".to_owned();
+    fonts.font_data.insert(
+        symbols.clone(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf")).into(),
+    );
+    let emoji = "NotoEmoji".to_owned();
+    fonts.font_data.insert(
+        emoji.clone(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf")).into(),
+    );
+    // The bundled monospace faces supply box drawing missing from the UI
+    // faces. Reuse their bytes, after the symbols, without replacing UI text.
+    let monospace = fonts.families[&egui::FontFamily::Monospace].clone();
+    // Append before sharing proportional fallbacks with the weighted families.
+    // Existing glyphs retain their faces, including ordinary monospace text.
+    for family in fonts.families.values_mut() {
+        family.push(math.clone());
+        family.push(symbols.clone());
+        for face in &monospace {
+            if !family.contains(face) {
+                family.push(face.clone());
+            }
+        }
+        family.push(emoji.clone());
+    }
     // The weights are faces of their own, with the same fallbacks behind them.
     let fallbacks = fonts
         .families
@@ -2152,6 +2239,9 @@ pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
         })
     });
 }
+
+#[cfg(test)]
+mod font_tests;
 
 #[cfg(test)]
 mod tests {
@@ -2416,6 +2506,39 @@ mod tests {
         };
         assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
         assert_eq!(settled(&broken), RasterTexture::Unavailable);
+        clear_image_cache();
+        RASTER_CACHE.with(|cache| {
+            let cache = cache.borrow();
+            assert!(cache.entries.is_empty());
+            assert!(cache.order.is_empty());
+        });
+        assert_eq!(paint(&image), RasterTexture::Decoding, "cleared textures are not reused");
+        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+    }
+
+    #[test]
+    fn clearing_images_invalidates_queued_and_already_running_results() {
+        let mut cache = RasterCache::default();
+        let old = Arc::downgrade(&cache.generation);
+        cache.clear();
+        let (landed, decoded) = std::sync::mpsc::channel();
+        decode_current_image(old, || panic!("stale source decoded"), landed);
+        assert!(matches!(decoded.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)));
+
+        let running = Arc::downgrade(&cache.generation);
+        let (landed, decoded) = std::sync::mpsc::channel();
+        decode_current_image(running, || {
+            // Model a clear that happens after decoding started, before completion.
+            cache.clear();
+            Some(egui::ColorImage::new([1, 1], vec![Color32::WHITE]))
+        }, landed);
+        assert!(matches!(decoded.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)));
+
+        let (landed, decoded) = std::sync::mpsc::channel();
+        decode_current_image(Arc::downgrade(&cache.generation), || {
+            Some(egui::ColorImage::new([1, 1], vec![Color32::WHITE]))
+        }, landed);
+        assert_eq!(decoded.try_recv().unwrap().unwrap().size, [1, 1]);
     }
 
     #[test]

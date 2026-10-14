@@ -83,6 +83,37 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .gap(8.0),
             caption(cx, "soft_focus: sharp, then at radii of 1, 2 and 3.5. The radius springs to its new value."),
         ]),
+        section(cx, "Unicode fallback", std::iter::once(
+            caption(cx, "Mathematical alphabets and decorative symbols: bundled Noto Math and Symbols 2 fallbacks; no system font needed."),
+        ).chain([
+            ("Regular", limn::FontFamily::Sans),
+            ("Italic", limn::FontFamily::SansItalic),
+            ("Medium", limn::FontFamily::SansMedium),
+            ("Bold", limn::FontFamily::SansBold),
+            ("Monospace", limn::FontFamily::Monospace),
+        ].into_iter().map(|(name, family)| {
+            Element::text(format!("{name} · 𝖗𝖚𝖓𝖊 · ╭─ ✦ Lounge ❖ ➜"))
+                .font_family(family)
+                .font_size(16.0)
+                .foreground(palette.text)
+        })).collect()),
+        section(cx, "Monochrome emoji", std::iter::once(
+            caption(cx, "Noto Emoji fills missing glyphs after the existing fonts; prior text keeps its face and width."),
+        ).chain([
+            ("Regular", limn::FontFamily::Sans),
+            ("Italic", limn::FontFamily::SansItalic),
+            ("Medium", limn::FontFamily::SansMedium),
+            ("Bold", limn::FontFamily::SansBold),
+            ("Monospace", limn::FontFamily::Monospace),
+        ].into_iter().map(|(name, family)| {
+            Element::text(format!("{name} · 🙂 🤣 🦀 🫡 🤔 🧑‍💻 🏴‍☠️"))
+                .font_family(family)
+                .font_size(20.0)
+                .foreground(palette.text)
+        })).chain([
+            caption(cx, "Sequence limits: regional flags and some keycaps / joined flags can still use an earlier font."),
+            Element::text("🇦🇷 · #️⃣ · 🏳️‍🌈").font_size(20.0).foreground(palette.muted),
+        ]).collect()),
         section(cx, "Separator", vec![
             Element::column(vec![
                 Text::new("Above", palette).render(),

@@ -141,6 +141,54 @@ Call it once when the window is created. Without it egui's default
 proportional face, Ubuntu Light, is used, whose thin strokes look washed out
 at small sizes.
 
+The installer also keeps egui's fallback faces and appends Noto Sans Math
+3.000 for mathematical alphabets, including names such as `𝖗𝖚𝖓𝖊` and
+`𝓡𝓤𝓝𝓔`. The fallback is shared by regular, italic, medium, bold and
+monospace text. Existing glyphs still come from their original faces;
+missing mathematical glyphs use Noto's own shapes and widths, including
+inside monospace text. `attach_fonts` measures the same fallback that paints.
+
+The bundled font adds about 1 MiB and uses SIL OFL-1.1; its unchanged license,
+version, pinned source and hashes are in
+[`crates/limn-egui/assets/fonts/NOTICE.md`](../crates/limn-egui/assets/fonts/NOTICE.md).
+This is additional mathematical coverage, not general Unicode shaping,
+CJK coverage or color emoji. No fonts are read from the host's system or
+downloaded at runtime.
+
+Noto Sans Symbols 2 v2.008 follows Math in every family for missing
+decorative symbols, including `✦`, `✧`, `❖` and `➜`. The unmodified,
+unhinted OpenType face adds 404,576 bytes under OFL-1.1, with its release
+source, hashes and full license alongside the Math notices. The Text
+gallery uses synthetic labels to demonstrate the fallback. Neither this
+font nor those tests imply that every user-supplied name is covered.
+The proportional families also reuse egui's already embedded monospace
+fallbacks at the end of their chain, supplying box drawing such as
+`├─│╭╰║` without another font asset. Missing glyphs keep their fallback
+face's advance width.
+
+Noto Emoji 3.002 is appended last in all five families for missing
+monochrome emoji, including `🙂`, `🤣`, `🦀` and `🫡`. It adds 1,982,596
+bytes under OFL-1.1. The original variable font, full license and pinned
+source hashes are bundled alongside the other font notices. Previously
+covered text retains its face and metrics; new emoji use the fallback's
+own advance width, including in monospace text. There is no runtime font
+download or new runtime dependency.
+
+The 623-entry synthetic fixture in `limn-egui/src/emoji_samples.txt` covers
+all visible scalars from RUNE's Unicode picker at the time of this change.
+Tests inspect actual installed charmaps in all five families and exercise
+egui's lookup, layout metrics and composition of `❤️`, `☀️`, `🧑‍💻` and
+`🏴‍☠️`. The fixture contains only Unicode strings, without application
+data or assets. It is a coverage snapshot, not a complete emoji standard.
+
+Scalar coverage is distinct from sequence shaping. egui 0.36 chooses the
+face for a grapheme from its first character. When that character already
+exists in an earlier font, the appended font cannot supply a missing
+combined glyph. For example, the regional flag `🇦🇷` still paints two
+glyphs, and some keycaps and joined flags remain incomplete. The fallback
+does not provide color emoji, complete combined-sequence support or CJK
+coverage. The Text gallery shows both supported samples and those limits.
+
 ## Language
 
 The words the library says by itself, such as the hint of a close button, the

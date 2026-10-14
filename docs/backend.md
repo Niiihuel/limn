@@ -126,7 +126,15 @@ The egui backend exposes:
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
 | `GlassRenderer::new(&render_state)` | Creates the native wgpu optical renderer. Supply the backdrop using `set_backdrop_rgba` or `set_backdrop_texture`, then call its `paint_at`. |
 | `GlassRenderer::paint_at_surface(ui, &frame, origin, backdrop_rect, surface_id)` | Displays the shared backdrop texture at a named surface's paint depth and renders the glass above it. This opt-in path stretches the texture to the explicit backdrop rectangle; ordinary host-fed surfaces retain their pixel mapping. See [Native glass navigation](liquid-glass.md). |
-| `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Each image is decoded on a thread of its own and painted from the frame after it lands. |
+| `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
+| `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
+
+The native ImageViewer gallery's **Reload image cache** button exercises this
+reset. It preserves the visible synthetic sources, so their textures are
+decoded again. There is no filesystem or network I/O in the decoder. Limits
+on source dimensions and decoder allocations are unchanged. Browsers retain
+the existing synchronous decode path because that backend has no native
+workers; clearing still releases its raster cache.
 | `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
