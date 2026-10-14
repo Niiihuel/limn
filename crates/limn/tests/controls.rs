@@ -359,6 +359,79 @@ fn controls() -> Vec<Control> {
             },
         ),
         control(
+            "DropdownMenu check box item",
+            "it",
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Mute").checkbox(true).into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Mute")
+                    .checkbox(true)
+                    .disabled()
+                    .into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+        ),
+        control(
+            "DropdownMenu radio item",
+            "it",
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Only mentions")
+                    .radio(false)
+                    .into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
+                    .context_menu_style()
+                    .render()
+            },
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Only mentions")
+                    .radio(false)
+                    .disabled()
+                    .into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
+                    .context_menu_style()
+                    .render()
+            },
+        ),
+        control(
+            "DropdownMenu two-line item",
+            "it",
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Notifications")
+                    .description("Only mentions")
+                    .into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Notifications")
+                    .description("Needs a permission")
+                    .disabled()
+                    .into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+        ),
+        control(
+            "DropdownMenu item at a point",
+            "it",
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Mark as read").into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
+                    .context_menu_style()
+                    .at(Point::new(60.0, 40.0))
+                    .render()
+            },
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Mark as read")
+                    .disabled()
+                    .into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
+                    .context_menu_style()
+                    .at(Point::new(60.0, 40.0))
+                    .render()
+            },
+        ),
+        control(
             "DatePicker day",
             "date:day:2026-10-13",
             || DatePicker::new("date", "2026-10-13", palette()).render(),

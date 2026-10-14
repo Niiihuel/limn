@@ -58,9 +58,64 @@ pub(crate) mod action_style {
     }
 }
 
+/// What a menu item that is a check box or a radio item draws at the end of
+/// its row, and tells the platform it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MenuCheck {
+    /// A check box, ticked while `true`.
+    Box(bool),
+    /// One radio item of a set, the chosen one while `true`.
+    Radio(bool),
+}
+
+impl MenuCheck {
+    /// The box or the circle, `side` square: filled with `ink` and marked in
+    /// the surface color while checked, an outline in the muted color while
+    /// not, as a `Checkbox` and a `RadioGroup` draw theirs.
+    pub(crate) fn mark(self, side: f32, ink: Color, palette: ComponentPalette) -> Element {
+        let (checked, round) = match self {
+            Self::Box(checked) => (checked, false),
+            Self::Radio(checked) => (checked, true),
+        };
+        let (fill, mark) = if checked {
+            (ink, palette.surface)
+        } else {
+            (Color::TRANSPARENT, Color::TRANSPARENT)
+        };
+        let shape = if round {
+            let dot = crate::radio::dot_side(side);
+            Element::panel(Element::spacer().background(mark).radius(dot / 2.0))
+                .padding((side - dot) / 2.0)
+                .radius(side / 2.0)
+        } else {
+            Element::panel(Element::icon(Icon::Check).foreground(mark))
+                .radius(crate::tokens().radius.control)
+        };
+        // A filled mark has no border: a stroke of the fill's own color shows as a ring inside its edge.
+        shape
+            .background(fill)
+            .border(palette.muted, if checked { 0.0 } else { 1.0 })
+            .size(Some(side), Some(side))
+    }
+
+    /// `access` as a check box or a radio item of a menu, on or off.
+    pub(crate) fn access(self, access: Access) -> Access {
+        let (role, checked) = match self {
+            Self::Box(checked) => (Role::MenuItemCheckBox, checked),
+            Self::Radio(checked) => (Role::MenuItemRadio, checked),
+        };
+        Access {
+            role: Some(role),
+            ..access
+        }
+        .toggled(checked)
+    }
+}
+
 /// The two-line row shared by [`MenuItem`] and `DropdownMenuItem`: a label
 /// over a quiet detail, between a leading icon and a check or a chevron.
-/// Its metrics are the selector profile's, so it lines up with every catalog.
+/// Its metrics are its menu's selector profile, so it lines up with the
+/// menu's other rows.
 pub(crate) struct DetailRow {
     pub(crate) action_id: String,
     pub(crate) label: String,
@@ -72,14 +127,19 @@ pub(crate) struct DetailRow {
     pub(crate) chevron: bool,
     /// `None` leaves out the check column; `Some(false)` keeps it empty.
     pub(crate) selected: Option<bool>,
+    /// A check box or a radio item in the check column, in place of the tick.
+    pub(crate) check: Option<MenuCheck>,
     pub(crate) enabled: bool,
+    /// Its icon slot, text sizes, gap, padding and height.
+    pub(crate) sizing: SelectorSizing,
 }
 
 impl DetailRow {
     /// The padded row without a width: the caller fixes it or lets it stretch.
     pub(crate) fn render(self, palette: ComponentPalette) -> Element {
-        let sizing = SelectorSizing::COMPACT;
-        let body_height = sizing.row_height;
+        let sizing = self.sizing;
+        // The two lines share what the padding leaves of the row.
+        let body_height = (sizing.detail_row_height - sizing.padding * 2.0).max(0.0);
         let line_height = body_height / 2.0;
         let ink = if self.enabled {
             palette.text
@@ -91,7 +151,9 @@ impl DetailRow {
         if !self.description.is_empty() {
             access = access.description(&self.description);
         }
-        if let Some(selected) = self.selected.filter(|_| !self.chevron) {
+        if let Some(check) = self.check.filter(|_| !self.chevron) {
+            access = check.access(access);
+        } else if let Some(selected) = self.selected.filter(|_| !self.chevron) {
             access = access.selected(selected);
         }
         let detail = Element::truncated_text(self.description)
@@ -143,6 +205,13 @@ impl DetailRow {
                     .foreground(palette.muted)
                     .size(Some(sizing.icon_size), Some(body_height)),
             );
+        } else if let Some(check) = self.check {
+            children.push(
+                check
+                    .mark(sizing.icon_size.min(ICON_SIZE), ink, palette)
+                    .centered()
+                    .size(Some(sizing.icon_size), Some(body_height)),
+            );
         } else if let Some(selected) = self.selected {
             children.push(
                 if selected {
@@ -162,7 +231,7 @@ impl DetailRow {
         palette
             .interactive_surface(row)
             .transition_ms(0)
-            .padding((sizing.detail_row_height - body_height) / 2.0)
+            .padding(sizing.padding)
             .size(None, Some(sizing.detail_row_height))
     }
 }
@@ -378,7 +447,9 @@ impl Component for MenuItem {
                     status_width: self.status_width,
                     chevron: self.chevron,
                     selected: self.selected,
+                    check: None,
                     enabled: self.enabled,
+                    sizing: SelectorSizing::COMPACT,
                 }
                 .render(palette),
                 SelectorSizing::COMPACT.detail_row_height,

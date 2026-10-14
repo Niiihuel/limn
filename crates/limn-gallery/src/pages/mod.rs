@@ -187,8 +187,8 @@ pub const PAGES: &[Page] = &[
     Page { id: "context-window", group: "States", title: "ContextWindow", source: "context", view: context::view, sections: &[], since: "0.1.39" },
     Page { id: "popover", group: "Overlays", title: "Popover", source: "overlays", view: overlays::view, sections: &["Popover"], since: "0.1.39" },
     Page { id: "dropdown-list", group: "Overlays", title: "DropdownList", source: "overlays", view: overlays::view, sections: &["Dropdown list"], since: "0.1.39" },
-    Page { id: "dropdown-menu", group: "Overlays", title: "DropdownMenu", source: "overlays", view: overlays::view, sections: &["Menu"], since: "0.1.39" },
-    Page { id: "context-menu", group: "Overlays", title: "ContextMenu", source: "overlays", view: overlays::view, sections: &["Context menu"], since: "0.1.39" },
+    Page { id: "dropdown-menu", group: "Overlays", title: "DropdownMenu", source: "overlays", view: overlays::view, sections: &["Menu", "Menu items"], since: "0.1.39" },
+    Page { id: "context-menu", group: "Overlays", title: "ContextMenu", source: "overlays", view: overlays::view, sections: &["Context menu", "Menu at a point"], since: "0.1.39" },
     Page { id: "dialog", group: "Overlays", title: "Modal / AlertDialog", source: "overlays", view: overlays::view, sections: &["Dialogs"], since: "0.1.39" },
     Page { id: "toast", group: "Overlays", title: "Toast", source: "overlays", view: overlays::view, sections: &["Toast"], since: "0.1.39" },
     Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer"], since: "0.1.39" },
@@ -261,6 +261,12 @@ pub fn update(state: &mut State, action: &UiAction) {
     number::update(state, action);
     checkbox::update(state, action);
     toolbar::update(state, action);
+}
+
+/// Answer a secondary click a page opens its own menu for, before the tree
+/// does; `true` when one did.
+pub fn secondary_click(state: &mut State, frame: &limn::Frame, position: limn::Point) -> bool {
+    overlays::secondary_click(state, frame, position)
 }
 
 /// The fields whose text a click may have changed, each with its value now.

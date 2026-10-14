@@ -1,9 +1,13 @@
 use super::{caption, row, section, Cx, Section};
+use crate::app::State;
 use limn::{
     AlertDialog, AlertTone, Button, ButtonVariant, Color, Component, ContextMenu, ContextMenuEntry,
     ContextMenuItem, DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption,
-    Element, FontFamily, FormField, Icon, Modal, Popover, TextField, Toast,
+    Element, FontFamily, FormField, Frame, Icon, Modal, Point, Popover, TextField, Toast, TooltipSpec,
 };
+
+/// The area a secondary click opens the menu at a point on.
+const POINT_AREA: &str = "overlay-point-area";
 
 const LANGUAGES: [(&str, &str); 3] = [("rust", "Rust"), ("python", "Python"), ("typescript", "TypeScript")];
 
@@ -97,7 +101,23 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Popover", vec![row(vec![popover])]),
         section(cx, "Dropdown list", vec![row(vec![list])]),
         section(cx, "Menu", vec![row(vec![menu]), caption(cx, &format!("Selected: {}", state.text("overlay-menu")))]),
+        section(cx, "Menu items", vec![
+            row(vec![
+                DropdownMenu::new(
+                    trigger(cx, "overlay-items=open", "Channel menu"),
+                    item_entries(state, "overlay-items=closed"),
+                    open("overlay-items"),
+                    "overlay-items=closed",
+                    palette,
+                )
+                .context_menu_style()
+                .width(260.0)
+                .render(),
+            ]),
+            caption(cx, &format!("Notifications: {}", state.choice("overlay-items-level", "mentions"))),
+        ]),
         section(cx, "Context menu", vec![row(vec![context])]),
+        section(cx, "Menu at a point", vec![point_menu(cx)]),
         section(cx, "Dialogs", vec![
             row(vec![
                 trigger(cx, "overlay-modal=open", "Open modal"),
@@ -113,6 +133,103 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     ]
 }
 
+/// Check boxes, radio items, two-line items, a reason, and submenus two deep.
+fn item_entries(state: &State, close: &str) -> Vec<DropdownMenuEntry> {
+    let level = state.choice("overlay-items-level", "mentions");
+    let radio = |value: &str, label: &str| {
+        DropdownMenuItem::new(format!("overlay-items-level={value}&{close}"), label)
+            .radio(level == value)
+            .into()
+    };
+    let snooze = |value: &str, label: &str| {
+        DropdownMenuItem::new(format!("overlay-items-snooze={value}&{close}"), label).into()
+    };
+    vec![
+        DropdownMenuItem::new(format!("overlay-items-unread&{close}"), "Show unread only")
+            .checkbox(state.flag("overlay-items-unread"))
+            .into(),
+        DropdownMenuItem::new("overlay-items-muted", "Hide muted channels")
+            .checkbox(true)
+            .disabled()
+            .into(),
+        DropdownMenuItem::new("overlay-items-notify", "Notifications")
+            .icon(Icon::Bell)
+            .description(match level {
+                "all" => "All messages",
+                "nothing" => "Nothing",
+                _ => "Only @mentions",
+            })
+            .submenu(vec![
+                radio("all", "All messages"),
+                radio("mentions", "Only @mentions"),
+                radio("nothing", "Nothing"),
+                DropdownMenuItem::new("overlay-items-level-off", "Server default")
+                    .radio(false)
+                    .disabled()
+                    .into(),
+            ])
+            .into(),
+        DropdownMenuItem::new("overlay-items-status", "Snooze")
+            .submenu(vec![
+                DropdownMenuItem::new("overlay-items-for", "For a while")
+                    .submenu(vec![
+                        snooze("15m", "For 15 minutes"),
+                        snooze("1h", "For an hour"),
+                        snooze("8h", "For 8 hours"),
+                    ])
+                    .into(),
+                snooze("tomorrow", "Until tomorrow"),
+            ])
+            .into(),
+        DropdownMenuEntry::Separator,
+        DropdownMenuItem::new("overlay-items-edit", "Edit channel")
+            .icon(Icon::Settings)
+            .description("Needs the Manage Channels permission")
+            .tooltip_with(TooltipSpec::new("Needs the Manage Channels permission"))
+            .disabled()
+            .into(),
+    ]
+}
+
+/// A menu that opens where the secondary click was, with the same items.
+fn point_menu(cx: &Cx) -> Element {
+    let area = Element::clickable(POINT_AREA, caption(cx, "Right-click anywhere here"))
+        .padding(24.0)
+        .border(cx.palette.border, 1.0)
+        .radius(limn::tokens().radius.card);
+    let at = cx
+        .state
+        .text("overlay-point")
+        .split_once(',')
+        .and_then(|(x, y)| Some(Point::new(x.parse().ok()?, y.parse().ok()?)));
+    let Some(at) = at else {
+        return area;
+    };
+    DropdownMenu::new(
+        area,
+        item_entries(cx.state, "overlay-point=closed"),
+        true,
+        "overlay-point=closed",
+        cx.palette,
+    )
+    .context_menu_style()
+    .width(260.0)
+    .at(at)
+    .render()
+}
+
+/// A secondary click on the area of the menu at a point opens it there, as a
+/// host does: it keeps the point and passes it to `DropdownMenu::at`.
+pub fn secondary_click(state: &mut State, frame: &Frame, position: Point) -> bool {
+    let inside = frame
+        .regions
+        .iter()
+        .any(|region| region.id == POINT_AREA && region.rect.contains(position));
+    if inside {
+        state.set("overlay-point", &format!("{},{}", position.x, position.y));
+    }
+    inside
+}
 /// Wrap the window in the layers this page controls.
 pub fn layers(cx: &Cx, base: Element) -> Element {
     let palette = cx.palette;

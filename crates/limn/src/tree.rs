@@ -1279,6 +1279,9 @@ struct PopoverFocusScope {
     modal: bool,
     /// A coach mark's actions for the Left and Right arrow keys.
     arrows: Option<(Option<String>, Option<String>)>,
+    /// Placed at a point, not against a trigger: the arrow keys reach it
+    /// from wherever the focus is.
+    pointed: bool,
 }
 
 /// A `sticky_top` child held back to be placed above its scroll area: the
@@ -3602,6 +3605,7 @@ impl UiTree {
                         return_focus,
                         coach,
                         arrows,
+                        pointed,
                     } => {
                         let coach = coach.as_deref();
                         if let Some(coach) = coach {
@@ -3668,6 +3672,7 @@ impl UiTree {
                                 arrows: coach
                                     .map(|coach| (coach.back.clone(), coach.next.clone()))
                                     .or_else(|| arrows.as_deref().cloned()),
+                                pointed,
                             });
                         }
                         // Measure wrapped content at the width the viewport
@@ -5937,7 +5942,9 @@ impl UiTree {
             .focused
             .as_ref()
             .and_then(|id| buttons.iter().position(|(candidate, _)| candidate == id));
+        // A menu at a point has no trigger: the focus left outside it stands in.
         let trigger_focused = self.focused.is_none()
+            || scope.pointed && current.is_none()
             || self
                 .focused
                 .as_ref()
@@ -6318,6 +6325,43 @@ fn holds_reveal(element: &Element, keyboard_focus: bool, focused: Option<&str>) 
     }
 }
 
+/// Whether the pointer or the focus is on something `element` holds, the
+/// submenus nested in it included: a submenu that opens on hover stays open
+/// while it is, however deep the submenu the pointer went into.
+fn holds_submenu(element: &Element, hovered: Option<&str>, focused: Option<&str>) -> bool {
+    let on = |id: &str| hovered == Some(id) || focused == Some(id);
+    if focusable_id(element).is_some_and(on) {
+        return true;
+    }
+    let holds = |child: &Element| holds_submenu(child, hovered, focused);
+    match &element.kind {
+        ElementKind::Popover {
+            anchor,
+            floating,
+            dismiss_id,
+            ..
+        } => {
+            hovered
+                .is_some_and(|id| id.strip_prefix("popover_surface:") == Some(dismiss_id.as_str()))
+                || holds(anchor)
+                || holds(floating)
+        }
+        ElementKind::Scroll { id, child, .. } => on(id) || holds(child),
+        ElementKind::Tooltip {
+            anchor, anchor_id, ..
+        } => on(anchor_id) || holds(anchor),
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => children.iter().any(holds),
+        ElementKind::Panel(child)
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::HorizontalScroll { child, .. } => holds(child),
+        ElementKind::Overlay { base, floating } => holds(base) || holds(floating),
+        _ => false,
+    }
+}
+
 /// Record only the ancestors of the requested control. The normal layout can
 /// skip every other clipped branch, even while locating an offscreen target.
 fn find_focus_path(element: &Element, id: &str, path: &mut HashSet<usize>) -> bool {
@@ -6470,6 +6514,7 @@ enum DeferredOverlay {
         coach: Option<Box<CoachAnchor>>,
         /// What the Left and Right arrow keys report inside the surface.
         arrows: Option<Box<(Option<String>, Option<String>)>>,
+        pointed: bool,
     },
     Tooltip {
         anchor: Rect,
@@ -9273,6 +9318,7 @@ impl LayoutBuilder<'_> {
                 return_focus,
                 coach,
                 arrows,
+                at,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -9329,14 +9375,15 @@ impl LayoutBuilder<'_> {
                         || hovered == Some(surface_id.as_str())
                         || focusables.iter().any(|(id, _)| {
                             hovered == Some(id.as_str()) || focused == Some(id.as_str())
-                        });
+                        })
+                        || holds_submenu(floating, hovered, focused);
                     if !active {
                         return;
                     }
                 }
                 self.overlays.push_back(DeferredOverlay::Anchored {
                     floating: floating.as_ref().clone(),
-                    anchor: anchor_rect,
+                    anchor: at.map_or(anchor_rect, |point| Rect::new(point.x, point.y, 0.0, 0.0)),
                     dismiss_id: dismiss_id.clone(),
                     placement: *placement,
                     gap: *gap,
@@ -9354,6 +9401,7 @@ impl LayoutBuilder<'_> {
                     return_focus: return_focus.clone(),
                     coach: coach.clone(),
                     arrows: arrows.clone(),
+                    pointed: at.is_some(),
                 });
             }
             ElementKind::Tooltip {

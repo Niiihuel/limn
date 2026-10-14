@@ -59,6 +59,14 @@ ContextMenuItem::new("paste", "Paste").enabled(state.can_paste)
 `enabled(false)` draws the item muted and takes it out of reach. A long label
 wraps; in a very narrow window the shortcut is left out whole, never cut.
 
+## Submenus, choices and reasons
+
+A context menu's items are actions in one list. For submenus, check boxes,
+radio items or a second line that says why an item is disabled, the host opens
+a [DropdownMenu](dropdown-menu.md#at-a-point) at the point of the secondary
+click with `at(point)`: it has every kind of item, and the host keeps where it
+is open.
+
 ## Keyboard
 
 | Key | Effect |

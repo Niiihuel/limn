@@ -1266,6 +1266,9 @@ pub enum ElementKind {
         /// The actions the Left and Right arrow keys report while this
         /// surface has the keyboard: what goes back and what goes on.
         arrows: Option<Box<(Option<String>, Option<String>)>>,
+        /// A point of the window the surface is placed against instead of
+        /// the anchor's box; set by [`Element::popover_at`].
+        at: Option<Point>,
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -2155,6 +2158,7 @@ impl Element {
                 return_focus: None,
                 coach: None,
                 arrows: None,
+                at: None,
             },
             layout,
         )
@@ -2197,7 +2201,21 @@ impl Element {
         self
     }
 
-    /// Show a submenu while its trigger or content is hovered or focused.
+    /// Place the surface against a point of the window instead of the
+    /// anchor's box, as a context menu opens where the secondary click was.
+    /// The anchor keeps its place in the layout, and the arrow keys reach the
+    /// surface wherever the focus is. A point that is not finite is ignored.
+    pub fn popover_at(mut self, point: Point) -> Self {
+        if let ElementKind::Popover { at, .. } = &mut self.kind {
+            if point.x.is_finite() && point.y.is_finite() {
+                *at = Some(point);
+            }
+        }
+        self
+    }
+
+    /// Show a submenu while its trigger or content is hovered or focused,
+    /// or a submenu nested in it is.
     pub fn popover_on_hover(mut self) -> Self {
         if let ElementKind::Popover {
             anchor,

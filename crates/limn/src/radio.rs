@@ -25,7 +25,7 @@ const fn metrics(size: ControlSize) -> (f32, f32) {
 
 /// The dot's diameter: about two fifths of the circle's, and even, so it
 /// centers on whole pixels.
-fn dot_side(side: f32) -> f32 {
+pub(crate) fn dot_side(side: f32) -> f32 {
     2.0 * (side / 5.0).round()
 }
 

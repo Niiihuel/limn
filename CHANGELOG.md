@@ -3,6 +3,13 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## Unreleased
+
+- DropdownMenu: `DropdownMenuItem::checkbox` and `radio`, items drawn with a box or a circle at the end of the row and told to the platform as a menu's check box or radio item (`Role::MenuItemCheckBox` and `Role::MenuItemRadio`), on or off
+- DropdownMenu: a two-line item takes the menu's `sizing`, so it lines up with the menu's other rows; one with a `description` and a `submenu` ends with a chevron and opens it; and a disabled one says why on its second line
+- DropdownMenu: a submenu stays open while the pointer or the focus is in a submenu nested in it, and the arrow keys walk in and out of every level; it closed as the pointer went into the nested one
+- DropdownMenu: `at(point)` opens the menu at a point of the window, as a context menu at the secondary click, with every kind of item; `Element::popover_at` places any popover so
+
 ## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)
