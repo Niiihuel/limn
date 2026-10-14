@@ -166,6 +166,29 @@ fallbacks at the end of their chain, supplying box drawing such as
 `├─│╭╰║` without another font asset. Missing glyphs keep their fallback
 face's advance width.
 
+Noto Emoji 3.002 is appended last in all five families for missing
+monochrome emoji, including `🙂`, `🤣`, `🦀` and `🫡`. It adds 1,982,596
+bytes under OFL-1.1. The original variable font, full license and pinned
+source hashes are bundled alongside the other font notices. Previously
+covered text retains its face and metrics; new emoji use the fallback's
+own advance width, including in monospace text. There is no runtime font
+download or new runtime dependency.
+
+The 623-entry synthetic fixture in `limn-egui/src/emoji_samples.txt` covers
+all visible scalars from RUNE's Unicode picker at the time of this change.
+Tests inspect actual installed charmaps in all five families and exercise
+egui's lookup, layout metrics and composition of `❤️`, `☀️`, `🧑‍💻` and
+`🏴‍☠️`. The fixture contains only Unicode strings, without application
+data or assets. It is a coverage snapshot, not a complete emoji standard.
+
+Scalar coverage is distinct from sequence shaping. egui 0.36 chooses the
+face for a grapheme from its first character. When that character already
+exists in an earlier font, the appended font cannot supply a missing
+combined glyph. For example, the regional flag `🇦🇷` still paints two
+glyphs, and some keycaps and joined flags remain incomplete. The fallback
+does not provide color emoji, complete combined-sequence support or CJK
+coverage. The Text gallery shows both supported samples and those limits.
+
 ## Language
 
 The words the library says by itself, such as the hint of a close button, the

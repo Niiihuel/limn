@@ -2111,7 +2111,8 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
 /// when the window is created, before the first frame and [`attach_fonts`];
 /// egui's Unicode, emoji and monospace fallbacks are kept. Noto Sans Math
 /// and Noto Sans Symbols 2 follow them for mathematical alphabets and
-/// decorative symbols in all families, without reading
+/// decorative symbols in all families. Noto Emoji supplies missing
+/// monochrome emoji after all existing faces, without reading
 /// system fonts. See `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
@@ -2130,6 +2131,11 @@ pub fn install_fonts(ctx: &egui::Context) {
         symbols.clone(),
         egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf")).into(),
     );
+    let emoji = "NotoEmoji".to_owned();
+    fonts.font_data.insert(
+        emoji.clone(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf")).into(),
+    );
     // The bundled monospace faces supply box drawing missing from the UI
     // faces. Reuse their bytes, after the symbols, without replacing UI text.
     let monospace = fonts.families[&egui::FontFamily::Monospace].clone();
@@ -2143,6 +2149,7 @@ pub fn install_fonts(ctx: &egui::Context) {
                 family.push(face.clone());
             }
         }
+        family.push(emoji.clone());
     }
     // The weights are faces of their own, with the same fallbacks behind them.
     let fallbacks = fonts
