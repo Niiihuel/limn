@@ -1969,6 +1969,7 @@ dependencies = [
  "limn-editor",
  "resvg",
  "sha2",
+ "skrifa",
 ]
 
 [[package]]

@@ -84,7 +84,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, "soft_focus: sharp, then at radii of 1, 2 and 3.5. The radius springs to its new value."),
         ]),
         section(cx, "Unicode fallback", std::iter::once(
-            caption(cx, "Mathematical alphabets: bundled Noto Sans Math fallback in limn-egui; no system font needed."),
+            caption(cx, "Mathematical alphabets and decorative symbols: bundled Noto Math and Symbols 2 fallbacks; no system font needed."),
         ).chain([
             ("Regular", limn::FontFamily::Sans),
             ("Italic", limn::FontFamily::SansItalic),
@@ -92,7 +92,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ("Bold", limn::FontFamily::SansBold),
             ("Monospace", limn::FontFamily::Monospace),
         ].into_iter().map(|(name, family)| {
-            Element::text(format!("{name} · 𝖗𝖚𝖓𝖊 · 𝓡𝓤𝓝𝓔 · 𝐑𝐔𝐍𝐄 · 𝟘𝟙𝟚"))
+            Element::text(format!("{name} · 𝖗𝖚𝖓𝖊 · ╭─ ✦ Lounge ❖ ➜"))
                 .font_family(family)
                 .font_size(16.0)
                 .foreground(palette.text)
