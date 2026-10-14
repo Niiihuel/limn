@@ -155,6 +155,17 @@ This is additional mathematical coverage, not general Unicode shaping,
 CJK coverage or color emoji. No fonts are read from the host's system or
 downloaded at runtime.
 
+Noto Sans Symbols 2 v2.008 follows Math in every family for missing
+decorative symbols, including `✦`, `✧`, `❖` and `➜`. The unmodified,
+unhinted OpenType face adds 404,576 bytes under OFL-1.1, with its release
+source, hashes and full license alongside the Math notices. The Text
+gallery uses synthetic labels to demonstrate the fallback. Neither this
+font nor those tests imply that every user-supplied name is covered.
+The proportional families also reuse egui's already embedded monospace
+fallbacks at the end of their chain, supplying box drawing such as
+`├─│╭╰║` without another font asset. Missing glyphs keep their fallback
+face's advance width.
+
 ## Language
 
 The words the library says by itself, such as the hint of a close button, the
