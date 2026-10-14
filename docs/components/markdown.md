@@ -53,6 +53,19 @@ Markdown::new(source, palette).width(560.0).render()
 `width` is the reading column, kept between 48 and 1,200. A width that is not
 finite reads as 600.
 
+## Text size
+
+```rust
+Markdown::new(source, palette).font_size(state.text_size).render()
+```
+
+`font_size` is the size of body text, 14 unless set. Headings, inline and
+fenced code, list markers and their column, line heights, the space between
+blocks and the note under a cut preview keep their proportion to it: at 21,
+everything is half as large again. A drawn diagram keeps its own size; only
+the words on its card follow. A size that is not finite and positive is
+ignored, and the rest is kept between 8 and 96.
+
 ## Streaming
 
 ```rust

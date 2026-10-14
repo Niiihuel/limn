@@ -3,6 +3,10 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## Unreleased
+
+- Markdown: `font_size` sets the body text, 14 unless set. Headings, inline and fenced code, list markers and their column, line heights and the space between blocks keep their proportion to it; a diagram's drawing keeps its own size. A tree cached at one size is not reused at another
+
 ## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)

@@ -6,7 +6,7 @@ use limn::{
     Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
     Toolbar, ToolbarItem,
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
-    DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Marker, MediaCard, MediaTile,
+    DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
     MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
     SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TextArea,
     TextField, TimePicker, Toast, TreeGuides, TreeRow, UiTree,
@@ -142,6 +142,13 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         );
         lays_out_with_real_numbers("Button::width", Button::new("b", "B", palette).variant(ButtonVariant::Outline).width(bad).render());
         lays_out_with_real_numbers("Slider::width", Slider::new("s", 0.5, palette).width(bad).render());
+        lays_out_with_real_numbers(
+            "Markdown::font_size",
+            Markdown::new("# a\n\n- [b](https://example.test/b)", palette)
+                .font_size(bad)
+                .render()
+                .element,
+        );
     }
 }
 

@@ -191,6 +191,7 @@ let preview = Markdown::new(source, palette).width(reading_width).render();
 | Builder | Effect |
 | --- | --- |
 | `.width(px)` | The reading column, kept between 48 and 1,200; 600 unless set or when not finite. |
+| `.font_size(px)` | The body text, 14 unless set; headings, code, list markers, line heights and the space between blocks keep their proportion to it. Kept between 8 and 96; a size that is not finite and positive is ignored. |
 | `.colors(MarkdownColors)` | The ten inks and fills: `text`, `strong`, `emphasis`, `link`, `code_ink`, `code_fill`, `muted`, `success`, `panel`, `border`. The default, `MarkdownColors::for_palette`, reads the palette and paints strong text like body text. |
 | `.streaming(bool)` | The source is still growing: an unclosed delimiter at its end already styles its text, a half-written fence is held back, and a web address at the end has no action until it is delimited. |
 | `.link_action_prefix(text)` | The start of every link action; `markdown_link:` unless set. |
@@ -236,15 +237,18 @@ Body text is 14 on a 22 line; headings are 22, 18 and 16 at 1.4. A heading
 has 20 above it and 8 below; list items are 4 apart and other blocks 14. A
 list indents 14 per level with a 22 marker column. A quote is a padded panel
 with the surface radius and a 2 px bar; a code block is a `CodeBlock` in
-`CodeBlockSizing::CHAT` on the palette given to `new`.
+`CodeBlockSizing::CHAT` on the palette given to `new`. With another
+`font_size`, each of these numbers but the paddings, the bar and the radii is
+multiplied by `font_size / 14`, and so is the text of a code block and of a
+diagram's card.
 
 ### Notes
 
 - The component stores nothing. Rendered trees are kept by an engine cache on
   the UI thread: 64 complete sources within 4 MB, and the last two streaming
   ones within 512 KB, so an append reuses every block above the one that
-  changed. A tree is reused only for an equal source, width, palette, colors,
-  labels, prefix and limits.
+  changed. A tree is reused only for an equal source, width, text size, palette,
+  colors, labels, prefix and limits.
 - Hold `Markdown::begin_frame(scope, width)` while building a long list of
   messages, so that a miss cannot evict the trees of the rows still to come.
   A new scope or width empties the cache.

@@ -153,11 +153,22 @@ pub(crate) struct MarkdownPresentation {
     limits: MarkdownLimits,
     // Quotes and code blocks bake token radii into the tree; as bits to stay `Eq`.
     radius_bits: [u32; 4],
+    // The body size every text and line height is scaled from, as bits.
+    font_size_bits: u32,
 }
 
 impl MarkdownPresentation {
     fn width(&self) -> f32 {
         f32::from_bits(self.width_bits)
+    }
+
+    fn font_size(&self) -> f32 {
+        f32::from_bits(self.font_size_bits)
+    }
+
+    /// How much larger than the 14 px body everything set in proportion to it is.
+    fn scale(&self) -> f32 {
+        self.font_size() / BODY_SIZE
     }
 
     #[cfg(test)]
@@ -209,6 +220,7 @@ impl<'a> Markdown<'a> {
                     let radius = crate::tokens().radius;
                     [radius.control, radius.surface, radius.card, radius.panel].map(f32::to_bits)
                 },
+                font_size_bits: BODY_SIZE.to_bits(),
             },
             streaming: false,
             plain_line_height: None,
@@ -220,6 +232,17 @@ impl<'a> Markdown<'a> {
     /// width that is not finite reads as 600.
     pub fn width(mut self, width: f32) -> Self {
         self.presentation.width_bits = normalized_width(width).to_bits();
+        self
+    }
+
+    /// The size of body text in logical pixels, 14 unless set. Headings,
+    /// inline and fenced code, list markers, line heights and the space
+    /// between blocks keep their proportion to it. A size that is not finite
+    /// and positive is ignored; the rest is kept between 8 and 96.
+    pub fn font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.presentation.font_size_bits = size.clamp(8.0, 96.0).to_bits();
+        }
         self
     }
 
@@ -399,6 +422,7 @@ fn link_action(prefix: &str, scope: u64, offset: usize, destination: &str) -> St
 /// file paths, code and Markdown syntax remain unchanged.
 fn render_plain(source: &str, presentation: &MarkdownPresentation, line_height: f32) -> Element {
     let colors = presentation.colors;
+    let size = presentation.font_size();
     let mut spans = Vec::new();
     let mut byte = 0;
     let mut character = 0;
@@ -416,12 +440,12 @@ fn render_plain(source: &str, presentation: &MarkdownPresentation, line_height: 
             spans.push(TextSpan::new(
                 &source[byte..before],
                 colors.text,
-                BODY_SIZE,
+                size,
                 FontFamily::Sans,
             ));
         }
         spans.push(
-            TextSpan::new(&source[before..end], colors.link, BODY_SIZE, FontFamily::Sans)
+            TextSpan::new(&source[before..end], colors.link, size, FontFamily::Sans)
                 .icon(link_icon(&url))
                 .action(link_action(
                     presentation.link_action_prefix,
@@ -437,7 +461,7 @@ fn render_plain(source: &str, presentation: &MarkdownPresentation, line_height: 
         spans.push(TextSpan::new(
             &source[byte..],
             colors.text,
-            BODY_SIZE,
+            size,
             FontFamily::Sans,
         ));
     }
@@ -496,8 +520,8 @@ fn render_inline_mode(
     Element::formatted_text(spans)
         .font_family(FontFamily::Sans)
         .font_size(size)
-        .line_height(if size == BODY_SIZE {
-            BODY_LINE_HEIGHT
+        .line_height(if size == presentation.font_size() {
+            BODY_LINE_HEIGHT * presentation.scale()
         } else {
             size * 1.4
         })
@@ -505,13 +529,41 @@ fn render_inline_mode(
 }
 
 fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation) -> Element {
-    CodeBlock::new(content, presentation.palette)
+    let mut block = CodeBlock::new(content, presentation.palette)
         .label(if language.is_empty() {
             presentation.labels.code_fallback.to_owned()
         } else {
             language.to_uppercase()
         })
-        .render()
+        .render();
+    scale_text(&mut block, presentation.scale());
+    block
+}
+
+/// Multiply every text size and line height in a card that sets its text by
+/// role, such as a [`CodeBlock`], so it keeps its proportion to the body.
+fn scale_text(element: &mut Element, scale: f32) {
+    if scale == 1.0 {
+        return;
+    }
+    element.style.font_size *= scale;
+    if let Some(height) = element.style.line_height.as_mut() {
+        *height *= scale;
+    }
+    match &mut element.kind {
+        ElementKind::FormattedText(spans) => {
+            for span in spans {
+                span.font_size *= scale;
+            }
+        }
+        ElementKind::Column(children) | ElementKind::Row(children) => {
+            for child in children {
+                scale_text(child, scale);
+            }
+        }
+        ElementKind::Panel(child) => scale_text(child, scale),
+        _ => {}
+    }
 }
 
 thread_local! {
@@ -596,13 +648,15 @@ fn diagram_block(
     } else {
         chart.scrollable(format!("markdown_diagram:{id:016x}"))
     };
-    Some(
+    let mut card =
         Element::panel(Element::column(vec![Element::row(header).gap(14.0), body]).gap(8.0))
             .padding(12.0)
             .background(palette.raised)
             .border(palette.border, 1.0)
-            .radius(RadiusRole::Card.px()),
-    )
+            .radius(RadiusRole::Card.px());
+    // The drawing keeps its own size; only the card's words follow the body.
+    scale_text(&mut card, presentation.scale());
+    Some(card)
 }
 
 /// One exact slice of the original Markdown source. Pagination limits only
@@ -789,6 +843,7 @@ fn render_markdown_blocks(
 ) -> MarkdownPreview {
     let width = presentation.width();
     let colors = presentation.colors;
+    let (body, scale) = (presentation.font_size(), presentation.scale());
     let mut elements = Vec::with_capacity(blocks.len() + usize::from(truncated));
     for (index, block) in blocks.iter().enumerate() {
         let incomplete = incomplete_block == Some(index);
@@ -817,18 +872,19 @@ fn render_markdown_blocks(
         }
         let element = match block {
             Block::Heading(level, text) => {
-                let size = match level {
-                    1 => 22.0,
-                    2 => 18.0,
-                    _ => 16.0,
-                };
+                let size = scale
+                    * match level {
+                        1 => 22.0,
+                        2 => 18.0,
+                        _ => 16.0,
+                    };
                 render_inline_mode(text, width, size, incomplete, url_tail_complete, presentation)
             }
             Block::Paragraph(text) => {
                 render_inline_mode(
                     text,
                     width,
-                    BODY_SIZE,
+                    body,
                     incomplete,
                     url_tail_complete,
                     presentation,
@@ -841,24 +897,24 @@ fn render_markdown_blocks(
                     ListMarker::Done => ("✓".to_owned(), colors.success),
                     ListMarker::Todo => ("○".to_owned(), colors.muted),
                 };
-                let indent = (*depth as f32 * 14.0).min((width - 48.0).max(0.0));
+                let indent = (*depth as f32 * 14.0 * scale).min((width - 48.0).max(0.0));
                 Element::row(vec![
                     Element::spacer().size(Some(indent), Some(1.0)),
                     Element::formatted_text(vec![TextSpan::new(
                         label,
                         color,
-                        BODY_SIZE,
+                        body,
                         FontFamily::Sans,
                     )])
                     .font_family(FontFamily::Sans)
-                    .font_size(BODY_SIZE)
-                    .line_height(BODY_LINE_HEIGHT)
+                    .font_size(body)
+                    .line_height(BODY_LINE_HEIGHT * scale)
                     .foreground(color)
-                    .size(Some(22.0), None),
+                    .size(Some(22.0 * scale), None),
                     render_inline_mode(
                         text,
                         width - indent - 28.0,
-                        BODY_SIZE,
+                        body,
                         incomplete,
                         url_tail_complete,
                         presentation,
@@ -876,7 +932,7 @@ fn render_markdown_blocks(
                     render_inline_mode(
                         text,
                         width - 28.0,
-                        BODY_SIZE,
+                        body,
                         incomplete,
                         url_tail_complete,
                         presentation,
@@ -905,7 +961,7 @@ fn render_markdown_blocks(
         // One root per source block keeps streaming reconciliation stable.
         // List rows stay compact while prose and headings have their own rhythm.
         elements.push(Element::column(vec![
-            Element::spacer().size(None, Some(spacing)),
+            Element::spacer().size(None, Some(spacing * scale)),
             element,
         ]));
     }
@@ -913,7 +969,7 @@ fn render_markdown_blocks(
         elements.push(
             Element::text(presentation.labels.truncated_note)
                 .font_family(FontFamily::Sans)
-                .font_size(11.0)
+                .font_size(11.0 * scale)
                 .foreground(colors.muted),
         );
     }
@@ -1940,14 +1996,221 @@ mod tests {
     #[test]
     fn nothing_escapes_a_narrow_column() {
         let source = "# Encabezado largo que debe partirse\n\nUn párrafo con `código`, **énfasis** y un [enlace](https://example.test/una/ruta/larga).\n\n- uno\n  - dos\n\n> cita\n\n```rust\nfn main() {}\n```";
-        for width in [120.0, 360.0, 900.0] {
-            let element = Markdown::new(source, palette()).width(width).render().element;
+        for (width, size) in [120.0, 360.0, 900.0]
+            .into_iter()
+            .flat_map(|width| [(width, 14.0), (width, 28.0)])
+        {
+            let element = Markdown::new(source, palette())
+                .width(width)
+                .font_size(size)
+                .render()
+                .element;
             for command in commands(element, width) {
                 if let DrawCommand::Text { position, .. } = command {
-                    assert!(position.x >= 0.0 && position.x < width, "{width}: {position:?}");
+                    assert!(
+                        position.x >= 0.0 && position.x < width,
+                        "{width} at {size}: {position:?}"
+                    );
                 }
             }
         }
+    }
+
+    fn painted_size(commands: &[DrawCommand], value: &str) -> f32 {
+        commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Text {
+                    text, font_size, ..
+                } if text.trim() == value => Some(*font_size),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("no text {value:?}"))
+    }
+
+    #[test]
+    fn font_size_scales_the_body_and_everything_set_from_it() {
+        let source = "# Uno\n\nDos `tres` [cuatro](https://example.test/a)\n\n- cinco\n\n> seis\n\n```rust\nsiete\n```\n\n```mermaid\nflowchart LR\n  A[Ocho] --> B[Nueve]\n```";
+        let build = |size: f32| {
+            Markdown::new(source, palette())
+                .width(480.0)
+                .font_size(size)
+        };
+        let normal = commands(build(14.0).render().element, 480.0);
+        let large = commands(build(21.0).render().element, 480.0);
+        // Headings, prose, inline code, links, markers, quotes, code blocks and a diagram's card.
+        for text in [
+            "Uno", "Dos", "tres", "cuatro", "•", "cinco", "seis", "RUST", "siete", "DIAGRAM",
+        ] {
+            assert_eq!(
+                painted_size(&large, text),
+                painted_size(&normal, text) * 1.5,
+                "{text}"
+            );
+        }
+        assert_eq!(painted_size(&normal, "Dos"), BODY_SIZE);
+        // The drawing keeps its own size.
+        assert_eq!(painted_size(&large, "Ocho"), painted_size(&normal, "Ocho"));
+
+        let mut tree = UiTree::new(Element::column(vec![
+            build(21.0).render().element,
+            Element::spacer().flex(1.0),
+        ]));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(480.0, 2_000.0));
+        let blocks = frame.text_layouts();
+        let run = |source: &str| {
+            blocks
+                .iter()
+                .find(|block| block.source.starts_with(source))
+                .unwrap()
+                .runs[0]
+                .rect
+        };
+        assert_eq!(run("Dos").height, BODY_LINE_HEIGHT * 1.5);
+        assert_eq!(run("Uno").height, 22.0 * 1.5 * 1.4);
+        // The marker still sits on the line of its item, and the space above a block grows too.
+        assert_eq!(run("•").y, run("cinco").y);
+        assert!(run("Dos").y - (run("Uno").y + run("Uno").height) >= 8.0 * 1.5);
+        // The link answers the pointer where it is drawn at the new size.
+        let link = frame
+            .regions
+            .iter()
+            .find(|region| region.id.starts_with("markdown_link:"))
+            .unwrap();
+        let (id, rect) = (link.id.clone(), link.rect);
+        assert!(rect.height >= 21.0);
+        let center = crate::Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+        tree.handle_event(crate::UiEvent::PointerDown(center));
+        assert_eq!(
+            tree.handle_event(crate::UiEvent::PointerUp(center)),
+            vec![crate::UiAction::Clicked { id }]
+        );
+
+        // The literal mode and the note under a cut preview follow it as well.
+        let plain = Markdown::new("ver https://example.test/a", palette())
+            .font_size(20.0)
+            .plain_with_autolinks(28.0)
+            .render();
+        let plain = commands(plain.element, 480.0);
+        assert_eq!(
+            (
+                painted_size(&plain, "ver"),
+                painted_size(&plain, "https://example.test/a")
+            ),
+            (20.0, 20.0)
+        );
+        let cut = build(21.0)
+            .limits(MarkdownLimits {
+                source_chars: 20_000,
+                blocks: 1,
+            })
+            .render()
+            .element;
+        assert_eq!(
+            painted_size(
+                &commands(cut, 480.0),
+                MarkdownLabels::default().truncated_note
+            ),
+            11.0 * 1.5
+        );
+    }
+
+    #[test]
+    fn a_larger_list_marker_keeps_to_its_column() {
+        let element = Markdown::new("10. diez", palette())
+            .width(480.0)
+            .font_size(28.0)
+            .render()
+            .element;
+        let mut tree = UiTree::new(Element::column(vec![element, Element::spacer().flex(1.0)]));
+        tree.set_text_measurer(|text, size, _| text.chars().count() as f32 * size * 0.5);
+        let blocks = tree.layout(Size::new(480.0, 400.0)).text_layouts();
+        let runs = |source: &str| {
+            blocks
+                .iter()
+                .find(|block| block.source == source)
+                .unwrap()
+                .runs
+                .clone()
+        };
+        // At 28 px "10." is 42 wide: more than the 22 px column of a 14 px body.
+        let (marker, item) = (runs("10."), runs("diez")[0].rect);
+        assert_eq!(marker.len(), 1, "the marker wrapped: {marker:?}");
+        assert!(
+            marker[0].rect.x + marker[0].rect.width <= item.x,
+            "{marker:?} {item:?}"
+        );
+    }
+
+    #[test]
+    fn a_bad_font_size_is_ignored_and_the_rest_is_kept_between_8_and_96() {
+        let used = |markdown: Markdown<'_>| markdown.presentation.font_size();
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, 0.0, -3.0] {
+            assert_eq!(
+                used(Markdown::new("", palette()).font_size(bad)),
+                BODY_SIZE,
+                "{bad}"
+            );
+            assert_eq!(
+                used(Markdown::new("", palette()).font_size(18.0).font_size(bad)),
+                18.0,
+                "{bad}"
+            );
+            let element = Markdown::new("# a\n\n- b", palette())
+                .font_size(bad)
+                .render()
+                .element;
+            for command in commands(element, 320.0) {
+                if let DrawCommand::Text {
+                    position,
+                    font_size,
+                    ..
+                } = command
+                {
+                    assert!(
+                        position.x.is_finite() && position.y.is_finite() && font_size.is_finite()
+                    );
+                }
+            }
+        }
+        assert_eq!(used(Markdown::new("", palette()).font_size(1.0)), 8.0);
+        assert_eq!(used(Markdown::new("", palette()).font_size(1.0e9)), 96.0);
+        assert_eq!(used(Markdown::new("", palette()).font_size(17.5)), 17.5);
+    }
+
+    #[test]
+    fn another_font_size_is_another_cache_entry_and_no_stream_reuses_a_block_across_sizes() {
+        MARKDOWN_CACHES.with(|caches| *caches.borrow_mut() = MarkdownCaches::new());
+        let complete = |size: f32| {
+            Markdown::new("uno", palette())
+                .width(320.0)
+                .font_size(size)
+                .render()
+                .element
+        };
+        assert_eq!(painted_size(&commands(complete(14.0), 320.0), "uno"), 14.0);
+        assert_eq!(painted_size(&commands(complete(20.0), 320.0), "uno"), 20.0);
+        assert_eq!(painted_size(&commands(complete(14.0), 320.0), "uno"), 14.0);
+        MARKDOWN_CACHES.with(|caches| assert_eq!(caches.borrow().completed.entries.len(), 2));
+
+        let streaming = |source: &str, size: f32| {
+            Markdown::new(source, palette())
+                .width(640.0)
+                .streaming(true)
+                .font_size(size)
+                .render()
+                .element
+        };
+        let _ = streaming("Uno\n\nDos", 14.0);
+        INLINE_PARSE_COUNT.with(|count| count.set(0));
+        let grown = streaming("Uno\n\nDos tres", 20.0);
+        assert_eq!(
+            INLINE_PARSE_COUNT.with(|count| count.get()),
+            2,
+            "a block of another size is built again"
+        );
+        assert_eq!(painted_size(&commands(grown, 640.0), "Uno"), 20.0);
     }
 
     #[test]
