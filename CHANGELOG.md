@@ -9,6 +9,7 @@ in any release.
 - `UiTree::visible_rows(id)`: the rows of a uniform or a measured list built at the last layout
 - `ScalarTransition::shift`: moves a transition's start and end by the same amount, keeping its pace
 - `UniformList` has a public `measured` field; code that builds the struct literally adds `measured: None`
+- `TextArea::enter_submits`, `Composer::enter_submits` and `Element::text_area_enter_submits`: Enter sends and Shift+Enter breaks the line, as in a chat; Ctrl+Enter sends either way. Off by default
 
 ## 0.1.41 — 2026-10-13
 

@@ -1695,6 +1695,7 @@ pub struct TextArea {
     radius: RadiusRole,
     state: ControlState,
     preserve_line_endings: bool,
+    enter_submits: bool,
     accessibility_label: Option<String>,
 }
 
@@ -1717,8 +1718,17 @@ impl TextArea {
             radius: RadiusRole::Control,
             state: ControlState::Enabled,
             preserve_line_endings: false,
+            enter_submits: false,
             accessibility_label: None,
         }
+    }
+
+    /// Make Enter report `Submitted` and Shift+Enter break the line, as a chat
+    /// composer does; Ctrl+Enter submits either way. Off by default: Enter
+    /// breaks the line.
+    pub fn enter_submits(mut self, submits: bool) -> Self {
+        self.enter_submits = submits;
+        self
     }
 
     /// What the field is called to the platform, in place of its
@@ -1805,6 +1815,7 @@ impl Component for TextArea {
         }
         let area = Element::text_area(self.id, self.value, self.placeholder)
             .text_area_preserve_line_endings(self.preserve_line_endings)
+            .text_area_enter_submits(self.enter_submits)
             .background(self.palette.raised)
             .hover_background(lighter(self.palette.raised, 5))
             .border(self.palette.border, 1.0)

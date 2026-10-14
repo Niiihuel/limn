@@ -49,6 +49,21 @@ TextArea::new("message", &state.message, "Message", palette)
 `radius` rounds the box with another radius token. The default is
 `RadiusRole::Control`.
 
+## Sending on Enter
+
+```rust
+TextArea::new("message", &state.message, "Message #general", palette)
+    .enter_submits(true)
+    .render()
+```
+
+`enter_submits(true)` makes the area a chat composer: Enter reports
+`Submitted` with the text and Shift+Enter adds a line. Ctrl+Enter submits
+either way. The host clears the field after sending with
+`tree.set_input_value(id, "")`. `Composer::enter_submits` does the same for
+the composer's editor, and `Element::text_area_enter_submits` for a bare
+`Element::text_area`.
+
 ## Line endings
 
 `preserve_line_endings(true)` keeps CRLF and CR line endings through editing
@@ -68,7 +83,8 @@ text is empty, and is not an input: it reports nothing.
 
 | Key | Effect |
 | --- | --- |
-| Enter | Adds a line |
+| Enter | Adds a line; with `enter_submits(true)`, reports `Submitted` with the text |
+| Shift+Enter | Adds a line |
 | Ctrl+Enter | Reports `Submitted` with the text |
 | Home, End | Move the caret to either edge of its line; with Ctrl, of the text |
 | Ctrl+A | Selects everything |
@@ -78,7 +94,7 @@ text is empty, and is not an input: it reports nothing.
 | Action | When |
 | --- | --- |
 | `UiAction::InputChanged { id, value }` | The text changes. |
-| `UiAction::Submitted { id, value }` | Ctrl+Enter is pressed in the area. |
+| `UiAction::Submitted { id, value }` | Ctrl+Enter is pressed in the area, or Enter with `enter_submits(true)`. |
 
 ## Accessibility
 

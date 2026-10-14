@@ -25,6 +25,7 @@ pub struct Composer {
     pill_controls: Option<(Element, Element)>,
     inline_controls: bool,
     editor_font_size: f32,
+    enter_submits: bool,
     editor_action: Option<Element>,
     editor_highlights: Vec<TextHighlight>,
     link_preview: Option<Element>,
@@ -65,6 +66,7 @@ impl Composer {
             pill_controls: None,
             inline_controls: false,
             editor_font_size: 13.0,
+            enter_submits: false,
             editor_action: None,
             editor_highlights: Vec::new(),
             link_preview: None,
@@ -153,6 +155,14 @@ impl Composer {
         if size.is_finite() && size > 0.0 {
             self.editor_font_size = size;
         }
+        self
+    }
+
+    /// Make Enter send what was written and Shift+Enter break the line, as a chat
+    /// does: the editor reports `Submitted` on Enter. Ctrl+Enter sends either way.
+    /// Off by default: Enter breaks the line.
+    pub fn enter_submits(mut self, submits: bool) -> Self {
+        self.enter_submits = submits;
         self
     }
 
@@ -265,6 +275,7 @@ impl Composer {
         let (id, prompt, placeholder) = (self.editor_id, self.prompt, self.placeholder);
         let (highlights, palette, enabled) = (self.editor_highlights, self.palette, self.enabled);
         let (font_size, height, auto_grow) = (self.editor_font_size, self.editor_height, self.auto_grow);
+        let enter_submits = self.enter_submits;
         let editor = move |padding: f32| {
             if !enabled {
                 // Text in the editor's box, as a disabled `TextArea` is: no
@@ -297,6 +308,7 @@ impl Composer {
             }
             let editor = Element::text_area(id, prompt, placeholder)
                 .text_area_highlights(highlights)
+                .text_area_enter_submits(enter_submits)
                 .background(palette.selected)
                 .foreground(palette.text)
                 .font_family(FontFamily::Sans)

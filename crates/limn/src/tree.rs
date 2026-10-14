@@ -2406,6 +2406,8 @@ struct InputState {
     keep_cursor_visible: bool,
     desired_column: Option<usize>,
     preserve_line_endings: bool,
+    /// Enter submits and Shift+Enter breaks the line.
+    enter_submits: bool,
     password: bool,
 }
 
@@ -2432,6 +2434,7 @@ impl InputState {
             keep_cursor_visible: true,
             desired_column: None,
             preserve_line_endings: false,
+            enter_submits: false,
             password: false,
         }
     }
@@ -5610,7 +5613,10 @@ impl UiTree {
                                 false
                             }
                             Key::Enter => {
-                                if multiline && !ctrl {
+                                // A chat composer breaks the line on Shift+Enter;
+                                // any other text area on Enter alone.
+                                let breaks = !ctrl && (!input.enter_submits || shift);
+                                if multiline && breaks {
                                     input.insert("\n", true)
                                 } else {
                                     actions.push(UiAction::Submitted {
@@ -10785,6 +10791,7 @@ impl LayoutBuilder<'_> {
                 initial_value,
                 placeholder,
                 preserve_line_endings,
+                enter_submits,
                 highlights,
                 ..
             } => {
@@ -10808,6 +10815,7 @@ impl LayoutBuilder<'_> {
                     })
                 });
                 state.preserve_line_endings = *preserve_line_endings;
+                state.enter_submits = *enter_submits;
                 if !state.preserve_line_endings && state.value.contains('\r') {
                     state.value = state.value.replace("\r\n", "\n").replace('\r', "\n");
                     state.cursor = state.value.chars().count();

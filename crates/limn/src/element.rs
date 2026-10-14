@@ -1482,6 +1482,10 @@ pub enum ElementKind {
         auto_grow: Option<f32>,
         /// Keep CRLF/CR bytes in editable values instead of normalizing to LF.
         preserve_line_endings: bool,
+        /// Enter submits and Shift+Enter breaks the line, as in a chat
+        /// composer, instead of the other way round; see
+        /// [`Element::text_area_enter_submits`].
+        enter_submits: bool,
         /// Paint-only ranges over `initial_value`, 64 at most. None is painted
         /// while the edited value differs from it.
         highlights: Vec<TextHighlight>,
@@ -2735,6 +2739,7 @@ impl Element {
     }
 
     /// A multi-line editor. Enter inserts a line break; Ctrl+Enter submits.
+    /// [`Element::text_area_enter_submits`] turns it into a chat composer's.
     pub fn text_area(
         id: impl Into<String>,
         initial_value: impl Into<String>,
@@ -2746,9 +2751,20 @@ impl Element {
             placeholder: placeholder.into(),
             auto_grow: None,
             preserve_line_endings: false,
+            enter_submits: false,
             highlights: Vec::new(),
         })
         .padding(8.0)
+    }
+
+    /// Make Enter submit a text area and Shift+Enter break the line, as a
+    /// chat composer does; Ctrl+Enter still submits. Without it Enter breaks
+    /// the line and Ctrl+Enter submits. Does nothing on another element.
+    pub fn text_area_enter_submits(mut self, submits: bool) -> Self {
+        if let ElementKind::TextArea { enter_submits, .. } = &mut self.kind {
+            *enter_submits = submits;
+        }
+        self
     }
 
     /// Size a multiline editor from its wrapped lines and the host's font

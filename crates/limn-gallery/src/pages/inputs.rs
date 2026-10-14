@@ -166,6 +166,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(width)
                 .height(120.0)
                 .render(),
+            caption(cx, ".enter_submits(true): Enter sends, Shift+Enter adds a line"),
+            TextArea::new("input-notes-chat", state.text("input-notes-chat"), "Message #general", palette)
+                .width(width)
+                .height(64.0)
+                .enter_submits(true)
+                .render(),
             caption(cx, ".radius(RadiusRole::Surface), and disabled"),
             TextArea::new("input-notes-surface", state.text("input-notes-surface"), "Message", palette)
                 .width(width)
