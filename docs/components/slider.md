@@ -54,15 +54,17 @@ Slider::new("font-size", state.font_size, palette)
 
 `marks()` draws a hairline across the track at each stop, behind the thumb,
 in the palette's border color. `mark_labels` names the stops from the first,
-in 12 pixel muted text over the track, and draws the marks too. The labels at
-the ends line up with the ends of the slider; the others center on their
-stop. Labels past the last stop are ignored, and an empty one leaves its stop
-unnamed.
+in 12 pixel muted text over the track, and draws the marks too. Each label is
+one line. The labels at the ends line up with the ends of the slider; the
+others center on their stop. Labels past the last stop are ignored, and an
+empty one leaves its stop unnamed.
 
 `default_stop(i)` shows the label of stop `i`, counted from 0, in the
 slider's ink: the value the setting has until it is changed.
 
 Without `steps` of 2 or more there are no stops, so neither marks nor labels.
+Past 100 stops there are no marks: that close together they would only gray
+the track. The labels still show.
 
 ## Ink
 
@@ -79,8 +81,8 @@ of the palette's text.
 Slider::new("volume", state.volume, palette).enabled(false).render()
 ```
 
-A disabled slider shows its value and takes no pointer or focus. Its fill,
-its thumb and every label are in the muted color.
+A disabled slider shows its value and takes no pointer or focus. It has no
+thumb, and its fill and every label are in the muted color.
 
 ## Keyboard
 
@@ -110,6 +112,9 @@ nearest one during a drag, as its value in words: "16px".
 
 ## Limits
 
-Labels do not move apart when they are too wide for their stops: in a narrow
-slider with long labels, neighbours overlap. Give it the width its labels
-need.
+Labels do not move apart or wrap when they are too wide for their stops, and
+the track stays where it is. A label centers on its stop only while it is no
+wider than twice the way from its stop to the nearer end stop; a wider one
+starts that way left of its stop and runs on to the right, over its
+neighbours, and past the slider's end if it must. Give the slider the width
+its labels need.

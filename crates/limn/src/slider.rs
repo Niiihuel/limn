@@ -11,6 +11,9 @@ const MARK: f32 = 1.0;
 /// The text size of a stop's label, and the space between the labels and the track.
 const LABEL_SIZE: f32 = 12.0;
 const LABEL_GAP: f32 = 4.0;
+/// Past this many stops there are no marks: that close together they would
+/// only gray the track, and each is an element to lay out.
+const MAX_MARKS: usize = 100;
 
 /// The host owns the value: it passes `fraction` on every rebuild and applies
 /// each `SliderChanged`. `committed` is false while the pointer is down and
@@ -91,17 +94,20 @@ impl Slider {
 
     /// Draw a mark across the track at each stop, behind the thumb, in the
     /// palette's border color. Without `steps` of 2 or more there are no
-    /// stops, so no marks.
+    /// stops, so no marks, and past 100 stops there are none either.
     pub fn marks(mut self) -> Self {
         self.marks = true;
         self
     }
 
     /// Name the stops, from the first: a label in the muted color over each,
-    /// which also draws the marks. The labels at the ends line up with the
-    /// ends of the slider, the others center on their stop. Labels past the
-    /// last stop are ignored and an empty one leaves its stop unnamed. The
-    /// platform is told the label of the stop the value is on.
+    /// which also draws the marks. Each is one line. The labels at the ends
+    /// line up with the ends of the slider. Any other centers on its stop
+    /// when it is no wider than twice the way from its stop to the nearer
+    /// end stop; a wider one starts that way left of its stop and runs on to
+    /// the right, over its neighbours. Labels past the last stop are ignored
+    /// and an empty one leaves its stop unnamed. The platform is told the
+    /// label of the stop the value is on.
     pub fn mark_labels<I, S>(mut self, labels: I) -> Self
     where
         I: IntoIterator<Item = S>,
@@ -167,7 +173,7 @@ impl Component for Slider {
         let stops = if self.steps >= 2 { self.steps } else { 0 };
         let mut labels = self.labels;
         labels.truncate(stops);
-        if stops > 0 && (self.marks || !labels.is_empty()) {
+        if (2..=MAX_MARKS).contains(&stops) && (self.marks || !labels.is_empty()) {
             // Each mark's center is a stop: half a thumb in from the ends,
             // with even shares of the rest between them.
             let edge = || Element::spacer().size(Some((THUMB - MARK) / 2.0), None);
@@ -205,8 +211,8 @@ impl Component for Slider {
         }
         .size(self.width, Some(HEIGHT))
         .accessible(access);
-        // Each label is a layer of its own, so a long one may reach past its
-        // neighbours' share without moving them.
+        // Each label is a layer of its own, so a long one may reach over its
+        // neighbours without moving them.
         let layers: Vec<Element> = labels
             .into_iter()
             .enumerate()
@@ -221,14 +227,18 @@ impl Component for Slider {
                 match stop {
                     0 => Element::row(vec![text, share(1)]),
                     _ if stop == last => Element::row(vec![share(1), text]),
-                    // Two stops wide, centered on its own.
-                    _ => Element::row(vec![
-                        edge(),
-                        share(stop - 1),
-                        text.center_content().flex(2.0),
-                        share(last - stop - 1),
-                        edge(),
-                    ]),
+                    // Centered in the widest room around its stop the slider
+                    // has, on one line: in a row the text keeps its natural width.
+                    _ => {
+                        let room = stop.min(last - stop);
+                        Element::row(vec![
+                            edge(),
+                            share(stop - room),
+                            text.centered_x().flex(2.0 * room as f32),
+                            share(last - stop - room),
+                            edge(),
+                        ])
+                    }
                 }
             })
             .collect();
@@ -440,11 +450,24 @@ mod tests {
             assert_eq!((rect.height, rect.y + rect.height / 2.0, color), (THUMB, HEIGHT / 2.0, palette.border));
             assert!(index < thumb, "the thumb covers the mark it rests on");
         }
-        // A slider that fills its row puts them on its own stops.
-        let frame = frame_of(Slider::new("s", 0.5, palette).steps(3).marks());
-        let width = frame.regions[0].rect.width;
-        let centers: Vec<_> = marks(&frame).iter().map(|mark| mark.1.x + MARK / 2.0).collect();
-        assert_eq!(centers, [0, 1, 2].map(|stop| stop_center(width, stop, 3)));
+        // A slider without a width fills its column and puts them on its own stops.
+        let mut tree = UiTree::new(Element::column(vec![Slider::new("s", 0.5, palette).steps(3).marks().render()]));
+        let frame = tree.layout(Size::new(400.0, 100.0));
+        assert_eq!(frame.regions[0].rect.width, 400.0);
+        let drawn = marks(&frame);
+        assert_eq!(drawn.len(), 3);
+        for (stop, (_, rect, _)) in drawn.into_iter().enumerate() {
+            assert!((rect.x + MARK / 2.0 - stop_center(400.0, stop, 3)).abs() < 0.01, "stop {stop} at {rect:?}");
+        }
+    }
+
+    #[test]
+    fn past_a_hundred_stops_there_are_no_marks_and_the_labels_stay() {
+        let palette = ComponentPalette::neutral_dark();
+        let count = |steps| marks(&frame_of(Slider::new("s", 0.5, palette).width(WIDTH).steps(steps).marks())).len();
+        assert_eq!((count(100), count(101), count(usize::MAX)), (100, 0, 0));
+        let frame = frame_of(Slider::new("s", 0.5, palette).width(WIDTH).steps(1_000_000).mark_labels(["low", "high"]));
+        assert_eq!((marks(&frame).len(), labels(&frame).len()), (0, 2));
     }
 
     #[test]
@@ -539,6 +562,32 @@ mod tests {
         for (text, at, _) in drawn {
             assert!(at.x >= 0.0 && at.x + text.chars().count() as f32 * CHAR <= 60.0, "{text} at {at:?}");
         }
+    }
+
+    #[test]
+    fn a_label_wider_than_its_room_stays_on_one_line_and_never_moves_the_track() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = |names: [&str; 11]| frame_of(Slider::new("s", 0.5, palette).width(200.0).steps(11).mark_labels(names));
+        let mut names = [""; 11];
+        names[0] = "0";
+        names[10] = "100";
+        let track = frame(names).regions[0].rect.y;
+        // "Default" is 49 pixels and a stop is 18.8 apart. In the middle its
+        // room is ten stops; at the second stop it is two, so it starts a stop
+        // to the left and runs on over the third.
+        names[5] = "Default";
+        names[1] = "Default";
+        let frame = frame(names);
+        let drawn = labels(&frame);
+        assert_eq!(drawn.iter().map(|label| label.0).collect::<Vec<_>>(), ["0", "Default", "Default", "100"]);
+        assert!(drawn.iter().all(|label| label.1.y == drawn[0].1.y), "one line each: {drawn:?}");
+        assert!((drawn[1].1.x - stop_center(200.0, 0, 11)).abs() < 0.01, "{:?}", drawn[1]);
+        assert!((drawn[2].1.x + 49.0 / 2.0 - stop_center(200.0, 5, 11)).abs() < 0.01, "{:?}", drawn[2]);
+        assert_eq!(frame.regions[0].rect.y, track);
+        // Nor in a slider narrower than its labels.
+        let narrow = frame_of(Slider::new("s", 0.5, palette).width(40.0).steps(3).mark_labels(["Small", "Medium", "Large"]));
+        assert_eq!(labels(&narrow).iter().map(|label| label.0).collect::<Vec<_>>(), ["Small", "Medium", "Large"]);
+        assert_eq!(narrow.regions[0].rect.y, track);
     }
 
     #[test]

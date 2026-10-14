@@ -54,7 +54,10 @@ Switch::new("embeds", state.embeds, palette).variant(SwitchVariant::Accent)
 | `Accent` | A light thumb on a track of the palette's `link` color | The same thumb on the palette's muted color |
 
 `Accent` is how chat applications draw a switch. Its thumb is the lightest
-color the palette has: its text on a dark palette, its surface on a light one.
+color the palette has, at full strength: its text on a dark palette, its
+surface on a light one. Its track, on or off, is darkened where needed until
+the thumb stands at a contrast of 3 or more on it, the least a part that shows
+state needs.
 
 ## Ink
 
@@ -62,8 +65,9 @@ color the palette has: its text on a dark palette, its surface on a light one.
 Switch::new("embeds", state.embeds, palette).variant(SwitchVariant::Accent).ink(theme.accent)
 ```
 
-`ink` is the track's color while the switch is on, in either variant. Choose
-one the thumb reads on: a light thumb disappears on a pale ink.
+`ink` is the track's color while the switch is on, in either variant. On
+`Accent` a pale ink is darkened as the `link` color is. On `Default` it is
+used as given, so choose one its thumb, the palette's surface, reads on.
 
 ## Disabled
 

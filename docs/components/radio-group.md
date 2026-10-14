@@ -9,7 +9,7 @@ be read before choosing; for a few short ones in little space, a
 ## Import
 
 ```rust
-use limn::{Component, RadioGroup, RadioOption};
+use limn::{Component, Icon, RadioGroup, RadioOption};
 ```
 
 ## Usage

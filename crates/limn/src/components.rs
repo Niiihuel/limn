@@ -2034,11 +2034,12 @@ pub enum SwitchVariant {
     /// `ink`; off, a thumb of the palette's text on its selected fill.
     #[default]
     Default,
-    /// A thumb of the palette's lightest color, the text of a dark palette
-    /// and the surface of a light one, on and off: on a track of the ink,
-    /// which is the palette's `link` color unless `ink` says otherwise, and
-    /// off on the palette's muted color. This is how chat applications draw
-    /// a switch.
+    /// A thumb of the palette's lightest color at full strength, the text of
+    /// a dark palette and the surface of a light one, on and off: on a track
+    /// of the ink, which is the palette's `link` color unless `ink` says
+    /// otherwise, and off on the palette's muted color. Either track is
+    /// darkened where needed until the thumb stands at a contrast of 3 or
+    /// more on it. This is how chat applications draw a switch.
     Accent,
 }
 
@@ -2088,7 +2089,8 @@ impl Switch {
     }
 
     /// The track's color while the switch is on, in place of the palette's
-    /// text, or of its `link` color for `SwitchVariant::Accent`.
+    /// text, or of its `link` color for `SwitchVariant::Accent`, which
+    /// darkens it where needed for its light thumb to read on it.
     pub fn ink(mut self, color: Color) -> Self {
         self.ink = Some(color);
         self
@@ -2133,8 +2135,11 @@ impl Component for Switch {
             (SwitchVariant::Default, true) => (palette.surface, self.ink.unwrap_or(palette.text)),
             (SwitchVariant::Default, false) => (palette.text, palette.selected),
             (SwitchVariant::Accent, checked) => {
+                // At full strength, and on a track darkened until it reads at 3:1, as state must.
                 let light = if palette.is_dark() { palette.text } else { palette.surface };
-                (light, if checked { self.ink.unwrap_or_else(|| palette.link()) } else { palette.muted })
+                let light = Color::rgb(light.r, light.g, light.b);
+                let track = if checked { self.ink.unwrap_or_else(|| palette.link()) } else { palette.muted };
+                (light, crate::chip::readable_ink(track, light, 3.0))
             }
         };
         // The thumb is the strip's selection indicator: it slides between the
@@ -5006,18 +5011,32 @@ mod tests {
             shadow: Color::rgba(0, 0, 0, 40),
         };
         let ink = Color::rgb(88, 101, 242);
+        // A theme's text and muted color are translucent; its thumb is the foreground at full strength.
+        let theme = crate::Theme::DARK.palette();
         // The thumb is the palette's lightest color: its text on a dark one, its surface on a light one.
-        for (palette, thumb) in [(dark, dark.text), (light, light.surface)] {
+        for (palette, thumb) in [(dark, dark.text), (light, light.surface), (theme, Color::rgb(255, 255, 255))] {
             let accent = |checked| Switch::new("s", checked, palette).variant(SwitchVariant::Accent);
             let paint = |switch: Switch| {
                 let ((_, track), (_, thumb)) = switch_paint(switch);
                 (track, thumb)
             };
-            assert_eq!(paint(accent(true)), (palette.link(), thumb));
-            assert_eq!(paint(accent(true).ink(ink)), (ink, thumb));
-            assert_eq!(paint(accent(false).ink(ink)), (palette.muted, thumb));
-            assert_eq!(paint(accent(true).disabled()), (palette.link(), thumb), "disabled, it keeps its paint");
+            // A pale ink, such as the gallery theme's accent, is darkened like the link color.
+            let pale = Color::rgb(25, 170, 216);
+            for switch in [accent(true), accent(false), accent(true).ink(pale)] {
+                let (track, drawn) = paint(switch);
+                assert_eq!(drawn, thumb);
+                let contrast = crate::chip::contrast(thumb, track);
+                assert!(contrast >= 3.0, "{palette:?}: {track:?} at {contrast}");
+            }
+            for checked in [true, false] {
+                assert_eq!(paint(accent(checked).disabled()), paint(accent(checked)), "disabled, it keeps its paint");
+            }
+            assert_eq!(paint(accent(true).ink(ink)), (ink, thumb), "an ink that reads is kept");
+            assert_eq!(paint(accent(false).ink(ink)), paint(accent(false)));
         }
+        // Where the link and muted colors already read, they are the track.
+        let paint = |checked| switch_paint(Switch::new("s", checked, light).variant(SwitchVariant::Accent)).0 .1;
+        assert_eq!((paint(true), paint(false)), (light.link(), light.muted));
         // The default variant takes the ink for its track and keeps its own thumb.
         let paint = |checked| {
             let ((_, track), (_, thumb)) = switch_paint(Switch::new("s", checked, dark).ink(ink));
