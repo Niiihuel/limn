@@ -8628,7 +8628,11 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::Row(children) if element.wrapping_line_gap().is_some() => {
                 let line_gap = element.wrapping_line_gap().unwrap_or_default();
-                let lines = Rect::new(0.0, 0.0, inner.width, 0.0);
+                // Wrap at the width it is placed at, which `max_width` caps.
+                let max = style
+                    .max_width
+                    .map_or(f32::INFINITY, |max| (max - padding).max(0.0));
+                let lines = Rect::new(0.0, 0.0, inner.width.min(max), 0.0);
                 let (width, height) = self
                     .wrap_rects(children, lines, style.gap, line_gap)
                     .iter()

@@ -85,9 +85,11 @@ Element::row(tags).gap(6.0).line_gap(10.0).wrap()  // lines 10 px apart
 | Order | Tab and assistive technology take the children in the order given, line after line, and the pointer finds each where it is drawn. |
 
 A wrapping row needs a width to wrap at. In a column it has the column's.
-In another row, give it `.flex(1.0)` or `.shrink_to_fit()`: like any child of
-a row, it otherwise takes its natural width, which is all of its children on
-one line.
+In another row, give it `.flex(1.0)`, `.shrink_to_fit()` or `.max_width(w)`:
+like any child of a row, it otherwise takes its natural width, which is all
+of its children on one line. Unlike other content, a wrapping row is
+re-wrapped at its `max_width`, and its height counts the lines it makes
+there.
 
 Limits: `flex` and `shrink_to_fit` on its children change nothing, and a line
 starts at the left; it is not centered or justified. Only `Element::row`

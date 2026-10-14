@@ -154,6 +154,19 @@ fn a_wrapping_row_in_a_row_is_measured_at_the_width_it_is_given() {
 }
 
 #[test]
+fn a_max_width_is_the_width_a_wrapping_row_wraps_at() {
+    let header = Element::row(vec![tags(5).max_width(100.0), Element::spacer().flex(1.0)]);
+    let frame = UiTree::new(Element::column(vec![header, tile("after", 10.0, 10.0)]))
+        .layout(Size::new(400.0, 200.0));
+    assert_eq!(rect(&frame, "tag:4"), Rect::new(0.0, 60.0, 40.0, 20.0));
+    assert_eq!(
+        rect(&frame, "after").y,
+        80.0,
+        "the lines push what follows down"
+    );
+}
+
+#[test]
 fn reveal_finds_a_child_on_a_later_line() {
     let content = Element::column(vec![
         tile("top", 100.0, 150.0),

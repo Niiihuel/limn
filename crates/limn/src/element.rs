@@ -2876,7 +2876,8 @@ impl Element {
     /// its tallest child, and the others stretch to it as they do in a row;
     /// the next line starts [`line_gap`](Self::line_gap) under it. A child
     /// wider than the row has a line of its own, at the row's width. The
-    /// row is as tall as its lines, and the children keep their order for
+    /// row is as tall as its lines, its `max_width` is a width it wraps at,
+    /// and the children keep their order for
     /// Tab and for assistive technology. `flex` and `shrink_to_fit` on its
     /// children change nothing. Only a row wraps; elsewhere it does nothing.
     pub fn wrap(mut self) -> Self {
