@@ -7,7 +7,7 @@ such as files, that scroll sideways and open onto the body beneath them.
 ## Import
 
 ```rust
-use limn::{Component, Icon, Tab, Tabs};
+use limn::{Component, Icon, Tab, Tabs, TabsVariant};
 ```
 
 For folder tabs:
@@ -44,6 +44,33 @@ fn update(state: &mut State, action: &UiAction) {
 inserted, removed or reordered; without it the strip is named after its
 first tab.
 
+## Underlined
+
+```rust
+Tabs::new(tabs, palette)
+    .variant(TabsVariant::Underlined)
+    .accent(theme.accent_text())
+    .gap(16.0)
+    .render()
+```
+
+`variant` chooses how the active tab is marked. `TabsVariant::Segmented`, the
+default, fills it on a rounded track. `TabsVariant::Underlined` draws text tabs
+with no track: a 2 px underline under the active tab, over a 1 px hairline in
+the palette's `border`. The underline slides as the selection does. Both
+variants have the same size, so one can replace the other without moving
+anything around them. In a column the hairline runs the full width it is
+given; in a row it is as wide as the tabs.
+
+`accent` colors the active tab's label and the underline. Without it they take
+the palette's `text`. Pass a color that reads as text, such as a theme's
+`accent_text()`.
+
+`gap` sets the space between two tabs, 2 by default, never below 0. The
+underline spans its tab's whole width, so underlined tabs usually want a wider
+gap and a width close to the label's. Set it before `fill_width`, which reads
+it.
+
 ## Fill a width
 
 ```rust
@@ -64,7 +91,8 @@ default is the height of `ControlSize::Dense`.
 Tab::new("view=history", "History", 120.0).disabled()
 ```
 
-A disabled tab is drawn muted and cannot be chosen.
+A disabled tab is drawn muted and cannot be chosen. Marked active, it takes
+no selection fill and no underline.
 
 ## Folder tabs
 
@@ -158,8 +186,8 @@ With the focus on a tab, in either kind; a disabled tab is stepped over:
 
 ## Motion
 
-The selection of `Tabs` slides to the active tab over the `move_ms` motion
-token. `animation_ms` takes another duration.
+The selection of `Tabs`, the fill or the underline, slides to the active tab
+over the `move_ms` motion token. `animation_ms` takes another duration.
 
 ## Actions
 
@@ -176,3 +204,9 @@ is named by the text in its content.
 
 A `Tab` of `Tabs` is a tab named by its label, and says whether it is the
 active one. A disabled tab is there and cannot be used.
+
+## Limits
+
+- The underline is 2 px and the hairline 1 px. They are not tokens.
+- The underline spans the tab's width, which the host gives; tabs are not sized
+  to their labels.

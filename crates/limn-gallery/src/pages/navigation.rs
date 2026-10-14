@@ -2,7 +2,7 @@ use super::{caption, row, section, Cx, Section};
 use limn::{
     file_icon, Breadcrumb, BreadcrumbItem, ButtonSizing, ButtonVariant, Collapsible, Component, ContextMenu,
     ContextMenuEntry, ContextMenuItem, ControlSize, Element, FontFamily, Icon, IconButton, Link,
-    SegmentedControl, Step, Stepper, Tab, TabItem, TabStrip, Tabs, TextRole, TooltipPlacement,
+    SegmentedControl, Step, Stepper, Tab, TabItem, TabStrip, Tabs, TabsVariant, TextRole, TooltipPlacement,
 };
 
 const VIEWS: [(&str, &str, Icon); 3] = [
@@ -187,6 +187,32 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .fill_width(cx.width.min(520.0))
                 .render()]),
             caption(cx, "With fill_width, the tabs share the width supplied by the host."),
+        ]),
+        section(cx, "Underlined tabs", vec![
+            row(vec![Tabs::new(tabs("nav-under"), palette)
+                .variant(TabsVariant::Underlined)
+                .accent(state.theme().accent_text())
+                .gap(16.0)
+                .id("nav-under")
+                .render()]),
+            caption(cx, "No track: the underline slides to the active tab in the accent, over a hairline in the border color."),
+            Tabs::new(
+                VIEWS
+                    .iter()
+                    .map(|(id, label, _)| {
+                        let chosen = state.choice("nav-under-text", VIEWS[0].0);
+                        Tab::new(format!("nav-under-text={id}"), *label, 72.0)
+                            .active(*id == chosen)
+                            .enabled(*id != "history")
+                    })
+                    .collect(),
+                palette,
+            )
+            .variant(TabsVariant::Underlined)
+            .gap(24.0)
+            .id("nav-under-text")
+            .render(),
+            caption(cx, "Text alone, without an accent: the active tab takes the text color. History is disabled; in a column the hairline runs the full width."),
         ]),
         section(cx, "Resource tabs", vec![
             file_tabs(cx, "nav-files-1", 1),

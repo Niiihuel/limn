@@ -134,7 +134,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "time-picker", group: "Inputs", title: "TimePicker", source: "dates", view: dates::view, sections: &["Time picker"], since: "0.1.39" },
     Page { id: "date-time-picker", group: "Inputs", title: "DateTimePicker", source: "dates", view: dates::view, sections: &["Date and time picker"], since: "0.1.39" },
     Page { id: "editor", group: "Inputs", title: "Editing tools", source: "editor", view: editor::view, sections: &[], since: "0.1.39" },
-    Page { id: "tabs", group: "Navigation", title: "Tabs", source: "navigation", view: navigation::view, sections: &["Tabs", "Resource tabs"], since: "0.1.39" },
+    Page { id: "tabs", group: "Navigation", title: "Tabs", source: "navigation", view: navigation::view, sections: &["Tabs", "Underlined tabs", "Resource tabs"], since: "0.1.39" },
     Page { id: "segmented-control", group: "Navigation", title: "SegmentedControl", source: "navigation", view: navigation::view, sections: &["Segmented control"], since: "0.1.39" },
     Page { id: "stepper", group: "Navigation", title: "Stepper", source: "navigation", view: navigation::view, sections: &["Steps"], since: "0.1.39" },
     Page { id: "breadcrumb", group: "Navigation", title: "Breadcrumb", source: "navigation", view: navigation::view, sections: &["Path"], since: "0.1.39" },
