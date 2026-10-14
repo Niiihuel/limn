@@ -3,9 +3,9 @@
 use crate::components::{
     Component, ComponentPalette, ControlState, Kbd, Popover, Tooltip, lighter,
 };
-use crate::menu::{DetailRow, action_style};
+use crate::menu::{DetailRow, MenuCheck, action_style};
 use crate::{
-    Access, Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, PopoverPlacement, Role,
+    Access, Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, Point, PopoverPlacement, Role,
     ScrollArea, ScrollbarAppearance, SelectorSizing, Separator, Skeleton, TooltipSpec,
 };
 
@@ -50,6 +50,7 @@ pub struct DropdownMenuItem {
     chevron: bool,
     tooltip: Option<TooltipSpec>,
     truncate: bool,
+    check: Option<MenuCheck>,
 }
 
 impl DropdownMenuItem {
@@ -73,6 +74,7 @@ impl DropdownMenuItem {
             chevron: false,
             tooltip: None,
             truncate: false,
+            check: None,
         }
     }
 
@@ -120,9 +122,14 @@ impl DropdownMenuItem {
         self
     }
 
-    /// A quiet second line under the label. The item becomes a two-line row
-    /// (`SelectorSizing::detail_row_height`) with a column for the check;
-    /// it ignores `shortcut`, `annotation`, `submenu` and `destructive`.
+    /// A quiet second line under the label, such as the value a setting has
+    /// or, on a disabled item, why it cannot be chosen; the platform hears it
+    /// after the label. The item becomes a two-line row with a column for the
+    /// check, as tall as the menu's `sizing` says
+    /// (`SelectorSizing::detail_row_height`, 40 without one), with the sides,
+    /// icon slot, label size, gap and columns of the menu's one-line rows, so
+    /// it lines up with them. With a `submenu` the row ends with a chevron and
+    /// opens it. It ignores `shortcut`, `annotation` and `destructive`.
     pub fn description(mut self, text: impl Into<String>) -> Self {
         self.description = Some(text.into());
         self
@@ -179,6 +186,26 @@ impl DropdownMenuItem {
     /// with a `description` ignores it.
     pub fn destructive(mut self, ink: Color) -> Self {
         self.destructive = Some(ink);
+        self
+    }
+
+    /// Make the item a check box, ticked while `checked`, for a setting it
+    /// turns on and off. A box at the end of the row shows the value, the
+    /// platform is told it is a check box in a menu and whether it is on, and
+    /// choosing it reports `action_id`: the host flips its own value. The box
+    /// takes the place of the `selected` tick; `radio` replaces it.
+    pub fn checkbox(mut self, checked: bool) -> Self {
+        self.check = Some(MenuCheck::Box(checked));
+        self
+    }
+
+    /// Make the item one radio item of a set, the chosen one while
+    /// `checked`. A circle at the end of the row, with a dot while chosen,
+    /// shows it, the platform is told it is a radio item in a menu and
+    /// whether it is the chosen one, and choosing it reports `action_id`. The
+    /// circle takes the place of the `selected` tick; `checkbox` replaces it.
+    pub fn radio(mut self, checked: bool) -> Self {
+        self.check = Some(MenuCheck::Radio(checked));
         self
     }
 }
@@ -318,13 +345,14 @@ impl From<DropdownMenuSection> for DropdownMenuEntry {
     }
 }
 
-// What a two-line item, a section and the state rows occupy, whatever the
-// density of the menu's one-line items; `None` for an ordinary row.
-fn fixed_entry_height(entry: &DropdownMenuEntry) -> Option<f32> {
+// What a two-line item at the menu's `detail` profile, a section and the
+// state rows occupy, whatever the density of the menu's one-line items;
+// `None` for an ordinary row.
+fn fixed_entry_height(entry: &DropdownMenuEntry, detail: SelectorSizing) -> Option<f32> {
     let sizing = SelectorSizing::COMPACT;
     match entry {
         DropdownMenuEntry::Item(item) if item.description.is_some() => {
-            Some(sizing.detail_row_height)
+            Some(detail.detail_row_height)
         }
         DropdownMenuEntry::Section(_) => Some(sizing.row_height),
         DropdownMenuEntry::Loading { rows, .. } => Some(*rows as f32 * sizing.row_height),
@@ -403,6 +431,7 @@ pub struct DropdownMenu {
     hints_in_tooltips: bool,
     // A submenu opens under the pointer: only the tree knows when.
     submenu: bool,
+    at: Option<Point>,
 }
 
 impl DropdownMenu {
@@ -437,6 +466,7 @@ impl DropdownMenu {
             context_menu_style: false,
             hints_in_tooltips: false,
             submenu: false,
+            at: None,
         }
     }
 
@@ -542,6 +572,20 @@ impl DropdownMenu {
         self.max_visible_items = count.max(1);
         self
     }
+
+    /// Open the menu at a point of the window, as a context menu opens where
+    /// the secondary click was: its corner is on the point, and it goes above
+    /// or is moved in where the window has no room below or after it. The
+    /// anchor keeps its place in the layout; pass the element the menu
+    /// belongs to. The arrow keys reach the menu wherever the focus is, and a
+    /// secondary click outside it reports the dismiss ID. A point that is not
+    /// finite is ignored.
+    pub fn at(mut self, position: Point) -> Self {
+        if position.x.is_finite() && position.y.is_finite() {
+            self.at = Some(position);
+        }
+        self
+    }
 }
 
 impl Component for DropdownMenu {
@@ -584,10 +628,35 @@ impl Component for DropdownMenu {
             self.sizing
                 .map_or(SCROLLBAR_GUTTER, |sizing| sizing.scrollbar_gutter)
         };
+        let preferred_gap = if contextual {
+            action_style::GAP
+        } else {
+            self.sizing.map_or(9.0, |sizing| sizing.gap)
+        };
+        let label_size = if contextual {
+            action_style::LABEL_FONT_SIZE
+        } else {
+            self.sizing.map_or(13.0, |sizing| sizing.label_size)
+        };
+        // A two-line item is as tall as the menu's profile, or the catalogs',
+        // says, and takes its sides, icon slot, label and gap from the menu's
+        // one-line rows, so the two line up.
+        let detail_sizing = SelectorSizing {
+            icon_size,
+            label_size,
+            detail_size: if contextual {
+                action_style::SHORTCUT_FONT_SIZE
+            } else {
+                self.sizing.map_or(12.0, |sizing| sizing.detail_size)
+            },
+            padding: vertical_padding.max(horizontal_padding),
+            gap: preferred_gap,
+            ..self.sizing.unwrap_or(SelectorSizing::COMPACT)
+        };
         let action_height = |entry: &DropdownMenuEntry| match entry {
             DropdownMenuEntry::Heading(_) => action_style::HEADER_HEIGHT,
             DropdownMenuEntry::Separator => action_style::SEPARATOR_HEIGHT,
-            entry => fixed_entry_height(entry).unwrap_or(row_height),
+            entry => fixed_entry_height(entry, detail_sizing).unwrap_or(row_height),
         };
         let visible_height = if contextual {
             // This is a ceiling, not the list's actual height. Rows are
@@ -606,7 +675,7 @@ impl Component for DropdownMenu {
                     .map(|entry| match entry {
                         DropdownMenuEntry::Heading(_) => sizing.header_height,
                         DropdownMenuEntry::Separator => 1.0,
-                        entry => fixed_entry_height(entry).unwrap_or(row_height),
+                        entry => fixed_entry_height(entry, sizing).unwrap_or(row_height),
                     });
             heights.sum::<f32>() + self.max_visible_items.saturating_sub(1) as f32 * 2.0
         } else {
@@ -616,10 +685,14 @@ impl Component for DropdownMenu {
             .entries
             .iter()
             .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some()));
-        let reserve_check = self
+        let choices = self
             .entries
             .iter()
             .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.selected));
+        let reserve_check = choices
+            || self.entries.iter().any(
+                |entry| matches!(entry, DropdownMenuEntry::Item(item) if item.check.is_some()),
+            );
         let reserve_submenu = contextual
             && self.entries.iter().any(
                 |entry| matches!(entry, DropdownMenuEntry::Item(item) if item.submenu.is_some()),
@@ -633,6 +706,33 @@ impl Component for DropdownMenu {
         let viewport_width = (self.width - inset * 2.0).max(0.0);
         let row_width = viewport_width - if scrolls { scrollbar_gutter } else { 0.0 };
         let palette = self.palette;
+        // A row that opens a submenu floats it beside itself on hover.
+        let with_submenu = |row: Element, id: &str, entries: Option<Vec<DropdownMenuEntry>>| {
+            let Some(entries) = entries else {
+                return row;
+            };
+            let mut submenu = DropdownMenu::new(
+                row,
+                entries,
+                true,
+                format!("{}:{id}", self.dismiss_id),
+                palette,
+            );
+            if contextual {
+                submenu = submenu.context_menu_style();
+            } else if let Some(sizing) = self.sizing {
+                submenu = submenu.sizing(sizing);
+            }
+            submenu.submenu = true;
+            submenu
+                .width(self.width)
+                .hints_in_tooltips(self.hints_in_tooltips)
+                .placement(PopoverPlacement::RightStart)
+                .motion(self.motion)
+                .max_visible_items(self.max_visible_items)
+                .render()
+                .popover_on_hover()
+        };
         let rows = self
             .entries
             .into_iter()
@@ -713,6 +813,8 @@ impl Component for DropdownMenu {
                 DropdownMenuEntry::Item(item) if item.description.is_some() => {
                     let enabled = item.state == ControlState::Enabled;
                     let id = item.action_id.clone();
+                    let submenu = if enabled { item.submenu } else { None };
+                    let leads = item.chevron || submenu.is_some();
                     let row = DetailRow {
                         action_id: item.action_id,
                         label: item.label,
@@ -721,20 +823,28 @@ impl Component for DropdownMenu {
                         mono: item.detail_mono,
                         status: item.status,
                         status_width: item.status_width,
-                        chevron: item.chevron,
-                        selected: Some(item.selected),
+                        icon_slot: reserve_icon,
+                        // The menu's chevron column, or one of its own; a row
+                        // that leads somewhere keeps the check column only
+                        // where the menu has checks.
+                        chevron: (reserve_submenu || leads).then_some(leads),
+                        selected: (reserve_check || !leads).then_some(item.selected),
+                        choice: choices,
+                        check: item.check,
                         enabled,
+                        sizing: detail_sizing,
                     }
                     .render(palette);
                     let row = if contextual {
                         row
                     } else {
-                        row.size(Some(row_width), Some(SelectorSizing::COMPACT.detail_row_height))
+                        row.size(Some(row_width), Some(detail_sizing.detail_row_height))
                     };
-                    match item.tooltip {
-                        Some(tooltip) => tooltip.wrap(row, id, palette),
+                    let row = match item.tooltip {
+                        Some(tooltip) => tooltip.wrap(row, id.clone(), palette),
                         None => row,
-                    }
+                    };
+                    with_submenu(row, &id, submenu)
                 }
                 DropdownMenuEntry::Item(mut item) => {
                     let tooltip_hint = if self.hints_in_tooltips
@@ -759,11 +869,6 @@ impl Component for DropdownMenu {
                         + usize::from(reserve_submenu);
                     let inner_width = (row_width - 2.0 * horizontal_padding).max(0.0);
                     let control_width = control_count as f32 * icon_size;
-                    let preferred_gap = if contextual {
-                        action_style::GAP
-                    } else {
-                        self.sizing.map_or(9.0, |sizing| sizing.gap)
-                    };
                     let gap = if control_count == 0 {
                         preferred_gap
                     } else {
@@ -787,8 +892,11 @@ impl Component for DropdownMenu {
                     if let Some(annotation) = &item.annotation {
                         access = access.description(annotation);
                     }
-                    // A menu with a check column is a set of choices.
-                    if reserve_check {
+                    // A menu with checks is a set of choices; a check box or a
+                    // radio item says what it is instead.
+                    if let Some(check) = item.check {
+                        access = check.access(access);
+                    } else if choices {
                         access = access.selected(item.selected);
                     }
                     let submenu_id = item.action_id.clone();
@@ -824,11 +932,7 @@ impl Component for DropdownMenu {
                     })
                     .foreground(if enabled { ink } else { palette.muted })
                     .font_family(FontFamily::Sans)
-                    .font_size(if contextual {
-                        action_style::LABEL_FONT_SIZE
-                    } else {
-                        self.sizing.map_or(13.0, |sizing| sizing.label_size)
-                    });
+                    .font_size(label_size);
                     children.push(if contextual {
                         // Center the measured text block, including a single
                         // short line, while allowing long labels to wrap.
@@ -873,13 +977,14 @@ impl Component for DropdownMenu {
                         );
                     }
                     if reserve_check {
+                        let ink = if enabled { palette.text } else { palette.muted };
                         children.push(
-                            if item.selected {
-                                Element::icon(Icon::Check).foreground(if enabled {
-                                    palette.text
-                                } else {
-                                    palette.muted
-                                })
+                            if let Some(check) = item.check {
+                                check
+                                    .mark(icon_size.min(ICON_SIZE), ink, palette)
+                                    .centered()
+                            } else if item.selected {
+                                Element::icon(Icon::Check).foreground(ink)
                             } else {
                                 Element::spacer()
                             }
@@ -982,31 +1087,7 @@ impl Component for DropdownMenu {
                     } else {
                         row
                     };
-                    if let Some(entries) = submenu {
-                        let mut submenu = DropdownMenu::new(
-                            row,
-                            entries,
-                            true,
-                            format!("{}:{submenu_id}", self.dismiss_id),
-                            palette,
-                        );
-                        if contextual {
-                            submenu = submenu.context_menu_style();
-                        } else if let Some(sizing) = self.sizing {
-                            submenu = submenu.sizing(sizing);
-                        }
-                        submenu.submenu = true;
-                        submenu
-                            .width(self.width)
-                            .hints_in_tooltips(self.hints_in_tooltips)
-                            .placement(PopoverPlacement::RightStart)
-                            .motion(self.motion)
-                            .max_visible_items(self.max_visible_items)
-                            .render()
-                            .popover_on_hover()
-                    } else {
-                        row
-                    }
+                    with_submenu(row, &submenu_id, submenu)
                 }
             })
             .collect();
@@ -1071,7 +1152,7 @@ impl Component for DropdownMenu {
             if let Some(key) = self.view_key {
                 popover = popover.popover_view_key(key);
             }
-            return popover;
+            return at_point(popover, self.at);
         }
         if self.inline {
             return Element::column(vec![
@@ -1108,7 +1189,15 @@ impl Component for DropdownMenu {
         if let Some(key) = self.view_key {
             popover = popover.view_key(key);
         }
-        popover.render()
+        at_point(popover.render(), self.at)
+    }
+}
+
+// A menu at a point has its corner on it, with no gap.
+fn at_point(popover: Element, at: Option<Point>) -> Element {
+    match at {
+        Some(point) => popover.popover_at(point).popover_gap(0.0),
+        None => popover,
     }
 }
 
@@ -1258,96 +1347,234 @@ mod tests {
         }
     }
 
+    // The menu of every two-line test: one-line and two-line rows side by
+    // side, with icons, check boxes, submenus and a disabled one.
+    fn two_line_entries() -> Vec<DropdownMenuEntry> {
+        let submenu = || vec![DropdownMenuItem::new("deep", "Deep").into()];
+        vec![
+            DropdownMenuItem::new("mute", "Mute")
+                .icon(Icon::Bell)
+                .checkbox(true)
+                .into(),
+            DropdownMenuItem::new("model", "Model")
+                .icon(Icon::Server)
+                .description("large-v3")
+                .detail_mono(true)
+                .status("Verified")
+                .checkbox(true)
+                .into(),
+            DropdownMenuItem::new("more", "More")
+                .icon(Icon::Edit)
+                .submenu(submenu())
+                .into(),
+            DropdownMenuItem::new("effort", "Effort")
+                .icon(Icon::Brain)
+                .description("Automatic")
+                .submenu(submenu())
+                .into(),
+            DropdownMenuItem::new("off", "Unavailable")
+                .description("No credential")
+                .disabled()
+                .into(),
+        ]
+    }
+
     #[test]
-    fn a_two_line_item_has_the_selector_metrics_in_both_menu_styles() {
+    fn a_two_line_item_lines_up_with_the_one_line_rows_in_every_style() {
         let palette = ComponentPalette::neutral_dark();
-        let sizing = SelectorSizing::COMPACT;
-        for contextual in [false, true] {
-            let menu = DropdownMenu::new(
-                trigger(),
-                vec![
-                    DropdownMenuItem::new("model", "Model")
-                        .icon(Icon::Server)
-                        .description("large-v3")
-                        .detail_mono(true)
-                        .status("Verified")
-                        .selected(true)
-                        .into(),
-                    DropdownMenuItem::new("effort", "Effort")
-                        .icon(Icon::Brain)
-                        .description("Automatic")
-                        .chevron()
-                        .into(),
-                    DropdownMenuItem::new("off", "Unavailable")
-                        .description("No credential")
-                        .enabled(false)
-                        .into(),
-                ],
-                true,
-                "dismiss",
-                palette,
-            )
-            .width(300.0);
-            let mut tree = open_menu(if contextual {
-                menu.context_menu_style()
-            } else {
-                menu
-            });
+        let server = SelectorSizing {
+            row_height: 38.0,
+            icon_size: 20.0,
+            label_size: 13.0,
+            detail_size: 12.0,
+            padding: 8.0,
+            gap: 10.0,
+            ..SelectorSizing::COMPACT
+        };
+        let tall = SelectorSizing {
+            row_height: 40.0,
+            padding: 4.0,
+            ..SelectorSizing::COMPACT
+        };
+        // Style, profile, and the sides and text sizes its one-line rows have.
+        let styles = [
+            (false, None, 7.0, 13.0, 12.0),
+            (true, None, action_style::HORIZONTAL_PADDING, 13.0, 12.0),
+            (false, Some(SelectorSizing::COMPACT), 6.0, 12.0, 11.0),
+            (false, Some(tall), 9.0, 12.0, 11.0),
+            (false, Some(server), 8.0, 13.0, 12.0),
+        ];
+        for (contextual, sizing, side, label_size, detail_size) in styles {
+            let style = format!("contextual: {contextual}, sizing: {sizing:?}");
+            let mut menu =
+                DropdownMenu::new(trigger(), two_line_entries(), true, "dismiss", palette)
+                    .width(300.0);
+            if contextual {
+                menu = menu.context_menu_style();
+            }
+            if let Some(sizing) = sizing {
+                menu = menu.sizing(sizing).width(300.0);
+            }
+            let mut tree = open_menu(menu);
             let frame = tree.layout(Size::new(640.0, 480.0));
+            let height = sizing.unwrap_or(SelectorSizing::COMPACT).detail_row_height;
             let (model, effort) = (region(&frame, "model"), region(&frame, "effort"));
-            assert_eq!(model.height, sizing.detail_row_height);
-            assert_eq!(effort.height, sizing.detail_row_height);
-            let text = |label: &str| {
+            assert_eq!((model.height, effort.height), (height, height), "{style}");
+            let font = |label: &str| {
                 frame
                     .commands
                     .iter()
                     .find_map(|command| match command {
                         DrawCommand::Text {
-                            text,
-                            position,
-                            font_size,
-                            font_family,
-                            color,
-                        } if text == label => Some((*position, *font_size, *font_family, *color)),
+                            text, font_family, ..
+                        } if text == label => Some(*font_family),
                         _ => None,
                     })
-                    .unwrap_or_else(|| panic!("missing {label}"))
+                    .unwrap()
             };
-            let (label, label_size, _, label_ink) = text("Model");
-            let (detail, detail_size, detail_family, detail_ink) = text("large-v3");
-            assert_eq!((label_size, label_ink), (sizing.label_size, palette.text));
+            // Every label starts in one column, at the one-line rows' size.
+            let (mute, mute_size, _) = text_of(&frame, "Mute");
+            let (label, model_size, label_ink) = text_of(&frame, "Model");
+            let (detail, model_detail_size, detail_ink) = text_of(&frame, "large-v3");
+            assert_eq!((model_size, mute_size), (label_size, label_size), "{style}");
+            assert_eq!(model_detail_size, detail_size, "{style}");
+            assert_eq!(font("large-v3"), FontFamily::Monospace);
+            assert_eq!((label_ink, detail_ink), (palette.text, palette.muted));
+            for other in [
+                "More",
+                "Effort",
+                "Automatic",
+                "Unavailable",
+                "No credential",
+            ] {
+                assert_eq!(text_of(&frame, other).0.x, mute.x, "{other} ({style})");
+            }
+            assert_eq!(detail.x, label.x, "{style}");
+            assert!(text_of(&frame, "Verified").0.x > detail.x);
+            // Two lines that do not run into each other, inside the row.
+            assert!(detail.y - label.y >= label_size, "{style}");
+            assert!(label.y >= model.y, "{style}");
+            assert!(detail.y + detail_size <= model.y + model.height, "{style}");
+            // The check boxes share a column, and so do the chevrons, which
+            // end the rows at the one-line rows' side.
+            let icons = |kind: Icon| -> Vec<(crate::Rect, Color)> {
+                frame
+                    .commands
+                    .iter()
+                    .filter_map(|command| match command {
+                        DrawCommand::Icon { icon, rect, tint } if *icon == kind => {
+                            Some((*rect, *tint))
+                        }
+                        _ => None,
+                    })
+                    .collect()
+            };
+            let checks = icons(Icon::Check);
+            assert_eq!(checks.len(), 2, "{style}");
+            assert_eq!(checks[0].0.x, checks[1].0.x, "{style}");
+            assert!(checks.iter().all(|(_, tint)| *tint == palette.surface));
+            let chevrons = icons(Icon::ChevronRight);
+            assert_eq!(chevrons.len(), 2, "{style}");
+            assert_eq!(chevrons[0].0.x, chevrons[1].0.x, "{style}");
+            let icon_size = sizing.map_or(ICON_SIZE, |sizing| sizing.icon_size);
+            for (rect, tint) in chevrons {
+                // Centered in a column as wide as the icon slot.
+                let end = effort.x + effort.width - side;
+                assert_eq!(rect.x + rect.width / 2.0, end - icon_size / 2.0, "{style}");
+                assert_eq!(tint, palette.muted);
+            }
+            // Disabled, it is passive and muted, and says no choice.
+            assert!(!has(&frame, "off"), "a disabled item is passive");
+            assert_eq!(text_of(&frame, "Unavailable").2, palette.muted);
+            let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+            assert_eq!((node("off").selected, node("off").toggled), (None, None));
             assert_eq!(
-                (detail_size, detail_family, detail_ink),
-                (sizing.detail_size, FontFamily::Monospace, palette.muted)
+                (node("model").role, node("model").toggled),
+                (Role::MenuItemCheckBox, Some(true))
             );
-            assert_eq!(label.x, model.x + sizing.padding + sizing.icon_size + sizing.gap);
-            assert_eq!(label.x, detail.x);
-            assert!(detail.y > label.y);
-            assert!(text("Verified").0.x > detail.x);
-            let icons: Vec<_> = frame
-                .commands
-                .iter()
-                .filter_map(|command| match command {
-                    DrawCommand::Icon { icon, rect, tint } => Some((*icon, *rect, *tint)),
-                    _ => None,
-                })
-                .collect();
-            let trailing = |icon: Icon, row: crate::Rect| {
-                let (_, rect, color) = icons.iter().find(|(kind, ..)| *kind == icon).unwrap();
-                assert_eq!(
-                    rect.x + rect.width,
-                    row.x + row.width - sizing.padding,
-                    "{icon:?} ends the row"
-                );
-                *color
-            };
-            assert_eq!(trailing(Icon::Check, model), palette.text);
-            assert_eq!(trailing(Icon::ChevronRight, effort), palette.muted);
-            assert!(
-                frame.regions.iter().all(|row| row.id != "off"),
-                "a disabled item is passive"
-            );
-            assert_eq!(text("Unavailable").3, palette.muted);
+        }
+    }
+
+    #[test]
+    fn a_catalog_two_line_item_keeps_its_compact_metrics() {
+        let palette = ComponentPalette::neutral_dark();
+        let sizing = SelectorSizing::COMPACT;
+        let menu = DropdownMenu::new(
+            trigger(),
+            vec![
+                DropdownMenuItem::new("model", "Model")
+                    .icon(Icon::Server)
+                    .description("large-v3")
+                    .selected(true)
+                    .into(),
+                DropdownMenuItem::new("effort", "Effort")
+                    .icon(Icon::Brain)
+                    .description("Automatic")
+                    .chevron()
+                    .into(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        )
+        .sizing(sizing);
+        let frame = open_menu(menu).layout(Size::new(640.0, 480.0));
+        let model = region(&frame, "model");
+        let (label, ..) = text_of(&frame, "Model");
+        let (detail, ..) = text_of(&frame, "large-v3");
+        // The lines share the 28 a one-line row has, 6 from the top.
+        assert_eq!(
+            label.x,
+            model.x + sizing.padding + sizing.icon_size + sizing.gap
+        );
+        assert!((detail.y - label.y - sizing.row_height / 2.0).abs() < 1.0);
+        let ends = |kind: Icon| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Icon { icon, rect, tint } if *icon == kind => {
+                    Some((rect.x + rect.width, *tint))
+                }
+                _ => None,
+            })
+        };
+        let end = model.x + model.width - sizing.padding;
+        assert_eq!(ends(Icon::Check), Some((end, palette.text)));
+        assert_eq!(ends(Icon::ChevronRight), Some((end, palette.muted)));
+        let node = frame.access.iter().find(|node| node.id == "model").unwrap();
+        assert_eq!(node.selected, Some(true), "a menu with a choice says it");
+    }
+
+    #[test]
+    fn check_boxes_and_two_line_items_stay_inside_a_narrow_menu() {
+        let palette = ComponentPalette::neutral_dark();
+        for contextual in [false, true] {
+            for width in [90.0, 140.0] {
+                let menu =
+                    DropdownMenu::new(trigger(), two_line_entries(), true, "dismiss", palette);
+                // The style sets its own width: the narrow one comes after it.
+                let mut tree = open_menu(if contextual {
+                    menu.context_menu_style().width(width)
+                } else {
+                    menu.width(width)
+                });
+                let frame = tree.layout(Size::new(640.0, 480.0));
+                let surface = region(&frame, "popover_surface:dismiss");
+                for id in ["mute", "model", "more", "effort"] {
+                    let row = region(&frame, id);
+                    assert!(
+                        row.x >= surface.x && row.x + row.width <= surface.x + surface.width,
+                        "{id} at {width} (contextual: {contextual})"
+                    );
+                }
+                for command in &frame.commands {
+                    if let DrawCommand::Icon { rect, icon, .. } = command {
+                        assert!(
+                            rect.x >= surface.x - 0.5
+                                && rect.x + rect.width <= surface.x + surface.width + 0.5,
+                            "{icon:?} at {width} (contextual: {contextual})"
+                        );
+                    }
+                }
+            }
         }
     }
 
@@ -3125,5 +3352,668 @@ mod tests {
                 DrawCommand::Text { text, .. } if text.starts_with("Ctrl+")
             )));
         }
+    }
+
+    fn center(rect: crate::Rect) -> Point {
+        Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+    }
+
+    fn key(tree: &mut UiTree, key: Key) -> Vec<UiAction> {
+        tree.handle_event(UiEvent::Key {
+            key,
+            shift: false,
+            ctrl: false,
+        })
+    }
+
+    fn has(frame: &crate::Frame, id: &str) -> bool {
+        frame.regions.iter().any(|region| region.id == id)
+    }
+
+    // Where `label` is drawn, at which size and in which ink.
+    fn text_of(frame: &crate::Frame, label: &str) -> (Point, f32, Color) {
+        frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Text {
+                    text,
+                    position,
+                    font_size,
+                    color,
+                    ..
+                } if text == label => Some((*position, *font_size, *color)),
+                _ => None,
+            })
+            .unwrap_or_else(|| panic!("missing {label}"))
+    }
+
+    #[test]
+    fn check_box_and_radio_items_draw_their_mark_report_their_action_and_say_what_they_are() {
+        let palette = ComponentPalette::neutral_dark();
+        for contextual in [false, true] {
+            let menu = DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuItem::new("mute", "Mute channel")
+                        .checkbox(true)
+                        .into(),
+                    DropdownMenuItem::new("hide", "Hide muted")
+                        .checkbox(false)
+                        .into(),
+                    DropdownMenuEntry::Separator,
+                    DropdownMenuItem::new("all", "All messages")
+                        .radio(true)
+                        .into(),
+                    DropdownMenuItem::new("mentions", "Only mentions")
+                        .radio(false)
+                        .into(),
+                    DropdownMenuItem::new("nothing", "Nothing")
+                        .radio(false)
+                        .disabled()
+                        .into(),
+                    DropdownMenuItem::new("plain", "Mark as read").into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .width(260.0);
+            let mut tree = open_menu(if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            });
+            let size = Size::new(640.0, 480.0);
+            let frame = tree.layout(size);
+            let node = |id: &str| {
+                frame
+                    .access
+                    .iter()
+                    .find(|node| node.id == id)
+                    .unwrap_or_else(|| panic!("no node {id}"))
+            };
+            for (id, role, on) in [
+                ("mute", Role::MenuItemCheckBox, true),
+                ("hide", Role::MenuItemCheckBox, false),
+                ("all", Role::MenuItemRadio, true),
+                ("mentions", Role::MenuItemRadio, false),
+                ("nothing", Role::MenuItemRadio, false),
+            ] {
+                let item = node(id);
+                assert_eq!(
+                    (item.role, item.toggled, item.selected),
+                    (role, Some(on), None),
+                    "{id}"
+                );
+                assert_eq!(item.disabled, id == "nothing", "{id}");
+            }
+            let plain = node("plain");
+            assert_eq!(
+                (plain.role, plain.toggled, plain.selected),
+                (Role::MenuItem, None, None)
+            );
+            // Each mark is 16 square at the end of its row, the box filled
+            // with a check while ticked and the circle with a dot while chosen.
+            let inset = if contextual {
+                action_style::HORIZONTAL_PADDING
+            } else {
+                7.0
+            };
+            let mark = |id: &str| -> (crate::Rect, Option<Color>, Option<Color>) {
+                let row = region(&frame, id);
+                let inside = |rect: &crate::Rect| {
+                    rect.width == 16.0
+                        && rect.y >= row.y
+                        && rect.y + rect.height <= row.y + row.height
+                };
+                let fill = frame.commands.iter().find_map(|command| match command {
+                    DrawCommand::FillRect { rect, color, .. }
+                        if inside(rect) && color.a > 0 && *color != palette.surface =>
+                    {
+                        Some((*rect, *color))
+                    }
+                    _ => None,
+                });
+                let stroke = frame.commands.iter().find_map(|command| match command {
+                    DrawCommand::StrokeRect { rect, color, .. } if inside(rect) => {
+                        Some((*rect, *color))
+                    }
+                    _ => None,
+                });
+                let rect = fill
+                    .or(stroke)
+                    .map(|(rect, _)| rect)
+                    .unwrap_or_else(|| panic!("no mark in {id}"));
+                assert_eq!(
+                    rect.x + rect.width,
+                    row.x + row.width - inset,
+                    "{id} ends its row"
+                );
+                assert!(
+                    (rect.y - (row.y + (row.height - 16.0) / 2.0)).abs() < 0.5,
+                    "{id} is centered"
+                );
+                (
+                    rect,
+                    fill.map(|(_, color)| color),
+                    stroke.map(|(_, color)| color),
+                )
+            };
+            let (ticked, fill, _) = mark("mute");
+            assert_eq!(fill, Some(palette.text));
+            assert!(frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::Icon { icon: Icon::Check, tint, rect } if *tint == palette.surface && rect.x >= ticked.x)));
+            assert_eq!(mark("hide").1, None, "an empty box is an outline");
+            assert_eq!(mark("hide").2, Some(palette.muted));
+            let (chosen, fill, _) = mark("all");
+            assert_eq!(fill, Some(palette.text));
+            let dot = crate::radio::dot_side(16.0);
+            assert!(frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::FillRect { rect, color, radius } if *color == palette.surface && rect.width == dot
+                    && *radius == dot / 2.0 && (rect.x - (chosen.x + (16.0 - dot) / 2.0)).abs() < 0.5)));
+            assert_eq!(mark("mentions").1, None);
+            assert!(!has(&frame, "nothing"), "a disabled radio item is passive");
+            // Choosing one reports its action: the host flips the value.
+            for id in ["hide", "all"] {
+                let point = center(region(&tree.layout(size), id));
+                tree.handle_event(UiEvent::PointerDown(point));
+                assert_eq!(
+                    tree.handle_event(UiEvent::PointerUp(point)),
+                    vec![UiAction::Clicked { id: id.into() }]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_described_item_takes_the_menus_own_sizing_and_says_why_it_is_disabled() {
+        let palette = ComponentPalette::neutral_dark();
+        let sizing = SelectorSizing {
+            row_height: 38.0,
+            detail_row_height: 54.0,
+            icon_size: 20.0,
+            label_size: 13.0,
+            detail_size: 12.0,
+            padding: 8.0,
+            gap: 10.0,
+            ..SelectorSizing::COMPACT
+        };
+        let reason = "Needs Manage Server";
+        let menu = DropdownMenu::new(
+            trigger(),
+            vec![
+                DropdownMenuItem::new("invite", "Invite people")
+                    .icon(Icon::Edit)
+                    .into(),
+                DropdownMenuItem::new("edit", "Server settings")
+                    .icon(Icon::Settings)
+                    .description(reason)
+                    .disabled()
+                    .into(),
+                DropdownMenuItem::new("level", "Notifications")
+                    .icon(Icon::Bell)
+                    .description("Only mentions")
+                    .into(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        )
+        .sizing(sizing)
+        .width(300.0);
+        let mut tree = open_menu(menu);
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        let level = region(&frame, "level");
+        assert_eq!(level.height, sizing.detail_row_height);
+        // The two-line rows line up with the one-line one, at the profile's sizes.
+        let (invite, ..) = text_of(&frame, "Invite people");
+        let (notifications, label_size, _) = text_of(&frame, "Notifications");
+        let (detail, detail_size, detail_ink) = text_of(&frame, "Only mentions");
+        assert_eq!(
+            notifications.x,
+            level.x + sizing.padding + sizing.icon_size + sizing.gap
+        );
+        assert_eq!((invite.x, detail.x), (notifications.x, notifications.x));
+        assert_eq!(
+            (label_size, detail_size, detail_ink),
+            (13.0, 12.0, palette.muted)
+        );
+        // Disabled, the row is passive and muted, and the reason is said.
+        let (settings, _, settings_ink) = text_of(&frame, "Server settings");
+        let (why, why_size, why_ink) = text_of(&frame, reason);
+        assert_eq!((settings.x, why.x), (notifications.x, notifications.x));
+        assert_eq!(
+            (settings_ink, why_size, why_ink),
+            (palette.muted, 12.0, palette.muted)
+        );
+        assert!(!has(&frame, "edit"));
+        let node = frame
+            .access
+            .iter()
+            .find(|node| node.id == "edit")
+            .expect("the disabled item is known");
+        assert_eq!(
+            (node.role, node.name.as_str(), node.description.as_deref()),
+            (Role::MenuItem, "Server settings", Some(reason))
+        );
+        assert!(node.disabled && !node.actionable);
+        // The scroll budget counts the two-line rows at their own height.
+        assert_eq!(
+            fixed_entry_height(
+                &DropdownMenuItem::new("a", "A").description("b").into(),
+                sizing
+            ),
+            Some(54.0)
+        );
+    }
+
+    #[test]
+    fn a_described_item_with_a_submenu_ends_with_a_chevron_and_opens_it() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(900.0, 480.0);
+        for contextual in [false, true] {
+            let menu = DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuItem::new("notify", "Notifications")
+                        .description("Only mentions")
+                        .submenu(vec![
+                            DropdownMenuItem::new("notify:all", "All messages")
+                                .radio(false)
+                                .into(),
+                            DropdownMenuItem::new("notify:mentions", "Only @mentions")
+                                .radio(true)
+                                .into(),
+                        ])
+                        .into(),
+                    DropdownMenuItem::new("locked", "Mute")
+                        .description("Not allowed here")
+                        .submenu(vec![DropdownMenuItem::new("mute:1h", "For an hour").into()])
+                        .disabled()
+                        .into(),
+                    DropdownMenuItem::new("other", "Copy link").into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .width(260.0);
+            let mut tree = open_menu(if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            });
+            let frame = tree.layout(size);
+            let row = region(&frame, "notify");
+            assert_eq!(row.height, SelectorSizing::COMPACT.detail_row_height);
+            assert!(frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::Icon { icon: Icon::ChevronRight, rect, tint }
+                    if *tint == palette.muted && rect.y >= row.y && rect.y + rect.height <= row.y + row.height)));
+            let node = frame
+                .access
+                .iter()
+                .find(|node| node.id == "notify")
+                .unwrap();
+            assert_eq!(
+                (node.description.as_deref(), node.selected),
+                (Some("Only mentions"), None)
+            );
+            assert!(!has(&frame, "notify:all"));
+            // On hover it opens beside the row, and its items can be chosen.
+            tree.handle_event(UiEvent::PointerMove(center(row)));
+            let frame = tree.layout(size);
+            let all = region(&frame, "notify:all");
+            assert!(all.x >= row.x + row.width - 1.0);
+            let point = center(region(&frame, "notify:mentions"));
+            tree.handle_event(UiEvent::PointerMove(point));
+            tree.layout(size);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(
+                tree.handle_event(UiEvent::PointerUp(point)),
+                vec![UiAction::Clicked {
+                    id: "notify:mentions".into()
+                }]
+            );
+            // A disabled one does not open, whatever the pointer does.
+            let (mute, ..) = text_of(&tree.layout(size), "Mute");
+            tree.handle_event(UiEvent::PointerMove(Point::new(mute.x + 4.0, mute.y + 4.0)));
+            assert!(!has(&tree.layout(size), "mute:1h"));
+            // Right opens it from the keyboard and Left goes back to the row.
+            let other = center(region(&tree.layout(size), "other"));
+            tree.handle_event(UiEvent::PointerMove(other));
+            tree.layout(size);
+            assert!(tree.focus("notify"));
+            tree.layout(size);
+            key(&mut tree, Key::ArrowRight);
+            assert_eq!(tree.focused_id(), Some("notify:all"));
+            assert!(has(&tree.layout(size), "notify:mentions"));
+            key(&mut tree, Key::ArrowLeft);
+            assert_eq!(tree.focused_id(), Some("notify"));
+            assert!(!has(&tree.layout(size), "notify:all"));
+        }
+    }
+
+    fn nested_menu(contextual: bool) -> Element {
+        let menu = DropdownMenu::new(
+            trigger(),
+            vec![
+                DropdownMenuItem::new("status", "Status")
+                    .submenu(vec![
+                        DropdownMenuItem::new("online", "Online").into(),
+                        DropdownMenuItem::new("idle", "Idle")
+                            .submenu(vec![
+                                DropdownMenuItem::new("idle:15m", "For 15 minutes").into(),
+                                DropdownMenuItem::new("idle:locked", "Until I change it")
+                                    .tooltip_with(TooltipSpec::new("Ask an admin"))
+                                    .disabled()
+                                    .into(),
+                                DropdownMenuItem::new("idle:1h", "For an hour").into(),
+                            ])
+                            .into(),
+                    ])
+                    .into(),
+                DropdownMenuItem::new("more", "More")
+                    .submenu(vec![
+                        DropdownMenuItem::new("more:archive", "Archive").into(),
+                    ])
+                    .into(),
+                DropdownMenuItem::new("copy", "Copy ID").into(),
+            ],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        );
+        // Narrow enough for three levels side by side.
+        if contextual {
+            menu.context_menu_style()
+        } else {
+            menu
+        }
+        .width(220.0)
+        .render()
+    }
+
+    #[test]
+    fn a_submenu_stays_open_while_the_pointer_is_in_one_nested_in_it() {
+        let size = Size::new(900.0, 480.0);
+        for contextual in [false, true] {
+            let mut tree = UiTree::new(nested_menu(contextual));
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(size);
+            tree.handle_event(UiEvent::PointerMove(center(region(&frame, "status"))));
+            let frame = tree.layout(size);
+            tree.handle_event(UiEvent::PointerMove(center(region(&frame, "idle"))));
+            let frame = tree.layout(size);
+            tree.handle_event(UiEvent::PointerMove(center(region(&frame, "idle:15m"))));
+            // Over the nested submenu's item, its disabled item with a hint,
+            // and its surface: every level stays open, frame after frame.
+            let (locked, ..) = text_of(&tree.layout(size), "Until I change it");
+            let surface = region(&tree.layout(size), "popover_surface:dismiss:status:idle");
+            for point in [
+                Point::new(locked.x + 4.0, locked.y + 4.0),
+                Point::new(surface.x + 2.0, surface.y + 1.0),
+            ] {
+                tree.handle_event(UiEvent::PointerMove(point));
+                for _ in 0..2 {
+                    let frame = tree.layout(size);
+                    for id in ["status", "online", "idle", "idle:15m", "idle:1h"] {
+                        assert!(has(&frame, id), "{id} is shown (contextual: {contextual})");
+                    }
+                }
+            }
+            let point = center(region(&tree.layout(size), "idle:1h"));
+            tree.handle_event(UiEvent::PointerMove(point));
+            tree.layout(size);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(
+                tree.handle_event(UiEvent::PointerUp(point)),
+                vec![UiAction::Clicked {
+                    id: "idle:1h".into()
+                }]
+            );
+        }
+        // Another row of the first menu closes both submenus.
+        for contextual in [false, true] {
+            let mut tree = UiTree::new(nested_menu(contextual));
+            tree.set_reduced_motion(true);
+            for id in ["status", "idle", "idle:15m", "copy"] {
+                let point = center(region(&tree.layout(size), id));
+                tree.handle_event(UiEvent::PointerMove(point));
+            }
+            let frame = tree.layout(size);
+            assert!(
+                !has(&frame, "online") && !has(&frame, "idle:15m"),
+                "contextual: {contextual}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_pointer_on_another_submenu_row_closes_the_ones_the_keyboard_opened() {
+        let size = Size::new(900.0, 480.0);
+        for contextual in [false, true] {
+            let mut tree = UiTree::new(nested_menu(contextual));
+            tree.set_reduced_motion(true);
+            tree.layout(size);
+            assert!(tree.focus("status"));
+            tree.layout(size);
+            for pressed in [Key::ArrowRight, Key::ArrowDown, Key::ArrowRight] {
+                key(&mut tree, pressed);
+                tree.layout(size);
+            }
+            assert_eq!(tree.focused_id(), Some("idle:15m"));
+            let more = center(region(&tree.layout(size), "more"));
+            tree.handle_event(UiEvent::PointerMove(more));
+            let frame = tree.layout(size);
+            assert!(has(&frame, "more:archive"), "contextual: {contextual}");
+            assert!(
+                !has(&frame, "online") && !has(&frame, "idle:15m"),
+                "one submenu at a time (contextual: {contextual})"
+            );
+        }
+    }
+
+    #[test]
+    fn the_arrow_keys_walk_into_a_nested_submenu_and_back() {
+        let size = Size::new(900.0, 480.0);
+        for contextual in [false, true] {
+            let mut tree = UiTree::new(nested_menu(contextual));
+            tree.set_reduced_motion(true);
+            tree.layout(size);
+            assert!(tree.focus("status"));
+            tree.layout(size);
+            let step = |tree: &mut UiTree, pressed: Key, focused: &str| {
+                key(tree, pressed);
+                assert_eq!(
+                    tree.focused_id(),
+                    Some(focused),
+                    "{pressed:?} (contextual: {contextual})"
+                );
+                tree.layout(size)
+            };
+            step(&mut tree, Key::ArrowRight, "online");
+            step(&mut tree, Key::ArrowDown, "idle");
+            let frame = step(&mut tree, Key::ArrowRight, "idle:15m");
+            assert!(has(&frame, "online"), "the parent submenu stays open");
+            // The disabled item is skipped.
+            step(&mut tree, Key::ArrowDown, "idle:1h");
+            assert_eq!(
+                key(&mut tree, Key::Enter),
+                vec![UiAction::Clicked {
+                    id: "idle:1h".into()
+                }]
+            );
+            let frame = step(&mut tree, Key::ArrowLeft, "idle");
+            assert!(!has(&frame, "idle:15m") && has(&frame, "online"));
+            let frame = step(&mut tree, Key::ArrowLeft, "status");
+            assert!(!has(&frame, "online"));
+        }
+    }
+
+    #[test]
+    fn a_menu_at_a_point_has_its_corner_there_and_takes_the_arrow_keys() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(800.0, 600.0);
+        let view = |at: Point, contextual: bool| {
+            let menu = DropdownMenu::new(
+                Element::text("general").size(None, Some(400.0)),
+                vec![
+                    DropdownMenuItem::new("read", "Mark as read").into(),
+                    DropdownMenuItem::new("mute", "Mute channel")
+                        .description("Until I turn it back on")
+                        .submenu(vec![DropdownMenuItem::new("mute:1h", "For an hour").into()])
+                        .into(),
+                    DropdownMenuItem::new("hide", "Hide muted channels")
+                        .checkbox(true)
+                        .into(),
+                    DropdownMenuItem::new("edit", "Edit channel")
+                        .description("You need Manage Channels")
+                        .disabled()
+                        .into(),
+                ],
+                true,
+                "menu:dismiss",
+                palette,
+            )
+            .width(240.0)
+            .at(at);
+            let menu = if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            };
+            let mut tree = UiTree::new(Element::column(vec![
+                Element::text_input("search", "", "Search"),
+                menu.render(),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(true);
+            tree
+        };
+        for contextual in [false, true] {
+            let mut tree = view(Point::new(120.0, 90.0), contextual);
+            let surface = region(&tree.layout(size), "popover_surface:menu:dismiss");
+            assert_eq!((surface.x, surface.y), (120.0, 90.0));
+            // With no room after and under the point, it goes above and is moved in.
+            let corner = region(
+                &view(Point::new(790.0, 590.0), contextual).layout(size),
+                "popover_surface:menu:dismiss",
+            );
+            assert_eq!(corner.y + corner.height, 590.0);
+            assert_eq!(corner.x + corner.width, 800.0 - 8.0);
+            // The arrow keys reach it while the focus is on a field outside it.
+            assert!(tree.focus("search"));
+            tree.layout(size);
+            key(&mut tree, Key::ArrowDown);
+            assert_eq!(tree.focused_id(), Some("read"));
+            tree.layout(size);
+            key(&mut tree, Key::ArrowDown);
+            tree.layout(size);
+            key(&mut tree, Key::ArrowRight);
+            assert_eq!(tree.focused_id(), Some("mute:1h"));
+            assert!(has(&tree.layout(size), "mute:1h"));
+            key(&mut tree, Key::ArrowLeft);
+            assert_eq!(tree.focused_id(), Some("mute"));
+            tree.layout(size);
+            assert_eq!(
+                key(&mut tree, Key::Escape),
+                vec![UiAction::Clicked {
+                    id: "menu:dismiss".into()
+                }]
+            );
+            // Its submenu opens on hover too.
+            let mut tree = view(Point::new(120.0, 90.0), contextual);
+            let mute = region(&tree.layout(size), "mute");
+            tree.handle_event(UiEvent::PointerMove(center(mute)));
+            assert!(has(&tree.layout(size), "mute:1h"));
+        }
+        // A point that is not finite is ignored: the menu opens against its anchor.
+        let menu = |at: Point| {
+            DropdownMenu::new(
+                trigger(),
+                vec![DropdownMenuItem::new("a", "A").into()],
+                true,
+                "d",
+                palette,
+            )
+            .at(at)
+        };
+        assert_eq!(menu(Point::new(f32::NAN, 4.0)).at, None);
+        assert_eq!(menu(Point::new(4.0, f32::INFINITY)).at, None);
+        let mut tree = open_menu(menu(Point::new(f32::NEG_INFINITY, 4.0)));
+        let frame = tree.layout(size);
+        assert!(region(&frame, "popover_surface:d").y >= region(&frame, "trigger").y + 28.0);
+    }
+
+    #[test]
+    fn a_secondary_click_outside_closes_the_menu_and_one_inside_does_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(800.0, 600.0);
+        let menu_click = |id: &str| vec![UiAction::Clicked { id: id.into() }];
+        for at in [None, Some(Point::new(120.0, 90.0))] {
+            let mut menu = DropdownMenu::new(
+                trigger(),
+                vec![DropdownMenuItem::new("read", "Mark as read").into()],
+                true,
+                "menu:dismiss",
+                palette,
+            )
+            .context_menu_style();
+            if let Some(at) = at {
+                menu = menu.at(at);
+            }
+            let mut tree = UiTree::new(Element::column(vec![
+                Element::text_input("search", "", "Search"),
+                menu.render(),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(size);
+            let (read, surface) = (
+                region(&frame, "read"),
+                region(&frame, "popover_surface:menu:dismiss"),
+            );
+            let search = center(region(&frame, "search"));
+            for (point, expected) in [
+                (center(read), vec![]),
+                (Point::new(surface.x + 1.0, surface.y + 1.0), vec![]),
+                (Point::new(700.0, 500.0), menu_click("menu:dismiss")),
+                (search, menu_click("menu:dismiss")),
+            ] {
+                assert_eq!(
+                    tree.handle_event(UiEvent::ContextMenu { position: point }),
+                    expected,
+                    "{point:?} (at: {at:?})"
+                );
+                tree.layout(size);
+            }
+        }
+        // A control of the popover that reports its dismiss ID is not outside it.
+        let mut tree = UiTree::new(Element::popover(
+            trigger(),
+            Element::button("close", "Close"),
+            "close",
+            PopoverPlacement::BottomStart,
+        ));
+        tree.set_reduced_motion(true);
+        // The backdrop reports the same ID: the button is the last region.
+        let frame = tree.layout(size);
+        let button = frame
+            .regions
+            .iter()
+            .rev()
+            .find(|region| region.id == "close");
+        let close = center(button.unwrap().rect);
+        assert_eq!(
+            tree.handle_event(UiEvent::ContextMenu { position: close }),
+            vec![]
+        );
+        assert_eq!(
+            tree.handle_event(UiEvent::ContextMenu {
+                position: Point::new(700.0, 500.0)
+            }),
+            menu_click("close")
+        );
     }
 }

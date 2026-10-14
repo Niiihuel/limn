@@ -145,6 +145,16 @@ impl eframe::App for Host {
         self.tree.layout(window);
         let mut changed = false;
         for event in limn_egui::events(&ctx, area.min) {
+            // A page may open its own menu where the secondary click was, or
+            // for the menu key.
+            if matches!(
+                event,
+                UiEvent::ContextMenu { .. } | UiEvent::ContextMenuKeyboard
+            ) && hot(|| pages::context_menu(&mut self.state, &self.tree, &event))
+            {
+                changed = true;
+                continue;
+            }
             for action in self.tree.handle_event(event) {
                 if let UiAction::CopyRequested { text } = &action {
                     ctx.copy_text(text.clone());

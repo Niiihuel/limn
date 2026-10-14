@@ -45,6 +45,11 @@ pub enum Role {
     Tab,
     /// One action in a menu.
     MenuItem,
+    /// An item of a menu that is a check box; `toggled` says whether it is on.
+    MenuItemCheckBox,
+    /// One item of a set in a menu of which a single one is chosen; `toggled`
+    /// says whether it is the chosen one.
+    MenuItemRadio,
     /// One row of a list or a table.
     ListItem,
     /// One row of a tree; `expanded` says whether its children show.
@@ -141,7 +146,7 @@ impl Access {
         self
     }
 
-    /// Whether a switch or a check box is on.
+    /// Whether a switch, a check box or a menu's check box or radio item is on.
     pub fn toggled(mut self, on: bool) -> Self {
         self.toggled = Some(on);
         self

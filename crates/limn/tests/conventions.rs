@@ -6,10 +6,10 @@ use limn::{
     Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
     Toolbar, ToolbarItem, ColorPicker, Hsv, SwatchPicker,
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
-    DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
+    DropdownMenu, DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
     MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
     SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TabsVariant, TextArea,
-    TextField, TimePicker, Toast, TreeGuides, TreeRow, UiTree,
+    TextField, TimePicker, Toast, TreeGuides, TreeRow, UiTree, Point,
 };
 
 fn palette() -> ComponentPalette {
@@ -177,6 +177,9 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
                 .render(),
         );
         lays_out_with_real_numbers("ColorPicker::width", ColorPicker::new("c", Hsv::new(bad, bad, bad), palette).width(bad).render());
+        let menu = || DropdownMenu::new(Element::spacer(), vec![DropdownMenuItem::new("i", "I").into()], true, "d", palette);
+        lays_out_with_real_numbers("DropdownMenu::at", menu().at(Point::new(bad, 40.0)).render());
+        lays_out_with_real_numbers("DropdownMenu::at", menu().at(Point::new(40.0, bad)).render());
     }
 }
 
