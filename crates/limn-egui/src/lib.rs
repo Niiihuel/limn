@@ -1197,6 +1197,8 @@ fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 Role::ComboBox => Platform::ComboBox,
                 Role::Tab => Platform::Tab,
                 Role::MenuItem => Platform::MenuItem,
+                Role::MenuItemCheckBox => Platform::MenuItemCheckBox,
+                Role::MenuItemRadio => Platform::MenuItemRadio,
                 Role::ListItem => Platform::ListItem,
                 Role::TreeItem => Platform::TreeItem,
                 Role::Dialog => Platform::Dialog,
@@ -2820,6 +2822,10 @@ mod tests {
         let frame = UiTree::new(Element::column(vec![
             Button::new("save", "Save changes", palette).render(),
             Element::clickable("wifi", Element::text("Wi-Fi")).accessible(Access::new(Role::Switch).toggled(true)),
+            Element::clickable("mute", Element::text("Mute"))
+                .accessible(Access::new(Role::MenuItemCheckBox).toggled(false)),
+            Element::clickable("all", Element::text("All"))
+                .accessible(Access::new(Role::MenuItemRadio).toggled(true)),
         ]))
         .layout(Size::new(320.0, 200.0));
         let context = egui::Context::default();
@@ -2850,6 +2856,13 @@ mod tests {
         assert_eq!(wifi.role(), egui::accesskit::Role::Switch);
         assert_eq!(wifi.label(), Some("Wi-Fi"));
         assert_eq!(wifi.toggled(), Some(egui::accesskit::Toggled::True));
+        // A menu's check box and radio item are what they are, on or off.
+        use egui::accesskit::{Role as Platform, Toggled};
+        let (mute, all) = (node("mute"), node("all"));
+        assert_eq!(mute.role(), Platform::MenuItemCheckBox);
+        assert_eq!(mute.toggled(), Some(Toggled::False));
+        assert_eq!(all.role(), Platform::MenuItemRadio);
+        assert_eq!(all.toggled(), Some(Toggled::True));
     }
 
     #[test]
