@@ -70,3 +70,29 @@ The license text is preserved; one trailing space is trimmed.
 It follows the existing faces and Noto Sans Math in every family, supplying
 missing monochrome decorative symbols. Existing text keeps its face. This
 does not provide complete Unicode, shaping or color emoji support.
+
+# Noto Emoji
+
+NotoEmoji.ttf is the unmodified monochrome variable font distributed as
+`NotoEmoji[wght].ttf` by Google Fonts. Copyright 2013 Google LLC. It is
+distributed under the SIL Open Font License 1.1 (SPDX: OFL-1.1); the full
+copyright and license text is in NotoEmoji-OFL.txt.
+
+Upstream project: https://github.com/googlefonts/noto-emoji
+
+Distribution source, pinned to a Google Fonts commit:
+https://github.com/google/fonts/tree/8b0a1d0f5983c89bc2b93f1b5fb55f9e252744b5/ofl/notoemoji
+
+The name table reports `Version 3.002`. The font adds 1,982,596 bytes, with
+no subsetting, conversion or runtime download. SHA-256:
+
+- NotoEmoji.ttf `de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551`
+- NotoEmoji-OFL.txt `79d348cb5161481f603dcda564fb129a9b2c11d7012dcad820af045fed75c020`
+
+The license text is preserved; one trailing space is trimmed.
+
+The face follows every existing fallback in each family. It supplies
+missing monochrome emoji while preserving existing glyphs and widths.
+Regional flags, keycaps and some joined sequences can still use an earlier
+face selected by their first character; scalar coverage does not guarantee
+composition of an entire sequence. This font does not add color emoji.
