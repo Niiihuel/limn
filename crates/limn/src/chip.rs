@@ -248,7 +248,7 @@ fn blend(from: Color, to: Color, amount: u16) -> Color {
     Color::rgb(channel(from.r, to.r), channel(from.g, to.g), channel(from.b, to.b))
 }
 
-fn contrast(a: Color, b: Color) -> f32 {
+pub(crate) fn contrast(a: Color, b: Color) -> f32 {
     let luminance = |color: Color| {
         let channel = |value: u8| {
             let value = f32::from(value) / 255.0;

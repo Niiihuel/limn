@@ -3,6 +3,13 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## 0.1.42 — unreleased
+
+- New components: `SwatchPicker` and `Swatch` (one color among a few, a ring around the chosen one, and an optional custom swatch that opens a picker) and `ColorPicker` with `Hsv` (a field of saturation and value, a bar of hues and a hex field; `ColorPicker::color_after` turns its actions into the next color, `hex` and `parse_hex` write and read it), each with a page, a guide and the swatches in the controls harness
+- `Element::area_slider` and `UiAction::AreaSliderChanged`: a slider over an area, dragged in two directions and stepped with all four arrows
+- `Element::horizontal_gradient` and `vertical_gradient`: evenly spaced colors across an element, its corners rounded
+- Gallery: a field shows the text a slider leads to, as it does after a click
+
 ## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)

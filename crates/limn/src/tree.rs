@@ -27,6 +27,9 @@ mod soft_focus_tests;
 #[cfg(test)]
 #[path = "stack_tests.rs"]
 mod stack_tests;
+#[cfg(test)]
+#[path = "area_slider_tests.rs"]
+mod area_slider_tests;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -808,6 +811,101 @@ fn paint_fade(commands: &mut Vec<DrawCommand>, rect: Rect, top: Color, bottom: C
             color: mix((y + 0.5 - rect.y) / rect.height),
             radius: 0.0,
         });
+    }
+}
+
+/// Evenly spaced `stops` across `rect`, left to right or top to bottom, its
+/// four corners rounded by `radius`: a gradient between each two stops, cut
+/// short of the rounded ends, and one-pixel strips across each end, narrowed
+/// to the curve as `paint_fade` narrows its rows.
+fn paint_gradient(
+    commands: &mut Vec<DrawCommand>,
+    rect: Rect,
+    stops: &[Color],
+    vertical: bool,
+    radius: f32,
+) {
+    let (start, length, across) = if vertical {
+        (rect.y, rect.height, rect.width)
+    } else {
+        (rect.x, rect.width, rect.height)
+    };
+    if stops.is_empty() || !(length > 0.0 && across > 0.0) {
+        return;
+    }
+    let spans = stops.len().saturating_sub(1).max(1);
+    // The color a share of the way along: between the two stops around it.
+    let at = |share: f32| {
+        let place = share.clamp(0.0, 1.0) * spans as f32;
+        let index = (place.floor() as usize).min(spans - 1);
+        let (from, to) = (stops[index], stops[(index + 1).min(stops.len() - 1)]);
+        let mix = |from: u8, to: u8| {
+            (f32::from(from) + (f32::from(to) - f32::from(from)) * (place - index as f32)).round()
+                as u8
+        };
+        Color {
+            r: mix(from.r, to.r),
+            g: mix(from.g, to.g),
+            b: mix(from.b, to.b),
+            a: mix(from.a, to.a),
+        }
+    };
+    // The part of `rect` from `from` to `to` along the gradient, `inset` in from both sides.
+    let band = |from: f32, to: f32, inset: f32| {
+        if vertical {
+            Rect::new(
+                rect.x + inset,
+                start + from,
+                across - 2.0 * inset,
+                to - from,
+            )
+        } else {
+            Rect::new(
+                start + from,
+                rect.y + inset,
+                to - from,
+                across - 2.0 * inset,
+            )
+        }
+    };
+    let rounded = if radius.is_finite() {
+        radius.min(length / 2.0).min(across / 2.0).max(0.0).floor()
+    } else {
+        0.0
+    };
+    for span in 0..spans {
+        let from = (length * span as f32 / spans as f32).max(rounded);
+        let to = (length * (span + 1) as f32 / spans as f32).min(length - rounded);
+        if to > from {
+            let (first, last) = (at(from / length), at(to / length));
+            commands.push(if vertical {
+                DrawCommand::FillVerticalGradient {
+                    rect: band(from, to, 0.0),
+                    top: first,
+                    bottom: last,
+                }
+            } else {
+                DrawCommand::FillHorizontalGradient {
+                    rect: band(from, to, 0.0),
+                    left: first,
+                    right: last,
+                }
+            });
+        }
+    }
+    for step in 0..rounded as usize {
+        let depth = step as f32 + 0.5;
+        let inset = rounded
+            - (rounded * rounded - (rounded - depth).powi(2))
+                .max(0.0)
+                .sqrt();
+        for from in [step as f32, length - step as f32 - 1.0] {
+            commands.push(DrawCommand::FillRect {
+                rect: band(from, from + 1.0, inset),
+                color: at((from + 0.5) / length),
+                radius: 0.0,
+            });
+        }
     }
 }
 
@@ -1646,9 +1744,40 @@ struct SliderGeometry {
     inset: f32,
     /// The effort slider settles on a spring; a plain slider follows the host.
     animated: bool,
+    /// The share of the height from the top, for a slider over an area.
+    y: Option<f32>,
+}
+
+/// What a slider reports: its fraction along a track, or both shares over an area.
+fn slider_action(id: String, fraction: f32, y: Option<f32>, committed: bool) -> UiAction {
+    match y {
+        Some(y) => UiAction::AreaSliderChanged {
+            id,
+            x: fraction,
+            y,
+            committed,
+        },
+        None => UiAction::SliderChanged {
+            id,
+            fraction,
+            committed,
+        },
+    }
 }
 
 impl SliderGeometry {
+    /// The pointer's share of the height from the top, for an area slider.
+    fn y_at(self, y: f32) -> Option<f32> {
+        let travel = self.rect.height - self.inset * 2.0;
+        self.y.map(|_| {
+            if travel <= 0.0 {
+                0.5
+            } else {
+                ((y - self.rect.y - self.inset) / travel).clamp(0.0, 1.0)
+            }
+        })
+    }
+
     fn fraction_at(self, x: f32) -> f32 {
         let travel = self.rect.width - self.inset * 2.0;
         if travel <= 0.0 {
@@ -1681,6 +1810,7 @@ struct SliderDrag {
     id: String,
     geometry: SliderGeometry,
     fraction: f32,
+    y: Option<f32>,
 }
 
 struct SliderMotion {
@@ -2259,6 +2389,19 @@ pub enum UiAction {
         /// Position along the track, from 0 to 1. A committed one is snapped to
         /// a step.
         fraction: f32,
+        /// False while the pointer drags. True on release, when the pointer
+        /// leaves the window, and for a step from the keyboard.
+        committed: bool,
+    },
+    /// An area slider moved: previewed while the pointer is down, committed
+    /// on release and from the keyboard. See [`Element::area_slider`].
+    AreaSliderChanged {
+        /// ID of the slider.
+        id: String,
+        /// Share of the width from the left, from 0 to 1.
+        x: f32,
+        /// Share of the height from the top, from 0 to 1.
+        y: f32,
         /// False while the pointer drags. True on release, when the pointer
         /// leaves the window, and for a step from the keyboard.
         committed: bool,
@@ -5081,13 +5224,11 @@ impl UiTree {
                 }
                 if let Some(drag) = self.slider_drag.as_mut() {
                     let fraction = drag.geometry.fraction_at(point.x);
-                    if fraction != drag.fraction {
+                    let y = drag.geometry.y_at(point.y);
+                    if fraction != drag.fraction || y != drag.y {
                         drag.fraction = fraction;
-                        actions.push(UiAction::SliderChanged {
-                            id: drag.id.clone(),
-                            fraction,
-                            committed: false,
-                        });
+                        drag.y = y;
+                        actions.push(slider_action(drag.id.clone(), fraction, y, false));
                     }
                 }
                 if let Some(selection) = self.static_selection.as_mut().filter(|s| s.dragging) {
@@ -5127,11 +5268,7 @@ impl UiTree {
                                 && drag.geometry.fraction < 1.0,
                         );
                     }
-                    actions.push(UiAction::SliderChanged {
-                        id: drag.id.clone(),
-                        fraction: snapped,
-                        committed: true,
-                    });
+                    actions.push(slider_action(drag.id.clone(), snapped, drag.y, true));
                 }
                 self.pointer = None;
                 self.set_hovered(None, now);
@@ -5179,10 +5316,12 @@ impl UiTree {
                         .map(|geometry| (region.id.clone(), geometry))
                 }) {
                     let fraction = geometry.fraction_at(point.x);
+                    let y = geometry.y_at(point.y);
                     self.slider_drag = Some(SliderDrag {
                         id: id.clone(),
                         geometry,
                         fraction,
+                        y,
                     });
                     // An entry in `slider_motion` keeps the window repainting,
                     // so only the animated effort slider gets one.
@@ -5198,11 +5337,7 @@ impl UiTree {
                     }
                     self.focused = Some(id.clone());
                     self.pressed = None;
-                    actions.push(UiAction::SliderChanged {
-                        id,
-                        fraction,
-                        committed: false,
-                    });
+                    actions.push(slider_action(id, fraction, y, false));
                     return actions;
                 }
                 if let Some(pan) = self.horizontal_pan_at(point) {
@@ -5337,11 +5472,8 @@ impl UiTree {
                                 && drag.geometry.fraction < 1.0,
                         );
                     }
-                    actions.push(UiAction::SliderChanged {
-                        id: drag.id,
-                        fraction: snapped,
-                        committed: true,
-                    });
+                    let y = drag.geometry.y_at(point.y);
+                    actions.push(slider_action(drag.id, snapped, y, true));
                     return actions;
                 }
                 if let Some(selection) = self.static_selection.as_mut().filter(|s| s.dragging) {
@@ -5455,7 +5587,15 @@ impl UiTree {
                     self.keyboard_focus = true;
                 } else if !shift
                     && !ctrl
-                    && matches!(key, Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End)
+                    && matches!(
+                        key,
+                        Key::ArrowLeft
+                            | Key::ArrowRight
+                            | Key::ArrowUp
+                            | Key::ArrowDown
+                            | Key::Home
+                            | Key::End
+                    )
                     && self.step_slider(key, &mut actions)
                 {
                     self.keyboard_focus = true;
@@ -5611,6 +5751,27 @@ impl UiTree {
         let Some(geometry) = self.frame.sliders.get(id) else {
             return false;
         };
+        // An area slider: Left and Right move across, Up and Down up and down.
+        if let Some(y) = geometry.y {
+            let x = geometry.fraction;
+            let step = CONTINUOUS_SLIDER_KEY_STEP;
+            let (x, y) = match key {
+                Key::ArrowLeft => ((x - step).max(0.0), y),
+                Key::ArrowRight => ((x + step).min(1.0), y),
+                Key::ArrowUp => (x, (y - step).max(0.0)),
+                Key::ArrowDown => (x, (y + step).min(1.0)),
+                Key::Home => (0.0, y),
+                Key::End => (1.0, y),
+                _ => return false,
+            };
+            actions.push(UiAction::AreaSliderChanged {
+                id: id.clone(),
+                x,
+                y,
+                committed: true,
+            });
+            return true;
+        }
         if geometry.steps < 2 {
             let current = geometry.fraction.clamp(0.0, 1.0);
             let fraction = match key {
@@ -9026,6 +9187,19 @@ impl LayoutBuilder<'_> {
                 style.corner_radii,
             );
         }
+        if let Some((stops, vertical)) = element
+            .kept
+            .as_ref()
+            .and_then(|kept| kept.gradient.as_ref())
+        {
+            paint_gradient(
+                &mut self.frame.commands,
+                rect,
+                stops,
+                *vertical,
+                style.radius,
+            );
+        }
         if let Some((color, height)) = style.bottom_background_fade {
             if rect.width > 0.0 && rect.height > 0.0 {
                 let height = height.min(rect.height);
@@ -9226,6 +9400,7 @@ impl LayoutBuilder<'_> {
                             ultra_available: false,
                             inset: travel.inset,
                             animated: false,
+                            y: travel.y,
                         },
                     );
                 }
@@ -11018,6 +11193,7 @@ impl LayoutBuilder<'_> {
                         ultra_available: *ultra_available,
                         inset: SLIDER_THUMB_INSET,
                         animated: true,
+                        y: None,
                     },
                 );
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
@@ -12361,6 +12537,7 @@ mod tests {
             ultra_available: true,
             inset: SLIDER_THUMB_INSET,
             animated: true,
+            y: None,
         };
         let three = SliderGeometry { steps: 3, ..five };
         let x = SLIDER_THUMB_INSET + 0.3 * (rect.width - 2.0 * SLIDER_THUMB_INSET);

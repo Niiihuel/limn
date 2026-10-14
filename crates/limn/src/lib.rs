@@ -29,6 +29,7 @@ mod code_editor;
 mod code_syntax;
 mod collapse;
 mod collapsible;
+mod color_picker;
 mod components;
 mod composer;
 mod context_window;
@@ -91,6 +92,7 @@ mod spinner;
 mod status_bar;
 mod stepper;
 mod suggestion_list;
+mod swatch_picker;
 mod tab_strip;
 mod table;
 mod text;
@@ -141,6 +143,7 @@ pub use code_editor::{CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeE
 pub use code_syntax::CodeLanguage;
 pub use collapse::Collapse;
 pub use collapsible::{collapse_footer, Collapsible};
+pub use color_picker::{ColorPicker, Hsv};
 pub use components::{
     ActiveHover, Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component,
     ComponentPalette, ControlSize, ControlState, DropdownList, DropdownOption, IconButton, Kbd, Link,
@@ -230,6 +233,7 @@ pub use chat_minimap::{ChatMinimap, ChatMinimapMark};
 pub use clipboard::{Clipboard, ClipboardCopied};
 pub use stepper::{Step, Stepper};
 pub use suggestion_list::{SuggestionItem, SuggestionList};
+pub use swatch_picker::{Swatch, SwatchPicker};
 pub use tab_strip::{TabItem, TabStrip, TabStripHeader};
 pub use table::{Table, TableColumn, TableRow, TableSizing, TableSort};
 pub use text::Text;
