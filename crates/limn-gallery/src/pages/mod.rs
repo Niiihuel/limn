@@ -15,6 +15,7 @@ mod charts;
 mod checkbox;
 mod chrome;
 mod code;
+mod colors;
 mod context;
 mod dates;
 mod description;
@@ -111,7 +112,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "scheme", group: "System", title: "Scheme", source: "scheme", view: scheme::view, sections: &[], since: "0.1.39" },
     Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Long text", "Soft focus"], since: "0.1.39" },
     Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"], since: "0.1.39" },
-    Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon"], since: "0.1.39" },
+    Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings"], since: "0.1.39" },
     Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
     Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"], since: "0.1.39" },
     Page { id: "toolbar", group: "Actions", title: "Toolbar", source: "toolbar", view: toolbar::view, sections: &[], since: "0.1.41" },
@@ -129,12 +130,14 @@ pub const PAGES: &[Page] = &[
     Page { id: "radio-group", group: "Inputs", title: "RadioGroup", source: "radio", view: radio::view, sections: &[], since: "0.1.41" },
     Page { id: "toggle", group: "Inputs", title: "Toggle", source: "toggle", view: toggle::view, sections: &[], since: "0.1.41" },
     Page { id: "number-input", group: "Inputs", title: "NumberInput", source: "number", view: number::view, sections: &[], since: "0.1.41" },
+    Page { id: "swatch-picker", group: "Inputs", title: "SwatchPicker", source: "colors", view: colors::view, sections: &["Swatch picker", "Custom color", "Rows", "Sizes", "Disabled", "Edge cases"], since: "0.1.42" },
+    Page { id: "color-picker", group: "Inputs", title: "ColorPicker", source: "colors", view: colors::view, sections: &["Color picker", "Width", "Disabled picker", "Part labels"], since: "0.1.42" },
     Page { id: "slider", group: "Inputs", title: "Slider", source: "inputs", view: inputs::view, sections: &["Slider"], since: "0.1.39" },
     Page { id: "date-picker", group: "Inputs", title: "DatePicker", source: "dates", view: dates::view, sections: &["Date picker"], since: "0.1.39" },
     Page { id: "time-picker", group: "Inputs", title: "TimePicker", source: "dates", view: dates::view, sections: &["Time picker"], since: "0.1.39" },
     Page { id: "date-time-picker", group: "Inputs", title: "DateTimePicker", source: "dates", view: dates::view, sections: &["Date and time picker"], since: "0.1.39" },
     Page { id: "editor", group: "Inputs", title: "Editing tools", source: "editor", view: editor::view, sections: &[], since: "0.1.39" },
-    Page { id: "tabs", group: "Navigation", title: "Tabs", source: "navigation", view: navigation::view, sections: &["Tabs", "Resource tabs"], since: "0.1.39" },
+    Page { id: "tabs", group: "Navigation", title: "Tabs", source: "navigation", view: navigation::view, sections: &["Tabs", "Underlined tabs", "Resource tabs"], since: "0.1.39" },
     Page { id: "segmented-control", group: "Navigation", title: "SegmentedControl", source: "navigation", view: navigation::view, sections: &["Segmented control"], since: "0.1.39" },
     Page { id: "stepper", group: "Navigation", title: "Stepper", source: "navigation", view: navigation::view, sections: &["Steps"], since: "0.1.39" },
     Page { id: "breadcrumb", group: "Navigation", title: "Breadcrumb", source: "navigation", view: navigation::view, sections: &["Path"], since: "0.1.39" },
@@ -180,15 +183,15 @@ pub const PAGES: &[Page] = &[
     Page { id: "marker", group: "States", title: "Marker", source: "feedback", view: feedback::view, sections: &["Markers"], since: "0.1.39" },
     Page { id: "ticker", group: "States", title: "Ticker", source: "feedback", view: feedback::view, sections: &["Ticker"], since: "0.1.39" },
     Page { id: "collapse", group: "States", title: "Collapse", source: "feedback", view: feedback::view, sections: &["Closing slot"], since: "0.1.39" },
-    Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels"], since: "0.1.39" },
+    Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels", "Wrapping"], since: "0.1.39" },
     Page { id: "badge", group: "States", title: "Badge", source: "badge", view: badge::view, sections: &[], since: "0.1.41" },
     Page { id: "avatar", group: "States", title: "Avatar", source: "media", view: media::view, sections: &["Avatar"], since: "0.1.39" },
     Page { id: "avatar-group", group: "States", title: "AvatarGroup", source: "avatars", view: avatars::view, sections: &[], since: "0.1.41" },
     Page { id: "context-window", group: "States", title: "ContextWindow", source: "context", view: context::view, sections: &[], since: "0.1.39" },
     Page { id: "popover", group: "Overlays", title: "Popover", source: "overlays", view: overlays::view, sections: &["Popover"], since: "0.1.39" },
     Page { id: "dropdown-list", group: "Overlays", title: "DropdownList", source: "overlays", view: overlays::view, sections: &["Dropdown list"], since: "0.1.39" },
-    Page { id: "dropdown-menu", group: "Overlays", title: "DropdownMenu", source: "overlays", view: overlays::view, sections: &["Menu"], since: "0.1.39" },
-    Page { id: "context-menu", group: "Overlays", title: "ContextMenu", source: "overlays", view: overlays::view, sections: &["Context menu"], since: "0.1.39" },
+    Page { id: "dropdown-menu", group: "Overlays", title: "DropdownMenu", source: "overlays", view: overlays::view, sections: &["Menu", "Menu items"], since: "0.1.39" },
+    Page { id: "context-menu", group: "Overlays", title: "ContextMenu", source: "overlays", view: overlays::view, sections: &["Context menu", "Menu at a point"], since: "0.1.39" },
     Page { id: "dialog", group: "Overlays", title: "Modal / AlertDialog", source: "overlays", view: overlays::view, sections: &["Dialogs"], since: "0.1.39" },
     Page { id: "toast", group: "Overlays", title: "Toast", source: "overlays", view: overlays::view, sections: &["Toast"], since: "0.1.39" },
     Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer"], since: "0.1.39" },
@@ -261,11 +264,25 @@ pub fn update(state: &mut State, action: &UiAction) {
     number::update(state, action);
     checkbox::update(state, action);
     toolbar::update(state, action);
+    inputs::update(state, action);
+    colors::update(state, action);
 }
 
-/// The fields whose text a click may have changed, each with its value now.
+/// Answer a secondary click or the menu key a page opens its own menu for,
+/// before the tree does; `true` when one did.
+pub fn context_menu(state: &mut State, tree: &limn::UiTree, event: &limn::UiEvent) -> bool {
+    overlays::context_menu(state, tree, event)
+}
+
+/// The fields whose text a click or a slider may have changed, each with its value now.
 pub fn fields(state: &State) -> Vec<(&'static str, String)> {
-    [dates::fields(state), number::fields(state)].concat()
+    [
+        dates::fields(state),
+        number::fields(state),
+        inputs::fields(state),
+        colors::fields(state),
+    ]
+    .concat()
 }
 
 /// Wrap the window in the layers the pages control.

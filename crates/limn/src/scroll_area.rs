@@ -190,6 +190,30 @@ impl ScrollArea {
         }
     }
 
+    /// A scroll surface over `row_count` rows of their own heights, each built from its
+    /// index by `build_row` as it comes into view and measured then. `row_key` names a row
+    /// so its height and the place the view holds follow it when rows are added before it;
+    /// `estimated_row_height` stands for a row not measured yet. See
+    /// [`Element::measured_list`].
+    pub fn measured_list(
+        id: impl Into<String>,
+        row_count: usize,
+        estimated_row_height: f32,
+        row_key: impl Fn(usize) -> u64 + Send + Sync + 'static,
+        build_row: impl Fn(usize) -> Element + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            element: Element::measured_list(id, row_count, estimated_row_height, row_key, build_row),
+        }
+    }
+
+    /// Keep a measured list at its end while it is scrolled there, as a conversation
+    /// follows new messages: see [`Element::list_follow_end`].
+    pub fn follow_end(mut self, follow: bool) -> Self {
+        self.element = self.element.list_follow_end(follow);
+        self
+    }
+
     /// What row `index` of a uniform list opens under itself: see
     /// [`Element::list_expansion`].
     pub fn expansion(mut self, index: usize, content: Element) -> Self {

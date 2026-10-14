@@ -1,8 +1,8 @@
 # ScrollArea
 
 A viewport that scrolls content taller than itself, with a vertical
-scrollbar. It also builds long lists of rows of one height, only the rows in
-view.
+scrollbar. It also builds long lists, of rows of one height or of rows that
+each take their own, only the rows in view.
 
 ## Import
 
@@ -50,6 +50,49 @@ ScrollArea::uniform_list("log", count, 28.0, build_row).expansion(state.open_row
 `expansion(index, content)` shows `content` under one row, at the height it
 takes. It scrolls with the rows and the rows after it move down. One row is
 open at a time; pass the content on every rebuild while it is.
+
+## A list of rows of their own heights
+
+```rust
+ScrollArea::measured_list(
+    "messages",
+    state.messages.len(),
+    56.0,
+    move |index| ids[index],
+    move |index| message_row(&messages[index], palette),
+)
+.follow_end(true)
+.render()
+.flex(1.0)
+```
+
+`measured_list(id, row_count, estimated_row_height, row_key, build_row)` is a
+list of rows that each take the height they need, such as the messages of a
+conversation. Like a uniform list it builds only the rows in view. Each row
+is measured at the width of the list when it is built; until then
+`estimated_row_height` stands for it, so the scrollbar is exact for the rows
+seen and close for the others.
+
+`row_key` names the row at an index, with a `u64` that stays the same for
+that row: an ID the host already has, or a hash of one. The tree keeps each
+height under its key, so a row measured once is not measured from nothing
+again, and the row at the top of the viewport stays where it is when the
+rows above it are measured, grow, shrink or are added. A page of older
+messages loaded above the ones being read does not move them, nor does a
+row above them that a reaction made taller.
+
+`follow_end(true)` keeps the list at its end while it is scrolled there: rows
+added at the end, or a last row that grows, come into view, as a
+conversation follows new messages. Scrolled away from the end, the list holds
+its place. A short list stays at its top until it overflows.
+
+`UiTree::visible_rows(id)` gives the range of rows built at the last layout,
+for a host that loads more before the first one shows or marks what was seen.
+`scroll_to_index`, `scroll_to_end` and Tab work as they do in a uniform list,
+and `reveal` and `anchor_offset` reach controls and anchors inside the rows
+in view.
+
+A measured list has no `expansion`: a row that opens grows itself.
 
 ## Scrollbar
 

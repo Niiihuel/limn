@@ -66,6 +66,35 @@ shrinks down to its `min_size`, then the next, and only if that is still not
 enough do they shrink below their minimums. Flexible siblings keep their
 minimum widths throughout.
 
+## Wrapping rows
+
+A row with `.wrap()` moves a child that does not fit its width to the next
+line, as a list of tags or role pills does:
+
+```rust
+Element::row(tags).gap(6.0).wrap()                 // lines 6 px apart
+Element::row(tags).gap(6.0).line_gap(10.0).wrap()  // lines 10 px apart
+```
+
+| Rule | Effect |
+| --- | --- |
+| Width | Each child keeps its natural width, `gap` after the one before it on its line. |
+| Lines | A line is as tall as its tallest child, and the others stretch to it unless sized, as in any row. `line_gap` is the space between lines; it is `gap` until set. |
+| Height | The row is as tall as its lines, so what follows it in a column moves down. |
+| Too wide | A child wider than the row has a line of its own, at the row's width: a text wraps there. |
+| Order | Tab and assistive technology take the children in the order given, line after line, and the pointer finds each where it is drawn. |
+
+A wrapping row needs a width to wrap at. In a column it has the column's.
+In another row, give it `.flex(1.0)`, `.shrink_to_fit()` or `.max_width(w)`:
+like any child of a row, it otherwise takes its natural width, which is all
+of its children on one line. Unlike other content, a wrapping row is
+re-wrapped at its `max_width`, and its height counts the lines it makes
+there.
+
+Limits: `flex` and `shrink_to_fit` on its children change nothing, and a line
+starts at the left; it is not centered or justified. Only `Element::row`
+wraps: `wrap` on another element does nothing.
+
 ## Centering
 
 There is no alignment property. Center a child by surrounding it with flexible
@@ -114,6 +143,7 @@ slanted by the host.
 | `Element::overlay(base, floating)` | Paints `floating` over `base` without affecting its layout. |
 | `ScrollArea::new(id, child)` | A vertically scrolling viewport. |
 | `ScrollArea::uniform_list(id, count, row_height, build_row)` | A virtualized list: only visible rows are built. |
+| `ScrollArea::measured_list(id, count, estimated_height, row_key, build_row)` | A virtualized list of rows of their own heights, measured as they come into view. The row at the top of the viewport holds still while rows above it are measured, change or are added; `.follow_end(true)` keeps the end in view as rows arrive. See [ScrollArea](components/scroll-area.md#a-list-of-rows-of-their-own-heights). |
 | `ScrollArea::uniform_list(…).expansion(index, content)` | What row `index` opens under itself, at the height it takes: it scrolls with the rows, the rows after it move down, and the list stays virtual. One row at a time; a `Collapse` as `content` opens and closes it on the spring. The keyboard walks from the row into it and on to the next row. |
 | `Element::horizontal_scroll(id, child)` | A horizontally scrolling strip. |
 
@@ -124,6 +154,12 @@ inside its bounds.
 paint a colour behind a container's children that starts at that edge and is
 gone `height` further in: a tint behind a page's header, or under the last
 lines of a panel. Paint only, and never taller than the container.
+
+`.horizontal_gradient(stops)` and `.vertical_gradient(stops)` fill an element
+with colors spread evenly from its left edge to its right, or from its top to
+its bottom, blending from each to the next, behind its children and over its
+background, its corners rounded by its `radius`: the bar of hues of a
+`ColorPicker`, or a fade of the host's own. One stop is a plain fill.
 
 ### Sticky children
 
@@ -154,7 +190,8 @@ that is resolved at the next layout, once sizes are known.
 | Method | Effect |
 | --- | --- |
 | `tree.scroll_to_start(id)`, `tree.scroll_to_end(id)` | Jump to either end of the scroll area `id`. |
-| `tree.scroll_to_index(id, index)` | Keep one row of a uniform list in view. |
+| `tree.scroll_to_index(id, index)` | Keep one row of a uniform or a measured list in view. |
+| `tree.visible_rows(id)` | The rows of a uniform or a measured list built at the last layout, as a range of indices. |
 | `tree.center(control_id)` | Bring a button or a clickable to the middle of the scroll area that holds it, travelling there by that area's scroll motion, or at once under reduced motion. For content that follows a clock, such as the line being sung. Near either end of the content it goes as far as the area scrolls; nothing happens when no control has that ID, and focus stays where it was. |
 | `tree.reveal(control_id)` | Bring a button, a clickable or a field into view wherever it is: every scroll area around it scrolls just enough to show it whole, 12 px clear of the edge. Rows need no fixed height. Nothing moves when it is already in view, and nothing happens when no control has that ID. Focus stays where it was. |
 | `tree.reveal_with_margin(control_id, margin)` | The same with a margin of the host's own, for a viewport whose edge is covered by a fade or a fixed header. A margin with no room shrinks until the control fits. |

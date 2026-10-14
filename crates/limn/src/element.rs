@@ -297,6 +297,10 @@ pub enum Icon {
     ArrowRight,
     /// A chevron pointing down.
     ChevronDown,
+    /// A chevron pointing up: a menu that is open, where a closed one
+    /// shows [`Self::ChevronDown`]. A section that opens in place shows
+    /// [`Self::ChevronDown`] when open and [`Self::ChevronRight`] when closed.
+    ChevronUp,
     /// A chevron pointing right.
     ChevronRight,
     /// A magnifying glass: search.
@@ -422,6 +426,35 @@ pub enum Icon {
     Library,
     /// Three faders: an equalizer, or any set of fine adjustments.
     Sliders,
+    /// A microphone with a slash: the microphone is off.
+    MicrophoneMuted,
+    /// Headphones: what is heard, or listening.
+    Headphones,
+    /// A smiling face: an emoji, or adding a reaction.
+    Emoji,
+    /// An arrow turning back: a reply.
+    Reply,
+    /// An at sign: a mention.
+    At,
+    /// A handset: a call.
+    Phone,
+    /// A handset with a cross: leaving or declining a call.
+    HangUp,
+    /// A monitor: a screen, or sharing one.
+    Screen,
+    /// A video camera with a slash: the camera is off.
+    VideoOff,
+    /// A closed padlock: private or locked.
+    Lock,
+    /// A diagonal stroke: neither on nor off, such as a setting left as
+    /// it is inherited.
+    Neutral,
+    /// A person with a plus: inviting or adding someone.
+    Invite,
+    /// An arrow leaving a box to the left: leaving a group, or signing out.
+    Leave,
+    /// Two columns of dots: a handle to drag an item by.
+    DragHandle,
 }
 
 impl Icon {
@@ -709,8 +742,8 @@ pub(crate) enum HoverReveal {
     Concealed,
 }
 
-/// Rare paint effects and the IDs under which the tree keeps an element's
-/// ink and a column's children across rebuilds.
+/// Rare paint effects, a row's wrapping, and the IDs under which the tree
+/// keeps an element's ink and a column's children across rebuilds.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Kept {
     /// Stored off the common element path: most elements have no material.
@@ -719,6 +752,15 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// Set by [`Element::wrap`]: a row moves children onto more lines.
+    pub(crate) wrap: bool,
+    /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
+    pub(crate) line_gap: Option<f32>,
+    /// Width a text input leaves free at its end, for a control laid over it.
+    pub(crate) input_trailing_space: f32,
+    /// Evenly spaced colors painted across the element, and whether they run
+    /// down it rather than across.
+    pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -727,6 +769,8 @@ pub(crate) struct SliderTravel {
     pub(crate) fraction: f32,
     pub(crate) steps: usize,
     pub(crate) inset: f32,
+    /// The share of the height from the top, for a slider over an area.
+    pub(crate) y: Option<f32>,
 }
 
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
@@ -806,6 +850,26 @@ pub struct UniformList {
     pub motion: ScrollMotion,
     /// What one row opens under itself: see [`Element::list_expansion`].
     pub expansion: Option<(usize, Arc<Element>)>,
+    /// Rows of their own heights, measured as they come into view, instead
+    /// of `row_height` each: see [`Element::measured_list`]. `row_height` is
+    /// then the estimate for a row not measured yet.
+    pub measured: Option<MeasuredRows>,
+}
+
+/// What makes a [`UniformList`] a list of rows of their own heights. The
+/// tree measures each row it builds, keeps the height under the row's key,
+/// and holds the row at the top of the viewport still when rows above it are
+/// measured, grow, shrink, or are added.
+#[derive(Clone)]
+pub struct MeasuredRows {
+    /// The stable key of the row at a zero-based index. The height a row was
+    /// measured at, and the place the view holds, follow the key when rows
+    /// are added or removed before it. Hash a key that is not a number.
+    pub key: Arc<dyn Fn(usize) -> u64 + Send + Sync>,
+    /// While the list is scrolled to its end, keep it there when rows are
+    /// added at the end or the last ones grow: a conversation. Set by
+    /// [`Element::list_follow_end`].
+    pub follow_end: bool,
 }
 
 impl std::fmt::Debug for UniformList {
@@ -815,6 +879,7 @@ impl std::fmt::Debug for UniformList {
             .field("id", &self.id)
             .field("row_count", &self.row_count)
             .field("row_height", &self.row_height)
+            .field("measured", &self.measured.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -1196,8 +1261,9 @@ pub enum ElementKind {
     /// One interactive surface whose children can contain more specific
     /// controls. Child hit regions take precedence over this row's region.
     Clickable {
-        /// Reported as `UiAction::Clicked`, or with `UiAction::SliderChanged`
-        /// after [`Element::slider`]; also its focus ID.
+        /// Reported as `UiAction::Clicked`, with `UiAction::SliderChanged`
+        /// after [`Element::slider`] or with `UiAction::AreaSliderChanged`
+        /// after [`Element::area_slider`]; also its focus ID.
         id: String,
         /// The content the surface wraps.
         child: Box<Element>,
@@ -1266,6 +1332,9 @@ pub enum ElementKind {
         /// The actions the Left and Right arrow keys report while this
         /// surface has the keyboard: what goes back and what goes on.
         arrows: Option<Box<(Option<String>, Option<String>)>>,
+        /// A point of the window the surface is placed against instead of
+        /// the anchor's box; set by [`Element::popover_at`].
+        at: Option<Point>,
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -1461,6 +1530,10 @@ pub enum ElementKind {
         auto_grow: Option<f32>,
         /// Keep CRLF/CR bytes in editable values instead of normalizing to LF.
         preserve_line_endings: bool,
+        /// Enter submits and Shift+Enter breaks the line, as in a chat
+        /// composer, instead of the other way round; see
+        /// [`Element::text_area_enter_submits`].
+        enter_submits: bool,
         /// Paint-only ranges over `initial_value`, 64 at most. None is painted
         /// while the edited value differs from it.
         highlights: Vec<TextHighlight>,
@@ -1623,7 +1696,8 @@ pub struct Style {
     pub hover_foreground: Option<Color>,
     /// Ink while pressed. `None` falls back to `hover_foreground`.
     pub pressed_foreground: Option<Color>,
-    /// Border painted while an editor owns focus, including pointer focus.
+    /// Border painted while an editor owns focus, including pointer focus,
+    /// or while another control without a focus ring has the keyboard focus.
     pub focus_border: Option<Border>,
     /// Editors that paint their own caret may suppress the outer keyboard ring.
     pub focus_ring: bool,
@@ -1923,6 +1997,22 @@ impl Element {
         self
     }
 
+    /// Fill the element with `stops` spread evenly from its left edge to its
+    /// right edge, blending from each to the next, behind its children and
+    /// over its background. The corners are rounded by its `radius`. One
+    /// stop is a plain fill, and none paints nothing.
+    pub fn horizontal_gradient(mut self, stops: impl Into<Arc<[Color]>>) -> Self {
+        self.kept.get_or_insert_default().gradient = Some((stops.into(), false));
+        self
+    }
+
+    /// The same as [`horizontal_gradient`](Self::horizontal_gradient), from
+    /// the top edge to the bottom edge.
+    pub fn vertical_gradient(mut self, stops: impl Into<Arc<[Color]>>) -> Self {
+        self.kept.get_or_insert_default().gradient = Some((stops.into(), true));
+        self
+    }
+
     /// Let a tab strip's selection rest on this child when `id` is selected.
     pub fn indicator_slot(mut self, id: impl Into<String>) -> Self {
         self.indicator_slot = Some(id.into());
@@ -1957,6 +2047,36 @@ impl Element {
             fraction: if fraction.is_finite() { fraction.clamp(0.0, 1.0) } else { 0.0 },
             steps,
             inset: if inset.is_finite() { inset.max(0.0) } else { 0.0 },
+            y: None,
+        }));
+        self
+    }
+
+    /// Turn a clickable into a slider over its area. Pressing or dragging
+    /// over it reports `AreaSliderChanged` with the pointer's share of its
+    /// width from the left, `x`, and of its height from the top, `y`, each
+    /// measured between `inset` pixels from its edges. Left and Right move
+    /// `x` by a twentieth, Up and Down move `y`, and Home and End take `x`
+    /// to its ends. Shares outside 0 to 1 are clamped and one that is not
+    /// finite is 0. The element paints nothing of its own: the child draws
+    /// the mark at `x` and `y`.
+    pub fn area_slider(mut self, x: f32, y: f32, inset: f32) -> Self {
+        let share = |share: f32| {
+            if share.is_finite() {
+                share.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        };
+        self.slider = Some(Box::new(SliderTravel {
+            fraction: share(x),
+            steps: 0,
+            inset: if inset.is_finite() {
+                inset.max(0.0)
+            } else {
+                0.0
+            },
+            y: Some(share(y)),
         }));
         self
     }
@@ -2155,6 +2275,7 @@ impl Element {
                 return_focus: None,
                 coach: None,
                 arrows: None,
+                at: None,
             },
             layout,
         )
@@ -2197,7 +2318,21 @@ impl Element {
         self
     }
 
-    /// Show a submenu while its trigger or content is hovered or focused.
+    /// Place the surface against a point of the window instead of the
+    /// anchor's box, as a context menu opens where the secondary click was.
+    /// The anchor keeps its place in the layout, and the arrow keys reach the
+    /// surface wherever the focus is. A point that is not finite is ignored.
+    pub fn popover_at(mut self, point: Point) -> Self {
+        if let ElementKind::Popover { at, .. } = &mut self.kind {
+            if point.x.is_finite() && point.y.is_finite() {
+                *at = Some(point);
+            }
+        }
+        self
+    }
+
+    /// Show a submenu while its trigger or content is hovered or focused,
+    /// or a submenu nested in it is.
     pub fn popover_on_hover(mut self) -> Self {
         if let ElementKind::Popover {
             anchor,
@@ -2383,7 +2518,55 @@ impl Element {
             appearance: ScrollbarAppearance::default(),
             motion: ScrollMotion::default(),
             expansion: None,
+            measured: None,
         }))
+    }
+
+    /// A scrollable list whose rows each take the height they need, such as
+    /// the messages of a conversation. Like [`Element::uniform_list`], only
+    /// the rows in view are built, from their index. Each one is measured at
+    /// the width of the list when it is built, and `estimated_row_height`
+    /// stands for a row not measured yet, so the scrollbar is exact for the
+    /// rows seen and close for the rest.
+    ///
+    /// `row_key` names the row at an index. Under its key the tree keeps the
+    /// height it measured, and the row at the top of the viewport stays where
+    /// it is when rows above it are measured, change height or are added: a
+    /// page of older messages loaded above the ones being read does not move
+    /// them. [`Element::list_follow_end`] keeps the end in view as rows
+    /// arrive. A measured list has no [`Element::list_expansion`]: a row that
+    /// opens grows itself. Set `.flex(1.0)` when it fills the remaining height
+    /// of a column. An estimate that is not finite or under 1 is read as 1.
+    pub fn measured_list(
+        id: impl Into<String>,
+        row_count: usize,
+        estimated_row_height: f32,
+        row_key: impl Fn(usize) -> u64 + Send + Sync + 'static,
+        build_row: impl Fn(usize) -> Self + Send + Sync + 'static,
+    ) -> Self {
+        let mut list = Self::uniform_list(id, row_count, estimated_row_height, build_row);
+        if let ElementKind::UniformList(list) = &mut list.kind {
+            list.measured = Some(MeasuredRows {
+                key: Arc::new(row_key),
+                follow_end: false,
+            });
+        }
+        list
+    }
+
+    /// Keep a [`Element::measured_list`] at its end while it is scrolled
+    /// there: rows added at the end, or a last row that grows, scroll into
+    /// view, the way a conversation follows new messages. Scrolled away from
+    /// the end, the list holds its place. Does nothing on another element.
+    pub fn list_follow_end(mut self, follow: bool) -> Self {
+        if let ElementKind::UniformList(UniformList {
+            measured: Some(measured),
+            ..
+        }) = &mut self.kind
+        {
+            measured.follow_end = follow;
+        }
+        self
     }
 
     /// Show `content` under row `index` of a uniform list, at the height it
@@ -2649,6 +2832,17 @@ impl Element {
         self
     }
 
+    /// Keep `width` logical pixels at the end of a text input free of text,
+    /// caret and hint, for a control a component lays over it there. Other
+    /// elements ignore it; a width that is not finite is ignored and a
+    /// negative one is zero.
+    pub(crate) fn input_trailing_space(mut self, width: f32) -> Self {
+        if width.is_finite() && matches!(self.kind, ElementKind::TextInput { .. }) {
+            self.kept.get_or_insert_default().input_trailing_space = width.max(0.0);
+        }
+        self
+    }
+
     /// A decorative keyboard hint inside the input's focus and hit bounds.
     pub fn input_shortcut(mut self, value: impl Into<String>) -> Self {
         if let ElementKind::TextInput { shortcut, .. } = &mut self.kind {
@@ -2666,6 +2860,7 @@ impl Element {
     }
 
     /// A multi-line editor. Enter inserts a line break; Ctrl+Enter submits.
+    /// [`Element::text_area_enter_submits`] turns it into a chat composer's.
     pub fn text_area(
         id: impl Into<String>,
         initial_value: impl Into<String>,
@@ -2677,9 +2872,20 @@ impl Element {
             placeholder: placeholder.into(),
             auto_grow: None,
             preserve_line_endings: false,
+            enter_submits: false,
             highlights: Vec::new(),
         })
         .padding(8.0)
+    }
+
+    /// Make Enter submit a text area and Shift+Enter break the line, as a
+    /// chat composer does; Ctrl+Enter still submits. Without it Enter breaks
+    /// the line and Ctrl+Enter submits. Does nothing on another element.
+    pub fn text_area_enter_submits(mut self, submits: bool) -> Self {
+        if let ElementKind::TextArea { enter_submits, .. } = &mut self.kind {
+            *enter_submits = submits;
+        }
+        self
     }
 
     /// Size a multiline editor from its wrapped lines and the host's font
@@ -2866,6 +3072,38 @@ impl Element {
         self
     }
 
+    /// Let a row move its children onto more lines when they do not fit its
+    /// width, as tags or role pills do. Each child keeps its natural width
+    /// and `gap` from the one before it on its line. A line is as tall as
+    /// its tallest child, and the others stretch to it as they do in a row;
+    /// the next line starts [`line_gap`](Self::line_gap) under it. A child
+    /// wider than the row has a line of its own, at the row's width. The
+    /// row is as tall as its lines, its `max_width` is a width it wraps at,
+    /// and the children keep their order for
+    /// Tab and for assistive technology. `flex` and `shrink_to_fit` on its
+    /// children change nothing. Only a row wraps; elsewhere it does nothing.
+    pub fn wrap(mut self) -> Self {
+        self.kept.get_or_insert_default().wrap = true;
+        self
+    }
+
+    /// Space between the lines of a [`wrap`](Self::wrap)ping row, in logical
+    /// pixels; its `gap` until this is called. A negative value becomes zero;
+    /// one that is not finite is ignored.
+    pub fn line_gap(mut self, value: f32) -> Self {
+        if value.is_finite() {
+            self.kept.get_or_insert_default().line_gap = Some(value.max(0.0));
+        }
+        self
+    }
+
+    /// The space between the lines of a wrapping row; `None` when this is
+    /// not one.
+    pub(crate) fn wrapping_line_gap(&self) -> Option<f32> {
+        let kept = self.kept.as_deref().filter(|kept| kept.wrap)?;
+        matches!(self.kind, ElementKind::Row(_)).then(|| kept.line_gap.unwrap_or(self.style.gap))
+    }
+
     /// Fill the element's bounds with this color.
     pub fn background(mut self, color: Color) -> Self {
         self.style.background = Some(color);
@@ -2943,7 +3181,9 @@ impl Element {
     }
 
     /// Border a text input or text area shows in place of its own while it has
-    /// the focus. A width that is not finite or not above zero removes it.
+    /// the focus. Another control shows it while it has the keyboard focus if
+    /// its [focus ring](Self::focus_ring) is off, as its mark of that focus.
+    /// A width that is not finite or not above zero removes it.
     pub fn focus_border(mut self, color: Color, width: f32) -> Self {
         self.style.focus_border =
             (width > 0.0 && width.is_finite()).then_some(Border { color, width });

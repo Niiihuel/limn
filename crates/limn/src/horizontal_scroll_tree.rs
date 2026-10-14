@@ -151,13 +151,10 @@ impl LayoutBuilder<'_> {
         match &element.kind {
             ElementKind::Row(children)
             | ElementKind::Column(children)
-            | ElementKind::TabStrip { children, .. } => {
-                let row = !matches!(element.kind, ElementKind::Column(_));
-                children
-                    .iter()
-                    .zip(self.flex_rects(children, content, element.style.gap, row))
-                    .find_map(|(child, rect)| self.horizontal_item_rect(child, rect, id))
-            }
+            | ElementKind::TabStrip { children, .. } => children
+                .iter()
+                .zip(self.child_rects(element, children, content))
+                .find_map(|(child, rect)| self.horizontal_item_rect(child, rect, id)),
             ElementKind::Panel(child)
             | ElementKind::Clickable { child, .. }
             | ElementKind::Tooltip { anchor: child, .. }

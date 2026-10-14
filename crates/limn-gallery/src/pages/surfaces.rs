@@ -5,6 +5,11 @@ use limn::{
     Separator, TreeGuides, TreeRow,
 };
 
+/// The words the measured list's messages are made of.
+const WORDS: [&str; 12] = [
+    "the", "list", "measures", "each", "row", "as", "it", "comes", "into", "view", "and", "keeps",
+];
+
 /// A project as its rows in depth-first order: name, depth, and whether it is a folder.
 const TREE: [(&str, usize, bool); 11] = [
     ("limn", 0, true),
@@ -250,6 +255,28 @@ fn scroll_areas(cx: &Cx, width: f32) -> Vec<Element> {
         ),
         None => list,
     };
+    let messages: usize = cx.state.text("surfaces-measured").parse().unwrap_or(2_000);
+    let measured = ScrollArea::measured_list(
+        "surfaces-measured-list",
+        messages,
+        44.0,
+        |index| index as u64,
+        move |index| {
+            // Messages of one to five lines, so no two neighbours agree.
+            let words = 3 + index * 37 % 41;
+            let body: Vec<&str> = (0..words).map(|word| WORDS[(index + word) % WORDS.len()]).collect();
+            Element::column(vec![
+                Element::text(format!("Message {}", index + 1))
+                    .font_family(FontFamily::SansMedium)
+                    .font_size(12.0)
+                    .foreground(palette.text),
+                Element::text(body.join(" ")).font_family(FontFamily::Sans).font_size(12.0).foreground(palette.muted),
+            ])
+            .gap(2.0)
+            .padding(6.0)
+        },
+    )
+    .follow_end(true);
     vec![
         caption(cx, "The default: while the content overflows, a rail beside it with a thumb and a button at each end."),
         card(ScrollArea::new("surfaces-scroll", rows("surfaces-scroll", 24)).render().size(None, Some(150.0))),
@@ -274,6 +301,18 @@ fn scroll_areas(cx: &Cx, width: f32) -> Vec<Element> {
         card(ScrollArea::new("surfaces-scroll-short", rows("surfaces-scroll-short", 3)).render().size(None, Some(150.0))),
         caption(cx, "uniform_list: 10,000 rows of one height, built only while in view. Click a row to open something under it."),
         card(list.render().size(None, Some(180.0))),
+        caption(cx, "measured_list: messages of their own heights, measured as they come into view, following the end as new ones arrive. Scroll up and add one: the view holds its place."),
+        card(Element::column(vec![
+            measured.render().size(None, Some(220.0)),
+            Element::row(vec![
+                Button::new(format!("surfaces-measured={}", messages + 1), "Add a message", palette)
+                    .variant(ButtonVariant::Outline)
+                    .size(ControlSize::Compact)
+                    .render(),
+                Element::spacer().flex(1.0),
+            ]),
+        ])
+        .gap(8.0)),
     ]
 }
 

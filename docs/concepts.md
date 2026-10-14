@@ -99,6 +99,7 @@ control has focus, where the pointer is, how far a list is scrolled.
 | `InputChanged { id, value }` | The text of an input changed. |
 | `Submitted { id, value }` | Enter in a single-line input; Ctrl+Enter in a text area. |
 | `SliderChanged { id, fraction, committed }` | A slider moved; `committed` is true on release. |
+| `AreaSliderChanged { id, x, y, committed }` | A slider over an area moved: `x` across from the left, `y` down from the top; `committed` is true on release. |
 | `CopyRequested { text }` | The user copied; the host writes the clipboard. |
 | `DragStarted`, `DragMoved`, `Dropped`, `DragCancelled` | A draggable element was moved. |
 | `FilesHovered`, `FilesDropped` | Files from another application are over or dropped on the window. |

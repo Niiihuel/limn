@@ -145,6 +145,17 @@ impl ScalarTransition {
         self.duration = Duration::ZERO;
     }
 
+    /// Move the whole transition by `by`: the value it started from and the
+    /// one it goes to, so it keeps its pace and its curve. A content that
+    /// grew above a scrolling viewport moves its offset this way without
+    /// interrupting the scroll. A value that is not finite is ignored.
+    pub fn shift(&mut self, by: f32) {
+        if by.is_finite() {
+            self.from += by;
+            self.target += by;
+        }
+    }
+
     /// The value to show at `now`. It is the target once the duration is over.
     pub fn value(&self, now: Instant) -> f32 {
         if self.duration.is_zero() {

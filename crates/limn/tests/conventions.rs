@@ -4,12 +4,12 @@
 use limn::{
     ActionRow, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard, Collapsible, Component, ComponentPalette,
     Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
-    Toolbar, ToolbarItem,
+    Toolbar, ToolbarItem, ColorPicker, Hsv, SwatchPicker,
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
-    DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Marker, MediaCard, MediaTile,
+    DropdownMenu, DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
     MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
-    SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TextArea,
-    TextField, TimePicker, Toast, TreeGuides, TreeRow, UiTree,
+    SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TabsVariant, TextArea,
+    TextField, TimePicker, Toast, TreeGuides, TreeRow, UiTree, Point,
 };
 
 fn palette() -> ComponentPalette {
@@ -45,6 +45,8 @@ fn what_can_be_disabled_takes_both_spellings() {
     let _ = Checkbox::new("a", true, palette).enabled(false).disabled();
     let _ = RadioGroup::new("a", Vec::new(), None, palette).enabled(false).disabled();
     let _ = RadioOption::new("a", "A").enabled(false).disabled();
+    let _ = SwatchPicker::new("a", Vec::new(), None, palette).enabled(false).disabled();
+    let _ = ColorPicker::new("a", Hsv::new(0.0, 1.0, 1.0), palette).enabled(false).disabled();
     let _ = Toggle::new("a", "A", true, palette).enabled(false).disabled();
     let _ = ToggleGroup::new("a", Vec::new(), palette).enabled(false).disabled();
     let _ = ToggleItem::new("a", "A", true).enabled(false).disabled();
@@ -125,6 +127,17 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
     for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0] {
         lays_out_with_real_numbers("Tab::new", Tabs::new(vec![Tab::new("t", "Tab", bad)], palette).height(bad).render());
         lays_out_with_real_numbers(
+            "Tabs::gap",
+            Tabs::new(
+                vec![Tab::new("t", "Tab", 80.0), Tab::new("u", "Tab", 80.0)],
+                palette,
+            )
+            .variant(TabsVariant::Underlined)
+            .gap(bad)
+            .fill_width(bad)
+            .render(),
+        );
+        lays_out_with_real_numbers(
             "SegmentedControl::height",
             SegmentedControl::new(vec![Tab::new("t", "Tab", 80.0)], palette).height(bad).render(),
         );
@@ -142,6 +155,31 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         );
         lays_out_with_real_numbers("Button::width", Button::new("b", "B", palette).variant(ButtonVariant::Outline).width(bad).render());
         lays_out_with_real_numbers("Slider::width", Slider::new("s", 0.5, palette).width(bad).render());
+        lays_out_with_real_numbers(
+            "Markdown::font_size",
+            Markdown::new("# a\n\n- [b](https://example.test/b)", palette)
+                .font_size(bad)
+                .render()
+                .element,
+        );
+        lays_out_with_real_numbers(
+            "Select::height",
+            Select::new("s", "S", Vec::new(), false, "s:dismiss", palette)
+                .height(bad)
+                .render(),
+        );
+        lays_out_with_real_numbers(
+            "Select::height as a field",
+            Select::new("s", "S", Vec::new(), false, "s:dismiss", palette)
+                .variant(limn::SelectVariant::Field)
+                .width(bad)
+                .height(bad)
+                .render(),
+        );
+        lays_out_with_real_numbers("ColorPicker::width", ColorPicker::new("c", Hsv::new(bad, bad, bad), palette).width(bad).render());
+        let menu = || DropdownMenu::new(Element::spacer(), vec![DropdownMenuItem::new("i", "I").into()], true, "d", palette);
+        lays_out_with_real_numbers("DropdownMenu::at", menu().at(Point::new(bad, 40.0)).render());
+        lays_out_with_real_numbers("DropdownMenu::at", menu().at(Point::new(40.0, bad)).render());
     }
 }
 

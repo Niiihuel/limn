@@ -1532,6 +1532,7 @@ pub struct TextField {
     state: ControlState,
     password: bool,
     monospace: bool,
+    icon: Option<Icon>,
     accessibility_label: Option<String>,
 }
 
@@ -1556,6 +1557,7 @@ impl TextField {
             state: ControlState::Enabled,
             password: false,
             monospace: false,
+            icon: None,
             accessibility_label: None,
         }
     }
@@ -1570,6 +1572,15 @@ impl TextField {
     /// Take the height and text size of a control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Put an icon before the text, inside the field, as a search field has
+    /// its magnifier: a `#` before a channel's name, an at sign before an
+    /// address. It is decorative, in the muted ink until the field has the
+    /// focus, and the text starts after it.
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
         self
     }
 
@@ -1653,29 +1664,42 @@ impl Component for TextField {
             } else {
                 self.value
             };
-            return Element::panel(
-                Element::truncated_text(text)
-                    .foreground(self.palette.muted)
-                    .font_family(family)
-                    .font_size(13.0),
-            )
-            .padding(8.0)
-            .background(self.palette.raised)
-            .border(self.palette.border, 1.0)
-            .radius(input_radius(self.size))
-            .size(self.width, Some(height))
-            .accessible(access);
+            let text = Element::truncated_text(text)
+                .foreground(self.palette.muted)
+                .font_family(family)
+                .font_size(13.0);
+            // Where the enabled field draws them: the icon in the padding's
+            // corner and the text 8 after it, both on the middle line.
+            let content = match self.icon {
+                Some(icon) => Element::row(vec![
+                    Element::icon(icon)
+                        .foreground(self.palette.muted)
+                        .size(Some(ICON_SIZE), Some(ICON_SIZE))
+                        .centered_y(),
+                    text.flex(1.0),
+                ])
+                .gap(8.0),
+                None => text,
+            };
+            return Element::panel(content)
+                .padding(8.0)
+                .background(self.palette.raised)
+                .border(self.palette.border, 1.0)
+                .radius(input_radius(self.size))
+                .size(self.width, Some(height))
+                .accessible(access);
         }
-        let input = input_surface(
-            Element::text_input(self.id, self.value, self.placeholder)
-                .password(self.password)
-                .persistent_placeholder(self.persistent_placeholder),
-            self.palette,
-            self.size,
-            self.width,
-        )
-        .size(self.width, Some(height))
-        .font_family(family);
+        let mut input = Element::text_input(self.id, self.value, self.placeholder)
+            .password(self.password)
+            .persistent_placeholder(self.persistent_placeholder);
+        if let Some(icon) = self.icon {
+            input = input
+                .leading_icon(icon)
+                .leading_icon_tint(self.palette.muted);
+        }
+        let input = input_surface(input, self.palette, self.size, self.width)
+            .size(self.width, Some(height))
+            .font_family(family);
         match self.accessibility_label {
             Some(name) => input.accessibility_label(name),
             None => input,
@@ -1695,6 +1719,7 @@ pub struct TextArea {
     radius: RadiusRole,
     state: ControlState,
     preserve_line_endings: bool,
+    enter_submits: bool,
     accessibility_label: Option<String>,
 }
 
@@ -1717,8 +1742,17 @@ impl TextArea {
             radius: RadiusRole::Control,
             state: ControlState::Enabled,
             preserve_line_endings: false,
+            enter_submits: false,
             accessibility_label: None,
         }
+    }
+
+    /// Make Enter report `Submitted` and Shift+Enter break the line, as a chat
+    /// composer does; Ctrl+Enter submits either way. Off by default: Enter
+    /// breaks the line.
+    pub fn enter_submits(mut self, submits: bool) -> Self {
+        self.enter_submits = submits;
+        self
     }
 
     /// What the field is called to the platform, in place of its
@@ -1805,6 +1839,7 @@ impl Component for TextArea {
         }
         let area = Element::text_area(self.id, self.value, self.placeholder)
             .text_area_preserve_line_endings(self.preserve_line_endings)
+            .text_area_enter_submits(self.enter_submits)
             .background(self.palette.raised)
             .hover_background(lighter(self.palette.raised, 5))
             .border(self.palette.border, 1.0)
@@ -1845,7 +1880,9 @@ fn input_radius(_size: ControlSize) -> f32 {
     control_radius()
 }
 
-fn input_surface(
+// The fill, border, radius, ink and height every text field shares; a
+// select drawn as a field takes it too.
+pub(crate) fn input_surface(
     input: Element,
     palette: ComponentPalette,
     size: ControlSize,
@@ -1879,6 +1916,7 @@ pub struct SearchField {
     width: Option<f32>,
     state: ControlState,
     shortcut: Option<String>,
+    clearable: bool,
     accessibility_label: Option<String>,
 }
 
@@ -1904,6 +1942,7 @@ impl SearchField {
             width: None,
             state: ControlState::Enabled,
             shortcut: None,
+            clearable: false,
             accessibility_label: None,
         }
     }
@@ -1936,6 +1975,15 @@ impl SearchField {
         self
     }
 
+    /// Show a button at the end of the field while the query is not empty,
+    /// which reports `Clicked` with `"{id}:clear"`. The field does not empty
+    /// itself: the host clears its query and gives the field its new text
+    /// with `UiTree::set_input_value`, and may give it the focus back.
+    pub fn clearable(mut self, clearable: bool) -> Self {
+        self.clearable = clearable;
+        self
+    }
+
     /// Disable it: it keeps its place and its value and cannot be used.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
@@ -1956,6 +2004,8 @@ impl SearchField {
 
 impl Component for SearchField {
     fn render(self) -> Element {
+        let clear =
+            (self.clearable && !self.value.is_empty()).then(|| format!("{}:clear", self.id));
         let height = self.size.height().max(28.0);
         let radius = input_radius(self.size);
         let surface = self.palette.raised;
@@ -1967,6 +2017,9 @@ impl Component for SearchField {
                 &self.placeholder,
                 Some(self.value.clone()),
             );
+            // What the enabled field shows away from the focus: the hint only
+            // while there is no query, so it never meets the clear button.
+            let shortcut = self.shortcut.filter(|_| self.value.is_empty());
             let (value, ink) = if self.value.is_empty() {
                 (self.placeholder, self.palette.muted)
             } else {
@@ -1983,7 +2036,7 @@ impl Component for SearchField {
                     .size(None, Some(height))
                     .flex(1.0),
             ];
-            if let Some(shortcut) = self.shortcut {
+            if let Some(shortcut) = shortcut {
                 let mut hint = Kbd::new(shortcut, self.palette);
                 if let Some(width) = self.width {
                     hint = hint.max_width((width - 16.0 - ICON_SIZE - 16.0 - 24.0).max(0.0));
@@ -1995,16 +2048,24 @@ impl Component for SearchField {
                     hint.flex(1.0)
                 });
             }
-            return Element::panel(Element::row(vec![
+            let mut row = vec![
                 Element::spacer().size(Some(8.0), None),
                 Element::row(children).gap(8.0).flex(1.0),
-                Element::spacer().size(Some(8.0), None),
-            ]))
-            .background(surface)
-            .border(self.palette.border, 1.0)
-            .radius(radius)
-            .size(self.width, Some(height))
-            .accessible(access);
+            ];
+            match clear {
+                // Where the enabled one is, passive and still known by its ID.
+                Some(id) => row.extend([
+                    clear_button(id, self.palette, false).centered_y(),
+                    Element::spacer().size(Some(CLEAR_INSET), None),
+                ]),
+                None => row.push(Element::spacer().size(Some(8.0), None)),
+            }
+            return Element::panel(Element::row(row))
+                .background(surface)
+                .border(self.palette.border, 1.0)
+                .radius(radius)
+                .size(self.width, Some(height))
+                .accessible(access);
         }
         let mut access = Access::new(Role::SearchInput);
         if let Some(name) = self.accessibility_label {
@@ -2023,8 +2084,73 @@ impl Component for SearchField {
                 .input_shortcut(shortcut)
                 .input_shortcut_fill(crate::shortcut::cap_fill(self.palette.text));
         }
-        input.accessible(access)
+        let input = input.accessible(access);
+        let Some(clear) = clear else { return input };
+        // The button lies over the field's end, which the text leaves free as
+        // it leaves the magnifier's room at the start; the field stays lit
+        // while the pointer is on the button.
+        Element::stack(vec![
+            input
+                .input_trailing_space(ICON_SIZE + 8.0)
+                .hover_with(clear.clone()),
+            Element::row(vec![
+                Element::spacer().flex(1.0),
+                clear_button(clear, self.palette, true).centered_y(),
+                Element::spacer().size(Some(CLEAR_INSET), None),
+            ]),
+        ])
+        // As wide as the field alone, so typing does not narrow it.
+        .min_size(80.0, height)
+        .size(self.width, Some(height))
     }
+}
+
+/// How a [`Switch`] paints its track and its thumb.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SwitchVariant {
+    /// On, a thumb of the palette's surface on a track of its text, or of
+    /// `ink`; off, a thumb of the palette's text on its selected fill.
+    #[default]
+    Default,
+    /// A thumb of the palette's lightest color at full strength, the text of
+    /// a dark palette and the surface of a light one, on and off: on a track
+    /// of the ink, which is the palette's `link` color unless `ink` says
+    /// otherwise, and off on the palette's muted color. Either track is
+    /// darkened where needed until the thumb stands at a contrast of 3 or
+    /// more on it. This is how chat applications draw a switch.
+    Accent,
+}
+
+/// Side of a search field's clear button: its glyph and 4 around it.
+const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
+/// From the clear button to the field's end, so that its glyph is as far
+/// from that end as the magnifier is from the start.
+const CLEAR_INSET: f32 = 8.0 - (CLEAR_SIDE - ICON_SIZE) / 2.0;
+
+// A circled cross that empties a search field; drawn disabled it is passive.
+fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element {
+    // An icon alone: it is named for what it does.
+    let said = Access::new(Role::Button).name(crate::labels().clear_search);
+    if enabled {
+        Element::icon_button(id, Icon::CloseCircle, "")
+            .foreground(palette.muted)
+            .hover_foreground(palette.text)
+            .pressed_foreground(palette.text)
+            .hover_background(palette.hover)
+            .pressed_background(palette.selected)
+            .accessible(said)
+    } else {
+        Element::panel(
+            Element::icon(Icon::CloseCircle)
+                .foreground(palette.muted)
+                .size(Some(ICON_SIZE), Some(ICON_SIZE))
+                .centered(),
+        )
+        .accessible(said.id(id).disabled(true))
+    }
+    // Half the side is a shape, not a token.
+    .radius(CLEAR_SIDE / 2.0)
+    .size(Some(CLEAR_SIDE), Some(CLEAR_SIDE))
 }
 
 /// A caller-controlled switch with a single focusable target. The thumb is
@@ -2036,6 +2162,9 @@ pub struct Switch {
     state: ControlState,
     palette: ComponentPalette,
     accessibility_label: Option<String>,
+    size: ControlSize,
+    variant: SwitchVariant,
+    ink: Option<Color>,
 }
 
 impl Switch {
@@ -2048,7 +2177,33 @@ impl Switch {
             state: ControlState::Enabled,
             palette,
             accessibility_label: None,
+            size: ControlSize::Regular,
+            variant: SwitchVariant::Default,
+            ink: None,
         }
+    }
+
+    /// The track's width and height and the thumb's side: 28, 16 and 10
+    /// pixels for `Dense`, 32, 18 and 12 for `Compact`, 36, 20 and 14 for
+    /// `Regular`, which is the switch without a size, and 44, 24 and 18 for
+    /// `Spacious`. The thumb is always 3 pixels inside the track.
+    pub fn size(mut self, size: ControlSize) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// How the track and the thumb are painted; see [`SwitchVariant`].
+    pub fn variant(mut self, variant: SwitchVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// The track's color while the switch is on, in place of the palette's
+    /// text, or of its `link` color for `SwitchVariant::Accent`, which
+    /// darkens it where needed for its light thumb to read on it.
+    pub fn ink(mut self, color: Color) -> Self {
+        self.ink = Some(color);
+        self
     }
 
     /// What the switch is called to the platform. It shows no text of its
@@ -2078,30 +2233,36 @@ impl Switch {
 
 impl Component for Switch {
     fn render(self) -> Element {
-        const TRACK_WIDTH: f32 = 36.0;
-        const TRACK_HEIGHT: f32 = 20.0;
-        const THUMB: f32 = 14.0;
-        let thumb_color = if self.checked {
-            self.palette.surface
-        } else {
-            self.palette.text
+        const INSET: f32 = 3.0;
+        let (track_width, track_height, thumb) = match self.size {
+            ControlSize::Dense => (28.0, 16.0, 10.0),
+            ControlSize::Compact => (32.0, 18.0, 12.0),
+            ControlSize::Regular => (36.0, 20.0, 14.0),
+            ControlSize::Spacious => (44.0, 24.0, 18.0),
         };
-        let track_color = if self.checked {
-            self.palette.text
-        } else {
-            self.palette.selected
+        let palette = self.palette;
+        let (thumb_color, track_color) = match (self.variant, self.checked) {
+            (SwitchVariant::Default, true) => (palette.surface, self.ink.unwrap_or(palette.text)),
+            (SwitchVariant::Default, false) => (palette.text, palette.selected),
+            (SwitchVariant::Accent, checked) => {
+                // At full strength, and on a track darkened until it reads at 3:1, as state must.
+                let light = if palette.is_dark() { palette.text } else { palette.surface };
+                let light = Color::rgb(light.r, light.g, light.b);
+                let track = if checked { self.ink.unwrap_or_else(|| palette.link()) } else { palette.muted };
+                (light, crate::chip::readable_ink(track, light, 3.0))
+            }
         };
         // The thumb is the strip's selection indicator: it slides between the
         // two slots when `checked` changes and keeps its place across rebuilds.
         let slot = |name: &str| {
             Element::spacer()
-                .size(Some(THUMB), Some(THUMB))
+                .size(Some(thumb), Some(thumb))
                 .indicator_slot(name)
         };
         let contents = Element::tab_strip(
             vec![
                 slot("off"),
-                Element::spacer().size(Some(TRACK_WIDTH - THUMB * 2.0 - 6.0), Some(THUMB)),
+                Element::spacer().size(Some(track_width - thumb * 2.0 - INSET * 2.0), Some(thumb)),
                 slot("on"),
             ],
             Vec::new(),
@@ -2110,7 +2271,7 @@ impl Component for Switch {
             format!("{}:thumb", self.action_id),
             if self.checked { "on" } else { "off" },
             thumb_color,
-            THUMB / 2.0,
+            thumb / 2.0,
             crate::tokens().motion.move_ms,
         );
         let enabled = self.state == ControlState::Enabled;
@@ -2132,9 +2293,9 @@ impl Component for Switch {
         };
         track
             .background(track_color)
-            .padding(3.0)
-            .radius(TRACK_HEIGHT / 2.0)
-            .size(Some(TRACK_WIDTH), Some(TRACK_HEIGHT))
+            .padding(INSET)
+            .radius(track_height / 2.0)
+            .size(Some(track_width), Some(track_height))
             .accessible(access)
     }
 }
@@ -2167,8 +2328,9 @@ pub struct Tab {
     pub label: String,
     /// An icon before the label. `None` by default.
     pub icon: Option<Icon>,
-    /// Whether it is the chosen tab: it takes the text color and the sliding
-    /// selection rests under it, unless it is disabled.
+    /// Whether it is the chosen tab: it takes the accent of [`Tabs`], or the
+    /// text color without one, and the sliding selection rests under it,
+    /// unless it is disabled.
     pub active: bool,
     /// Width in logical pixels. `new` keeps it at 40 or more and
     /// `Tabs::fill_width` replaces it.
@@ -2223,13 +2385,32 @@ const TAB_TRACK_PADDING: f32 = 2.0;
 const TAB_ITEM_PADDING: f32 = 4.0;
 const TAB_ICON_GAP: f32 = 4.0;
 const TAB_FONT_SIZE: f32 = 11.5;
+// The underline fills the track's bottom padding, so both variants keep one size.
+const TAB_UNDERLINE: f32 = TAB_TRACK_PADDING;
+const TAB_HAIRLINE: f32 = 1.0;
+
+/// How [`Tabs`] mark the active tab. Both take the same size, report the same
+/// actions and answer the same keys.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum TabsVariant {
+    /// A filled selection on a rounded track: the palette's `selected` on its
+    /// `surface`.
+    #[default]
+    Segmented,
+    /// Text tabs with no track: a 2 px underline in the accent under the
+    /// active tab, over a 1 px hairline in the palette's `border` as wide as
+    /// the strip is laid out.
+    Underlined,
+}
 
 /// A row of [`Tab`]s with a selection that slides to the active one.
 pub struct Tabs {
     /// The tabs, in the order they are drawn.
     pub items: Vec<Tab>,
     /// `surface` fills the track and `selected` the sliding selection; `text` is
-    /// the ink of the active tab and `muted` of the others.
+    /// the ink of the active tab unless [`accent`](Self::accent) is set, and
+    /// `muted` of the others. Underlined, `border` draws the hairline and
+    /// neither fill is used.
     pub palette: ComponentPalette,
     /// Height of a tab in logical pixels, 24 by default. The track is 4 taller.
     pub height: f32,
@@ -2241,6 +2422,11 @@ pub struct Tabs {
     /// How long the selection takes to slide to another tab, in milliseconds.
     /// The default is the `move_ms` token.
     pub animation_ms: u16,
+    /// How the active tab is marked. [`TabsVariant::Segmented`] by default.
+    pub variant: TabsVariant,
+    /// Ink of the active tab, and color of the underline. `None`, the default,
+    /// takes the palette's `text`.
+    pub accent: Option<Color>,
 }
 
 impl Tabs {
@@ -2253,7 +2439,22 @@ impl Tabs {
             gap: TAB_GAP,
             id: None,
             animation_ms: crate::tokens().motion.move_ms,
+            variant: TabsVariant::Segmented,
+            accent: None,
         }
+    }
+
+    /// Choose how the active tab is marked; see [`TabsVariant`].
+    pub fn variant(mut self, variant: TabsVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// Ink the active tab, and its underline, in this color in place of the
+    /// palette's `text`, such as a theme's `accent_text()`.
+    pub fn accent(mut self, accent: Color) -> Self {
+        self.accent = Some(accent);
+        self
     }
 
     /// A stable ID for the strip's selection animation. Useful when tabs are
@@ -2282,6 +2483,16 @@ impl Tabs {
     /// Take the height of a control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.height = size.height();
+        self
+    }
+
+    /// Set the space between two tabs, in logical pixels, never below 0. A gap
+    /// that is not finite is ignored. Set it before
+    /// [`fill_width`](Self::fill_width), which reads it.
+    pub fn gap(mut self, gap: f32) -> Self {
+        if gap.is_finite() {
+            self.gap = gap.max(0.0);
+        }
         self
     }
 
@@ -2319,12 +2530,25 @@ impl Component for Tabs {
                 .map(|item| format!("tabs:{}", item.action_id))
                 .unwrap_or_else(|| "tabs:empty".to_owned())
         });
+        let accent = self.accent.unwrap_or(self.palette.text);
+        // Underlined, a strip of slots under the tabs gives the sliding
+        // underline its thin target while the tabs keep their full height.
+        let slots = (self.variant == TabsVariant::Underlined).then(|| {
+            self.items
+                .iter()
+                .map(|item| {
+                    Element::spacer()
+                        .size(Some(item.width), Some(TAB_UNDERLINE))
+                        .indicator_slot(item.action_id.clone())
+                })
+                .collect::<Vec<_>>()
+        });
         let items = self
             .items
             .into_iter()
             .map(|item| {
                 let ink = if item.active {
-                    self.palette.text
+                    accent
                 } else {
                     self.palette.muted
                 };
@@ -2337,7 +2561,7 @@ impl Component for Tabs {
                 // obscure the sliding indicator and make the track look
                 // uneven. The active tab retains its selected surface.
                 let hover_ink = if item.active {
-                    lighter(self.palette.text, 12)
+                    lighter(accent, 12)
                 } else {
                     self.palette.text
                 };
@@ -2359,7 +2583,8 @@ impl Component for Tabs {
                     };
                     return Element::row(vec![
                         Element::spacer().flex(1.0),
-                        visual,
+                        // At the height of an enabled tab's label.
+                        visual.centered_y(),
                         Element::spacer().flex(1.0),
                     ])
                     .padding(TAB_ITEM_PADDING)
@@ -2391,9 +2616,45 @@ impl Component for Tabs {
         let strip = Element::tab_strip(items, enabled_ids)
             .gap(self.gap)
             .padding(TAB_TRACK_PADDING)
-            .background(self.palette.surface)
-            .radius(surface_radius())
             .size(None, Some(self.height + TAB_TRACK_PADDING * 2.0));
+        if let Some(slots) = slots {
+            let mut underline = Element::tab_strip(slots, Vec::new())
+                .gap(self.gap)
+                .size(None, Some(TAB_UNDERLINE));
+            if let Some(selected_id) = selected_id {
+                underline =
+                    underline.tab_selection(group_id, selected_id, accent, 0.0, self.animation_ms);
+            }
+            let strip_height = self.height + TAB_TRACK_PADDING * 2.0;
+            // Anchored to the bottom of the strip, not of the box: a box taller
+            // than the strip stretches the stack, never the tabs.
+            let foot = |line: Element, height: f32| {
+                Element::column(vec![
+                    Element::spacer().size(None, Some(strip_height - height)),
+                    line,
+                ])
+            };
+            return Element::stack(vec![
+                foot(
+                    Element::spacer()
+                        .size(None, Some(TAB_HAIRLINE))
+                        .background(self.palette.border),
+                    TAB_HAIRLINE,
+                ),
+                foot(
+                    Element::row(vec![
+                        Element::spacer().size(Some(TAB_TRACK_PADDING), Some(TAB_UNDERLINE)),
+                        underline,
+                    ]),
+                    TAB_UNDERLINE,
+                ),
+                strip,
+            ])
+            .size(None, Some(strip_height));
+        }
+        let strip = strip
+            .background(self.palette.surface)
+            .radius(surface_radius());
         if let Some(selected_id) = selected_id {
             strip.tab_selection(
                 group_id,
@@ -3837,6 +4098,361 @@ mod tests {
         assert!(has_hint(&tree.layout(Size::new(280.0, 72.0))));
     }
 
+    // A field at the top left of a window, at its own size.
+    fn field_tree(field: Element) -> UiTree {
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::row(vec![field, Element::spacer().flex(1.0)]),
+            Element::spacer().flex(1.0),
+        ]));
+        tree.set_reduced_motion(true);
+        tree
+    }
+
+    #[test]
+    fn a_text_field_icon_sits_before_its_text_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let drawn = |field: TextField| {
+            let frame = field_tree(field.width(240.0).render()).layout(Size::new(400.0, 120.0));
+            let icon = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Icon {
+                    rect,
+                    icon: Icon::Hash,
+                    tint,
+                } => Some((*rect, *tint)),
+                _ => None,
+            });
+            let text = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { position, text, .. } if text == "general" => Some(*position),
+                _ => None,
+            });
+            (icon.expect("the icon"), text.expect("the text"))
+        };
+        let field = || TextField::new("name", "general", "Name", palette).icon(Icon::Hash);
+        let ((icon, tint), text) = drawn(field());
+        // In the padding's corner, muted, the text 8 after it and the line
+        // in the middle of the field.
+        assert_eq!((icon.x, icon.width, tint), (8.0, ICON_SIZE, palette.muted));
+        assert_eq!(icon.y + icon.height / 2.0, 16.0);
+        assert_eq!(text.x, 8.0 + ICON_SIZE + 8.0);
+        // Disabled, the two stay where they were, both muted.
+        let ((still, muted), moved) = drawn(field().disabled());
+        assert_eq!((still, muted, moved.x), (icon, palette.muted, text.x));
+        // Without one the text starts in the padding's corner, as before.
+        let frame = field_tree(TextField::new("name", "general", "Name", palette).render())
+            .layout(Size::new(400.0, 120.0));
+        assert!(!frame
+            .commands
+            .iter()
+            .any(|command| matches!(command, DrawCommand::Icon { .. })));
+        // Focused, the icon takes the text's ink, as a search field's magnifier does.
+        let mut tree = field_tree(field().render());
+        tree.layout(Size::new(400.0, 120.0));
+        assert!(tree.focus("name"));
+        let focused = tree.layout(Size::new(400.0, 120.0));
+        assert!(focused.commands.iter().any(|command| matches!(command,
+            DrawCommand::Icon { icon: Icon::Hash, tint, .. } if *tint == palette.text)));
+    }
+
+    #[test]
+    fn a_text_field_icon_stays_inside_a_narrow_field() {
+        let palette = ComponentPalette::neutral_dark();
+        for width in [40.0, 80.0, 180.0] {
+            for field in [
+                TextField::new("name", "a long value", "Name", palette)
+                    .icon(Icon::Hash)
+                    .width(width),
+                TextField::new("name", "a long value", "Name", palette)
+                    .icon(Icon::Hash)
+                    .width(width)
+                    .disabled(),
+            ] {
+                let frame = field_tree(field.render()).layout(Size::new(400.0, 120.0));
+                for command in &frame.commands {
+                    if let DrawCommand::Icon { rect, .. } = command {
+                        assert!(
+                            rect.x >= 0.0 && rect.x + rect.width <= width,
+                            "{width}: {rect:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_clearable_search_field_has_its_button_only_while_there_is_a_query() {
+        let palette = ComponentPalette::neutral_dark();
+        let window = Size::new(400.0, 120.0);
+        let field = |query: &str| {
+            SearchField::new("query", query, "Search", palette)
+                .clearable(true)
+                .width(280.0)
+        };
+        let ids = |tree: &mut UiTree| -> Vec<String> {
+            tree.layout(window)
+                .regions
+                .iter()
+                .map(|region| region.id.clone())
+                .collect()
+        };
+        // Empty, or with a query but not clearable, it is one input as before.
+        assert_eq!(ids(&mut field_tree(field("").render())), ["query"]);
+        let plain = SearchField::new("query", "rust", "Search", palette).width(280.0);
+        assert_eq!(ids(&mut field_tree(plain.render())), ["query"]);
+
+        let mut tree = field_tree(field("rust").render());
+        let frame = tree.layout(window);
+        let rect = |id: &str| {
+            frame
+                .regions
+                .iter()
+                .find(|region| region.id == id)
+                .map(|region| region.rect)
+        };
+        let (input, clear) = (
+            rect("query").unwrap(),
+            rect("query:clear").expect("the clear button"),
+        );
+        // A circle at the end whose glyph is as far from it as the magnifier
+        // is from the start, on the field's middle line.
+        assert_eq!((input.width, input.height), (280.0, 36.0));
+        assert_eq!((clear.width, clear.height), (24.0, 24.0));
+        assert_eq!(input.x + input.width - (clear.x + clear.width), 4.0);
+        assert_eq!(clear.y + clear.height / 2.0, input.y + input.height / 2.0);
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Icon { icon: Icon::CloseCircle, rect, tint }
+                if *tint == palette.muted && rect.x + rect.width == input.x + input.width - 8.0)));
+        // The text, its caret and its selection are drawn before the button.
+        let text = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::PushClip(clip) if clip.x == input.x + 8.0 + ICON_SIZE + 8.0 => {
+                    Some(*clip)
+                }
+                _ => None,
+            })
+            .expect("the text's clip");
+        assert!(
+            text.x + text.width < clear.x,
+            "{text:?} runs under {clear:?}"
+        );
+        assert_eq!(
+            frame.hit_test(Point::new(clear.x + 12.0, clear.y + 12.0)),
+            Some("query:clear")
+        );
+
+        // The pointer on the button keeps the field lit and lights the button.
+        let middle = Point::new(clear.x + 12.0, clear.y + 12.0);
+        tree.handle_event(UiEvent::PointerMove(middle));
+        let lit = tree.layout(window);
+        let fill = |rect: crate::Rect| {
+            lit.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect {
+                    rect: drawn, color, ..
+                } if *drawn == rect => Some(*color),
+                _ => None,
+            })
+        };
+        assert_eq!(fill(input), Some(lighter(palette.raised, 5)));
+        assert_eq!(fill(clear), Some(palette.hover));
+
+        // A click reports it; the host empties its query and the field.
+        tree.handle_event(UiEvent::PointerDown(middle));
+        assert_eq!(
+            tree.handle_event(UiEvent::PointerUp(middle)),
+            vec![UiAction::Clicked {
+                id: "query:clear".into()
+            }]
+        );
+        tree.set_input_value("query", "");
+        tree.set_root(Element::column(vec![
+            Element::row(vec![field("").render(), Element::spacer().flex(1.0)]),
+            Element::spacer().flex(1.0),
+        ]));
+        assert_eq!(ids(&mut tree), ["query"]);
+        assert_eq!(tree.input_value("query"), Some(""));
+    }
+
+    #[test]
+    fn typing_into_a_clearable_search_field_keeps_its_focus_and_caret_as_the_button_comes() {
+        let palette = ComponentPalette::neutral_dark();
+        let window = Size::new(400.0, 120.0);
+        let view = |query: &str| {
+            Element::column(vec![
+                Element::row(vec![
+                    SearchField::new("query", query, "Search", palette)
+                        .clearable(true)
+                        .width(280.0)
+                        .render(),
+                    Element::spacer().flex(1.0),
+                ]),
+                Element::spacer().flex(1.0),
+            ])
+        };
+        let mut tree = UiTree::new(view(""));
+        tree.layout(window);
+        assert!(tree.focus("query"));
+        let reported = tree.handle_event(UiEvent::Text("ru".into()));
+        assert_eq!(
+            reported,
+            vec![UiAction::InputChanged {
+                id: "query".into(),
+                value: "ru".into()
+            }]
+        );
+        // The host stores the query; the field is rebuilt with its button.
+        tree.set_root(view("ru"));
+        let frame = tree.layout(window);
+        assert!(frame
+            .regions
+            .iter()
+            .any(|region| region.id == "query:clear"));
+        assert_eq!(tree.focused_id(), Some("query"));
+        assert_eq!(
+            (tree.input_value("query"), tree.input_cursor("query")),
+            (Some("ru"), Some(2))
+        );
+        tree.handle_event(UiEvent::Text("st".into()));
+        assert_eq!(tree.input_value("query"), Some("rust"));
+    }
+
+    #[test]
+    fn a_disabled_clearable_search_field_keeps_a_passive_clear_button_in_place() {
+        let palette = ComponentPalette::neutral_dark();
+        let field = || {
+            SearchField::new("query", "rust", "Search", palette)
+                .clearable(true)
+                .width(280.0)
+        };
+        let node = |element: Element| {
+            let frame = field_tree(element).layout(Size::new(400.0, 120.0));
+            assert!(frame
+                .regions
+                .iter()
+                .all(|region| region.id != "query:clear"));
+            frame
+                .access
+                .iter()
+                .find(|node| node.id == "query:clear")
+                .cloned()
+                .expect("its node")
+        };
+        let said = access_node(field().render(), "query:clear");
+        assert_eq!(
+            (said.role, said.name.as_str(), said.disabled),
+            (Role::Button, "Clear search", false)
+        );
+        let disabled = node(field().disabled().render());
+        assert_eq!(
+            (disabled.role, disabled.name.as_str(), disabled.disabled),
+            (Role::Button, "Clear search", true)
+        );
+        assert_eq!(disabled.rect, said.rect);
+        // Without a query there is nothing to clear, enabled or not.
+        let empty = field_tree(
+            SearchField::new("query", "", "Search", palette)
+                .clearable(true)
+                .disabled()
+                .render(),
+        )
+        .layout(Size::new(400.0, 120.0));
+        assert!(empty.access.iter().all(|node| node.id != "query:clear"));
+    }
+
+    #[test]
+    fn a_clearable_search_field_keeps_its_button_inside_at_every_width_and_size() {
+        let palette = ComponentPalette::neutral_dark();
+        for size in [
+            ControlSize::Dense,
+            ControlSize::Compact,
+            ControlSize::Regular,
+            ControlSize::Spacious,
+        ] {
+            for width in [60.0, 120.0, 360.0] {
+                let field =
+                    SearchField::new("query", "a query longer than the field", "Search", palette)
+                        .clearable(true)
+                        .size(size)
+                        .width(width);
+                let frame = field_tree(field.render()).layout(Size::new(400.0, 120.0));
+                let rect = |id: &str| {
+                    frame
+                        .regions
+                        .iter()
+                        .find(|region| region.id == id)
+                        .unwrap()
+                        .rect
+                };
+                let (input, clear) = (rect("query"), rect("query:clear"));
+                assert!(
+                    clear.x >= input.x
+                        && clear.x + clear.width <= input.x + input.width
+                        && clear.y >= input.y
+                        && clear.y + clear.height <= input.y + input.height,
+                    "{size:?} at {width}: {clear:?} outside {input:?}"
+                );
+                // As wide as it is empty: never under a field's 80.
+                let empty = field_tree(
+                    SearchField::new("query", "", "Search", palette)
+                        .clearable(true)
+                        .size(size)
+                        .width(width)
+                        .render(),
+                )
+                .layout(Size::new(400.0, 120.0));
+                assert_eq!(
+                    input.width, empty.regions[0].rect.width,
+                    "{size:?} at {width}"
+                );
+                assert_eq!(input.width, f32::max(width, 80.0));
+            }
+        }
+        // The narrowest field still has room for what is typed in it.
+        let frame = field_tree(
+            SearchField::new("query", "a", "Search", palette)
+                .clearable(true)
+                .width(60.0)
+                .render(),
+        )
+        .layout(Size::new(400.0, 120.0));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, .. } if text == "a")));
+    }
+
+    #[test]
+    fn a_disabled_search_field_shows_its_hint_only_without_a_query() {
+        let palette = ComponentPalette::neutral_dark();
+        let drawn = |query: &str, clearable: bool| {
+            let frame = field_tree(
+                SearchField::new("query", query, "Search", palette)
+                    .clearable(clearable)
+                    .shortcut("Ctrl+K")
+                    .width(140.0)
+                    .disabled()
+                    .render(),
+            )
+            .layout(Size::new(400.0, 120.0));
+            let texts: Vec<String> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect();
+            (
+                texts.iter().any(|text| text == "Ctrl"),
+                texts.iter().any(|text| text == "rust"),
+            )
+        };
+        // As the enabled field away from the focus: the hint while it is
+        // empty, the query and its clear button once it is not.
+        assert_eq!(drawn("", true), (true, false));
+        assert_eq!(drawn("rust", true), (false, true));
+        assert_eq!(drawn("rust", false), (false, true));
+    }
+
     #[test]
     fn shared_text_editors_disable_without_leaving_input_targets() {
         let palette = ComponentPalette::neutral_dark();
@@ -4903,6 +5519,97 @@ mod tests {
         assert!(disabled.regions.is_empty());
     }
 
+    /// A switch at its own size, settled: its track's rectangle and color,
+    /// then its thumb's.
+    fn switch_paint(switch: Switch) -> ((crate::Rect, Color), (crate::Rect, Color)) {
+        let mut tree = UiTree::new(Element::row(vec![switch.render(), Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(200.0, 40.0));
+        let fills: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, radius } => Some((*rect, *color, *radius)),
+                _ => None,
+            })
+            .collect();
+        // The track is the pill the others stand in; the thumb is the circle inside it.
+        let [(track, track_color, _), (thumb, thumb_color, thumb_radius)] = fills.as_slice() else {
+            panic!("a track and a thumb, got {fills:?}");
+        };
+        assert_eq!(*thumb_radius, thumb.width / 2.0);
+        ((*track, *track_color), (*thumb, *thumb_color))
+    }
+
+    #[test]
+    fn a_switch_size_sets_its_track_and_its_thumb_three_pixels_inside_it() {
+        let palette = ComponentPalette::neutral_dark();
+        for (size, width, height, side) in [
+            (ControlSize::Dense, 28.0, 16.0, 10.0),
+            (ControlSize::Compact, 32.0, 18.0, 12.0),
+            (ControlSize::Regular, 36.0, 20.0, 14.0),
+            (ControlSize::Spacious, 44.0, 24.0, 18.0),
+        ] {
+            for checked in [false, true] {
+                let ((track, _), (thumb, _)) = switch_paint(Switch::new("s", checked, palette).size(size));
+                assert_eq!((track.width, track.height), (width, height), "{size:?}");
+                assert_eq!((thumb.width, thumb.height), (side, side), "{size:?}");
+                let x = if checked { width - 3.0 - side } else { 3.0 };
+                assert_eq!((thumb.x - track.x, thumb.y - track.y), (x, 3.0), "{size:?}, checked {checked}");
+            }
+        }
+        // Without a size it is the regular one.
+        assert_eq!(switch_paint(Switch::new("s", true, palette)).0 .0.width, 36.0);
+    }
+
+    #[test]
+    fn the_accent_variant_keeps_a_light_thumb_on_the_link_color_or_the_ink_and_on_the_muted_color_off() {
+        let dark = ComponentPalette::neutral_dark();
+        let light = ComponentPalette {
+            surface: Color::rgb(255, 255, 255),
+            raised: Color::rgb(250, 250, 250),
+            hover: Color::rgb(235, 235, 235),
+            selected: Color::rgb(220, 220, 220),
+            border: Color::rgb(205, 205, 205),
+            text: Color::rgb(32, 32, 32),
+            muted: Color::rgb(100, 100, 100),
+            shadow: Color::rgba(0, 0, 0, 40),
+        };
+        let ink = Color::rgb(88, 101, 242);
+        // A theme's text and muted color are translucent; its thumb is the foreground at full strength.
+        let theme = crate::Theme::DARK.palette();
+        // The thumb is the palette's lightest color: its text on a dark one, its surface on a light one.
+        for (palette, thumb) in [(dark, dark.text), (light, light.surface), (theme, Color::rgb(255, 255, 255))] {
+            let accent = |checked| Switch::new("s", checked, palette).variant(SwitchVariant::Accent);
+            let paint = |switch: Switch| {
+                let ((_, track), (_, thumb)) = switch_paint(switch);
+                (track, thumb)
+            };
+            // A pale ink, such as the gallery theme's accent, is darkened like the link color.
+            let pale = Color::rgb(25, 170, 216);
+            for switch in [accent(true), accent(false), accent(true).ink(pale)] {
+                let (track, drawn) = paint(switch);
+                assert_eq!(drawn, thumb);
+                let contrast = crate::chip::contrast(thumb, track);
+                assert!(contrast >= 3.0, "{palette:?}: {track:?} at {contrast}");
+            }
+            for checked in [true, false] {
+                assert_eq!(paint(accent(checked).disabled()), paint(accent(checked)), "disabled, it keeps its paint");
+            }
+            assert_eq!(paint(accent(true).ink(ink)), (ink, thumb), "an ink that reads is kept");
+            assert_eq!(paint(accent(false).ink(ink)), paint(accent(false)));
+        }
+        // Where the link and muted colors already read, they are the track.
+        let paint = |checked| switch_paint(Switch::new("s", checked, light).variant(SwitchVariant::Accent)).0 .1;
+        assert_eq!((paint(true), paint(false)), (light.link(), light.muted));
+        // The default variant takes the ink for its track and keeps its own thumb.
+        let paint = |checked| {
+            let ((_, track), (_, thumb)) = switch_paint(Switch::new("s", checked, dark).ink(ink));
+            (track, thumb)
+        };
+        assert_eq!((paint(true), paint(false)), ((ink, dark.surface), (dark.selected, dark.text)));
+    }
+
     #[test]
     fn tab_arrows_activate_visible_enabled_tabs_and_wrap_within_their_strip() {
         let palette = ComponentPalette::neutral_dark();
@@ -5100,6 +5807,224 @@ mod tests {
         }
         assert!(tabs(-10.0).items.iter().all(|item| item.width == 40.0));
         assert!(Tabs::new(Vec::new(), palette).fill_width(200.0).items.is_empty());
+    }
+
+    fn underlined(active: &str, accent: Color) -> Element {
+        Tabs::new(
+            ["general", "roles", "emoji"]
+                .iter()
+                .map(|id| Tab::new(*id, id.to_uppercase(), 80.0).active(*id == active))
+                .chain([Tab::new("audit", "Audit", 80.0).disabled()])
+                .collect(),
+            ComponentPalette::neutral_dark(),
+        )
+        .variant(TabsVariant::Underlined)
+        .accent(accent)
+        .gap(16.0)
+        .id("settings")
+        .render()
+    }
+
+    fn underlined_frame(tree: &mut UiTree) -> crate::Frame {
+        tree.set_reduced_motion(true);
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
+        // Taller than the strip's 28: the lines must stay under the tabs.
+        tree.layout(Size::new(600.0, 40.0))
+    }
+
+    fn fills(frame: &crate::Frame, of: Color) -> Vec<crate::Rect> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *color == of => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn underlined_tabs_draw_the_accent_under_the_active_tab_over_a_hairline() {
+        let palette = ComponentPalette::neutral_dark();
+        let accent = Color::rgb(25, 170, 216);
+        let mut tree = UiTree::new(underlined("roles", accent));
+        let frame = underlined_frame(&mut tree);
+        let roles = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "roles")
+            .unwrap()
+            .rect;
+        assert_eq!(
+            fills(&frame, accent),
+            [crate::Rect::new(roles.x, 26.0, roles.width, 2.0)]
+        );
+        // The hairline runs the width it is given, under the underline.
+        assert_eq!(
+            fills(&frame, palette.border),
+            [crate::Rect::new(0.0, 27.0, 600.0, 1.0)]
+        );
+        assert!(
+            fills(&frame, palette.surface).is_empty() && fills(&frame, palette.selected).is_empty()
+        );
+        let ink = |name: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, color, .. } if text == name => Some(*color),
+                _ => None,
+            })
+        };
+        assert_eq!(ink("ROLES"), Some(accent));
+        assert_eq!(ink("GENERAL"), Some(palette.muted));
+        assert_eq!(ink("Audit"), Some(palette.muted));
+        // The disabled label sits at the height of the enabled ones.
+        let top = |name: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, position, .. } if text == name => Some(position.y),
+                _ => None,
+            })
+        };
+        assert!(top("Audit").is_some());
+        assert_eq!(top("Audit"), top("GENERAL"));
+        // Without an accent the active tab takes the palette's text, as segmented.
+        let plain = Tabs::new(vec![Tab::new("a", "A", 60.0).active(true)], palette)
+            .variant(TabsVariant::Underlined)
+            .render();
+        let mut tree = UiTree::new(plain);
+        assert_eq!(fills(&underlined_frame(&mut tree), palette.text).len(), 1);
+    }
+
+    #[test]
+    fn underlined_tabs_keep_the_segmented_geometry_and_hover_ink() {
+        let palette = ComponentPalette::neutral_dark();
+        let items = || {
+            vec![
+                Tab::new("a", "A", 70.0).active(true),
+                Tab::new("b", "B", 90.0),
+            ]
+        };
+        let regions = |variant| {
+            let tabs = Tabs::new(items(), palette)
+                .variant(variant)
+                .fill_width(300.0)
+                .render();
+            let mut tree = UiTree::new(Element::row(vec![tabs, Element::spacer().flex(1.0)]));
+            let frame = underlined_frame(&mut tree);
+            frame
+                .regions
+                .iter()
+                .map(|region| (region.id.clone(), region.rect))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            regions(TabsVariant::Underlined),
+            regions(TabsVariant::Segmented)
+        );
+        let ElementKind::Stack(layers) = Tabs::new(items(), palette)
+            .variant(TabsVariant::Underlined)
+            .accent(palette.border)
+            .render()
+            .kind
+        else {
+            panic!("Underlined tabs must stack the strip over its lines");
+        };
+        let ElementKind::TabStrip { children, .. } = &layers[2].kind else {
+            panic!("The tabs must be the top layer");
+        };
+        assert_eq!(
+            children[0].style.hover_foreground,
+            Some(lighter(palette.border, 12))
+        );
+        assert_eq!(children[1].style.hover_foreground, Some(palette.text));
+        assert_eq!(children[0].style.hover_background, None);
+    }
+
+    #[test]
+    fn underlined_tabs_report_clicks_and_keys_and_the_underline_follows() {
+        let accent = Color::rgb(25, 170, 216);
+        let mut tree = UiTree::new(underlined("general", accent));
+        let frame = underlined_frame(&mut tree);
+        let emoji = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "emoji")
+            .unwrap()
+            .rect;
+        let center = Point::new(emoji.x + emoji.width / 2.0, emoji.y + emoji.height / 2.0);
+        tree.handle_event(UiEvent::PointerDown(center));
+        assert_eq!(
+            tree.handle_event(UiEvent::PointerUp(center)),
+            vec![UiAction::Clicked { id: "emoji".into() }]
+        );
+        assert!(tree.focus("general"));
+        let key = |key| UiEvent::Key {
+            key,
+            shift: false,
+            ctrl: false,
+        };
+        assert_eq!(
+            tree.handle_event(key(crate::Key::ArrowRight)),
+            vec![UiAction::Clicked { id: "roles".into() }]
+        );
+        // The disabled tab is stepped over: from the last enabled one, Right wraps.
+        assert_eq!(
+            tree.handle_event(key(crate::Key::End)),
+            vec![UiAction::Clicked { id: "emoji".into() }]
+        );
+        assert_eq!(
+            tree.handle_event(key(crate::Key::ArrowRight)),
+            vec![UiAction::Clicked {
+                id: "general".into()
+            }]
+        );
+        assert!(!underlined_frame(&mut tree)
+            .regions
+            .iter()
+            .any(|region| region.id == "audit"));
+        tree.set_root(underlined("emoji", accent));
+        let frame = underlined_frame(&mut tree);
+        assert_eq!(
+            fills(&frame, accent),
+            [crate::Rect::new(emoji.x, 26.0, emoji.width, 2.0)]
+        );
+        // A disabled tab marked active draws no underline.
+        tree.set_root(underlined("audit", accent));
+        assert!(fills(&underlined_frame(&mut tree), accent).is_empty());
+    }
+
+    #[test]
+    fn tabs_gap_ignores_bad_input_and_underlined_tabs_fill_a_narrow_width() {
+        let palette = ComponentPalette::neutral_dark();
+        let tabs = || Tabs::new(vec![Tab::new("a", "A", 60.0)], palette);
+        assert_eq!(tabs().gap(f32::NAN).gap, TAB_GAP);
+        assert_eq!(tabs().gap(f32::INFINITY).gap, TAB_GAP);
+        assert_eq!(tabs().gap(-4.0).gap, 0.0);
+        let accent = Color::rgb(25, 170, 216);
+        let narrow = Tabs::new(
+            vec![
+                Tab::new("a", "Alpha", 80.0).active(true),
+                Tab::new("b", "Beta", 80.0),
+            ],
+            palette,
+        )
+        .variant(TabsVariant::Underlined)
+        .accent(accent)
+        .gap(16.0)
+        .fill_width(120.0)
+        .render();
+        let mut tree = UiTree::new(narrow);
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(120.0, 28.0));
+        assert_eq!(
+            fills(&frame, palette.border),
+            [crate::Rect::new(0.0, 27.0, 120.0, 1.0)]
+        );
+        // Nothing escapes the width: neither a tab nor the underline.
+        let inside = |rect: &crate::Rect| rect.x >= 0.0 && rect.x + rect.width <= 120.0;
+        assert_eq!(frame.regions.len(), 2);
+        assert!(frame.regions.iter().all(|region| inside(&region.rect)));
+        let underline = fills(&frame, accent);
+        assert_eq!(underline.len(), 1);
+        assert!(inside(&underline[0]));
     }
 
     #[test]

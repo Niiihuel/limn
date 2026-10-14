@@ -1,8 +1,37 @@
 use super::{caption, row, section, Cx, Section};
+use crate::app::State;
 use limn::{
     Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
-    SearchField, Select, SelectorSizing, Slider, Switch, TextArea, TextField, TextRole,
+    SearchField, Select, SelectVariant, SelectorSizing, Slider, Switch, SwitchVariant, TextArea, TextField, TextRole, UiAction,
 };
+
+/// The search fields with a clear button, and the query each starts with.
+const CLEARABLE: [(&str, &str); 2] = [
+    ("input-search", ""),
+    ("input-search-filled", "release notes"),
+];
+
+/// A clear button empties its field's query.
+pub fn update(state: &mut State, action: &UiAction) {
+    let UiAction::Clicked { id } = action else {
+        return;
+    };
+    if let Some((field, _)) = CLEARABLE
+        .iter()
+        .find(|(field, _)| id.strip_suffix(":clear") == Some(field))
+    {
+        state.set(field, "");
+    }
+}
+
+/// The search fields a clear button changes, each with its query now. A
+/// field keeps the text typed in it, so after a clear the tree is given these.
+pub fn fields(state: &State) -> Vec<(&'static str, String)> {
+    CLEARABLE
+        .iter()
+        .map(|(field, start)| (*field, state.choice(field, start).to_owned()))
+        .collect()
+}
 
 const SHELLS: [(&str, &str); 4] = [("bash", "Bash"), ("zsh", "Zsh"), ("fish", "Fish"), ("nu", "Nushell")];
 
@@ -67,6 +96,21 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .height(40.0)
                 .render(),
             caption(cx, "Form height: 40 px on a compact control."),
+            Element::column(vec![
+                TextField::new("input-channel", state.text("input-channel"), "new-channel", palette)
+                    .icon(Icon::Hash)
+                    .accessibility_label("Channel name")
+                    .width(width)
+                    .render(),
+                TextField::new("input-channel-disabled", "general", "", palette)
+                    .icon(Icon::Hash)
+                    .accessibility_label("Channel name")
+                    .disabled()
+                    .width(width)
+                    .render(),
+            ])
+            .gap(8.0),
+            caption(cx, "With an icon before the text, muted until the field has the focus; disabled, it stays."),
         ]),
         section(cx, "Form field", vec![
             Element::column(vec![
@@ -154,17 +198,83 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .placement(PopoverPlacement::BottomStart)
                 .render(),
             caption(cx, "As wide as the form, with the list aligned below the leading edge."),
+            Element::column(vec![
+                TextField::new("select-field-name", state.text("select-field-name"), "Name", palette).render(),
+                shell_select(cx, "select-field")
+                    .variant(SelectVariant::Field)
+                    .accessibility_label("Shell")
+                    .width(width)
+                    .menu_width(width)
+                    .placement(PopoverPlacement::BottomStart)
+                    .render(),
+                shell_select(cx, "select-field-icon")
+                    .variant(SelectVariant::Field)
+                    .icon(Icon::Terminal)
+                    .accessibility_label("Shell")
+                    .width(width)
+                    .menu_width(width)
+                    .placement(PopoverPlacement::BottomStart)
+                    .render(),
+                shell_select(cx, "select-field-off")
+                    .variant(SelectVariant::Field)
+                    .accessibility_label("Shell")
+                    .enabled(false)
+                    .width(width)
+                    .render(),
+            ])
+            .gap(8.0)
+            .size(Some(width), None),
+            caption(cx, "As a field: a text field's fill, border and height, the choice at its start; open, the border of a focused field. With an icon, and disabled."),
+            Element::column(vec![
+                TextField::new("select-tall-name", state.text("select-tall-name"), "Name", palette)
+                    .size(ControlSize::Compact)
+                    .height(40.0)
+                    .render(),
+                shell_select(cx, "select-field-tall")
+                    .variant(SelectVariant::Field)
+                    .accessibility_label("Shell")
+                    .size(ControlSize::Compact)
+                    .height(40.0)
+                    .width(width)
+                    .menu_width(width)
+                    .placement(PopoverPlacement::BottomStart)
+                    .render(),
+            ])
+            .gap(8.0)
+            .size(Some(width), None),
+            caption(cx, "Form height: 40 px, beside a text field of the same height."),
         ]),
         section(cx, "Search", vec![
-            SearchField::new("input-search", state.text("input-search"), "Search", palette)
+            SearchField::new("input-search", state.choice(CLEARABLE[0].0, CLEARABLE[0].1), "Search", palette)
                 .shortcut("Ctrl+K")
+                .clearable(true)
                 .width(width)
                 .render(),
+            caption(cx, "The shortcut while it is empty; type, and a button at its end clears it."),
+            Element::column(vec![
+                SearchField::new("input-search-filled", state.choice(CLEARABLE[1].0, CLEARABLE[1].1), "Search", palette)
+                    .clearable(true)
+                    .width(width)
+                    .render(),
+                SearchField::new("input-search-disabled", "release notes", "Search", palette)
+                    .clearable(true)
+                    .disabled()
+                    .width(width)
+                    .render(),
+            ])
+            .gap(8.0),
+            caption(cx, "With a query, and disabled: the button stays in its place and cannot be used."),
         ]),
         section(cx, "Text area", vec![
             TextArea::new("input-notes", state.text("input-notes"), "Notes", palette)
                 .width(width)
                 .height(120.0)
+                .render(),
+            caption(cx, ".enter_submits(true): Enter sends, Shift+Enter adds a line"),
+            TextArea::new("input-notes-chat", state.text("input-notes-chat"), "Message #general", palette)
+                .width(width)
+                .height(64.0)
+                .enter_submits(true)
                 .render(),
             caption(cx, ".radius(RadiusRole::Surface), and disabled"),
             TextArea::new("input-notes-surface", state.text("input-notes-surface"), "Message", palette)
@@ -179,10 +289,51 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .disabled()
                 .render(),
         ]),
-        section(cx, "Switch", vec![row(vec![
-            Switch::new("input-switch", state.flag("input-switch"), palette).accessibility_label("Notifications").render(),
-            Switch::new("input-switch-disabled", true, palette).accessibility_label("Automatic updates").disabled().render(),
-        ])]),
+        section(cx, "Switch", vec![
+            row(vec![
+                Switch::new("input-switch", state.flag("input-switch"), palette).accessibility_label("Notifications").render(),
+                Switch::new("input-switch-disabled", true, palette).accessibility_label("Automatic updates").disabled().render(),
+            ]),
+            caption(cx, "A switch, and one disabled: it keeps its value."),
+            row([
+                ("Dense", ControlSize::Dense),
+                ("Compact", ControlSize::Compact),
+                ("Regular", ControlSize::Regular),
+                ("Spacious", ControlSize::Spacious),
+            ]
+            .into_iter()
+            .map(|(name, size)| {
+                let id = format!("input-switch-{}", name.to_lowercase());
+                Switch::new(id.as_str(), state.flag(&id), palette).size(size).accessibility_label(name).render()
+            })
+            .collect()),
+            caption(cx, ".size(ControlSize): Dense, Compact, Regular and Spacious."),
+            row(vec![
+                Switch::new("input-switch-accent", !state.flag("input-switch-accent"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .size(ControlSize::Spacious)
+                    .accessibility_label("Show embeds")
+                    .render(),
+                Switch::new("input-switch-accent-off", state.flag("input-switch-accent-off"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .size(ControlSize::Spacious)
+                    .accessibility_label("Autoplay GIFs")
+                    .render(),
+                Switch::new("input-switch-accent-ink", !state.flag("input-switch-accent-ink"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .ink(cx.state.theme().accent)
+                    .size(ControlSize::Spacious)
+                    .accessibility_label("Compact mode")
+                    .render(),
+                Switch::new("input-switch-accent-disabled", true, palette)
+                    .variant(SwitchVariant::Accent)
+                    .size(ControlSize::Spacious)
+                    .accessibility_label("Sync")
+                    .disabled()
+                    .render(),
+            ]),
+            caption(cx, "SwitchVariant::Accent: a light thumb on the link color, on the theme's accent with .ink, and disabled."),
+        ]),
         section(cx, "Slider", vec![
             Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette)
                 .accessibility_label("Volume")
@@ -201,6 +352,31 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(280.0)
                 .render(),
             caption(cx, "Disabled: shows the value without pointer input or focus."),
+            Slider::new("input-slider-marks", fraction(cx, "input-slider-marks", 0.25), palette)
+                .steps(5)
+                .marks()
+                .accessibility_label("Zoom")
+                .width(280.0)
+                .render(),
+            caption(cx, ".marks(): a hairline at each stop, behind the thumb."),
+            Slider::new("input-slider-sizes", fraction(cx, "input-slider-sizes", 0.5), palette)
+                .steps(7)
+                .mark_labels(["12px", "14px", "15px", "16px", "18px", "20px", "24px"])
+                .default_stop(3)
+                .ink(cx.state.theme().accent)
+                .accessibility_label("Font size")
+                .width(280.0)
+                .render(),
+            caption(cx, ".mark_labels(..) names the stops and .default_stop(3) shows 16px in the ink."),
+            Slider::new("input-slider-sizes-disabled", 0.5, palette)
+                .steps(3)
+                .mark_labels(["Small", "Medium", "Large"])
+                .default_stop(1)
+                .accessibility_label("Density")
+                .enabled(false)
+                .width(280.0)
+                .render(),
+            caption(cx, "Disabled, every label is muted."),
         ]),
     ]
 }

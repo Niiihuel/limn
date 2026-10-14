@@ -248,7 +248,7 @@ fn blend(from: Color, to: Color, amount: u16) -> Color {
     Color::rgb(channel(from.r, to.r), channel(from.g, to.g), channel(from.b, to.b))
 }
 
-fn contrast(a: Color, b: Color) -> f32 {
+pub(crate) fn contrast(a: Color, b: Color) -> f32 {
     let luminance = |color: Color| {
         let channel = |value: u8| {
             let value = f32::from(value) / 255.0;
@@ -267,7 +267,7 @@ fn contrast(a: Color, b: Color) -> f32 {
 /// `candidate` as it looks on `surface`, moved toward white or black until it
 /// stands at `minimum` contrast on it. The rule `AlertColors::for_tone` keeps
 /// its inks to, so a chip and an alert of one tone correct a color alike.
-fn readable_ink(candidate: Color, surface: Color, minimum: f32) -> Color {
+pub(crate) fn readable_ink(candidate: Color, surface: Color, minimum: f32) -> Color {
     let candidate = blend(surface, Color::rgb(candidate.r, candidate.g, candidate.b), u16::from(candidate.a));
     if contrast(candidate, surface) >= minimum {
         return candidate;

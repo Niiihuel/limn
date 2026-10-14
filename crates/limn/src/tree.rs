@@ -27,6 +27,12 @@ mod soft_focus_tests;
 #[cfg(test)]
 #[path = "stack_tests.rs"]
 mod stack_tests;
+#[cfg(test)]
+#[path = "wrap_tests.rs"]
+mod wrap_tests;
+#[cfg(test)]
+#[path = "area_slider_tests.rs"]
+mod area_slider_tests;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -36,7 +42,7 @@ use web_time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, UniformList};
+use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, MeasuredRows, UniformList};
 use crate::motion::{
     skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
 };
@@ -811,6 +817,101 @@ fn paint_fade(commands: &mut Vec<DrawCommand>, rect: Rect, top: Color, bottom: C
     }
 }
 
+/// Evenly spaced `stops` across `rect`, left to right or top to bottom, its
+/// four corners rounded by `radius`: a gradient between each two stops, cut
+/// short of the rounded ends, and one-pixel strips across each end, narrowed
+/// to the curve as `paint_fade` narrows its rows.
+fn paint_gradient(
+    commands: &mut Vec<DrawCommand>,
+    rect: Rect,
+    stops: &[Color],
+    vertical: bool,
+    radius: f32,
+) {
+    let (start, length, across) = if vertical {
+        (rect.y, rect.height, rect.width)
+    } else {
+        (rect.x, rect.width, rect.height)
+    };
+    if stops.is_empty() || !(length > 0.0 && across > 0.0) {
+        return;
+    }
+    let spans = stops.len().saturating_sub(1).max(1);
+    // The color a share of the way along: between the two stops around it.
+    let at = |share: f32| {
+        let place = share.clamp(0.0, 1.0) * spans as f32;
+        let index = (place.floor() as usize).min(spans - 1);
+        let (from, to) = (stops[index], stops[(index + 1).min(stops.len() - 1)]);
+        let mix = |from: u8, to: u8| {
+            (f32::from(from) + (f32::from(to) - f32::from(from)) * (place - index as f32)).round()
+                as u8
+        };
+        Color {
+            r: mix(from.r, to.r),
+            g: mix(from.g, to.g),
+            b: mix(from.b, to.b),
+            a: mix(from.a, to.a),
+        }
+    };
+    // The part of `rect` from `from` to `to` along the gradient, `inset` in from both sides.
+    let band = |from: f32, to: f32, inset: f32| {
+        if vertical {
+            Rect::new(
+                rect.x + inset,
+                start + from,
+                across - 2.0 * inset,
+                to - from,
+            )
+        } else {
+            Rect::new(
+                start + from,
+                rect.y + inset,
+                to - from,
+                across - 2.0 * inset,
+            )
+        }
+    };
+    let rounded = if radius.is_finite() {
+        radius.min(length / 2.0).min(across / 2.0).max(0.0).floor()
+    } else {
+        0.0
+    };
+    for span in 0..spans {
+        let from = (length * span as f32 / spans as f32).max(rounded);
+        let to = (length * (span + 1) as f32 / spans as f32).min(length - rounded);
+        if to > from {
+            let (first, last) = (at(from / length), at(to / length));
+            commands.push(if vertical {
+                DrawCommand::FillVerticalGradient {
+                    rect: band(from, to, 0.0),
+                    top: first,
+                    bottom: last,
+                }
+            } else {
+                DrawCommand::FillHorizontalGradient {
+                    rect: band(from, to, 0.0),
+                    left: first,
+                    right: last,
+                }
+            });
+        }
+    }
+    for step in 0..rounded as usize {
+        let depth = step as f32 + 0.5;
+        let inset = rounded
+            - (rounded * rounded - (rounded - depth).powi(2))
+                .max(0.0)
+                .sqrt();
+        for from in [step as f32, length - step as f32 - 1.0] {
+            commands.push(DrawCommand::FillRect {
+                rect: band(from, from + 1.0, inset),
+                color: at((from + 0.5) / length),
+                radius: 0.0,
+            });
+        }
+    }
+}
+
 fn paint_corner_rect(
     commands: &mut Vec<DrawCommand>,
     rect: Rect,
@@ -1254,6 +1355,36 @@ pub struct TextLayoutRun {
     pub visible: Option<Rect>,
 }
 
+/// What a measured list keeps between layouts.
+#[derive(Debug, Default)]
+struct MeasuredListState {
+    /// The height each row was last measured at, by its key.
+    heights: HashMap<u64, f32>,
+    /// The key of the row at the top of the viewport at the last layout, and
+    /// where its top was in the content. When rows above it change or are
+    /// added, the offset moves by as much and the row stays where it showed.
+    anchor: Option<(u64, f32)>,
+    /// The offset of the end of the content at the last layout.
+    end: f32,
+}
+
+impl MeasuredListState {
+    /// Keep the height row `index`, named `key`, was measured at, in the
+    /// state and in this layout's `heights`. True when it differs from what
+    /// the layout had counted for it.
+    fn learn(&mut self, heights: &mut [f32], key: u64, index: usize, height: f32) -> bool {
+        self.heights.insert(key, height);
+        let changed = (height - heights[index]).abs() > 0.01;
+        heights[index] = height;
+        changed
+    }
+}
+
+/// The most layouts of a measured list's rows one pass runs before it
+/// settles: each one measures the rows that came into view with the heights
+/// the one before learned.
+const MEASURED_LIST_PASSES: usize = 8;
+
 #[derive(Clone, Debug, PartialEq)]
 struct VirtualListFocus {
     first_visible: usize,
@@ -1279,6 +1410,9 @@ struct PopoverFocusScope {
     modal: bool,
     /// A coach mark's actions for the Left and Right arrow keys.
     arrows: Option<(Option<String>, Option<String>)>,
+    /// Placed at a point, not against a trigger: the arrow keys reach it
+    /// from wherever the focus is.
+    pointed: bool,
 }
 
 /// A `sticky_top` child held back to be placed above its scroll area: the
@@ -1646,9 +1780,40 @@ struct SliderGeometry {
     inset: f32,
     /// The effort slider settles on a spring; a plain slider follows the host.
     animated: bool,
+    /// The share of the height from the top, for a slider over an area.
+    y: Option<f32>,
+}
+
+/// What a slider reports: its fraction along a track, or both shares over an area.
+fn slider_action(id: String, fraction: f32, y: Option<f32>, committed: bool) -> UiAction {
+    match y {
+        Some(y) => UiAction::AreaSliderChanged {
+            id,
+            x: fraction,
+            y,
+            committed,
+        },
+        None => UiAction::SliderChanged {
+            id,
+            fraction,
+            committed,
+        },
+    }
 }
 
 impl SliderGeometry {
+    /// The pointer's share of the height from the top, for an area slider.
+    fn y_at(self, y: f32) -> Option<f32> {
+        let travel = self.rect.height - self.inset * 2.0;
+        self.y.map(|_| {
+            if travel <= 0.0 {
+                0.5
+            } else {
+                ((y - self.rect.y - self.inset) / travel).clamp(0.0, 1.0)
+            }
+        })
+    }
+
     fn fraction_at(self, x: f32) -> f32 {
         let travel = self.rect.width - self.inset * 2.0;
         if travel <= 0.0 {
@@ -1681,6 +1846,7 @@ struct SliderDrag {
     id: String,
     geometry: SliderGeometry,
     fraction: f32,
+    y: Option<f32>,
 }
 
 struct SliderMotion {
@@ -2009,7 +2175,8 @@ pub enum Key {
     /// Delete: deletes forward in the focused text field.
     Delete,
     /// Enter: activates the focused button, submits a text input, or adds a
-    /// line to a text area (which Ctrl+Enter submits).
+    /// line to a text area (which Ctrl+Enter submits, and Enter alone when it
+    /// has `enter_submits`).
     Enter,
     /// Space: activates the focused button. Text fields take the character from
     /// `UiEvent::Text`, not from this key.
@@ -2263,6 +2430,19 @@ pub enum UiAction {
         /// leaves the window, and for a step from the keyboard.
         committed: bool,
     },
+    /// An area slider moved: previewed while the pointer is down, committed
+    /// on release and from the keyboard. See [`Element::area_slider`].
+    AreaSliderChanged {
+        /// ID of the slider.
+        id: String,
+        /// Share of the width from the left, from 0 to 1.
+        x: f32,
+        /// Share of the height from the top, from 0 to 1.
+        y: f32,
+        /// False while the pointer drags. True on release, when the pointer
+        /// leaves the window, and for a step from the keyboard.
+        committed: bool,
+    },
     /// The text of a text input or text area changed.
     InputChanged {
         /// ID of the field.
@@ -2270,7 +2450,8 @@ pub enum UiAction {
         /// The field's whole text after the change.
         value: String,
     },
-    /// Enter was pressed in a text input, or Ctrl+Enter in a text area.
+    /// Enter was pressed in a text input, or Ctrl+Enter in a text area (Enter
+    /// alone in one with `enter_submits`).
     Submitted {
         /// ID of the field.
         id: String,
@@ -2376,6 +2557,8 @@ struct InputState {
     keep_cursor_visible: bool,
     desired_column: Option<usize>,
     preserve_line_endings: bool,
+    /// Enter submits and Shift+Enter breaks the line.
+    enter_submits: bool,
     password: bool,
 }
 
@@ -2402,6 +2585,7 @@ impl InputState {
             keep_cursor_visible: true,
             desired_column: None,
             preserve_line_endings: false,
+            enter_submits: false,
             password: false,
         }
     }
@@ -2764,6 +2948,8 @@ pub struct UiTree {
     scroll_transitions: HashMap<String, ScalarTransition>,
     scroll_to_end: HashSet<String>,
     scroll_to_index: HashMap<String, usize>,
+    /// What each measured list keeps between layouts, by its ID.
+    measured_lists: HashMap<String, MeasuredListState>,
     scroll_drag: Option<ScrollDrag>,
     // The viewport being dragged sideways, and the pointer x plus offset it was grabbed at.
     horizontal_pan: Option<(String, f32)>,
@@ -2844,6 +3030,7 @@ impl UiTree {
             code_view_epoch: 0,
             scroll_offsets: HashMap::new(),
             scroll_transitions: HashMap::new(),
+            measured_lists: HashMap::new(),
             scroll_to_end: HashSet::new(),
             scroll_to_index: HashMap::new(),
             scroll_drag: None,
@@ -3405,6 +3592,16 @@ impl UiTree {
         Some(target.rect.y - target.viewport.y)
     }
 
+    /// The rows of the virtual list `id` that were built at the last layout,
+    /// as a range of indices: those in view, from the one at the top of the
+    /// viewport to the one at its bottom. `None` when no uniform or measured
+    /// list has that ID. A host reads it to load more rows before the first
+    /// one shows, or to know which messages were seen.
+    pub fn visible_rows(&self, id: &str) -> Option<std::ops::Range<usize>> {
+        let list = self.frame.virtual_lists.get(id)?;
+        Some(list.first_visible..list.end_visible)
+    }
+
     /// Brings the control `id` to the middle of the scroll area that holds
     /// it, on the next layout, travelling there by that area's scroll motion
     /// or at once under reduced motion. For content that follows a clock,
@@ -3514,6 +3711,7 @@ impl UiTree {
                 code_diffs: &mut self.code_diffs,
                 scroll_offsets: &mut self.scroll_offsets,
                 scroll_transitions: &mut self.scroll_transitions,
+                measured_lists: &mut self.measured_lists,
                 scroll_to_end: &mut self.scroll_to_end,
                 scroll_to_index: &mut self.scroll_to_index,
                 hovered_scrollbar: self.hovered_scrollbar.as_deref(),
@@ -3602,6 +3800,7 @@ impl UiTree {
                         return_focus,
                         coach,
                         arrows,
+                        pointed,
                     } => {
                         let coach = coach.as_deref();
                         if let Some(coach) = coach {
@@ -3668,6 +3867,7 @@ impl UiTree {
                                 arrows: coach
                                     .map(|coach| (coach.back.clone(), coach.next.clone()))
                                     .or_else(|| arrows.as_deref().cloned()),
+                                pointed,
                             });
                         }
                         // Measure wrapped content at the width the viewport
@@ -5044,10 +5244,19 @@ impl UiTree {
                 // over from keyboard navigation without stealing focus from
                 // inputs inside rich popovers or reacting to a stationary mouse.
                 if moved {
-                    if let Some(id) = target
-                        .as_ref()
-                        .filter(|id| self.frame.action_menu_items.contains(*id))
-                    {
+                    // Focus on a submenu's row or in a submenu holds that one
+                    // open; the pointer onto another submenu's row takes over.
+                    let holds_submenu = self.focused.as_ref().is_some_and(|focused| {
+                        self.frame.submenu_triggers.contains(focused)
+                            || self.frame.popover_focus.iter().any(|scope| {
+                                scope.submenu
+                                    && scope.focusables.iter().any(|(id, _)| id == focused)
+                            })
+                    });
+                    if let Some(id) = target.as_ref().filter(|id| {
+                        self.frame.action_menu_items.contains(*id)
+                            || holds_submenu && self.frame.submenu_triggers.contains(*id)
+                    }) {
                         self.focused = Some(id.clone());
                         self.closed_submenu_triggers.remove(id);
                         self.keyboard_focus = false;
@@ -5081,13 +5290,11 @@ impl UiTree {
                 }
                 if let Some(drag) = self.slider_drag.as_mut() {
                     let fraction = drag.geometry.fraction_at(point.x);
-                    if fraction != drag.fraction {
+                    let y = drag.geometry.y_at(point.y);
+                    if fraction != drag.fraction || y != drag.y {
                         drag.fraction = fraction;
-                        actions.push(UiAction::SliderChanged {
-                            id: drag.id.clone(),
-                            fraction,
-                            committed: false,
-                        });
+                        drag.y = y;
+                        actions.push(slider_action(drag.id.clone(), fraction, y, false));
                     }
                 }
                 if let Some(selection) = self.static_selection.as_mut().filter(|s| s.dragging) {
@@ -5127,11 +5334,7 @@ impl UiTree {
                                 && drag.geometry.fraction < 1.0,
                         );
                     }
-                    actions.push(UiAction::SliderChanged {
-                        id: drag.id.clone(),
-                        fraction: snapped,
-                        committed: true,
-                    });
+                    actions.push(slider_action(drag.id.clone(), snapped, drag.y, true));
                 }
                 self.pointer = None;
                 self.set_hovered(None, now);
@@ -5179,10 +5382,12 @@ impl UiTree {
                         .map(|geometry| (region.id.clone(), geometry))
                 }) {
                     let fraction = geometry.fraction_at(point.x);
+                    let y = geometry.y_at(point.y);
                     self.slider_drag = Some(SliderDrag {
                         id: id.clone(),
                         geometry,
                         fraction,
+                        y,
                     });
                     // An entry in `slider_motion` keeps the window repainting,
                     // so only the animated effort slider gets one.
@@ -5198,11 +5403,7 @@ impl UiTree {
                     }
                     self.focused = Some(id.clone());
                     self.pressed = None;
-                    actions.push(UiAction::SliderChanged {
-                        id,
-                        fraction,
-                        committed: false,
-                    });
+                    actions.push(slider_action(id, fraction, y, false));
                     return actions;
                 }
                 if let Some(pan) = self.horizontal_pan_at(point) {
@@ -5337,11 +5538,8 @@ impl UiTree {
                                 && drag.geometry.fraction < 1.0,
                         );
                     }
-                    actions.push(UiAction::SliderChanged {
-                        id: drag.id,
-                        fraction: snapped,
-                        committed: true,
-                    });
+                    let y = drag.geometry.y_at(point.y);
+                    actions.push(slider_action(drag.id, snapped, y, true));
                     return actions;
                 }
                 if let Some(selection) = self.static_selection.as_mut().filter(|s| s.dragging) {
@@ -5455,7 +5653,15 @@ impl UiTree {
                     self.keyboard_focus = true;
                 } else if !shift
                     && !ctrl
-                    && matches!(key, Key::ArrowLeft | Key::ArrowRight | Key::Home | Key::End)
+                    && matches!(
+                        key,
+                        Key::ArrowLeft
+                            | Key::ArrowRight
+                            | Key::ArrowUp
+                            | Key::ArrowDown
+                            | Key::Home
+                            | Key::End
+                    )
                     && self.step_slider(key, &mut actions)
                 {
                     self.keyboard_focus = true;
@@ -5566,7 +5772,10 @@ impl UiTree {
                                 false
                             }
                             Key::Enter => {
-                                if multiline && !ctrl {
+                                // A chat composer breaks the line on Shift+Enter;
+                                // any other text area on Enter alone.
+                                let breaks = !ctrl && (!input.enter_submits || shift);
+                                if multiline && breaks {
                                     input.insert("\n", true)
                                 } else {
                                     actions.push(UiAction::Submitted {
@@ -5611,6 +5820,27 @@ impl UiTree {
         let Some(geometry) = self.frame.sliders.get(id) else {
             return false;
         };
+        // An area slider: Left and Right move across, Up and Down up and down.
+        if let Some(y) = geometry.y {
+            let x = geometry.fraction;
+            let step = CONTINUOUS_SLIDER_KEY_STEP;
+            let (x, y) = match key {
+                Key::ArrowLeft => ((x - step).max(0.0), y),
+                Key::ArrowRight => ((x + step).min(1.0), y),
+                Key::ArrowUp => (x, (y - step).max(0.0)),
+                Key::ArrowDown => (x, (y + step).min(1.0)),
+                Key::Home => (0.0, y),
+                Key::End => (1.0, y),
+                _ => return false,
+            };
+            actions.push(UiAction::AreaSliderChanged {
+                id: id.clone(),
+                x,
+                y,
+                committed: true,
+            });
+            return true;
+        }
         if geometry.steps < 2 {
             let current = geometry.fraction.clamp(0.0, 1.0);
             let fraction = match key {
@@ -5937,7 +6167,9 @@ impl UiTree {
             .focused
             .as_ref()
             .and_then(|id| buttons.iter().position(|(candidate, _)| candidate == id));
+        // A menu at a point has no trigger: the focus left outside it stands in.
         let trigger_focused = self.focused.is_none()
+            || scope.pointed && current.is_none()
             || self
                 .focused
                 .as_ref()
@@ -6318,6 +6550,43 @@ fn holds_reveal(element: &Element, keyboard_focus: bool, focused: Option<&str>) 
     }
 }
 
+/// Whether the pointer or the focus is on something `element` holds, the
+/// submenus nested in it included: a submenu that opens on hover stays open
+/// while it is, however deep the submenu the pointer went into.
+fn holds_submenu(element: &Element, hovered: Option<&str>, focused: Option<&str>) -> bool {
+    let on = |id: &str| hovered == Some(id) || focused == Some(id);
+    if focusable_id(element).is_some_and(on) {
+        return true;
+    }
+    let holds = |child: &Element| holds_submenu(child, hovered, focused);
+    match &element.kind {
+        ElementKind::Popover {
+            anchor,
+            floating,
+            dismiss_id,
+            ..
+        } => {
+            hovered
+                .is_some_and(|id| id.strip_prefix("popover_surface:") == Some(dismiss_id.as_str()))
+                || holds(anchor)
+                || holds(floating)
+        }
+        ElementKind::Scroll { id, child, .. } => on(id) || holds(child),
+        ElementKind::Tooltip {
+            anchor, anchor_id, ..
+        } => on(anchor_id) || holds(anchor),
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => children.iter().any(holds),
+        ElementKind::Panel(child)
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::HorizontalScroll { child, .. } => holds(child),
+        ElementKind::Overlay { base, floating } => holds(base) || holds(floating),
+        _ => false,
+    }
+}
+
 /// Record only the ancestors of the requested control. The normal layout can
 /// skip every other clipped branch, even while locating an offscreen target.
 fn find_focus_path(element: &Element, id: &str, path: &mut HashSet<usize>) -> bool {
@@ -6388,6 +6657,7 @@ struct LayoutBuilder<'a> {
     code_diffs: &'a mut HashMap<String, crate::code_editor::DiffView>,
     scroll_offsets: &'a mut HashMap<String, f32>,
     scroll_transitions: &'a mut HashMap<String, ScalarTransition>,
+    measured_lists: &'a mut HashMap<String, MeasuredListState>,
     scroll_to_end: &'a mut HashSet<String>,
     scroll_to_index: &'a mut HashMap<String, usize>,
     hovered_scrollbar: Option<&'a str>,
@@ -6470,6 +6740,7 @@ enum DeferredOverlay {
         coach: Option<Box<CoachAnchor>>,
         /// What the Left and Right arrow keys report inside the surface.
         arrows: Option<Box<(Option<String>, Option<String>)>>,
+        pointed: bool,
     },
     Tooltip {
         anchor: Rect,
@@ -7840,6 +8111,242 @@ impl LayoutBuilder<'_> {
         });
     }
 
+    /// Build row `index` of a measured list, once in a layout, and measure it
+    /// at `width` in a measurement scope of its own, kept for placing it.
+    fn measure_list_row(
+        &mut self,
+        list: &UniformList,
+        built: &mut HashMap<usize, (Box<Element>, u64, f32)>,
+        index: usize,
+        width: f32,
+    ) -> f32 {
+        if let Some((_, _, height)) = built.get(&index) {
+            return *height;
+        }
+        let row = Box::new((list.build_row)(index));
+        let previous = self.enter_measurement_scope();
+        let measured = self.measure(&row, Size::new(width, f32::INFINITY)).height;
+        let scope = self.measurement_scope;
+        self.measurement_scope = previous;
+        let height = if measured.is_finite() {
+            measured.max(0.0)
+        } else {
+            list.row_height
+        };
+        built.insert(index, (row, scope, height));
+        height
+    }
+
+    /// A list whose rows take their own heights: see
+    /// [`Element::measured_list`]. Rows are measured as they are built, and
+    /// what the tree learned of them moves the offset so the row at the top
+    /// of the viewport holds still.
+    fn place_measured_list(
+        &mut self,
+        list: &UniformList,
+        rect: Rect,
+        content: Rect,
+        clip: Option<Rect>,
+        foreground: Color,
+    ) {
+        let Some(MeasuredRows { key, follow_end }) = list.measured.as_ref() else {
+            return;
+        };
+        let id = list.id.as_str();
+        self.add_region(id, rect, HitKind::Scroll, clip);
+        let count = list.row_count;
+        let keys: Vec<u64> = (0..count).map(|index| key(index)).collect();
+        let mut state = self.measured_lists.remove(id).unwrap_or_default();
+        let mut heights: Vec<f32> = keys
+            .iter()
+            .map(|key| state.heights.get(key).copied().unwrap_or(list.row_height))
+            .collect();
+        let tops = |heights: &[f32]| {
+            let mut tops = Vec::with_capacity(heights.len() + 1);
+            let mut top = 0.0_f32;
+            tops.push(top);
+            for height in heights {
+                top = (top + height).min(f32::MAX / 4.0);
+                tops.push(top);
+            }
+            tops
+        };
+        let mut top = tops(&heights);
+        // Where the offset is, or is going: a scroll on its way to the end is
+        // at the end.
+        let target = self
+            .scroll_transitions
+            .get(id)
+            .map(ScalarTransition::target)
+            .or_else(|| self.scroll_offsets.get(id).copied())
+            .unwrap_or(0.0);
+        let to_end =
+            self.scroll_to_end.remove(id) || (*follow_end && target >= state.end - 0.5);
+        let to_index = self
+            .scroll_to_index
+            .remove(id)
+            .filter(|_| count > 0)
+            .map(|index| index.min(count - 1));
+        // The row the view holds still: the one at the top of the viewport at
+        // the last layout, and where its top was in the content then.
+        let mut anchor = state
+            .anchor
+            .filter(|_| !to_end && to_index.is_none())
+            .and_then(|(anchor, was)| {
+                keys.iter().position(|key| *key == anchor).map(|index| (index, was))
+            });
+        let viewport = content.height;
+        // Each row built in this layout: the row, the measurement scope it
+        // was measured in, and its height.
+        let mut built: HashMap<usize, (Box<Element>, u64, f32)> = HashMap::new();
+        let mut row_width = f32::NAN;
+        let (mut offset, mut max_offset, mut first, mut end) = (0.0, 0.0, 0, 0);
+        for _ in 0..MEASURED_LIST_PASSES {
+            let width = list
+                .appearance
+                .content_width(content.width, top[count] > viewport);
+            if width != row_width {
+                // Heights measured at another width stand as estimates.
+                built.clear();
+                row_width = width;
+            }
+            let mut changed = false;
+            // The end, or a row to bring into view, is placed by the heights
+            // of the rows around it: measure those first, from the bottom up.
+            if to_end {
+                let mut filled = 0.0;
+                for index in (0..count).rev() {
+                    if filled >= viewport {
+                        break;
+                    }
+                    let height = self.measure_list_row(list, &mut built, index, row_width);
+                    changed |= state.learn(&mut heights, keys[index], index, height);
+                    filled += height;
+                }
+            }
+            if let Some(index) = to_index {
+                let height = self.measure_list_row(list, &mut built, index, row_width);
+                changed |= state.learn(&mut heights, keys[index], index, height);
+            }
+            if changed {
+                top = tops(&heights);
+                changed = false;
+            }
+            // Rows above the one held still were added, measured or changed
+            // height: move the offset, and a scroll on its way, by as much,
+            // so what shows stays where it was.
+            if let Some((index, was)) = anchor.as_mut() {
+                let shift = top[*index] - *was;
+                if shift.abs() > 0.01 {
+                    if let Some(offset) = self.scroll_offsets.get_mut(id) {
+                        *offset += shift;
+                    }
+                    if let Some(motion) = self.scroll_transitions.get_mut(id) {
+                        motion.shift(shift);
+                    }
+                }
+                *was = top[*index];
+            }
+            max_offset = (top[count] - viewport).max(0.0);
+            let mut snap = to_end.then_some(max_offset);
+            if let Some(index) = to_index {
+                let mut target =
+                    snap.unwrap_or_else(|| self.scroll_offsets.get(id).copied().unwrap_or(0.0));
+                if top[index] < target {
+                    target = top[index];
+                } else if top[index + 1] > target + viewport {
+                    target = top[index + 1] - viewport;
+                }
+                snap = Some(target);
+            }
+            offset = self.scroll_position(id, max_offset, list.motion, snap);
+            first = top[1..].partition_point(|bottom| *bottom <= offset).min(count);
+            // A row held still that the scroll took out of view gives way to
+            // the one now at the top.
+            let out_of_view =
+                |index: usize| top[index + 1] <= offset || top[index] >= offset + viewport;
+            if anchor.is_some_and(|(index, _)| out_of_view(index)) {
+                anchor = (first < count).then(|| (first, top[first]));
+            }
+            // From the row at the top of the view down, at the heights they
+            // really take: what fills the viewport.
+            let (mut index, mut y) = (first, top[first]);
+            while index < count && y < offset + viewport {
+                let height = self.measure_list_row(list, &mut built, index, row_width);
+                changed |= state.learn(&mut heights, keys[index], index, height);
+                y += height;
+                index += 1;
+            }
+            end = index;
+            if !changed {
+                break;
+            }
+            top = tops(&heights);
+        }
+        self.frame
+            .scroll_extents
+            .insert(list.id.clone(), max_offset);
+        let scrollbar = ScrollbarGeometry::new(content, max_offset, offset, list.appearance);
+        let visible = clip
+            .and_then(|outer| outer.intersection(content))
+            .or_else(|| clip.is_none().then_some(content));
+        let mut rows = Vec::new();
+        if let Some(visible) = visible {
+            self.frame.commands.push(DrawCommand::PushClip(visible));
+            // Rows are content of a scroll area: `reveal` and anchors find
+            // what they hold, as they do in a column of a `ScrollArea`.
+            self.scroll_focus_context.push(ScrollFocusContext {
+                id: list.id.clone(),
+                viewport: visible,
+                offset,
+            });
+            for (index, row_top) in top.iter().enumerate().take(end).skip(first) {
+                let Some((row, scope, height)) = built.get(&index) else {
+                    continue;
+                };
+                let previous = self.measurement_scope;
+                self.measurement_scope = *scope;
+                let mut focusables = Vec::new();
+                collect_focus_order(row, &mut focusables, &mut HashSet::new());
+                self.place(
+                    row,
+                    Rect::new(
+                        content.x,
+                        content.y + row_top - offset,
+                        row_width,
+                        *height,
+                    ),
+                    Some(visible),
+                );
+                rows.push((index, focusables));
+                self.measurement_scope = previous;
+            }
+            self.scroll_focus_context.pop();
+            self.frame.commands.push(DrawCommand::PopClip);
+        }
+        self.frame.virtual_lists.insert(
+            list.id.clone(),
+            VirtualListFocus {
+                first_visible: first,
+                end_visible: end,
+                row_count: count,
+                rows,
+            },
+        );
+        if let Some(scrollbar) = scrollbar {
+            self.paint_scrollbar(id, scrollbar, content, clip, foreground, list.appearance);
+        }
+        state.anchor = keys.get(first).map(|key| (*key, top[first]));
+        state.end = max_offset;
+        // Rows that left the list leave their heights behind; forget them
+        // once they outnumber the rows still there.
+        if state.heights.len() > keys.len() * 2 + 256 {
+            let present: HashSet<u64> = keys.iter().copied().collect();
+            state.heights.retain(|key, _| present.contains(key));
+        }
+        self.measured_lists.insert(list.id.clone(), state);
+    }
+
     fn paint_scrollbar(
         &mut self,
         id: &str,
@@ -8600,6 +9107,17 @@ impl LayoutBuilder<'_> {
             ElementKind::UniformList(list) => {
                 let height = if available.height.is_finite() {
                     available.height
+                } else if let Some(measured) = &list.measured {
+                    let state = self.measured_lists.get(&list.id);
+                    let rows: f32 = (0..list.row_count)
+                        .map(|index| {
+                            state
+                                .and_then(|state| state.heights.get(&(measured.key)(index)))
+                                .copied()
+                                .unwrap_or(list.row_height)
+                        })
+                        .sum();
+                    rows.min(f32::MAX / 4.0) + padding
                 } else {
                     let rows = (list.row_count as f32 * list.row_height).min(f32::MAX / 4.0);
                     let open = match &list.expansion {
@@ -8621,6 +9139,24 @@ impl LayoutBuilder<'_> {
                 let width = sizes.iter().map(|size| size.width).fold(0.0_f32, f32::max);
                 let height = sizes.iter().map(|size| size.height).sum::<f32>()
                     + style.gap * children.len().saturating_sub(1) as f32;
+                Size::new(width + padding, height + padding)
+            }
+            ElementKind::Row(children) if element.wrapping_line_gap().is_some() => {
+                let line_gap = element.wrapping_line_gap().unwrap_or_default();
+                // Wrap at the width it is placed at, which `max_width` caps.
+                let max = style
+                    .max_width
+                    .map_or(f32::INFINITY, |max| (max - padding).max(0.0));
+                let lines = Rect::new(0.0, 0.0, inner.width.min(max), 0.0);
+                let (width, height) = self
+                    .wrap_rects(children, lines, style.gap, line_gap)
+                    .iter()
+                    .fold((0.0_f32, 0.0_f32), |(width, height), rect| {
+                        (
+                            width.max(rect.x + rect.width),
+                            height.max(rect.y + rect.height),
+                        )
+                    });
                 Size::new(width + padding, height + padding)
             }
             ElementKind::Row(children) | ElementKind::TabStrip { children, .. } => {
@@ -8950,11 +9486,13 @@ impl LayoutBuilder<'_> {
                     }
                 }
             }
+            // An editor shows it on any focus; another control without a
+            // ring shows it as its keyboard focus mark.
             if self.focused == Some(id.as_str())
-                && matches!(
+                && (matches!(
                     &element.kind,
                     ElementKind::TextInput { .. } | ElementKind::TextArea { .. }
-                )
+                ) || self.keyboard_focus && !style.focus_ring)
             {
                 style.border = style.focus_border.or(style.border);
             }
@@ -9024,6 +9562,19 @@ impl LayoutBuilder<'_> {
                 None,
                 style.radius,
                 style.corner_radii,
+            );
+        }
+        if let Some((stops, vertical)) = element
+            .kept
+            .as_ref()
+            .and_then(|kept| kept.gradient.as_ref())
+        {
+            paint_gradient(
+                &mut self.frame.commands,
+                rect,
+                stops,
+                *vertical,
+                style.radius,
             );
         }
         if let Some((color, height)) = style.bottom_background_fade {
@@ -9140,7 +9691,12 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::Row(children) => {
-                self.place_flex(children, content, style.gap, true, clip);
+                for (child, rect) in children
+                    .iter()
+                    .zip(self.child_rects(element, children, content))
+                {
+                    self.place(child, rect, clip);
+                }
             }
             ElementKind::TabStrip {
                 children,
@@ -9226,6 +9782,7 @@ impl LayoutBuilder<'_> {
                             ultra_available: false,
                             inset: travel.inset,
                             animated: false,
+                            y: travel.y,
                         },
                     );
                 }
@@ -9273,6 +9830,7 @@ impl LayoutBuilder<'_> {
                 return_focus,
                 coach,
                 arrows,
+                at,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -9329,14 +9887,15 @@ impl LayoutBuilder<'_> {
                         || hovered == Some(surface_id.as_str())
                         || focusables.iter().any(|(id, _)| {
                             hovered == Some(id.as_str()) || focused == Some(id.as_str())
-                        });
+                        })
+                        || holds_submenu(floating, hovered, focused);
                     if !active {
                         return;
                     }
                 }
                 self.overlays.push_back(DeferredOverlay::Anchored {
                     floating: floating.as_ref().clone(),
-                    anchor: anchor_rect,
+                    anchor: at.map_or(anchor_rect, |point| Rect::new(point.x, point.y, 0.0, 0.0)),
                     dismiss_id: dismiss_id.clone(),
                     placement: *placement,
                     gap: *gap,
@@ -9354,6 +9913,7 @@ impl LayoutBuilder<'_> {
                     return_focus: return_focus.clone(),
                     coach: coach.clone(),
                     arrows: arrows.clone(),
+                    pointed: at.is_some(),
                 });
             }
             ElementKind::Tooltip {
@@ -9490,6 +10050,9 @@ impl LayoutBuilder<'_> {
                         *appearance,
                     );
                 }
+            }
+            ElementKind::UniformList(list) if list.measured.is_some() => {
+                self.place_measured_list(list, rect, content, clip, style.foreground);
             }
             ElementKind::UniformList(list) => {
                 let id = list.id.as_str();
@@ -10190,6 +10753,17 @@ impl LayoutBuilder<'_> {
                 password,
             } => {
                 self.add_region(id, rect, HitKind::TextInput, clip);
+                // Room a component keeps at the end for a control over it.
+                let trailing = element
+                    .kept
+                    .as_ref()
+                    .map_or(0.0, |kept| kept.input_trailing_space);
+                let content = Rect::new(
+                    content.x,
+                    content.y,
+                    (content.width - trailing).max(0.0),
+                    content.height,
+                );
                 let is_focused = self.focused == Some(id.as_str());
                 let show_shortcut = !is_focused
                     && initial_value.is_empty()
@@ -10490,6 +11064,7 @@ impl LayoutBuilder<'_> {
                 initial_value,
                 placeholder,
                 preserve_line_endings,
+                enter_submits,
                 highlights,
                 ..
             } => {
@@ -10513,6 +11088,7 @@ impl LayoutBuilder<'_> {
                     })
                 });
                 state.preserve_line_endings = *preserve_line_endings;
+                state.enter_submits = *enter_submits;
                 if !state.preserve_line_endings && state.value.contains('\r') {
                     state.value = state.value.replace("\r\n", "\n").replace('\r', "\n");
                     state.cursor = state.value.chars().count();
@@ -11018,6 +11594,7 @@ impl LayoutBuilder<'_> {
                         ultra_available: *ultra_available,
                         inset: SLIDER_THUMB_INSET,
                         animated: true,
+                        y: None,
                     },
                 );
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
@@ -11224,10 +11801,9 @@ impl LayoutBuilder<'_> {
             ElementKind::Column(children)
             | ElementKind::Row(children)
             | ElementKind::TabStrip { children, .. } => {
-                let row = !matches!(&element.kind, ElementKind::Column(_));
                 for (child, child_rect) in children
                     .iter()
-                    .zip(self.flex_rects(children, content, style.gap, row))
+                    .zip(self.child_rects(element, children, content))
                 {
                     if self
                         .focus_path
@@ -11472,6 +12048,70 @@ impl LayoutBuilder<'_> {
                 size.width = size.width.min(width);
             }
         }
+    }
+
+    /// Where a row, a column or a tab strip puts its children in `content`.
+    fn child_rects(&mut self, element: &Element, children: &[Element], content: Rect) -> Vec<Rect> {
+        match element.wrapping_line_gap() {
+            Some(line_gap) => {
+                // Wrap at the width it was measured at, which `max_width` caps.
+                let max = element
+                    .style
+                    .max_width
+                    .map_or(f32::INFINITY, |max| (max - element.style.padding * 2.0).max(0.0));
+                let lines = Rect::new(content.x, content.y, content.width.min(max), content.height);
+                self.wrap_rects(children, lines, element.style.gap, line_gap)
+            }
+            None => {
+                let row = !matches!(element.kind, ElementKind::Column(_));
+                self.flex_rects(children, content, element.style.gap, row)
+            }
+        }
+    }
+
+    /// Where a wrapping row puts its children in `content`: at their natural
+    /// widths, as many on a line as fit, each line as tall as its tallest
+    /// child and `line_gap` under the one before. A child wider than the row
+    /// has a line to itself and is measured at the row's width. Measuring
+    /// the row uses this too, so its height is the one it is placed at.
+    fn wrap_rects(
+        &self,
+        children: &[Element],
+        content: Rect,
+        gap: f32,
+        line_gap: f32,
+    ) -> Vec<Rect> {
+        let mut rects: Vec<Rect> = Vec::with_capacity(children.len());
+        let (mut line, mut x, mut y, mut height) = (0, 0.0_f32, 0.0_f32, 0.0_f32);
+        // A row is as tall as its line; so is each child, unless sized.
+        let stretch = |rects: &mut [Rect], children: &[Element], height: f32| {
+            for (rect, child) in rects.iter_mut().zip(children) {
+                rect.height = child.style.height.unwrap_or(height).min(height);
+            }
+        };
+        for (index, child) in children.iter().enumerate() {
+            let mut size = self.measure(child, Size::new(f32::INFINITY, f32::INFINITY));
+            if size.width > content.width {
+                size = self.measure(child, Size::new(content.width, f32::INFINITY));
+                size.width = size.width.min(content.width);
+            }
+            // The tolerance keeps a row placed at the width it measured on
+            // one line, whatever its padding did to the last bit.
+            if index > line && x + size.width > content.width + 0.01 {
+                stretch(&mut rects[line..], &children[line..], height);
+                (line, x, y, height) = (index, 0.0, y + height + line_gap, 0.0);
+            }
+            rects.push(Rect::new(
+                content.x + x,
+                content.y + y,
+                size.width,
+                size.height,
+            ));
+            x += size.width + gap;
+            height = height.max(size.height);
+        }
+        stretch(&mut rects[line..], &children[line..], height);
+        rects
     }
 
     fn flex_rects(
@@ -12361,6 +13001,7 @@ mod tests {
             ultra_available: true,
             inset: SLIDER_THUMB_INSET,
             animated: true,
+            y: None,
         };
         let three = SliderGeometry { steps: 3, ..five };
         let x = SLIDER_THUMB_INSET + 0.3 * (rect.width - 2.0 * SLIDER_THUMB_INSET);
@@ -13075,6 +13716,83 @@ mod tests {
         assert!(!focused.commands.iter().any(|command| matches!(command,
             DrawCommand::Text { text, .. } if text == "Ctrl" || text == "K"
         )));
+    }
+
+    #[test]
+    fn a_control_without_a_ring_shows_its_focus_border_under_the_keyboard_only() {
+        let mark = Color::rgb(1, 2, 3);
+        let marked = |frame: &Frame| {
+            frame.commands.iter().any(|command| {
+                matches!(command, DrawCommand::StrokeRect { color, width, .. }
+                    if *color == mark && *width == 1.5)
+            })
+        };
+        let button = |ring: bool| {
+            Element::button("go", "Go")
+                .border(Color::rgb(9, 9, 9), 1.0)
+                .focus_border(mark, 1.5)
+                .focus_ring(ring)
+                .size(Some(80.0), Some(28.0))
+        };
+        let window = Size::new(80.0, 28.0);
+        let mut tree = UiTree::new(button(false));
+        assert!(!marked(&tree.layout(window)));
+        assert!(tree.focus_from_pointer("go"));
+        assert!(!marked(&tree.layout(window)));
+        assert!(tree.focus("go"));
+        assert!(marked(&tree.layout(window)));
+        // With its ring, a control keeps the ring and its own border.
+        tree.set_root(button(true));
+        assert!(!marked(&tree.layout(window)));
+    }
+
+    #[test]
+    fn input_trailing_space_keeps_the_end_free_of_text_caret_and_hint() {
+        let field = |trailing: f32| {
+            Element::text_input("search", "", "Find")
+                .leading_icon(Icon::Search)
+                .input_shortcut("K")
+                .input_trailing_space(trailing)
+                .size(Some(200.0), Some(34.0))
+        };
+        let hint_right = |frame: &Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, .. } if text == "K" => Some(position.x),
+                    _ => None,
+                })
+                .next()
+                .expect("the hint")
+        };
+        let mut tree = UiTree::new(field(0.0));
+        let plain = tree.layout(Size::new(200.0, 34.0));
+        let (plain_x, plain_width) = (
+            tree.inputs["search"].content_x,
+            tree.inputs["search"].content_width,
+        );
+        tree.set_root(field(24.0));
+        let kept = tree.layout(Size::new(200.0, 34.0));
+        // The start is where it was; the text, and the hint at its end, give up the room.
+        assert_eq!(tree.inputs["search"].content_x, plain_x);
+        assert_eq!(tree.inputs["search"].content_width, plain_width - 24.0);
+        assert_eq!(hint_right(&kept), hint_right(&plain) - 24.0);
+        assert_eq!(
+            kept.regions[0].rect, plain.regions[0].rect,
+            "the input's own box is unchanged"
+        );
+        // More than the field has leaves no room, never a negative one.
+        tree.set_root(field(500.0));
+        tree.layout(Size::new(200.0, 34.0));
+        assert_eq!(tree.inputs["search"].content_width, 0.0);
+        // Not a number, or another kind of element: nothing is kept.
+        for element in [
+            field(f32::NAN),
+            Element::spacer().input_trailing_space(24.0),
+        ] {
+            assert!(element.kept.is_none());
+        }
     }
 
     #[test]

@@ -576,6 +576,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::ArrowLeft => include_str!("../assets/bootstrap/arrow-left.svg"),
         Icon::ArrowRight => include_str!("../assets/bootstrap/arrow-right.svg"),
         Icon::ChevronDown => include_str!("../assets/bootstrap/chevron-down.svg"),
+        Icon::ChevronUp => include_str!("../assets/bootstrap/chevron-up.svg"),
         Icon::ChevronRight => include_str!("../assets/bootstrap/chevron-right.svg"),
         Icon::Search => include_str!("../assets/bootstrap/search.svg"),
         Icon::Stop => include_str!("../assets/bootstrap/stop.svg"),
@@ -622,6 +623,20 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Home => include_str!("../assets/bootstrap/house.svg"),
         Icon::Library => include_str!("../assets/bootstrap/collection.svg"),
         Icon::Sliders => include_str!("../assets/bootstrap/sliders.svg"),
+        Icon::MicrophoneMuted => include_str!("../assets/bootstrap/mic-mute.svg"),
+        Icon::Headphones => include_str!("../assets/bootstrap/headphones.svg"),
+        Icon::Emoji => include_str!("../assets/bootstrap/emoji-smile.svg"),
+        Icon::Reply => include_str!("../assets/bootstrap/reply.svg"),
+        Icon::At => include_str!("../assets/bootstrap/at.svg"),
+        Icon::Phone => include_str!("../assets/bootstrap/telephone.svg"),
+        Icon::HangUp => include_str!("../assets/bootstrap/telephone-x.svg"),
+        Icon::Screen => include_str!("../assets/bootstrap/display.svg"),
+        Icon::VideoOff => include_str!("../assets/bootstrap/camera-video-off.svg"),
+        Icon::Lock => include_str!("../assets/bootstrap/lock-fill.svg"),
+        Icon::Neutral => include_str!("../assets/bootstrap/slash-lg.svg"),
+        Icon::Invite => include_str!("../assets/bootstrap/person-plus.svg"),
+        Icon::Leave => include_str!("../assets/bootstrap/box-arrow-left.svg"),
+        Icon::DragHandle => include_str!("../assets/bootstrap/grip-vertical.svg"),
         Icon::FolderFill => include_str!("../assets/bootstrap/folder-fill.svg"),
         Icon::PlayFill => include_str!("../assets/bootstrap/play-fill.svg"),
         Icon::GridFill => include_str!("../assets/bootstrap/grid-fill.svg"),
@@ -1182,6 +1197,8 @@ fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 Role::ComboBox => Platform::ComboBox,
                 Role::Tab => Platform::Tab,
                 Role::MenuItem => Platform::MenuItem,
+                Role::MenuItemCheckBox => Platform::MenuItemCheckBox,
+                Role::MenuItemRadio => Platform::MenuItemRadio,
                 Role::ListItem => Platform::ListItem,
                 Role::TreeItem => Platform::TreeItem,
                 Role::Dialog => Platform::Dialog,
@@ -2665,6 +2682,7 @@ mod tests {
             Icon::ArrowLeft,
             Icon::ArrowRight,
             Icon::ChevronDown,
+            Icon::ChevronUp,
             Icon::ChevronRight,
             Icon::Search,
             Icon::Stop,
@@ -2710,6 +2728,20 @@ mod tests {
             Icon::Home,
             Icon::Library,
             Icon::Sliders,
+            Icon::MicrophoneMuted,
+            Icon::Headphones,
+            Icon::Emoji,
+            Icon::Reply,
+            Icon::At,
+            Icon::Phone,
+            Icon::HangUp,
+            Icon::Screen,
+            Icon::VideoOff,
+            Icon::Lock,
+            Icon::Neutral,
+            Icon::Invite,
+            Icon::Leave,
+            Icon::DragHandle,
             Icon::FolderFill,
             Icon::PlayFill,
             Icon::GridFill,
@@ -2790,6 +2822,10 @@ mod tests {
         let frame = UiTree::new(Element::column(vec![
             Button::new("save", "Save changes", palette).render(),
             Element::clickable("wifi", Element::text("Wi-Fi")).accessible(Access::new(Role::Switch).toggled(true)),
+            Element::clickable("mute", Element::text("Mute"))
+                .accessible(Access::new(Role::MenuItemCheckBox).toggled(false)),
+            Element::clickable("all", Element::text("All"))
+                .accessible(Access::new(Role::MenuItemRadio).toggled(true)),
         ]))
         .layout(Size::new(320.0, 200.0));
         let context = egui::Context::default();
@@ -2820,6 +2856,13 @@ mod tests {
         assert_eq!(wifi.role(), egui::accesskit::Role::Switch);
         assert_eq!(wifi.label(), Some("Wi-Fi"));
         assert_eq!(wifi.toggled(), Some(egui::accesskit::Toggled::True));
+        // A menu's check box and radio item are what they are, on or off.
+        use egui::accesskit::{Role as Platform, Toggled};
+        let (mute, all) = (node("mute"), node("all"));
+        assert_eq!(mute.role(), Platform::MenuItemCheckBox);
+        assert_eq!(mute.toggled(), Some(Toggled::False));
+        assert_eq!(all.role(), Platform::MenuItemRadio);
+        assert_eq!(all.toggled(), Some(Toggled::True));
     }
 
     #[test]

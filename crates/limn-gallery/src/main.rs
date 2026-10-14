@@ -44,10 +44,16 @@ struct Host {
 
 impl Host {
     /// A field keeps the text typed in it, whatever value it is built with
-    /// again. When a click changes what a field stands for, as a picker's
-    /// arrow does, the tree is told the new text.
+    /// again. When a click or a slider changes what a field stands for, as a
+    /// picker's arrow or a color picker's thumb does, the tree is told the
+    /// new text.
     fn show_what_a_click_changed(&mut self, action: &UiAction) {
-        if !matches!(action, UiAction::Clicked { .. }) {
+        if !matches!(
+            action,
+            UiAction::Clicked { .. }
+                | UiAction::SliderChanged { .. }
+                | UiAction::AreaSliderChanged { .. }
+        ) {
             return;
         }
         for (id, value) in pages::fields(&self.state) {
@@ -139,6 +145,16 @@ impl eframe::App for Host {
         self.tree.layout(window);
         let mut changed = false;
         for event in limn_egui::events(&ctx, area.min) {
+            // A page may open its own menu where the secondary click was, or
+            // for the menu key.
+            if matches!(
+                event,
+                UiEvent::ContextMenu { .. } | UiEvent::ContextMenuKeyboard
+            ) && hot(|| pages::context_menu(&mut self.state, &self.tree, &event))
+            {
+                changed = true;
+                continue;
+            }
             for action in self.tree.handle_event(event) {
                 if let UiAction::CopyRequested { text } = &action {
                     ctx.copy_text(text.clone());

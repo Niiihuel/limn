@@ -29,6 +29,8 @@ pub struct Labels {
     pub remove: &'static str,
     /// The hint of the search action of a path.
     pub search: &'static str,
+    /// The name of the button that empties a search field.
+    pub clear_search: &'static str,
     /// The title of the hint that shows a shortened path whole.
     pub full_path: &'static str,
     /// The hint of the button that closes an open collapsible from its foot.
@@ -187,6 +189,13 @@ pub struct Labels {
     pub show_diagram: &'static str,
     /// Markdown: the action that shows a diagram over the window.
     pub expand: &'static str,
+    /// A color picker: what its field of saturation and brightness is called
+    /// to the platform.
+    pub saturation_brightness: &'static str,
+    /// A color picker: what its bar of hues is called to the platform.
+    pub hue: &'static str,
+    /// A color picker: what its field of hex digits is called to the platform.
+    pub hex: &'static str,
 }
 
 impl Labels {
@@ -198,6 +207,7 @@ impl Labels {
         cancel: "Cancel",
         remove: "Remove",
         search: "Search",
+        clear_search: "Clear search",
         full_path: "Full path",
         collapse: "Collapse",
         next: "Next",
@@ -280,6 +290,9 @@ impl Labels {
         show_source: "Source",
         show_diagram: "Diagram",
         expand: "Expand",
+        saturation_brightness: "Saturation and brightness",
+        hue: "Hue",
+        hex: "Hex",
     };
 
     /// The library's own words in Spanish.
@@ -290,6 +303,7 @@ impl Labels {
         cancel: "Cancelar",
         remove: "Quitar",
         search: "Buscar",
+        clear_search: "Borrar la búsqueda",
         full_path: "Ruta completa",
         collapse: "Contraer",
         next: "Siguiente",
@@ -372,6 +386,9 @@ impl Labels {
         show_source: "Fuente",
         show_diagram: "Diagrama",
         expand: "Ampliar",
+        saturation_brightness: "Saturación y brillo",
+        hue: "Matiz",
+        hex: "Hexadecimal",
     };
 }
 

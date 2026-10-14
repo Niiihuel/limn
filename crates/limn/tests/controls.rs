@@ -5,13 +5,13 @@
 use limn::{
     Access, ActionRow, Alert, AlertDialog, Attachment, Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard,
     Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
-    Toolbar, ToolbarItem,
+    Toolbar, ToolbarItem, ControlSize, SwitchVariant, Color, Swatch, SwatchPicker,
     Collapsible, Component, ComponentPalette, DatePicker, DictationButton, DictationState, DismissButton,
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
     MessageAction, MessageActions, NavigationAction, NavigationBar, NavigationWorkspace, Pager, PanelHeader,
-    Point, Rect, Role, SectionHeader, SegmentedControl, Select, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
-    TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TimePicker, Toast, TooltipSpec, TreeGuides, TreeRow, UiAction, UiEvent,
+    Point, Rect, Role, SearchField, SectionHeader, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
+    TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TreeGuides, TreeRow, UiAction, UiEvent,
     UiTree,
 };
 
@@ -76,6 +76,14 @@ fn anchor() -> Element {
     Button::new("anchor", "Open", palette()).render()
 }
 
+fn swatches() -> SwatchPicker {
+    let swatches = vec![
+        Swatch::new("it", Color::rgb(231, 76, 60), "Red"),
+        Swatch::new("other", Color::rgb(52, 152, 219), "Blue"),
+    ];
+    SwatchPicker::new("accent", swatches, Some("other"), palette())
+}
+
 fn hint(title: &str) -> TooltipSpec {
     TooltipSpec::new(title)
 }
@@ -105,6 +113,14 @@ fn controls() -> Vec<Control> {
             "it",
             || Switch::new("it", true, palette()).accessibility_label("Wi-Fi").render(),
             || Switch::new("it", true, palette()).accessibility_label("Wi-Fi").disabled().render(),
+        ),
+        control(
+            "Switch, spacious on the accent",
+            "it",
+            || Switch::new("it", true, palette()).size(ControlSize::Spacious).variant(SwitchVariant::Accent).accessibility_label("Wi-Fi").render(),
+            || {
+                Switch::new("it", true, palette()).size(ControlSize::Spacious).variant(SwitchVariant::Accent).accessibility_label("Wi-Fi").disabled().render()
+            },
         ),
         control(
             "Accordion header",
@@ -158,6 +174,27 @@ fn controls() -> Vec<Control> {
             || ToggleGroup::new("style", vec![ToggleItem::new("it", "Bold", false), ToggleItem::new("other", "Italic", true)], palette()).render(),
             || {
                 ToggleGroup::new("style", vec![ToggleItem::new("it", "Bold", false).disabled(), ToggleItem::new("other", "Italic", true)], palette())
+                    .render()
+            },
+        ),
+        control(
+            "SwatchPicker swatch",
+            "it",
+            || swatches().render(),
+            || swatches().disabled().render(),
+        ),
+        control(
+            "SwatchPicker custom swatch",
+            "accent:custom",
+            || {
+                swatches()
+                    .custom(Color::rgb(250, 240, 200), "Custom color")
+                    .render()
+            },
+            || {
+                swatches()
+                    .custom(Color::rgb(250, 240, 200), "Custom color")
+                    .disabled()
                     .render()
             },
         ),
@@ -239,6 +276,32 @@ fn controls() -> Vec<Control> {
             || {
                 Tabs::new(vec![Tab::new("it", "Files", 80.0).disabled(), Tab::new("other", "Search", 80.0)], palette())
                     .render()
+            },
+        ),
+        control(
+            "Tabs tab, underlined",
+            "it",
+            || {
+                Tabs::new(
+                    vec![
+                        Tab::new("it", "Files", 80.0),
+                        Tab::new("other", "Search", 80.0),
+                    ],
+                    palette(),
+                )
+                .variant(TabsVariant::Underlined)
+                .render()
+            },
+            || {
+                Tabs::new(
+                    vec![
+                        Tab::new("it", "Files", 80.0).disabled(),
+                        Tab::new("other", "Search", 80.0),
+                    ],
+                    palette(),
+                )
+                .variant(TabsVariant::Underlined)
+                .render()
             },
         ),
         control(
@@ -338,6 +401,54 @@ fn controls() -> Vec<Control> {
             },
         ),
         control(
+            "Select trigger as a field",
+            "it",
+            || {
+                Select::new(
+                    "it",
+                    "Bash",
+                    vec![DropdownOption::new("bash", "Bash")],
+                    false,
+                    "dismiss",
+                    palette(),
+                )
+                .variant(SelectVariant::Field)
+                .render()
+            },
+            || {
+                Select::new(
+                    "it",
+                    "Bash",
+                    vec![DropdownOption::new("bash", "Bash")],
+                    false,
+                    "dismiss",
+                    palette(),
+                )
+                .variant(SelectVariant::Field)
+                .disabled()
+                .render()
+            },
+        ),
+        // Of a fixed width: without one an enabled field fills its row and a
+        // disabled one hugs its text, which moves the button with it.
+        control(
+            "SearchField clear button",
+            "it:clear",
+            || {
+                SearchField::new("it", "rust", "Search", palette())
+                    .clearable(true)
+                    .width(240.0)
+                    .render()
+            },
+            || {
+                SearchField::new("it", "rust", "Search", palette())
+                    .clearable(true)
+                    .width(240.0)
+                    .disabled()
+                    .render()
+            },
+        ),
+        control(
             "DropdownList option",
             "it",
             || DropdownList::new(anchor(), vec![DropdownOption::new("it", "Bash")], true, "dismiss", palette()).render(),
@@ -356,6 +467,91 @@ fn controls() -> Vec<Control> {
             || {
                 let entries = vec![DropdownMenuEntry::Item(DropdownMenuItem::new("it", "Rename").disabled())];
                 DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+        ),
+        control(
+            "DropdownMenu check box item",
+            "it",
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Mute").checkbox(true).into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+            || {
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Mute")
+                        .checkbox(true)
+                        .disabled()
+                        .into(),
+                ];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+        ),
+        control(
+            "DropdownMenu radio item",
+            "it",
+            || {
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Only mentions")
+                        .radio(false)
+                        .into(),
+                ];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
+                    .context_menu_style()
+                    .render()
+            },
+            || {
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Only mentions")
+                        .radio(false)
+                        .disabled()
+                        .into(),
+                ];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
+                    .context_menu_style()
+                    .render()
+            },
+        ),
+        control(
+            "DropdownMenu two-line item",
+            "it",
+            || {
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Notifications")
+                        .description("Only mentions")
+                        .into(),
+                ];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+            || {
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Notifications")
+                        .description("Needs a permission")
+                        .disabled()
+                        .into(),
+                ];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette()).render()
+            },
+        ),
+        control(
+            "DropdownMenu item at a point",
+            "it",
+            || {
+                let entries = vec![DropdownMenuItem::new("it", "Mark as read").into()];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
+                    .context_menu_style()
+                    .at(Point::new(60.0, 40.0))
+                    .render()
+            },
+            || {
+                let entries = vec![
+                    DropdownMenuItem::new("it", "Mark as read")
+                        .disabled()
+                        .into(),
+                ];
+                DropdownMenu::new(anchor(), entries, true, "dismiss", palette())
+                    .context_menu_style()
+                    .at(Point::new(60.0, 40.0))
+                    .render()
             },
         ),
         control(
