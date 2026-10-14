@@ -709,8 +709,8 @@ pub(crate) enum HoverReveal {
     Concealed,
 }
 
-/// Rare paint effects and the IDs under which the tree keeps an element's
-/// ink and a column's children across rebuilds.
+/// Rare paint effects, a row's wrapping, and the IDs under which the tree
+/// keeps an element's ink and a column's children across rebuilds.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Kept {
     /// Stored off the common element path: most elements have no material.
@@ -719,6 +719,10 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// Set by [`Element::wrap`]: a row moves children onto more lines.
+    pub(crate) wrap: bool,
+    /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
+    pub(crate) line_gap: Option<f32>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2864,6 +2868,37 @@ impl Element {
     pub fn gap(mut self, value: f32) -> Self {
         self.style.gap = length(value, self.style.gap);
         self
+    }
+
+    /// Let a row move its children onto more lines when they do not fit its
+    /// width, as tags or role pills do. Each child keeps its natural width
+    /// and `gap` from the one before it on its line. A line is as tall as
+    /// its tallest child, and the others stretch to it as they do in a row;
+    /// the next line starts [`line_gap`](Self::line_gap) under it. A child
+    /// wider than the row has a line of its own, at the row's width. The
+    /// row is as tall as its lines, and the children keep their order for
+    /// Tab and for assistive technology. `flex` and `shrink_to_fit` on its
+    /// children change nothing. Only a row wraps; elsewhere it does nothing.
+    pub fn wrap(mut self) -> Self {
+        self.kept.get_or_insert_default().wrap = true;
+        self
+    }
+
+    /// Space between the lines of a [`wrap`](Self::wrap)ping row, in logical
+    /// pixels; its `gap` until this is called. A negative value becomes zero;
+    /// one that is not finite is ignored.
+    pub fn line_gap(mut self, value: f32) -> Self {
+        if value.is_finite() {
+            self.kept.get_or_insert_default().line_gap = Some(value.max(0.0));
+        }
+        self
+    }
+
+    /// The space between the lines of a wrapping row; `None` when this is
+    /// not one.
+    pub(crate) fn wrapping_line_gap(&self) -> Option<f32> {
+        let kept = self.kept.as_deref().filter(|kept| kept.wrap)?;
+        matches!(self.kind, ElementKind::Row(_)).then(|| kept.line_gap.unwrap_or(self.style.gap))
     }
 
     /// Fill the element's bounds with this color.

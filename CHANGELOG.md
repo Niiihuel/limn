@@ -3,6 +3,10 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## 0.1.42 — unreleased
+
+- `Element::wrap` and `Element::line_gap`: a row whose children move onto more lines when they do not fit its width, as tags or role pills do. The row is as tall as its lines; Tab, the pointer and assistive technology find each child where it is, in the order given
+
 ## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)

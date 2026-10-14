@@ -13,6 +13,17 @@ const CHIP_TONES: [(AlertTone, &str); 5] = [
 ];
 /// The tags of the removable demo, before any is removed.
 const CHIP_TAGS: &str = "rust,urgent,review";
+/// Roles of a member, in their colors, for the wrapping demo.
+const CHIP_ROLES: [(&str, Color); 8] = [
+    ("Admin", Color::rgb(230, 76, 60)),
+    ("Moderator", Color::rgb(52, 152, 219)),
+    ("Rust", Color::rgb(222, 120, 60)),
+    ("Design", Color::rgb(138, 92, 246)),
+    ("Night owls", Color::rgb(20, 160, 150)),
+    ("Events", Color::rgb(241, 196, 15)),
+    ("Verified", Color::rgb(46, 204, 113)),
+    ("Helpers", Color::rgb(155, 89, 182)),
+];
 
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
@@ -241,5 +252,26 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ]),
             caption(cx, "One digit alone is a circle. A chip is as wide as its label; it does not truncate."),
         ]),
+        section(cx, "Wrapping", {
+            let roles = || CHIP_ROLES.iter().map(|(label, color)| Chip::new(*label, palette).color(*color).dot().render()).collect();
+            let boxed = |content: Element, side: f32| {
+                Element::panel(content).padding(8.0).background(palette.raised).radius(limn::RadiusRole::Card.px()).size(Some(width.min(side)), None)
+            };
+            let tags = ["rust", "review", "urgent", "good first issue", "ui", "layout"]
+                .iter()
+                .map(|tag| {
+                    let chip = Chip::new(*tag, palette).remove_action(format!("chip-wrap-remove:{tag}"));
+                    if *tag == "urgent" { chip.tone(AlertTone::Warning).disabled() } else { chip }.render()
+                })
+                .collect();
+            vec![
+                boxed(Element::row(roles()).gap(6.0).wrap(), 240.0),
+                caption(cx, "Element::row(chips).gap(6).wrap(): a chip that does not fit starts the next line, and the box grows with its lines."),
+                boxed(Element::row(roles()).gap(6.0).line_gap(12.0).wrap(), 360.0),
+                caption(cx, "line_gap(12) spaces the lines apart from the chips; without it they are gap apart."),
+                boxed(Element::row(tags).gap(6.0).wrap(), 240.0),
+                caption(cx, "Tab walks the remove buttons in order, line after line. The disabled chip keeps its place."),
+            ]
+        }),
     ]
 }

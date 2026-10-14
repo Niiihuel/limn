@@ -27,6 +27,9 @@ mod soft_focus_tests;
 #[cfg(test)]
 #[path = "stack_tests.rs"]
 mod stack_tests;
+#[cfg(test)]
+#[path = "wrap_tests.rs"]
+mod wrap_tests;
 
 use std::borrow::Cow;
 use std::cell::RefCell;
@@ -8623,6 +8626,20 @@ impl LayoutBuilder<'_> {
                     + style.gap * children.len().saturating_sub(1) as f32;
                 Size::new(width + padding, height + padding)
             }
+            ElementKind::Row(children) if element.wrapping_line_gap().is_some() => {
+                let line_gap = element.wrapping_line_gap().unwrap_or_default();
+                let lines = Rect::new(0.0, 0.0, inner.width, 0.0);
+                let (width, height) = self
+                    .wrap_rects(children, lines, style.gap, line_gap)
+                    .iter()
+                    .fold((0.0_f32, 0.0_f32), |(width, height), rect| {
+                        (
+                            width.max(rect.x + rect.width),
+                            height.max(rect.y + rect.height),
+                        )
+                    });
+                Size::new(width + padding, height + padding)
+            }
             ElementKind::Row(children) | ElementKind::TabStrip { children, .. } => {
                 let mut sizes: Vec<_> = children
                     .iter()
@@ -9140,7 +9157,12 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::Row(children) => {
-                self.place_flex(children, content, style.gap, true, clip);
+                for (child, rect) in children
+                    .iter()
+                    .zip(self.child_rects(element, children, content))
+                {
+                    self.place(child, rect, clip);
+                }
             }
             ElementKind::TabStrip {
                 children,
@@ -11224,10 +11246,9 @@ impl LayoutBuilder<'_> {
             ElementKind::Column(children)
             | ElementKind::Row(children)
             | ElementKind::TabStrip { children, .. } => {
-                let row = !matches!(&element.kind, ElementKind::Column(_));
                 for (child, child_rect) in children
                     .iter()
-                    .zip(self.flex_rects(children, content, style.gap, row))
+                    .zip(self.child_rects(element, children, content))
                 {
                     if self
                         .focus_path
@@ -11472,6 +11493,62 @@ impl LayoutBuilder<'_> {
                 size.width = size.width.min(width);
             }
         }
+    }
+
+    /// Where a row, a column or a tab strip puts its children in `content`.
+    fn child_rects(&mut self, element: &Element, children: &[Element], content: Rect) -> Vec<Rect> {
+        match element.wrapping_line_gap() {
+            Some(line_gap) => self.wrap_rects(children, content, element.style.gap, line_gap),
+            None => {
+                let row = !matches!(element.kind, ElementKind::Column(_));
+                self.flex_rects(children, content, element.style.gap, row)
+            }
+        }
+    }
+
+    /// Where a wrapping row puts its children in `content`: at their natural
+    /// widths, as many on a line as fit, each line as tall as its tallest
+    /// child and `line_gap` under the one before. A child wider than the row
+    /// has a line to itself and is measured at the row's width. Measuring
+    /// the row uses this too, so its height is the one it is placed at.
+    fn wrap_rects(
+        &self,
+        children: &[Element],
+        content: Rect,
+        gap: f32,
+        line_gap: f32,
+    ) -> Vec<Rect> {
+        let mut rects: Vec<Rect> = Vec::with_capacity(children.len());
+        let (mut line, mut x, mut y, mut height) = (0, 0.0_f32, 0.0_f32, 0.0_f32);
+        // A row is as tall as its line; so is each child, unless sized.
+        let stretch = |rects: &mut [Rect], children: &[Element], height: f32| {
+            for (rect, child) in rects.iter_mut().zip(children) {
+                rect.height = child.style.height.unwrap_or(height).min(height);
+            }
+        };
+        for (index, child) in children.iter().enumerate() {
+            let mut size = self.measure(child, Size::new(f32::INFINITY, f32::INFINITY));
+            if size.width > content.width {
+                size = self.measure(child, Size::new(content.width, f32::INFINITY));
+                size.width = size.width.min(content.width);
+            }
+            // The tolerance keeps a row placed at the width it measured on
+            // one line, whatever its padding did to the last bit.
+            if index > line && x + size.width > content.width + 0.01 {
+                stretch(&mut rects[line..], &children[line..], height);
+                (line, x, y, height) = (index, 0.0, y + height + line_gap, 0.0);
+            }
+            rects.push(Rect::new(
+                content.x + x,
+                content.y + y,
+                size.width,
+                size.height,
+            ));
+            x += size.width + gap;
+            height = height.max(size.height);
+        }
+        stretch(&mut rects[line..], &children[line..], height);
+        rects
     }
 
     fn flex_rects(
