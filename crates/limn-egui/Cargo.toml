@@ -30,3 +30,6 @@ sha2 = "0.10"
 
 [dev-dependencies]
 limn-editor = { version = "0.1.42", path = "../limn-editor" }
+# Inspect configured font charmaps: egui's has_glyph has false negatives on its replacement face.
+# This parser is already used by egui; it adds no runtime dependency.
+skrifa = "0.44.0"

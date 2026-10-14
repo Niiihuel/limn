@@ -42,3 +42,31 @@ weighted and monospace families. It covers mathematical alphabets that the
 UI faces lack; it does not replace their existing glyphs or add color emoji
 or general CJK coverage. Hosts distributing the embedded font must retain
 its copyright and license, independently of limn's code license.
+
+# Noto Sans Symbols 2
+
+NotoSansSymbols2-Regular.otf is the unmodified, unhinted OpenType face from
+Noto Sans Symbols 2 v2.008. Copyright 2022 The Noto Project Authors
+(https://github.com/notofonts/symbols). It is distributed under SIL Open Font
+License 1.1 (SPDX: OFL-1.1); the complete copyright and license text is in
+NotoSansSymbols2-OFL.txt.
+
+Pinned release:
+https://github.com/notofonts/symbols/releases/tag/NotoSansSymbols2-v2.008
+
+Archive:
+https://github.com/notofonts/symbols/releases/download/NotoSansSymbols2-v2.008/NotoSansSymbols2-v2.008.zip
+
+The archive member is `NotoSansSymbols2/unhinted/otf/NotoSansSymbols2-Regular.otf`.
+The font's name table reports `Version 2.008`. It adds 404,576 bytes; there is
+no subsetting, conversion or runtime download. SHA-256:
+
+- Release archive `346c930bbe8eb946701a05c54e9c11a2094dee1d93c387bf1771c0a3e335688f`
+- NotoSansSymbols2-Regular.otf `9b0f186fea27f311018800fb3a01d44d59331dbcccf518d2dadcae894eb017c0`
+- NotoSansSymbols2-OFL.txt `e87c2ed7ff174c637d55fa381939ebb96f43f0415ad94605a37589228f4cbf4f`
+
+The license text is preserved; one trailing space is trimmed.
+
+It follows the existing faces and Noto Sans Math in every family, supplying
+missing monochrome decorative symbols. Existing text keeps its face. This
+does not provide complete Unicode, shaping or color emoji support.
