@@ -1,7 +1,7 @@
 //! Engine cache for [`crate::Markdown`]: bounded presentation trees retained
 //! across frames, like the paragraph layouts of `formatted_text_cache.rs`.
 //! The component stores nothing; a tree is reused only while its source,
-//! width and every color, label and limit are equal.
+//! width, text size and every color, label and limit are equal.
 
 use std::{
     cell::RefCell,
