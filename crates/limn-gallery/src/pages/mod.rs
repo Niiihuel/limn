@@ -261,11 +261,17 @@ pub fn update(state: &mut State, action: &UiAction) {
     number::update(state, action);
     checkbox::update(state, action);
     toolbar::update(state, action);
+    inputs::update(state, action);
 }
 
 /// The fields whose text a click may have changed, each with its value now.
 pub fn fields(state: &State) -> Vec<(&'static str, String)> {
-    [dates::fields(state), number::fields(state)].concat()
+    [
+        dates::fields(state),
+        number::fields(state),
+        inputs::fields(state),
+    ]
+    .concat()
 }
 
 /// Wrap the window in the layers the pages control.

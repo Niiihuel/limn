@@ -752,6 +752,8 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// Width a text input leaves free at its end, for a control laid over it.
+    pub(crate) input_trailing_space: f32,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1681,7 +1683,8 @@ pub struct Style {
     pub hover_foreground: Option<Color>,
     /// Ink while pressed. `None` falls back to `hover_foreground`.
     pub pressed_foreground: Option<Color>,
-    /// Border painted while an editor owns focus, including pointer focus.
+    /// Border painted while an editor owns focus, including pointer focus,
+    /// or while another control without a focus ring has the keyboard focus.
     pub focus_border: Option<Border>,
     /// Editors that paint their own caret may suppress the outer keyboard ring.
     pub focus_ring: bool,
@@ -2755,6 +2758,17 @@ impl Element {
         self
     }
 
+    /// Keep `width` logical pixels at the end of a text input free of text,
+    /// caret and hint, for a control a component lays over it there. Other
+    /// elements ignore it; a width that is not finite is ignored and a
+    /// negative one is zero.
+    pub(crate) fn input_trailing_space(mut self, width: f32) -> Self {
+        if width.is_finite() && matches!(self.kind, ElementKind::TextInput { .. }) {
+            self.kept.get_or_insert_default().input_trailing_space = width.max(0.0);
+        }
+        self
+    }
+
     /// A decorative keyboard hint inside the input's focus and hit bounds.
     pub fn input_shortcut(mut self, value: impl Into<String>) -> Self {
         if let ElementKind::TextInput { shortcut, .. } = &mut self.kind {
@@ -3061,7 +3075,9 @@ impl Element {
     }
 
     /// Border a text input or text area shows in place of its own while it has
-    /// the focus. A width that is not finite or not above zero removes it.
+    /// the focus. Another control shows it while it has the keyboard focus if
+    /// its [focus ring](Self::focus_ring) is off, as its mark of that focus.
+    /// A width that is not finite or not above zero removes it.
     pub fn focus_border(mut self, color: Color, width: f32) -> Self {
         self.style.focus_border =
             (width > 0.0 && width.is_finite()).then_some(Border { color, width });
