@@ -142,6 +142,20 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         );
         lays_out_with_real_numbers("Button::width", Button::new("b", "B", palette).variant(ButtonVariant::Outline).width(bad).render());
         lays_out_with_real_numbers("Slider::width", Slider::new("s", 0.5, palette).width(bad).render());
+        lays_out_with_real_numbers(
+            "Select::height",
+            Select::new("s", "S", Vec::new(), false, "s:dismiss", palette)
+                .height(bad)
+                .render(),
+        );
+        lays_out_with_real_numbers(
+            "Select::height as a field",
+            Select::new("s", "S", Vec::new(), false, "s:dismiss", palette)
+                .variant(limn::SelectVariant::Field)
+                .width(bad)
+                .height(bad)
+                .render(),
+        );
     }
 }
 

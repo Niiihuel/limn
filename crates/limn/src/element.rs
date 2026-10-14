@@ -719,6 +719,8 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// Width a text input leaves free at its end, for a control laid over it.
+    pub(crate) input_trailing_space: f32,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2645,6 +2647,17 @@ impl Element {
         } = &mut self.kind
         {
             *leading_icon_tint = Some(color);
+        }
+        self
+    }
+
+    /// Keep `width` logical pixels at the end of a text input free of text,
+    /// caret and hint, for a control a component lays over it there. Other
+    /// elements ignore it; a width that is not finite is ignored and a
+    /// negative one is zero.
+    pub(crate) fn input_trailing_space(mut self, width: f32) -> Self {
+        if width.is_finite() && matches!(self.kind, ElementKind::TextInput { .. }) {
+            self.kept.get_or_insert_default().input_trailing_space = width.max(0.0);
         }
         self
     }

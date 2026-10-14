@@ -1,9 +1,24 @@
 //! A button that shows the current choice and opens the list of the others.
 
+use crate::components::{control_radius, input_surface, lighter};
 use crate::{
-    Access, Button, ButtonVariant, Component, ComponentPalette, ControlSize, ControlState, DropdownMenu,
-    DropdownMenuItem, DropdownOption, Element, Icon, PopoverPlacement, Role, SelectorSizing,
+    Access, Button, ButtonVariant, Component, ComponentPalette, ControlSize, ControlState,
+    DropdownMenu, DropdownMenuItem, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,
+    Role, SelectorSizing, ICON_SIZE,
 };
+
+/// How a [`Select`]'s trigger is drawn.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SelectVariant {
+    /// An outlined button, its label in the middle unless it has an icon:
+    /// a choice in a toolbar or a header.
+    #[default]
+    Button,
+    /// A text field's fill, border, radius and height, the choice at its
+    /// start where a field has its text and the chevron at its end: a choice
+    /// in a form, among text fields.
+    Field,
+}
 
 /// A controlled choice among a few options. The host owns the selection and
 /// the open state: the trigger reports `id`, an option reports its own
@@ -21,6 +36,9 @@ pub struct Select {
     width: Option<f32>,
     menu_width: Option<f32>,
     icon: Option<Icon>,
+    variant: SelectVariant,
+    size: Option<ControlSize>,
+    height: Option<f32>,
     enabled: bool,
     accessibility_label: Option<String>,
 }
@@ -48,6 +66,9 @@ impl Select {
             width: None,
             menu_width: None,
             icon: None,
+            variant: SelectVariant::Button,
+            size: None,
+            height: None,
             enabled: true,
             accessibility_label: None,
         }
@@ -104,6 +125,30 @@ impl Select {
         self
     }
 
+    /// Draw the trigger as a button, the default, or as a text field; see
+    /// [`SelectVariant`].
+    pub fn variant(mut self, variant: SelectVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// Take the height of a control size. Unless it is set the button is
+    /// `Compact`, 28 high, and the field `Regular`, as a `TextField` is.
+    pub fn size(mut self, size: ControlSize) -> Self {
+        self.size = Some(size);
+        self
+    }
+
+    /// A height of the host's own, as `TextField::height` takes, for a form
+    /// whose fields are taller than a [`ControlSize`]. The trigger is never
+    /// shorter than its control size; a value that is not finite is ignored.
+    pub fn height(mut self, height: f32) -> Self {
+        if height.is_finite() {
+            self.height = Some(height);
+        }
+        self
+    }
+
     /// A disabled select shows its value, stays closed and cannot be focused.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
@@ -124,18 +169,41 @@ impl Component for Select {
         let open = self.open && self.enabled;
         let mut access =
             Access::new(Role::ComboBox).expanded(open).value_text(self.current_label.clone());
-        if let Some(name) = self.accessibility_label {
+        if let Some(name) = self.accessibility_label.clone() {
             access = access.name(name);
         }
-        let mut trigger = Button::new(self.id, self.current_label, self.palette)
-            .variant(ButtonVariant::Outline)
-            .size(ControlSize::Compact)
-            .trailing_icon(Icon::ChevronDown)
-            .width(width)
-            .enabled(self.enabled);
-        if let Some(icon) = self.icon {
-            trigger = trigger.icon(icon);
-        }
+        let size = self.size.unwrap_or(match self.variant {
+            SelectVariant::Button => ControlSize::Compact,
+            SelectVariant::Field => ControlSize::Regular,
+        });
+        let least = match self.variant {
+            SelectVariant::Button => size.height(),
+            // As a text field: never under 28.
+            SelectVariant::Field => size.height().max(28.0),
+        };
+        let height = self.height.map_or(least, |height| height.max(least));
+        let width = match self.variant {
+            SelectVariant::Button => width,
+            // As a text field: never under 80.
+            SelectVariant::Field => width.max(80.0),
+        };
+        let trigger = match self.variant {
+            SelectVariant::Button => {
+                let mut sizing = size.button_sizing();
+                sizing.height = height;
+                let mut trigger = Button::new(self.id, self.current_label, self.palette)
+                    .variant(ButtonVariant::Outline)
+                    .sizing(sizing)
+                    .trailing_icon(Icon::ChevronDown)
+                    .width(width)
+                    .enabled(self.enabled);
+                if let Some(icon) = self.icon {
+                    trigger = trigger.icon(icon);
+                }
+                trigger.render()
+            }
+            SelectVariant::Field => self.field_trigger(size, width, height),
+        };
         // The list is the application's one menu: compact rows and a check
         // on the choice, as in every other selector.
         let entries = self
@@ -156,7 +224,7 @@ impl Component for Select {
             .unwrap_or_else(|| self.sizing.map_or(width, |sizing| sizing.preferred_width));
         DropdownMenu::new(
             // Over what the button says of itself, disabled or not.
-            trigger.render().accessible(access),
+            trigger.accessible(access),
             entries,
             open,
             self.dismiss_id,
@@ -166,7 +234,72 @@ impl Component for Select {
         .width(menu_width)
         .placement(self.placement)
         .render()
-        .size(Some(width), Some(ControlSize::Compact.height()))
+        .size(Some(width), Some(height))
+    }
+}
+
+impl Select {
+    // The trigger drawn as a text field: the choice where a field has its
+    // text, after the icon if there is one, and the chevron at the end.
+    // Open, it has the border a focused field has.
+    fn field_trigger(&self, size: ControlSize, width: f32, height: f32) -> Element {
+        let palette = self.palette;
+        let label = self.current_label.clone();
+        if !self.enabled {
+            let mut children = Vec::new();
+            if let Some(icon) = self.icon {
+                children.push(
+                    Element::icon(icon)
+                        .foreground(palette.muted)
+                        .size(Some(ICON_SIZE), Some(height)),
+                );
+            }
+            children.push(
+                Element::truncated_text(label.clone())
+                    .foreground(palette.muted)
+                    .font_family(FontFamily::Sans)
+                    .font_size(13.0)
+                    .size(None, Some(height))
+                    .flex(1.0),
+            );
+            children.push(
+                Element::icon(Icon::ChevronDown)
+                    .foreground(palette.muted)
+                    .size(Some(ICON_SIZE), Some(height)),
+            );
+            // Passive content has no name of its own: the choice is said.
+            let said = Access::new(Role::ComboBox)
+                .id(self.id.clone())
+                .disabled(true)
+                .name(label);
+            return Element::panel(Element::row(vec![
+                Element::spacer().size(Some(8.0), None),
+                Element::row(children).gap(8.0).flex(1.0),
+                Element::spacer().size(Some(8.0), None),
+            ]))
+            .background(palette.raised)
+            .border(palette.border, 1.0)
+            .radius(control_radius())
+            .size(Some(width), Some(height))
+            .accessible(said);
+        }
+        let trigger = match self.icon {
+            Some(icon) => Element::icon_button(self.id.clone(), icon, label),
+            None => Element::button(self.id.clone(), label),
+        };
+        let trigger = input_surface(
+            trigger.trailing_icon(Icon::ChevronDown),
+            palette,
+            size,
+            Some(width),
+        )
+        .gap(8.0)
+        .size(Some(width), Some(height));
+        if self.open {
+            trigger.border(lighter(palette.border, 70), 1.5)
+        } else {
+            trigger
+        }
     }
 }
 
@@ -300,6 +433,178 @@ mod tests {
         assert_eq!((disabled.role, disabled.name.as_str()), (Role::ComboBox, "Shell"));
         assert_eq!((disabled.expanded, disabled.value_text.as_deref()), (Some(false), Some("Bash")));
         assert!(disabled.disabled && !disabled.actionable);
+    }
+
+    fn field(open: bool) -> Select {
+        select(open).variant(SelectVariant::Field).width(240.0)
+    }
+
+    // Where the trigger's label and its icons are drawn.
+    fn drawn(frame: &crate::Frame) -> (Option<Point>, Vec<(Icon, crate::Rect)>) {
+        let label = frame.commands.iter().find_map(|command| match command {
+            crate::DrawCommand::Text { text, position, .. } if text == "Bash" => Some(*position),
+            _ => None,
+        });
+        let icons = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                crate::DrawCommand::Icon { icon, rect, .. } => Some((*icon, *rect)),
+                _ => None,
+            })
+            .collect();
+        (label, icons)
+    }
+
+    #[test]
+    fn a_field_select_is_a_text_field_with_its_choice_at_the_start() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = tree(field(false)).layout(VIEWPORT);
+        let trigger = rect(&frame, "toggle").unwrap();
+        // A text field's height, unless a size says otherwise.
+        assert_eq!(
+            (trigger.width, trigger.height),
+            (240.0, ControlSize::Regular.height())
+        );
+        let (label, icons) = drawn(&frame);
+        // The choice where a field has its text; the chevron at the end.
+        assert_eq!(label.expect("the choice").x, trigger.x + 8.0);
+        assert_eq!(icons.len(), 1);
+        let (icon, chevron) = icons[0];
+        assert_eq!(
+            (icon, chevron.x + chevron.width),
+            (Icon::ChevronDown, trigger.x + trigger.width - 8.0)
+        );
+        // A text field's fill and border.
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            crate::DrawCommand::FillRect { rect, color, .. } if *rect == trigger && *color == palette.raised)));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            crate::DrawCommand::StrokeRect { rect, color, width, .. }
+                if *rect == trigger && *color == palette.border && *width == 1.0)));
+        // With an icon, the choice follows it as a field's text follows its icon.
+        let frame = tree(field(false).icon(Icon::Terminal)).layout(VIEWPORT);
+        let (label, icons) = drawn(&frame);
+        assert_eq!(
+            icons[0],
+            (
+                Icon::Terminal,
+                crate::Rect::new(trigger.x + 8.0, icons[0].1.y, ICON_SIZE, ICON_SIZE)
+            )
+        );
+        assert_eq!(label.unwrap().x, trigger.x + 8.0 + ICON_SIZE + 8.0);
+    }
+
+    #[test]
+    fn open_a_field_select_has_a_focused_fields_border_and_its_list_under_it() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = tree(field(true).placement(PopoverPlacement::BottomStart));
+        let frame = tree.layout(VIEWPORT);
+        let trigger = rect(&frame, "toggle").unwrap();
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            crate::DrawCommand::StrokeRect { rect, color, width, .. }
+                if *rect == trigger && *color == lighter(palette.border, 70) && *width == 1.5)));
+        let list = rect(&frame, "popover_surface:dismiss").expect("list");
+        assert_eq!(list.width, 240.0);
+        assert!(list.y >= trigger.y + trigger.height);
+        let option = rect(&frame, "shell:zsh").unwrap();
+        let center = Point::new(option.x + 10.0, option.y + 10.0);
+        tree.handle_event(UiEvent::PointerDown(center));
+        assert_eq!(
+            tree.handle_event(UiEvent::PointerUp(center)),
+            vec![UiAction::Clicked {
+                id: "shell:zsh".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn a_field_select_takes_a_size_or_a_height_of_its_own_and_never_a_bad_one() {
+        let height = |select: Select| {
+            rect(&tree(select).layout(VIEWPORT), "toggle")
+                .unwrap()
+                .height
+        };
+        assert_eq!(height(field(false).size(ControlSize::Compact)), 28.0);
+        assert_eq!(
+            height(field(false).size(ControlSize::Dense)),
+            28.0,
+            "never under a field's least"
+        );
+        assert_eq!(height(field(false).size(ControlSize::Spacious)), 36.0);
+        assert_eq!(height(field(false).height(41.0)), 41.0);
+        assert_eq!(
+            height(field(false).size(ControlSize::Spacious).height(30.0)),
+            36.0
+        );
+        for bad in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -1.0] {
+            assert_eq!(height(field(false).height(bad)), 32.0, "{bad}");
+            assert_eq!(height(select(false).height(bad)), 28.0, "{bad}");
+        }
+        // The button keeps its 28 unless told otherwise, and takes both too.
+        assert_eq!(height(select(false)), 28.0);
+        assert_eq!(height(select(false).size(ControlSize::Spacious)), 36.0);
+        assert_eq!(height(select(false).height(40.0)), 40.0);
+        // A taller field keeps its choice on the middle line.
+        let frame = tree(field(false).height(48.0)).layout(VIEWPORT);
+        let trigger = rect(&frame, "toggle").unwrap();
+        let (_, icons) = drawn(&frame);
+        assert_eq!(icons[0].1.y + icons[0].1.height / 2.0, trigger.y + 24.0);
+    }
+
+    #[test]
+    fn a_disabled_field_select_is_passive_in_its_place_and_says_so() {
+        let place = |select: Select| {
+            let frame = tree(select).layout(VIEWPORT);
+            let node = frame
+                .access
+                .iter()
+                .find(|node| node.id == "toggle")
+                .cloned()
+                .expect("a node");
+            (frame, node)
+        };
+        let (enabled, said) = place(field(true).accessibility_label("Shell"));
+        let (disabled, quiet) = place(field(true).accessibility_label("Shell").disabled());
+        assert!(disabled
+            .regions
+            .iter()
+            .all(|region| region.id != "toggle" && region.id != "shell:zsh"));
+        assert_eq!(quiet.rect, said.rect);
+        assert_eq!(
+            (quiet.role, quiet.name.as_str(), quiet.disabled),
+            (Role::ComboBox, "Shell", true)
+        );
+        assert_eq!(
+            (quiet.expanded, quiet.value_text.as_deref()),
+            (Some(false), Some("Bash"))
+        );
+        // The choice and the chevron where the enabled one has them, muted.
+        let (label, icons) = drawn(&enabled);
+        let (quiet_label, quiet_icons) = drawn(&disabled);
+        assert_eq!(quiet_label.unwrap().x, label.unwrap().x);
+        assert_eq!(quiet_icons[0], icons[0]);
+        // Unnamed, the choice it shows is its name.
+        let (_, unnamed) = place(field(false).disabled());
+        assert_eq!(unnamed.name, "Bash");
+        // Narrow, it is as wide as the narrowest text field, and its icons
+        // stay inside it, enabled or not.
+        for select in [
+            field(false).icon(Icon::Terminal).width(40.0),
+            field(false).icon(Icon::Terminal).width(40.0).disabled(),
+        ] {
+            let frame = tree(select).layout(VIEWPORT);
+            let node = frame
+                .access
+                .iter()
+                .find(|node| node.id == "toggle")
+                .expect("a node");
+            assert_eq!(node.rect.width, 80.0);
+            let (_, icons) = drawn(&frame);
+            assert_eq!(icons.len(), 2);
+            assert!(icons.iter().all(
+                |(_, icon)| icon.x >= node.rect.x && icon.x + icon.width <= node.rect.x + 80.0
+            ));
+        }
     }
 
     #[test]

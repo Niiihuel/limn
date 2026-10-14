@@ -7,7 +7,7 @@ it to choose one of a few options where a
 ## Import
 
 ```rust
-use limn::{Component, DropdownOption, Icon, PopoverPlacement, Select, SelectorSizing};
+use limn::{Component, ControlSize, DropdownOption, Icon, PopoverPlacement, Select, SelectVariant, SelectorSizing};
 ```
 
 ## Usage
@@ -42,6 +42,39 @@ fn update(state: &mut State, action: &UiAction) {
     }
 }
 ```
+
+## As a field
+
+```rust
+Select::new("shell", label, options, open, "shell:dismiss", palette)
+    .variant(SelectVariant::Field)
+    .width(360.0)
+    .render()
+```
+
+`SelectVariant::Button`, the default, draws the trigger as an outlined
+button, its label in the middle unless it has an icon. `SelectVariant::Field`
+draws it as a [TextField](text-field.md): the field's fill, border, radius
+and height, the choice where a field has its text, after the icon if there
+is one, and the chevron at the end. Open, it has the border of a focused
+field. Use it in a form, among text fields, where a button would stand out.
+A field is never narrower than 80, as a text field is.
+
+## Size
+
+```rust
+Select::new("shell", label, options, open, "shell:dismiss", palette)
+    .variant(SelectVariant::Field)
+    .size(ControlSize::Compact)
+    .height(40.0)
+    .render()
+```
+
+`size` takes a `ControlSize`. Unless it is set, the button is `Compact`, 28
+high, and the field `Regular`, 32 high, as a text field is. `height` is for
+a form whose inputs are taller than a control size, as `TextField::height`
+is: the trigger is never shorter than its control size, and a field never
+shorter than 28. A height that is not finite is ignored.
 
 ## Options
 

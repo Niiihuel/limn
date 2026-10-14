@@ -3,6 +3,12 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## 0.1.42 — unreleased
+
+- TextField: `icon`, an icon before the text inside the field, muted until the field has the focus, as a search field's magnifier; a disabled field keeps it in its place
+- SearchField: `clearable(true)`, a button at the end of the field while it has a query, which reports `Clicked` with `"{id}:clear"`; the text stops before it, and disabled it stays in its place, passive. `Labels::clear_search` names it
+- Select: `variant(SelectVariant::Field)`, a trigger drawn as a text field, with its fill, border and height and the choice at its start, open with a focused field's border; `size(ControlSize)` and `height(px)` for either variant. A select is drawn as it was unless told otherwise
+
 ## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)

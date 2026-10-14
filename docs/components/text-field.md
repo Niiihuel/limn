@@ -6,7 +6,7 @@ A single line of text: a name, a path, a password. For several lines use
 ## Import
 
 ```rust
-use limn::{Component, ControlSize, TextField};
+use limn::{Component, ControlSize, Icon, TextField};
 ```
 
 ## Usage
@@ -52,6 +52,20 @@ TextField::new("path", &state.path, "src/main.rs", palette)
 
 `monospace(true)` sets the value in the monospaced family, for a path, an
 identifier or a number.
+
+## Icon
+
+```rust
+TextField::new("channel-name", &state.channel, "new-channel", palette)
+    .icon(Icon::Hash)
+    .render()
+```
+
+`icon` puts an icon before the text, inside the field, as a
+[SearchField](search-field.md) has its magnifier. It is decorative: it is
+muted until the field has the focus, takes the text's ink while it does, and
+the text, the caret and the placeholder start 8 after it. A disabled field
+keeps it where it was, muted.
 
 ## Size
 

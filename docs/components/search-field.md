@@ -43,6 +43,37 @@ SearchField::new("search", &state.query, "Search", palette)
 `shortcut` shows the keys that reach the field, inside it. It is a hint: the
 host handles the shortcut itself.
 
+## Clear button
+
+```rust
+SearchField::new("search", &state.query, "Search", palette)
+    .clearable(true)
+    .render()
+```
+
+`clearable(true)` shows a circled cross at the end of the field while the
+query is not empty. It is a button of its own, reached by Tab after the
+field, and it reports `Clicked` with the field's ID and `:clear`. The field
+does not empty itself: the host clears its query, gives the field its new
+text, since a field keeps the text typed in it, and may give it the focus
+back.
+
+```rust
+fn update(state: &mut State, tree: &mut UiTree, action: &UiAction) {
+    if let UiAction::Clicked { id } = action {
+        if id == "search:clear" {
+            state.query.clear();
+            tree.set_input_value("search", "");
+            tree.focus("search");
+        }
+    }
+}
+```
+
+The text stops before the button, as it starts after the magnifier, and the
+field stays lit while the pointer is on the button. A shortcut hint shows
+only while the field is empty, so the two never meet.
+
 ## Size
 
 `size` takes a `ControlSize`; the default is `Spacious`. `width` sets the
@@ -55,14 +86,17 @@ SearchField::new("search", "", "Search", palette).disabled().render()
 SearchField::new("search", &state.query, "Search", palette).enabled(state.indexed).render()
 ```
 
-A disabled field keeps its magnifier and its shortcut hint, shows the query
-or the placeholder in the muted ink, and is not an input.
+A disabled field keeps its magnifier, its shortcut hint and its clear
+button, shows the query or the placeholder in the muted ink, and is not an
+input: the button is passive too.
 
 ## Keyboard
 
 | Key | Effect |
 | --- | --- |
 | Enter | Reports `Submitted` with the query |
+| Tab | From the field, moves to its clear button while it has one |
+| Enter, Space | On the clear button, report its click |
 
 ## Actions
 
@@ -70,12 +104,14 @@ or the placeholder in the muted ink, and is not an input.
 | --- | --- |
 | `UiAction::InputChanged { id, value }` | The query changes. |
 | `UiAction::Submitted { id, value }` | Enter is pressed in the field. |
+| `UiAction::Clicked { id }` with `"{id}:clear"` | The clear button of a `clearable` field is activated. |
 
 ## Accessibility
 
 The platform is told a search field named by its placeholder, and the query
 it holds. Where the placeholder is not its name, give one with
-`accessibility_label`. A disabled field is still there and says it cannot be
+`accessibility_label`. The clear button is a button named by
+`Labels::clear_search`, "Clear search" unless the host sets its labels. A disabled field is still there and says it cannot be
 used.
 
 ```rust

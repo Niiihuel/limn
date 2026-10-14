@@ -1,8 +1,38 @@
 use super::{caption, row, section, Cx, Section};
+use crate::app::State;
 use limn::{
-    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
-    SearchField, Select, SelectorSizing, Slider, Switch, TextArea, TextField, TextRole,
+    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon,
+    PopoverPlacement, RadiusRole, SearchField, Select, SelectVariant, SelectorSizing, Slider,
+    Switch, TextArea, TextField, TextRole, UiAction,
 };
+
+/// The search fields with a clear button, and the query each starts with.
+const CLEARABLE: [(&str, &str); 2] = [
+    ("input-search", ""),
+    ("input-search-filled", "release notes"),
+];
+
+/// A clear button empties its field's query.
+pub fn update(state: &mut State, action: &UiAction) {
+    let UiAction::Clicked { id } = action else {
+        return;
+    };
+    if let Some((field, _)) = CLEARABLE
+        .iter()
+        .find(|(field, _)| id.strip_suffix(":clear") == Some(field))
+    {
+        state.set(field, "");
+    }
+}
+
+/// The search fields a clear button changes, each with its query now. A
+/// field keeps the text typed in it, so after a clear the tree is given these.
+pub fn fields(state: &State) -> Vec<(&'static str, String)> {
+    CLEARABLE
+        .iter()
+        .map(|(field, start)| (*field, state.choice(field, start).to_owned()))
+        .collect()
+}
 
 const SHELLS: [(&str, &str); 4] = [("bash", "Bash"), ("zsh", "Zsh"), ("fish", "Fish"), ("nu", "Nushell")];
 
@@ -67,6 +97,21 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .height(40.0)
                 .render(),
             caption(cx, "Form height: 40 px on a compact control."),
+            Element::column(vec![
+                TextField::new("input-channel", state.text("input-channel"), "new-channel", palette)
+                    .icon(Icon::Hash)
+                    .accessibility_label("Channel name")
+                    .width(width)
+                    .render(),
+                TextField::new("input-channel-disabled", "general", "", palette)
+                    .icon(Icon::Hash)
+                    .accessibility_label("Channel name")
+                    .disabled()
+                    .width(width)
+                    .render(),
+            ])
+            .gap(8.0),
+            caption(cx, "With an icon before the text, muted until the field has the focus; disabled, it stays."),
         ]),
         section(cx, "Form field", vec![
             Element::column(vec![
@@ -154,12 +199,72 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .placement(PopoverPlacement::BottomStart)
                 .render(),
             caption(cx, "As wide as the form, with the list aligned below the leading edge."),
+            Element::column(vec![
+                TextField::new("select-field-name", state.text("select-field-name"), "Name", palette).render(),
+                shell_select(cx, "select-field")
+                    .variant(SelectVariant::Field)
+                    .accessibility_label("Shell")
+                    .width(width)
+                    .menu_width(width)
+                    .placement(PopoverPlacement::BottomStart)
+                    .render(),
+                shell_select(cx, "select-field-icon")
+                    .variant(SelectVariant::Field)
+                    .icon(Icon::Terminal)
+                    .accessibility_label("Shell")
+                    .width(width)
+                    .menu_width(width)
+                    .placement(PopoverPlacement::BottomStart)
+                    .render(),
+                shell_select(cx, "select-field-off")
+                    .variant(SelectVariant::Field)
+                    .accessibility_label("Shell")
+                    .enabled(false)
+                    .width(width)
+                    .render(),
+            ])
+            .gap(8.0)
+            .size(Some(width), None),
+            caption(cx, "As a field: a text field's fill, border and height, the choice at its start; open, the border of a focused field. With an icon, and disabled."),
+            Element::column(vec![
+                TextField::new("select-tall-name", state.text("select-tall-name"), "Name", palette)
+                    .size(ControlSize::Compact)
+                    .height(40.0)
+                    .render(),
+                shell_select(cx, "select-field-tall")
+                    .variant(SelectVariant::Field)
+                    .accessibility_label("Shell")
+                    .size(ControlSize::Compact)
+                    .height(40.0)
+                    .width(width)
+                    .menu_width(width)
+                    .placement(PopoverPlacement::BottomStart)
+                    .render(),
+            ])
+            .gap(8.0)
+            .size(Some(width), None),
+            caption(cx, "Form height: 40 px, beside a text field of the same height."),
         ]),
         section(cx, "Search", vec![
-            SearchField::new("input-search", state.text("input-search"), "Search", palette)
+            SearchField::new("input-search", state.choice(CLEARABLE[0].0, CLEARABLE[0].1), "Search", palette)
                 .shortcut("Ctrl+K")
+                .clearable(true)
                 .width(width)
                 .render(),
+            caption(cx, "The shortcut while it is empty; type, and a button at its end clears it."),
+            Element::column(vec![
+                SearchField::new("input-search-filled", state.choice(CLEARABLE[1].0, CLEARABLE[1].1), "Search", palette)
+                    .clearable(true)
+                    .width(width)
+                    .render(),
+                SearchField::new("input-search-disabled", "release notes", "Search", palette)
+                    .clearable(true)
+                    .disabled()
+                    .width(width)
+                    .render(),
+            ])
+            .gap(8.0),
+            caption(cx, "With a query, and disabled: the button stays in its place and cannot be used."),
         ]),
         section(cx, "Text area", vec![
             TextArea::new("input-notes", state.text("input-notes"), "Notes", palette)
