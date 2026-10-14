@@ -6,8 +6,10 @@ use crate::{Access, Color, Component, ComponentPalette, ControlSize, Element, Ic
 /// The ring around the chosen swatch, and the space between it and the color.
 const RING: f32 = 2.0;
 const RING_GAP: f32 = 2.0;
-/// Space between two swatches, side by side and one row under the other.
-const GAP: f32 = 8.0;
+/// Room around each swatch, inside its hit region, for the keyboard focus
+/// ring and the hover halo: the focus ring would otherwise lie exactly on
+/// the chosen swatch's ring. Two cells touch, so swatches are twice this apart.
+const ROOM: f32 = RING + RING_GAP;
 /// The edge of a swatch that is not chosen, so one of the surface's own color shows.
 const HAIRLINE: f32 = 1.0;
 
@@ -136,6 +138,7 @@ impl Component for SwatchPicker {
     fn render(self) -> Element {
         let palette = self.palette;
         let enabled = self.enabled;
+        let hover = palette.hover;
         let side = side(self.size);
         let selected = self.selected.as_deref();
         // The color fills the circle, or sits inside the ring when it is the chosen one.
@@ -180,12 +183,14 @@ impl Component for SwatchPicker {
             }
             .radius(side / 2.0)
             .size(Some(side), Some(side));
+            let cell = Element::panel(body).padding(ROOM);
             let access = access.id(id.clone()).selected(chosen).disabled(!enabled);
             if enabled {
-                Element::clickable(id, body).radius(side / 2.0)
+                Element::clickable(id, cell).hover_background(hover)
             } else {
-                body
+                cell
             }
+            .radius(side / 2.0 + ROOM)
             .accessible(access)
         };
         let mut cells = Vec::with_capacity(self.swatches.len() + 1);
@@ -222,10 +227,9 @@ impl Component for SwatchPicker {
         let mut rows = Vec::new();
         let mut cells = cells.into_iter().peekable();
         while cells.peek().is_some() {
-            rows.push(Element::row(cells.by_ref().take(columns).collect()).gap(GAP));
+            rows.push(Element::row(cells.by_ref().take(columns).collect()));
         }
-        let picker =
-            Element::tab_strip(vec![Element::column(rows).gap(GAP)], reachable).every_arrow();
+        let picker = Element::tab_strip(vec![Element::column(rows)], reachable).every_arrow();
         match self.accessibility_label {
             Some(name) => picker.accessible(Access::new(Role::Group).id(self.id).name(name)),
             None => picker,
@@ -319,6 +323,25 @@ mod tests {
         Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
     }
 
+    fn region(frame: &Frame, id: &str) -> Rect {
+        frame
+            .regions
+            .iter()
+            .find(|region| region.id == id)
+            .unwrap()
+            .rect
+    }
+
+    /// The swatch itself, `ROOM` in from the edges of its cell.
+    fn inside(cell: Rect) -> Rect {
+        Rect::new(
+            cell.x + ROOM,
+            cell.y + ROOM,
+            cell.width - 2.0 * ROOM,
+            cell.height - 2.0 * ROOM,
+        )
+    }
+
     #[test]
     fn each_swatch_is_a_circle_of_its_color_and_the_chosen_one_sits_inside_a_ring() {
         let frame = tree_of(picker()).layout(window());
@@ -329,23 +352,19 @@ mod tests {
         );
         let (red, green) = (fills[0], fills[1]);
         assert_eq!((red.0.width, red.0.height, red.2), (28.0, 28.0, 14.0));
-        // The chosen color is 8 narrower, centered in its 28 pixel cell.
+        // The chosen color is 8 narrower, centered in its 28 pixel swatch,
+        // which stands 4 in from the edges of its 36 pixel cell.
         assert_eq!((green.0.width, green.2), (20.0, 10.0));
-        let cell = frame
-            .regions
-            .iter()
-            .find(|region| region.id == "accent=green")
-            .unwrap()
-            .rect;
-        assert_eq!(
-            (green.0.x - cell.x, green.0.y - cell.y, cell.width),
-            (4.0, 4.0, 28.0)
-        );
-        assert_eq!(cell.x - (red.0.x + red.0.width), GAP);
+        let cell = region(&frame, "accent=green");
+        let ring = inside(cell);
+        assert_eq!((cell.width, cell.height), (36.0, 36.0));
+        assert_eq!((green.0.x - ring.x, green.0.y - ring.y), (4.0, 4.0));
+        // Two swatches are 8 apart.
+        assert_eq!(ring.x - (red.0.x + red.0.width), 8.0);
         // The ring in the text's ink; the others edged in a hairline of the border.
         let strokes = strokes(&frame);
         assert!(
-            strokes.contains(&(cell, palette().text, RING)),
+            strokes.contains(&(ring, palette().text, RING)),
             "{strokes:?}"
         );
         assert_eq!(
@@ -355,6 +374,60 @@ mod tests {
                 .count(),
             2
         );
+    }
+
+    #[test]
+    fn the_focus_ring_circles_the_cell_clear_of_the_choice_ring() {
+        let mut tree = tree_of(picker());
+        tree.layout(window());
+        key(&mut tree, Key::Tab);
+        key(&mut tree, Key::Tab);
+        assert_eq!(tree.focused_id(), Some("accent=green"));
+        let frame = tree.layout(window());
+        let cell = region(&frame, "accent=green");
+        let strokes = strokes(&frame);
+        // The choice ring keeps the swatch's edge and is the only stroke there;
+        // the focus ring takes the cell's edge, 2 pixels outside it.
+        assert_eq!(
+            strokes
+                .iter()
+                .filter(|stroke| stroke.0 == inside(cell))
+                .collect::<Vec<_>>(),
+            [&(inside(cell), palette().text, RING)]
+        );
+        assert_eq!(
+            strokes
+                .iter()
+                .filter(|stroke| stroke.0 == cell)
+                .map(|stroke| stroke.2)
+                .collect::<Vec<_>>(),
+            [2.0]
+        );
+    }
+
+    #[test]
+    fn a_swatch_under_the_pointer_lights_a_halo_around_it() {
+        let mut tree = tree_of(picker());
+        let frame = tree.layout(window());
+        let halo = |frame: &Frame| {
+            fills(frame)
+                .into_iter()
+                .filter(|fill| fill.1 == palette().hover)
+                .collect::<Vec<_>>()
+        };
+        assert!(halo(&frame).is_empty());
+        let cell = region(&frame, "accent=blue");
+        tree.handle_event(UiEvent::PointerMove(middle(cell)));
+        let frame = tree.layout(window());
+        assert_eq!(halo(&frame), [(cell, palette().hover, 18.0)]);
+        // Under the swatch's own color, so only the room around it lights.
+        let order = |color: Color| {
+            fills(&frame)
+                .iter()
+                .position(|fill| fill.1 == color)
+                .unwrap()
+        };
+        assert!(order(palette().hover) < order(BLUE));
     }
 
     #[test]
@@ -545,10 +618,11 @@ mod tests {
             (ControlSize::Spacious, 32.0),
         ] {
             let frame = tree_of(picker().size(size)).layout(window());
+            let cell = expected + 2.0 * ROOM;
             assert!(frame
                 .regions
                 .iter()
-                .all(|region| region.rect.width == expected && region.rect.height == expected));
+                .all(|region| region.rect.width == cell && region.rect.height == cell));
             assert_eq!(fills(&frame)[1].0.width, expected - 8.0);
         }
     }

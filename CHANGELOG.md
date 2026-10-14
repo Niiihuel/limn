@@ -9,6 +9,7 @@ in any release.
 - `Element::area_slider` and `UiAction::AreaSliderChanged`: a slider over an area, dragged in two directions and stepped with all four arrows
 - `Element::horizontal_gradient` and `vertical_gradient`: evenly spaced colors across an element, its corners rounded
 - Gallery: a field shows the text a slider leads to, as it does after a click
+- Labels: `saturation_brightness`, `hue` and `hex`, what a color picker calls its parts to the platform
 
 ## 0.1.41 — 2026-10-13
 

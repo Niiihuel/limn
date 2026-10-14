@@ -127,11 +127,12 @@ None: the thumbs follow the pointer and the color.
 The field and the bar are sliders: the field named "Saturation and
 brightness", its value told as "50%, 80%", and the bar named "Hue", its value
 told in degrees. The hex field is a text input named "Hex" whose value is its
-text. These are English unless set: the library's labels have no words for
-them, so an application in another language passes its own.
+text. These names come from the library's labels, `saturation_brightness`,
+`hue` and `hex`, so `limn::set_labels(Labels::SPANISH)` reaches them; a
+picker that needs other words is given its own:
 
 ```rust
-ColorPicker::new("role-color", state.color, palette).part_labels("Saturación y brillo", "Matiz", "Hexadecimal")
+ColorPicker::new("role-color", state.color, palette).part_labels("Couleur", "Teinte", "Hex")
 ```
 
 ## Limits
@@ -142,3 +143,5 @@ ColorPicker::new("role-color", state.color, palette).part_labels("Saturación y 
 - The arrows move by a twentieth; the hex field is the way to an exact color.
 - The host gives the hex field its text after a thumb moves, with
   `UiTree::set_input_value`.
+- The picker keeps its width in a narrower container and goes past its edge;
+  set `width` for the room there is, down to 120.

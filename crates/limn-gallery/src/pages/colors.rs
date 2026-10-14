@@ -200,7 +200,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             row(vec![ColorPicker::new("color-labels", color(state, "color-labels"), palette)
                 .part_labels("Saturación y brillo", "Matiz", "Hexadecimal")
                 .render()]),
-            caption(cx, "The field, the bar and the hex field are named to the platform in the application's language."),
+            caption(cx, "The field, the bar and the hex field named to the platform in words of the host's own. Without part_labels they follow set_labels."),
         ]),
     ]
 }

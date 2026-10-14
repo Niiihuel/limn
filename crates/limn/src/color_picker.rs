@@ -121,15 +121,16 @@ pub struct ColorPicker {
 impl ColorPicker {
     /// A picker standing on `color`, 220 pixels wide.
     pub fn new(id: impl Into<String>, color: Hsv, palette: ComponentPalette) -> Self {
+        let words = crate::labels();
         Self {
             id: id.into(),
             color: Hsv::new(color.hue, color.saturation, color.value),
             width: DEFAULT_WIDTH,
             enabled: true,
             labels: [
-                "Saturation and brightness".into(),
-                "Hue".into(),
-                "Hex".into(),
+                words.saturation_brightness.into(),
+                words.hue.into(),
+                words.hex.into(),
             ],
             palette,
         }
@@ -157,9 +158,10 @@ impl ColorPicker {
         self.enabled(false)
     }
 
-    /// What the platform calls the field, the bar and the hex field. They
-    /// are the English "Saturation and brightness", "Hue" and "Hex" unless
-    /// set: the library's labels have no words for them.
+    /// What the platform calls the field, the bar and the hex field. Unless
+    /// set they are the library's [`Labels`](crate::Labels)
+    /// `saturation_brightness`, `hue` and `hex`, as they stand when the
+    /// picker is built.
     pub fn part_labels(
         mut self,
         area: impl Into<String>,
@@ -326,7 +328,15 @@ impl Component for ColorPicker {
                 ),
             ]),
             field_height + THUMB,
-            &|element| element.area_slider(x, y, THUMB / 2.0),
+            // The focus ring follows the field's corners half a thumb out, and stays square with them.
+            &|element| {
+                let around = if radius > 0.0 {
+                    radius + THUMB / 2.0
+                } else {
+                    0.0
+                };
+                element.area_slider(x, y, THUMB / 2.0).radius(around)
+            },
             Access::new(Role::Slider)
                 .name(area_label)
                 .value(color.saturation)
@@ -352,7 +362,7 @@ impl Component for ColorPicker {
                 at(share, thumb(pure), false),
             ]),
             THUMB,
-            &|element| element.slider(share, 0, THUMB / 2.0),
+            &|element| element.slider(share, 0, THUMB / 2.0).radius(THUMB / 2.0),
             Access::new(Role::Slider)
                 .name(hue_label)
                 .value(share)
@@ -719,6 +729,28 @@ mod tests {
     }
 
     #[test]
+    fn the_focus_ring_rounds_with_the_field_and_the_bar() {
+        let mut tree = tree_of(ColorPicker::new("c", blue(), palette()));
+        tree.layout(window());
+        let control = crate::tokens().radius.control;
+        for (part, radius) in [("c:area", control + THUMB / 2.0), ("c:hue", THUMB / 2.0)] {
+            tree.handle_event(UiEvent::Key {
+                key: Key::Tab,
+                shift: false,
+                ctrl: false,
+            });
+            let frame = tree.layout(window());
+            let rect = region(&frame, part);
+            assert!(
+                frame.commands.iter().any(|command| matches!(command,
+                    DrawCommand::StrokeRect { rect: ring, radius: round, .. }
+                        if *ring == rect && *round == radius)),
+                "{part}"
+            );
+        }
+    }
+
+    #[test]
     fn the_hex_field_shows_the_color_and_takes_text() {
         let mut tree = tree_of(ColorPicker::new("c", blue(), palette()));
         let frame = tree.layout(window());
@@ -801,6 +833,27 @@ mod tests {
             (hex.name.as_str(), hex.value_text.as_deref()),
             ("Hex", Some("#6666cc"))
         );
+    }
+
+    #[test]
+    fn at_its_narrowest_the_hex_shows_whole_and_a_narrower_window_does_not_shrink_it() {
+        let frame =
+            tree_of(ColorPicker::new("c", blue(), palette()).width(MIN_WIDTH)).layout(window());
+        let hex = region(&frame, "c:hex");
+        let text = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Text { text, position, .. } if text == "#6666cc" => Some(*position),
+            _ => None,
+        });
+        let text = text.expect("the hex digits, whole");
+        assert!(
+            text.x > hex.x && text.x < hex.x + hex.width / 2.0,
+            "{text:?} {hex:?}"
+        );
+        // The picker keeps its width and goes past the edge of a window narrower than it.
+        let frame =
+            tree_of(ColorPicker::new("c", blue(), palette())).layout(Size::new(100.0, 400.0));
+        assert_eq!(region(&frame, "c:area").width, DEFAULT_WIDTH);
+        assert_eq!(region(&frame, "c:hue").width, DEFAULT_WIDTH);
     }
 
     #[test]

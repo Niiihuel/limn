@@ -52,6 +52,11 @@ text's ink at its edge, with the color inside it, 8 pixels narrower, so the
 picker does not move when the choice changes. A swatch that is not chosen has
 a hairline in the border color, so one of the page's own color still shows.
 
+Each swatch stands in a cell 4 pixels wider on every side, which is its hit
+region. The keyboard focus ring is drawn at the cell's edge, 2 pixels outside
+the chosen swatch's ring, so the two do not lie on each other while the arrows
+move focus and choice together.
+
 ## Custom color
 
 ```rust
@@ -87,7 +92,9 @@ SwatchPicker::new("accent", swatches, Some(&state.accent), palette).columns(5)
 ```
 
 The swatches stand in one row unless `columns` breaks them into rows of that
-many, the custom swatch counted first. Swatches and rows are 8 pixels apart.
+many, the custom swatch counted first. Swatches and rows are 8 pixels apart:
+the cells touch. The picker is 4 pixels wider than its swatches on every
+side, for the focus ring.
 
 ## Size
 
@@ -95,12 +102,12 @@ many, the custom swatch counted first. Swatches and rows are 8 pixels apart.
 SwatchPicker::new("accent", swatches, Some(&state.accent), palette).size(ControlSize::Compact)
 ```
 
-| Size | Diameter |
-| --- | --- |
-| `Dense` | 20 |
-| `Compact` | 24 |
-| `Regular`, the default | 28 |
-| `Spacious` | 32 |
+| Size | Diameter | Cell |
+| --- | --- | --- |
+| `Dense` | 20 | 28 |
+| `Compact` | 24 | 32 |
+| `Regular`, the default | 28 | 36 |
+| `Spacious` | 32 | 40 |
 
 ## Disabled
 
@@ -123,7 +130,9 @@ in the same place, and takes no pointer or focus.
 
 ## Motion
 
-None: the ring and the color change at once with the choice.
+The cell under the pointer lights in the palette's hover color, a halo
+around the swatch, over the hover duration of the motion tokens. The ring and
+the color change at once with the choice.
 
 ## Actions
 
