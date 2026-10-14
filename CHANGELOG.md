@@ -3,7 +3,7 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
-## 0.1.41 — unreleased
+## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)
 - Chip: `tone` and `color`, `size`, `icon` and `dot`, and `remove_action` with `enabled`/`disabled`; a plain chip draws what it drew
