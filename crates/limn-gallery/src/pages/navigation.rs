@@ -11,9 +11,6 @@ const VIEWS: [(&str, &str, Icon); 3] = [
     ("history", "History", Icon::History),
 ];
 
-// The light theme's accent, which also reads on the dark one.
-const ACCENT: limn::Color = limn::Color::rgb(9, 105, 218);
-
 const FILES: [&str; 12] = [
     "main.rs",
     "lib.rs",
@@ -194,7 +191,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Underlined tabs", vec![
             row(vec![Tabs::new(tabs("nav-under"), palette)
                 .variant(TabsVariant::Underlined)
-                .accent(ACCENT)
+                .accent(state.theme().accent_text())
                 .gap(16.0)
                 .id("nav-under")
                 .render()]),

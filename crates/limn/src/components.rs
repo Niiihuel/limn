@@ -2167,8 +2167,9 @@ pub struct Tab {
     pub label: String,
     /// An icon before the label. `None` by default.
     pub icon: Option<Icon>,
-    /// Whether it is the chosen tab: it takes the text color and the sliding
-    /// selection rests under it, unless it is disabled.
+    /// Whether it is the chosen tab: it takes the accent of [`Tabs`], or the
+    /// text color without one, and the sliding selection rests under it,
+    /// unless it is disabled.
     pub active: bool,
     /// Width in logical pixels. `new` keeps it at 40 or more and
     /// `Tabs::fill_width` replaces it.
@@ -2246,8 +2247,9 @@ pub struct Tabs {
     /// The tabs, in the order they are drawn.
     pub items: Vec<Tab>,
     /// `surface` fills the track and `selected` the sliding selection; `text` is
-    /// the ink of the active tab and `muted` of the others. Underlined, `border`
-    /// draws the hairline and neither fill is used.
+    /// the ink of the active tab unless [`accent`](Self::accent) is set, and
+    /// `muted` of the others. Underlined, `border` draws the hairline and
+    /// neither fill is used.
     pub palette: ComponentPalette,
     /// Height of a tab in logical pixels, 24 by default. The track is 4 taller.
     pub height: f32,
@@ -2420,7 +2422,8 @@ impl Component for Tabs {
                     };
                     return Element::row(vec![
                         Element::spacer().flex(1.0),
-                        visual,
+                        // At the height of an enabled tab's label.
+                        visual.centered_y(),
                         Element::spacer().flex(1.0),
                     ])
                     .padding(TAB_ITEM_PADDING)
@@ -2461,20 +2464,32 @@ impl Component for Tabs {
                 underline =
                     underline.tab_selection(group_id, selected_id, accent, 0.0, self.animation_ms);
             }
-            let foot = |line: Element| Element::column(vec![Element::spacer().flex(1.0), line]);
+            let strip_height = self.height + TAB_TRACK_PADDING * 2.0;
+            // Anchored to the bottom of the strip, not of the box: a box taller
+            // than the strip stretches the stack, never the tabs.
+            let foot = |line: Element, height: f32| {
+                Element::column(vec![
+                    Element::spacer().size(None, Some(strip_height - height)),
+                    line,
+                ])
+            };
             return Element::stack(vec![
                 foot(
                     Element::spacer()
                         .size(None, Some(TAB_HAIRLINE))
                         .background(self.palette.border),
+                    TAB_HAIRLINE,
                 ),
-                foot(Element::row(vec![
-                    Element::spacer().size(Some(TAB_TRACK_PADDING), Some(TAB_UNDERLINE)),
-                    underline,
-                ])),
+                foot(
+                    Element::row(vec![
+                        Element::spacer().size(Some(TAB_TRACK_PADDING), Some(TAB_UNDERLINE)),
+                        underline,
+                    ]),
+                    TAB_UNDERLINE,
+                ),
                 strip,
             ])
-            .size(None, Some(self.height + TAB_TRACK_PADDING * 2.0));
+            .size(None, Some(strip_height));
         }
         let strip = strip
             .background(self.palette.surface)
@@ -5206,7 +5221,8 @@ mod tests {
     fn underlined_frame(tree: &mut UiTree) -> crate::Frame {
         tree.set_reduced_motion(true);
         tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
-        tree.layout(Size::new(600.0, 28.0))
+        // Taller than the strip's 28: the lines must stay under the tabs.
+        tree.layout(Size::new(600.0, 40.0))
     }
 
     fn fills(frame: &crate::Frame, of: Color) -> Vec<crate::Rect> {
@@ -5253,6 +5269,15 @@ mod tests {
         assert_eq!(ink("ROLES"), Some(accent));
         assert_eq!(ink("GENERAL"), Some(palette.muted));
         assert_eq!(ink("Audit"), Some(palette.muted));
+        // The disabled label sits at the height of the enabled ones.
+        let top = |name: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, position, .. } if text == name => Some(position.y),
+                _ => None,
+            })
+        };
+        assert!(top("Audit").is_some());
+        assert_eq!(top("Audit"), top("GENERAL"));
         // Without an accent the active tab takes the palette's text, as segmented.
         let plain = Tabs::new(vec![Tab::new("a", "A", 60.0).active(true)], palette)
             .variant(TabsVariant::Underlined)
@@ -5360,23 +5385,39 @@ mod tests {
     }
 
     #[test]
-    fn tabs_gap_ignores_bad_input_and_underlined_tabs_fit_a_narrow_width() {
+    fn tabs_gap_ignores_bad_input_and_underlined_tabs_fill_a_narrow_width() {
         let palette = ComponentPalette::neutral_dark();
         let tabs = || Tabs::new(vec![Tab::new("a", "A", 60.0)], palette);
         assert_eq!(tabs().gap(f32::NAN).gap, TAB_GAP);
         assert_eq!(tabs().gap(f32::INFINITY).gap, TAB_GAP);
         assert_eq!(tabs().gap(-4.0).gap, 0.0);
-        let mut tree = UiTree::new(underlined("general", Color::rgb(25, 170, 216)));
+        let accent = Color::rgb(25, 170, 216);
+        let narrow = Tabs::new(
+            vec![
+                Tab::new("a", "Alpha", 80.0).active(true),
+                Tab::new("b", "Beta", 80.0),
+            ],
+            palette,
+        )
+        .variant(TabsVariant::Underlined)
+        .accent(accent)
+        .gap(16.0)
+        .fill_width(120.0)
+        .render();
+        let mut tree = UiTree::new(narrow);
         tree.set_reduced_motion(true);
         let frame = tree.layout(Size::new(120.0, 28.0));
         assert_eq!(
             fills(&frame, palette.border),
             [crate::Rect::new(0.0, 27.0, 120.0, 1.0)]
         );
-        assert!(frame
-            .regions
-            .iter()
-            .all(|region| region.rect.y >= 0.0 && region.rect.height == 24.0));
+        // Nothing escapes the width: neither a tab nor the underline.
+        let inside = |rect: &crate::Rect| rect.x >= 0.0 && rect.x + rect.width <= 120.0;
+        assert_eq!(frame.regions.len(), 2);
+        assert!(frame.regions.iter().all(|region| inside(&region.rect)));
+        let underline = fills(&frame, accent);
+        assert_eq!(underline.len(), 1);
+        assert!(inside(&underline[0]));
     }
 
     #[test]
