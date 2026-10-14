@@ -66,6 +66,35 @@ shrinks down to its `min_size`, then the next, and only if that is still not
 enough do they shrink below their minimums. Flexible siblings keep their
 minimum widths throughout.
 
+## Wrapping rows
+
+A row with `.wrap()` moves a child that does not fit its width to the next
+line, as a list of tags or role pills does:
+
+```rust
+Element::row(tags).gap(6.0).wrap()                 // lines 6 px apart
+Element::row(tags).gap(6.0).line_gap(10.0).wrap()  // lines 10 px apart
+```
+
+| Rule | Effect |
+| --- | --- |
+| Width | Each child keeps its natural width, `gap` after the one before it on its line. |
+| Lines | A line is as tall as its tallest child, and the others stretch to it unless sized, as in any row. `line_gap` is the space between lines; it is `gap` until set. |
+| Height | The row is as tall as its lines, so what follows it in a column moves down. |
+| Too wide | A child wider than the row has a line of its own, at the row's width: a text wraps there. |
+| Order | Tab and assistive technology take the children in the order given, line after line, and the pointer finds each where it is drawn. |
+
+A wrapping row needs a width to wrap at. In a column it has the column's.
+In another row, give it `.flex(1.0)`, `.shrink_to_fit()` or `.max_width(w)`:
+like any child of a row, it otherwise takes its natural width, which is all
+of its children on one line. Unlike other content, a wrapping row is
+re-wrapped at its `max_width`, and its height counts the lines it makes
+there.
+
+Limits: `flex` and `shrink_to_fit` on its children change nothing, and a line
+starts at the left; it is not centered or justified. Only `Element::row`
+wraps: `wrap` on another element does nothing.
+
 ## Centering
 
 There is no alignment property. Center a child by surrounding it with flexible

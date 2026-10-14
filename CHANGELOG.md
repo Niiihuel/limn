@@ -32,6 +32,7 @@ in any release.
 - `Element::horizontal_gradient` and `vertical_gradient`: evenly spaced colors across an element, its corners rounded
 - Gallery: a field shows the text a slider leads to, as it does after a click
 - Labels: `saturation_brightness`, `hue` and `hex`, what a color picker calls its parts to the platform
+- `Element::wrap` and `Element::line_gap`: a row whose children move onto more lines when they do not fit its width, as tags or role pills do. The row is as tall as its lines; Tab, the pointer and assistive technology find each child where it is, in the order given
 
 ## 0.1.41 — 2026-10-13
 
