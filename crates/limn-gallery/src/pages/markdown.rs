@@ -5,6 +5,8 @@ const COMPLETE: &str = "# Review summary\n\n**The session** was fixed in `src/ma
 
 const STREAMING: &str = "The result arrives in parts.\n\n- First item already **complete**\n- Second item with an unfinished link https://example.com/doc\n\nThe last line is still **open and contains `code";
 
+const SIZED: &str = "## Release notes\n\nThe **build** passes in `ci.yml`; see the [log](https://example.com/log).\n\n1. Update the lockfile\n2. Tag the release\n\n> Ship it on Friday.\n\n```sh\ncargo publish\n```";
+
 const PLAIN: &str = "**This is not bold**: check https://github.com/rust-lang/rust and https://example.com/docs, not `src/main.rs`.";
 
 fn link(cx: &Cx, written: &str) -> Element {
@@ -35,6 +37,28 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(width)
                 .labels(labels)
                 .link_action_prefix("markdown-complete:")
+                .render()
+                .element,
+        ]),
+        section(cx, "Text size", vec![
+            caption(cx, ".font_size(12.0): headings, code, list markers and line heights keep their proportion to the body"),
+            Markdown::new(SIZED, palette)
+                .width(width)
+                .font_size(12.0)
+                .link_action_prefix("markdown-small:")
+                .render()
+                .element,
+            caption(cx, "14 px, the default"),
+            Markdown::new(SIZED, palette)
+                .width(width)
+                .link_action_prefix("markdown-default:")
+                .render()
+                .element,
+            caption(cx, ".font_size(18.0)"),
+            Markdown::new(SIZED, palette)
+                .width(width)
+                .font_size(18.0)
+                .link_action_prefix("markdown-large:")
                 .render()
                 .element,
         ]),
