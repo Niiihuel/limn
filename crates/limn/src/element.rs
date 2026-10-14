@@ -422,6 +422,24 @@ pub enum Icon {
     Library,
     /// Three faders: an equalizer, or any set of fine adjustments.
     Sliders,
+    /// A microphone with a slash: the microphone is off.
+    MicrophoneMuted,
+    /// Headphones: what is heard, or listening.
+    Headphones,
+    /// A smiling face: an emoji, or adding a reaction.
+    Emoji,
+    /// An arrow turning back: a reply.
+    Reply,
+    /// An at sign: a mention.
+    At,
+    /// A handset: a call.
+    Phone,
+    /// A handset with a cross: leaving or declining a call.
+    HangUp,
+    /// A monitor: a screen, or sharing one.
+    Screen,
+    /// A video camera with a slash: the camera is off.
+    VideoOff,
 }
 
 impl Icon {
