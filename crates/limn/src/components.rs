@@ -2006,6 +2006,9 @@ impl Component for SearchField {
                 &self.placeholder,
                 Some(self.value.clone()),
             );
+            // What the enabled field shows away from the focus: the hint only
+            // while there is no query, so it never meets the clear button.
+            let shortcut = self.shortcut.filter(|_| self.value.is_empty());
             let (value, ink) = if self.value.is_empty() {
                 (self.placeholder, self.palette.muted)
             } else {
@@ -2022,7 +2025,7 @@ impl Component for SearchField {
                     .size(None, Some(height))
                     .flex(1.0),
             ];
-            if let Some(shortcut) = self.shortcut {
+            if let Some(shortcut) = shortcut {
                 let mut hint = Kbd::new(shortcut, self.palette);
                 if let Some(width) = self.width {
                     hint = hint.max_width((width - 16.0 - ICON_SIZE - 16.0 - 24.0).max(0.0));
@@ -2085,6 +2088,8 @@ impl Component for SearchField {
                 Element::spacer().size(Some(CLEAR_INSET), None),
             ]),
         ])
+        // As wide as the field alone, so typing does not narrow it.
+        .min_size(80.0, height)
         .size(self.width, Some(height))
     }
 }
@@ -4129,14 +4134,23 @@ mod tests {
         let reported = tree.handle_event(UiEvent::Text("ru".into()));
         assert_eq!(
             reported,
-            vec![UiAction::InputChanged { id: "query".into(), value: "ru".into() }]
+            vec![UiAction::InputChanged {
+                id: "query".into(),
+                value: "ru".into()
+            }]
         );
         // The host stores the query; the field is rebuilt with its button.
         tree.set_root(view("ru"));
         let frame = tree.layout(window);
-        assert!(frame.regions.iter().any(|region| region.id == "query:clear"));
+        assert!(frame
+            .regions
+            .iter()
+            .any(|region| region.id == "query:clear"));
         assert_eq!(tree.focused_id(), Some("query"));
-        assert_eq!((tree.input_value("query"), tree.input_cursor("query")), (Some("ru"), Some(2)));
+        assert_eq!(
+            (tree.input_value("query"), tree.input_cursor("query")),
+            (Some("ru"), Some(2))
+        );
         tree.handle_event(UiEvent::Text("st".into()));
         assert_eq!(tree.input_value("query"), Some("rust"));
     }
@@ -4216,8 +4230,65 @@ mod tests {
                         && clear.y + clear.height <= input.y + input.height,
                     "{size:?} at {width}: {clear:?} outside {input:?}"
                 );
+                // As wide as it is empty: never under a field's 80.
+                let empty = field_tree(
+                    SearchField::new("query", "", "Search", palette)
+                        .clearable(true)
+                        .size(size)
+                        .width(width)
+                        .render(),
+                )
+                .layout(Size::new(400.0, 120.0));
+                assert_eq!(
+                    input.width, empty.regions[0].rect.width,
+                    "{size:?} at {width}"
+                );
+                assert_eq!(input.width, f32::max(width, 80.0));
             }
         }
+        // The narrowest field still has room for what is typed in it.
+        let frame = field_tree(
+            SearchField::new("query", "a", "Search", palette)
+                .clearable(true)
+                .width(60.0)
+                .render(),
+        )
+        .layout(Size::new(400.0, 120.0));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, .. } if text == "a")));
+    }
+
+    #[test]
+    fn a_disabled_search_field_shows_its_hint_only_without_a_query() {
+        let palette = ComponentPalette::neutral_dark();
+        let drawn = |query: &str, clearable: bool| {
+            let frame = field_tree(
+                SearchField::new("query", query, "Search", palette)
+                    .clearable(clearable)
+                    .shortcut("Ctrl+K")
+                    .width(140.0)
+                    .disabled()
+                    .render(),
+            )
+            .layout(Size::new(400.0, 120.0));
+            let texts: Vec<String> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect();
+            (
+                texts.iter().any(|text| text == "Ctrl"),
+                texts.iter().any(|text| text == "rust"),
+            )
+        };
+        // As the enabled field away from the focus: the hint while it is
+        // empty, the query and its clear button once it is not.
+        assert_eq!(drawn("", true), (true, false));
+        assert_eq!(drawn("rust", true), (false, true));
+        assert_eq!(drawn("rust", false), (false, true));
     }
 
     #[test]

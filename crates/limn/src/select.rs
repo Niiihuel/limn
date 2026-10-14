@@ -241,7 +241,8 @@ impl Component for Select {
 impl Select {
     // The trigger drawn as a text field: the choice where a field has its
     // text, after the icon if there is one, and the chevron at the end.
-    // Open, it has the border a focused field has.
+    // Open or focused from the keyboard, it has the border a focused field
+    // has.
     fn field_trigger(&self, size: ControlSize, width: f32, height: f32) -> Element {
         let palette = self.palette;
         let label = self.current_label.clone();
@@ -294,6 +295,8 @@ impl Select {
             Some(width),
         )
         .gap(8.0)
+        // A focused field's border, not a button's ring, under the keyboard.
+        .focus_ring(false)
         .size(Some(width), Some(height));
         if self.open {
             trigger.border(lighter(palette.border, 70), 1.5)
@@ -515,6 +518,34 @@ mod tests {
                 id: "shell:zsh".into()
             }]
         );
+    }
+
+    #[test]
+    fn a_field_select_focused_from_the_keyboard_has_a_fields_border_not_a_ring() {
+        let palette = ComponentPalette::neutral_dark();
+        for open in [false, true] {
+            let mut tree = tree(field(open));
+            tree.layout(VIEWPORT);
+            assert!(tree.focus("toggle"));
+            let frame = tree.layout(VIEWPORT);
+            let trigger = rect(&frame, "toggle").unwrap();
+            let strokes: Vec<_> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    crate::DrawCommand::StrokeRect {
+                        rect, color, width, ..
+                    } if *rect == trigger => Some((*color, *width)),
+                    _ => None,
+                })
+                .collect();
+            // As a focused TextField: its border alone, once.
+            assert_eq!(
+                strokes,
+                [(lighter(palette.border, 70), 1.5)],
+                "open: {open}"
+            );
+        }
     }
 
     #[test]

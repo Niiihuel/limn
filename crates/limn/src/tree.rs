@@ -8950,11 +8950,13 @@ impl LayoutBuilder<'_> {
                     }
                 }
             }
+            // An editor shows it on any focus; another control without a
+            // ring shows it as its keyboard focus mark.
             if self.focused == Some(id.as_str())
-                && matches!(
+                && (matches!(
                     &element.kind,
                     ElementKind::TextInput { .. } | ElementKind::TextArea { .. }
-                )
+                ) || self.keyboard_focus && !style.focus_ring)
             {
                 style.border = style.focus_border.or(style.border);
             }
@@ -13086,6 +13088,34 @@ mod tests {
         assert!(!focused.commands.iter().any(|command| matches!(command,
             DrawCommand::Text { text, .. } if text == "Ctrl" || text == "K"
         )));
+    }
+
+    #[test]
+    fn a_control_without_a_ring_shows_its_focus_border_under_the_keyboard_only() {
+        let mark = Color::rgb(1, 2, 3);
+        let marked = |frame: &Frame| {
+            frame.commands.iter().any(|command| {
+                matches!(command, DrawCommand::StrokeRect { color, width, .. }
+                    if *color == mark && *width == 1.5)
+            })
+        };
+        let button = |ring: bool| {
+            Element::button("go", "Go")
+                .border(Color::rgb(9, 9, 9), 1.0)
+                .focus_border(mark, 1.5)
+                .focus_ring(ring)
+                .size(Some(80.0), Some(28.0))
+        };
+        let window = Size::new(80.0, 28.0);
+        let mut tree = UiTree::new(button(false));
+        assert!(!marked(&tree.layout(window)));
+        assert!(tree.focus_from_pointer("go"));
+        assert!(!marked(&tree.layout(window)));
+        assert!(tree.focus("go"));
+        assert!(marked(&tree.layout(window)));
+        // With its ring, a control keeps the ring and its own border.
+        tree.set_root(button(true));
+        assert!(!marked(&tree.layout(window)));
     }
 
     #[test]

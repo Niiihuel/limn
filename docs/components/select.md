@@ -56,8 +56,9 @@ Select::new("shell", label, options, open, "shell:dismiss", palette)
 button, its label in the middle unless it has an icon. `SelectVariant::Field`
 draws it as a [TextField](text-field.md): the field's fill, border, radius
 and height, the choice where a field has its text, after the icon if there
-is one, and the chevron at the end. Open, it has the border of a focused
-field. Use it in a form, among text fields, where a button would stand out.
+is one, and the chevron at the end. Open, or focused from the keyboard, it
+has the border of a focused field in place of a button's focus ring. Use it
+in a form, among text fields, where a button would stand out.
 A field is never narrower than 80, as a text field is.
 
 ## Size

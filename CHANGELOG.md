@@ -6,8 +6,10 @@ in any release.
 ## 0.1.42 — unreleased
 
 - TextField: `icon`, an icon before the text inside the field, muted until the field has the focus, as a search field's magnifier; a disabled field keeps it in its place
-- SearchField: `clearable(true)`, a button at the end of the field while it has a query, which reports `Clicked` with `"{id}:clear"`; the text stops before it, and disabled it stays in its place, passive. `Labels::clear_search` names it
-- Select: `variant(SelectVariant::Field)`, a trigger drawn as a text field, with its fill, border and height and the choice at its start, open with a focused field's border; `size(ControlSize)` and `height(px)` for either variant. A select is drawn as it was unless told otherwise
+- SearchField: `clearable(true)`, a button at the end of the field while it has a query, which reports `Clicked` with `"{id}:clear"`; the text stops before it, and disabled it stays in its place, passive. `Labels::clear_search` names it. A clearable field is as wide with a query as without, never under 80
+- SearchField: a disabled field shows its shortcut hint only while it has no query, as the enabled one does
+- Select: `variant(SelectVariant::Field)`, a trigger drawn as a text field, with its fill, border and height and the choice at its start, open or focused from the keyboard with a focused field's border; `size(ControlSize)` and `height(px)` for either variant. A select is drawn as it was unless told otherwise
+- `Element::focus_border` on a control whose focus ring is off is shown while it has the keyboard focus, as its mark of that focus; a text input or area shows it on any focus, as before
 
 ## 0.1.41 — 2026-10-13
 

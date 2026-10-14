@@ -86,9 +86,10 @@ SearchField::new("search", "", "Search", palette).disabled().render()
 SearchField::new("search", &state.query, "Search", palette).enabled(state.indexed).render()
 ```
 
-A disabled field keeps its magnifier, its shortcut hint and its clear
-button, shows the query or the placeholder in the muted ink, and is not an
-input: the button is passive too.
+A disabled field shows what the enabled one shows away from the focus: its
+magnifier, the query or the placeholder in the muted ink, the shortcut hint
+while there is no query and the clear button while there is one. It is not
+an input, and the button is passive too.
 
 ## Keyboard
 

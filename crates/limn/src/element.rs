@@ -1625,7 +1625,8 @@ pub struct Style {
     pub hover_foreground: Option<Color>,
     /// Ink while pressed. `None` falls back to `hover_foreground`.
     pub pressed_foreground: Option<Color>,
-    /// Border painted while an editor owns focus, including pointer focus.
+    /// Border painted while an editor owns focus, including pointer focus,
+    /// or while another control without a focus ring has the keyboard focus.
     pub focus_border: Option<Border>,
     /// Editors that paint their own caret may suppress the outer keyboard ring.
     pub focus_ring: bool,
@@ -2956,7 +2957,9 @@ impl Element {
     }
 
     /// Border a text input or text area shows in place of its own while it has
-    /// the focus. A width that is not finite or not above zero removes it.
+    /// the focus. Another control shows it while it has the keyboard focus if
+    /// its [focus ring](Self::focus_ring) is off, as its mark of that focus.
+    /// A width that is not finite or not above zero removes it.
     pub fn focus_border(mut self, color: Color, width: f32) -> Self {
         self.style.focus_border =
             (width > 0.0 && width.is_finite()).then_some(Border { color, width });
