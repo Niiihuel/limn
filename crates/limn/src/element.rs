@@ -758,6 +758,9 @@ pub(crate) struct Kept {
     pub(crate) line_gap: Option<f32>,
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
+    /// Evenly spaced colors painted across the element, and whether they run
+    /// down it rather than across.
+    pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -766,6 +769,8 @@ pub(crate) struct SliderTravel {
     pub(crate) fraction: f32,
     pub(crate) steps: usize,
     pub(crate) inset: f32,
+    /// The share of the height from the top, for a slider over an area.
+    pub(crate) y: Option<f32>,
 }
 
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
@@ -1256,8 +1261,9 @@ pub enum ElementKind {
     /// One interactive surface whose children can contain more specific
     /// controls. Child hit regions take precedence over this row's region.
     Clickable {
-        /// Reported as `UiAction::Clicked`, or with `UiAction::SliderChanged`
-        /// after [`Element::slider`]; also its focus ID.
+        /// Reported as `UiAction::Clicked`, with `UiAction::SliderChanged`
+        /// after [`Element::slider`] or with `UiAction::AreaSliderChanged`
+        /// after [`Element::area_slider`]; also its focus ID.
         id: String,
         /// The content the surface wraps.
         child: Box<Element>,
@@ -1988,6 +1994,22 @@ impl Element {
         self
     }
 
+    /// Fill the element with `stops` spread evenly from its left edge to its
+    /// right edge, blending from each to the next, behind its children and
+    /// over its background. The corners are rounded by its `radius`. One
+    /// stop is a plain fill, and none paints nothing.
+    pub fn horizontal_gradient(mut self, stops: impl Into<Arc<[Color]>>) -> Self {
+        self.kept.get_or_insert_default().gradient = Some((stops.into(), false));
+        self
+    }
+
+    /// The same as [`horizontal_gradient`](Self::horizontal_gradient), from
+    /// the top edge to the bottom edge.
+    pub fn vertical_gradient(mut self, stops: impl Into<Arc<[Color]>>) -> Self {
+        self.kept.get_or_insert_default().gradient = Some((stops.into(), true));
+        self
+    }
+
     /// Let a tab strip's selection rest on this child when `id` is selected.
     pub fn indicator_slot(mut self, id: impl Into<String>) -> Self {
         self.indicator_slot = Some(id.into());
@@ -2022,6 +2044,36 @@ impl Element {
             fraction: if fraction.is_finite() { fraction.clamp(0.0, 1.0) } else { 0.0 },
             steps,
             inset: if inset.is_finite() { inset.max(0.0) } else { 0.0 },
+            y: None,
+        }));
+        self
+    }
+
+    /// Turn a clickable into a slider over its area. Pressing or dragging
+    /// over it reports `AreaSliderChanged` with the pointer's share of its
+    /// width from the left, `x`, and of its height from the top, `y`, each
+    /// measured between `inset` pixels from its edges. Left and Right move
+    /// `x` by a twentieth, Up and Down move `y`, and Home and End take `x`
+    /// to its ends. Shares outside 0 to 1 are clamped and one that is not
+    /// finite is 0. The element paints nothing of its own: the child draws
+    /// the mark at `x` and `y`.
+    pub fn area_slider(mut self, x: f32, y: f32, inset: f32) -> Self {
+        let share = |share: f32| {
+            if share.is_finite() {
+                share.clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        };
+        self.slider = Some(Box::new(SliderTravel {
+            fraction: share(x),
+            steps: 0,
+            inset: if inset.is_finite() {
+                inset.max(0.0)
+            } else {
+                0.0
+            },
+            y: Some(share(y)),
         }));
         self
     }

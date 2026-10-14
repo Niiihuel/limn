@@ -44,10 +44,16 @@ struct Host {
 
 impl Host {
     /// A field keeps the text typed in it, whatever value it is built with
-    /// again. When a click changes what a field stands for, as a picker's
-    /// arrow does, the tree is told the new text.
+    /// again. When a click or a slider changes what a field stands for, as a
+    /// picker's arrow or a color picker's thumb does, the tree is told the
+    /// new text.
     fn show_what_a_click_changed(&mut self, action: &UiAction) {
-        if !matches!(action, UiAction::Clicked { .. }) {
+        if !matches!(
+            action,
+            UiAction::Clicked { .. }
+                | UiAction::SliderChanged { .. }
+                | UiAction::AreaSliderChanged { .. }
+        ) {
             return;
         }
         for (id, value) in pages::fields(&self.state) {

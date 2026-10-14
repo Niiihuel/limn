@@ -15,6 +15,7 @@ mod charts;
 mod checkbox;
 mod chrome;
 mod code;
+mod colors;
 mod context;
 mod dates;
 mod description;
@@ -129,6 +130,8 @@ pub const PAGES: &[Page] = &[
     Page { id: "radio-group", group: "Inputs", title: "RadioGroup", source: "radio", view: radio::view, sections: &[], since: "0.1.41" },
     Page { id: "toggle", group: "Inputs", title: "Toggle", source: "toggle", view: toggle::view, sections: &[], since: "0.1.41" },
     Page { id: "number-input", group: "Inputs", title: "NumberInput", source: "number", view: number::view, sections: &[], since: "0.1.41" },
+    Page { id: "swatch-picker", group: "Inputs", title: "SwatchPicker", source: "colors", view: colors::view, sections: &["Swatch picker", "Custom color", "Rows", "Sizes", "Disabled", "Edge cases"], since: "0.1.42" },
+    Page { id: "color-picker", group: "Inputs", title: "ColorPicker", source: "colors", view: colors::view, sections: &["Color picker", "Width", "Disabled picker", "Part labels"], since: "0.1.42" },
     Page { id: "slider", group: "Inputs", title: "Slider", source: "inputs", view: inputs::view, sections: &["Slider"], since: "0.1.39" },
     Page { id: "date-picker", group: "Inputs", title: "DatePicker", source: "dates", view: dates::view, sections: &["Date picker"], since: "0.1.39" },
     Page { id: "time-picker", group: "Inputs", title: "TimePicker", source: "dates", view: dates::view, sections: &["Time picker"], since: "0.1.39" },
@@ -262,14 +265,16 @@ pub fn update(state: &mut State, action: &UiAction) {
     checkbox::update(state, action);
     toolbar::update(state, action);
     inputs::update(state, action);
+    colors::update(state, action);
 }
 
-/// The fields whose text a click may have changed, each with its value now.
+/// The fields whose text a click or a slider may have changed, each with its value now.
 pub fn fields(state: &State) -> Vec<(&'static str, String)> {
     [
         dates::fields(state),
         number::fields(state),
         inputs::fields(state),
+        colors::fields(state),
     ]
     .concat()
 }

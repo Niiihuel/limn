@@ -5,7 +5,7 @@
 use limn::{
     Access, ActionRow, Alert, AlertDialog, Attachment, Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard,
     Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
-    Toolbar, ToolbarItem, ControlSize, SwitchVariant,
+    Toolbar, ToolbarItem, ControlSize, SwitchVariant, Color, Swatch, SwatchPicker,
     Collapsible, Component, ComponentPalette, DatePicker, DictationButton, DictationState, DismissButton,
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
@@ -74,6 +74,14 @@ impl Control {
 
 fn anchor() -> Element {
     Button::new("anchor", "Open", palette()).render()
+}
+
+fn swatches() -> SwatchPicker {
+    let swatches = vec![
+        Swatch::new("it", Color::rgb(231, 76, 60), "Red"),
+        Swatch::new("other", Color::rgb(52, 152, 219), "Blue"),
+    ];
+    SwatchPicker::new("accent", swatches, Some("other"), palette())
 }
 
 fn hint(title: &str) -> TooltipSpec {
@@ -166,6 +174,27 @@ fn controls() -> Vec<Control> {
             || ToggleGroup::new("style", vec![ToggleItem::new("it", "Bold", false), ToggleItem::new("other", "Italic", true)], palette()).render(),
             || {
                 ToggleGroup::new("style", vec![ToggleItem::new("it", "Bold", false).disabled(), ToggleItem::new("other", "Italic", true)], palette())
+                    .render()
+            },
+        ),
+        control(
+            "SwatchPicker swatch",
+            "it",
+            || swatches().render(),
+            || swatches().disabled().render(),
+        ),
+        control(
+            "SwatchPicker custom swatch",
+            "accent:custom",
+            || {
+                swatches()
+                    .custom(Color::rgb(250, 240, 200), "Custom color")
+                    .render()
+            },
+            || {
+                swatches()
+                    .custom(Color::rgb(250, 240, 200), "Custom color")
+                    .disabled()
                     .render()
             },
         ),
