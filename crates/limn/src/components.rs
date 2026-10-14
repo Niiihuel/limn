@@ -2105,6 +2105,22 @@ impl Component for SearchField {
     }
 }
 
+/// How a [`Switch`] paints its track and its thumb.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SwitchVariant {
+    /// On, a thumb of the palette's surface on a track of its text, or of
+    /// `ink`; off, a thumb of the palette's text on its selected fill.
+    #[default]
+    Default,
+    /// A thumb of the palette's lightest color at full strength, the text of
+    /// a dark palette and the surface of a light one, on and off: on a track
+    /// of the ink, which is the palette's `link` color unless `ink` says
+    /// otherwise, and off on the palette's muted color. Either track is
+    /// darkened where needed until the thumb stands at a contrast of 3 or
+    /// more on it. This is how chat applications draw a switch.
+    Accent,
+}
+
 /// Side of a search field's clear button: its glyph and 4 around it.
 const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
 /// From the clear button to the field's end, so that its glyph is as far
@@ -2135,22 +2151,6 @@ fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element
     // Half the side is a shape, not a token.
     .radius(CLEAR_SIDE / 2.0)
     .size(Some(CLEAR_SIDE), Some(CLEAR_SIDE))
-}
-
-/// How a [`Switch`] paints its track and its thumb.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub enum SwitchVariant {
-    /// On, a thumb of the palette's surface on a track of its text, or of
-    /// `ink`; off, a thumb of the palette's text on its selected fill.
-    #[default]
-    Default,
-    /// A thumb of the palette's lightest color at full strength, the text of
-    /// a dark palette and the surface of a light one, on and off: on a track
-    /// of the ink, which is the palette's `link` color unless `ink` says
-    /// otherwise, and off on the palette's muted color. Either track is
-    /// darkened where needed until the thumb stands at a contrast of 3 or
-    /// more on it. This is how chat applications draw a switch.
-    Accent,
 }
 
 /// A caller-controlled switch with a single focusable target. The thumb is

@@ -116,9 +116,10 @@ DropdownMenuItem::new("settings", "Settings")
 
 The second menu opens beside its row while the pointer is over the row or the
 submenu, or with the keyboard. A submenu can hold submenus of its own: each
-stays open while the pointer or the focus is in one nested in it, and closes
-when the pointer moves to another row of its parent, even one the keyboard
-opened: a single submenu of a menu is open at a time.
+stays open while the pointer or the focus is in one nested in it. One the
+pointer opened closes when the pointer moves to another row of its parent;
+one the keyboard opened closes when the pointer moves to a row that opens a
+submenu, or to any row of a menu with `context_menu_style`.
 
 An item with a submenu can also have a `description`: it is a two-line row
 that ends with a chevron, such as a setting that shows its value under its
@@ -158,7 +159,10 @@ fn view(state: &State, palette: ComponentPalette) -> Element {
 // Before the tree sees the event: the host keeps where the menu opens.
 fn event(state: &mut State, tree: &mut UiTree, event: UiEvent) -> Vec<UiAction> {
     match event {
-        UiEvent::ContextMenu { position } if tree.frame().hit_test(position) == Some("channel") => {
+        // The open menu's backdrop covers the row, so look for the row's own region.
+        UiEvent::ContextMenu { position }
+            if tree.frame().regions.iter().any(|region| region.id == "channel" && region.rect.contains(position)) =>
+        {
             state.channel_menu_at = Some(position);
             Vec::new()
         }

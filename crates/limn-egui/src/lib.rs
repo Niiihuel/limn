@@ -2056,7 +2056,9 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
 /// Use Ubuntu Regular for UI text. egui's default proportional face is
 /// Ubuntu Light, whose thin strokes read as blurry at small sizes. Call once
 /// when the window is created, before the first frame and [`attach_fonts`];
-/// egui's Unicode, emoji and monospace fallbacks are kept.
+/// egui's Unicode, emoji and monospace fallbacks are kept. Noto Sans Math
+/// follows them for mathematical alphabets in all families, without reading
+/// system fonts. See `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
 pub fn install_fonts(ctx: &egui::Context) {
     let mut fonts = egui::FontDefinitions::default();
     let name = "Ubuntu-Regular".to_owned();
@@ -2064,6 +2066,16 @@ pub fn install_fonts(ctx: &egui::Context) {
         name.clone(),
         egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
     );
+    let math = "NotoSansMath-Regular".to_owned();
+    fonts.font_data.insert(
+        math.clone(),
+        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansMath-Regular.ttf")).into(),
+    );
+    // Append before sharing proportional fallbacks with the weighted families.
+    // Existing glyphs retain their faces, including ordinary monospace text.
+    for family in fonts.families.values_mut() {
+        family.push(math.clone());
+    }
     // The weights are faces of their own, with the same fallbacks behind them.
     let fallbacks = fonts
         .families
@@ -2152,6 +2164,9 @@ pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
         })
     });
 }
+
+#[cfg(test)]
+mod font_tests;
 
 #[cfg(test)]
 mod tests {

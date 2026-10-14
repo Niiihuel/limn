@@ -3,8 +3,9 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
-## Unreleased
+## 0.1.42 — 2026-10-14
 
+- `limn_egui::install_fonts`: bundled Noto Sans Math fallback for mathematical alphabets such as `𝖗𝖚𝖓𝖊` and `𝓡𝓤𝓝𝓔`, in every limn font family. Existing UI faces and egui fallbacks keep their priority. The unmodified font adds about 1 MiB under SIL OFL-1.1; its license and pinned provenance are included. The Text gallery shows synthetic samples
 - `ScrollArea::measured_list` and `Element::measured_list`: a virtualized list of rows of their own heights, such as the messages of a conversation. Rows are built only while in view and measured then; a key per row keeps its height, and holds the row at the top of the viewport still while rows above it are measured, change height or are added. `follow_end` (`Element::list_follow_end`) keeps the end in view as rows arrive while the list is scrolled there. `reveal` and `anchor_offset` reach what the rows in view hold
 - `UiTree::visible_rows(id)`: the rows of a uniform or a measured list built at the last layout
 - `ScalarTransition::shift`: moves a transition's start and end by the same amount, keeping its pace
@@ -16,14 +17,7 @@ in any release.
 - Tabs: `variant(TabsVariant::Underlined)`, text tabs with no track and an underline that slides to the active one over a hairline, the same size as the segmented tabs, with the same actions and keys; `accent` colors the active label and the underline, and `gap` sets the space between tabs
 - Tabs: a disabled tab's label sits at the height of the enabled ones, where it stood higher
 - `Tabs` has public `variant` and `accent` fields; code that builds the struct literally adds `variant: TabsVariant::Segmented, accent: None`
-- DropdownMenu: `DropdownMenuItem::checkbox` and `radio`, items drawn with a box or a circle at the end of the row and told to the platform as a menu's check box or radio item (`Role::MenuItemCheckBox` and `Role::MenuItemRadio`), on or off
-- DropdownMenu: a two-line item lines up with the menu's one-line rows in every style: it is as tall as the menu's `sizing` says and has their sides, icon slot, label size, gap and check and chevron columns, where it had the catalogs' metrics whatever the menu; one with a `description` and a `submenu` ends with a chevron and opens it; a disabled one says why on its second line; and in a menu with no `selected` item it no longer says it is not selected
-- DropdownMenu: a submenu stays open while the pointer or the focus is in a submenu nested in it, and the arrow keys walk in and out of every level; it closed as the pointer went into the nested one. The pointer on another submenu's row closes the ones the keyboard opened, where both stayed open
-- DropdownMenu: `at(point)` opens the menu at a point of the window, as a context menu at the secondary click, with every kind of item; `Element::popover_at` places any popover so
-- A secondary click outside an open popover or menu reports its dismiss ID, as a primary one does; it left the popover open
-
-## 0.1.42 — unreleased
-
+- `Element::wrap` and `Element::line_gap`: a row whose children move onto more lines when they do not fit its width, as tags or role pills do. The row is as tall as its lines; Tab, the pointer and assistive technology find each child where it is, in the order given
 - Switch: `size(ControlSize)`, from 28×16 for `Dense` to 44×24 for `Spacious`; `variant(SwitchVariant::Accent)`, a light thumb on and off over a track of the palette's link color, or of `ink`, darkened where needed until the thumb reads on it at 3:1, as chat applications draw a switch; and `ink` for the track's color while it is on. A switch without them draws what it drew
 - Slider: `marks()` draws a hairline at each stop, up to 100 stops, `mark_labels` names the stops over the track, each on one line, and `default_stop` shows one of them in the ink; the platform is told the label of the stop the value is on
 - RadioOption: `icon`, between the circle and the label
@@ -37,7 +31,11 @@ in any release.
 - `Element::horizontal_gradient` and `vertical_gradient`: evenly spaced colors across an element, its corners rounded
 - Gallery: a field shows the text a slider leads to, as it does after a click
 - Labels: `saturation_brightness`, `hue` and `hex`, what a color picker calls its parts to the platform
-- `Element::wrap` and `Element::line_gap`: a row whose children move onto more lines when they do not fit its width, as tags or role pills do. The row is as tall as its lines; Tab, the pointer and assistive technology find each child where it is, in the order given
+- DropdownMenu: `DropdownMenuItem::checkbox` and `radio`, items drawn with a box or a circle at the end of the row and told to the platform as a menu's check box or radio item (`Role::MenuItemCheckBox` and `Role::MenuItemRadio`), on or off
+- DropdownMenu: a two-line item lines up with the menu's one-line rows in every style: it is as tall as the menu's `sizing` says and has their sides, icon slot, label size, gap and check and chevron columns, where it had the catalogs' metrics whatever the menu; one with a `description` and a `submenu` ends with a chevron and opens it; a disabled one says why on its second line; and in a menu with no `selected` item it no longer says it is not selected
+- DropdownMenu: a submenu stays open while the pointer or the focus is in a submenu nested in it, and the arrow keys walk in and out of every level; it closed as the pointer went into the nested one. The pointer on another submenu's row closes the ones the keyboard opened, where both stayed open
+- DropdownMenu: `at(point)` opens the menu at a point of the window, as a context menu at the secondary click, with every kind of item; `Element::popover_at` places any popover so
+- A secondary click outside an open popover or menu reports its dismiss ID, as a primary one does; it left the popover open
 
 ## 0.1.41 — 2026-10-13
 

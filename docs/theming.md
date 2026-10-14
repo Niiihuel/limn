@@ -141,6 +141,20 @@ Call it once when the window is created. Without it egui's default
 proportional face, Ubuntu Light, is used, whose thin strokes look washed out
 at small sizes.
 
+The installer also keeps egui's fallback faces and appends Noto Sans Math
+3.000 for mathematical alphabets, including names such as `𝖗𝖚𝖓𝖊` and
+`𝓡𝓤𝓝𝓔`. The fallback is shared by regular, italic, medium, bold and
+monospace text. Existing glyphs still come from their original faces;
+missing mathematical glyphs use Noto's own shapes and widths, including
+inside monospace text. `attach_fonts` measures the same fallback that paints.
+
+The bundled font adds about 1 MiB and uses SIL OFL-1.1; its unchanged license,
+version, pinned source and hashes are in
+[`crates/limn-egui/assets/fonts/NOTICE.md`](../crates/limn-egui/assets/fonts/NOTICE.md).
+This is additional mathematical coverage, not general Unicode shaping,
+CJK coverage or color emoji. No fonts are read from the host's system or
+downloaded at runtime.
+
 ## Language
 
 The words the library says by itself, such as the hint of a close button, the

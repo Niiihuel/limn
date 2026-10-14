@@ -1,9 +1,8 @@
 use super::{caption, row, section, Cx, Section};
 use crate::app::State;
 use limn::{
-    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon,
-    PopoverPlacement, RadiusRole, SearchField, Select, SelectVariant, SelectorSizing, Slider,
-    Switch, SwitchVariant, TextArea, TextField, TextRole, UiAction,
+    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
+    SearchField, Select, SelectVariant, SelectorSizing, Slider, Switch, SwitchVariant, TextArea, TextField, TextRole, UiAction,
 };
 
 /// The search fields with a clear button, and the query each starts with.

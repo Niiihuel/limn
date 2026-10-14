@@ -752,15 +752,15 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// Set by [`Element::wrap`]: a row moves children onto more lines.
+    pub(crate) wrap: bool,
+    /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
+    pub(crate) line_gap: Option<f32>,
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
-    /// Set by [`Element::wrap`]: a row moves children onto more lines.
-    pub(crate) wrap: bool,
-    /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
-    pub(crate) line_gap: Option<f32>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
