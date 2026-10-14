@@ -296,11 +296,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             row(
                 [
                     (Icon::Lock, "Lock"),
-                    (Icon::Slash, "Slash"),
+                    (Icon::Neutral, "Neutral"),
                     (Icon::ChevronUp, "ChevronUp"),
-                    (Icon::PersonPlus, "PersonPlus"),
+                    (Icon::Invite, "Invite"),
                     (Icon::Leave, "Leave"),
-                    (Icon::GripVertical, "GripVertical"),
+                    (Icon::DragHandle, "DragHandle"),
                 ]
                 .into_iter()
                 .flat_map(|(icon, name)| [
