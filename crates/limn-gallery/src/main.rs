@@ -161,6 +161,9 @@ impl eframe::App for Host {
                 }
                 // A demo asks for a control to be brought into view.
                 if let UiAction::Clicked { id } = &action {
+                    if id == "clear-image-cache" {
+                        limn_egui::clear_image_cache();
+                    }
                     if let Some(target) = id.strip_prefix("reveal:") {
                         self.tree.reveal(target);
                     }
@@ -175,6 +178,9 @@ impl eframe::App for Host {
         limn_egui::name_window(&ctx, "limn gallery");
         // What a screen reader asked of a control is an action like any other.
         for action in limn_egui::apply_access_requests(&ctx, &mut self.tree) {
+            if matches!(&action, UiAction::Clicked { id } if id == "clear-image-cache") {
+                limn_egui::clear_image_cache();
+            }
             if !glass_drag::handle(&mut self.state, &action, self.tree.frame()) {
                 hot(|| app::update(&mut self.state, &action));
             }

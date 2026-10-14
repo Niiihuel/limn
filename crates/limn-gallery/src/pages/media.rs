@@ -91,6 +91,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Image viewer", vec![
             caption(cx, "Click a picture: the viewer covers the window. Left and Right move through the three, the header zooms, and Esc, the close button or a click outside closes it."),
             row((0..PICTURES.len()).map(thumbnail).collect()),
+            outline("clear-image-cache", "Reload image cache"),
+            caption(cx, "The native host clears cached textures and pending decodes. Visible pictures are requested again on the next paint pass."),
             caption(cx, "Without a picture the viewer waits with a spinner, or shows the error the host gives it."),
             row(vec![
                 outline(&format!("{VIEWER}=loading&{INDEX}=0&{ZOOM}=1"), "Open while loading"),

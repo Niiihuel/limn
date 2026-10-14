@@ -19,6 +19,9 @@ use std::io::Cursor;
 mod glass;
 pub use glass::GlassRenderer;
 
+#[cfg(not(target_arch = "wasm32"))]
+mod image_workers;
+
 /// Colors of the effort slider, the only command without colors of its own.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct EffortPalette {
@@ -176,6 +179,15 @@ pub fn set_image_cache_entries(entries: usize) {
     IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 1024)));
 }
 
+/// Release this UI thread's raster textures and queued image sources, for
+/// example after signing out. Call on the thread that paints the images.
+/// Active native decodes (at most two) may finish, but their results are
+/// discarded. The host must also remove the previous account's image data
+/// from its own UI tree and model before the next paint pass.
+pub fn clear_image_cache() {
+    RASTER_CACHE.with(|cache| cache.borrow_mut().clear());
+}
+
 enum RasterCacheEntry {
     Decoding(std::sync::mpsc::Receiver<Option<egui::ColorImage>>),
     Ready(egui::TextureHandle),
@@ -196,6 +208,21 @@ struct RasterCache {
     context: Option<egui::Context>,
     entries: HashMap<(String, RasterImageFormat, bool), RasterCacheEntry>,
     order: VecDeque<(String, RasterImageFormat, bool)>,
+    generation: std::sync::Arc<()>,
+    #[cfg(not(target_arch = "wasm32"))]
+    workers: Option<image_workers::ImageWorkers>,
+}
+
+impl RasterCache {
+    fn clear(&mut self) {
+        self.generation = std::sync::Arc::new(());
+        self.entries.clear();
+        self.order.clear();
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some(workers) = &self.workers {
+            workers.clear();
+        }
+    }
 }
 
 fn raster_format(format: RasterImageFormat) -> image::ImageFormat {
@@ -264,12 +291,24 @@ fn raster_cache_key(image: &RasterImage) -> (String, RasterImageFormat, bool) {
     )
 }
 
+fn decode_current_image(
+    generation: std::sync::Weak<()>,
+    decode: impl FnOnce() -> Option<egui::ColorImage>,
+    landed: std::sync::mpsc::Sender<Option<egui::ColorImage>>,
+) {
+    if generation.strong_count() != 0 {
+        let bitmap = decode();
+        if generation.strong_count() != 0 {
+            let _ = landed.send(bitmap);
+        }
+    }
+}
+
 fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
     RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
-            cache.entries.clear();
-            cache.order.clear();
+            cache.clear();
             cache.context = Some(ui.ctx().clone());
         }
         let key = raster_cache_key(image);
@@ -301,12 +340,26 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
         // pictures scrolling into view drops a frame for each of them.
         let (landed, decoded) = std::sync::mpsc::channel();
         let (source, ctx) = (image.clone(), ui.ctx().clone());
+        let generation = std::sync::Arc::downgrade(&cache.generation);
         let decode = move || {
-            let _ = landed.send(decode_raster_thumbnail(&source));
+            decode_current_image(generation, || decode_raster_thumbnail(&source), landed);
             ctx.request_repaint();
         };
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(decode);
+        {
+            if cache.workers.is_none() {
+                cache.workers = image_workers::ImageWorkers::new().ok();
+            }
+            let Some(workers) = &cache.workers else {
+                return RasterTexture::Unavailable;
+            };
+            if !workers.submit(image.data_base64().len(), decode) {
+                // A full queue has no entry yet: retry without retaining a
+                // second source. Also wake if all old jobs were just cleared.
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
+                return RasterTexture::Decoding;
+            }
+        }
         // A browser has no thread to give; the image lands on the next frame.
         #[cfg(target_arch = "wasm32")]
         decode();
@@ -2431,6 +2484,39 @@ mod tests {
         };
         assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
         assert_eq!(settled(&broken), RasterTexture::Unavailable);
+        clear_image_cache();
+        RASTER_CACHE.with(|cache| {
+            let cache = cache.borrow();
+            assert!(cache.entries.is_empty());
+            assert!(cache.order.is_empty());
+        });
+        assert_eq!(paint(&image), RasterTexture::Decoding, "cleared textures are not reused");
+        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+    }
+
+    #[test]
+    fn clearing_images_invalidates_queued_and_already_running_results() {
+        let mut cache = RasterCache::default();
+        let old = Arc::downgrade(&cache.generation);
+        cache.clear();
+        let (landed, decoded) = std::sync::mpsc::channel();
+        decode_current_image(old, || panic!("stale source decoded"), landed);
+        assert!(matches!(decoded.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)));
+
+        let running = Arc::downgrade(&cache.generation);
+        let (landed, decoded) = std::sync::mpsc::channel();
+        decode_current_image(running, || {
+            // Model a clear that happens after decoding started, before completion.
+            cache.clear();
+            Some(egui::ColorImage::new([1, 1], vec![Color32::WHITE]))
+        }, landed);
+        assert!(matches!(decoded.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)));
+
+        let (landed, decoded) = std::sync::mpsc::channel();
+        decode_current_image(Arc::downgrade(&cache.generation), || {
+            Some(egui::ColorImage::new([1, 1], vec![Color32::WHITE]))
+        }, landed);
+        assert_eq!(decoded.try_recv().unwrap().unwrap().size, [1, 1]);
     }
 
     #[test]
