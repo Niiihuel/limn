@@ -5,7 +5,7 @@
 use limn::{
     Access, ActionRow, Alert, AlertDialog, Attachment, Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard,
     Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
-    Toolbar, ToolbarItem,
+    Toolbar, ToolbarItem, ControlSize, SwitchVariant,
     Collapsible, Component, ComponentPalette, DatePicker, DictationButton, DictationState, DismissButton,
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
@@ -105,6 +105,14 @@ fn controls() -> Vec<Control> {
             "it",
             || Switch::new("it", true, palette()).accessibility_label("Wi-Fi").render(),
             || Switch::new("it", true, palette()).accessibility_label("Wi-Fi").disabled().render(),
+        ),
+        control(
+            "Switch, spacious on the accent",
+            "it",
+            || Switch::new("it", true, palette()).size(ControlSize::Spacious).variant(SwitchVariant::Accent).accessibility_label("Wi-Fi").render(),
+            || {
+                Switch::new("it", true, palette()).size(ControlSize::Spacious).variant(SwitchVariant::Accent).accessibility_label("Wi-Fi").disabled().render()
+            },
         ),
         control(
             "Accordion header",

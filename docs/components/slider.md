@@ -42,13 +42,36 @@ Slider::new("quality", state.quality, palette).steps(5).render()
 With `steps(n)` the slider rests on one of `n` evenly spaced stops, the ends
 included. Below two it is continuous, which is the default.
 
+## Marks and labels
+
+```rust
+Slider::new("font-size", state.font_size, palette)
+    .steps(7)
+    .mark_labels(["12px", "14px", "15px", "16px", "18px", "20px", "24px"])
+    .default_stop(3)
+    .render()
+```
+
+`marks()` draws a hairline across the track at each stop, behind the thumb,
+in the palette's border color. `mark_labels` names the stops from the first,
+in 12 pixel muted text over the track, and draws the marks too. The labels at
+the ends line up with the ends of the slider; the others center on their
+stop. Labels past the last stop are ignored, and an empty one leaves its stop
+unnamed.
+
+`default_stop(i)` shows the label of stop `i`, counted from 0, in the
+slider's ink: the value the setting has until it is changed.
+
+Without `steps` of 2 or more there are no stops, so neither marks nor labels.
+
 ## Ink
 
 ```rust
 Slider::new("seek", state.position, palette).ink(accent).render()
 ```
 
-`ink` colors the filled part and the thumb, in place of the palette's text.
+`ink` colors the filled part, the thumb and the default stop's label, in place
+of the palette's text.
 
 ## Disabled
 
@@ -56,7 +79,8 @@ Slider::new("seek", state.position, palette).ink(accent).render()
 Slider::new("volume", state.volume, palette).enabled(false).render()
 ```
 
-A disabled slider shows its value and takes no pointer or focus.
+A disabled slider shows its value and takes no pointer or focus. Its fill,
+its thumb and every label are in the muted color.
 
 ## Keyboard
 
@@ -80,3 +104,12 @@ not. A slider shows no text, so the host names it, or puts it in a
 ```rust
 Slider::new("volume", volume, palette).accessibility_label("Volume")
 ```
+
+A slider with labels says the label of the stop its value is on, or the
+nearest one during a drag, as its value in words: "16px".
+
+## Limits
+
+Labels do not move apart when they are too wide for their stops: in a narrow
+slider with long labels, neighbours overlap. Give it the width its labels
+need.

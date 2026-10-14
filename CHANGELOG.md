@@ -3,6 +3,12 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## 0.1.42 — unreleased
+
+- Switch: `size(ControlSize)`, from 28×16 for `Dense` to 44×24 for `Spacious`; `variant(SwitchVariant::Accent)`, a light thumb on and off over a track of the palette's link color, or of `ink`, as chat applications draw a switch; and `ink` for the track's color while it is on. A switch without them draws what it drew
+- Slider: `marks()` draws a hairline at each stop, `mark_labels` names the stops over the track and `default_stop` shows one of them in the ink; the platform is told the label of the stop the value is on
+- RadioOption: `icon`, between the circle and the label
+
 ## 0.1.41 — 2026-10-13
 
 - New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)

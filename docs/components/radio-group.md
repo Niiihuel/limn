@@ -59,6 +59,16 @@ RadioOption::new("plan:team", "Team").description("Unlimited projects, ten seats
 A muted line under the label. It is clicked with the label, and the circle
 stays centered on the label.
 
+## Icon
+
+```rust
+RadioOption::new("kind:text", "Text").icon(Icon::Hash).description("Messages, images and links.")
+```
+
+The icon stands between the circle and the label, in the label's color and
+at the 16 pixels of every icon in a control. It is clicked with the label, and
+a description starts under the label, past the icon.
+
 ## Horizontal
 
 ```rust

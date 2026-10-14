@@ -1,11 +1,16 @@
 //! A value dragged along a track: a seek position, a volume, any share of a range.
 
-use crate::{Access, Color, Component, ComponentPalette, CornerRadii, Element, Role};
+use crate::{Access, Color, Component, ComponentPalette, CornerRadii, Element, FontFamily, Role};
 
 /// Height of the pointer target. The track is thinner and centered in it.
 const HEIGHT: f32 = 16.0;
 const TRACK: f32 = 4.0;
 const THUMB: f32 = 12.0;
+/// A mark is a hairline as tall as the thumb.
+const MARK: f32 = 1.0;
+/// The text size of a stop's label, and the space between the labels and the track.
+const LABEL_SIZE: f32 = 12.0;
+const LABEL_GAP: f32 = 4.0;
 
 /// The host owns the value: it passes `fraction` on every rebuild and applies
 /// each `SliderChanged`. `committed` is false while the pointer is down and
@@ -21,6 +26,9 @@ pub struct Slider {
     enabled: bool,
     ink: Option<Color>,
     accessibility_label: Option<String>,
+    marks: bool,
+    labels: Vec<String>,
+    default_stop: Option<usize>,
 }
 
 impl Slider {
@@ -35,6 +43,9 @@ impl Slider {
             enabled: true,
             ink: None,
             accessibility_label: None,
+            marks: false,
+            labels: Vec::new(),
+            default_stop: None,
         }
     }
 
@@ -75,6 +86,36 @@ impl Slider {
     /// Color of the filled part and the thumb, in place of `palette.text`.
     pub fn ink(mut self, color: Color) -> Self {
         self.ink = Some(color);
+        self
+    }
+
+    /// Draw a mark across the track at each stop, behind the thumb, in the
+    /// palette's border color. Without `steps` of 2 or more there are no
+    /// stops, so no marks.
+    pub fn marks(mut self) -> Self {
+        self.marks = true;
+        self
+    }
+
+    /// Name the stops, from the first: a label in the muted color over each,
+    /// which also draws the marks. The labels at the ends line up with the
+    /// ends of the slider, the others center on their stop. Labels past the
+    /// last stop are ignored and an empty one leaves its stop unnamed. The
+    /// platform is told the label of the stop the value is on.
+    pub fn mark_labels<I, S>(mut self, labels: I) -> Self
+    where
+        I: IntoIterator<Item = S>,
+        S: Into<String>,
+    {
+        self.labels = labels.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Show the label of this stop, counted from 0, in the ink instead of the
+    /// muted color: the value a setting has until it is changed. A stop past
+    /// the last, or one without a label, highlights nothing.
+    pub fn default_stop(mut self, index: usize) -> Self {
+        self.default_stop = Some(index);
         self
     }
 }
@@ -122,7 +163,29 @@ impl Component for Slider {
                 CornerRadii { top_left: 0.0, bottom_left: 0.0, top_right: round, bottom_right: round },
             ));
         }
-        let track = Element::row(pieces).size(self.width, Some(HEIGHT));
+        let mut track = Element::row(pieces).size(self.width, Some(HEIGHT));
+        let stops = if self.steps >= 2 { self.steps } else { 0 };
+        let mut labels = self.labels;
+        labels.truncate(stops);
+        if stops > 0 && (self.marks || !labels.is_empty()) {
+            // Each mark's center is a stop: half a thumb in from the ends,
+            // with even shares of the rest between them.
+            let edge = || Element::spacer().size(Some((THUMB - MARK) / 2.0), None);
+            let mut marks = vec![edge()];
+            for stop in 0..stops {
+                if stop > 0 {
+                    marks.push(Element::spacer().flex(1.0));
+                }
+                marks.push(
+                    Element::panel(Element::spacer())
+                        .background(self.palette.border)
+                        .size(Some(MARK), Some(THUMB))
+                        .centered_y(),
+                );
+            }
+            marks.push(edge());
+            track = Element::stack(vec![Element::row(marks), track]).size(self.width, Some(HEIGHT));
+        }
         // Drawn disabled it is passive, and known by the ID it would have had.
         let mut access = Access::new(Role::Slider)
             .id(self.id.clone())
@@ -131,13 +194,48 @@ impl Component for Slider {
         if let Some(name) = self.accessibility_label {
             access = access.name(name);
         }
-        if !self.enabled {
-            return Element::panel(track).size(self.width, Some(HEIGHT)).accessible(access);
+        let last = stops.saturating_sub(1);
+        if let Some(label) = labels.get((self.fraction * last as f32).round() as usize).filter(|label| !label.is_empty()) {
+            access = access.value_text(label.clone());
         }
-        Element::clickable(self.id, track)
-            .slider(self.fraction, self.steps, THUMB / 2.0)
-            .size(self.width, Some(HEIGHT))
-            .accessible(access)
+        let slider = if self.enabled {
+            Element::clickable(self.id, track).slider(self.fraction, self.steps, THUMB / 2.0)
+        } else {
+            Element::panel(track)
+        }
+        .size(self.width, Some(HEIGHT))
+        .accessible(access);
+        // Each label is a layer of its own, so a long one may reach past its
+        // neighbours' share without moving them.
+        let layers: Vec<Element> = labels
+            .into_iter()
+            .enumerate()
+            .filter(|(_, label)| !label.is_empty())
+            .map(|(stop, label)| {
+                let text = Element::text(label)
+                    .font_family(FontFamily::Sans)
+                    .font_size(LABEL_SIZE)
+                    .foreground(if self.default_stop == Some(stop) { ink } else { self.palette.muted });
+                let share = |stops: usize| Element::spacer().flex(stops as f32);
+                let edge = || Element::spacer().size(Some(THUMB / 2.0), None);
+                match stop {
+                    0 => Element::row(vec![text, share(1)]),
+                    _ if stop == last => Element::row(vec![share(1), text]),
+                    // Two stops wide, centered on its own.
+                    _ => Element::row(vec![
+                        edge(),
+                        share(stop - 1),
+                        text.center_content().flex(2.0),
+                        share(last - stop - 1),
+                        edge(),
+                    ]),
+                }
+            })
+            .collect();
+        if layers.is_empty() {
+            return slider;
+        }
+        Element::column(vec![Element::stack(layers), slider]).gap(LABEL_GAP).size(self.width, None)
     }
 }
 
@@ -274,6 +372,173 @@ mod tests {
         }
         let bare = tree(Slider::new("s", 0.4, palette)).layout(Size::new(400.0, HEIGHT));
         assert_eq!(bare.access[0].name, "", "nothing names it until the host does");
+    }
+
+    const SIZES: [&str; 5] = ["12px", "14px", "16px", "20px", "24px"];
+    /// Width of a character under the measurer `frame_of` sets.
+    const CHAR: f32 = 7.0;
+
+    /// Five named stops, the middle one the default, at the test width.
+    fn named(fraction: f32) -> Slider {
+        Slider::new("s", fraction, ComponentPalette::neutral_dark())
+            .width(WIDTH)
+            .steps(5)
+            .mark_labels(SIZES)
+            .default_stop(2)
+    }
+
+    /// A frame of the slider at the left of a window tall enough for its labels.
+    fn frame_of(slider: Slider) -> crate::Frame {
+        let mut tree = UiTree::new(Element::row(vec![slider.render(), Element::spacer().flex(1.0)]));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * CHAR);
+        tree.layout(Size::new(400.0, 100.0))
+    }
+
+    /// Where each stop is along a slider this wide.
+    fn stop_center(width: f32, stop: usize, stops: usize) -> f32 {
+        THUMB / 2.0 + (width - THUMB) * stop as f32 / (stops - 1) as f32
+    }
+
+    /// Every hairline mark of the frame, in paint order, with its place among all the commands.
+    fn marks(frame: &crate::Frame) -> Vec<(usize, crate::Rect, Color)> {
+        frame
+            .commands
+            .iter()
+            .enumerate()
+            .filter_map(|(index, command)| match command {
+                DrawCommand::FillRect { rect, color, .. } if rect.width == MARK => Some((index, *rect, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Every text of the frame, with where it starts and its color.
+    fn labels(frame: &crate::Frame) -> Vec<(&str, Point, Color)> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, position, color, .. } => Some((text.as_str(), *position, *color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn marks_stand_on_every_stop_behind_the_thumb_in_the_border_color() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = frame_of(Slider::new("s", 0.5, palette).width(WIDTH).steps(5).marks());
+        let drawn = marks(&frame);
+        assert_eq!(drawn.len(), 5);
+        let thumb = frame
+            .commands
+            .iter()
+            .position(|command| matches!(command, DrawCommand::FillRect { rect, .. } if rect.width == THUMB))
+            .expect("a thumb");
+        for (stop, (index, rect, color)) in drawn.into_iter().enumerate() {
+            assert!((rect.x + MARK / 2.0 - stop_center(WIDTH, stop, 5)).abs() < 0.01, "stop {stop} at {rect:?}");
+            assert_eq!((rect.height, rect.y + rect.height / 2.0, color), (THUMB, HEIGHT / 2.0, palette.border));
+            assert!(index < thumb, "the thumb covers the mark it rests on");
+        }
+        // A slider that fills its row puts them on its own stops.
+        let frame = frame_of(Slider::new("s", 0.5, palette).steps(3).marks());
+        let width = frame.regions[0].rect.width;
+        let centers: Vec<_> = marks(&frame).iter().map(|mark| mark.1.x + MARK / 2.0).collect();
+        assert_eq!(centers, [0, 1, 2].map(|stop| stop_center(width, stop, 3)));
+    }
+
+    #[test]
+    fn without_stops_there_are_no_marks_and_the_thumb_stays_where_it_was() {
+        let palette = ComponentPalette::neutral_dark();
+        for steps in [0, 1] {
+            let frame = frame_of(Slider::new("s", 0.5, palette).width(WIDTH).steps(steps).marks().mark_labels(["a", "b"]));
+            assert!(marks(&frame).is_empty() && labels(&frame).is_empty(), "steps {steps}");
+        }
+        let marked = Slider::new("s", 0.25, palette).width(WIDTH).steps(5).marks();
+        let thumb = frame_of(marked)
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, .. } if rect.width == THUMB => Some(rect.x + THUMB / 2.0),
+                _ => None,
+            })
+            .unwrap();
+        assert!((thumb - thumb_center(0.25)).abs() < 0.01);
+    }
+
+    #[test]
+    fn labels_stand_over_their_stops_the_ends_flush_with_the_slider_and_the_default_in_the_ink() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = frame_of(named(0.5));
+        let drawn = labels(&frame);
+        assert_eq!(drawn.iter().map(|label| label.0).collect::<Vec<_>>(), SIZES);
+        assert_eq!(marks(&frame).len(), 5, "labels draw the marks");
+        let width = |text: &str| text.chars().count() as f32 * CHAR;
+        assert_eq!(drawn[0].1.x, 0.0);
+        assert_eq!(drawn[4].1.x + width(drawn[4].0), WIDTH);
+        for (stop, &(text, at, _)) in drawn.iter().enumerate().take(4).skip(1) {
+            assert!((at.x + width(text) / 2.0 - stop_center(WIDTH, stop, 5)).abs() < 0.01, "{text} at {at:?}");
+        }
+        let colors: Vec<_> = drawn.iter().map(|label| label.2).collect();
+        let muted = palette.muted;
+        assert_eq!(colors, [muted, muted, palette.text, muted, muted]);
+        // The track is under them, the gap apart, and is the only thing the pointer finds.
+        let [region] = frame.regions.as_slice() else { panic!("one region, got {:?}", frame.regions) };
+        assert!(drawn.iter().all(|label| label.1.y < region.rect.y));
+        assert_eq!((region.rect.width, region.rect.height), (WIDTH, HEIGHT));
+        // An ink of the host's colors the default; disabled, every label is muted.
+        let ink = Color::rgb(224, 164, 60);
+        assert_eq!(labels(&frame_of(named(0.5).ink(ink)))[2].2, ink);
+        assert!(labels(&frame_of(named(0.5).disabled())).iter().all(|label| label.2 == muted));
+    }
+
+    #[test]
+    fn labels_past_the_last_stop_are_ignored_and_an_empty_label_or_a_stop_past_the_last_names_nothing() {
+        let palette = ComponentPalette::neutral_dark();
+        let slider = Slider::new("s", 0.0, palette).width(WIDTH).steps(3).mark_labels(["low", "", "high", "more"]).default_stop(7);
+        let frame = frame_of(slider);
+        let drawn = labels(&frame);
+        assert_eq!(drawn.iter().map(|label| label.0).collect::<Vec<_>>(), ["low", "high"]);
+        assert!(drawn.iter().all(|label| label.2 == palette.muted));
+        assert_eq!(marks(&frame).len(), 3);
+    }
+
+    #[test]
+    fn a_labelled_slider_is_dragged_on_its_track_and_its_labels_take_no_pointer() {
+        let mut tree = UiTree::new(Element::row(vec![named(0.0).render(), Element::spacer().flex(1.0)]));
+        let frame = tree.layout(Size::new(400.0, 100.0));
+        let track = frame.regions[0].rect;
+        let label = labels(&frame)[3].1;
+        assert!(tree.handle_event(UiEvent::PointerDown(Point::new(label.x + 2.0, label.y + 2.0))).is_empty());
+        let stop = Point::new(track.x + stop_center(WIDTH, 3, 5), track.y + HEIGHT / 2.0);
+        tree.handle_event(UiEvent::PointerDown(stop));
+        let (fraction, committed) = changed(&tree.handle_event(UiEvent::PointerUp(stop)));
+        assert!((fraction - 0.75).abs() < 0.001 && committed);
+    }
+
+    #[test]
+    fn the_platform_is_told_the_label_of_the_stop_the_value_is_on() {
+        let said = |slider: Slider| {
+            let frame = frame_of(slider);
+            frame.access.iter().find(|node| node.id == "s").expect("a node").value_text.clone()
+        };
+        assert_eq!(said(named(0.5)).as_deref(), Some("16px"));
+        // A drag between stops is told the nearest.
+        assert_eq!(said(named(0.8)).as_deref(), Some("20px"));
+        let palette = ComponentPalette::neutral_dark();
+        assert_eq!(said(Slider::new("s", 0.5, palette).steps(3).mark_labels(["low", "", "high"])), None);
+    }
+
+    #[test]
+    fn in_a_narrow_slider_the_labels_stay_inside_it() {
+        let palette = ComponentPalette::neutral_dark();
+        let slider = Slider::new("s", 0.5, palette).width(60.0).steps(3).mark_labels(["Small", "Medium", "Large"]);
+        let frame = frame_of(slider);
+        let drawn = labels(&frame);
+        assert_eq!(drawn.len(), 3);
+        for (text, at, _) in drawn {
+            assert!(at.x >= 0.0 && at.x + text.chars().count() as f32 * CHAR <= 60.0, "{text} at {at:?}");
+        }
     }
 
     #[test]

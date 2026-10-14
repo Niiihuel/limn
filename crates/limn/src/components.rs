@@ -2027,6 +2027,21 @@ impl Component for SearchField {
     }
 }
 
+/// How a [`Switch`] paints its track and its thumb.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SwitchVariant {
+    /// On, a thumb of the palette's surface on a track of its text, or of
+    /// `ink`; off, a thumb of the palette's text on its selected fill.
+    #[default]
+    Default,
+    /// A thumb of the palette's lightest color, the text of a dark palette
+    /// and the surface of a light one, on and off: on a track of the ink,
+    /// which is the palette's `link` color unless `ink` says otherwise, and
+    /// off on the palette's muted color. This is how chat applications draw
+    /// a switch.
+    Accent,
+}
+
 /// A caller-controlled switch with a single focusable target. The thumb is
 /// painted inside its track and moves only when the caller passes a new
 /// `checked` value after receiving `UiAction::Clicked`.
@@ -2036,6 +2051,9 @@ pub struct Switch {
     state: ControlState,
     palette: ComponentPalette,
     accessibility_label: Option<String>,
+    size: ControlSize,
+    variant: SwitchVariant,
+    ink: Option<Color>,
 }
 
 impl Switch {
@@ -2048,7 +2066,32 @@ impl Switch {
             state: ControlState::Enabled,
             palette,
             accessibility_label: None,
+            size: ControlSize::Regular,
+            variant: SwitchVariant::Default,
+            ink: None,
         }
+    }
+
+    /// The track's width and height and the thumb's side: 28, 16 and 10
+    /// pixels for `Dense`, 32, 18 and 12 for `Compact`, 36, 20 and 14 for
+    /// `Regular`, which is the switch without a size, and 44, 24 and 18 for
+    /// `Spacious`. The thumb is always 3 pixels inside the track.
+    pub fn size(mut self, size: ControlSize) -> Self {
+        self.size = size;
+        self
+    }
+
+    /// How the track and the thumb are painted; see [`SwitchVariant`].
+    pub fn variant(mut self, variant: SwitchVariant) -> Self {
+        self.variant = variant;
+        self
+    }
+
+    /// The track's color while the switch is on, in place of the palette's
+    /// text, or of its `link` color for `SwitchVariant::Accent`.
+    pub fn ink(mut self, color: Color) -> Self {
+        self.ink = Some(color);
+        self
     }
 
     /// What the switch is called to the platform. It shows no text of its
@@ -2078,30 +2121,33 @@ impl Switch {
 
 impl Component for Switch {
     fn render(self) -> Element {
-        const TRACK_WIDTH: f32 = 36.0;
-        const TRACK_HEIGHT: f32 = 20.0;
-        const THUMB: f32 = 14.0;
-        let thumb_color = if self.checked {
-            self.palette.surface
-        } else {
-            self.palette.text
+        const INSET: f32 = 3.0;
+        let (track_width, track_height, thumb) = match self.size {
+            ControlSize::Dense => (28.0, 16.0, 10.0),
+            ControlSize::Compact => (32.0, 18.0, 12.0),
+            ControlSize::Regular => (36.0, 20.0, 14.0),
+            ControlSize::Spacious => (44.0, 24.0, 18.0),
         };
-        let track_color = if self.checked {
-            self.palette.text
-        } else {
-            self.palette.selected
+        let palette = self.palette;
+        let (thumb_color, track_color) = match (self.variant, self.checked) {
+            (SwitchVariant::Default, true) => (palette.surface, self.ink.unwrap_or(palette.text)),
+            (SwitchVariant::Default, false) => (palette.text, palette.selected),
+            (SwitchVariant::Accent, checked) => {
+                let light = if palette.is_dark() { palette.text } else { palette.surface };
+                (light, if checked { self.ink.unwrap_or_else(|| palette.link()) } else { palette.muted })
+            }
         };
         // The thumb is the strip's selection indicator: it slides between the
         // two slots when `checked` changes and keeps its place across rebuilds.
         let slot = |name: &str| {
             Element::spacer()
-                .size(Some(THUMB), Some(THUMB))
+                .size(Some(thumb), Some(thumb))
                 .indicator_slot(name)
         };
         let contents = Element::tab_strip(
             vec![
                 slot("off"),
-                Element::spacer().size(Some(TRACK_WIDTH - THUMB * 2.0 - 6.0), Some(THUMB)),
+                Element::spacer().size(Some(track_width - thumb * 2.0 - INSET * 2.0), Some(thumb)),
                 slot("on"),
             ],
             Vec::new(),
@@ -2110,7 +2156,7 @@ impl Component for Switch {
             format!("{}:thumb", self.action_id),
             if self.checked { "on" } else { "off" },
             thumb_color,
-            THUMB / 2.0,
+            thumb / 2.0,
             crate::tokens().motion.move_ms,
         );
         let enabled = self.state == ControlState::Enabled;
@@ -2132,9 +2178,9 @@ impl Component for Switch {
         };
         track
             .background(track_color)
-            .padding(3.0)
-            .radius(TRACK_HEIGHT / 2.0)
-            .size(Some(TRACK_WIDTH), Some(TRACK_HEIGHT))
+            .padding(INSET)
+            .radius(track_height / 2.0)
+            .size(Some(track_width), Some(track_height))
             .accessible(access)
     }
 }
@@ -4901,6 +4947,83 @@ mod tests {
         );
         let disabled = tree.layout(Size::new(36.0, 20.0));
         assert!(disabled.regions.is_empty());
+    }
+
+    /// A switch at its own size, settled: its track's rectangle and color,
+    /// then its thumb's.
+    fn switch_paint(switch: Switch) -> ((crate::Rect, Color), (crate::Rect, Color)) {
+        let mut tree = UiTree::new(Element::row(vec![switch.render(), Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(200.0, 40.0));
+        let fills: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, radius } => Some((*rect, *color, *radius)),
+                _ => None,
+            })
+            .collect();
+        // The track is the pill the others stand in; the thumb is the circle inside it.
+        let [(track, track_color, _), (thumb, thumb_color, thumb_radius)] = fills.as_slice() else {
+            panic!("a track and a thumb, got {fills:?}");
+        };
+        assert_eq!(*thumb_radius, thumb.width / 2.0);
+        ((*track, *track_color), (*thumb, *thumb_color))
+    }
+
+    #[test]
+    fn a_switch_size_sets_its_track_and_its_thumb_three_pixels_inside_it() {
+        let palette = ComponentPalette::neutral_dark();
+        for (size, width, height, side) in [
+            (ControlSize::Dense, 28.0, 16.0, 10.0),
+            (ControlSize::Compact, 32.0, 18.0, 12.0),
+            (ControlSize::Regular, 36.0, 20.0, 14.0),
+            (ControlSize::Spacious, 44.0, 24.0, 18.0),
+        ] {
+            for checked in [false, true] {
+                let ((track, _), (thumb, _)) = switch_paint(Switch::new("s", checked, palette).size(size));
+                assert_eq!((track.width, track.height), (width, height), "{size:?}");
+                assert_eq!((thumb.width, thumb.height), (side, side), "{size:?}");
+                let x = if checked { width - 3.0 - side } else { 3.0 };
+                assert_eq!((thumb.x - track.x, thumb.y - track.y), (x, 3.0), "{size:?}, checked {checked}");
+            }
+        }
+        // Without a size it is the regular one.
+        assert_eq!(switch_paint(Switch::new("s", true, palette)).0 .0.width, 36.0);
+    }
+
+    #[test]
+    fn the_accent_variant_keeps_a_light_thumb_on_the_link_color_or_the_ink_and_on_the_muted_color_off() {
+        let dark = ComponentPalette::neutral_dark();
+        let light = ComponentPalette {
+            surface: Color::rgb(255, 255, 255),
+            raised: Color::rgb(250, 250, 250),
+            hover: Color::rgb(235, 235, 235),
+            selected: Color::rgb(220, 220, 220),
+            border: Color::rgb(205, 205, 205),
+            text: Color::rgb(32, 32, 32),
+            muted: Color::rgb(100, 100, 100),
+            shadow: Color::rgba(0, 0, 0, 40),
+        };
+        let ink = Color::rgb(88, 101, 242);
+        // The thumb is the palette's lightest color: its text on a dark one, its surface on a light one.
+        for (palette, thumb) in [(dark, dark.text), (light, light.surface)] {
+            let accent = |checked| Switch::new("s", checked, palette).variant(SwitchVariant::Accent);
+            let paint = |switch: Switch| {
+                let ((_, track), (_, thumb)) = switch_paint(switch);
+                (track, thumb)
+            };
+            assert_eq!(paint(accent(true)), (palette.link(), thumb));
+            assert_eq!(paint(accent(true).ink(ink)), (ink, thumb));
+            assert_eq!(paint(accent(false).ink(ink)), (palette.muted, thumb));
+            assert_eq!(paint(accent(true).disabled()), (palette.link(), thumb), "disabled, it keeps its paint");
+        }
+        // The default variant takes the ink for its track and keeps its own thumb.
+        let paint = |checked| {
+            let ((_, track), (_, thumb)) = switch_paint(Switch::new("s", checked, dark).ink(ink));
+            (track, thumb)
+        };
+        assert_eq!((paint(true), paint(false)), ((ink, dark.surface), (dark.selected, dark.text)));
     }
 
     #[test]

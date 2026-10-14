@@ -1,5 +1,5 @@
 use super::{caption, section, Cx, Section};
-use limn::{Component, ControlSize, Element, RadioGroup, RadioOption};
+use limn::{Component, ControlSize, Element, Icon, RadioGroup, RadioOption};
 
 const THEMES: [(&str, &str); 3] = [("light", "Light"), ("dark", "Dark"), ("system", "Match the system")];
 const PLANS: [(&str, &str, &str); 3] = [
@@ -39,6 +39,21 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Descriptions", vec![
             group(cx, "radio-plan", "Plan", plans("radio-plan"), "team").render(),
             caption(cx, "The description is clicked with its label."),
+        ]),
+        section(cx, "Icons", vec![
+            group(
+                cx,
+                "radio-kind",
+                "Channel type",
+                vec![
+                    RadioOption::new("radio-kind=text", "Text").icon(Icon::Hash).description("Messages, images and links."),
+                    RadioOption::new("radio-kind=voice", "Voice").icon(Icon::Volume).description("Talk with whoever is in the room."),
+                    RadioOption::new("radio-kind=forum", "Forum").icon(Icon::Chat).description("Threads around a topic.").disabled(),
+                ],
+                "text",
+            )
+            .render(),
+            caption(cx, ".icon(Icon) stands between the circle and the label, in the label's color; Forum is disabled."),
         ]),
         section(cx, "Horizontal", vec![
             group(cx, "radio-row", "Theme", themes("radio-row"), "light").horizontal().render(),
