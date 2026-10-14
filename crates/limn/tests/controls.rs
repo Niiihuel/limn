@@ -3,7 +3,8 @@
 //! and stays where it was. A control that joins the library joins the table.
 
 use limn::{
-    Access, ActionRow, Alert, AlertDialog, Attachment, Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Clipboard,
+    Access, ActionRow, Alert, AlertDialog, Attachment, Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard,
+    NumberInput, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
     Collapsible, Component, ComponentPalette, DatePicker, DictationButton, DictationState, DismissButton,
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
@@ -103,6 +104,42 @@ fn controls() -> Vec<Control> {
             "it",
             || Switch::new("it", true, palette()).accessibility_label("Wi-Fi").render(),
             || Switch::new("it", true, palette()).accessibility_label("Wi-Fi").disabled().render(),
+        ),
+        control(
+            "Checkbox",
+            "it",
+            || Checkbox::new("it", true, palette()).label("Remember me").render(),
+            || Checkbox::new("it", true, palette()).label("Remember me").disabled().render(),
+        ),
+        control(
+            "RadioGroup option",
+            "it",
+            || RadioGroup::new("plan", vec![RadioOption::new("it", "Team"), RadioOption::new("other", "Free")], Some("other"), palette()).render(),
+            || {
+                RadioGroup::new("plan", vec![RadioOption::new("it", "Team").disabled(), RadioOption::new("other", "Free")], Some("other"), palette())
+                    .render()
+            },
+        ),
+        control(
+            "Toggle",
+            "it",
+            || Toggle::new("it", "Bold", true, palette()).render(),
+            || Toggle::new("it", "Bold", true, palette()).disabled().render(),
+        ),
+        control(
+            "ToggleGroup item",
+            "it",
+            || ToggleGroup::new("style", vec![ToggleItem::new("it", "Bold", false), ToggleItem::new("other", "Italic", true)], palette()).render(),
+            || {
+                ToggleGroup::new("style", vec![ToggleItem::new("it", "Bold", false).disabled(), ToggleItem::new("other", "Italic", true)], palette())
+                    .render()
+            },
+        ),
+        control(
+            "NumberInput increment",
+            "count:increment",
+            || NumberInput::new("count", "3", palette()).render(),
+            || NumberInput::new("count", "3", palette()).disabled().render(),
         ),
         control(
             "ListRow",

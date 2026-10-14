@@ -1183,6 +1183,9 @@ pub enum ElementKind {
         action_ids: Vec<String>,
         /// The sliding selection surface; set by [`Element::tab_selection`].
         selection: Option<TabSelection>,
+        /// True when Up and Down step it as Left and Right do; set by
+        /// [`Element::every_arrow`].
+        every_arrow: bool,
     },
     /// A box around one child, placed inside this element's padding; see
     /// [`Element::panel`].
@@ -1817,7 +1820,18 @@ impl Element {
             children,
             action_ids,
             selection: None,
+            every_arrow: false,
         })
+    }
+
+    /// Let Up and Down step a tab strip as Left and Right do, whichever way
+    /// it is laid out: what a group of choices does, where a strip of tabs
+    /// leaves Up and Down to the page.
+    pub fn every_arrow(mut self) -> Self {
+        if let ElementKind::TabStrip { every_arrow, .. } = &mut self.kind {
+            *every_arrow = true;
+        }
+        self
     }
 
     /// Animate one tab's selected surface to another without changing either

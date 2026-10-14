@@ -111,10 +111,12 @@ impl Component for Checkbox {
         // lights the empty box while the pointer is anywhere on the target.
         let square = Element::panel(mark)
             .background(fill)
-            .hover_background(if filled { fill } else { palette.hover })
+            // A filled box gives a little under the pointer, as a default button does.
+            .hover_background(if filled { Color { a: (f32::from(fill.a) * 0.86) as u8, ..fill } } else { palette.hover })
             .hover_surface(format!("{}:box", self.id), self.enabled.then_some(self.id.as_str()))
             .transition_ms(crate::tokens().motion.hover_ms)
-            .border(palette.border, border)
+            // In the muted ink: the palette's border is a hairline, too faint for an empty box to be found by.
+            .border(palette.muted, border)
             .radius(crate::tokens().radius.control)
             .size(Some(side), Some(side));
         // Centered on the first line, not on the whole of a wrapped label.
@@ -126,6 +128,7 @@ impl Component for Checkbox {
         let mut access = Access::new(Role::CheckBox)
             .id(self.id.clone())
             .toggled(self.checked && !self.indeterminate)
+            .mixed(self.indeterminate)
             .disabled(!self.enabled);
         if let Some(name) = name {
             access = access.name(name);
@@ -242,7 +245,7 @@ mod tests {
 
         let frame = tree_of(Checkbox::new("box", false, palette())).layout(window());
         let (empty, fill, edge) = square(&frame);
-        assert_eq!((empty, fill.a, edge), (rect, 0, Some(palette().border)));
+        assert_eq!((empty, fill.a, edge), (rect, 0, Some(palette().muted)));
         assert_eq!(mark(&frame), None);
     }
 
@@ -325,7 +328,7 @@ mod tests {
             if checked {
                 assert_eq!((fill, edge), (palette().muted, None));
             } else {
-                assert_eq!((fill.a, edge), (0, Some(palette().border)));
+                assert_eq!((fill.a, edge), (0, Some(palette().muted)));
             }
             assert_eq!(lines(&frame)[0].2, palette().muted);
             // The same rectangles as enabled, so a form does not move.

@@ -89,6 +89,7 @@ pub struct Access {
     pub(crate) description: Option<String>,
     pub(crate) disabled: bool,
     pub(crate) toggled: Option<bool>,
+    pub(crate) mixed: bool,
     pub(crate) selected: Option<bool>,
     pub(crate) expanded: Option<bool>,
     pub(crate) value: Option<f32>,
@@ -146,6 +147,13 @@ impl Access {
         self
     }
 
+    /// Neither on nor off: a check box over a list of which only part is
+    /// chosen. It is said in place of `toggled`.
+    pub fn mixed(mut self, mixed: bool) -> Self {
+        self.mixed = mixed;
+        self
+    }
+
     /// Whether it is the chosen one of several: a tab, a row, an option.
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = Some(selected);
@@ -181,6 +189,7 @@ impl Access {
             description: self.description.or(under.description),
             disabled: self.disabled || under.disabled,
             toggled: self.toggled.or(under.toggled),
+            mixed: self.mixed || under.mixed,
             selected: self.selected.or(under.selected),
             expanded: self.expanded.or(under.expanded),
             value: self.value.or(under.value),
@@ -210,6 +219,8 @@ pub struct AccessNode {
     pub disabled: bool,
     /// Whether a switch or a check box is on. `None` for what is not toggled.
     pub toggled: Option<bool>,
+    /// True for a check box that is neither on nor off: part of what it stands for is chosen.
+    pub mixed: bool,
     /// Whether it is the chosen one of several. `None` for what is not one of several.
     pub selected: Option<bool>,
     /// Whether what it opens is open. `None` for what opens nothing.

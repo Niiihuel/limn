@@ -110,10 +110,8 @@ moves: a disabled option is laid out as an enabled one.
 | --- | --- |
 | Tab, Shift+Tab | Move the focus to the next or the previous option; every enabled option is a stop. |
 | Enter, Space | Choose the focused option. |
-| Left, Right | Move the focus to the previous or the next enabled option and choose it, going round at the ends. In a vertical group too. |
+| Up, Left, Down, Right | Move the focus to the previous or the next enabled option and choose it, going round at the ends, however the group is laid out. |
 | Home, End | Move to the first or the last enabled option and choose it. |
-
-Up and Down do not move the choice, in either layout.
 
 ## Motion
 

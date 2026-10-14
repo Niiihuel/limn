@@ -1211,7 +1211,9 @@ fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
             if node.disabled {
                 built.set_disabled();
             }
-            if let Some(on) = node.toggled {
+            if node.mixed {
+                built.set_toggled(Toggled::Mixed);
+            } else if let Some(on) = node.toggled {
                 built.set_toggled(if on { Toggled::True } else { Toggled::False });
             }
             if let Some(selected) = node.selected {

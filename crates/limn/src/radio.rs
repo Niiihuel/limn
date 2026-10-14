@@ -69,8 +69,8 @@ impl RadioOption {
 /// `selected` and reports `UiAction::Clicked` with the value of the option
 /// that is clicked, from its circle, its label or its description. Options
 /// stand one under the other unless [`horizontal`](Self::horizontal).
-/// Left, Right, Home and End move the focus among the enabled options and
-/// report the one they reach; Up and Down do not, in either layout.
+/// The arrow keys, Home and End move the focus among the enabled options and
+/// report the one they reach, in either layout.
 pub struct RadioGroup {
     id: String,
     options: Vec<RadioOption>,
@@ -160,7 +160,7 @@ impl Component for RadioGroup {
                 let enabled = self.enabled && option.enabled;
                 let chosen = self.selected.as_deref() == Some(option.value.as_str());
                 let ink = if enabled { palette.text } else { palette.muted };
-                let (fill, edge) = if chosen { (ink, ink) } else { (Color::TRANSPARENT, palette.border) };
+                let (fill, edge) = if chosen { (ink, ink) } else { (Color::TRANSPARENT, palette.muted) };
                 let key = format!("{}:{}", self.id, option.value);
                 // The dot stays in the tree when the circle is empty, and both
                 // are keyed, so the mark fades with the fill instead of
@@ -216,9 +216,9 @@ impl Component for RadioGroup {
         // A tab strip is what gives arrow keys to a set of actions. It lays
         // its children in a row, so a vertical group is a strip of one column.
         let group = if self.horizontal {
-            Element::tab_strip(options, reachable).gap(ROW_GAP)
+            Element::tab_strip(options, reachable).every_arrow().gap(ROW_GAP)
         } else {
-            Element::tab_strip(vec![Element::column(options).gap(COLUMN_GAP).shrink_to_fit()], reachable)
+            Element::tab_strip(vec![Element::column(options).gap(COLUMN_GAP).shrink_to_fit()], reachable).every_arrow()
         };
         match self.accessibility_label {
             Some(name) => group.accessible(Access::new(Role::Group).id(self.id).name(name)),
@@ -317,7 +317,7 @@ mod tests {
                 _ => None,
             })
             .collect();
-        assert_eq!(edges, [(palette().border, 8.0), (palette().text, 8.0), (palette().border, 8.0)]);
+        assert_eq!(edges, [(palette().muted, 8.0), (palette().text, 8.0), (palette().muted, 8.0)]);
     }
 
     #[test]
@@ -451,15 +451,18 @@ mod tests {
         }
     }
 
-    // The engine's vertical tab scope belongs to the minimap rail alone; a
-    // strip is horizontal. When that changes, this test changes with the guide.
     #[test]
-    fn up_and_down_do_not_move_the_choice() {
-        let mut tree = tree_of(group());
-        tree.layout(window());
-        assert!(tree.focus("plan=team"));
-        for pressed in [Key::ArrowDown, Key::ArrowUp] {
-            assert!(key(&mut tree, pressed).is_empty());
+    fn up_and_down_move_the_choice_as_left_and_right_do() {
+        for horizontal in [false, true] {
+            let group = if horizontal { group().horizontal() } else { group() };
+            let mut tree = tree_of(group);
+            tree.layout(window());
+            assert!(tree.focus("plan=team"));
+            let down = key(&mut tree, Key::ArrowDown);
+            let after_down = tree.focused_id().map(str::to_owned);
+            assert!(matches!(down.as_slice(), [UiAction::Clicked { id }] if Some(id.as_str()) == after_down.as_deref() && id != "plan=team"), "{down:?}");
+            // And Up comes back to where it was.
+            assert_eq!(key(&mut tree, Key::ArrowUp), clicked("plan=team"));
             assert_eq!(tree.focused_id(), Some("plan=team"));
         }
     }

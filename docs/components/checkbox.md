@@ -124,5 +124,4 @@ one, which is also said in place of a label when both are given:
 Checkbox::new("row-3", selected, palette).accessibility_label("Select row 3")
 ```
 
-`Access` can say on or off and nothing between, so an indeterminate box is
-told as not on.
+An indeterminate box is told as mixed: neither on nor off.
