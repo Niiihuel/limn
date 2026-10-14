@@ -255,10 +255,12 @@ pub fn find(id: &str) -> &'static Page {
 
 /// What a demo keeps that a flag or a choice cannot hold.
 pub fn update(state: &mut State, action: &UiAction) {
+    accordion::update(state, action);
     table::update(state, action);
     dates::update(state, action);
     number::update(state, action);
     checkbox::update(state, action);
+    toolbar::update(state, action);
 }
 
 /// The fields whose text a click may have changed, each with its value now.

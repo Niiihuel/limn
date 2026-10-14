@@ -1,8 +1,18 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    Alert, AlertTone, Avatar, Chip, Collapse, Component, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
+    Alert, AlertTone, Avatar, Chip, Collapse, Color, Component, ControlSize, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
     Spinner, SpinnerVariant, Ticker,
 };
+
+const CHIP_TONES: [(AlertTone, &str); 5] = [
+    (AlertTone::Neutral, "Neutral"),
+    (AlertTone::Info, "Information"),
+    (AlertTone::Success, "Success"),
+    (AlertTone::Warning, "Warning"),
+    (AlertTone::Error, "Error"),
+];
+/// The tags of the removable demo, before any is removed.
+const CHIP_TAGS: &str = "rust,urgent,review";
 
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
@@ -163,12 +173,73 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .render()]),
             caption(cx, "When removed, its last image fades while the slot closes."),
         ]),
-        section(cx, "Labels", vec![row(vec![
-            Chip::new("rust", palette).render(),
-            Chip::new("draft", palette).render(),
-            Chip::new("Pro plan", palette).outline().render(),
-            Avatar::new("Ada Lovelace", palette).size(32.0).render(),
-            Kbd::new("Ctrl+Shift+P", palette).render(),
-        ])]),
+        section(cx, "Labels", vec![
+            row(vec![
+                Chip::new("rust", palette).render(),
+                Chip::new("draft", palette).render(),
+                Chip::new("Pro plan", palette).outline().render(),
+                Avatar::new("Ada Lovelace", palette).size(32.0).render(),
+                Kbd::new("Ctrl+Shift+P", palette).render(),
+            ]),
+            row(CHIP_TONES.iter().map(|(tone, label)| Chip::new(*label, palette).tone(*tone).render()).collect()),
+            row(CHIP_TONES.iter().map(|(tone, label)| Chip::new(*label, palette).tone(*tone).outline().render()).collect()),
+            caption(cx, "A tone takes the color an alert of that tone gives its icon. Outlined, it is the edge and the label."),
+            row(vec![
+                Chip::new("Design", palette).color(Color::rgb(138, 92, 246)).render(),
+                Chip::new("Research", palette).color(Color::rgb(20, 160, 150)).render(),
+                Chip::new("Design", palette).color(Color::rgb(138, 92, 246)).outline().render(),
+                Chip::new("Research", palette).color(Color::rgb(20, 160, 150)).outline().render(),
+            ]),
+            caption(cx, "A color of the host's own is drawn as a tone is."),
+            row(vec![
+                Chip::new("Dense", palette).size(ControlSize::Dense).render().centered_y(),
+                Chip::new("Compact", palette).size(ControlSize::Compact).render().centered_y(),
+                Chip::new("Regular", palette).size(ControlSize::Regular).render().centered_y(),
+                Chip::new("Spacious", palette).size(ControlSize::Spacious).render().centered_y(),
+                Chip::new("3", palette).size(ControlSize::Dense).render().centered_y(),
+                Chip::new("3", palette).size(ControlSize::Spacious).render().centered_y(),
+            ]),
+            row(vec![
+                Chip::new("Online", palette).tone(AlertTone::Success).dot().render(),
+                Chip::new("Failed", palette).tone(AlertTone::Error).dot().outline().render(),
+                Chip::new("Idle", palette).dot().render(),
+                Chip::new("main", palette).icon(Icon::GitBranch).render(),
+                Chip::new("Verified", palette).tone(AlertTone::Info).icon(Icon::Check).render(),
+            ]),
+            caption(cx, "A dot or an icon before the label takes the label's color."),
+            row({
+                // The tags still shown are one choice; each remove button chooses the list without its own.
+                let shown: Vec<&str> = cx.state.choice("chip-tags", CHIP_TAGS).split(',').filter(|tag| !tag.is_empty()).collect();
+                let mut tags: Vec<Element> = shown
+                    .iter()
+                    .map(|tag| {
+                        let rest: Vec<&str> = shown.iter().copied().filter(|other| other != tag).collect();
+                        let chip = Chip::new(*tag, palette).remove_action(format!("chip-tags={}", rest.join(",")));
+                        match *tag {
+                            "urgent" => chip.tone(AlertTone::Warning),
+                            "review" => chip.outline(),
+                            _ => chip,
+                        }
+                        .render()
+                        .centered_y()
+                    })
+                    .collect();
+                tags.push(Button::new(format!("chip-tags={CHIP_TAGS}"), "Restore", palette).variant(ButtonVariant::Outline).size(ControlSize::Dense).render());
+                tags
+            }),
+            caption(cx, "The remove button reports its ID; the host drops the tag. Tab reaches it, Enter and Space press it."),
+            row(vec![
+                Chip::new("rust", palette).remove_action("chip-disabled-rust").disabled().render(),
+                Chip::new("urgent", palette).tone(AlertTone::Warning).remove_action("chip-disabled-urgent").disabled().render(),
+                Chip::new("Offline", palette).dot().outline().disabled().render(),
+            ]),
+            caption(cx, "Disabled: muted, and the remove button keeps its place without answering."),
+            row(vec![
+                Chip::new("7", palette).render(),
+                Chip::new("128", palette).render(),
+                Chip::new("Reparaci\u{f3}n \u{b7} a label that is long for a chip", palette).tone(AlertTone::Info).remove_action("chip-long").render(),
+            ]),
+            caption(cx, "One digit alone is a circle. A chip is as wide as its label; it does not truncate."),
+        ]),
     ]
 }
