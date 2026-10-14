@@ -152,10 +152,12 @@ otherwise a round number over the greatest value; `size(width, height)` is
 
 When a chart first appears it is drawn in: bars grow from the zero line,
 lines are drawn from left to right, a pie sweeps round from twelve o'clock
-and a radar opens from its center. Under the pointer, a bar chart lights the
+a radar opens from its center and the columns of a heatmap come in one after
+another. Under the pointer, a bar chart lights the
 category with a band that glides to the next while the others recede, a line
 chart marks the nearest point with a line and a dot on each series, a pie
-stands the slice out, and a radar marks the nearest axis. A chart keeps this
+stands the slice out, a radar marks the nearest axis, and a heatmap grows the
+cell over its neighbours while the others recede. A chart keeps this
 by its ID, so a chart that is rebuilt every frame does not start again.
 `UiTree::set_reduced_motion(true)` draws a chart at once and moves its marks
 without gliding.
