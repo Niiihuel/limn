@@ -72,7 +72,7 @@ const numbers = [
         {groups(COMPONENTS).map(({ group, items }) => (
           <div>
             <dt>{group}</dt>
-            <dd>{items.map(({ id, title }) => <a href={`/components/${id}/`}>{title}</a>)}</dd>
+            <dd>{items.map(({ id, title, new: fresh }) => <a href={`/components/${id}/`}>{title}{fresh && <span class="new">New</span>}</a>)}</dd>
           </div>
         ))}
       </dl>

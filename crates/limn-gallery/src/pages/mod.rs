@@ -6,6 +6,8 @@
 use crate::app::State;
 use limn::{ComponentPalette, Element, ElementKind, FontFamily, UiAction};
 
+mod accordion;
+mod avatars;
 mod badge;
 mod blocks;
 mod buttons;
@@ -15,6 +17,7 @@ mod chrome;
 mod code;
 mod context;
 mod dates;
+mod description;
 mod diagrams;
 mod editor;
 mod empty;
@@ -31,6 +34,7 @@ mod navigation;
 mod number;
 mod overlays;
 mod page;
+mod pagination;
 mod panels;
 mod preferences;
 mod radio;
@@ -39,6 +43,7 @@ mod surfaces;
 mod table;
 mod toggle;
 mod tokens;
+mod toolbar;
 mod tooltip;
 mod tour;
 mod typography;
@@ -57,6 +62,17 @@ pub struct Page {
     pub view: fn(&Cx) -> Vec<Section>,
     /// The titles of this page's sections; none means the whole module.
     pub sections: &'static [&'static str],
+    /// The version of the library the component first shipped in. A site
+    /// marks it as new while that version, or the one after it, is current.
+    pub since: &'static str,
+}
+
+/// Whether a component that first shipped in `since` is still new at
+/// `current`: in that release and the one after it.
+fn is_new(since: &str, current: &str) -> bool {
+    let parts = |version: &str| version.split('.').map(|part| part.parse::<u32>().unwrap_or(0)).collect::<Vec<_>>();
+    let (since, current) = (parts(since), parts(current));
+    since.len() == 3 && current.len() == 3 && since[..2] == current[..2] && current[2] >= since[2] && current[2] - since[2] <= 1
 }
 
 impl Page {
@@ -91,90 +107,95 @@ impl Page {
 }
 
 pub const PAGES: &[Page] = &[
-    Page { id: "tokens", group: "System", title: "Tokens", source: "tokens", view: tokens::view, sections: &[] },
-    Page { id: "scheme", group: "System", title: "Scheme", source: "scheme", view: scheme::view, sections: &[] },
-    Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Long text", "Soft focus"] },
-    Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"] },
-    Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon"] },
-    Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"] },
-    Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"] },
-    Page { id: "clipboard", group: "Actions", title: "Clipboard", source: "buttons", view: buttons::view, sections: &["Clipboard"] },
-    Page { id: "link", group: "Actions", title: "Link", source: "navigation", view: navigation::view, sections: &["Links"] },
-    Page { id: "kbd", group: "Actions", title: "Kbd", source: "menus", view: menus::view, sections: &["Keys with captions"] },
-    Page { id: "message-actions", group: "Actions", title: "MessageActions", source: "messages", view: messages::view, sections: &["Assistant message", "User message", "Toggles and branches"] },
-    Page { id: "text-field", group: "Inputs", title: "TextField", source: "inputs", view: inputs::view, sections: &["Text field"] },
-    Page { id: "form-field", group: "Inputs", title: "FormField", source: "inputs", view: inputs::view, sections: &["Form field"] },
-    Page { id: "text-area", group: "Inputs", title: "TextArea", source: "inputs", view: inputs::view, sections: &["Text area"] },
-    Page { id: "search-field", group: "Inputs", title: "SearchField", source: "inputs", view: inputs::view, sections: &["Search"] },
-    Page { id: "select", group: "Inputs", title: "Select", source: "inputs", view: inputs::view, sections: &["Select"] },
-    Page { id: "switch", group: "Inputs", title: "Switch", source: "inputs", view: inputs::view, sections: &["Switch"] },
-    Page { id: "checkbox", group: "Inputs", title: "Checkbox", source: "checkbox", view: checkbox::view, sections: &[] },
-    Page { id: "radio-group", group: "Inputs", title: "RadioGroup", source: "radio", view: radio::view, sections: &[] },
-    Page { id: "toggle", group: "Inputs", title: "Toggle", source: "toggle", view: toggle::view, sections: &[] },
-    Page { id: "number-input", group: "Inputs", title: "NumberInput", source: "number", view: number::view, sections: &[] },
-    Page { id: "slider", group: "Inputs", title: "Slider", source: "inputs", view: inputs::view, sections: &["Slider"] },
-    Page { id: "date-picker", group: "Inputs", title: "DatePicker", source: "dates", view: dates::view, sections: &["Date picker"] },
-    Page { id: "time-picker", group: "Inputs", title: "TimePicker", source: "dates", view: dates::view, sections: &["Time picker"] },
-    Page { id: "date-time-picker", group: "Inputs", title: "DateTimePicker", source: "dates", view: dates::view, sections: &["Date and time picker"] },
-    Page { id: "editor", group: "Inputs", title: "Editing tools", source: "editor", view: editor::view, sections: &[] },
-    Page { id: "tabs", group: "Navigation", title: "Tabs", source: "navigation", view: navigation::view, sections: &["Tabs", "Resource tabs"] },
-    Page { id: "segmented-control", group: "Navigation", title: "SegmentedControl", source: "navigation", view: navigation::view, sections: &["Segmented control"] },
-    Page { id: "stepper", group: "Navigation", title: "Stepper", source: "navigation", view: navigation::view, sections: &["Steps"] },
-    Page { id: "breadcrumb", group: "Navigation", title: "Breadcrumb", source: "navigation", view: navigation::view, sections: &["Path"] },
-    Page { id: "collapsible", group: "Navigation", title: "Collapsible", source: "navigation", view: navigation::view, sections: &["Collapsible"] },
-    Page { id: "chat-minimap", group: "Navigation", title: "ChatMinimap", source: "messages", view: messages::view, sections: &["Conversation minimap"] },
-    Page { id: "pager", group: "Navigation", title: "Pager", source: "panels", view: panels::view, sections: &["Pager"] },
-    Page { id: "menu-bar", group: "Navigation", title: "MenuBar", source: "chrome", view: chrome::view, sections: &["Menu bar"] },
-    Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"] },
-    Page { id: "glass", group: "Navigation", title: "NavigationBar", source: "glass", view: glass::view, sections: &[] },
-    Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[] },
-    Page { id: "tree-row", group: "Data", title: "TreeRow", source: "surfaces", view: surfaces::view, sections: &["Tree rows"] },
-    Page { id: "table", group: "Data", title: "Table", source: "table", view: table::view, sections: &[] },
-    Page { id: "markdown", group: "Data", title: "Markdown", source: "markdown", view: markdown::view, sections: &[] },
-    Page { id: "diagram", group: "Data", title: "Diagram", source: "diagrams", view: diagrams::view, sections: &[] },
-    Page { id: "code-block", group: "Data", title: "CodeBlock", source: "blocks", view: blocks::view, sections: &["Code block"] },
-    Page { id: "output-block", group: "Data", title: "OutputBlock", source: "blocks", view: blocks::view, sections: &["Output block"] },
-    Page { id: "code-editor", group: "Data", title: "CodeEditor", source: "code", view: code::view, sections: &["Code editor"] },
-    Page { id: "code-diff", group: "Data", title: "CodeDiff", source: "code", view: code::view, sections: &["Code diff"] },
-    Page { id: "charts", group: "Data", title: "Charts", source: "charts", view: charts::view, sections: &[] },
-    Page { id: "attachment", group: "Data", title: "Attachment", source: "media", view: media::view, sections: &["Attachment"] },
-    Page { id: "card", group: "Layout", title: "Card", source: "blocks", view: blocks::view, sections: &["Card"] },
-    Page { id: "framed-card", group: "Layout", title: "FramedCard", source: "surfaces", view: surfaces::view, sections: &["Framed card"] },
-    Page { id: "scroll-area", group: "Layout", title: "ScrollArea", source: "surfaces", view: surfaces::view, sections: &["Scroll area"] },
-    Page { id: "media-tile", group: "Layout", title: "MediaTile", source: "blocks", view: blocks::view, sections: &["Media tile"] },
-    Page { id: "media-card", group: "Layout", title: "MediaCard", source: "blocks", view: blocks::view, sections: &["Track card"] },
-    Page { id: "page-header", group: "Layout", title: "PageHeader", source: "page", view: page::view, sections: &["Page header"] },
-    Page { id: "section-header", group: "Layout", title: "SectionHeader", source: "page", view: page::view, sections: &["Section headers"] },
-    Page { id: "page", group: "Layout", title: "PageColumn / CardGrid", source: "page", view: page::view, sections: &["Card grid", "Page column"] },
-    Page { id: "panel-header", group: "Layout", title: "PanelHeader", source: "panels", view: panels::view, sections: &["Panel header", "Back, close, and long title", "A field in place of the title", "A tint behind the header"] },
-    Page { id: "sidebar-panel", group: "Layout", title: "SidebarPanel", source: "panels", view: panels::view, sections: &["Sidebar panel"] },
-    Page { id: "resize-handle", group: "Layout", title: "ResizeHandle", source: "panels", view: panels::view, sections: &["Resize handle between panels"] },
-    Page { id: "preferences-group", group: "Layout", title: "PreferencesGroup", source: "preferences", view: preferences::view, sections: &[] },
-    Page { id: "empty", group: "States", title: "Empty", source: "empty", view: empty::view, sections: &["With icon and action", "Two actions", "Compact", "Framed", "Title only"] },
-    Page { id: "notice", group: "States", title: "Notice", source: "empty", view: empty::view, sections: &["Inline notice", "Stacked notice", "Compact notice", "Fixed-height notice"] },
-    Page { id: "alert", group: "States", title: "Alert", source: "feedback", view: feedback::view, sections: &["Alerts", "Alerts with actions"] },
-    Page { id: "progress", group: "States", title: "Progress", source: "feedback", view: feedback::view, sections: &["Progress"] },
-    Page { id: "spinner", group: "States", title: "Spinner", source: "feedback", view: feedback::view, sections: &["Loading"] },
-    Page { id: "skeleton", group: "States", title: "Skeleton", source: "loading", view: loading::view, sections: &["Skeleton"] },
-    Page { id: "text-shimmer", group: "States", title: "TextShimmer", source: "loading", view: loading::view, sections: &["Text shimmer"] },
-    Page { id: "marker", group: "States", title: "Marker", source: "feedback", view: feedback::view, sections: &["Markers"] },
-    Page { id: "ticker", group: "States", title: "Ticker", source: "feedback", view: feedback::view, sections: &["Ticker"] },
-    Page { id: "collapse", group: "States", title: "Collapse", source: "feedback", view: feedback::view, sections: &["Closing slot"] },
-    Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels"] },
-    Page { id: "badge", group: "States", title: "Badge", source: "badge", view: badge::view, sections: &[] },
-    Page { id: "avatar", group: "States", title: "Avatar", source: "media", view: media::view, sections: &["Avatar"] },
-    Page { id: "context-window", group: "States", title: "ContextWindow", source: "context", view: context::view, sections: &[] },
-    Page { id: "popover", group: "Overlays", title: "Popover", source: "overlays", view: overlays::view, sections: &["Popover"] },
-    Page { id: "dropdown-list", group: "Overlays", title: "DropdownList", source: "overlays", view: overlays::view, sections: &["Dropdown list"] },
-    Page { id: "dropdown-menu", group: "Overlays", title: "DropdownMenu", source: "overlays", view: overlays::view, sections: &["Menu"] },
-    Page { id: "context-menu", group: "Overlays", title: "ContextMenu", source: "overlays", view: overlays::view, sections: &["Context menu"] },
-    Page { id: "dialog", group: "Overlays", title: "Modal / AlertDialog", source: "overlays", view: overlays::view, sections: &["Dialogs"] },
-    Page { id: "toast", group: "Overlays", title: "Toast", source: "overlays", view: overlays::view, sections: &["Toast"] },
-    Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer"] },
-    Page { id: "picker", group: "Overlays", title: "Catalog menus", source: "menus", view: menus::view, sections: &["Select and catalog", "Menu rows", "Popover panel"] },
-    Page { id: "suggestion-list", group: "Overlays", title: "SuggestionList", source: "menus", view: menus::view, sections: &["Suggestion list"] },
-    Page { id: "tooltip", group: "Overlays", title: "Tooltip", source: "tooltip", view: tooltip::view, sections: &[] },
-    Page { id: "tour", group: "Overlays", title: "Tour", source: "tour", view: tour::view, sections: &[] },
+    Page { id: "tokens", group: "System", title: "Tokens", source: "tokens", view: tokens::view, sections: &[], since: "0.1.39" },
+    Page { id: "scheme", group: "System", title: "Scheme", source: "scheme", view: scheme::view, sections: &[], since: "0.1.39" },
+    Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Long text", "Soft focus"], since: "0.1.39" },
+    Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"], since: "0.1.39" },
+    Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon"], since: "0.1.39" },
+    Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
+    Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"], since: "0.1.39" },
+    Page { id: "toolbar", group: "Actions", title: "Toolbar", source: "toolbar", view: toolbar::view, sections: &[], since: "0.1.41" },
+    Page { id: "clipboard", group: "Actions", title: "Clipboard", source: "buttons", view: buttons::view, sections: &["Clipboard"], since: "0.1.39" },
+    Page { id: "link", group: "Actions", title: "Link", source: "navigation", view: navigation::view, sections: &["Links"], since: "0.1.39" },
+    Page { id: "kbd", group: "Actions", title: "Kbd", source: "menus", view: menus::view, sections: &["Keys with captions"], since: "0.1.39" },
+    Page { id: "message-actions", group: "Actions", title: "MessageActions", source: "messages", view: messages::view, sections: &["Assistant message", "User message", "Toggles and branches"], since: "0.1.39" },
+    Page { id: "text-field", group: "Inputs", title: "TextField", source: "inputs", view: inputs::view, sections: &["Text field"], since: "0.1.39" },
+    Page { id: "form-field", group: "Inputs", title: "FormField", source: "inputs", view: inputs::view, sections: &["Form field"], since: "0.1.39" },
+    Page { id: "text-area", group: "Inputs", title: "TextArea", source: "inputs", view: inputs::view, sections: &["Text area"], since: "0.1.39" },
+    Page { id: "search-field", group: "Inputs", title: "SearchField", source: "inputs", view: inputs::view, sections: &["Search"], since: "0.1.39" },
+    Page { id: "select", group: "Inputs", title: "Select", source: "inputs", view: inputs::view, sections: &["Select"], since: "0.1.39" },
+    Page { id: "switch", group: "Inputs", title: "Switch", source: "inputs", view: inputs::view, sections: &["Switch"], since: "0.1.39" },
+    Page { id: "checkbox", group: "Inputs", title: "Checkbox", source: "checkbox", view: checkbox::view, sections: &[], since: "0.1.41" },
+    Page { id: "radio-group", group: "Inputs", title: "RadioGroup", source: "radio", view: radio::view, sections: &[], since: "0.1.41" },
+    Page { id: "toggle", group: "Inputs", title: "Toggle", source: "toggle", view: toggle::view, sections: &[], since: "0.1.41" },
+    Page { id: "number-input", group: "Inputs", title: "NumberInput", source: "number", view: number::view, sections: &[], since: "0.1.41" },
+    Page { id: "slider", group: "Inputs", title: "Slider", source: "inputs", view: inputs::view, sections: &["Slider"], since: "0.1.39" },
+    Page { id: "date-picker", group: "Inputs", title: "DatePicker", source: "dates", view: dates::view, sections: &["Date picker"], since: "0.1.39" },
+    Page { id: "time-picker", group: "Inputs", title: "TimePicker", source: "dates", view: dates::view, sections: &["Time picker"], since: "0.1.39" },
+    Page { id: "date-time-picker", group: "Inputs", title: "DateTimePicker", source: "dates", view: dates::view, sections: &["Date and time picker"], since: "0.1.39" },
+    Page { id: "editor", group: "Inputs", title: "Editing tools", source: "editor", view: editor::view, sections: &[], since: "0.1.39" },
+    Page { id: "tabs", group: "Navigation", title: "Tabs", source: "navigation", view: navigation::view, sections: &["Tabs", "Resource tabs"], since: "0.1.39" },
+    Page { id: "segmented-control", group: "Navigation", title: "SegmentedControl", source: "navigation", view: navigation::view, sections: &["Segmented control"], since: "0.1.39" },
+    Page { id: "stepper", group: "Navigation", title: "Stepper", source: "navigation", view: navigation::view, sections: &["Steps"], since: "0.1.39" },
+    Page { id: "breadcrumb", group: "Navigation", title: "Breadcrumb", source: "navigation", view: navigation::view, sections: &["Path"], since: "0.1.39" },
+    Page { id: "collapsible", group: "Navigation", title: "Collapsible", source: "navigation", view: navigation::view, sections: &["Collapsible"], since: "0.1.39" },
+    Page { id: "accordion", group: "Navigation", title: "Accordion", source: "accordion", view: accordion::view, sections: &[], since: "0.1.41" },
+    Page { id: "chat-minimap", group: "Navigation", title: "ChatMinimap", source: "messages", view: messages::view, sections: &["Conversation minimap"], since: "0.1.39" },
+    Page { id: "pager", group: "Navigation", title: "Pager", source: "panels", view: panels::view, sections: &["Pager"], since: "0.1.39" },
+    Page { id: "pagination", group: "Navigation", title: "Pagination", source: "pagination", view: pagination::view, sections: &[], since: "0.1.41" },
+    Page { id: "menu-bar", group: "Navigation", title: "MenuBar", source: "chrome", view: chrome::view, sections: &["Menu bar"], since: "0.1.39" },
+    Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"], since: "0.1.39" },
+    Page { id: "glass", group: "Navigation", title: "NavigationBar", source: "glass", view: glass::view, sections: &[], since: "0.1.39" },
+    Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[], since: "0.1.39" },
+    Page { id: "tree-row", group: "Data", title: "TreeRow", source: "surfaces", view: surfaces::view, sections: &["Tree rows"], since: "0.1.39" },
+    Page { id: "table", group: "Data", title: "Table", source: "table", view: table::view, sections: &[], since: "0.1.39" },
+    Page { id: "description-list", group: "Data", title: "DescriptionList", source: "description", view: description::view, sections: &[], since: "0.1.41" },
+    Page { id: "markdown", group: "Data", title: "Markdown", source: "markdown", view: markdown::view, sections: &[], since: "0.1.39" },
+    Page { id: "diagram", group: "Data", title: "Diagram", source: "diagrams", view: diagrams::view, sections: &[], since: "0.1.39" },
+    Page { id: "code-block", group: "Data", title: "CodeBlock", source: "blocks", view: blocks::view, sections: &["Code block"], since: "0.1.39" },
+    Page { id: "output-block", group: "Data", title: "OutputBlock", source: "blocks", view: blocks::view, sections: &["Output block"], since: "0.1.39" },
+    Page { id: "code-editor", group: "Data", title: "CodeEditor", source: "code", view: code::view, sections: &["Code editor"], since: "0.1.39" },
+    Page { id: "code-diff", group: "Data", title: "CodeDiff", source: "code", view: code::view, sections: &["Code diff"], since: "0.1.39" },
+    Page { id: "charts", group: "Data", title: "Charts", source: "charts", view: charts::view, sections: &[], since: "0.1.39" },
+    Page { id: "attachment", group: "Data", title: "Attachment", source: "media", view: media::view, sections: &["Attachment"], since: "0.1.39" },
+    Page { id: "card", group: "Layout", title: "Card", source: "blocks", view: blocks::view, sections: &["Card"], since: "0.1.39" },
+    Page { id: "framed-card", group: "Layout", title: "FramedCard", source: "surfaces", view: surfaces::view, sections: &["Framed card"], since: "0.1.39" },
+    Page { id: "scroll-area", group: "Layout", title: "ScrollArea", source: "surfaces", view: surfaces::view, sections: &["Scroll area"], since: "0.1.39" },
+    Page { id: "media-tile", group: "Layout", title: "MediaTile", source: "blocks", view: blocks::view, sections: &["Media tile"], since: "0.1.39" },
+    Page { id: "media-card", group: "Layout", title: "MediaCard", source: "blocks", view: blocks::view, sections: &["Track card"], since: "0.1.39" },
+    Page { id: "page-header", group: "Layout", title: "PageHeader", source: "page", view: page::view, sections: &["Page header"], since: "0.1.39" },
+    Page { id: "section-header", group: "Layout", title: "SectionHeader", source: "page", view: page::view, sections: &["Section headers"], since: "0.1.39" },
+    Page { id: "page", group: "Layout", title: "PageColumn / CardGrid", source: "page", view: page::view, sections: &["Card grid", "Page column"], since: "0.1.39" },
+    Page { id: "panel-header", group: "Layout", title: "PanelHeader", source: "panels", view: panels::view, sections: &["Panel header", "Back, close, and long title", "A field in place of the title", "A tint behind the header"], since: "0.1.39" },
+    Page { id: "sidebar-panel", group: "Layout", title: "SidebarPanel", source: "panels", view: panels::view, sections: &["Sidebar panel"], since: "0.1.39" },
+    Page { id: "resize-handle", group: "Layout", title: "ResizeHandle", source: "panels", view: panels::view, sections: &["Resize handle between panels"], since: "0.1.39" },
+    Page { id: "preferences-group", group: "Layout", title: "PreferencesGroup", source: "preferences", view: preferences::view, sections: &[], since: "0.1.39" },
+    Page { id: "empty", group: "States", title: "Empty", source: "empty", view: empty::view, sections: &["With icon and action", "Two actions", "Compact", "Framed", "Title only"], since: "0.1.39" },
+    Page { id: "notice", group: "States", title: "Notice", source: "empty", view: empty::view, sections: &["Inline notice", "Stacked notice", "Compact notice", "Fixed-height notice"], since: "0.1.39" },
+    Page { id: "alert", group: "States", title: "Alert", source: "feedback", view: feedback::view, sections: &["Alerts", "Alerts with actions"], since: "0.1.39" },
+    Page { id: "progress", group: "States", title: "Progress", source: "feedback", view: feedback::view, sections: &["Progress"], since: "0.1.39" },
+    Page { id: "spinner", group: "States", title: "Spinner", source: "feedback", view: feedback::view, sections: &["Loading"], since: "0.1.39" },
+    Page { id: "skeleton", group: "States", title: "Skeleton", source: "loading", view: loading::view, sections: &["Skeleton"], since: "0.1.39" },
+    Page { id: "text-shimmer", group: "States", title: "TextShimmer", source: "loading", view: loading::view, sections: &["Text shimmer"], since: "0.1.39" },
+    Page { id: "marker", group: "States", title: "Marker", source: "feedback", view: feedback::view, sections: &["Markers"], since: "0.1.39" },
+    Page { id: "ticker", group: "States", title: "Ticker", source: "feedback", view: feedback::view, sections: &["Ticker"], since: "0.1.39" },
+    Page { id: "collapse", group: "States", title: "Collapse", source: "feedback", view: feedback::view, sections: &["Closing slot"], since: "0.1.39" },
+    Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels"], since: "0.1.39" },
+    Page { id: "badge", group: "States", title: "Badge", source: "badge", view: badge::view, sections: &[], since: "0.1.41" },
+    Page { id: "avatar", group: "States", title: "Avatar", source: "media", view: media::view, sections: &["Avatar"], since: "0.1.39" },
+    Page { id: "avatar-group", group: "States", title: "AvatarGroup", source: "avatars", view: avatars::view, sections: &[], since: "0.1.41" },
+    Page { id: "context-window", group: "States", title: "ContextWindow", source: "context", view: context::view, sections: &[], since: "0.1.39" },
+    Page { id: "popover", group: "Overlays", title: "Popover", source: "overlays", view: overlays::view, sections: &["Popover"], since: "0.1.39" },
+    Page { id: "dropdown-list", group: "Overlays", title: "DropdownList", source: "overlays", view: overlays::view, sections: &["Dropdown list"], since: "0.1.39" },
+    Page { id: "dropdown-menu", group: "Overlays", title: "DropdownMenu", source: "overlays", view: overlays::view, sections: &["Menu"], since: "0.1.39" },
+    Page { id: "context-menu", group: "Overlays", title: "ContextMenu", source: "overlays", view: overlays::view, sections: &["Context menu"], since: "0.1.39" },
+    Page { id: "dialog", group: "Overlays", title: "Modal / AlertDialog", source: "overlays", view: overlays::view, sections: &["Dialogs"], since: "0.1.39" },
+    Page { id: "toast", group: "Overlays", title: "Toast", source: "overlays", view: overlays::view, sections: &["Toast"], since: "0.1.39" },
+    Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer"], since: "0.1.39" },
+    Page { id: "picker", group: "Overlays", title: "Catalog menus", source: "menus", view: menus::view, sections: &["Select and catalog", "Menu rows", "Popover panel"], since: "0.1.39" },
+    Page { id: "suggestion-list", group: "Overlays", title: "SuggestionList", source: "menus", view: menus::view, sections: &["Suggestion list"], since: "0.1.39" },
+    Page { id: "tooltip", group: "Overlays", title: "Tooltip", source: "tooltip", view: tooltip::view, sections: &[], since: "0.1.39" },
+    Page { id: "tour", group: "Overlays", title: "Tour", source: "tour", view: tour::view, sections: &[], since: "0.1.39" },
 ];
 
 /// The components as JSON, one page each: what a site needs to give every
@@ -213,11 +234,12 @@ pub fn pages_json() -> String {
                 })
                 .collect();
             format!(
-                "  {{\"id\": {}, \"group\": {}, \"title\": {}, \"source\": {}, \"sections\": [{}]}}",
+                "  {{\"id\": {}, \"group\": {}, \"title\": {}, \"source\": {}, \"new\": {}, \"sections\": [{}]}}",
                 quote(page.id),
                 quote(page.group),
                 quote(page.title),
                 quote(page.source),
+                is_new(page.since, env!("CARGO_PKG_VERSION")),
                 sections.join(", "),
             )
         })
@@ -419,6 +441,16 @@ mod tests {
                     section.title
                 );
             }
+        }
+    }
+
+    #[test]
+    fn a_component_is_new_in_its_release_and_the_next() {
+        assert!(is_new("0.1.41", "0.1.41") && is_new("0.1.41", "0.1.42"));
+        assert!(!is_new("0.1.41", "0.1.43") && !is_new("0.1.41", "0.2.0") && !is_new("0.1.41", "0.1.40"));
+        // Every page says when it came, as a version.
+        for page in PAGES {
+            assert_eq!(page.since.split('.').filter(|part| part.parse::<u32>().is_ok()).count(), 3, "{}: since {:?}", page.id, page.since);
         }
     }
 

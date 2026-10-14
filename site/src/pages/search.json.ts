@@ -6,7 +6,7 @@ export const GET = () =>
     JSON.stringify(
       DOC_NAV.flatMap(({ group, items }) =>
         items.flatMap((item) => [
-          { href: item.href, label: item.label, group },
+          { href: item.href, label: item.label, group, fresh: 'fresh' in item && item.fresh },
           ...('children' in item ? item.children : []).map((child) => ({ href: child.href, label: child.label, group: item.label })),
         ]),
       ),

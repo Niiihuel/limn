@@ -79,9 +79,11 @@ export const DOC_NAV = [
   { group: 'Components', items: [{ href: '/components/', label: 'All components' }] },
   ...groups(COMPONENTS).map(({ group, items }) => ({
     group: group === 'System' ? 'Primitives' : group,
-    items: items.map(({ id, title, sections }) => ({
+    items: items.map(({ id, title, sections, new: fresh }) => ({
       href: `/components/${id}/`,
       label: title,
+      // Marked in the menu while the release it came in is recent.
+      fresh,
       // A component shown in several sections has a branch for each.
       children: sections.length > 1 ? sections.filter(({ title }) => title).map(({ title }) => ({ href: `/components/${id}/#${exampleId(title)}`, label: title })) : [],
     })),

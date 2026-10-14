@@ -47,7 +47,7 @@ const toc = [
 {foundation ? <Moved href={`/design-system/${foundation.id}/`} title={foundation.title} /> : <Shell title={component.title} description={about || `${component.title}, a limn component.`} toc={toc}>
   <header class="docs-heading">
     <p class="docs-breadcrumb"><a href={pattern ? '/patterns/' : '/components/'}>{pattern ? 'Patterns' : 'Components'}</a><span>/</span>{component.group}</p>
-    <h1>{component.title}</h1>
+    <h1>{component.title}{component.new && <span class="new">New</span>}</h1>
     {about && <p class="lead">{about}</p>}
     <div class="docs-meta"><span>{pattern ? 'Composed pattern' : 'Native component'}</span><a href={`${REPO}/blob/main/docs/components/${component.id}.md`}>Guide source<Icon name="arrow-up-right" size={12} /></a></div>
   </header>

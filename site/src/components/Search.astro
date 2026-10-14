@@ -41,6 +41,12 @@ import Icon from './Icon.astro';
         row.setAttribute('role', 'option');
         const name = document.createElement('span');
         name.textContent = page.label;
+        if (page.fresh) {
+          const fresh = document.createElement('span');
+          fresh.className = 'new';
+          fresh.textContent = 'New';
+          name.append(fresh);
+        }
         const group = document.createElement('small');
         group.textContent = page.group;
         row.append(name, group);
