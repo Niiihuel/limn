@@ -11,7 +11,7 @@ use limn::{
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
     MessageAction, MessageActions, NavigationAction, NavigationBar, NavigationWorkspace, Pager, PanelHeader,
     Point, Rect, Role, SectionHeader, SegmentedControl, Select, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
-    TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TimePicker, Toast, TooltipSpec, TreeGuides, TreeRow, UiAction, UiEvent,
+    TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TreeGuides, TreeRow, UiAction, UiEvent,
     UiTree,
 };
 
@@ -239,6 +239,32 @@ fn controls() -> Vec<Control> {
             || {
                 Tabs::new(vec![Tab::new("it", "Files", 80.0).disabled(), Tab::new("other", "Search", 80.0)], palette())
                     .render()
+            },
+        ),
+        control(
+            "Tabs tab, underlined",
+            "it",
+            || {
+                Tabs::new(
+                    vec![
+                        Tab::new("it", "Files", 80.0),
+                        Tab::new("other", "Search", 80.0),
+                    ],
+                    palette(),
+                )
+                .variant(TabsVariant::Underlined)
+                .render()
+            },
+            || {
+                Tabs::new(
+                    vec![
+                        Tab::new("it", "Files", 80.0).disabled(),
+                        Tab::new("other", "Search", 80.0),
+                    ],
+                    palette(),
+                )
+                .variant(TabsVariant::Underlined)
+                .render()
             },
         ),
         control(

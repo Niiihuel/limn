@@ -13,6 +13,9 @@ in any release.
 - Icons for conversations and calls: `Icon::MicrophoneMuted`, `Headphones`, `Emoji`, `Reply`, `At`, `Phone`, `HangUp`, `Screen` and `VideoOff`, drawn with Bootstrap Icons 1.13.2
 - Icons for servers and settings: `Icon::Lock`, `Neutral`, `ChevronUp`, `Invite`, `Leave` and `DragHandle`, drawn with Bootstrap Icons 1.13.2 (`lock-fill`, `slash-lg`, `chevron-up`, `person-plus`, `box-arrow-left` and `grip-vertical`), with a section on the gallery's Icon page
 - Markdown: `font_size` sets the body text, 14 unless set. Headings, inline and fenced code, list markers and their column, line heights and the space between blocks keep their proportion to it; a diagram's drawing keeps its own size. A tree cached at one size is not reused at another
+- Tabs: `variant(TabsVariant::Underlined)`, text tabs with no track and an underline that slides to the active one over a hairline, the same size as the segmented tabs, with the same actions and keys; `accent` colors the active label and the underline, and `gap` sets the space between tabs
+- Tabs: a disabled tab's label sits at the height of the enabled ones, where it stood higher
+- `Tabs` has public `variant` and `accent` fields; code that builds the struct literally adds `variant: TabsVariant::Segmented, accent: None`
 
 ## 0.1.41 — 2026-10-13
 
