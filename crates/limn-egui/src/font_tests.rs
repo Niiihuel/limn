@@ -126,3 +126,167 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
         );
     }
 }
+
+#[test]
+fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
+    use skrifa::MetadataProvider;
+
+    let ctx = context(true);
+    let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
+    let samples = include_str!("emoji_samples.txt");
+    assert_eq!(samples.lines().count(), 623);
+    assert!(include_bytes!("../assets/fonts/NotoEmoji.ttf").len() <= 2 * 1024 * 1024);
+    for family in [
+        FontFamily::Sans,
+        FontFamily::SansItalic,
+        FontFamily::SansMedium,
+        FontFamily::SansBold,
+        FontFamily::Monospace,
+    ] {
+        let names = &definitions.families[&egui_family(&ctx, family)];
+        assert_eq!(names.last().map(String::as_str), Some("NotoEmoji"));
+        let faces: Vec<_> = names
+            .iter()
+            .map(|name| {
+                let data = &definitions.font_data[name];
+                skrifa::FontRef::from_index(data.font.as_ref(), data.index).unwrap()
+            })
+            .collect();
+        let mut missing = std::collections::BTreeSet::new();
+        for ch in samples
+            .chars()
+            .filter(|ch| !ch.is_whitespace() && !matches!(ch, '\u{200d}' | '\u{fe0f}'))
+        {
+            if !faces.iter().any(|face| {
+                face.charmap()
+                    .map(ch)
+                    .is_some_and(|id| id != skrifa::GlyphId::NOTDEF)
+            }) {
+                missing.insert(ch);
+            }
+        }
+        assert!(
+            missing.is_empty(),
+            "{family:?} lacks {} emoji scalars: {missing:?}",
+            missing.len()
+        );
+        let font = egui::FontId::new(24.0, egui_family(&ctx, family));
+        for ch in "🙂🤣🦀🫡".chars() {
+            assert!(
+                !faces[..faces.len() - 1].iter().any(|face| face
+                    .charmap()
+                    .map(ch)
+                    .is_some_and(|id| id != skrifa::GlyphId::NOTDEF)),
+                "fixture must exercise a new glyph"
+            );
+            assert!(ctx.fonts_mut(|fonts| fonts.has_glyph(&font, ch)));
+        }
+    }
+}
+
+#[test]
+fn emoji_fallback_preserves_existing_text_metrics() {
+    use skrifa::MetadataProvider;
+
+    let ctx = context(true);
+    let mut previous = ctx.fonts(|fonts| fonts.definitions().clone());
+    previous.font_data.remove("NotoEmoji");
+    for names in previous.families.values_mut() {
+        names.retain(|name| name != "NotoEmoji");
+    }
+    let baseline = egui::Context::default();
+    baseline.set_fonts(previous.clone());
+    baseline
+        .run_ui(Default::default(), |_| {})
+        .drop_without_applying_deltas();
+    for family in [
+        FontFamily::Sans,
+        FontFamily::SansItalic,
+        FontFamily::SansMedium,
+        FontFamily::SansBold,
+        FontFamily::Monospace,
+    ] {
+        let font = egui::FontId::new(16.0, egui_family(&ctx, family));
+        let faces: Vec<_> = previous.families[&font.family]
+            .iter()
+            .map(|name| {
+                let data = &previous.font_data[name];
+                skrifa::FontRef::from_index(data.font.as_ref(), data.index).unwrap()
+            })
+            .collect();
+        for ch in include_str!("emoji_samples.txt")
+            .chars()
+            .chain("Wi 0123 RUNE".chars())
+        {
+            if !faces.iter().any(|face| {
+                face.charmap()
+                    .map(ch)
+                    .is_some_and(|id| id != skrifa::GlyphId::NOTDEF)
+            }) {
+                continue;
+            }
+            assert_eq!(
+                baseline.fonts_mut(|fonts| fonts.glyph_width(&font, ch)),
+                ctx.fonts_mut(|fonts| fonts.glyph_width(&font, ch)),
+                "{family:?} changed {ch}"
+            );
+        }
+        for text in ["RUNE 0123 Wi", "👍 ❤️ 😂 🎉 👀 🔥 🙏 ✅", "𝖗𝖚𝖓𝖊 ✦ Lounge"]
+        {
+            let layout = |ctx: &egui::Context| {
+                ctx.fonts_mut(|fonts| {
+                    fonts
+                        .layout_no_wrap(text.into(), font.clone(), egui::Color32::WHITE)
+                        .rect
+                        .size()
+                })
+            };
+            assert_eq!(
+                layout(&baseline),
+                layout(&ctx),
+                "{family:?} changed existing layout"
+            );
+        }
+    }
+}
+
+#[test]
+fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
+    let ctx = context(true);
+    for family in [
+        FontFamily::Sans,
+        FontFamily::SansItalic,
+        FontFamily::SansMedium,
+        FontFamily::SansBold,
+        FontFamily::Monospace,
+    ] {
+        let font = egui::FontId::new(24.0, egui_family(&ctx, family));
+        let painted = |text: &str| {
+            ctx.fonts_mut(|fonts| {
+                fonts
+                    .layout_no_wrap(text.into(), font.clone(), egui::Color32::WHITE)
+                    .rows
+                    .iter()
+                    .flat_map(|row| &row.glyphs)
+                    .filter(|glyph| glyph.uv_rect.size.x > 0.0 && glyph.uv_rect.size.y > 0.0)
+                    .map(|glyph| glyph.uv_rect)
+                    .collect::<Vec<_>>()
+            })
+        };
+        for text in ["❤️", "☀️", "🧑‍💻", "🏴‍☠️"] {
+            assert_eq!(
+                painted(text).len(),
+                1,
+                "{family:?} failed to compose {text}"
+            );
+        }
+        // A single base glyph with the suffix dropped would also count as one.
+        for (joined, base) in [("🧑‍💻", "🧑"), ("🏴‍☠️", "🏴")] {
+            assert_ne!(
+                painted(joined),
+                painted(base),
+                "{family:?} dropped the joined suffix"
+            );
+        }
+    }
+}

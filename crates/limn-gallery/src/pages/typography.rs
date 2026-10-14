@@ -97,6 +97,23 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .font_size(16.0)
                 .foreground(palette.text)
         })).collect()),
+        section(cx, "Monochrome emoji", std::iter::once(
+            caption(cx, "Noto Emoji fills missing glyphs after the existing fonts; prior text keeps its face and width."),
+        ).chain([
+            ("Regular", limn::FontFamily::Sans),
+            ("Italic", limn::FontFamily::SansItalic),
+            ("Medium", limn::FontFamily::SansMedium),
+            ("Bold", limn::FontFamily::SansBold),
+            ("Monospace", limn::FontFamily::Monospace),
+        ].into_iter().map(|(name, family)| {
+            Element::text(format!("{name} · 🙂 🤣 🦀 🫡 🤔 🧑‍💻 🏴‍☠️"))
+                .font_family(family)
+                .font_size(20.0)
+                .foreground(palette.text)
+        })).chain([
+            caption(cx, "Sequence limits: regional flags and some keycaps / joined flags can still use an earlier font."),
+            Element::text("🇦🇷 · #️⃣ · 🏳️‍🌈").font_size(20.0).foreground(palette.muted),
+        ]).collect()),
         section(cx, "Separator", vec![
             Element::column(vec![
                 Text::new("Above", palette).render(),
