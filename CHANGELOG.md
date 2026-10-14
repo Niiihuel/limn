@@ -11,6 +11,7 @@ in any release.
 - `UniformList` has a public `measured` field; code that builds the struct literally adds `measured: None`
 - `TextArea::enter_submits`, `Composer::enter_submits` and `Element::text_area_enter_submits`: Enter sends and Shift+Enter breaks the line, as in a chat; Ctrl+Enter sends either way. Off by default
 - Icons for conversations and calls: `Icon::MicrophoneMuted`, `Headphones`, `Emoji`, `Reply`, `At`, `Phone`, `HangUp`, `Screen` and `VideoOff`, drawn with Bootstrap Icons 1.13.2
+- Icons for servers and settings: `Icon::Lock`, `Neutral`, `ChevronUp`, `Invite`, `Leave` and `DragHandle`, drawn with Bootstrap Icons 1.13.2 (`lock-fill`, `slash-lg`, `chevron-up`, `person-plus`, `box-arrow-left` and `grip-vertical`), with a section on the gallery's Icon page
 
 ## 0.1.41 — 2026-10-13
 
