@@ -45,6 +45,10 @@ it.
 | `TextArea` | Multi-line text. Enter adds a line; Ctrl+Enter submits. `.radius(RadiusRole)` rounds the box with another token. | `InputChanged`, `Submitted` |
 | `SearchField` | A text field with a magnifier and an optional shortcut hint. | `InputChanged`, `Submitted` |
 | `Switch` | An on/off control. | `Clicked` |
+| `Toggle`, `ToggleGroup`, `ToggleItem`, `ToggleVariant` | A button that stays pressed: a label, an icon or both, `Ghost` or `Outline`, in the four `ControlSize`s. A `ToggleGroup` joins several in one outlined row, of which any number may be pressed. The host owns each value. | `Clicked` with the toggle's own ID |
+| `Checkbox` | A box that is checked or not, with an optional `.label` that is clicked with it and wraps in a narrow width, the box staying on its first line. `.indeterminate(true)` draws a dash for the parent of a partly chosen list. `.size(ControlSize)`, `.enabled`, and `.accessibility_label` for a box alone. | `Clicked` |
+| `RadioGroup`, `RadioOption` | One choice among several: a circle for each option, with a dot in the chosen one and a label that is clicked with it. An option takes a muted `.description` and can be disabled alone. Vertical unless `.horizontal()`; `.size(ControlSize)`, `.enabled(false)`. Left, Right, Home and End move the choice. | `Clicked`, with the chosen option's value as its ID |
+| `NumberInput` | A field for a number joined to a button that lowers it and one that raises it. Controlled: the host passes the text, and `NumberInput::adjusted_value` turns a click into the next text within `.min`, `.max` and `.step`, written with `.decimals`. A button with nowhere to go is disabled. | `InputChanged`, and `Clicked` for the two buttons |
 | `Slider` | A value dragged along a track, from 0 to 1: a seek position or a volume. Continuous unless `.steps(n)` gives it evenly spaced stops. `.ink(color)` colors the fill and thumb, `.enabled(false)` shows the value without taking the pointer. The arrows move it by a twentieth or one stop; Home and End go to the ends. | `SliderChanged`, with `committed` false during a drag and true on release and from the keyboard |
 | `DatePicker` | An ISO date field with a navigable month calendar. | `InputChanged`, and `Clicked` for navigation and days |
 | `TimePicker` | A 24-hour `HH:MM` field with step controls. | `InputChanged`, and `Clicked` for the steps |
@@ -106,6 +110,7 @@ it.
 | `Element::level_bars` | Levels from 0 to 1 as a row of bars, as many as fit the width it is given (`LevelBars`: the levels oldest first, the width of a bar, the gap, the ink of a bar and of a dot). The newest level takes the last slot; a slot without one is a dot. Each slot's height is kept by ID and springs to a new level. `DictationWaveform` is this with a palette. |
 | `Chip` | A passive pill for a count or a label. `.outline()` draws the border only, with no fill. |
 | `Avatar` | An account photo, or the initial of a name when there is none. |
+| `Badge` | A passive mark over the top right corner of another element: `Badge::new(child, palette)` with `.count(n)` (`.max(n)`, 99 unless set, above which it reads `99+`; zero shows nothing unless `.show_zero(true)`) or `.dot()`. `.color` sets its fill and `.description` what it says of the control under it to a screen reader. The child keeps its layout size, hit region, focus and actions. |
 
 Alert tones, shared by `Toast`: `Neutral`, `Info`, `Success`, `Warning`,
 `Error`. The tone colors an alert's icon and a toast's title, which has
