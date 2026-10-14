@@ -30,6 +30,7 @@ mod stack_tests;
 #[cfg(test)]
 #[path = "wrap_tests.rs"]
 mod wrap_tests;
+#[cfg(test)]
 #[path = "area_slider_tests.rs"]
 mod area_slider_tests;
 
@@ -2174,7 +2175,8 @@ pub enum Key {
     /// Delete: deletes forward in the focused text field.
     Delete,
     /// Enter: activates the focused button, submits a text input, or adds a
-    /// line to a text area (which Ctrl+Enter submits).
+    /// line to a text area (which Ctrl+Enter submits, and Enter alone when it
+    /// has `enter_submits`).
     Enter,
     /// Space: activates the focused button. Text fields take the character from
     /// `UiEvent::Text`, not from this key.
@@ -2448,7 +2450,8 @@ pub enum UiAction {
         /// The field's whole text after the change.
         value: String,
     },
-    /// Enter was pressed in a text input, or Ctrl+Enter in a text area.
+    /// Enter was pressed in a text input, or Ctrl+Enter in a text area (Enter
+    /// alone in one with `enter_submits`).
     Submitted {
         /// ID of the field.
         id: String,
@@ -12050,7 +12053,15 @@ impl LayoutBuilder<'_> {
     /// Where a row, a column or a tab strip puts its children in `content`.
     fn child_rects(&mut self, element: &Element, children: &[Element], content: Rect) -> Vec<Rect> {
         match element.wrapping_line_gap() {
-            Some(line_gap) => self.wrap_rects(children, content, element.style.gap, line_gap),
+            Some(line_gap) => {
+                // Wrap at the width it was measured at, which `max_width` caps.
+                let max = element
+                    .style
+                    .max_width
+                    .map_or(f32::INFINITY, |max| (max - element.style.padding * 2.0).max(0.0));
+                let lines = Rect::new(content.x, content.y, content.width.min(max), content.height);
+                self.wrap_rects(children, lines, element.style.gap, line_gap)
+            }
             None => {
                 let row = !matches!(element.kind, ElementKind::Column(_));
                 self.flex_rects(children, content, element.style.gap, row)

@@ -201,3 +201,14 @@ fn only_a_row_wraps_and_its_line_gap_takes_lengths_only() {
     .layout(Size::new(100.0, 100.0));
     assert_eq!(rect(&empty, "after").y, 0.0, "an empty row takes no height");
 }
+
+#[test]
+fn a_row_capped_by_max_width_wraps_there_in_a_column_too() {
+    let mut tree = UiTree::new(Element::column(vec![
+        tags(5).max_width(100.0),
+        tile("after", 100.0, 10.0),
+    ]));
+    let frame = tree.layout(Size::new(400.0, 200.0));
+    assert_eq!(rect(&frame, "tag:2"), Rect::new(0.0, 30.0, 40.0, 20.0));
+    assert_eq!(rect(&frame, "tag:4").y, rect(&frame, "after").y - 20.0);
+}

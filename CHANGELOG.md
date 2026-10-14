@@ -3,7 +3,7 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
-## Unreleased
+## 0.1.42 — 2026-10-14
 
 - `ScrollArea::measured_list` and `Element::measured_list`: a virtualized list of rows of their own heights, such as the messages of a conversation. Rows are built only while in view and measured then; a key per row keeps its height, and holds the row at the top of the viewport still while rows above it are measured, change height or are added. `follow_end` (`Element::list_follow_end`) keeps the end in view as rows arrive while the list is scrolled there. `reveal` and `anchor_offset` reach what the rows in view hold
 - `UiTree::visible_rows(id)`: the rows of a uniform or a measured list built at the last layout
@@ -16,23 +16,15 @@ in any release.
 - Tabs: `variant(TabsVariant::Underlined)`, text tabs with no track and an underline that slides to the active one over a hairline, the same size as the segmented tabs, with the same actions and keys; `accent` colors the active label and the underline, and `gap` sets the space between tabs
 - Tabs: a disabled tab's label sits at the height of the enabled ones, where it stood higher
 - `Tabs` has public `variant` and `accent` fields; code that builds the struct literally adds `variant: TabsVariant::Segmented, accent: None`
-## 0.1.42 — unreleased
-
 - `Element::wrap` and `Element::line_gap`: a row whose children move onto more lines when they do not fit its width, as tags or role pills do. The row is as tall as its lines; Tab, the pointer and assistive technology find each child where it is, in the order given
-## 0.1.42 — unreleased
-
 - Switch: `size(ControlSize)`, from 28×16 for `Dense` to 44×24 for `Spacious`; `variant(SwitchVariant::Accent)`, a light thumb on and off over a track of the palette's link color, or of `ink`, darkened where needed until the thumb reads on it at 3:1, as chat applications draw a switch; and `ink` for the track's color while it is on. A switch without them draws what it drew
 - Slider: `marks()` draws a hairline at each stop, up to 100 stops, `mark_labels` names the stops over the track, each on one line, and `default_stop` shows one of them in the ink; the platform is told the label of the stop the value is on
 - RadioOption: `icon`, between the circle and the label
-## 0.1.42 — unreleased
-
 - TextField: `icon`, an icon before the text inside the field, muted until the field has the focus, as a search field's magnifier; a disabled field keeps it in its place
 - SearchField: `clearable(true)`, a button at the end of the field while it has a query, which reports `Clicked` with `"{id}:clear"`; the text stops before it, and disabled it stays in its place, passive. `Labels::clear_search` names it. A clearable field is as wide with a query as without, never under 80
 - SearchField: a disabled field shows its shortcut hint only while it has no query, as the enabled one does
 - Select: `variant(SelectVariant::Field)`, a trigger drawn as a text field, with its fill, border and height and the choice at its start, open or focused from the keyboard with a focused field's border; `size(ControlSize)` and `height(px)` for either variant. A select is drawn as it was unless told otherwise
 - `Element::focus_border` on a control whose focus ring is off is shown while it has the keyboard focus, as its mark of that focus; a text input or area shows it on any focus, as before
-## 0.1.42 — unreleased
-
 - New components: `SwatchPicker` and `Swatch` (one color among a few, a ring around the chosen one, and an optional custom swatch that opens a picker) and `ColorPicker` with `Hsv` (a field of saturation and value, a bar of hues and a hex field; `ColorPicker::color_after` turns its actions into the next color, `hex` and `parse_hex` write and read it), each with a page, a guide and the swatches in the controls harness
 - `Element::area_slider` and `UiAction::AreaSliderChanged`: a slider over an area, dragged in two directions and stepped with all four arrows
 - `Element::horizontal_gradient` and `vertical_gradient`: evenly spaced colors across an element, its corners rounded
