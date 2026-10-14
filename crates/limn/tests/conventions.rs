@@ -3,7 +3,8 @@
 
 use limn::{
     ActionRow, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard, Collapsible, Component, ComponentPalette,
-    NumberInput, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
+    Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
+    Toolbar, ToolbarItem,
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
     DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Marker, MediaCard, MediaTile,
     MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
@@ -48,6 +49,12 @@ fn what_can_be_disabled_takes_both_spellings() {
     let _ = ToggleGroup::new("a", Vec::new(), palette).enabled(false).disabled();
     let _ = ToggleItem::new("a", "A", true).enabled(false).disabled();
     let _ = NumberInput::new("a", "1", palette).enabled(false).disabled();
+    let _ = Accordion::new("a", Vec::new(), palette).enabled(false).disabled();
+    let _ = AccordionItem::new("a", "A", Element::spacer()).enabled(false).disabled();
+    let _ = Pagination::new("a", 1, 3, palette).enabled(false).disabled();
+    let _ = Chip::new("A", palette).enabled(false).disabled();
+    let _ = Toolbar::new("a", palette).enabled(false).disabled();
+    let _ = ToolbarItem::button("a", "A").enabled(false).disabled();
     let _ = Slider::new("a", 0.5, palette).enabled(false).disabled();
     let _ = Select::new("a", "A", Vec::new(), false, "a:dismiss", palette).enabled(false).disabled();
     let _ = ListRow::new("a", "A", palette).enabled(false).disabled();
@@ -192,4 +199,25 @@ fn the_last_border_said_is_the_one_drawn() {
     assert!(!Element::spacer().dashed_border(color, 1.0).border(color, 1.0).style.dashed_border);
     let none = Element::spacer().dashed_border(color, f32::NAN).style;
     assert!(none.border.is_none() && !none.dashed_border);
+}
+
+/// Disabling a button does not move what it says.
+#[test]
+fn a_disabled_button_keeps_its_label_where_the_enabled_one_has_it() {
+    let palette = palette();
+    let label_at = |button: Button| {
+        let frame = UiTree::new(button.render()).layout(Size::new(320.0, 120.0));
+        frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                limn::DrawCommand::Text { position, .. } => Some(position.x),
+                _ => None,
+            })
+            .expect("a label")
+    };
+    for width in [80.0, 160.0, 240.0] {
+        let button = || Button::new("a", "Save", palette).width(width);
+        assert!((label_at(button()) - label_at(button().disabled())).abs() < 1.0, "at {width}");
+    }
 }
