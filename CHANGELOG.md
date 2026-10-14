@@ -6,6 +6,7 @@ in any release.
 ## Unreleased
 
 - Icons for conversations and calls: `Icon::MicrophoneMuted`, `Headphones`, `Emoji`, `Reply`, `At`, `Phone`, `HangUp`, `Screen` and `VideoOff`, drawn with Bootstrap Icons 1.13.2
+- Icons for servers and settings: `Icon::Lock`, `Slash`, `ChevronUp`, `PersonPlus`, `Leave` and `GripVertical`, drawn with Bootstrap Icons 1.13.2 (`lock-fill`, `slash-lg`, `chevron-up`, `person-plus`, `box-arrow-left` and `grip-vertical`), with a section on the gallery's Icon page
 
 ## 0.1.41 — 2026-10-13
 
