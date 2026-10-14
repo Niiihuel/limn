@@ -1088,7 +1088,8 @@ impl Component for Button {
                 ])
                 .gap(spacing)
             } else {
-                label
+                // In the middle of a button wider than its label, where an enabled one has it.
+                label.center_content()
             };
             // Button padding is horizontal. Center the content vertically
             // without clipping large button sizes or the spinner's slot.

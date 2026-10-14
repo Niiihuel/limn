@@ -109,6 +109,14 @@ of the sections that are its own. See
 Then look at it, in both themes and with square corners. Tests do not catch a
 label that sits two pixels low.
 
+### Marking what is new
+
+Every page in `PAGES` says the version its component first shipped in, as
+`since: "0.1.41"`: the version in `Cargo.toml` when it is added. The site
+marks the component "New" wherever its name is listed (the menu, the index,
+its own page, the search) while that version or the one after it is current,
+and stops by itself after that. Nothing else has to be set or removed.
+
 ## 5. Document it
 
 Add a row to the right table in [Components](components.md), and a doc comment

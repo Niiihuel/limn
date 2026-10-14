@@ -20,7 +20,7 @@ syntax = ["limn/syntax"]
 hot = ["limn/hot"]
 
 [dependencies]
-limn = { version = "0.1.40", path = "../limn", default-features = false }
+limn = { version = "0.1.41", path = "../limn", default-features = false }
 # `accesskit` publishes what `Frame::access` holds to the platform.
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland", "accesskit"] }
 resvg = { version = "0.48.1", default-features = false }
@@ -29,4 +29,4 @@ base64 = "0.22"
 sha2 = "0.10"
 
 [dev-dependencies]
-limn-editor = { version = "0.1.40", path = "../limn-editor" }
+limn-editor = { version = "0.1.41", path = "../limn-editor" }

@@ -21,9 +21,9 @@ const toc = byGroup.map(({ group }) => ({ depth: 2, slug: group.toLowerCase(), t
       <section class="docs-section" aria-labelledby={group.toLowerCase()}>
         <h2 id={group.toLowerCase()}>{group === 'System' ? 'Primitives' : group}<span class="section-count">{items.length}</span></h2>
         <div class="docs-index">
-          {items.map(({ id, title }) => {
+          {items.map(({ id, title, new: fresh }) => {
             const about = lead(guides.get(id)?.body);
-            return <a href={`/components/${id}/`}><div><h3>{title}</h3>{about && <p>{about}</p>}</div><Icon name="arrow-right" size={14} /></a>;
+            return <a href={`/components/${id}/`}><div><h3>{title}{fresh && <span class="new">New</span>}</h3>{about && <p>{about}</p>}</div><Icon name="arrow-right" size={14} /></a>;
           })}
         </div>
       </section>

@@ -4,7 +4,8 @@
 
 use limn::{
     Access, ActionRow, Alert, AlertDialog, Attachment, Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard,
-    NumberInput, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
+    Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
+    Toolbar, ToolbarItem,
     Collapsible, Component, ComponentPalette, DatePicker, DictationButton, DictationState, DismissButton,
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
@@ -104,6 +105,31 @@ fn controls() -> Vec<Control> {
             "it",
             || Switch::new("it", true, palette()).accessibility_label("Wi-Fi").render(),
             || Switch::new("it", true, palette()).accessibility_label("Wi-Fi").disabled().render(),
+        ),
+        control(
+            "Accordion header",
+            "it",
+            || Accordion::new("faq", vec![AccordionItem::new("it", "Billing", Element::spacer())], palette()).render(),
+            || Accordion::new("faq", vec![AccordionItem::new("it", "Billing", Element::spacer()).disabled()], palette()).render(),
+        ),
+        control(
+            "Pagination page",
+            "pages:3",
+            || Pagination::new("pages", 1, 5, palette()).render(),
+            || Pagination::new("pages", 1, 5, palette()).disabled().render(),
+        )
+        .reports("pages=3"),
+        control(
+            "Chip remove button",
+            "it",
+            || Chip::new("Rust", palette()).remove_action("it").render(),
+            || Chip::new("Rust", palette()).remove_action("it").disabled().render(),
+        ),
+        control(
+            "Toolbar button",
+            "it",
+            || Toolbar::new("bar", palette()).group(vec![ToolbarItem::button("it", "Save")]).render(),
+            || Toolbar::new("bar", palette()).group(vec![ToolbarItem::button("it", "Save").disabled()]).render(),
         ),
         control(
             "Checkbox",

@@ -164,3 +164,8 @@ dialog.search li small { color: var(--muted); font-size: 12px; white-space: nowr
 dialog.search footer { display: flex; gap: 18px; padding: 10px 14px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
 dialog.search footer span { display: inline-flex; align-items: center; gap: 5px; }
 @media (max-width: 760px) { .bar .search-open span, .bar .search-open kbd { display: none; } .bar .search-open { width: 32px; padding: 0; } }
+
+/* What came in a recent release says so, wherever its name is listed. */
+.new { display: inline-block; margin-left: 8px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 999px; color: var(--fg); font: 500 9.5px/1.5 var(--mono); letter-spacing: .08em; text-transform: uppercase; vertical-align: middle; }
+h1 .new { margin-left: 14px; font-size: 11px; padding: 2px 9px; letter-spacing: .1em; }
+

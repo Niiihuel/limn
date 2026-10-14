@@ -5,6 +5,10 @@ in any release.
 
 ## 0.1.41 — unreleased
 
+- New components: `Accordion` and `AccordionItem`, `Pagination` (numbered pages that keep their place as the page changes), `DescriptionList` and `DescriptionItem`, `AvatarGroup` and `Toolbar` (groups of commands with rules between them, and a menu for what does not fit)
+- Chip: `tone` and `color`, `size`, `icon` and `dot`, and `remove_action` with `enabled`/`disabled`; a plain chip draws what it drew
+- Button: a disabled button of a fixed width keeps its label in the middle, where the enabled one has it
+- Documentation site: a component is marked "New" in the release it comes in and the one after, from the `since` of its gallery page
 - New components: `Checkbox` (with an indeterminate state), `RadioGroup` and `RadioOption`, `Toggle` and `ToggleGroup`, `NumberInput` (a field with buttons that step it, between a minimum and a maximum) and `Badge` (a count or a dot over the corner of something else), each with a page, a guide and a place in the controls harness
 - Accessibility: `Access::mixed` for a check box that is neither on nor off, published as such
 - `Element::every_arrow`: a tab strip that Up and Down step as Left and Right do, which a radio group uses

@@ -6,10 +6,12 @@
 //! [`UiEvent`] and paints the resulting [`Frame`].
 #![warn(missing_docs)]
 
+mod accordion;
 mod alert;
 mod alert_dialog;
 mod attachment;
 mod avatar;
+mod avatar_group;
 mod badge;
 mod breadcrumb;
 mod button_group;
@@ -33,6 +35,7 @@ mod context_window;
 mod context_menu;
 mod date_picker;
 mod date_time_picker;
+mod description_list;
 mod diagram;
 mod dictation;
 mod dropdown_menu;
@@ -67,6 +70,7 @@ mod theme;
 mod page;
 mod message_actions;
 mod pager;
+mod pagination;
 mod panel_header;
 mod popover_panel;
 mod preferences;
@@ -96,6 +100,7 @@ mod ticker;
 mod time_picker;
 mod toast;
 mod toggle;
+mod toolbar;
 mod access;
 pub mod hot;
 mod labels;
@@ -113,11 +118,13 @@ mod link_presentation_tests;
 #[cfg(test)]
 mod text_measurement_tests;
 
+pub use accordion::{Accordion, AccordionItem};
 pub use alert::{Alert, AlertColors, AlertTone};
 pub use alert_dialog::AlertDialog;
 pub use coach_mark::{CoachMark, Tour, TourStep};
 pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
+pub use avatar_group::AvatarGroup;
 pub use badge::Badge;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 pub use button_group::{ButtonGroup, ButtonGroupSizing};
@@ -148,6 +155,7 @@ pub use framed_card::FramedCard;
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
 pub use date_picker::DatePicker;
 pub use date_time_picker::DateTimePicker;
+pub use description_list::{DescriptionItem, DescriptionList};
 pub use dictation::{DictationButton, DictationState, DictationWaveform};
 pub use dropdown_menu::{
     DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
@@ -196,6 +204,7 @@ pub use message_actions::{
     MessageAction, MessageActionDone, MessageActions, MessageActionsVisibility,
 };
 pub use pager::{Pager, PagerSizing};
+pub use pagination::Pagination;
 pub use panel_header::{PanelHeaderSizing, PanelHeader, SidebarPanel};
 pub use popover_panel::{PopoverPanel, PopoverPanelSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
@@ -229,6 +238,7 @@ pub use ticker::Ticker;
 pub use time_picker::TimePicker;
 pub use toast::Toast;
 pub use toggle::{Toggle, ToggleGroup, ToggleItem, ToggleVariant};
+pub use toolbar::{Toolbar, ToolbarItem};
 pub use access::{Access, AccessNode, Role};
 pub use labels::{labels, set_labels, Labels};
 pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
