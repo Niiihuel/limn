@@ -29,6 +29,8 @@ pub struct Labels {
     pub remove: &'static str,
     /// The hint of the search action of a path.
     pub search: &'static str,
+    /// The name of the button that empties a search field.
+    pub clear_search: &'static str,
     /// The title of the hint that shows a shortened path whole.
     pub full_path: &'static str,
     /// The hint of the button that closes an open collapsible from its foot.
@@ -198,6 +200,7 @@ impl Labels {
         cancel: "Cancel",
         remove: "Remove",
         search: "Search",
+        clear_search: "Clear search",
         full_path: "Full path",
         collapse: "Collapse",
         next: "Next",
@@ -290,6 +293,7 @@ impl Labels {
         cancel: "Cancelar",
         remove: "Quitar",
         search: "Buscar",
+        clear_search: "Borrar la búsqueda",
         full_path: "Ruta completa",
         collapse: "Contraer",
         next: "Siguiente",

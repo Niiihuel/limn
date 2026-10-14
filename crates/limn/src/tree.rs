@@ -9269,11 +9269,13 @@ impl LayoutBuilder<'_> {
                     }
                 }
             }
+            // An editor shows it on any focus; another control without a
+            // ring shows it as its keyboard focus mark.
             if self.focused == Some(id.as_str())
-                && matches!(
+                && (matches!(
                     &element.kind,
                     ElementKind::TextInput { .. } | ElementKind::TextArea { .. }
-                )
+                ) || self.keyboard_focus && !style.focus_ring)
             {
                 style.border = style.focus_border.or(style.border);
             }
@@ -10517,6 +10519,17 @@ impl LayoutBuilder<'_> {
                 password,
             } => {
                 self.add_region(id, rect, HitKind::TextInput, clip);
+                // Room a component keeps at the end for a control over it.
+                let trailing = element
+                    .kept
+                    .as_ref()
+                    .map_or(0.0, |kept| kept.input_trailing_space);
+                let content = Rect::new(
+                    content.x,
+                    content.y,
+                    (content.width - trailing).max(0.0),
+                    content.height,
+                );
                 let is_focused = self.focused == Some(id.as_str());
                 let show_shortcut = !is_focused
                     && initial_value.is_empty()
@@ -13459,6 +13472,83 @@ mod tests {
         assert!(!focused.commands.iter().any(|command| matches!(command,
             DrawCommand::Text { text, .. } if text == "Ctrl" || text == "K"
         )));
+    }
+
+    #[test]
+    fn a_control_without_a_ring_shows_its_focus_border_under_the_keyboard_only() {
+        let mark = Color::rgb(1, 2, 3);
+        let marked = |frame: &Frame| {
+            frame.commands.iter().any(|command| {
+                matches!(command, DrawCommand::StrokeRect { color, width, .. }
+                    if *color == mark && *width == 1.5)
+            })
+        };
+        let button = |ring: bool| {
+            Element::button("go", "Go")
+                .border(Color::rgb(9, 9, 9), 1.0)
+                .focus_border(mark, 1.5)
+                .focus_ring(ring)
+                .size(Some(80.0), Some(28.0))
+        };
+        let window = Size::new(80.0, 28.0);
+        let mut tree = UiTree::new(button(false));
+        assert!(!marked(&tree.layout(window)));
+        assert!(tree.focus_from_pointer("go"));
+        assert!(!marked(&tree.layout(window)));
+        assert!(tree.focus("go"));
+        assert!(marked(&tree.layout(window)));
+        // With its ring, a control keeps the ring and its own border.
+        tree.set_root(button(true));
+        assert!(!marked(&tree.layout(window)));
+    }
+
+    #[test]
+    fn input_trailing_space_keeps_the_end_free_of_text_caret_and_hint() {
+        let field = |trailing: f32| {
+            Element::text_input("search", "", "Find")
+                .leading_icon(Icon::Search)
+                .input_shortcut("K")
+                .input_trailing_space(trailing)
+                .size(Some(200.0), Some(34.0))
+        };
+        let hint_right = |frame: &Frame| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, position, .. } if text == "K" => Some(position.x),
+                    _ => None,
+                })
+                .next()
+                .expect("the hint")
+        };
+        let mut tree = UiTree::new(field(0.0));
+        let plain = tree.layout(Size::new(200.0, 34.0));
+        let (plain_x, plain_width) = (
+            tree.inputs["search"].content_x,
+            tree.inputs["search"].content_width,
+        );
+        tree.set_root(field(24.0));
+        let kept = tree.layout(Size::new(200.0, 34.0));
+        // The start is where it was; the text, and the hint at its end, give up the room.
+        assert_eq!(tree.inputs["search"].content_x, plain_x);
+        assert_eq!(tree.inputs["search"].content_width, plain_width - 24.0);
+        assert_eq!(hint_right(&kept), hint_right(&plain) - 24.0);
+        assert_eq!(
+            kept.regions[0].rect, plain.regions[0].rect,
+            "the input's own box is unchanged"
+        );
+        // More than the field has leaves no room, never a negative one.
+        tree.set_root(field(500.0));
+        tree.layout(Size::new(200.0, 34.0));
+        assert_eq!(tree.inputs["search"].content_width, 0.0);
+        // Not a number, or another kind of element: nothing is kept.
+        for element in [
+            field(f32::NAN),
+            Element::spacer().input_trailing_space(24.0),
+        ] {
+            assert!(element.kept.is_none());
+        }
     }
 
     #[test]

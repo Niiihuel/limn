@@ -1532,6 +1532,7 @@ pub struct TextField {
     state: ControlState,
     password: bool,
     monospace: bool,
+    icon: Option<Icon>,
     accessibility_label: Option<String>,
 }
 
@@ -1556,6 +1557,7 @@ impl TextField {
             state: ControlState::Enabled,
             password: false,
             monospace: false,
+            icon: None,
             accessibility_label: None,
         }
     }
@@ -1570,6 +1572,15 @@ impl TextField {
     /// Take the height and text size of a control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Put an icon before the text, inside the field, as a search field has
+    /// its magnifier: a `#` before a channel's name, an at sign before an
+    /// address. It is decorative, in the muted ink until the field has the
+    /// focus, and the text starts after it.
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
         self
     }
 
@@ -1653,29 +1664,42 @@ impl Component for TextField {
             } else {
                 self.value
             };
-            return Element::panel(
-                Element::truncated_text(text)
-                    .foreground(self.palette.muted)
-                    .font_family(family)
-                    .font_size(13.0),
-            )
-            .padding(8.0)
-            .background(self.palette.raised)
-            .border(self.palette.border, 1.0)
-            .radius(input_radius(self.size))
-            .size(self.width, Some(height))
-            .accessible(access);
+            let text = Element::truncated_text(text)
+                .foreground(self.palette.muted)
+                .font_family(family)
+                .font_size(13.0);
+            // Where the enabled field draws them: the icon in the padding's
+            // corner and the text 8 after it, both on the middle line.
+            let content = match self.icon {
+                Some(icon) => Element::row(vec![
+                    Element::icon(icon)
+                        .foreground(self.palette.muted)
+                        .size(Some(ICON_SIZE), Some(ICON_SIZE))
+                        .centered_y(),
+                    text.flex(1.0),
+                ])
+                .gap(8.0),
+                None => text,
+            };
+            return Element::panel(content)
+                .padding(8.0)
+                .background(self.palette.raised)
+                .border(self.palette.border, 1.0)
+                .radius(input_radius(self.size))
+                .size(self.width, Some(height))
+                .accessible(access);
         }
-        let input = input_surface(
-            Element::text_input(self.id, self.value, self.placeholder)
-                .password(self.password)
-                .persistent_placeholder(self.persistent_placeholder),
-            self.palette,
-            self.size,
-            self.width,
-        )
-        .size(self.width, Some(height))
-        .font_family(family);
+        let mut input = Element::text_input(self.id, self.value, self.placeholder)
+            .password(self.password)
+            .persistent_placeholder(self.persistent_placeholder);
+        if let Some(icon) = self.icon {
+            input = input
+                .leading_icon(icon)
+                .leading_icon_tint(self.palette.muted);
+        }
+        let input = input_surface(input, self.palette, self.size, self.width)
+            .size(self.width, Some(height))
+            .font_family(family);
         match self.accessibility_label {
             Some(name) => input.accessibility_label(name),
             None => input,
@@ -1856,7 +1880,9 @@ fn input_radius(_size: ControlSize) -> f32 {
     control_radius()
 }
 
-fn input_surface(
+// The fill, border, radius, ink and height every text field shares; a
+// select drawn as a field takes it too.
+pub(crate) fn input_surface(
     input: Element,
     palette: ComponentPalette,
     size: ControlSize,
@@ -1890,6 +1916,7 @@ pub struct SearchField {
     width: Option<f32>,
     state: ControlState,
     shortcut: Option<String>,
+    clearable: bool,
     accessibility_label: Option<String>,
 }
 
@@ -1915,6 +1942,7 @@ impl SearchField {
             width: None,
             state: ControlState::Enabled,
             shortcut: None,
+            clearable: false,
             accessibility_label: None,
         }
     }
@@ -1947,6 +1975,15 @@ impl SearchField {
         self
     }
 
+    /// Show a button at the end of the field while the query is not empty,
+    /// which reports `Clicked` with `"{id}:clear"`. The field does not empty
+    /// itself: the host clears its query and gives the field its new text
+    /// with `UiTree::set_input_value`, and may give it the focus back.
+    pub fn clearable(mut self, clearable: bool) -> Self {
+        self.clearable = clearable;
+        self
+    }
+
     /// Disable it: it keeps its place and its value and cannot be used.
     pub fn disabled(mut self) -> Self {
         self.state = ControlState::Disabled;
@@ -1967,6 +2004,8 @@ impl SearchField {
 
 impl Component for SearchField {
     fn render(self) -> Element {
+        let clear =
+            (self.clearable && !self.value.is_empty()).then(|| format!("{}:clear", self.id));
         let height = self.size.height().max(28.0);
         let radius = input_radius(self.size);
         let surface = self.palette.raised;
@@ -1978,6 +2017,9 @@ impl Component for SearchField {
                 &self.placeholder,
                 Some(self.value.clone()),
             );
+            // What the enabled field shows away from the focus: the hint only
+            // while there is no query, so it never meets the clear button.
+            let shortcut = self.shortcut.filter(|_| self.value.is_empty());
             let (value, ink) = if self.value.is_empty() {
                 (self.placeholder, self.palette.muted)
             } else {
@@ -1994,7 +2036,7 @@ impl Component for SearchField {
                     .size(None, Some(height))
                     .flex(1.0),
             ];
-            if let Some(shortcut) = self.shortcut {
+            if let Some(shortcut) = shortcut {
                 let mut hint = Kbd::new(shortcut, self.palette);
                 if let Some(width) = self.width {
                     hint = hint.max_width((width - 16.0 - ICON_SIZE - 16.0 - 24.0).max(0.0));
@@ -2006,16 +2048,24 @@ impl Component for SearchField {
                     hint.flex(1.0)
                 });
             }
-            return Element::panel(Element::row(vec![
+            let mut row = vec![
                 Element::spacer().size(Some(8.0), None),
                 Element::row(children).gap(8.0).flex(1.0),
-                Element::spacer().size(Some(8.0), None),
-            ]))
-            .background(surface)
-            .border(self.palette.border, 1.0)
-            .radius(radius)
-            .size(self.width, Some(height))
-            .accessible(access);
+            ];
+            match clear {
+                // Where the enabled one is, passive and still known by its ID.
+                Some(id) => row.extend([
+                    clear_button(id, self.palette, false).centered_y(),
+                    Element::spacer().size(Some(CLEAR_INSET), None),
+                ]),
+                None => row.push(Element::spacer().size(Some(8.0), None)),
+            }
+            return Element::panel(Element::row(row))
+                .background(surface)
+                .border(self.palette.border, 1.0)
+                .radius(radius)
+                .size(self.width, Some(height))
+                .accessible(access);
         }
         let mut access = Access::new(Role::SearchInput);
         if let Some(name) = self.accessibility_label {
@@ -2034,7 +2084,24 @@ impl Component for SearchField {
                 .input_shortcut(shortcut)
                 .input_shortcut_fill(crate::shortcut::cap_fill(self.palette.text));
         }
-        input.accessible(access)
+        let input = input.accessible(access);
+        let Some(clear) = clear else { return input };
+        // The button lies over the field's end, which the text leaves free as
+        // it leaves the magnifier's room at the start; the field stays lit
+        // while the pointer is on the button.
+        Element::stack(vec![
+            input
+                .input_trailing_space(ICON_SIZE + 8.0)
+                .hover_with(clear.clone()),
+            Element::row(vec![
+                Element::spacer().flex(1.0),
+                clear_button(clear, self.palette, true).centered_y(),
+                Element::spacer().size(Some(CLEAR_INSET), None),
+            ]),
+        ])
+        // As wide as the field alone, so typing does not narrow it.
+        .min_size(80.0, height)
+        .size(self.width, Some(height))
     }
 }
 
@@ -2052,6 +2119,38 @@ pub enum SwitchVariant {
     /// darkened where needed until the thumb stands at a contrast of 3 or
     /// more on it. This is how chat applications draw a switch.
     Accent,
+}
+
+/// Side of a search field's clear button: its glyph and 4 around it.
+const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
+/// From the clear button to the field's end, so that its glyph is as far
+/// from that end as the magnifier is from the start.
+const CLEAR_INSET: f32 = 8.0 - (CLEAR_SIDE - ICON_SIZE) / 2.0;
+
+// A circled cross that empties a search field; drawn disabled it is passive.
+fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element {
+    // An icon alone: it is named for what it does.
+    let said = Access::new(Role::Button).name(crate::labels().clear_search);
+    if enabled {
+        Element::icon_button(id, Icon::CloseCircle, "")
+            .foreground(palette.muted)
+            .hover_foreground(palette.text)
+            .pressed_foreground(palette.text)
+            .hover_background(palette.hover)
+            .pressed_background(palette.selected)
+            .accessible(said)
+    } else {
+        Element::panel(
+            Element::icon(Icon::CloseCircle)
+                .foreground(palette.muted)
+                .size(Some(ICON_SIZE), Some(ICON_SIZE))
+                .centered(),
+        )
+        .accessible(said.id(id).disabled(true))
+    }
+    // Half the side is a shape, not a token.
+    .radius(CLEAR_SIDE / 2.0)
+    .size(Some(CLEAR_SIDE), Some(CLEAR_SIDE))
 }
 
 /// A caller-controlled switch with a single focusable target. The thumb is
@@ -3997,6 +4096,361 @@ mod tests {
         assert!(!has_hint(&tree.layout(Size::new(280.0, 72.0))));
         tree.set_input_value("query", "");
         assert!(has_hint(&tree.layout(Size::new(280.0, 72.0))));
+    }
+
+    // A field at the top left of a window, at its own size.
+    fn field_tree(field: Element) -> UiTree {
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::row(vec![field, Element::spacer().flex(1.0)]),
+            Element::spacer().flex(1.0),
+        ]));
+        tree.set_reduced_motion(true);
+        tree
+    }
+
+    #[test]
+    fn a_text_field_icon_sits_before_its_text_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let drawn = |field: TextField| {
+            let frame = field_tree(field.width(240.0).render()).layout(Size::new(400.0, 120.0));
+            let icon = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Icon {
+                    rect,
+                    icon: Icon::Hash,
+                    tint,
+                } => Some((*rect, *tint)),
+                _ => None,
+            });
+            let text = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { position, text, .. } if text == "general" => Some(*position),
+                _ => None,
+            });
+            (icon.expect("the icon"), text.expect("the text"))
+        };
+        let field = || TextField::new("name", "general", "Name", palette).icon(Icon::Hash);
+        let ((icon, tint), text) = drawn(field());
+        // In the padding's corner, muted, the text 8 after it and the line
+        // in the middle of the field.
+        assert_eq!((icon.x, icon.width, tint), (8.0, ICON_SIZE, palette.muted));
+        assert_eq!(icon.y + icon.height / 2.0, 16.0);
+        assert_eq!(text.x, 8.0 + ICON_SIZE + 8.0);
+        // Disabled, the two stay where they were, both muted.
+        let ((still, muted), moved) = drawn(field().disabled());
+        assert_eq!((still, muted, moved.x), (icon, palette.muted, text.x));
+        // Without one the text starts in the padding's corner, as before.
+        let frame = field_tree(TextField::new("name", "general", "Name", palette).render())
+            .layout(Size::new(400.0, 120.0));
+        assert!(!frame
+            .commands
+            .iter()
+            .any(|command| matches!(command, DrawCommand::Icon { .. })));
+        // Focused, the icon takes the text's ink, as a search field's magnifier does.
+        let mut tree = field_tree(field().render());
+        tree.layout(Size::new(400.0, 120.0));
+        assert!(tree.focus("name"));
+        let focused = tree.layout(Size::new(400.0, 120.0));
+        assert!(focused.commands.iter().any(|command| matches!(command,
+            DrawCommand::Icon { icon: Icon::Hash, tint, .. } if *tint == palette.text)));
+    }
+
+    #[test]
+    fn a_text_field_icon_stays_inside_a_narrow_field() {
+        let palette = ComponentPalette::neutral_dark();
+        for width in [40.0, 80.0, 180.0] {
+            for field in [
+                TextField::new("name", "a long value", "Name", palette)
+                    .icon(Icon::Hash)
+                    .width(width),
+                TextField::new("name", "a long value", "Name", palette)
+                    .icon(Icon::Hash)
+                    .width(width)
+                    .disabled(),
+            ] {
+                let frame = field_tree(field.render()).layout(Size::new(400.0, 120.0));
+                for command in &frame.commands {
+                    if let DrawCommand::Icon { rect, .. } = command {
+                        assert!(
+                            rect.x >= 0.0 && rect.x + rect.width <= width,
+                            "{width}: {rect:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_clearable_search_field_has_its_button_only_while_there_is_a_query() {
+        let palette = ComponentPalette::neutral_dark();
+        let window = Size::new(400.0, 120.0);
+        let field = |query: &str| {
+            SearchField::new("query", query, "Search", palette)
+                .clearable(true)
+                .width(280.0)
+        };
+        let ids = |tree: &mut UiTree| -> Vec<String> {
+            tree.layout(window)
+                .regions
+                .iter()
+                .map(|region| region.id.clone())
+                .collect()
+        };
+        // Empty, or with a query but not clearable, it is one input as before.
+        assert_eq!(ids(&mut field_tree(field("").render())), ["query"]);
+        let plain = SearchField::new("query", "rust", "Search", palette).width(280.0);
+        assert_eq!(ids(&mut field_tree(plain.render())), ["query"]);
+
+        let mut tree = field_tree(field("rust").render());
+        let frame = tree.layout(window);
+        let rect = |id: &str| {
+            frame
+                .regions
+                .iter()
+                .find(|region| region.id == id)
+                .map(|region| region.rect)
+        };
+        let (input, clear) = (
+            rect("query").unwrap(),
+            rect("query:clear").expect("the clear button"),
+        );
+        // A circle at the end whose glyph is as far from it as the magnifier
+        // is from the start, on the field's middle line.
+        assert_eq!((input.width, input.height), (280.0, 36.0));
+        assert_eq!((clear.width, clear.height), (24.0, 24.0));
+        assert_eq!(input.x + input.width - (clear.x + clear.width), 4.0);
+        assert_eq!(clear.y + clear.height / 2.0, input.y + input.height / 2.0);
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Icon { icon: Icon::CloseCircle, rect, tint }
+                if *tint == palette.muted && rect.x + rect.width == input.x + input.width - 8.0)));
+        // The text, its caret and its selection are drawn before the button.
+        let text = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::PushClip(clip) if clip.x == input.x + 8.0 + ICON_SIZE + 8.0 => {
+                    Some(*clip)
+                }
+                _ => None,
+            })
+            .expect("the text's clip");
+        assert!(
+            text.x + text.width < clear.x,
+            "{text:?} runs under {clear:?}"
+        );
+        assert_eq!(
+            frame.hit_test(Point::new(clear.x + 12.0, clear.y + 12.0)),
+            Some("query:clear")
+        );
+
+        // The pointer on the button keeps the field lit and lights the button.
+        let middle = Point::new(clear.x + 12.0, clear.y + 12.0);
+        tree.handle_event(UiEvent::PointerMove(middle));
+        let lit = tree.layout(window);
+        let fill = |rect: crate::Rect| {
+            lit.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect {
+                    rect: drawn, color, ..
+                } if *drawn == rect => Some(*color),
+                _ => None,
+            })
+        };
+        assert_eq!(fill(input), Some(lighter(palette.raised, 5)));
+        assert_eq!(fill(clear), Some(palette.hover));
+
+        // A click reports it; the host empties its query and the field.
+        tree.handle_event(UiEvent::PointerDown(middle));
+        assert_eq!(
+            tree.handle_event(UiEvent::PointerUp(middle)),
+            vec![UiAction::Clicked {
+                id: "query:clear".into()
+            }]
+        );
+        tree.set_input_value("query", "");
+        tree.set_root(Element::column(vec![
+            Element::row(vec![field("").render(), Element::spacer().flex(1.0)]),
+            Element::spacer().flex(1.0),
+        ]));
+        assert_eq!(ids(&mut tree), ["query"]);
+        assert_eq!(tree.input_value("query"), Some(""));
+    }
+
+    #[test]
+    fn typing_into_a_clearable_search_field_keeps_its_focus_and_caret_as_the_button_comes() {
+        let palette = ComponentPalette::neutral_dark();
+        let window = Size::new(400.0, 120.0);
+        let view = |query: &str| {
+            Element::column(vec![
+                Element::row(vec![
+                    SearchField::new("query", query, "Search", palette)
+                        .clearable(true)
+                        .width(280.0)
+                        .render(),
+                    Element::spacer().flex(1.0),
+                ]),
+                Element::spacer().flex(1.0),
+            ])
+        };
+        let mut tree = UiTree::new(view(""));
+        tree.layout(window);
+        assert!(tree.focus("query"));
+        let reported = tree.handle_event(UiEvent::Text("ru".into()));
+        assert_eq!(
+            reported,
+            vec![UiAction::InputChanged {
+                id: "query".into(),
+                value: "ru".into()
+            }]
+        );
+        // The host stores the query; the field is rebuilt with its button.
+        tree.set_root(view("ru"));
+        let frame = tree.layout(window);
+        assert!(frame
+            .regions
+            .iter()
+            .any(|region| region.id == "query:clear"));
+        assert_eq!(tree.focused_id(), Some("query"));
+        assert_eq!(
+            (tree.input_value("query"), tree.input_cursor("query")),
+            (Some("ru"), Some(2))
+        );
+        tree.handle_event(UiEvent::Text("st".into()));
+        assert_eq!(tree.input_value("query"), Some("rust"));
+    }
+
+    #[test]
+    fn a_disabled_clearable_search_field_keeps_a_passive_clear_button_in_place() {
+        let palette = ComponentPalette::neutral_dark();
+        let field = || {
+            SearchField::new("query", "rust", "Search", palette)
+                .clearable(true)
+                .width(280.0)
+        };
+        let node = |element: Element| {
+            let frame = field_tree(element).layout(Size::new(400.0, 120.0));
+            assert!(frame
+                .regions
+                .iter()
+                .all(|region| region.id != "query:clear"));
+            frame
+                .access
+                .iter()
+                .find(|node| node.id == "query:clear")
+                .cloned()
+                .expect("its node")
+        };
+        let said = access_node(field().render(), "query:clear");
+        assert_eq!(
+            (said.role, said.name.as_str(), said.disabled),
+            (Role::Button, "Clear search", false)
+        );
+        let disabled = node(field().disabled().render());
+        assert_eq!(
+            (disabled.role, disabled.name.as_str(), disabled.disabled),
+            (Role::Button, "Clear search", true)
+        );
+        assert_eq!(disabled.rect, said.rect);
+        // Without a query there is nothing to clear, enabled or not.
+        let empty = field_tree(
+            SearchField::new("query", "", "Search", palette)
+                .clearable(true)
+                .disabled()
+                .render(),
+        )
+        .layout(Size::new(400.0, 120.0));
+        assert!(empty.access.iter().all(|node| node.id != "query:clear"));
+    }
+
+    #[test]
+    fn a_clearable_search_field_keeps_its_button_inside_at_every_width_and_size() {
+        let palette = ComponentPalette::neutral_dark();
+        for size in [
+            ControlSize::Dense,
+            ControlSize::Compact,
+            ControlSize::Regular,
+            ControlSize::Spacious,
+        ] {
+            for width in [60.0, 120.0, 360.0] {
+                let field =
+                    SearchField::new("query", "a query longer than the field", "Search", palette)
+                        .clearable(true)
+                        .size(size)
+                        .width(width);
+                let frame = field_tree(field.render()).layout(Size::new(400.0, 120.0));
+                let rect = |id: &str| {
+                    frame
+                        .regions
+                        .iter()
+                        .find(|region| region.id == id)
+                        .unwrap()
+                        .rect
+                };
+                let (input, clear) = (rect("query"), rect("query:clear"));
+                assert!(
+                    clear.x >= input.x
+                        && clear.x + clear.width <= input.x + input.width
+                        && clear.y >= input.y
+                        && clear.y + clear.height <= input.y + input.height,
+                    "{size:?} at {width}: {clear:?} outside {input:?}"
+                );
+                // As wide as it is empty: never under a field's 80.
+                let empty = field_tree(
+                    SearchField::new("query", "", "Search", palette)
+                        .clearable(true)
+                        .size(size)
+                        .width(width)
+                        .render(),
+                )
+                .layout(Size::new(400.0, 120.0));
+                assert_eq!(
+                    input.width, empty.regions[0].rect.width,
+                    "{size:?} at {width}"
+                );
+                assert_eq!(input.width, f32::max(width, 80.0));
+            }
+        }
+        // The narrowest field still has room for what is typed in it.
+        let frame = field_tree(
+            SearchField::new("query", "a", "Search", palette)
+                .clearable(true)
+                .width(60.0)
+                .render(),
+        )
+        .layout(Size::new(400.0, 120.0));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, .. } if text == "a")));
+    }
+
+    #[test]
+    fn a_disabled_search_field_shows_its_hint_only_without_a_query() {
+        let palette = ComponentPalette::neutral_dark();
+        let drawn = |query: &str, clearable: bool| {
+            let frame = field_tree(
+                SearchField::new("query", query, "Search", palette)
+                    .clearable(clearable)
+                    .shortcut("Ctrl+K")
+                    .width(140.0)
+                    .disabled()
+                    .render(),
+            )
+            .layout(Size::new(400.0, 120.0));
+            let texts: Vec<String> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect();
+            (
+                texts.iter().any(|text| text == "Ctrl"),
+                texts.iter().any(|text| text == "rust"),
+            )
+        };
+        // As the enabled field away from the focus: the hint while it is
+        // empty, the query and its clear button once it is not.
+        assert_eq!(drawn("", true), (true, false));
+        assert_eq!(drawn("rust", true), (false, true));
+        assert_eq!(drawn("rust", false), (false, true));
     }
 
     #[test]

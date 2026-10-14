@@ -10,7 +10,7 @@ use limn::{
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
     MessageAction, MessageActions, NavigationAction, NavigationBar, NavigationWorkspace, Pager, PanelHeader,
-    Point, Rect, Role, SectionHeader, SegmentedControl, Select, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
+    Point, Rect, Role, SearchField, SectionHeader, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
     TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TreeGuides, TreeRow, UiAction, UiEvent,
     UiTree,
 };
@@ -367,6 +367,54 @@ fn controls() -> Vec<Control> {
             || Select::new("it", "Bash", vec![DropdownOption::new("bash", "Bash")], false, "dismiss", palette()).render(),
             || {
                 Select::new("it", "Bash", vec![DropdownOption::new("bash", "Bash")], false, "dismiss", palette())
+                    .disabled()
+                    .render()
+            },
+        ),
+        control(
+            "Select trigger as a field",
+            "it",
+            || {
+                Select::new(
+                    "it",
+                    "Bash",
+                    vec![DropdownOption::new("bash", "Bash")],
+                    false,
+                    "dismiss",
+                    palette(),
+                )
+                .variant(SelectVariant::Field)
+                .render()
+            },
+            || {
+                Select::new(
+                    "it",
+                    "Bash",
+                    vec![DropdownOption::new("bash", "Bash")],
+                    false,
+                    "dismiss",
+                    palette(),
+                )
+                .variant(SelectVariant::Field)
+                .disabled()
+                .render()
+            },
+        ),
+        // Of a fixed width: without one an enabled field fills its row and a
+        // disabled one hugs its text, which moves the button with it.
+        control(
+            "SearchField clear button",
+            "it:clear",
+            || {
+                SearchField::new("it", "rust", "Search", palette())
+                    .clearable(true)
+                    .width(240.0)
+                    .render()
+            },
+            || {
+                SearchField::new("it", "rust", "Search", palette())
+                    .clearable(true)
+                    .width(240.0)
                     .disabled()
                     .render()
             },
