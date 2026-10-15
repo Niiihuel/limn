@@ -19,6 +19,27 @@ check that a control reports what you expect.
 The page **Forma y movimiento** changes the [tokens](tokens.md) live: square,
 default or round corners, three paces, and a switch for reduced motion.
 
+## Shared owner lifecycle illustration
+
+```sh
+cargo run -p limn-gallery -- --page wayland-data-owner
+```
+
+This is a static, synthetic limn illustration: no native owner is attached.
+It shows why endpoint A can be Detached while endpoint B and their owner
+remain Ready. It contains no reception controls, native-handle calls or
+clipboard calls, and does not establish protocol or compositor behavior.
+See [WaylandDataOwner](components/wayland-data-owner.md) and the canonical
+[file-drop guide](file-drop.md#shared-owner-and-surface-endpoints).
+
+The shared-owner API deliberately has no live mode in the existing native
+demo below. Stock eframe owns a clipboard data device on its display;
+attaching an exclusive owner behind it would violate that owner's contract.
+A functional SDK demo depends on real shared clipboard integration. A fake
+clipboard backend, changed bind order or disabled clipboard would not prove
+that integration. The existing binary and its historical receiver results
+remain separate from this synthetic page.
+
 ## Native file-drop demo
 
 The receive-only Wayland example runs in its own binary:

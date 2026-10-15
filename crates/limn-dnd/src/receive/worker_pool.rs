@@ -7,19 +7,18 @@ use std::{
     any::Any,
     panic::{catch_unwind, AssertUnwindSafe},
     sync::{
-        atomic::{AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicUsize, Ordering},
         Arc, Condvar, Mutex, MutexGuard, OnceLock,
     },
     thread::{self, JoinHandle},
+    time::{Duration, Instant},
 };
 
-#[cfg(test)]
-use std::sync::atomic::AtomicBool;
-
-use super::{control::ReceiveControl, ReceiveStatus};
+use super::{control::ReceiveControl, ReceiveEpoch, ReceiveStatus};
 use crate::ReceiveError;
 
 const MAX_WORKERS: usize = 4;
+const MAX_SURFACES: usize = 4;
 const MAX_REGISTRIES: usize = 64;
 
 pub(super) type Wake = Box<dyn Fn() + Send>;
@@ -49,6 +48,7 @@ struct Shared {
 
 struct State {
     slots: [Option<Slot>; MAX_WORKERS],
+    surfaces: [Option<SurfaceSlot>; MAX_SURFACES],
     next_id: u64,
     reaper_started: bool,
     failed: bool,
@@ -56,7 +56,9 @@ struct State {
 }
 
 struct Slot {
-    key: SurfaceKey,
+    display: usize,
+    // None preserves the old per-surface exclusion of standalone and legacy.
+    endpoint_timeout: Option<Duration>,
     id: u64,
     kind: SlotKind,
 }
@@ -88,10 +90,53 @@ enum Phase {
     Unconfirmed,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 struct Token {
     index: usize,
     id: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct OwnerId(Token);
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) struct SurfaceId {
+    index: usize,
+    id: u64,
+}
+
+struct SurfaceSlot {
+    id: u64,
+    worker: Token,
+    key: SurfaceKey,
+    kind: SurfaceKind,
+}
+
+enum SurfaceKind {
+    CoupledToWorker,
+    ExplicitEndpoint {
+        window: Option<Owner>,
+        control: ReceiveControl,
+        detached: Arc<AtomicBool>,
+        seed: Option<PendingSurface>,
+        retiring: bool,
+    },
+}
+
+pub(super) struct PendingSurface {
+    pub(super) id: SurfaceId,
+    pub(super) key: SurfaceKey,
+    pub(super) control: ReceiveControl,
+    pub(super) wake: Wake,
+    pub(super) ready_deadline: Instant,
+}
+
+pub(super) struct SurfaceLease {
+    // Tests correlate this observation with the production slot/seed identity.
+    #[cfg(test)]
+    id: SurfaceId,
+    control: ReceiveControl,
+    detached: Arc<AtomicBool>,
 }
 
 pub(super) struct Reservation {
@@ -133,6 +178,7 @@ impl WorkerPool {
             shared: Arc::new(Shared {
                 state: Mutex::new(State {
                     slots: std::array::from_fn(|_| None),
+                    surfaces: std::array::from_fn(|_| None),
                     next_id: 0,
                     reaper_started: false,
                     failed: false,
@@ -158,35 +204,19 @@ impl WorkerPool {
         if state.failed {
             return Err(ReceiveError::Unavailable);
         }
-        let token = state.available(key)?;
-        if !state.reaper_started {
-            #[cfg(test)]
-            if self.shared.fail_reaper.load(Ordering::Relaxed) {
-                return Err(ReceiveError::Unavailable);
-            }
-            let shared = self.shared.clone();
-            let handle = thread::Builder::new()
-                .name("limn-dnd-reaper".into())
-                .spawn(move || reaper_thread(shared))
-                .map_err(|_| ReceiveError::Unavailable)?;
-            // This one process service is never synchronously joined by its caller.
-            drop(handle);
-            state.reaper_started = true;
-        }
+        let (token, surface) = state.available_coupled(key)?;
+        self.shared.start_reaper(&mut state)?;
         state.slots[token.index] = Some(Slot {
-            key,
+            display: key.display,
+            endpoint_timeout: None,
             id: token.id,
-            kind: SlotKind::Owned(OwnedSlot {
-                owner: Some(owner),
-                control,
-                job: None,
-                handle: None,
-                handoff: false,
-                cleaned: false,
-                phase: Phase::Reserved,
-                stranded: None,
-                panic_payload: None,
-            }),
+            kind: SlotKind::Owned(OwnedSlot::new(owner, control)),
+        });
+        state.surfaces[surface.index] = Some(SurfaceSlot {
+            id: surface.id,
+            worker: token,
+            key,
+            kind: SurfaceKind::CoupledToWorker,
         });
         Ok(Reservation {
             shared: self.shared.clone(),
@@ -199,16 +229,157 @@ impl WorkerPool {
         key: SurfaceKey,
     ) -> Result<LegacyReservation, ReceiveError> {
         let mut state = self.shared.lock();
-        let token = state.available(key)?;
+        let (token, surface) = state.available_coupled(key)?;
         state.slots[token.index] = Some(Slot {
-            key,
+            display: key.display,
+            endpoint_timeout: None,
             id: token.id,
             kind: SlotKind::Legacy,
+        });
+        state.surfaces[surface.index] = Some(SurfaceSlot {
+            id: surface.id,
+            worker: token,
+            key,
+            kind: SurfaceKind::CoupledToWorker,
         });
         Ok(LegacyReservation {
             shared: self.shared.clone(),
             token,
         })
+    }
+
+    pub(super) fn reserve_owner(
+        self: &Arc<Self>,
+        display: usize,
+        owner: Owner,
+        control: ReceiveControl,
+        endpoint_timeout: Duration,
+    ) -> Result<(OwnerId, Reservation), ReceiveError> {
+        if endpoint_timeout.is_zero()
+            || endpoint_timeout > Duration::from_secs(60)
+            || Instant::now().checked_add(endpoint_timeout).is_none()
+        {
+            return Err(ReceiveError::InvalidLimits);
+        }
+        if display == 0 {
+            return Err(ReceiveError::Unavailable);
+        }
+        let mut state = self.shared.lock();
+        if state.failed {
+            return Err(ReceiveError::Unavailable);
+        }
+        if state
+            .slots
+            .iter()
+            .flatten()
+            .any(|slot| slot.display == display)
+        {
+            return Err(ReceiveError::Busy);
+        }
+        let token = state.available_worker()?;
+        self.shared.start_reaper(&mut state)?;
+        state.slots[token.index] = Some(Slot {
+            display,
+            endpoint_timeout: Some(endpoint_timeout),
+            id: token.id,
+            kind: SlotKind::Owned(OwnedSlot::new(owner, control)),
+        });
+        Ok((
+            OwnerId(token),
+            Reservation {
+                shared: self.shared.clone(),
+                token: Some(token),
+            },
+        ))
+    }
+
+    pub(super) fn reserve_surface(
+        self: &Arc<Self>,
+        owner: OwnerId,
+        key: SurfaceKey,
+        window: Owner,
+        wake: Wake,
+    ) -> Result<SurfaceLease, ReceiveError> {
+        // Clone under the pool lock, then acquire the authority before rechecking
+        // the pool. No path takes these locks in the opposite order.
+        let parent = self.shared.control(owner.0).ok_or(ReceiveError::Closed)?;
+        let header = parent.header();
+        if header.is_closing() {
+            return Err(ReceiveError::Closed);
+        }
+        let mut state = self.shared.lock();
+        if state.failed {
+            return Err(ReceiveError::Unavailable);
+        }
+        let (display, timeout) = state.explicit_owner(owner.0)?;
+        if key.display == 0 || key.display != display {
+            return Err(ReceiveError::Unavailable);
+        }
+        let ready_deadline = Instant::now()
+            .checked_add(timeout)
+            .ok_or(ReceiveError::InvalidLimits)?;
+        let id = state.available_surface(key)?;
+        let control = ReceiveControl::new_for_owner(ReceiveEpoch(1), parent.clone())?;
+        let detached = Arc::new(AtomicBool::new(false));
+        state.surfaces[id.index] = Some(SurfaceSlot {
+            id: id.id,
+            worker: owner.0,
+            key,
+            kind: SurfaceKind::ExplicitEndpoint {
+                window: Some(window),
+                control: control.clone(),
+                detached: detached.clone(),
+                seed: Some(PendingSurface {
+                    id,
+                    key,
+                    control: control.clone(),
+                    wake,
+                    ready_deadline,
+                }),
+                retiring: false,
+            },
+        });
+        Ok(SurfaceLease {
+            #[cfg(test)]
+            id,
+            control,
+            detached,
+        })
+    }
+
+    pub(super) fn take_pending_surfaces(
+        &self,
+        owner: OwnerId,
+    ) -> Result<Vec<PendingSurface>, ReceiveError> {
+        let mut state = self.shared.lock();
+        state.explicit_owner(owner.0)?;
+        let mut pending = Vec::new();
+        for surface in state.surfaces.iter_mut().flatten() {
+            if surface.worker == owner.0 {
+                if let SurfaceKind::ExplicitEndpoint {
+                    seed,
+                    retiring: false,
+                    ..
+                } = &mut surface.kind
+                {
+                    pending.extend(seed.take());
+                }
+            }
+        }
+        Ok(pending)
+    }
+
+    /// The worker has already removed this registration's protocol resources.
+    pub(super) fn retire_surface(
+        &self,
+        owner: OwnerId,
+        surface: SurfaceId,
+    ) -> Result<(), ReceiveError> {
+        self.shared.retire_surface(owner.0, surface)
+    }
+
+    pub(super) fn close_owner(&self, owner: OwnerId, cause: Option<ReceiveError>) {
+        self.shared.request_close(owner.0, cause);
     }
 
     /// Spend immediately before get_registry. Neither cleanup nor retry refunds it.
@@ -246,23 +417,67 @@ impl Drop for WorkerPool {
 }
 
 impl State {
-    fn available(&mut self, key: SurfaceKey) -> Result<Token, ReceiveError> {
-        if self.slots.iter().flatten().any(|slot| slot.key == key) {
-            return Err(ReceiveError::Busy);
-        }
+    fn next_id(&mut self) -> Result<u64, ReceiveError> {
+        self.next_id = self
+            .next_id
+            .checked_add(1)
+            .ok_or(ReceiveError::ResourceLimit)?;
+        Ok(self.next_id)
+    }
+
+    fn available_worker(&mut self) -> Result<Token, ReceiveError> {
         let index = self
             .slots
             .iter()
             .position(Option::is_none)
             .ok_or(ReceiveError::Busy)?;
-        self.next_id = self
-            .next_id
-            .checked_add(1)
-            .ok_or(ReceiveError::ResourceLimit)?;
         Ok(Token {
             index,
-            id: self.next_id,
+            id: self.next_id()?,
         })
+    }
+
+    fn available_surface(&mut self, key: SurfaceKey) -> Result<SurfaceId, ReceiveError> {
+        if self
+            .surfaces
+            .iter()
+            .flatten()
+            .any(|surface| surface.key == key)
+        {
+            return Err(ReceiveError::Busy);
+        }
+        let index = self
+            .surfaces
+            .iter()
+            .position(Option::is_none)
+            .ok_or(ReceiveError::Busy)?;
+        Ok(SurfaceId {
+            index,
+            id: self.next_id()?,
+        })
+    }
+
+    fn available_coupled(&mut self, key: SurfaceKey) -> Result<(Token, SurfaceId), ReceiveError> {
+        if self
+            .slots
+            .iter()
+            .flatten()
+            .any(|slot| slot.display == key.display && slot.endpoint_timeout.is_some())
+        {
+            return Err(ReceiveError::Busy);
+        }
+        let surface = self.available_surface(key)?;
+        let token = self.available_worker()?;
+        Ok((token, surface))
+    }
+
+    fn explicit_owner(&self, token: Token) -> Result<(usize, Duration), ReceiveError> {
+        let slot = self.slots[token.index]
+            .as_ref()
+            .filter(|slot| slot.id == token.id)
+            .ok_or(ReceiveError::Closed)?;
+        let timeout = slot.endpoint_timeout.ok_or(ReceiveError::Closed)?;
+        Ok((slot.display, timeout))
     }
 
     fn owned(&mut self, token: Token) -> Option<&mut OwnedSlot> {
@@ -276,9 +491,68 @@ impl State {
     }
 }
 
+impl OwnedSlot {
+    fn new(owner: Owner, control: ReceiveControl) -> Self {
+        Self {
+            owner: Some(owner),
+            control,
+            job: None,
+            handle: None,
+            handoff: false,
+            cleaned: false,
+            phase: Phase::Reserved,
+            stranded: None,
+            panic_payload: None,
+        }
+    }
+}
+
+impl SurfaceLease {
+    #[cfg(test)]
+    pub(super) fn id(&self) -> SurfaceId {
+        self.id
+    }
+
+    pub(super) fn control(&self) -> ReceiveControl {
+        self.control.clone()
+    }
+
+    pub(super) fn request_retire(&self) {
+        self.control.header().request_close(None);
+    }
+
+    pub(super) fn is_detached(&self) -> bool {
+        self.detached.load(Ordering::Acquire)
+    }
+}
+
+impl Drop for SurfaceLease {
+    fn drop(&mut self) {
+        self.request_retire();
+    }
+}
+
 impl Shared {
     fn lock(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(|error| error.into_inner())
+    }
+
+    fn start_reaper(self: &Arc<Self>, state: &mut State) -> Result<(), ReceiveError> {
+        if !state.reaper_started {
+            #[cfg(test)]
+            if self.fail_reaper.load(Ordering::Relaxed) {
+                return Err(ReceiveError::Unavailable);
+            }
+            let shared = self.clone();
+            let handle = thread::Builder::new()
+                .name("limn-dnd-reaper".into())
+                .spawn(move || reaper_thread(shared))
+                .map_err(|_| ReceiveError::Unavailable)?;
+            // This one process service is never synchronously joined by its caller.
+            drop(handle);
+            state.reaper_started = true;
+        }
+        Ok(())
     }
 
     fn control(&self, token: Token) -> Option<ReceiveControl> {
@@ -287,8 +561,97 @@ impl Shared {
 
     fn request_close(&self, token: Token, cause: Option<ReceiveError>) {
         if let Some(control) = self.control(token) {
-            control.header().request_close(cause);
+            let children = {
+                let mut parent = control.header();
+                parent.request_close(cause);
+                let children: Vec<ReceiveControl> = {
+                    let state = self.lock();
+                    state
+                        .surfaces
+                        .iter()
+                        .flatten()
+                        .filter_map(|surface| {
+                            if surface.worker != token {
+                                return None;
+                            }
+                            match &surface.kind {
+                                SurfaceKind::ExplicitEndpoint { control, .. } => {
+                                    Some(control.clone())
+                                }
+                                SurfaceKind::CoupledToWorker => None,
+                            }
+                        })
+                        .collect()
+                };
+                for child in &children {
+                    child.header().request_close(cause);
+                }
+                drop(parent);
+                children
+            };
+            // A concurrent retirement may have removed the slot's control clone.
+            // Any last mailbox/payload destructor must run after the parent guard.
+            drop(children);
         }
+    }
+
+    fn retire_surface(&self, token: Token, id: SurfaceId) -> Result<(), ReceiveError> {
+        let control = {
+            let state = self.lock();
+            let surface = state.surfaces[id.index]
+                .as_ref()
+                .filter(|surface| surface.id == id.id && surface.worker == token)
+                .ok_or(ReceiveError::Closed)?;
+            match &surface.kind {
+                SurfaceKind::ExplicitEndpoint { control, .. } => control.clone(),
+                SurfaceKind::CoupledToWorker => return Err(ReceiveError::InvalidPhase),
+            }
+        };
+        control.header().request_close(None);
+        let (window, seed, detached) = {
+            let mut state = self.lock();
+            let surface = state.surfaces[id.index]
+                .as_mut()
+                .filter(|surface| surface.id == id.id && surface.worker == token)
+                .ok_or(ReceiveError::Closed)?;
+            let SurfaceKind::ExplicitEndpoint {
+                window,
+                seed,
+                retiring,
+                detached,
+                ..
+            } = &mut surface.kind
+            else {
+                return Err(ReceiveError::InvalidPhase);
+            };
+            if *retiring {
+                return Err(ReceiveError::Closed);
+            }
+            *retiring = true;
+            (window.take(), seed.take(), detached.clone())
+        };
+        // The occupied Retiring slot survives any destructor failure here.
+        drop(window);
+        // If State never took this seed, the pool still owns its sole wake.
+        let wake = seed.map(|seed| seed.wake);
+        let retired = {
+            let mut state = self.lock();
+            let surface = &mut state.surfaces[id.index];
+            assert!(surface
+                .as_ref()
+                .is_some_and(|surface| surface.id == id.id && surface.worker == token));
+            surface.take()
+        };
+        drop(retired);
+        detached.store(true, Ordering::Release);
+        self.changed.notify_all();
+        if let Some(wake) = wake {
+            // Invocation and the box's final Drop both happen after Detached.
+            if let Err(panic) = catch_unwind(AssertUnwindSafe(wake)) {
+                discard_panic(panic);
+            }
+        }
+        Ok(())
     }
 
     fn reject(&self, token: Token, cause: Option<ReceiveError>) {
@@ -363,6 +726,24 @@ impl Shared {
     }
 
     fn release(&self, token: Token) -> ReceiveControl {
+        // Unclaimed seeds (including a rejected spawn's wakes) are admitted
+        // resources too: only the worker/reaper retires their final ownership.
+        let endpoints: [Option<SurfaceId>; MAX_SURFACES] = {
+            let state = self.lock();
+            std::array::from_fn(|index| {
+                let surface = state.surfaces[index].as_ref()?;
+                (surface.worker == token
+                    && matches!(surface.kind, SurfaceKind::ExplicitEndpoint { .. }))
+                .then_some(SurfaceId {
+                    index,
+                    id: surface.id,
+                })
+            })
+        };
+        for id in endpoints.into_iter().flatten() {
+            self.retire_surface(token, id)
+                .expect("confirmed cleanup retires each endpoint once");
+        }
         // Keep the slot occupied while the owner's final destructor runs.
         let (owner, control) = {
             let mut state = self.lock();
@@ -370,13 +751,26 @@ impl Shared {
             (owned.owner.take(), owned.control.clone())
         };
         drop(owner);
-        let retired = {
+        let (retired, coupled) = {
             let mut state = self.lock();
             let slot = &mut state.slots[token.index];
             assert!(slot.as_ref().is_some_and(|slot| slot.id == token.id));
-            slot.take()
+            let retired = slot.take();
+            let coupled: [Option<SurfaceSlot>; MAX_SURFACES] = std::array::from_fn(|index| {
+                let surface = &mut state.surfaces[index];
+                if surface
+                    .as_ref()
+                    .is_some_and(|surface| surface.worker == token)
+                {
+                    surface.take()
+                } else {
+                    None
+                }
+            });
+            (retired, coupled)
         };
         drop(retired);
+        drop(coupled);
         self.changed.notify_all();
         control
     }
@@ -391,20 +785,21 @@ impl Shared {
     }
 
     fn reaper_failed(&self) {
-        let controls: [Option<ReceiveControl>; MAX_WORKERS] = {
+        let tokens: [Option<Token>; MAX_WORKERS] = {
             let mut state = self.lock();
             state.failed = true;
             std::array::from_fn(|index| {
-                let SlotKind::Owned(owned) = &mut state.slots[index].as_mut()?.kind else {
+                let slot = state.slots[index].as_mut()?;
+                let SlotKind::Owned(owned) = &mut slot.kind else {
                     return None;
                 };
                 owned.phase = Phase::Unconfirmed;
-                Some(owned.control.clone())
+                Some(Token { index, id: slot.id })
             })
         };
         self.changed.notify_all();
-        for control in controls.into_iter().flatten() {
-            control.header().request_close(Some(ReceiveError::Io));
+        for token in tokens.into_iter().flatten() {
+            self.request_close(token, Some(ReceiveError::Io));
         }
     }
 }
@@ -492,16 +887,29 @@ impl Drop for Reservation {
 
 impl Drop for LegacyReservation {
     fn drop(&mut self) {
-        let retired = {
+        let (retired, coupled) = {
             let mut state = self.shared.lock();
             let slot = &mut state.slots[self.token.index];
-            if slot.as_ref().is_some_and(|slot| slot.id == self.token.id) {
+            let retired = if slot.as_ref().is_some_and(|slot| slot.id == self.token.id) {
                 slot.take()
             } else {
                 None
-            }
+            };
+            let coupled: [Option<SurfaceSlot>; MAX_SURFACES] = std::array::from_fn(|index| {
+                let surface = &mut state.surfaces[index];
+                if surface
+                    .as_ref()
+                    .is_some_and(|surface| surface.worker == self.token)
+                {
+                    surface.take()
+                } else {
+                    None
+                }
+            });
+            (retired, coupled)
         };
         drop(retired);
+        drop(coupled);
         self.shared.changed.notify_all();
     }
 }
@@ -623,3 +1031,7 @@ mod tests;
 #[cfg(test)]
 #[path = "worker_pool_failure_tests.rs"]
 mod failure_tests;
+
+#[cfg(test)]
+#[path = "worker_pool_owner_tests.rs"]
+mod owner_tests;

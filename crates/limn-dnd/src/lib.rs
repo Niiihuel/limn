@@ -20,8 +20,8 @@ mod uri_list;
 mod wayland;
 
 pub use receive::{
-    DropDecision, FileDropReceiver, OfferId, ReceiveEpoch, ReceiveEvent, ReceiveStatus,
-    SurfacePoint,
+    DropDecision, EndpointStatus, FileDropEndpoint, FileDropReceiver, OfferId, ReceiveEpoch,
+    ReceiveEvent, ReceiveStatus, SurfacePoint, WaylandDataOwner,
 };
 pub use receive_limits::{ReceiveError, ReceiveLimits};
 

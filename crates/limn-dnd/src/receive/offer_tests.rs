@@ -390,7 +390,7 @@ fn source_copy_support_does_not_replace_an_exact_selected_copy_action() {
             event,
             ReceiveEvent::DropStarted { .. } | ReceiveEvent::DropEnded { .. }
         )));
-        assert!(guest.state.coordinator.offer_phase(id).is_none());
+        assert!(guest.state.offer_phase(id).is_none());
         let (_, next) = copy_enter(&mut fixture, &mut guest, &control, 1, 2, now);
         assert_ne!(id, next);
     }
@@ -497,7 +497,7 @@ fn pre_enter_actions_other_than_copy_never_request_or_finish_payload() {
         );
         assert!(control.poll().iter().all(|event| matches!(event,
             ReceiveEvent::Left { id: actual } if *actual == id)));
-        assert!(guest.state.coordinator.offer_phase(id).is_none());
+        assert!(guest.state.offer_phase(id).is_none());
         let (_, next) = copy_enter(&mut fixture, &mut guest, &control, 1, 2, now);
         assert_ne!(
             id, next,
@@ -520,7 +520,7 @@ fn copy_drop_freezes_motion_and_survives_leave_while_receive_is_pending() {
         matches!(events.as_slice(), [ReceiveEvent::DropStarted { id: actual, point, .. }] if *actual == id && *point == SurfacePoint { x: 42.0, y: 51.0 })
     );
     assert!(matches!(
-        guest.state.coordinator.offer_phase(id),
+        guest.state.offer_phase(id),
         Some(Phase::Reading { .. })
     ));
     // Started was observed before the private server processes the Receive request.
@@ -569,7 +569,7 @@ fn busy_device_and_selection_do_not_replace_another_devices_reading_drop() {
     fixture.serve();
     assert!(control.poll().is_empty());
     assert!(matches!(
-        guest.state.coordinator.offer_phase(a),
+        guest.state.offer_phase(a),
         Some(Phase::Reading { .. })
     ));
     assert_eq!(fixture.received(1), 1);
@@ -636,7 +636,7 @@ fn the_eight_offer_budget_includes_the_active_drop_across_all_devices() {
     fixture.deliver(&mut guest, now).unwrap();
     assert_eq!(control.status(), ReceiveStatus::Ready);
     assert!(matches!(
-        guest.state.coordinator.offer_phase(a),
+        guest.state.offer_phase(a),
         Some(Phase::Reading { .. })
     ));
     fixture.offer(0, 9, "text/uri-list");
@@ -805,3 +805,7 @@ fn a_started_callback_that_crosses_the_transfer_deadline_never_requests_payload(
 
 #[path = "receiver_api_tests.rs"]
 mod receiver_api;
+
+#[cfg(test)]
+#[path = "owner_wayland_tests.rs"]
+mod owner_wayland;

@@ -801,3 +801,6 @@ fn a_dispatch_gate_keeps_the_owner_surface_and_four_slots_until_real_exit() {
         host_still_works(&mut fixtures[index]);
     }
 }
+
+#[path = "owner_runtime_tests.rs"]
+mod shared_owner;

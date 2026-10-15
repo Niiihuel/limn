@@ -1,4 +1,4 @@
-//! The single coordinator owned by the future receive-only protocol worker.
+//! Per-surface drop coordination on the shared receive-only protocol worker.
 
 use std::{path::PathBuf, time::Instant};
 
@@ -14,6 +14,7 @@ pub(super) struct Coordinator {
     wake: Option<Box<dyn Fn() + Send>>,
     active: Option<Active>,
     pending_sync: Option<SyncRequest>,
+    admission_deadline: Option<Instant>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,13 +57,14 @@ impl Coordinator {
         wake: impl Fn() + Send + 'static,
     ) -> Result<Self, ReceiveError> {
         limits.validate()?;
-        Ok(Self::with_wake(limits, control, Box::new(wake)))
+        Ok(Self::with_wake(limits, control, Box::new(wake), None))
     }
 
     pub(super) fn with_wake(
         limits: ReceiveLimits,
         control: ReceiveControl,
         wake: Box<dyn Fn() + Send>,
+        admission_deadline: Option<Instant>,
     ) -> Self {
         Self {
             limits,
@@ -70,6 +72,7 @@ impl Coordinator {
             wake: Some(wake),
             active: None,
             pending_sync: None,
+            admission_deadline,
         }
     }
 
@@ -150,13 +153,27 @@ impl Coordinator {
         if header.is_closing() {
             return Err(ReceiveError::Closed);
         }
-        if !self.pending_sync.is_some_and(|sync| sync.epoch == epoch) {
-            return Err(ReceiveError::InvalidPhase);
+        let sync = self
+            .pending_sync
+            .filter(|sync| sync.epoch == epoch)
+            .ok_or(ReceiveError::InvalidPhase)?;
+        // Both clocks belong to this exact callback. A stale epoch cannot renew
+        // an expired barrier, and a delayed wake cannot publish a late Ready.
+        let now = now.max(Instant::now());
+        if now >= sync.deadline
+            || self
+                .admission_deadline
+                .is_some_and(|deadline| now >= deadline)
+        {
+            self.pending_sync = None;
+            header.request_close(Some(ReceiveError::Timeout));
+            return Err(ReceiveError::Timeout);
         }
         self.pending_sync = None;
         if header.epoch == epoch {
             header.armed = true;
             header.status = ReceiveStatus::Ready;
+            self.admission_deadline = None;
         }
         Ok(())
     }

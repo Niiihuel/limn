@@ -22,13 +22,18 @@ use super::{
     control::ReceiveControl,
     coordinator::Coordinator,
     pipe::ReceivePipe,
-    worker_pool::{SurfaceKey, Wake, WorkerPool},
+    worker_pool::{OwnerId, SurfaceId, SurfaceKey, Wake, WorkerPool},
     OfferId, ReceiveEpoch,
 };
 use crate::{ReceiveError, ReceiveLimits};
 
 #[path = "wayland_offers.rs"]
 mod offers;
+
+#[path = "wayland_endpoints.rs"]
+mod endpoints;
+
+use endpoints::{DropLease, Endpoint};
 
 static NEXT_OFFER_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -48,7 +53,14 @@ fn allocate_offer_id(counter: &AtomicU64) -> Result<OfferId, ReceiveError> {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum SyncPhase {
     Discovery,
+    OwnerReady,
     Arm(ReceiveEpoch),
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct SyncTag {
+    phase: SyncPhase,
+    registration: Option<SurfaceId>,
 }
 
 pub(super) struct GuestStartup {
@@ -65,22 +77,25 @@ struct Seat {
 }
 
 struct State {
-    coordinator: Coordinator,
+    endpoints: Vec<Endpoint>,
+    next_arm: usize,
+    owner: Option<OwnerId>,
+    lifecycle_wake: Option<Wake>,
     pool: Arc<WorkerPool>,
     control: ReceiveControl,
     registry: Option<wl_registry::WlRegistry>,
     manager_name: Option<u32>,
     manager: Option<wl_data_device_manager::WlDataDeviceManager>,
     seats: Vec<Seat>,
-    pending: Option<(wl_callback::WlCallback, SyncPhase)>,
-    completed: Option<SyncPhase>,
+    pending: Option<(wl_callback::WlCallback, SyncTag)>,
+    completed: Option<SyncTag>,
     discovery_epoch: Option<ReceiveEpoch>,
     discovery_complete: bool,
     startup_deadline: Instant,
     first_ready: bool,
     failure: Option<ReceiveError>,
-    target_surface: Option<ObjectId>,
     offers: Vec<offers::Offer>,
+    lease: Option<DropLease>,
     pipe: Option<(OfferId, ReceivePipe)>,
     limits: ReceiveLimits,
     now: Instant,
@@ -96,6 +111,39 @@ impl GuestStartup {
         now: Instant,
         wake: Wake,
     ) -> Self {
+        let mut guest = Self::dormant_state(pool, control.clone(), limits, now);
+        guest.state.endpoints.push(Endpoint {
+            registration: None,
+            surface: None,
+            coordinator: Coordinator::with_wake(limits, control.clone(), wake, None),
+            control,
+            ready_deadline: None,
+            first_ready: false,
+            retiring: false,
+        });
+        guest
+    }
+
+    pub(super) fn dormant_owner(
+        pool: Arc<WorkerPool>,
+        owner: OwnerId,
+        control: ReceiveControl,
+        limits: ReceiveLimits,
+        now: Instant,
+        wake: Wake,
+    ) -> Self {
+        let mut guest = Self::dormant_state(pool, control, limits, now);
+        guest.state.owner = Some(owner);
+        guest.state.lifecycle_wake = Some(wake);
+        guest
+    }
+
+    fn dormant_state(
+        pool: Arc<WorkerPool>,
+        control: ReceiveControl,
+        limits: ReceiveLimits,
+        now: Instant,
+    ) -> Self {
         let startup_deadline = now
             .checked_add(limits.startup_timeout)
             .expect("admission validated the startup deadline");
@@ -103,7 +151,10 @@ impl GuestStartup {
             queue: None,
             connection: None,
             state: State {
-                coordinator: Coordinator::with_wake(limits, control.clone(), wake),
+                endpoints: Vec::with_capacity(4),
+                next_arm: 0,
+                owner: None,
+                lifecycle_wake: None,
                 pool,
                 control,
                 registry: None,
@@ -117,8 +168,8 @@ impl GuestStartup {
                 startup_deadline,
                 first_ready: false,
                 failure: None,
-                target_surface: None,
                 offers: Vec::with_capacity(8),
+                lease: None,
                 pipe: None,
                 limits,
                 now,
@@ -128,7 +179,9 @@ impl GuestStartup {
 
     fn install(&mut self, connection: Connection, surface: Option<ObjectId>) {
         self.connection = Some(connection);
-        self.state.target_surface = surface;
+        if self.state.owner.is_none() {
+            self.state.endpoints[0].surface = surface;
+        }
         self.queue = Some(
             self.connection
                 .as_ref()
@@ -149,6 +202,24 @@ impl GuestStartup {
             .map_err(|_| ReceiveError::Unavailable)?;
         let connection = self.connection.take().expect("foreign backend is retained");
         self.install(connection, Some(surface));
+        Ok(())
+    }
+
+    /// # Safety
+    /// The admitted display owner and coordinated host reader must remain live
+    /// through certified guest cleanup and the worker's actual join.
+    pub(super) unsafe fn install_foreign_display(
+        &mut self,
+        display: usize,
+    ) -> Result<(), ReceiveError> {
+        if display == 0 || self.state.owner.is_none() {
+            return Err(ReceiveError::Unavailable);
+        }
+        let backend =
+            unsafe { wayland_backend::client::Backend::from_foreign_display(display as *mut _) };
+        self.connection = Some(Connection::from_backend(backend));
+        let connection = self.connection.take().expect("foreign backend is retained");
+        self.install(connection, None);
         Ok(())
     }
 
@@ -176,14 +247,16 @@ impl GuestStartup {
         wake: impl Fn() + Send + 'static,
     ) -> Result<Self, ReceiveError> {
         let mut guest = Self::new(connection, control, limits, now, wake)?;
-        guest.state.target_surface = Some(surface);
+        guest.state.endpoints[0].surface = Some(surface);
         Ok(guest)
     }
 
     #[cfg(test)]
     pub(super) fn pump(&mut self, now: Instant) -> Result<(), ReceiveError> {
         let readable = self.state.pipe.as_ref().map(|(id, _)| *id);
-        self.pump_readable(now, readable)
+        self.pump_readable(now, readable)?;
+        // These sequential fixtures never install an external readiness watcher.
+        self.finish_retirements()
     }
 
     pub(super) fn pump_readable(
@@ -244,18 +317,43 @@ impl GuestStartup {
         (!self.state.first_ready)
             .then_some(self.state.startup_deadline)
             .into_iter()
-            .chain(self.state.coordinator.next_deadline())
+            .chain(
+                self.state
+                    .endpoints
+                    .iter()
+                    .filter(|endpoint| !endpoint.retiring)
+                    .flat_map(|endpoint| {
+                        (!endpoint.first_ready)
+                            .then_some(endpoint.ready_deadline)
+                            .flatten()
+                            .into_iter()
+                            .chain(endpoint.coordinator.next_deadline())
+                    }),
+            )
             .min()
     }
 
     pub(super) fn take_wake(&mut self) -> Wake {
-        self.state.coordinator.take_wake()
+        if self.state.owner.is_some() {
+            self.state
+                .lifecycle_wake
+                .take()
+                .expect("owner wake transfers to reaper once")
+        } else {
+            self.state.endpoints[0].coordinator.take_wake()
+        }
+    }
+
+    /// Call only after the runtime has removed the old pipe watcher, or after
+    /// certified guest cleanup with no runtime remaining.
+    pub(super) fn finish_retirements(&mut self) -> Result<(), ReceiveError> {
+        self.state.finish_retirements()
     }
 
     pub(super) fn cleanup(&mut self) -> Result<(), ReceiveError> {
-        self.state.control.header().request_close(None);
+        self.state.request_close(None);
         self.state.failure = Some(ReceiveError::Cancelled);
-        self.state.coordinator.reconcile(Instant::now())?;
+        self.state.reconcile_endpoints(Instant::now())?;
         // Drain already queued callbacks while all admissions are disarmed.
         // Only this worker dispatches this guest queue; the host only reads it.
         if let Some(queue) = self.queue.as_mut() {
@@ -317,11 +415,13 @@ impl GuestStartup {
                 Err(_) => return Err(ReceiveError::Io),
             }
         }
-        self.state.target_surface = None;
+        for endpoint in &mut self.state.endpoints {
+            endpoint.surface = None;
+        }
         self.state.seats.clear();
         drop(self.queue.take());
         drop(self.connection.take());
-        Ok(())
+        self.finish_retirements()
     }
 
     #[cfg(test)]
@@ -329,7 +429,7 @@ impl GuestStartup {
         self.state
             .pending
             .as_ref()
-            .map(|(callback, phase)| (callback.id(), *phase))
+            .map(|(callback, tag)| (callback.id(), tag.phase))
     }
 }
 
@@ -338,7 +438,12 @@ impl State {
         if let Some(error) = self.failure {
             return Err(error);
         }
-        self.coordinator.reconcile(now)?;
+        if !self.control.header().is_closing() {
+            self.intake_endpoints()?;
+        } else {
+            self.request_close(None);
+        }
+        self.reconcile_endpoints(now)?;
         self.cleanup_offers();
         let closing = {
             let header = self.control.header();
@@ -350,7 +455,7 @@ impl State {
             // A normal caller close has no failure cause. Do not turn its
             // operation-level Cancelled result into a connection failure.
             self.failure = Some(error);
-            self.coordinator.notify();
+            self.notify();
             return Err(error);
         }
         if !self.first_ready && now >= self.startup_deadline {
@@ -363,17 +468,20 @@ impl State {
     fn fail(&mut self, error: ReceiveError) {
         if self.failure.is_none() {
             self.failure = Some(error);
-            {
-                let mut header = self.control.header();
+            let cause = {
+                let header = self.control.header();
                 // A close can win after check() but before a coordinator call.
                 // Its Closed sentinel must not become a normal close's cause.
                 if error != ReceiveError::Closed || !header.is_closing() {
-                    header.request_close(Some(error));
+                    Some(error)
+                } else {
+                    None
                 }
-            }
-            let _ = self.coordinator.reconcile(self.now);
+            };
+            self.request_close(cause);
+            let _ = self.reconcile_endpoints(self.now);
             self.cleanup_offers();
-            self.coordinator.notify();
+            self.notify();
         }
     }
 
@@ -384,10 +492,17 @@ impl State {
         now: Instant,
     ) -> Result<(), ReceiveError> {
         if self.registry.is_none() {
-            let request = self
-                .coordinator
-                .next_sync(now)?
-                .ok_or(ReceiveError::InvalidPhase)?;
+            self.discovery_epoch = if self.owner.is_none() {
+                Some(
+                    self.endpoints[0]
+                        .coordinator
+                        .next_sync(now)?
+                        .ok_or(ReceiveError::InvalidPhase)?
+                        .epoch,
+                )
+            } else {
+                None
+            };
             self.pool.consume_registry()?;
             let registry = connection
                 .display()
@@ -397,36 +512,122 @@ impl State {
                 )
                 .map_err(|_| ReceiveError::Io)?;
             self.registry = Some(registry);
-            self.discovery_epoch = Some(request.epoch);
-            return self.send_sync(connection, handle, SyncPhase::Discovery);
+            return self.send_sync(
+                connection,
+                handle,
+                SyncTag {
+                    phase: SyncPhase::Discovery,
+                    registration: None,
+                },
+            );
         }
-        if let Some(phase) = self.completed.take() {
-            match phase {
+        if let Some(tag) = self.completed.take() {
+            match tag.phase {
                 SyncPhase::Discovery => {
                     self.discovery_complete = true;
                     self.bind_globals(handle)?;
-                    let epoch = self
-                        .discovery_epoch
-                        .take()
-                        .ok_or(ReceiveError::InvalidPhase)?;
-                    return self.send_sync(connection, handle, SyncPhase::Arm(epoch));
+                    let phase = if self.owner.is_some() {
+                        SyncPhase::OwnerReady
+                    } else {
+                        SyncPhase::Arm(
+                            self.discovery_epoch
+                                .take()
+                                .ok_or(ReceiveError::InvalidPhase)?,
+                        )
+                    };
+                    return self.send_sync(
+                        connection,
+                        handle,
+                        SyncTag {
+                            phase,
+                            registration: None,
+                        },
+                    );
+                }
+                SyncPhase::OwnerReady => {
+                    let expired = {
+                        let mut header = self.control.header();
+                        if now.max(Instant::now()) >= self.startup_deadline {
+                            true
+                        } else {
+                            if !header.is_closing() {
+                                header.status = super::ReceiveStatus::Ready;
+                            }
+                            false
+                        }
+                    };
+                    if expired {
+                        return Err(ReceiveError::Timeout);
+                    }
+                    self.first_ready = true;
+                    self.notify();
                 }
                 SyncPhase::Arm(epoch) => {
-                    self.coordinator.sync_done(epoch, now)?;
-                    let armed = {
-                        let header = self.control.header();
-                        header.armed && header.epoch == epoch
-                    };
-                    if armed {
-                        self.first_ready = true;
-                        self.coordinator.notify();
+                    // A detached registration leaves this one physical callback
+                    // as a tombstone. It cannot arm a replacement of the surface.
+                    if let Some(index) = self.endpoint_for_registration(tag.registration) {
+                        let endpoint = &mut self.endpoints[index];
+                        if !endpoint.retiring {
+                            if let Err(error) = endpoint
+                                .coordinator
+                                .sync_done(epoch, now.max(Instant::now()))
+                            {
+                                if self.owner.is_none() {
+                                    return Err(error);
+                                }
+                                endpoint.control.header().request_close(
+                                    (error != ReceiveError::Closed).then_some(error),
+                                );
+                                endpoint.retiring = true;
+                                return Ok(());
+                            }
+                            let armed = {
+                                let header = endpoint.control.header();
+                                header.armed && header.epoch == epoch
+                            };
+                            if armed {
+                                endpoint.first_ready = true;
+                                if self.owner.is_none() {
+                                    self.first_ready = true;
+                                }
+                                endpoint.coordinator.notify();
+                            }
+                        }
                     }
                 }
             }
         }
-        if self.pending.is_none() {
-            if let Some(request) = self.coordinator.next_sync(now)? {
-                self.send_sync(connection, handle, SyncPhase::Arm(request.epoch))?;
+        if self.pending.is_none() && (self.owner.is_none() || self.first_ready) {
+            let mut next = None;
+            let count = self.endpoints.len();
+            for offset in 0..count {
+                let index = (self.next_arm + offset) % count;
+                let endpoint = &mut self.endpoints[index];
+                if endpoint.retiring {
+                    continue;
+                }
+                match endpoint.coordinator.next_sync(now) {
+                    Ok(Some(request)) => {
+                        next = Some(SyncTag {
+                            phase: SyncPhase::Arm(request.epoch),
+                            registration: endpoint.registration,
+                        });
+                        self.next_arm = (index + 1) % count;
+                        break;
+                    }
+                    Ok(None) => {}
+                    Err(error) if self.owner.is_some() => {
+                        endpoint
+                            .control
+                            .header()
+                            .request_close((error != ReceiveError::Closed).then_some(error));
+                        endpoint.retiring = true;
+                    }
+                    Err(error) => return Err(error),
+                }
+            }
+            if let Some(tag) = next {
+                self.send_sync(connection, handle, tag)?;
             }
         }
         Ok(())
@@ -436,7 +637,7 @@ impl State {
         &mut self,
         connection: &Connection,
         handle: &QueueHandle<Self>,
-        phase: SyncPhase,
+        tag: SyncTag,
     ) -> Result<(), ReceiveError> {
         if self.pending.is_some() {
             return Err(ReceiveError::Busy);
@@ -445,10 +646,10 @@ impl State {
             .display()
             .send_constructor(
                 wl_display::Request::Sync {},
-                handle.make_data::<wl_callback::WlCallback, _>(phase),
+                handle.make_data::<wl_callback::WlCallback, _>(tag),
             )
             .map_err(|_| ReceiveError::Io)?;
-        self.pending = Some((callback, phase));
+        self.pending = Some((callback, tag));
         Ok(())
     }
 
@@ -575,22 +776,22 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
     }
 }
 
-impl Dispatch<wl_callback::WlCallback, SyncPhase> for State {
+impl Dispatch<wl_callback::WlCallback, SyncTag> for State {
     fn event(
         state: &mut Self,
         callback: &wl_callback::WlCallback,
         _: wl_callback::Event,
-        phase: &SyncPhase,
+        tag: &SyncTag,
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
         if state
             .pending
             .as_ref()
-            .is_some_and(|(pending, expected)| pending.id() == callback.id() && expected == phase)
+            .is_some_and(|(pending, expected)| pending.id() == callback.id() && expected == tag)
         {
             state.pending = None;
-            state.completed = Some(*phase);
+            state.completed = Some(*tag);
         }
     }
 }
