@@ -3157,11 +3157,14 @@ impl UiTree {
         self.text_height_measurer = None;
     }
 
-    /// Replaces the visual tree without discarding input, focus or scroll state.
-    /// Reuse IDs for widgets that represent the same logical control.
+    /// Replaces the visual tree without discarding named input, focus or scroll
+    /// state. Reuse IDs for widgets that represent the same logical control.
+    /// Temporary anonymous code viewports belong to the replaced instance.
     pub fn set_root(&mut self, root: Element) {
         self.root = root;
         self.action_aliases.clear();
+        // Anonymous code viewports belong to the replaced instance; explicit IDs retain state.
+        self.horizontal_scrolls.retain(|id, _| !crate::code_block::is_anonymous_code_scroll_id(id));
     }
 
     /// The text a text input or text area holds now. `None` until a field

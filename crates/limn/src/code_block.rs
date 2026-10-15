@@ -129,6 +129,10 @@ pub(crate) fn anonymous_code_scroll_id() -> String {
     format!("code_block:auto:{}", NEXT_ID.fetch_add(1, Ordering::Relaxed))
 }
 
+pub(crate) fn is_anonymous_code_scroll_id(id: &str) -> bool {
+    id.strip_prefix("markdown:").unwrap_or(id).starts_with("code_block:auto:")
+}
+
 const PADDING: f32 = 12.0;
 
 impl Component for CodeBlock {
