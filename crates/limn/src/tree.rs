@@ -3252,6 +3252,17 @@ impl UiTree {
         self.focused.as_deref()
     }
 
+    /// Dismiss the focused control and cancel its native composition without
+    /// changing window focus. Returns whether a control had focus.
+    pub fn clear_focus(&mut self) -> bool {
+        let had_focus = self.focused.take().is_some();
+        self.pending_scroll_focus = None;
+        self.keyboard_focus = false;
+        self.keyboard_tooltip_focus = false;
+        self.validate_ime_owner(Instant::now());
+        had_focus
+    }
+
     /// Whether the current focus came from keyboard navigation rather than a
     /// pointer press. Hosts can retain focus while navigating a tab strip.
     pub fn has_keyboard_focus(&self) -> bool {

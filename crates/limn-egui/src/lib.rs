@@ -17,7 +17,11 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
 mod glass;
+mod touch_context;
 pub use glass::GlassRenderer;
+
+#[cfg(test)]
+mod touch_context_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod image_workers;
@@ -2111,6 +2115,14 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
         }
         events
     })
+}
+
+/// Translate input like [`events`], with stationary holds on custom context-menu
+/// targets from the current laid-out frame. A 430 ms touch requests context once;
+/// moving 8 points, scrolling or cancellation aborts it. Its release cannot click.
+/// Use the returned events with the same tree and coordinate origin as `frame`.
+pub fn events_with_touch(ctx: &egui::Context, origin: Pos2, frame: &Frame) -> Vec<UiEvent> {
+    touch_context::translate(ctx, origin, events(ctx, origin), frame)
 }
 
 /// Use Ubuntu Regular for UI text. egui's default proportional face is

@@ -20,6 +20,29 @@ fn layout(tree: &mut UiTree) -> Frame {
 }
 
 #[test]
+fn clearing_focus_cancels_editor_ime_and_a_late_commit_even_after_focus_is_restored() {
+    let a = controller("alpha");
+    let b = controller("beta");
+    let mut tree = UiTree::new(root(&a, &b));
+    layout(&mut tree);
+    tree.focus("a");
+    layout(&mut tree);
+    tree.handle_event(UiEvent::ImePreedit("仮".into()));
+    assert!(tree.editor_ime_rects().is_some());
+    assert!(tree.clear_focus());
+    assert!(!tree.clear_focus());
+    assert_eq!(tree.focused_id(), None);
+    assert!(tree.editor_ime_rects().is_none());
+    assert!(!tree.has_keyboard_focus());
+    assert!(tree.focus("a"));
+    assert!(tree.handle_event(UiEvent::ImeCommit("stale".into())).is_empty());
+    assert_eq!(text(&a), "alpha");
+    tree.handle_event(UiEvent::ImePreedit("新".into()));
+    assert!(!tree.handle_event(UiEvent::ImeCommit("新".into())).is_empty());
+    assert_eq!(text(&a), "新alpha");
+}
+
+#[test]
 fn native_ime_commit_keeps_its_owner_across_focus_document_and_window_changes() {
     let a = controller("alpha");
     let b = controller("beta");
