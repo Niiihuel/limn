@@ -765,6 +765,7 @@ pub(crate) struct Kept {
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
+    pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2598,6 +2599,15 @@ impl Element {
             } => *current = appearance,
             ElementKind::UniformList(list) => list.appearance = appearance,
             _ => {}
+        }
+        self
+    }
+
+    /// Show an ordinary or virtual list's scrollbar only while active, or
+    /// keep its idle appearance visible. Does not change layout or scrolling.
+    pub fn scrollbar_visibility(mut self, visibility: crate::ScrollbarVisibility) -> Self {
+        if matches!(self.kind, ElementKind::Scroll { .. } | ElementKind::UniformList(_)) {
+            self.kept.get_or_insert_default().scrollbar_visibility = visibility;
         }
         self
     }
