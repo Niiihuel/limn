@@ -8852,6 +8852,10 @@ impl LayoutBuilder<'_> {
             (style.width.unwrap_or(available.width) - padding).max(0.0),
             (available.height - padding).max(0.0),
         );
+        // A paragraph's width cap also constrains its wrapping. Containers
+        // still measure intrinsically before their own final width is capped.
+        let wrap_width = inner.width.min(style.max_width
+            .map_or(f32::INFINITY, |max| (max - padding).max(0.0)));
         let natural = match &element.kind {
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
@@ -8859,7 +8863,7 @@ impl LayoutBuilder<'_> {
                 truncated: false,
                 ..
             } => {
-                let lines = self.wrapped_lines(value, inner.width, style);
+                let lines = self.wrapped_lines(value, wrap_width, style);
                 let longest = lines
                     .iter()
                     .map(|line| self.text_width(line, style))
@@ -8909,8 +8913,7 @@ impl LayoutBuilder<'_> {
                 )
             }
             ElementKind::FormattedText(spans) => {
-                let width = style.width.unwrap_or(available.width);
-                let lines = self.formatted_lines(spans, (width - padding).max(0.0), style);
+                let lines = self.formatted_lines(spans, wrap_width, style);
                 Size::new(
                     lines.iter().map(|line| line.width).fold(0.0, f32::max) + padding,
                     lines.iter().map(|line| line.height).sum::<f32>() + padding,
@@ -12444,6 +12447,46 @@ mod tests {
             ctrl: false,
         });
         assert_eq!(tree.focused_id(), Some("close:2"));
+    }
+
+    #[test]
+    fn max_width_paragraph_measures_its_wrapped_height_before_the_next_sibling() {
+        let description = "A paragraph whose natural width is longer than its maximum must keep every wrapped line above the following control.";
+        for width in [160.0, 480.0] {
+            let paragraph = Element::text(description)
+                .max_width(120.0)
+                .shrink_to_fit()
+                .centered_x();
+            let mut tree = UiTree::new(
+                Element::column(vec![
+                    paragraph,
+                    Element::button("next", "Continue").size(None, Some(32.0)),
+                ])
+                .gap(12.0),
+            );
+            let frame = tree.layout(Size::new(width, 600.0));
+            let blocks = frame.text_layouts();
+            let paragraph = blocks
+                .iter()
+                .find(|block| block.source == description)
+                .unwrap();
+            assert!(
+                paragraph.runs.len() > 1,
+                "the capped paragraph must wrap at {width}"
+            );
+            let bottom = paragraph
+                .runs
+                .iter()
+                .map(|run| run.rect.y + run.rect.height)
+                .fold(0.0_f32, f32::max);
+            let next = frame
+                .regions
+                .iter()
+                .find(|region| region.id == "next")
+                .unwrap();
+            assert!(next.rect.y >= bottom + 12.0 - 0.1,
+                "wrapped paragraph consumed its following gap at {width}: bottom={bottom}, next={:?}", next.rect);
+        }
     }
 
     #[test]
