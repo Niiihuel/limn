@@ -200,7 +200,7 @@ pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
 pub use notice::{Notice, NoticeSizing};
-pub use number_input::NumberInput;
+pub use number_input::{NumberInput, NumberInputButtonPlacement};
 pub use navigation_bar::{NavigationAction, NavigationBar, NavigationWorkspace};
 pub use output_block::OutputBlock;
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionHeaderSizing};

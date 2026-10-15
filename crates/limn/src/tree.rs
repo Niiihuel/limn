@@ -10855,12 +10855,15 @@ impl LayoutBuilder<'_> {
                     .entry(id.clone())
                     .or_insert_with(|| InputState::new(initial_value.clone()));
                 state.password = *password;
-                state.content_x = content.x;
                 state.char_width = metrics.char_width;
                 state.content_width = content.width;
                 state.font_size = style.font_size;
                 state.font_family = style.font_family;
                 state.measurer = self.text_measurer.clone();
+                let center_text = style.center_content && state.width(&state.value) <= content.width - 2.0;
+                if center_text {
+                    state.view_start = 0;
+                }
                 if state.cursor < state.view_start {
                     state.view_start = state.cursor;
                 }
@@ -10897,6 +10900,15 @@ impl LayoutBuilder<'_> {
                         char_range(&state.value, state.view_start, visible_end).to_owned()
                     }
                 };
+                let text_x = if center_text {
+                    let text_width = measured_width(
+                        state.measurer.as_deref(), &shown, style.font_size, style.font_family, metrics.char_width,
+                    );
+                    content.x + ((content.width - text_width) / 2.0).max(0.0)
+                } else {
+                    content.x
+                };
+                state.content_x = text_x;
                 let input_clip = clip
                     .and_then(|outer| outer.intersection(content))
                     .or_else(|| clip.is_none().then_some(content));
@@ -10912,7 +10924,7 @@ impl LayoutBuilder<'_> {
                                 state.width(char_range(&state.value, state.view_start, end));
                             self.frame.commands.push(DrawCommand::FillRect {
                                 rect: Rect::new(
-                                    content.x + left,
+                                    text_x + left,
                                     content.y,
                                     right - left,
                                     metrics.line_height,
@@ -10923,7 +10935,7 @@ impl LayoutBuilder<'_> {
                         }
                     }
                     self.frame.commands.push(DrawCommand::Text {
-                        position: Point::new(content.x, content.y),
+                        position: Point::new(text_x, content.y),
                         text: shown,
                         color: if is_placeholder {
                             Color::rgba(
@@ -10942,7 +10954,7 @@ impl LayoutBuilder<'_> {
                         let cursor_x =
                             state.width(char_range(&state.value, state.view_start, state.cursor));
                         let caret_rect =
-                            Rect::new(content.x + cursor_x, content.y, 1.5, metrics.line_height);
+                            Rect::new(text_x + cursor_x, content.y, 1.5, metrics.line_height);
                         if caret_rect.intersection(input_clip).is_some()
                             && self.caret_blink.observe(
                                 id,
