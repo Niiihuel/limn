@@ -7,6 +7,7 @@ in any release.
 
 - `Composer::drop_target()` opts the enabled editor into file drops using its existing ID, without adding a hit region or changing focus. The host owns validation and file access; disabled composers never accept drops. The Editor gallery records the count without opening files.
 - File hover and drop targets respect floating surfaces, context menus and modals, keeping files from reaching covered background controls.
+- The egui bridge delivers native files after the frame's ordinary input, allowing hosts to revalidate an editor after a click or key changes the view.
 
 ## 0.1.43 — 2026-10-15
 

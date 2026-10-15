@@ -53,6 +53,12 @@ the tree's origin.
 External file events preserve the supplied list; they do not read file
 contents. The tree resolves drop targets within floating surfaces and modal
 boundaries. Hosts validate targets and paths before starting file I/O.
+`limn_egui::events` delivers file hover/drop after the frame's ordinary input,
+so a host can apply a click or key that changes its view before admitting files.
+egui groups file metadata separately; this is not an OS event chronology.
+The touch wrapper can append derived touch actions afterward. Hosts must
+revalidate their current view and prevent an editor submission in a frame
+containing new files when their product requires preparation before sending.
 
 `handle_event` returns the `UiAction`s the event produced. Call
 `UiTree::layout` before delivering pointer events: they are resolved against
