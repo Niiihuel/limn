@@ -1857,8 +1857,9 @@ impl Element {
 
     /// Name this element as a place to scroll to, without making it a
     /// control: `UiTree::reveal(id)` brings it into view and
-    /// `UiTree::anchor_offset(id)` says where it is. It has to be laid out
-    /// by a column of a scroll area, as a message of a conversation is.
+    /// `UiTree::anchor_offset(id)` says where it is inside its scroll area.
+    /// Static branches retain anchor geometry when clipped outside the viewport;
+    /// a virtual row must have been built before its anchors can be located.
     pub fn anchor(mut self, id: impl Into<String>) -> Self {
         self.anchor = Some(id.into());
         self
