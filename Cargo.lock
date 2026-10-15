@@ -1981,6 +1981,7 @@ dependencies = [
  "eframe",
  "image",
  "limn",
+ "limn-dnd",
  "limn-editor",
  "limn-egui",
  "wasm-bindgen-futures",

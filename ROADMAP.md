@@ -24,7 +24,12 @@ Linux is the only platform limn is developed and tested on, under Wayland and
 X11. The browser build works through WebAssembly with WebGL 2 or WebGPU.
 
 - macOS and Windows: build, run the gallery, fix what differs, add both to CI.
-- Dragging files between applications (`limn-dnd`) exists for Wayland only.
+- Native file drops (`limn-dnd`) use Linux/Wayland only; the receive-only API
+  returns no receiver on other backends. The standalone demo verified two-file
+  metadata reception, explicit Accept/Reject and normal closure on a private
+  Weston output. The tested eframe/Hyprland host still needs shared clipboard/DnD
+  routing; other compositor/file-manager combinations remain unverified.
+  Private-server tests cover protocol and lifecycle. See [File drops](docs/file-drop.md).
 - In a browser, syntax highlighting and image decoding run on the UI thread.
 
 ## Text
