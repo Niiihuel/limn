@@ -2247,6 +2247,36 @@ mod font_tests;
 mod tests {
     use super::*;
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn file_drop_bridge_preserves_the_whole_batch_and_needs_a_pointer_position() {
+        #[derive(Debug)]
+        struct UnreadFile(std::path::PathBuf);
+        impl egui::DroppedFile for UnreadFile {
+            fn path(&self) -> &std::path::Path { &self.0 }
+            fn bytes(&self) -> Result<Vec<u8>, String> { panic!("event translation must not read file contents") }
+        }
+        for pointer in [false, true] {
+            let ctx = egui::Context::default();
+            let paths: Vec<std::path::PathBuf> = vec!["/tmp/limn-a.txt".into(), "/tmp/limn-b.txt".into()];
+            let dropped_files = paths.iter().map(|path| {
+                std::sync::Arc::new(UnreadFile(path.clone())) as egui::DroppedFileHandle
+            }).collect();
+            let input = egui::RawInput {
+                events: if pointer { vec![egui::Event::PointerMoved(Pos2::new(150.0, 90.0))] } else { Vec::new() },
+                dropped_files,
+                ..Default::default()
+            };
+            let mut forwarded = Vec::new();
+            let mut output = ctx.run_ui(input, |ui| forwarded = events(ui.ctx(), Pos2::new(100.0, 50.0)));
+            output.textures_delta.clear();
+            let drops: Vec<_> = forwarded.into_iter().filter(|event| matches!(event, UiEvent::FilesDropped { .. })).collect();
+            assert_eq!(drops, if pointer {
+                vec![UiEvent::FilesDropped { position: Point::new(50.0, 40.0), paths }]
+            } else { Vec::new() });
+        }
+    }
+
     #[test]
     fn a_covering_image_shows_its_centered_part_at_the_box_proportions() {
         let square = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 100.0));

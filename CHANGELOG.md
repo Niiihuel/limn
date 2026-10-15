@@ -4,6 +4,12 @@ Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
 ## 0.1.42 — 2026-10-14
+## Unreleased
+
+- `Composer::drop_target()` opts the enabled editor into file drops using its existing ID, without adding a hit region or changing focus. The host owns validation and file access; disabled composers never accept drops. The Editor gallery records the count without opening files.
+- File hover and drop targets respect floating surfaces, context menus and modals, keeping files from reaching covered background controls.
+
+## 0.1.43 — 2026-10-15
 
 - Native raster images use two decode workers per UI thread instead of a thread per image, with a nonblocking queue bounded by 32 sources and 16 MiB of encoded data. `limn_egui::clear_image_cache()` releases textures and queued sources; late results from the old generation are discarded. The ImageViewer gallery has a cache reload control
 - `limn_egui::install_fonts`: Noto Emoji 3.002 monochrome fallback, appended after every existing face. A 623-entry emoji fixture verifies scalar coverage in all five families, with existing glyph widths preserved. The unmodified variable font adds 1,982,596 bytes under OFL-1.1; provenance, license and synthetic Text gallery examples are included. Regional flags and some combined sequences remain limited by font selection; this does not add color emoji

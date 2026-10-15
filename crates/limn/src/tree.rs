@@ -4789,6 +4789,33 @@ impl UiTree {
         true
     }
 
+    // Input must not reach behind a floating surface at the pointer, or
+    // anywhere behind a modal, even outside the modal's card.
+    fn floating_surface_floor(&self, position: Point) -> usize {
+        let modal_surface = self
+            .frame
+            .popover_focus
+            .iter()
+            .rev()
+            .find(|scope| scope.modal)
+            .map(|scope| format!("popover_surface:{}", scope.dismiss_id));
+        self
+            .frame
+            .regions
+            .iter()
+            .enumerate()
+            .rev()
+            .find_map(|(index, region)| {
+                (region.kind == HitKind::Surface
+                    && (((region.id.starts_with("popover_surface:")
+                        || region.id == "__context_menu:surface")
+                        && region.rect.contains(position))
+                        || modal_surface.as_deref() == Some(region.id.as_str())))
+                .then_some(index)
+            })
+            .unwrap_or(0)
+    }
+
     // Native diff viewports own their horizontal scroll. Their unconsumed
     // vertical delta uses this same hierarchy as an ordinary nested scroll,
     // including smooth targets and floating/modal containment.
@@ -4805,27 +4832,7 @@ impl UiTree {
         }
         let mut remaining = delta_y;
         self.scroll_button_hold = None;
-        let modal_surface = self
-            .frame
-            .popover_focus
-            .iter()
-            .rev()
-            .find(|scope| scope.modal)
-            .map(|scope| format!("popover_surface:{}", scope.dismiss_id));
-        let floor = self
-            .frame
-            .regions
-            .iter()
-            .enumerate()
-            .rev()
-            .find_map(|(index, region)| {
-                (region.kind == HitKind::Surface
-                    && region.id.starts_with("popover_surface:")
-                    && (region.rect.contains(position)
-                        || modal_surface.as_deref() == Some(region.id.as_str())))
-                .then_some(index)
-            })
-            .unwrap_or(0);
+        let floor = self.floating_surface_floor(position);
         let regions: Vec<_> = self
             .frame
             .regions
@@ -5164,6 +5171,7 @@ impl UiTree {
         self.frame
             .regions
             .iter()
+            .skip(self.floating_surface_floor(point))
             .rev()
             .find(|region| {
                 region.rect.contains(point)
