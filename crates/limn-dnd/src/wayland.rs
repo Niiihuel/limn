@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::ffi::c_void;
 use std::io::{Read, Write};
-use std::sync::mpsc;
+use std::sync::{mpsc, Arc};
 
 use sctk::data_device_manager::data_device::{DataDevice, DataDeviceHandler};
 use sctk::data_device_manager::data_offer::{DataOfferHandler, DragOffer};
@@ -28,7 +28,12 @@ use sctk::{
 };
 use wayland_backend::client::{Backend, ObjectId};
 
+use crate::receive::worker_pool::{LegacyReservation, SurfaceKey, WorkerPool};
 use crate::DndEvent;
+
+#[cfg(test)]
+#[path = "wayland/legacy_tests.rs"]
+mod legacy_tests;
 
 const MIME: &str = "text/uri-list";
 /// A URI list is a few bytes per file; anything larger is not a file list.
@@ -46,6 +51,8 @@ pub struct Worker {
     pub events: mpsc::Receiver<DndEvent>,
     commands: Sender<Command>,
     thread: Option<std::thread::JoinHandle<()>>,
+    // This field is dropped only after our Drop implementation has joined the worker.
+    _reservation: LegacyReservation,
 }
 
 impl Worker {
@@ -58,6 +65,33 @@ impl Worker {
         surface: *mut c_void,
         wake: Box<dyn Fn() + Send>,
     ) -> Option<Self> {
+        unsafe {
+            Self::spawn_in(
+                display,
+                surface,
+                wake,
+                WorkerPool::global().clone(),
+                #[cfg(test)]
+                legacy_tests::Hooks::default(),
+            )
+        }
+    }
+
+    unsafe fn spawn_in(
+        display: *mut c_void,
+        surface: *mut c_void,
+        wake: Box<dyn Fn() + Send>,
+        pool: Arc<WorkerPool>,
+        #[cfg(test)] hooks: legacy_tests::Hooks,
+    ) -> Option<Self> {
+        let reservation = pool
+            .reserve_legacy(SurfaceKey {
+                display: display as usize,
+                surface: surface as usize,
+            })
+            .ok()?;
+        #[cfg(test)]
+        hooks.backend_entered();
         let connection =
             Connection::from_backend(unsafe { Backend::from_foreign_display(display.cast()) });
         let id = unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.cast()) }.ok()?;
@@ -67,12 +101,27 @@ impl Worker {
         let replies = commands.clone();
         let thread = std::thread::Builder::new()
             .name("limn-dnd".into())
-            .spawn(move || run(connection, surface, receiver, replies, sender, wake))
+            .spawn(move || {
+                #[cfg(test)]
+                hooks.install_tls();
+                run(
+                    connection,
+                    surface,
+                    receiver,
+                    replies,
+                    sender,
+                    wake,
+                    pool,
+                    #[cfg(test)]
+                    hooks,
+                )
+            })
             .ok()?;
         Some(Self {
             events,
             commands,
             thread: Some(thread),
+            _reservation: reservation,
         })
     }
 
@@ -101,7 +150,14 @@ fn run(
     replies: Sender<Command>,
     events: mpsc::Sender<DndEvent>,
     wake: Box<dyn Fn() + Send>,
+    pool: Arc<WorkerPool>,
+    #[cfg(test)] hooks: legacy_tests::Hooks,
 ) {
+    if pool.consume_registry().is_err() {
+        return;
+    }
+    #[cfg(test)]
+    hooks.registry_entered();
     let Ok((globals, queue)) = registry_queue_init::<State>(&connection) else {
         return;
     };
@@ -137,7 +193,9 @@ fn run(
             }
         })
         .is_err()
-        || WaylandSource::new(connection, queue).insert(handle).is_err()
+        || WaylandSource::new(connection, queue)
+            .insert(handle)
+            .is_err()
     {
         return;
     }
