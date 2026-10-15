@@ -5,6 +5,10 @@ in any release.
 
 ## Unreleased
 
+- Add indexed input: `limn_egui::events_indexed` returns `IndexedUiEvent { source_index, event }` for the same post-normalization viewport snapshot. Hosts can interleave untranslated events and read Key/Alt metadata from their source; frame-derived file metadata has no index. See [Indexed input](docs/backend.md#indexed-input).
+- Input compatibility: `events` and the indexed API share a converter that deduplicates only forward, contiguous, non-overlapping Enter/Text and clipboard Key/payload pairs. An unknown intervening event breaks a pair. Initial pointer state, double/triple-click detection and unpaired Copy/Cut Shift remain whole-frame compatibility data; touch translation is unchanged.
+- Gallery: `captured_paste --ordered-input` demonstrates the two synthetic navigation/marker orders using the visible destinations; `--small` selects 600 × 580. Verification and captures remain synthetic and separate from native clipboard integration.
+
 - Add the captured-paste API contract: `UiTree::capture_paste_target`, `invalidate_paste_targets`, opaque single-use `PasteTarget`, and `UiEvent::PasteCaptured`. Delayed text replies remain tied to observed tree/focus/editable state, including IME and Vim mode changes; accepted empty or failed insertions consume the capture, while busy/pending-layout attempts do not. This does not provide clipboard I/O, an owner, ACK/completion or native clipboard integration. See [Captured paste targets](docs/captured-paste.md).
 - Add opaque `limn_editor::EditStateToken` and `TextBuffer::edit_state_token` for buffer instance, text revision and primary/secondary selection state. Shared-buffer selection changes and ABA invalidate it; no-op setters preserve it. Validate and edit under the same nonblocking buffer guard.
 - API compatibility: `UiEvent::PasteCaptured` is a new variant for exhaustive matches to handle. Legacy `PasteTo` remains available with its previous ID/focus semantics; the new capture has no serialization contract and retains no text or editor resources.

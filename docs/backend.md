@@ -154,6 +154,7 @@ The egui backend exposes:
 | `attach_fonts(&mut tree, &ctx)` | Makes a tree measure with egui's fonts. Once per tree. |
 | `normalize_keyboard_input(&ctx)` | Fixes key and text events on remapped layouts. Each frame, before `events`. |
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
+| `events_indexed(&ctx, origin)` | Unreleased indexed-input contract: input with its source index for an ordered host loop. See below. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
 | `GlassRenderer::new(&render_state)` | Creates the native wgpu optical renderer. Supply the backdrop using `set_backdrop_rgba` or `set_backdrop_texture`, then call its `paint_at`. |
 | `GlassRenderer::paint_at_surface(ui, &frame, origin, backdrop_rect, surface_id)` | Displays the shared backdrop texture at a named surface's paint depth and renders the glass above it. This opt-in path stretches the texture to the explicit backdrop rectangle; ordinary host-fed surfaces retain their pixel mapping. See [Native glass navigation](liquid-glass.md). |
@@ -170,6 +171,57 @@ workers; clearing still releases its raster cache.
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
 | `forget_surface(id)` | Frees a surface's texture. |
+
+### Indexed input
+
+`events_indexed` returns `Vec<IndexedUiEvent>`, with public fields
+`source_index: Option<usize>` and `event: UiEvent`. The host retains ownership
+of clipboard requests, cancellation and application context.
+
+Run `normalize_keyboard_input` first. `Some(i)` refers to `input.events[i]`
+in the **same normalized snapshot and viewport**, not the earlier RawInput or
+the physical order of operating-system input. Keep that snapshot stable during
+translation and consumption; do not normalize it again or switch viewports.
+Translations retain source order, and several may share one index.
+
+An ordered host traverses **every source event in that snapshot**, including unknown events
+that produce no `UiEvent`. At each index, process its associated translations
+in order. Read physical_key, pressed, repeat and modifiers (including Alt)
+from that source Key event, rather than a whole-frame key prepass. Apply earlier
+host actions, pending focus and layout before capturing a later paste target.
+Draining only translated events, or processing all markers at the end, loses
+their place among navigation and clicks.
+
+`None` identifies frame-derived input without an `egui::Event` source. Existing
+RawInput file-hover/drop metadata keeps its compatibility position before
+ordinary events, with no invented source index or native chronology. The
+legacy `events` function shares the converter and discards the indices.
+
+Deduplication changes from whole-frame searches to forward, contiguous,
+non-overlapping pairs: pressed Enter followed by Text exactly `\n`, `\r` or
+`\r\n` keeps the Key; pressed Ctrl/Command+C/X followed by Copy/Cut keeps the
+Key and its modifiers; pressed Ctrl/Command+V followed by Paste keeps the
+unchanged Paste payload and its index. Each event belongs to at most one pair.
+Any intervening event, even an ignored one, breaks the pair. Reverse orders
+and other combinations translate individually. This behavior change applies
+to `events` too, so a later shortcut cannot suppress an earlier event across
+an unknown marker.
+
+Indices do not make every input property source-exact. Initial pointer
+position and double/triple-click detection still use whole-frame pointer
+state; MouseWheel can use that initial position until a preceding PointerMoved.
+Copy/Cut without a Key has no source modifiers and retains the final-frame
+Shift fallback. These are compatibility limits, not reconstructed per-event
+click counts, modifiers or operating-system timing. `events_with_touch` and
+its hold timers remain unchanged and are not part of the indexed API.
+
+The `captured_paste` Gallery example adds `--ordered-input` to show two fixed
+synthetic batches: navigation before the marker delivers to B; navigation
+after capturing A rejects its late reply. The visible panels show the second
+sequence's final state, with both historical results below. Use `--small` for
+600 × 580; `--verify`, theme/corner flags and new-path PNG capture are shared
+with the original mode. This demonstration uses a separate synthetic egui
+context and the visible limn tree, without requesting clipboard I/O.
 
 ### Host-fed surfaces
 
