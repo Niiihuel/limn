@@ -29,6 +29,29 @@ It reports no actions. To scroll it from the host see
 [Layout](../layout.md#scrolling-from-the-host), and to keep a child pinned at
 its top see [Layout](../layout.md#sticky-children).
 
+## Sharing a short column with a fixed footer
+
+Give the rendered scroll area a `max_height` to keep short content at its
+natural height. Mark its direct column child with `shrink_height_to_fit()`
+to yield more height when the footer needs it:
+
+```rust
+Element::column(vec![
+    body.flex(1.0),
+    ScrollArea::new("notices", notices)
+        .render()
+        .max_height(160.0)
+        .shrink_height_to_fit(),
+    footer,
+]).gap(8.0)
+```
+
+If a row wraps the scroll area, mark that row instead. Its actual assigned
+height bounds the viewport, so the last row remains reachable by scrolling.
+The flag does not change row widths or columns that do not use it. See
+[Layout](../layout.md#giving-up-height-shrink_height_to_fit) for minimums
+and the limits of an already overfilled column.
+
 ## A list of uniform rows
 
 ```rust

@@ -28,6 +28,7 @@ an explicit size in that direction keeps it.
 | `.max_width(w)` | Caps the natural width. Content wider than this is not re-wrapped; pair with `.clip_children()` or a truncating text. |
 | `.flex(n)` | Takes a share of the space left over, in proportion to `n`. |
 | `.shrink_to_fit()` | Keeps its natural width while there is room, and gives it up when there is not. |
+| `.shrink_height_to_fit()` | A non-flex child of a column keeps its natural height while there is room, then gives it up before fixed siblings overflow. |
 
 ### Sharing spare space: `flex`
 
@@ -65,6 +66,50 @@ When several children can shrink, they give up width in order: the first one
 shrinks down to its `min_size`, then the next, and only if that is still not
 enough do they shrink below their minimums. Flexible siblings keep their
 minimum widths throughout.
+
+### Giving up height: `shrink_height_to_fit`
+
+A column normally keeps every non-flex child's natural height. Mark just the
+child that can yield height; leave its footer or editor unmarked:
+
+```rust
+Element::column(vec![
+    messages.flex(1.0),
+    Element::row(vec![
+        Element::spacer().flex(1.0),
+        ScrollArea::new("notices", notices)
+            .render()
+            .size(Some(320.0), None)
+            .max_height(160.0),
+    ]).shrink_height_to_fit(),
+    editor,
+]).gap(8.0)
+```
+
+The flag belongs to the direct child of the column: the whole row in this
+example. The row gives its scroll area the shorter height that was actually
+assigned. Short content stays short; long content scrolls instead of covering
+the editor. The column measures at its real width before assigning heights,
+so wrapped text keeps its width as it gives up height.
+
+Gaps, unmarked children and flexible siblings' minimum heights are reserved
+first. Marked children give up height in order, down to their `min_size` and,
+only if that is insufficient, below those minimums toward zero. Flexible
+siblings retain their weighted shares while they meet their minimum heights;
+a sibling at its minimum leaves the rest for the others to share.
+
+A marked child with no finite natural height, such as an editor whose explicit
+height was removed, starts at the column's finite height before yielding room
+to its siblings. The column never subtracts one unbounded height from another.
+
+Limits: the opt-in changes only direct, non-flex children of a finite-height
+column. It does nothing in a row or in unbounded scroll content, and is
+independent of the existing width-only `shrink_to_fit`. It assigns a smaller
+box; use a scroll area or `.clip_children()` to contain content that cannot
+fit that box. If fixed children, gaps and flexible minimums already exceed
+the column's height, shrinking another child to zero cannot make them fit.
+This flag does not guarantee a minimum readable amount of content; the host
+must also give its editor and other fixed controls a feasible size.
 
 ## Wrapping rows
 
