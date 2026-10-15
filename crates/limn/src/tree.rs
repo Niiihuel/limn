@@ -3876,12 +3876,17 @@ impl UiTree {
                         // Measure wrapped content at the width the viewport
                         // can actually allocate. Shrinking only the painted
                         // rectangle would retain the wider layout's height.
+                        let available_width = if placement == PopoverPlacement::Bottom {
+                            viewport.width.max(0.0)
+                        } else {
+                            (viewport.width - 16.0).max(0.0)
+                        };
                         if let Some(width) = floating.style.width.as_mut() {
-                            *width = width.min((viewport.width - 16.0).max(0.0));
+                            *width = width.min(available_width);
                         }
                         let measured = builder.measure(
                             &floating,
-                            Size::new((viewport.width - 16.0).max(0.0), f32::INFINITY),
+                            Size::new(available_width, f32::INFINITY),
                         );
                         let (rect, coach_side) = match coach {
                             Some(coach) => {
@@ -3986,7 +3991,8 @@ impl UiTree {
                                 color: coach.fill,
                             });
                         }
-                        let slide_sign = if rect.y >= anchor.y + anchor.height {
+                        let slide_sign = if placement == PopoverPlacement::Bottom
+                            || rect.y >= anchor.y + anchor.height {
                             1.0
                         } else {
                             -1.0
@@ -6764,6 +6770,16 @@ fn place_popover(
     placement: PopoverPlacement,
     gap: f32,
 ) -> Rect {
+    if placement == PopoverPlacement::Bottom {
+        let width = desired.width.max(0.0).min(viewport.width.max(0.0));
+        let height = desired.height.max(0.0).min((viewport.height - 8.0).max(0.0));
+        return Rect::new(
+            viewport.x + (viewport.width - width) / 2.0,
+            viewport.y + viewport.height - height,
+            width,
+            height,
+        );
+    }
     let inset = 8.0;
     let width = desired
         .width
@@ -14376,6 +14392,41 @@ mod tests {
         );
         assert_eq!(rect.height, 180.0);
         assert!(rect.y >= 8.0 && rect.y + rect.height <= 292.0);
+    }
+
+    #[test]
+    fn bottom_popover_ignores_anchor_and_gap_and_meets_the_safe_viewport_edge() {
+        let viewport = Rect::new(12.0, 24.0, 390.0, 700.0);
+        for anchor in [viewport, Rect::new(80.0, 400.0, 40.0, 30.0)] {
+            for gap in [0.0, 90.0] {
+                assert_eq!(
+                    place_popover(anchor, Size::new(560.0, 300.0), viewport, PopoverPlacement::Bottom, gap),
+                    Rect::new(12.0, 424.0, 390.0, 300.0),
+                );
+                assert_eq!(
+                    place_popover(anchor, Size::new(240.0, 900.0), viewport, PopoverPlacement::Bottom, gap),
+                    Rect::new(87.0, 32.0, 240.0, 692.0),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bottom_popover_measures_wrapped_content_at_full_phone_width() {
+        let mut tree = UiTree::new(Element::popover(
+            Element::spacer(),
+            Element::button("sheet_body", "Actions").size(Some(560.0), Some(120.0)),
+            "sheet_close",
+            PopoverPlacement::Bottom,
+        ));
+        tree.set_reduced_motion(true);
+        for width in [320.0, 390.0, 430.0] {
+            let frame = tree.layout(Size::new(width, 700.0));
+            let surface = frame.regions.iter().find(|r| r.id == "popover_surface:sheet_close").unwrap().rect;
+            let body = frame.regions.iter().find(|r| r.id == "sheet_body").unwrap().rect;
+            assert_eq!(surface, Rect::new(0.0, 580.0, width, 120.0));
+            assert_eq!(body, surface);
+        }
     }
 
     #[test]

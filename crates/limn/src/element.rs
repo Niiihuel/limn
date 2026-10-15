@@ -28,6 +28,10 @@ pub enum PopoverPlacement {
     /// Centered in the viewport, wherever the anchor is: a modal. The gap is
     /// not used.
     Center,
+    /// Centered horizontally against the viewport's bottom edge: a sheet.
+    /// Ignores the anchor and gap, fills up to the viewport width, and keeps
+    /// eight logical pixels clear above it. The host supplies a safe viewport.
+    Bottom,
 }
 
 /// A shape for the pointer other than the platform's own, asked for with
