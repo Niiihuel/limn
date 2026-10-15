@@ -264,6 +264,82 @@ fn a_passive_anchor_is_revealed_and_says_where_it_is() {
     assert!(tree.frame().regions.iter().all(|region| region.id == "list"));
 }
 
+fn nested_anchors(font_size: f32) -> Element {
+    Element::scroll("list", Element::column(vec![
+        Element::panel(Element::column(vec![
+            Element::text("A paragraph before the title changes height with the viewport and font size.").font_size(font_size),
+            Element::panel(Element::column(vec![
+                Element::button("hidden-action", "Nested title").size(None, Some(24.0)).anchor("first"),
+                Element::text("Another nested title").size(None, Some(24.0)).anchor("second"),
+            ]).gap(12.0).padding(8.0)),
+        ]).gap(16.0).padding(10.0)),
+        Element::spacer().size(None, Some(2000.0)),
+        Element::button("last", "Last row").size(None, Some(32.0)),
+    ])).scrollbar_appearance(crate::ScrollbarAppearance::overlay())
+}
+
+#[test]
+fn nested_anchors_have_current_geometry_on_the_first_deep_layout_without_painting_hidden_controls() {
+    let mut tree = UiTree::new(nested_anchors(16.0));
+    tree.set_reduced_motion(true);
+    for (width, font_size) in [(240.0, 16.0), (120.0, 16.0), (120.0, 28.0)] {
+        let mut reference = UiTree::new(nested_anchors(font_size));
+        reference.set_reduced_motion(true);
+        reference.layout(Size::new(width, 4000.0));
+        let first = reference.anchor_offset("first").unwrap();
+        let second = reference.anchor_offset("second").unwrap();
+
+        tree.set_root(nested_anchors(font_size));
+        tree.scroll_to_end("list");
+        let frame = tree.layout(Size::new(width, 180.0));
+        let offset = tree.scroll_offset("list");
+        assert!(offset > second);
+        assert!(frame.access.iter().any(|node| node.id == "last"));
+        assert_eq!(tree.anchor_offset("first"), Some(first - offset));
+        assert_eq!(tree.anchor_offset("second"), Some(second - offset));
+        assert!(!frame.access.iter().any(|node| node.id == "hidden-action"));
+        assert!(!frame.regions.iter().any(|region| region.id == "hidden-action"));
+        assert!(!frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, .. } if text == "Nested title" || text == "Another nested title")));
+    }
+    tree.reveal_at_start("second", 8.0);
+    tree.layout(Size::new(120.0, 180.0));
+    assert_eq!(tree.anchor_offset("second"), Some(8.0));
+    tree.set_root(Element::scroll("list", Element::text("Replacement without anchors")));
+    tree.layout(Size::new(120.0, 180.0));
+    assert_eq!(tree.anchor_offset("first"), None);
+    assert_eq!(tree.anchor_offset("second"), None);
+}
+
+#[test]
+fn an_anchor_in_a_fully_clipped_nested_scroll_still_uses_its_nearest_viewport() {
+    let inner = Element::scroll("inner", Element::column(vec![
+        Element::spacer().size(None, Some(40.0)),
+        Element::text("Inner anchor").size(None, Some(20.0)).anchor("nested"),
+        Element::spacer().size(None, Some(240.0)),
+    ])).size(None, Some(100.0));
+    let mut tree = UiTree::new(Element::scroll("outer", Element::column(vec![
+        Element::spacer().size(None, Some(300.0)),
+        Element::panel(inner),
+        Element::spacer().size(None, Some(800.0)),
+    ])));
+    tree.set_reduced_motion(true);
+    tree.scroll_to_end("outer");
+    tree.scroll_to_end("inner");
+    let frame = tree.layout(Size::new(200.0, 200.0));
+    assert!(!frame.commands.iter().any(|command| matches!(command,
+        DrawCommand::Text { text, .. } if text == "Inner anchor")));
+    assert_eq!(tree.scroll_offset("inner"), 200.0);
+    assert_eq!(tree.anchor_offset("nested"), Some(-160.0));
+    let outer = tree.scroll_offset("outer");
+    tree.reveal_at_start("nested", 0.0);
+    let revealed = tree.layout(Size::new(200.0, 200.0));
+    assert_eq!(tree.anchor_offset("nested"), Some(0.0));
+    assert!(tree.scroll_offset("outer") < outer);
+    assert!(revealed.commands.iter().any(|command| matches!(command,
+        DrawCommand::Text { text, .. } if text == "Inner anchor")));
+}
+
 #[test]
 fn revealing_a_pinned_anchor_scrolls_back_to_where_its_section_starts() {
     let mut tree = anchored(true);
