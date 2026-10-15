@@ -3,6 +3,10 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## Unreleased
+
+- Horizontal viewports stop their pointer pan on `PointerLeave`, preserving the current offset when a touch host takes over scrolling or cancels the gesture. A later touch no longer resumes the old grab and jumps the content back
+
 ## 0.1.43 — 2026-10-15
 
 - CodeEditor and CodeDiff: `font_size` keeps text, row geometry, scrolling and pointer selection at the same size; `diff_backgrounds(false)` hides row tints while preserving change markers. Both add public `font_size` and `diff_backgrounds` fields for hosts building their structs literally
