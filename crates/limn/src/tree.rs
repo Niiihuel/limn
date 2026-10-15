@@ -28,6 +28,9 @@ mod scrollbar_visibility_tests;
 #[path = "translation_tests.rs"]
 mod translation_tests;
 #[cfg(test)]
+#[path = "pointer_blocking_tests.rs"]
+mod pointer_blocking_tests;
+#[cfg(test)]
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
@@ -9487,6 +9490,9 @@ impl LayoutBuilder<'_> {
                 self.probe_scroll_focus_translated(element, rect, clip);
             }
             return;
+        }
+        if let Some(id) = element.kept.as_ref().and_then(|kept| kept.pointer_blocker.as_deref()) {
+            self.add_region(id, rect, HitKind::Surface, clip);
         }
         // Virtual rows and deferred overlays do not exist in the static root
         // walk. Register their actual, visible controls as they are placed.
