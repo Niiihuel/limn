@@ -6,7 +6,7 @@ use crate::motion::ScalarTransition;
 use crate::{Color, Component, Element, ScrollMotion};
 use web_time::{Duration, Instant};
 
-/// When an ordinary or virtual scroll surface shows its scrollbar.
+/// When an ordinary, virtual or horizontal scroll surface shows its indicator.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ScrollbarVisibility {
     /// Keep the configured idle appearance visible. This is the default.
@@ -14,8 +14,9 @@ pub enum ScrollbarVisibility {
     Always,
     /// Show after scrolling or scrollbar interaction, then hold and fade out.
     /// Initially hidden; hiding never changes the reserved content width.
-    /// Hidden bars have no pointer target. Reduced motion keeps the hold but
-    /// skips the fade. Durations are in milliseconds; zero is immediate.
+    /// Hidden vertical bars have no pointer target; a horizontal viewport keeps
+    /// its scroll and drag targets. Reduced motion keeps the hold but skips
+    /// the fade. Durations are in milliseconds; zero is immediate.
     AutoHide {
         /// How long the bar stays fully visible after the last activity.
         hold_ms: u16,

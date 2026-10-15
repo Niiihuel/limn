@@ -138,6 +138,21 @@ deadline and fade; reduced motion keeps the hold and hides without fading.
 works on uniform and measured lists, and on low-level scroll elements through
 `Element::scrollbar_visibility`.
 
+The same policy applies to the thin indicator enabled by `drag_to_pan()` on
+`Element::horizontal_scroll` and `horizontal_scroll_2d`:
+
+```rust
+Element::horizontal_scroll_2d("shelf", cards)
+    .drag_to_pan()
+    .scrollbar_visibility(ScrollbarVisibility::AutoHide { hold_ms: 600, fade_ms: 200 })
+```
+
+Horizontal position changes show it, and an active pointer pan keeps it visible
+until release. Only the indicator's paint hides: the viewport still scrolls,
+drags and dispatches child controls while it is hidden. The indicator overlays
+the same content bounds throughout. Without `drag_to_pan()` no indicator is
+added. Its default is still `Always`, with the existing geometry and opacity.
+
 ## Motion
 
 ```rust

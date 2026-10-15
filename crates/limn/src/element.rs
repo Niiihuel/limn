@@ -2628,10 +2628,12 @@ impl Element {
         self
     }
 
-    /// Show an ordinary or virtual list's scrollbar only while active, or
-    /// keep its idle appearance visible. Does not change layout or scrolling.
+    /// Show an ordinary, virtual or horizontal scroll indicator only while
+    /// active, or keep its idle appearance visible. Does not change layout or
+    /// scrolling. A horizontal indicator requires [`Element::drag_to_pan`];
+    /// hiding it never disables the viewport's pointer or scroll targets.
     pub fn scrollbar_visibility(mut self, visibility: crate::ScrollbarVisibility) -> Self {
-        if matches!(self.kind, ElementKind::Scroll { .. } | ElementKind::UniformList(_)) {
+        if matches!(self.kind, ElementKind::Scroll { .. } | ElementKind::UniformList(_) | ElementKind::HorizontalScroll { .. }) {
             self.kept.get_or_insert_default().scrollbar_visibility = visibility;
         }
         self
@@ -3232,7 +3234,8 @@ impl Element {
     /// Let the pointer drag a horizontal viewport's content sideways, and
     /// show a thin bar where it sits while there is more than fits. The bar
     /// takes the viewport's foreground; pressing a control inside still
-    /// presses that control.
+    /// presses that control. [`Element::scrollbar_visibility`] can make the
+    /// indicator transient without disabling drag input.
     pub fn drag_to_pan(mut self) -> Self {
         if let ElementKind::HorizontalScroll { drag_pan, .. } = &mut self.kind {
             *drag_pan = true;
