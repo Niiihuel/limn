@@ -176,6 +176,7 @@ impl LayoutBuilder<'_> {
         fade: Option<(Color, f32)>,
         vertical_wheel: bool,
         pan_bar: Option<Color>,
+        visibility: crate::ScrollbarVisibility,
     ) {
         self.add_region(id, content, HitKind::Scroll, clip);
         self.frame
@@ -272,17 +273,20 @@ impl LayoutBuilder<'_> {
                 }
             }
             if let Some(color) = pan_bar.filter(|_| width > content.width + 0.5) {
-                let scale = content.width / width;
-                self.frame.commands.push(DrawCommand::FillRect {
-                    rect: Rect::new(
-                        content.x + offset * scale,
-                        content.y + content.height - 3.0,
-                        content.width * scale,
-                        3.0,
-                    ),
-                    color: Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45) as u8),
-                    radius: 1.5,
-                });
+                let opacity = self.scrollbar_opacity(id, offset, self.dragging_horizontal == Some(id), visibility);
+                if opacity > 0.0 {
+                    let scale = content.width / width;
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect: Rect::new(
+                            content.x + offset * scale,
+                            content.y + content.height - 3.0,
+                            content.width * scale,
+                            3.0,
+                        ),
+                        color: Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45 * opacity) as u8),
+                        radius: 1.5,
+                    });
+                }
             }
             self.frame.commands.push(DrawCommand::PopClip);
         }
@@ -292,6 +296,44 @@ impl LayoutBuilder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn rebuilding_anonymous_code_viewports_bounds_state_and_preserves_explicit_ids() {
+        use crate::{CodeBlock, Component, ComponentPalette, Markdown};
+        let palette = ComponentPalette::neutral_dark();
+        let source = "```\nlong code line with enough text to scroll horizontally\n```\n\n```\nlong code line with enough text to scroll horizontally\n```";
+        let root = || Element::column(vec![
+            CodeBlock::new("long code line with enough text to scroll horizontally", palette)
+                .id("stable-code").word_wrap(false).render(),
+            CodeBlock::new("anonymous first block", palette).word_wrap(false).render(),
+            CodeBlock::new("anonymous second block", palette).word_wrap(false).render(),
+            Markdown::new(source, palette).width(140.0).code_word_wrap(false).render().element,
+            Markdown::new(source, palette).id("stable-message").width(140.0)
+                .code_word_wrap(false).render().element,
+        ]);
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::horizontal_scroll_2d("unrelated", Element::spacer().size(Some(1000.0), Some(20.0))),
+            root(),
+        ]));
+        let size = Size::new(140.0, 900.0);
+        let frame = tree.layout(size);
+        let region = frame.regions.iter().find(|region| region.id == "stable-code").unwrap().rect;
+        tree.handle_event(UiEvent::Scroll2D {
+            position: Point::new(region.x + 10.0, region.y + 10.0),
+            delta_x: -40.0, delta_y: 0.0, shift: false, direct: true,
+        });
+        tree.horizontal_scrolls.get_mut("unrelated").unwrap().offset = 80.0;
+        let stable_message = "markdown:stable-message:code:0";
+        tree.horizontal_scrolls.get_mut(stable_message).unwrap().offset = 20.0;
+        for _ in 0..100 {
+            tree.set_root(root());
+            tree.layout(size);
+            assert_eq!(tree.horizontal_scrolls.len(), 8, "anonymous viewport state must stay bounded");
+            assert_eq!(tree.horizontal_scroll_offset("stable-code"), 40.0);
+            assert_eq!(tree.horizontal_scroll_offset(stable_message), 20.0);
+            assert_eq!(tree.horizontal_scroll_offset("unrelated"), 80.0);
+        }
+    }
 
     #[test]
     fn document_canvas_preserves_vertical_wheel_and_pans_each_trackpad_axis() {

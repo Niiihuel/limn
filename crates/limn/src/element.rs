@@ -28,6 +28,10 @@ pub enum PopoverPlacement {
     /// Centered in the viewport, wherever the anchor is: a modal. The gap is
     /// not used.
     Center,
+    /// Centered horizontally against the viewport's bottom edge: a sheet.
+    /// Ignores the anchor and gap, fills up to the viewport width, and keeps
+    /// eight logical pixels clear above it. The host supplies a safe viewport.
+    Bottom,
 }
 
 /// A shape for the pointer other than the platform's own, asked for with
@@ -761,6 +765,9 @@ pub(crate) struct Kept {
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
+    pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
+    pub(crate) translation: Option<Point>,
+    pub(crate) pointer_blocker: Option<String>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1941,6 +1948,29 @@ impl Element {
         self
     }
 
+    /// Translate this element and its descendants without changing their slot
+    /// in the parent's flow. Paint, pointer, accessibility and scroll geometry
+    /// move together; ancestor clips remain fixed. Non-finite offsets are ignored.
+    /// The host owns the offset, including direct manipulation and animation.
+    /// Viewport popovers retain their placement; translate their floating
+    /// surface itself when it should move independently of its anchor.
+    pub fn translate(mut self, offset: Point) -> Self {
+        if offset.x.is_finite() && offset.y.is_finite() {
+            self.kept.get_or_insert_default().translation = Some(offset);
+        }
+        self
+    }
+
+    /// Block presses from reaching elements beneath this element's visible
+    /// bounds, while controls inside it keep their own targets. The unique, stable
+    /// `id` names a passive hit region, with no action, focus or accessibility
+    /// node. Clipping and translation apply normally. Scroll events still
+    /// reach scroll areas underneath; the host owns touch gesture arbitration.
+    pub fn block_pointer(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().pointer_blocker = Some(id.into());
+        self
+    }
+
     /// As [`Element::animate_enter`], and fade out in place once removed.
     /// For floating content such as a toast: nothing else moves into the
     /// space it leaves, so its last paint can linger there.
@@ -2602,6 +2632,17 @@ impl Element {
         self
     }
 
+    /// Show an ordinary, virtual or horizontal scroll indicator only while
+    /// active, or keep its idle appearance visible. Does not change layout or
+    /// scrolling. A horizontal indicator requires [`Element::drag_to_pan`];
+    /// hiding it never disables the viewport's pointer or scroll targets.
+    pub fn scrollbar_visibility(mut self, visibility: crate::ScrollbarVisibility) -> Self {
+        if matches!(self.kind, ElementKind::Scroll { .. } | ElementKind::UniformList(_) | ElementKind::HorizontalScroll { .. }) {
+            self.kept.get_or_insert_default().scrollbar_visibility = visibility;
+        }
+        self
+    }
+
     /// Configure wheel and scrollbar-button interpolation for ordinary
     /// scroll content or a virtual list without changing scrollbar appearance.
     pub fn scroll_motion(mut self, motion: ScrollMotion) -> Self {
@@ -3197,7 +3238,8 @@ impl Element {
     /// Let the pointer drag a horizontal viewport's content sideways, and
     /// show a thin bar where it sits while there is more than fits. The bar
     /// takes the viewport's foreground; pressing a control inside still
-    /// presses that control.
+    /// presses that control. [`Element::scrollbar_visibility`] can make the
+    /// indicator transient without disabling drag input.
     pub fn drag_to_pan(mut self) -> Self {
         if let ElementKind::HorizontalScroll { drag_pan, .. } = &mut self.kind {
             *drag_pan = true;

@@ -17,7 +17,14 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
 mod glass;
+mod touch_context;
 pub use glass::GlassRenderer;
+
+#[cfg(test)]
+mod indexed_input_tests;
+
+#[cfg(test)]
+mod touch_context_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod image_workers;
@@ -1306,7 +1313,14 @@ fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
             }
         });
         if node.focused {
-            ui.ctx().memory_mut(|memory| memory.request_focus(access_id(&node.id)));
+            let id = access_id(&node.id);
+            // Retain egui's focus without interrupting IME composition on every paint.
+            ui.interact(bounds, id, egui::Sense::focusable_noninteractive());
+            ui.ctx().memory_mut(|memory| {
+                if !memory.has_focus(id) {
+                    memory.request_focus(id);
+                }
+            });
         }
     }
 }
@@ -1842,45 +1856,120 @@ fn relative(origin: Pos2, position: Pos2) -> Point {
     Point::new(position.x - origin.x, position.y - origin.y)
 }
 
+/// A translated event and its position in the host's current egui snapshot.
+#[derive(Clone, Debug, PartialEq)]
+pub struct IndexedUiEvent {
+    /// Index in `input.events` from this viewport after keyboard normalization.
+    /// `None` marks file metadata derived from the frame, without a source event.
+    pub source_index: Option<usize>,
+    /// The event to forward to the limn tree at this position.
+    pub event: UiEvent,
+}
+
 /// Translate this frame's egui input into limn events, with pointer positions made
 /// relative to `origin`. A primary press with Alt, Ctrl or Command held, or a double or
 /// triple click, becomes `PointerDownEditor`; wheel input is dropped while the pointer is
 /// outside the window; only the keys limn knows are forwarded, with Command counted as Ctrl.
+/// This is the event-only projection of [`events_indexed`].
 pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
+    events_indexed(ctx, origin)
+        .into_iter()
+        .map(|item| item.event)
+        .collect()
+}
+
+/// Translate input while retaining each event's index in the current viewport.
+/// Call [`normalize_keyboard_input`] first and keep the same input snapshot while
+/// consuming the result. This function neither normalizes nor consumes input.
+/// Frame-derived file metadata comes first, with no source index. Unknown native
+/// events have no translation: hosts that handle them must visit every source
+/// index, applying translations at their corresponding positions.
+/// Only adjacent forward Enter/newline, Ctrl/Command C/Copy, X/Cut and V/Paste
+/// pairs collapse; reversed pairs and intervening events remain independent.
+/// Pointer and standalone clipboard modifiers retain [`events`]' frame-level
+/// behavior; an index does not reconstruct the physical history of those fields.
+pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> {
     ctx.input(|input| {
         let mut events = Vec::new();
-        let mut pointer = input.pointer.hover_pos();
-        let native_paste = input
-            .events
-            .iter()
-            .any(|event| matches!(event, egui::Event::Paste(_)));
-        let clipboard_key = |target| {
-            input.events.iter().any(|event| {
-                matches!(event,
-                    egui::Event::Key { key, pressed: true, modifiers, .. }
-                        if *key == target && (modifiers.ctrl || modifiers.command)
-                )
+        let mut emit = |source_index, event| {
+            events.push(IndexedUiEvent {
+                source_index,
+                event,
             })
         };
-        let enter_pressed = input.events.iter().any(|event| {
-            matches!(
-                event,
-                egui::Event::Key {
-                    key: egui::Key::Enter,
-                    pressed: true,
-                    ..
+        let mut pointer = input.pointer.hover_pos();
+        // The OS owns the pointer during an external drag, so the position is
+        // the last one egui saw; it can lag until the drop on some platforms.
+        if let Some(position) = input.pointer.latest_pos().map(|pos| relative(origin, pos)) {
+            let paths: Vec<_> = input
+                .raw
+                .dropped_files
+                .iter()
+                .map(|file| file.path().to_path_buf())
+                .filter(|path| !path.as_os_str().is_empty())
+                .collect();
+            if !paths.is_empty() {
+                emit(None, UiEvent::FilesDropped { position, paths });
+            } else if !input.raw.hovered_files.is_empty() {
+                emit(None, UiEvent::FilesHovered { position });
+            }
+        }
+        let mut source = input.events.iter().enumerate().peekable();
+        while let Some((index, event)) = source.next() {
+            // Only recognized forward neighbours are deduplicated.
+            // Consuming both here makes the pairs disjoint and preserves any
+            // intervening event as a boundary, even if limn cannot translate it.
+            let (index, event) = match (event, source.peek().map(|(_, event)| *event)) {
+                (
+                    egui::Event::Key {
+                        key: egui::Key::Enter,
+                        pressed: true,
+                        ..
+                    },
+                    Some(egui::Event::Text(text)),
+                ) if matches!(text.as_str(), "\n" | "\r" | "\r\n") => {
+                    let _ = source.next();
+                    (index, event)
                 }
-            )
-        });
-        for event in &input.events {
+                (
+                    egui::Event::Key {
+                        key,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    },
+                    Some(payload),
+                ) if (modifiers.ctrl || modifiers.command)
+                    && matches!(
+                        (key, payload),
+                        (egui::Key::C, egui::Event::Copy) | (egui::Key::X, egui::Event::Cut)
+                    ) =>
+                {
+                    let _ = source.next();
+                    (index, event)
+                }
+                (
+                    egui::Event::Key {
+                        key: egui::Key::V,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    },
+                    Some(egui::Event::Paste(_)),
+                ) if modifiers.ctrl || modifiers.command => source
+                    .next()
+                    .expect("the adjacent paste payload was just observed"),
+                _ => (index, event),
+            };
+            let mut emit = |event| emit(Some(index), event);
             match event {
                 egui::Event::PointerMoved(pos) => {
                     pointer = Some(*pos);
-                    events.push(UiEvent::PointerMove(relative(origin, *pos)));
+                    emit(UiEvent::PointerMove(relative(origin, *pos)));
                 }
                 egui::Event::PointerGone => {
                     pointer = None;
-                    events.push(UiEvent::PointerLeave);
+                    emit(UiEvent::PointerLeave);
                 }
                 egui::Event::PointerButton {
                     pos,
@@ -1889,7 +1978,7 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                     ..
                 } => {
                     pointer = Some(*pos);
-                    events.push(UiEvent::ContextMenu {
+                    emit(UiEvent::ContextMenu {
                         position: relative(origin, *pos),
                     });
                 }
@@ -1900,7 +1989,7 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                     modifiers,
                 } => {
                     pointer = Some(*pos);
-                    events.push(
+                    emit(
                         if *pressed
                             && (modifiers.alt
                                 || modifiers.ctrl
@@ -1957,7 +2046,7 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                         };
                         let position = relative(origin, pos);
                         let delta_y = delta.y * scale;
-                        events.push(if delta.x != 0.0 || modifiers.shift {
+                        emit(if delta.x != 0.0 || modifiers.shift {
                             UiEvent::Scroll2D {
                                 position,
                                 delta_x: delta.x * scale,
@@ -1972,36 +2061,35 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                         });
                     }
                 }
-                egui::Event::Text(value)
-                    if !(enter_pressed && matches!(value.as_str(), "\n" | "\r" | "\r\n")) => {
-                        events.push(UiEvent::Text(value.clone()));
-                    }
+                egui::Event::Text(value) => {
+                    emit(UiEvent::Text(value.clone()));
+                }
                 egui::Event::Ime(egui::ImeEvent::Preedit { text: value, .. }) => {
-                    events.push(UiEvent::ImePreedit(value.clone()))
+                    emit(UiEvent::ImePreedit(value.clone()))
                 }
                 egui::Event::Ime(egui::ImeEvent::DeleteSurrounding {
                     before_chars,
                     after_chars,
-                }) => events.push(UiEvent::ImeDeleteSurrounding {
+                }) => emit(UiEvent::ImeDeleteSurrounding {
                     before_chars: *before_chars,
                     after_chars: *after_chars,
                 }),
                 egui::Event::Ime(egui::ImeEvent::Commit(value)) => {
-                    events.push(UiEvent::ImeCommit(value.clone()))
+                    emit(UiEvent::ImeCommit(value.clone()))
                 }
                 #[allow(deprecated)]
                 egui::Event::Ime(egui::ImeEvent::Enabled | egui::ImeEvent::Disabled) => {
-                    events.push(UiEvent::ImeCancelled)
+                    emit(UiEvent::ImeCancelled)
                 }
                 egui::Event::Paste(value) => {
-                    events.push(UiEvent::Paste(value.clone()));
+                    emit(UiEvent::Paste(value.clone()));
                 }
-                egui::Event::Copy if !clipboard_key(egui::Key::C) => events.push(UiEvent::Key {
+                egui::Event::Copy => emit(UiEvent::Key {
                     key: Key::C,
                     shift: input.modifiers.shift,
                     ctrl: true,
                 }),
-                egui::Event::Cut if !clipboard_key(egui::Key::X) => events.push(UiEvent::Key {
+                egui::Event::Cut => emit(UiEvent::Key {
                     key: Key::X,
                     shift: input.modifiers.shift,
                     ctrl: true,
@@ -2012,7 +2100,7 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                     modifiers,
                     ..
                 } if modifiers.shift && !modifiers.ctrl && !modifiers.alt && !modifiers.command => {
-                    events.push(UiEvent::ContextMenuKeyboard);
+                    emit(UiEvent::ContextMenuKeyboard);
                 }
                 egui::Event::Key {
                     key,
@@ -2020,12 +2108,6 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                     modifiers,
                     ..
                 } => {
-                    // Some backends report both the shortcut and the clipboard
-                    // event. Forward a paste once, using the delivered payload.
-                    if *key == egui::Key::V && (modifiers.ctrl || modifiers.command) && native_paste
-                    {
-                        continue;
-                    }
                     let mapped = match key {
                         egui::Key::Escape => Some(Key::Escape),
                         egui::Key::F2 => Some(Key::F2),
@@ -2076,7 +2158,7 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                         _ => None,
                     };
                     if let Some(key) = mapped {
-                        events.push(UiEvent::Key {
+                        emit(UiEvent::Key {
                             key,
                             shift: modifiers.shift,
                             ctrl: modifiers.ctrl || modifiers.command,
@@ -2086,26 +2168,16 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                 _ => {}
             }
         }
-        // egui groups native files separately from ordinary events. Deliver
-        // them last so a host can apply this frame's input and revalidate its
-        // current editor/modal before admitting files. The OS owns the pointer
-        // during external drags; its last reported position can still lag.
-        if let Some(position) = input.pointer.latest_pos().map(|pos| relative(origin, pos)) {
-            let paths: Vec<_> = input
-                .raw
-                .dropped_files
-                .iter()
-                .map(|file| file.path().to_path_buf())
-                .filter(|path| !path.as_os_str().is_empty())
-                .collect();
-            if !paths.is_empty() {
-                events.push(UiEvent::FilesDropped { position, paths });
-            } else if !input.raw.hovered_files.is_empty() {
-                events.push(UiEvent::FilesHovered { position });
-            }
-        }
         events
     })
+}
+
+/// Translate input like [`events`], with stationary holds on custom context-menu
+/// targets from the current laid-out frame. A 430 ms touch requests context once;
+/// moving 8 points, scrolling or cancellation aborts it. Its release cannot click.
+/// Use the returned events with the same tree and coordinate origin as `frame`.
+pub fn events_with_touch(ctx: &egui::Context, origin: Pos2, frame: &Frame) -> Vec<UiEvent> {
+    touch_context::translate(ctx, origin, events(ctx, origin), frame)
 }
 
 /// Use Ubuntu Regular for UI text. egui's default proportional face is
@@ -2117,6 +2189,12 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
 /// monochrome emoji after all existing faces, without reading
 /// system fonts. See `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
 pub fn install_fonts(ctx: &egui::Context) {
+    ctx.set_fonts(font_definitions());
+}
+
+/// The bundled font families and their Unicode fallbacks. Hosts can prepend
+/// system faces before installing these definitions with `Context::set_fonts`.
+pub fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
     let name = "Ubuntu-Regular".to_owned();
     fonts.font_data.insert(
@@ -2175,7 +2253,7 @@ pub fn install_fonts(ctx: &egui::Context) {
         .entry(egui::FontFamily::Proportional)
         .or_default()
         .insert(0, name);
-    ctx.set_fonts(fonts);
+    fonts
 }
 
 const SANS_MEDIUM: &str = "limn-sans-medium";
@@ -2277,9 +2355,9 @@ mod tests {
             output.textures_delta.clear();
             assert_eq!(forwarded, if pointer {
                 vec![
+                    UiEvent::FilesDropped { position: Point::new(50.0, 40.0), paths },
                     UiEvent::PointerMove(Point::new(50.0, 40.0)),
                     UiEvent::Key { key: Key::Escape, shift: false, ctrl: false },
-                    UiEvent::FilesDropped { position: Point::new(50.0, 40.0), paths },
                 ]
             } else { Vec::new() });
         }
@@ -2972,6 +3050,45 @@ mod tests {
                 let alpha = image.pixels.iter().map(|pixel| pixel.a()).collect::<Vec<_>>();
                 assert!(!masks.contains(&alpha), "semantic icon reused another shape: {icon:?}");
                 masks.push(alpha);
+            }
+        }
+    }
+
+    #[test]
+    fn platform_focus_keeps_ime_composition_until_the_focused_control_changes() {
+        use limn::{Element, Size, UiTree};
+        let size = Size::new(320.0, 200.0);
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::text_input("search", "", "Search"),
+            Element::text_input("name", "", "Name"),
+        ]));
+        tree.layout(size);
+        let context = egui::Context::default();
+
+        for id in ["search", "name"] {
+            assert!(tree.focus(id));
+            for step in 0..4 {
+                let frame = tree.layout(size);
+                let mut output = context.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.width, size.height))),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        // Native hosts publish the current field's IME geometry before painting.
+                        ui.ctx().output_mut(|output| output.ime = Some(egui::output::IMEOutput {
+                            purpose: egui::IMEPurpose::Normal,
+                            rect: ui.max_rect(),
+                            cursor_rect: ui.max_rect(),
+                            should_interrupt_composition: false,
+                        }));
+                        paint_at(ui, &frame, egui::Pos2::ZERO);
+                    },
+                );
+                output.textures_delta.clear();
+                let ime = output.platform_output.ime.expect("the focused field keeps its keyboard");
+                assert_eq!(ime.should_interrupt_composition, step == 0, "{id}, frame {step}");
+                assert_eq!(context.memory(|memory| memory.focused()), Some(access_id(id)), "{id}, frame {step}");
             }
         }
     }

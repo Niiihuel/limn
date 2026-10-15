@@ -42,6 +42,10 @@ pub struct CodeDiff {
     pub palette: ComponentPalette,
     /// Height in logical pixels, 320 by default. `height` keeps it at 24 or more.
     pub height: f32,
+    /// Code and gutter size in logical pixels, 13 by default.
+    pub font_size: f32,
+    /// Paint full row tints; disabling these preserves change markers.
+    pub diff_backgrounds: bool,
     /// Columns between tab stops, 4 by default. `tab_width` clamps it to 1..=16.
     pub tab_width: usize,
     /// Language the rows are syntax-coloured as. Plain text by default.
@@ -65,6 +69,8 @@ impl CodeDiff {
             lines: lines.into(),
             palette: ComponentPalette::neutral_dark(),
             height: 320.0,
+            font_size: 13.0,
+            diff_backgrounds: true,
             tab_width: 4,
             language: CodeLanguage::Plain,
             single_gutter: false,
@@ -75,6 +81,20 @@ impl CodeDiff {
     /// Use this palette for the surface, the text and the gutter.
     pub fn palette(mut self, palette: ComponentPalette) -> Self {
         self.palette = palette;
+        self
+    }
+    /// Set code and gutter size, including row layout. Nonpositive or nonfinite
+    /// values are ignored; valid sizes stay within 1..=96 logical pixels.
+    pub fn font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.font_size = size.clamp(1.0, 96.0);
+        }
+        self
+    }
+    /// Show tinted added and removed row backgrounds. True by default.
+    /// Disabling them preserves the +/- markers and edge bands.
+    pub fn diff_backgrounds(mut self, enabled: bool) -> Self {
+        self.diff_backgrounds = enabled;
         self
     }
     /// Set the height, in logical pixels, never below 24. A height that is
@@ -120,7 +140,7 @@ impl Component for CodeDiff {
     fn render(self) -> Element {
         Element::code_diff(self.clone())
             .size(None, Some(self.height))
-            .font_size(13.0)
+            .font_size(self.font_size)
             .background(self.palette.surface)
             .foreground(self.palette.text)
     }

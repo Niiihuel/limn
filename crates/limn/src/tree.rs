@@ -22,6 +22,18 @@ mod sticky_tests;
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
 #[cfg(test)]
+#[path = "scrollbar_visibility_tests.rs"]
+mod scrollbar_visibility_tests;
+#[cfg(test)]
+#[path = "horizontal_scrollbar_visibility_tests.rs"]
+mod horizontal_scrollbar_visibility_tests;
+#[cfg(test)]
+#[path = "translation_tests.rs"]
+mod translation_tests;
+#[cfg(test)]
+#[path = "pointer_blocking_tests.rs"]
+mod pointer_blocking_tests;
+#[cfg(test)]
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
@@ -47,6 +59,7 @@ use crate::motion::{
     skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
 };
 use crate::shortcut;
+use crate::scroll_area::ScrollbarState;
 use crate::text_width_cache::TextWidthCache;
 #[path = "formatted_text_cache.rs"]
 mod formatted_text_cache;
@@ -62,6 +75,9 @@ mod context_menu_tree;
 use context_menu_tree::{ContextMenuRegion, ContextMenuState};
 #[path = "ime_tree.rs"]
 mod ime_tree;
+#[path = "captured_paste.rs"]
+mod captured_paste;
+pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
     BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, Point, PopoverPlacement,
@@ -2271,6 +2287,14 @@ pub enum UiEvent {
         /// The clipboard text to insert there.
         text: String,
     },
+    /// Deliver an asynchronous reply only to its captured editing state.
+    /// A rejected target never falls back to whichever control is focused now.
+    PasteCaptured {
+        /// The destination captured before the host authorized its request.
+        target: PasteTarget,
+        /// Clipboard text, subject to the control's ordinary paste policy.
+        text: String,
+    },
     /// The text an input method is composing, replacing what it sent before.
     /// Only a code editor shows it.
     ImePreedit(String),
@@ -2536,6 +2560,8 @@ struct PointerDrag {
 }
 
 struct InputState {
+    paste_epoch: Arc<()>,
+    paste_kind: Option<HitKind>,
     value: String,
     cursor: usize,
     anchor: Option<usize>,
@@ -2566,6 +2592,8 @@ impl InputState {
     fn new(value: String) -> Self {
         let cursor = value.chars().count();
         Self {
+            paste_epoch: Arc::new(()),
+            paste_kind: None,
             value,
             cursor,
             anchor: None,
@@ -2596,6 +2624,21 @@ impl InputState {
             .map(|anchor| (anchor.min(self.cursor), anchor.max(self.cursor)))
     }
 
+    fn set_selection(&mut self, cursor: usize, anchor: Option<usize>) {
+        if self.cursor != cursor || self.anchor != anchor {
+            self.paste_epoch = Arc::new(());
+            self.cursor = cursor;
+            self.anchor = anchor;
+        }
+    }
+
+    fn observe_paste_kind(&mut self, kind: HitKind) {
+        if self.paste_kind != Some(kind) {
+            self.paste_epoch = Arc::new(());
+            self.paste_kind = Some(kind);
+        }
+    }
+
     fn width(&self, value: &str) -> f32 {
         let masked;
         let value = if self.password {
@@ -2623,12 +2666,8 @@ impl InputState {
     }
 
     fn move_cursor(&mut self, next: usize, shift: bool) {
-        if shift {
-            self.anchor.get_or_insert(self.cursor);
-        } else {
-            self.anchor = None;
-        }
-        self.cursor = next.min(self.value.chars().count());
+        let anchor = shift.then_some(self.anchor.unwrap_or(self.cursor));
+        self.set_selection(next.min(self.value.chars().count()), anchor);
         self.desired_column = None;
         self.keep_cursor_visible = true;
     }
@@ -2689,6 +2728,7 @@ impl InputState {
         let start_byte = byte_index(&self.value, start);
         let end_byte = byte_index(&self.value, end);
         self.value.replace_range(start_byte..end_byte, "");
+        self.paste_epoch = Arc::new(());
         self.cursor = start;
         self.anchor = None;
         self.keep_cursor_visible = true;
@@ -2713,6 +2753,7 @@ impl InputState {
         self.anchor = None;
         let byte = byte_index(&self.value, self.cursor);
         self.value.insert_str(byte, &sanitized);
+        self.paste_epoch = Arc::new(());
         self.cursor += sanitized.chars().count();
         self.keep_cursor_visible = true;
         self.desired_column = None;
@@ -2729,6 +2770,7 @@ impl InputState {
         let end = byte_index(&self.value, self.cursor);
         let start = byte_index(&self.value, self.cursor - 1);
         self.value.replace_range(start..end, "");
+        self.paste_epoch = Arc::new(());
         self.cursor -= 1;
         self.keep_cursor_visible = true;
         self.desired_column = None;
@@ -2745,6 +2787,7 @@ impl InputState {
         let start = byte_index(&self.value, self.cursor);
         let end = byte_index(&self.value, self.cursor + 1);
         self.value.replace_range(start..end, "");
+        self.paste_epoch = Arc::new(());
         self.keep_cursor_visible = true;
         self.desired_column = None;
         true
@@ -2929,6 +2972,8 @@ fn visual_cursor(lines: &[VisualLine], cursor: usize) -> (usize, usize) {
 
 /// The retained state and last laid-out frame of an application surface.
 pub struct UiTree {
+    paste_epoch: Arc<()>,
+    paste_layout_pending: bool,
     root: Element,
     metrics: FontMetrics,
     sans_metrics: FontMetrics,
@@ -2946,6 +2991,7 @@ pub struct UiTree {
     code_view_epoch: u64,
     scroll_offsets: HashMap<String, f32>,
     scroll_transitions: HashMap<String, ScalarTransition>,
+    scrollbar_states: HashMap<String, ScrollbarState>,
     scroll_to_end: HashSet<String>,
     scroll_to_index: HashMap<String, usize>,
     /// What each measured list keeps between layouts, by its ID.
@@ -3013,6 +3059,8 @@ impl UiTree {
     /// measurer.
     pub fn new(root: Element) -> Self {
         Self {
+            paste_epoch: Arc::new(()),
+            paste_layout_pending: true,
             root,
             metrics: FontMetrics::default(),
             sans_metrics: FontMetrics::default(),
@@ -3030,6 +3078,7 @@ impl UiTree {
             code_view_epoch: 0,
             scroll_offsets: HashMap::new(),
             scroll_transitions: HashMap::new(),
+            scrollbar_states: HashMap::new(),
             measured_lists: HashMap::new(),
             scroll_to_end: HashSet::new(),
             scroll_to_index: HashMap::new(),
@@ -3157,11 +3206,15 @@ impl UiTree {
         self.text_height_measurer = None;
     }
 
-    /// Replaces the visual tree without discarding input, focus or scroll state.
-    /// Reuse IDs for widgets that represent the same logical control.
+    /// Replaces the visual tree without discarding named input, focus or scroll
+    /// state. Reuse IDs for widgets that represent the same logical control.
+    /// Temporary anonymous code viewports belong to the replaced instance.
     pub fn set_root(&mut self, root: Element) {
+        self.paste_layout_pending = true;
         self.root = root;
         self.action_aliases.clear();
+        // Anonymous code viewports belong to the replaced instance; explicit IDs retain state.
+        self.horizontal_scrolls.retain(|id, _| !crate::code_block::is_anonymous_code_scroll_id(id));
     }
 
     /// The text a text input or text area holds now. `None` until a field
@@ -3194,8 +3247,7 @@ impl UiTree {
             {
                 self.caret_blink.reset();
             }
-            state.cursor = cursor;
-            state.anchor = None;
+            state.set_selection(cursor, None);
             state.keep_cursor_visible = true;
             state.desired_column = None;
         }
@@ -3224,9 +3276,11 @@ impl UiTree {
         {
             self.caret_blink.reset();
         }
-        state.value = value;
-        state.cursor = cursor;
-        state.anchor = None;
+        if state.value != value {
+            state.paste_epoch = Arc::new(());
+            state.value = value;
+        }
+        state.set_selection(cursor, None);
         state.view_start = 0;
         state.scroll_line = 0;
         state.keep_cursor_visible = true;
@@ -3247,6 +3301,18 @@ impl UiTree {
     /// keyboard.
     pub fn focused_id(&self) -> Option<&str> {
         self.focused.as_deref()
+    }
+
+    /// Dismiss the focused control and cancel its native composition without
+    /// changing window focus. Returns whether a control had focus.
+    pub fn clear_focus(&mut self) -> bool {
+        let had_focus = self.focused.is_some();
+        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, None);
+        self.pending_scroll_focus = None;
+        self.keyboard_focus = false;
+        self.keyboard_tooltip_focus = false;
+        self.validate_ime_owner(Instant::now());
+        had_focus
     }
 
     /// Whether the current focus came from keyboard navigation rather than a
@@ -3310,13 +3376,13 @@ impl UiTree {
         }
         self.request_scroll_focus(id);
         self.caret_blink.reset();
-        self.focused = Some(id.to_owned());
+        let next_focus = Some(id.to_owned());
+        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
         self.validate_ime_owner(Instant::now());
         self.keyboard_focus = keyboard;
         self.keyboard_tooltip_focus = keyboard;
         if let Some(input) = self.inputs.get_mut(id) {
-            input.cursor = input.value.chars().count();
-            input.anchor = None;
+            input.set_selection(input.value.chars().count(), None);
             input.keep_cursor_visible = true;
         }
         true
@@ -3368,6 +3434,9 @@ impl UiTree {
     /// Hosts forward native window focus (and which tree owns keyboard input).
     /// A change requires one repaint; an inactive caret has no timer deadline.
     pub fn set_window_focused(&mut self, focused: bool) -> bool {
+        if self.ime_window_focused != focused {
+            self.invalidate_paste_targets();
+        }
         self.ime_window_focused = focused;
         self.validate_ime_owner(Instant::now());
         self.caret_blink.set_window_focused(focused)
@@ -3398,6 +3467,7 @@ impl UiTree {
 
     fn visual_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
         let animation = self.other_animation_repaint_after_at(now);
+        let scrollbar = self.scrollbar_states.values().filter_map(|state| state.repaint_after(now)).min();
         // A text area's scrollbar hides a moment after its last scroll.
         let bar = self
             .inputs
@@ -3406,6 +3476,10 @@ impl UiTree {
             .map(|at| (at + TEXT_AREA_BAR_HOLD).saturating_duration_since(now))
             .filter(|left| !left.is_zero())
             .min();
+        let bar = match (bar, scrollbar) {
+            (Some(bar), Some(scrollbar)) => Some(bar.min(scrollbar)),
+            (bar, scrollbar) => bar.or(scrollbar),
+        };
         match (animation, bar) {
             (Some(animation), Some(bar)) => Some(animation.min(bar)),
             (animation, bar) => animation.or(bar),
@@ -3631,7 +3705,9 @@ impl UiTree {
         now: Instant,
         refresh_hover_paint: bool,
     ) -> Frame {
+        self.begin_paste_layout();
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
+        for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
         self.repeat_scroll_button(now);
         if self.pending_scroll_focus.as_deref() != self.focused.as_deref() {
@@ -3683,6 +3759,7 @@ impl UiTree {
                 overlays: VecDeque::new(),
                 scroll_focus_context: Vec::new(),
                 pinned: Vec::new(),
+                translated_overflow: HashMap::new(),
                 focus_path,
                 focus_probe: probe,
                 drag_source: self
@@ -3711,11 +3788,13 @@ impl UiTree {
                 code_diffs: &mut self.code_diffs,
                 scroll_offsets: &mut self.scroll_offsets,
                 scroll_transitions: &mut self.scroll_transitions,
+                scrollbar_states: &mut self.scrollbar_states,
                 measured_lists: &mut self.measured_lists,
                 scroll_to_end: &mut self.scroll_to_end,
                 scroll_to_index: &mut self.scroll_to_index,
                 hovered_scrollbar: self.hovered_scrollbar.as_deref(),
                 dragging_scrollbar: self.scroll_drag.as_ref().map(|drag| drag.id.as_str()),
+                dragging_horizontal: self.horizontal_pan.as_ref().map(|(id, _)| id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 pointer: self.pointer,
                 region_hovered: false,
@@ -3873,12 +3952,17 @@ impl UiTree {
                         // Measure wrapped content at the width the viewport
                         // can actually allocate. Shrinking only the painted
                         // rectangle would retain the wider layout's height.
+                        let available_width = if placement == PopoverPlacement::Bottom {
+                            viewport.width.max(0.0)
+                        } else {
+                            (viewport.width - 16.0).max(0.0)
+                        };
                         if let Some(width) = floating.style.width.as_mut() {
-                            *width = width.min((viewport.width - 16.0).max(0.0));
+                            *width = width.min(available_width);
                         }
                         let measured = builder.measure(
                             &floating,
-                            Size::new((viewport.width - 16.0).max(0.0), f32::INFINITY),
+                            Size::new(available_width, f32::INFINITY),
                         );
                         let (rect, coach_side) = match coach {
                             Some(coach) => {
@@ -3889,12 +3973,18 @@ impl UiTree {
                                 None,
                             ),
                         };
+                        let rect = LayoutBuilder::translated_rect(&floating, rect);
                         builder.observed_popovers.insert(dismiss_id.clone());
-                        builder.frame.regions.push(HitRegion {
-                            id: format!("popover_surface:{dismiss_id}"),
-                            rect,
-                            kind: HitKind::Surface,
-                        });
+                        let surface = if floating.kept.as_ref().is_some_and(|kept| kept.translation.is_some()) {
+                            rect.intersection(viewport_rect)
+                        } else { Some(rect) };
+                        if let Some(visible) = surface {
+                            builder.frame.regions.push(HitRegion {
+                                id: format!("popover_surface:{dismiss_id}"),
+                                rect: visible,
+                                kind: HitKind::Surface,
+                            });
+                        }
                         let progress = if builder.reduced_motion || animation_ms == 0 {
                             1.0
                         } else {
@@ -3976,14 +4066,15 @@ impl UiTree {
                             });
                         }
                         let bubble_start = builder.frame.commands.len();
-                        builder.place(&floating, rect, Some(viewport_rect));
+                        builder.place_translated(&floating, rect, Some(viewport_rect));
                         if let (Some(coach), Some(side)) = (coach, coach_side) {
                             builder.frame.commands.push(DrawCommand::FillTriangle {
                                 points: coach_caret(anchor, rect, side),
                                 color: coach.fill,
                             });
                         }
-                        let slide_sign = if rect.y >= anchor.y + anchor.height {
+                        let slide_sign = if placement == PopoverPlacement::Bottom
+                            || rect.y >= anchor.y + anchor.height {
                             1.0
                         } else {
                             -1.0
@@ -4279,7 +4370,7 @@ impl UiTree {
                 .iter()
                 .any(|(candidate, _)| candidate == *id)
         }) {
-            self.focused = previous_popovers
+            let next_focus = previous_popovers
                 .iter()
                 .rev()
                 .find(|scope| {
@@ -4295,6 +4386,7 @@ impl UiTree {
                         .any(|(candidate, _)| candidate == *trigger)
                 })
                 .cloned();
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
         }
         self.transitions
             .retain(|id, _| observed_buttons.contains(id));
@@ -4346,7 +4438,12 @@ impl UiTree {
                 motion.is_active(now)
             }
         });
+        self.scrollbar_states.retain(|_, state| state.seen);
         self.frame = frame;
+        self.finish_paste_layout();
+        if previous_popovers != self.frame.popover_focus {
+            self.invalidate_paste_targets();
+        }
         self.closed_submenu_triggers
             .retain(|id| self.frame.submenu_triggers.contains(id));
         if self
@@ -4354,6 +4451,7 @@ impl UiTree {
             .as_ref()
             .is_some_and(|menu| !menu.valid_in(&self.frame))
         {
+            self.invalidate_paste_targets();
             self.context_menu = None;
         }
         if self
@@ -4384,19 +4482,21 @@ impl UiTree {
                 .iter()
                 .any(|(id, _)| self.focused.as_deref() == Some(id.as_str()))
             {
-                self.focused = scope
+                let next_focus = scope
                     .initial_focus
                     .as_ref()
                     .filter(|preferred| scope.focusables.iter().any(|(id, _)| id == *preferred))
                     .cloned()
                     .or_else(|| scope.focusables.first().map(|(id, _)| id.clone()));
+                Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             }
         } else if had_modal {
-            self.focused = self.modal_return_focus.take().filter(|id| {
+            let next_focus = self.modal_return_focus.take().filter(|id| {
                 self.focus_order
                     .iter()
                     .any(|(candidate, _)| candidate == id)
             });
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
         }
         // A menu can be replaced by a floating form without a modal scrim.
         // Restore the departing scope first, then honor the new scope's
@@ -4431,7 +4531,8 @@ impl UiTree {
             })
             .cloned();
         if let Some(id) = initial_focus.filter(|id| self.focused.as_ref() != Some(id)) {
-            self.focused = Some(id.clone());
+            let next_focus = Some(id.clone());
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             self.pending_scroll_focus = Some(id);
             self.caret_blink.reset();
             self.validate_ime_owner(now);
@@ -4450,7 +4551,8 @@ impl UiTree {
                 });
                 self.pending_reveal = Some((coach.target.clone(), REVEAL_MARGIN, false));
                 if focus.is_some() {
-                    self.focused = focus;
+                    let next_focus = focus;
+                    Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 }
                 return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
             }
@@ -4541,6 +4643,7 @@ impl UiTree {
         self.caret_blink.finish_frame(self.focused.as_deref());
         self.trim_code_view_cache();
         self.validate_ime_owner(now);
+        self.paste_layout_pending = false;
         self.frame.clone()
     }
 
@@ -4585,7 +4688,8 @@ impl UiTree {
         self.code_diffs.remove(id);
         self.code_view_last_seen.remove(id);
         if self.focused.as_deref() == Some(id) {
-            self.focused = None;
+            let next_focus = None;
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
         }
     }
     /// Retain a bounded viewport cache. Buffers and unsaved edits belong to the
@@ -4877,14 +4981,14 @@ impl UiTree {
 
     fn handle_code_event(&mut self, event: &UiEvent, now: Instant) -> Option<Vec<UiAction>> {
         let measurer = self.text_measurer.clone();
-        let advance = self.metrics.char_width * 13.0 / DEFAULT_FONT_SIZE;
-        let measure = |text: &str| {
+        let char_width = self.metrics.char_width;
+        let measure = |size: f32, text: &str| {
             measured_width(
                 measurer.as_deref(),
                 text,
-                13.0,
+                size,
                 FontFamily::Monospace,
-                advance,
+                char_width * size / DEFAULT_FONT_SIZE,
             )
         };
         match event {
@@ -4933,7 +5037,8 @@ impl UiTree {
                     return None;
                 }
                 let id = hit.id.clone();
-                self.focused = Some(id.clone());
+                let next_focus = Some(id.clone());
+                Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 self.pointer = Some(*point);
                 self.keyboard_focus = false;
                 self.static_selection = None;
@@ -4947,11 +5052,10 @@ impl UiTree {
                     UiEvent::PointerDownModified { shift, .. } => (*shift, false, false, 1),
                     _ => (false, false, false, 1),
                 };
-                Some(
-                    self.code_editors
-                        .get_mut(&id)?
-                        .pointer_modified(*point, extend, add, rectangle, clicks, true, &measure),
-                )
+                let state = self.code_editors.get_mut(&id)?;
+                let size = state.editor.font_size;
+                Some(state.pointer_modified(*point, extend, add, rectangle, clicks, true,
+                    &|text| measure(size, text)))
             }
             UiEvent::PointerMove(point) | UiEvent::PointerUp(point) => {
                 if let Some(viewport) = self
@@ -4969,7 +5073,8 @@ impl UiTree {
                 })?;
                 self.pointer = Some(*point);
                 let dragging = matches!(event, UiEvent::PointerMove(_));
-                Some(state.point(*point, true, dragging, &measure))
+                let size = state.editor.font_size;
+                Some(state.point(*point, true, dragging, &|text| measure(size, text)))
             }
             UiEvent::Scroll { position, delta_y }
             | UiEvent::ScrollDirect { position, delta_y }
@@ -5057,7 +5162,8 @@ impl UiTree {
                 if state.editor.read_only && matches!(event, UiEvent::Key { key: Key::Tab, .. }) {
                     return None;
                 }
-                Some(state.input(event, now, &measure))
+                let size = state.editor.font_size;
+                Some(state.input(event, now, &|text| measure(size, text)))
             }
             _ => None,
         }
@@ -5065,6 +5171,12 @@ impl UiTree {
 
     /// Dispatch with the same monotonic clock used by `layout_at`.
     pub fn handle_event_at(&mut self, event: UiEvent, now: Instant) -> Vec<UiAction> {
+        let event = match event {
+            UiEvent::PasteCaptured { target, text } => {
+                return self.paste_captured(target, text, now)
+            }
+            event => event,
+        };
         self.validate_ime_owner(now);
         if self.reject_ime_event(&event, now) {
             return Vec::new();
@@ -5228,6 +5340,7 @@ impl UiTree {
         match event {
             UiEvent::ContextMenu { .. }
             | UiEvent::ContextMenuKeyboard
+            | UiEvent::PasteCaptured { .. }
             | UiEvent::PasteTo { .. } => {
                 unreachable!("context menu events handled before ordinary controls")
             }
@@ -5265,7 +5378,8 @@ impl UiTree {
                         self.frame.action_menu_items.contains(*id)
                             || holds_submenu && self.frame.submenu_triggers.contains(*id)
                     }) {
-                        self.focused = Some(id.clone());
+                        let next_focus = Some(id.clone());
+                        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                         self.closed_submenu_triggers.remove(id);
                         self.keyboard_focus = false;
                     } else if self
@@ -5273,9 +5387,10 @@ impl UiTree {
                         .as_ref()
                         .is_some_and(|id| self.frame.action_menu_items.contains(id))
                     {
-                        self.focused = self
+                        let next_focus = self
                             .active_popover_scope()
                             .and_then(|scope| scope.trigger_id.clone());
+                        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                         self.keyboard_focus = false;
                     }
                 }
@@ -5409,7 +5524,8 @@ impl UiTree {
                         motion.burst_started = None;
                         motion.displayed_fraction = fraction;
                     }
-                    self.focused = Some(id.clone());
+                    let next_focus = Some(id.clone());
+                    Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                     self.pressed = None;
                     actions.push(slider_action(id, fraction, y, false));
                     return actions;
@@ -5492,19 +5608,21 @@ impl UiTree {
                     .filter(|region| region.kind == HitKind::Button)
                     .map(|region| region.id.clone());
                 self.pressed_dispatch = self.pressed.as_deref().map(|id| self.dispatch_id(id));
-                self.focused = hit
-                    .as_ref()
-                    .filter(|region| {
-                        (matches!(
-                            region.kind,
-                            HitKind::Button | HitKind::TextInput | HitKind::TextArea
-                        ) || (region.kind == HitKind::CodeDiff
-                            && self.focus_order.iter().any(|(id, kind)|
-                                id == &region.id && *kind == HitKind::CodeDiff)))
-                            && dismiss_scope.is_none()
-                    })
-                    .map(|region| region.id.clone())
-                    .or(dismiss_trigger);
+                let next_focus =
+                    hit.as_ref()
+                        .filter(|region| {
+                            (matches!(
+                                region.kind,
+                                HitKind::Button | HitKind::TextInput | HitKind::TextArea
+                            ) || (region.kind == HitKind::CodeDiff
+                                && self.focus_order.iter().any(|(id, kind)| {
+                                    id == &region.id && *kind == HitKind::CodeDiff
+                                })))
+                                && dismiss_scope.is_none()
+                        })
+                        .map(|region| region.id.clone())
+                        .or(dismiss_trigger);
+                Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 if let Some(region) = hit
                     .filter(|region| matches!(region.kind, HitKind::TextInput | HitKind::TextArea))
                 {
@@ -5615,7 +5733,8 @@ impl UiTree {
                         } else {
                             actions.push(UiAction::Clicked { id: dismiss_id });
                         }
-                        self.focused = trigger_id;
+                        let next_focus = trigger_id;
+                        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                         self.keyboard_focus = true;
                         self.keyboard_tooltip_focus = true;
                     }
@@ -5774,8 +5893,7 @@ impl UiTree {
                             Key::Backspace => input.backspace(),
                             Key::Delete => input.delete_forward(),
                             Key::A if ctrl => {
-                                input.anchor = Some(0);
-                                input.cursor = input.value.chars().count();
+                                input.set_selection(input.value.chars().count(), Some(0));
                                 input.keep_cursor_visible = true;
                                 false
                             }
@@ -5908,11 +6026,13 @@ impl UiTree {
                 };
                 let id = reachable[next].0.clone();
                 self.request_scroll_focus(&id);
-                self.focused = Some(id);
+                let next_focus = Some(id);
+                Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 return;
             }
             if let Some(trigger) = scope.trigger_id.as_ref() {
-                self.focused = Some(trigger.clone());
+                let next_focus = Some(trigger.clone());
+                Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 return;
             }
         }
@@ -5920,7 +6040,8 @@ impl UiTree {
             return;
         }
         if self.focus_order.is_empty() {
-            self.focused = None;
+            let next_focus = None;
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             return;
         }
         let current = self.focused.as_ref().and_then(|id| {
@@ -5937,7 +6058,8 @@ impl UiTree {
         };
         let id = self.focus_order[next].0.clone();
         self.request_scroll_focus(&id);
-        self.focused = Some(id);
+        let next_focus = Some(id);
+        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
     }
 
     fn step_virtual_list_focus(&mut self, reverse: bool) -> bool {
@@ -5979,7 +6101,8 @@ impl UiTree {
             };
             if let Some((id, _)) = target {
                 self.scroll_to_index(&list_id, index);
-                self.focused = Some(id.clone());
+                let next_focus = Some(id.clone());
+                Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 return true;
             }
         }
@@ -6126,7 +6249,8 @@ impl UiTree {
         };
         if next != index {
             let id = tabs[next].to_string();
-            self.focused = Some(id.clone());
+            let next_focus = Some(id.clone());
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             actions.push(UiAction::Clicked {
                 id: self.dispatch_id(&id),
             });
@@ -6156,7 +6280,8 @@ impl UiTree {
             }) {
                 self.closed_submenu_triggers.remove(&trigger);
                 self.request_scroll_focus(&target);
-                self.focused = Some(target);
+                let next_focus = Some(target);
+                Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 return true;
             }
         }
@@ -6205,7 +6330,8 @@ impl UiTree {
                 if let Some(id) = &scope.trigger_id {
                     self.closed_submenu_triggers.insert(id.clone());
                 }
-                self.focused = scope.trigger_id;
+                let next_focus = scope.trigger_id;
+                Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 return true;
             }
             Key::Home => (0..buttons.len()).find(primary),
@@ -6217,7 +6343,8 @@ impl UiTree {
         };
         let id = buttons[next].0.clone();
         self.request_scroll_focus(&id);
-        self.focused = Some(id);
+        let next_focus = Some(id);
+        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
         true
     }
 }
@@ -6640,6 +6767,8 @@ struct LayoutBuilder<'a> {
     scroll_focus_context: Vec<ScrollFocusContext>,
     /// Sticky children the scroll area being placed draws last.
     pinned: Vec<PinnedChild>,
+    /// Per-layout, scope-aware queries for descendants that can leave their flow slot.
+    translated_overflow: HashMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
     /// Source of the active pointer drag and the commands it painted.
@@ -6665,11 +6794,13 @@ struct LayoutBuilder<'a> {
     code_diffs: &'a mut HashMap<String, crate::code_editor::DiffView>,
     scroll_offsets: &'a mut HashMap<String, f32>,
     scroll_transitions: &'a mut HashMap<String, ScalarTransition>,
+    scrollbar_states: &'a mut HashMap<String, ScrollbarState>,
     measured_lists: &'a mut HashMap<String, MeasuredListState>,
     scroll_to_end: &'a mut HashSet<String>,
     scroll_to_index: &'a mut HashMap<String, usize>,
     hovered_scrollbar: Option<&'a str>,
     dragging_scrollbar: Option<&'a str>,
+    dragging_horizontal: Option<&'a str>,
     scroll_button_hold: Option<&'a ScrollButtonHold>,
     pointer: Option<Point>,
     /// The pointer is over the `hover_region` being placed.
@@ -6768,6 +6899,16 @@ fn place_popover(
     placement: PopoverPlacement,
     gap: f32,
 ) -> Rect {
+    if placement == PopoverPlacement::Bottom {
+        let width = desired.width.max(0.0).min(viewport.width.max(0.0));
+        let height = desired.height.max(0.0).min((viewport.height - 8.0).max(0.0));
+        return Rect::new(
+            viewport.x + (viewport.width - width) / 2.0,
+            viewport.y + viewport.height - height,
+            width,
+            height,
+        );
+    }
     let inset = 8.0;
     let width = desired
         .width
@@ -7255,14 +7396,14 @@ impl LayoutBuilder<'_> {
         }
     }
 
-    fn code_text_height(&self) -> f32 {
+    fn code_text_height(&self, size: f32) -> f32 {
         self.text_height_measurer
             .as_ref()
-            .map(|measure| measure(crate::code_editor::FONT_SIZE, FontFamily::Monospace))
+            .map(|measure| measure(size, FontFamily::Monospace))
             .filter(|height| height.is_finite() && *height > 0.0)
             .unwrap_or_else(|| {
                 self.metrics
-                    .at_size(crate::code_editor::FONT_SIZE)
+                    .at_size(size)
                     .line_height
             })
     }
@@ -8156,6 +8297,7 @@ impl LayoutBuilder<'_> {
         content: Rect,
         clip: Option<Rect>,
         foreground: Color,
+        visibility: crate::ScrollbarVisibility,
     ) {
         let Some(MeasuredRows { key, follow_end }) = list.measured.as_ref() else {
             return;
@@ -8342,7 +8484,7 @@ impl LayoutBuilder<'_> {
             },
         );
         if let Some(scrollbar) = scrollbar {
-            self.paint_scrollbar(id, scrollbar, content, clip, foreground, list.appearance);
+            self.paint_scrollbar(id, scrollbar, content, clip, foreground, list.appearance, visibility);
         }
         state.anchor = keys.get(first).map(|key| (*key, top[first]));
         state.end = max_offset;
@@ -8355,6 +8497,26 @@ impl LayoutBuilder<'_> {
         self.measured_lists.insert(list.id.clone(), state);
     }
 
+    fn scrollbar_opacity(
+        &mut self,
+        id: &str,
+        offset: f32,
+        interacting: bool,
+        visibility: crate::ScrollbarVisibility,
+    ) -> f32 {
+        match visibility {
+            crate::ScrollbarVisibility::Always => {
+                self.scrollbar_states.remove(id);
+                1.0
+            }
+            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => {
+                self.scrollbar_states.entry(id.to_owned())
+                    .or_insert_with(|| ScrollbarState::new(offset, self.now))
+                    .observe(offset, interacting, hold_ms, fade_ms, self.reduced_motion, self.now)
+            }
+        }
+    }
+
     fn paint_scrollbar(
         &mut self,
         id: &str,
@@ -8363,6 +8525,7 @@ impl LayoutBuilder<'_> {
         clip: Option<Rect>,
         ink: Color,
         appearance: crate::ScrollbarAppearance,
+        visibility: crate::ScrollbarVisibility,
     ) {
         let visible = clip
             .and_then(|outer| outer.intersection(content))
@@ -8370,7 +8533,15 @@ impl LayoutBuilder<'_> {
         let Some(visible) = visible else {
             return;
         };
+        let active = self.dragging_scrollbar == Some(id);
+        let hovered = self.hovered_scrollbar == Some(id);
+        let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
+        let interacting = active || hovered || self.scroll_button_hold.is_some_and(|hold| hold.id == id);
+        let opacity = self.scrollbar_opacity(id, offset, interacting, visibility);
+        if opacity <= 0.0 { return; }
         let ink = appearance.tint.unwrap_or(ink);
+        let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
+        let appearance = crate::ScrollbarAppearance { tint: None, ..appearance };
         let alpha = |opacity: u8| {
             Color::rgba(
                 ink.r,
@@ -8379,8 +8550,6 @@ impl LayoutBuilder<'_> {
                 ((u16::from(ink.a) * u16::from(opacity)) / 255) as u8,
             )
         };
-        let active = self.dragging_scrollbar == Some(id);
-        let hovered = self.hovered_scrollbar == Some(id);
         self.frame.commands.push(DrawCommand::PushClip(visible));
         // The overlay rail never paints a permanent gray stripe behind
         // content. Its track appears only while interacting with it.
@@ -9227,7 +9396,43 @@ impl LayoutBuilder<'_> {
         )
     }
 
+    fn translated_rect(element: &Element, rect: Rect) -> Rect {
+        match element.kept.as_ref().and_then(|kept| kept.translation) {
+            Some(offset) => Rect::new(rect.x + offset.x, rect.y + offset.y, rect.width, rect.height),
+            None => rect,
+        }
+    }
+
+    fn has_translated_overflow(&mut self, element: &Element) -> bool {
+        // These viewports clip their descendants even without clip_children.
+        if element.style.clip_children || matches!(element.kind,
+            ElementKind::Scroll { .. } | ElementKind::HorizontalScroll { .. } | ElementKind::UniformList(_)) {
+            return false;
+        }
+        let key = (self.measurement_scope, element as *const Element as usize);
+        if let Some(found) = self.translated_overflow.get(&key) { return *found; }
+        let mut translated = |child: &Element| {
+            child.kept.as_ref().is_some_and(|kept| kept.translation.is_some())
+                || self.has_translated_overflow(child)
+        };
+        let found = match &element.kind {
+            ElementKind::Column(children) | ElementKind::Row(children)
+            | ElementKind::TabStrip { children, .. } | ElementKind::Stack(children) => children.iter().any(&mut translated),
+            ElementKind::Panel(child) | ElementKind::Clickable { child, .. }
+            | ElementKind::Tooltip { anchor: child, .. } => translated(child),
+            ElementKind::Overlay { base, floating }
+            | ElementKind::Popover { anchor: base, floating, .. } => translated(base) || translated(floating),
+            _ => false,
+        };
+        self.translated_overflow.insert(key, found);
+        found
+    }
+
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        self.place_translated(element, Self::translated_rect(element, rect), clip);
+    }
+
+    fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let dragged = element.draggable
             && !element.drag_in_place
             && self.drag_source.is_some()
@@ -9331,6 +9536,7 @@ impl LayoutBuilder<'_> {
     }
 
     fn place_inner(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        let scrollbar_visibility = element.kept.as_ref().map_or(crate::ScrollbarVisibility::Always, |kept| kept.scrollbar_visibility);
         if let Some(text) = self.rolling_text(element) {
             return self.place_inner(&text, rect, clip);
         }
@@ -9352,14 +9558,18 @@ impl LayoutBuilder<'_> {
                 // A column keeps its children under the same box.
                 fading.kept.as_mut().unwrap().foreground = None;
                 fading.style.foreground = ink;
-                return self.place_inner(&fading, rect, clip);
+                let previous_scope = self.enter_measurement_scope();
+                self.place_inner(&fading, rect, clip);
+                self.measurement_scope = previous_scope;
+                return;
             }
         }
         // Retain the un-clipped bounds of directly laid-out controls in a
         // scroll area. A menu can then focus its next option and reveal it,
         // even when that option has no visible hit region yet.
         self.record_scroll_focus_target(element, rect);
-        if clip.is_some_and(|clip| rect.intersection(clip).is_none()) {
+        if clip.is_some_and(|clip| rect.intersection(clip).is_none())
+            && !self.has_translated_overflow(element) {
             if !self.scroll_focus_context.is_empty() {
                 // Composite menu rows can be skipped before their controls
                 // receive geometry. Keep only their IDs reachable; selecting
@@ -9375,9 +9585,12 @@ impl LayoutBuilder<'_> {
                     .focus_path
                     .contains(&(element as *const Element as usize))
             {
-                self.probe_scroll_focus(element, rect, clip);
+                self.probe_scroll_focus_translated(element, rect, clip);
             }
             return;
+        }
+        if let Some(id) = element.kept.as_ref().and_then(|kept| kept.pointer_blocker.as_deref()) {
+            self.add_region(id, rect, HitKind::Surface, clip);
         }
         // Virtual rows and deferred overlays do not exist in the static root
         // walk. Register their actual, visible controls as they are placed.
@@ -9679,6 +9892,7 @@ impl LayoutBuilder<'_> {
         match &element.kind {
             ElementKind::Column(children) => {
                 let kept = self.with_leaving(element, children);
+                let previous_scope = matches!(&kept, Cow::Owned(_)).then(|| self.enter_measurement_scope());
                 let children = kept.as_ref();
                 if let Some(list) = element.kept.as_ref().and_then(|kept| kept.leaving.as_deref()) {
                     let slots = children.iter().filter_map(Self::slot_id).map(str::to_owned).collect();
@@ -9697,6 +9911,7 @@ impl LayoutBuilder<'_> {
                         self.place_flex(children, content, style.gap, false, clip);
                     }
                 }
+                if let Some(scope) = previous_scope { self.measurement_scope = scope; }
             }
             ElementKind::Row(children) => {
                 for (child, rect) in children
@@ -10000,6 +10215,7 @@ impl LayoutBuilder<'_> {
                     style.horizontal_edge_fade,
                     *vertical_wheel,
                     drag_pan.then_some(style.foreground),
+                    scrollbar_visibility,
                 );
             }
             ElementKind::Scroll {
@@ -10056,11 +10272,12 @@ impl LayoutBuilder<'_> {
                         clip,
                         style.foreground,
                         *appearance,
+                        scrollbar_visibility,
                     );
                 }
             }
             ElementKind::UniformList(list) if list.measured.is_some() => {
-                self.place_measured_list(list, rect, content, clip, style.foreground);
+                self.place_measured_list(list, rect, content, clip, style.foreground, scrollbar_visibility);
             }
             ElementKind::UniformList(list) => {
                 let id = list.id.as_str();
@@ -10186,6 +10403,7 @@ impl LayoutBuilder<'_> {
                         clip,
                         style.foreground,
                         list.appearance,
+                        scrollbar_visibility,
                     );
                 }
             }
@@ -10858,6 +11076,10 @@ impl LayoutBuilder<'_> {
                     .inputs
                     .entry(id.clone())
                     .or_insert_with(|| InputState::new(initial_value.clone()));
+                state.observe_paste_kind(HitKind::TextInput);
+                if state.password != *password {
+                    state.paste_epoch = Arc::new(());
+                }
                 state.password = *password;
                 state.content_x = content.x;
                 state.char_width = metrics.char_width;
@@ -10971,14 +11193,14 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::CodeEditor(editor) => {
                 self.add_region(&editor.id, rect, HitKind::CodeEditor, clip);
-                let text_height = self.code_text_height();
+                let text_height = self.code_text_height(editor.font_size);
                 let measurer = self.text_measurer.clone();
-                let advance = metrics.char_width;
+                let advance = self.metrics.at_size(editor.font_size).char_width;
                 let measure = |text: &str| {
                     measured_width(
                         measurer.as_deref(),
                         text,
-                        13.0,
+                        editor.font_size,
                         FontFamily::Monospace,
                         advance,
                     )
@@ -11035,14 +11257,14 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::CodeDiff(diff) => {
                 self.add_region(&diff.id, rect, HitKind::CodeDiff, clip);
-                let text_height = self.code_text_height();
+                let text_height = self.code_text_height(diff.font_size);
                 let measurer = self.text_measurer.clone();
-                let advance = metrics.char_width;
+                let advance = self.metrics.at_size(diff.font_size).char_width;
                 let measure = |text: &str| {
                     measured_width(
                         measurer.as_deref(),
                         text,
-                        13.0,
+                        diff.font_size,
                         FontFamily::Monospace,
                         advance,
                     )
@@ -11095,12 +11317,18 @@ impl LayoutBuilder<'_> {
                         initial_value.replace("\r\n", "\n").replace('\r', "\n")
                     })
                 });
+                state.observe_paste_kind(HitKind::TextArea);
+                if state.preserve_line_endings != *preserve_line_endings
+                    || state.enter_submits != *enter_submits
+                {
+                    state.paste_epoch = Arc::new(());
+                }
                 state.preserve_line_endings = *preserve_line_endings;
                 state.enter_submits = *enter_submits;
                 if !state.preserve_line_endings && state.value.contains('\r') {
                     state.value = state.value.replace("\r\n", "\n").replace('\r', "\n");
-                    state.cursor = state.value.chars().count();
-                    state.anchor = None;
+                    state.paste_epoch = Arc::new(());
+                    state.set_selection(state.value.chars().count(), None);
                 }
                 state.content_x = content.x;
                 state.content_y = content.y;
@@ -11713,7 +11941,7 @@ impl LayoutBuilder<'_> {
         // bounds even when place() skips the wrapper before visiting its child.
         // Menu keyboard navigation can then reach and reveal offscreen options.
         if let ElementKind::Tooltip { anchor, .. } = &element.kind {
-            self.record_scroll_focus_target(anchor, rect.inset(element.style.padding));
+            self.record_scroll_focus_target(anchor, Self::translated_rect(anchor, rect.inset(element.style.padding)));
         }
         // A control that is also an anchor answers to both names.
         let ids = [focusable_id(element), element.anchor.as_deref()];
@@ -11764,6 +11992,10 @@ impl LayoutBuilder<'_> {
     /// Resolve the requested control's geometry inside a clipped branch.
     /// This does not paint, add hit regions, or visit unrelated descendants.
     fn probe_scroll_focus(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        self.probe_scroll_focus_translated(element, Self::translated_rect(element, rect), clip);
+    }
+
+    fn probe_scroll_focus_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         if focusable_id(element) == self.focus_probe {
             self.record_scroll_focus_target(element, rect);
             return;
@@ -14502,6 +14734,41 @@ mod tests {
         );
         assert_eq!(rect.height, 180.0);
         assert!(rect.y >= 8.0 && rect.y + rect.height <= 292.0);
+    }
+
+    #[test]
+    fn bottom_popover_ignores_anchor_and_gap_and_meets_the_safe_viewport_edge() {
+        let viewport = Rect::new(12.0, 24.0, 390.0, 700.0);
+        for anchor in [viewport, Rect::new(80.0, 400.0, 40.0, 30.0)] {
+            for gap in [0.0, 90.0] {
+                assert_eq!(
+                    place_popover(anchor, Size::new(560.0, 300.0), viewport, PopoverPlacement::Bottom, gap),
+                    Rect::new(12.0, 424.0, 390.0, 300.0),
+                );
+                assert_eq!(
+                    place_popover(anchor, Size::new(240.0, 900.0), viewport, PopoverPlacement::Bottom, gap),
+                    Rect::new(87.0, 32.0, 240.0, 692.0),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bottom_popover_measures_wrapped_content_at_full_phone_width() {
+        let mut tree = UiTree::new(Element::popover(
+            Element::spacer(),
+            Element::button("sheet_body", "Actions").size(Some(560.0), Some(120.0)),
+            "sheet_close",
+            PopoverPlacement::Bottom,
+        ));
+        tree.set_reduced_motion(true);
+        for width in [320.0, 390.0, 430.0] {
+            let frame = tree.layout(Size::new(width, 700.0));
+            let surface = frame.regions.iter().find(|r| r.id == "popover_surface:sheet_close").unwrap().rect;
+            let body = frame.regions.iter().find(|r| r.id == "sheet_body").unwrap().rect;
+            assert_eq!(surface, Rect::new(0.0, 580.0, width, 120.0));
+            assert_eq!(body, surface);
+        }
     }
 
     #[test]

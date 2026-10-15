@@ -141,6 +141,10 @@ pub struct CodeEditor {
     /// Height in logical pixels, status bar included. 320 by default; `height` keeps it at
     /// 24 or more.
     pub height: f32,
+    /// Code and gutter size in logical pixels, 13 by default.
+    pub font_size: f32,
+    /// Paint added and removed row backgrounds. Change markers remain visible.
+    pub diff_backgrounds: bool,
     /// Refuse every edit. False by default.
     pub read_only: bool,
     /// Native modal editing, independent of the workbench shortcut profile.
@@ -246,6 +250,8 @@ impl CodeEditor {
             controller,
             palette: ComponentPalette::neutral_dark(),
             height: 320.0,
+            font_size: FONT_SIZE,
+            diff_backgrounds: true,
             read_only: false,
             vim_mode: false,
             line_numbers: true,
@@ -289,6 +295,23 @@ impl CodeEditor {
     pub fn palette(mut self, palette: ComponentPalette) -> Self {
         self.palette = palette;
         self
+    }
+    /// Set code and gutter size, including row layout and pointer positioning.
+    /// Nonpositive or nonfinite values are ignored; valid sizes stay within 1..=96.
+    pub fn font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.font_size = size.clamp(1.0, 96.0);
+        }
+        self
+    }
+    /// Show tinted added and removed row backgrounds. True by default.
+    /// Disabling them preserves change markers and review controls.
+    pub fn diff_backgrounds(mut self, enabled: bool) -> Self {
+        self.diff_backgrounds = enabled;
+        self
+    }
+    pub(crate) fn line_height(&self) -> f32 {
+        LINE_HEIGHT * self.font_size / FONT_SIZE
     }
     /// Review rows belong to this exact current snapshot. Removed text is a
     /// non-editable view zone, never part of the buffer or its selection.
@@ -494,7 +517,7 @@ impl Component for CodeEditor {
     fn render(self) -> Element {
         Element::code_editor(self.clone())
             .size(None, Some(self.height))
-            .font_size(FONT_SIZE)
+            .font_size(self.font_size)
             .background(self.palette.surface)
             .foreground(self.palette.text)
     }
@@ -647,6 +670,9 @@ impl CodeViewport {
 type CachedVisualMap = (u64, usize, usize, Arc<[std::ops::Range<usize>]>, VisualMap);
 
 pub(crate) struct EditorView {
+    paste_epoch: Arc<()>,
+    paste_seen: bool,
+    paste_present: bool,
     pub editor: CodeEditor,
     pub viewport: CodeViewport,
     document_id: Option<u64>,
@@ -824,6 +850,9 @@ impl EditorView {
             .ok()
             .map(|snapshot| snapshot.document_id());
         Self {
+            paste_epoch: Arc::new(()),
+            paste_seen: false,
+            paste_present: false,
             editor,
             viewport: CodeViewport::default(),
             document_id,
@@ -856,11 +885,19 @@ impl EditorView {
     /// Take this frame's description of the editor. A different document resets the viewport,
     /// the caches and the composition; that, or a change of `vim_mode`, resets modal editing.
     pub fn update(&mut self, editor: CodeEditor) {
+        self.paste_seen = true;
         let next_id = editor
             .controller
             .snapshot()
             .ok()
             .map(|snapshot| snapshot.document_id());
+        if next_id != self.document_id
+            || !Arc::ptr_eq(&editor.controller.0, &self.editor.controller.0)
+            || editor.read_only != self.editor.read_only
+            || editor.vim_mode != self.editor.vim_mode
+        {
+            self.paste_epoch = Arc::new(());
+        }
         if next_id != self.document_id || editor.vim_mode != self.editor.vim_mode {
             self.vim = Default::default();
         }
@@ -877,6 +914,13 @@ impl EditorView {
             self.modified_drag = None;
             self.cancel_composition();
             self.ime_rects = None;
+        }
+        if editor.font_size != self.editor.font_size {
+            self.horizontal_extent_key = None;
+            self.visual_map = None;
+            self.visual_snapshot = None;
+            self.viewport.max_x = 0.0;
+            self.viewport.reveal_caret = true;
         }
         self.editor = editor;
     }
@@ -969,7 +1013,7 @@ impl EditorView {
                         .saturating_sub(visual.start_column);
                     let desired = *self.viewport.desired_x.get_or_insert(column as f32) as usize;
                     let amount = if matches!(key, Key::PageUp | Key::PageDown) {
-                        (self.viewport.body.height / LINE_HEIGHT).floor().max(1.0) as usize
+                        (self.viewport.body.height / self.editor.line_height()).floor().max(1.0) as usize
                     } else {
                         1
                     };
@@ -998,7 +1042,7 @@ impl EditorView {
                     .ok()?;
                 let x = *self.viewport.desired_x.get_or_insert(column as f32);
                 let amount = if matches!(key, Key::PageUp | Key::PageDown) {
-                    (self.viewport.body.height / LINE_HEIGHT).floor().max(1.0) as usize
+                    (self.viewport.body.height / self.editor.line_height()).floor().max(1.0) as usize
                 } else {
                     1
                 };
@@ -1024,6 +1068,75 @@ impl EditorView {
             _ => None,
         }
     }
+    pub(crate) fn begin_paste_layout(&mut self) {
+        self.paste_seen = false;
+    }
+
+    pub(crate) fn finish_paste_layout(&mut self, visible: bool) {
+        let present = visible && self.paste_seen;
+        if self.paste_present != present {
+            self.paste_epoch = Arc::new(());
+            self.paste_present = present;
+        }
+    }
+
+    fn accepts_captured_paste(&self) -> bool {
+        self.paste_present
+            && !self.editor.read_only
+            && (!self.editor.vim_mode || self.vim.mode == VimMode::Insert)
+            && self
+                .composition
+                .as_ref()
+                .is_none_or(|state| state.cancelled)
+    }
+
+    pub(crate) fn capture_paste_state(&self) -> Option<(Arc<()>, limn_editor::EditStateToken)> {
+        if !self.accepts_captured_paste() {
+            return None;
+        }
+        let buffer = self.editor.controller.0.try_lock().ok()?;
+        Some((self.paste_epoch.clone(), buffer.edit_state_token()))
+    }
+
+    pub(crate) fn paste_captured(
+        &mut self,
+        epoch: &Arc<()>,
+        state: &limn_editor::EditStateToken,
+        ticket: &std::sync::atomic::AtomicBool,
+        text: &str,
+        now: Instant,
+    ) -> Option<Vec<UiAction>> {
+        use std::sync::atomic::Ordering;
+        if !self.accepts_captured_paste() || !Arc::ptr_eq(epoch, &self.paste_epoch) {
+            return None;
+        }
+        let controller = self.editor.controller.clone();
+        let Ok(mut buffer) = controller.0.try_lock() else {
+            return None;
+        };
+        // Authority is checked and claimed under the same guard as the edit.
+        if *state != buffer.edit_state_token()
+            || ticket
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            return None;
+        }
+        if text.is_empty() {
+            return Some(Vec::new());
+        }
+        self.cancel_composition();
+        let snapshot = buffer.snapshot();
+        let timestamp = now
+            .saturating_duration_since(self.started)
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        let result = buffer
+            .insert(text, EditKind::Paste, timestamp)
+            .map_err(|error| error.to_string());
+        Some(self.finish_input(&buffer, &snapshot, result, Vec::new(), false))
+    }
+
     /// Apply a key, text, paste or other input event and return the actions it caused. `measure`
     /// gives the width of a string in the editor's font.
     pub fn input(
@@ -1275,20 +1388,33 @@ impl EditorView {
             }
             _ => {}
         }
+        let history = matches!(
+            event,
+            UiEvent::Key {
+                key: Key::Z | Key::Y,
+                ctrl: true,
+                ..
+            }
+        );
+        self.finish_input(&buffer, &snapshot, result, actions, history)
+    }
+
+    fn finish_input(
+        &mut self,
+        buffer: &TextBuffer,
+        snapshot: &BufferSnapshot,
+        result: Result<bool, String>,
+        mut actions: Vec<UiAction>,
+        history: bool,
+    ) -> Vec<UiAction> {
         match result {
             Err(error) => actions.push(self.fail(error)),
-            Ok(_) if before != buffer.revision() => {
+            Ok(_) if snapshot.revision() != buffer.revision() => {
                 self.viewport.desired_x = None;
-                let changed_row = if matches!(
-                    event,
-                    UiEvent::Key {
-                        key: Key::Z | Key::Y,
-                        ctrl: true,
-                        ..
-                    }
-                ) {
+                let changed_row = if history {
                     0
                 } else {
+                    let selection = snapshot.selection();
                     let before_row = snapshot
                         .position_of(selection.anchor.min(selection.head))
                         .map_or(0, |position| position.row);
@@ -1309,7 +1435,7 @@ impl EditorView {
             }
             Ok(_) => {}
         }
-        self.vim.observe_local_edit(&buffer);
+        self.vim.observe_local_edit(buffer);
         self.viewport.reveal_caret = true;
         actions
     }
@@ -1701,7 +1827,7 @@ impl EditorView {
             .as_ref()
             .map_or(snapshot.line_count(), |(_, _, _, _, map)| map.rows.len());
         let display_row = ((point.y - self.viewport.body.y + self.viewport.scroll_y).max(0.0)
-            / LINE_HEIGHT)
+            / self.editor.line_height())
             .floor() as usize;
         let visual = self.review_layout.visual_row(display_row);
         let index = visual.min(count.saturating_sub(1));
@@ -1920,7 +2046,7 @@ impl EditorView {
             }
         }
         let status_height = if self.editor.status_bar {
-            28.0_f32.min(rect.height)
+            (28.0 * self.editor.font_size / FONT_SIZE).min(rect.height)
         } else {
             0.0
         };
@@ -1989,12 +2115,12 @@ impl EditorView {
             self.horizontal_extent_key = Some(extent_key);
             self.viewport.max_x = 0.0;
         }
-        self.viewport.max_y = (self.review_layout.rows as f32 * LINE_HEIGHT - body.height).max(0.0);
+        self.viewport.max_y = (self.review_layout.rows as f32 * self.editor.line_height() - body.height).max(0.0);
         let reveal_top_inset = self
             .editor
             .reveal_top_inset
             .max(0.0)
-            .min((body.height - LINE_HEIGHT).max(0.0));
+            .min((body.height - self.editor.line_height()).max(0.0));
         self.viewport.min_y = -reveal_top_inset;
         self.viewport.scroll_y = self
             .viewport
@@ -2022,10 +2148,10 @@ impl EditorView {
                     &self.editor,
                     self.visual_map.as_ref().map(|(_, _, _, _, map)| map),
                 ) {
-                    self.viewport.scroll_y = (row as f32 * LINE_HEIGHT - reveal_top_inset)
+                    self.viewport.scroll_y = (row as f32 * self.editor.line_height() - reveal_top_inset)
                         .clamp(self.viewport.min_y, self.viewport.max_y);
                     self.viewport.reveal_caret = false;
-                    review_top = Some(row as f32 * LINE_HEIGHT);
+                    review_top = Some(row as f32 * self.editor.line_height());
                 }
             }
         }
@@ -2035,7 +2161,7 @@ impl EditorView {
             // Re-evaluate ancestors after each upward adjustment; never let a
             // newly visible sticky row obscure the beginning of the hunk.
             for _ in 0..4 {
-                let occupied = reveal_top_inset + sticky_rows.len() as f32 * LINE_HEIGHT;
+                let occupied = reveal_top_inset + sticky_rows.len() as f32 * self.editor.line_height();
                 if top >= self.viewport.scroll_y + occupied {
                     break;
                 }
@@ -2044,16 +2170,16 @@ impl EditorView {
             }
         }
         if self.viewport.reveal_caret {
-            let top = self.review_layout.display_row(cursor_visual) as f32 * LINE_HEIGHT;
+            let top = self.review_layout.display_row(cursor_visual) as f32 * self.editor.line_height();
             // Re-evaluate the fixed headers after revealing: changing the top
             // row may reveal a new ancestor, which must not cover the caret.
             for _ in 0..4 {
-                let occupied = reveal_top_inset + sticky_rows.len() as f32 * LINE_HEIGHT;
+                let occupied = reveal_top_inset + sticky_rows.len() as f32 * self.editor.line_height();
                 let previous = self.viewport.scroll_y;
                 if top < self.viewport.scroll_y + occupied {
                     self.viewport.scroll_y = (top - occupied).max(self.viewport.min_y);
-                } else if top + LINE_HEIGHT > self.viewport.scroll_y + body.height {
-                    self.viewport.scroll_y = (top + LINE_HEIGHT - body.height).max(0.0);
+                } else if top + self.editor.line_height() > self.viewport.scroll_y + body.height {
+                    self.viewport.scroll_y = (top + self.editor.line_height() - body.height).max(0.0);
                 }
                 sticky_rows = self.sticky_rows(&snapshot, body, reveal_top_inset);
                 if self.viewport.scroll_y == previous {
@@ -2073,7 +2199,7 @@ impl EditorView {
             }
             self.viewport.reveal_caret = false;
         }
-        let occupied = reveal_top_inset + sticky_rows.len() as f32 * LINE_HEIGHT;
+        let occupied = reveal_top_inset + sticky_rows.len() as f32 * self.editor.line_height();
         let visible_body = if sticky_rows.is_empty() {
             body
         } else {
@@ -2089,8 +2215,8 @@ impl EditorView {
         // The find inset is a reveal constraint, not a permanent full-width
         // obstruction. Its floating surface owns its own clip/hit area. Paint
         // source above and below the fixed headers without moving the document.
-        let first_display = (self.viewport.scroll_y.max(0.0) / LINE_HEIGHT).floor() as usize;
-        let end_display = ((self.viewport.scroll_y + body.height) / LINE_HEIGHT).ceil() as usize;
+        let first_display = (self.viewport.scroll_y.max(0.0) / self.editor.line_height()).floor() as usize;
+        let end_display = ((self.viewport.scroll_y + body.height) / self.editor.line_height()).ceil() as usize;
         let first = self
             .review_layout
             .visual_row(first_display)
@@ -2129,10 +2255,10 @@ impl EditorView {
                     );
                     rows.push(Rect::new(
                         body.x + x1 - self.viewport.scroll_x,
-                        body.y + self.review_layout.display_row(*visual) as f32 * LINE_HEIGHT
+                        body.y + self.review_layout.display_row(*visual) as f32 * self.editor.line_height()
                             - self.viewport.scroll_y,
                         (x2 - x1).max(1.5),
-                        LINE_HEIGHT,
+                        self.editor.line_height(),
                     ));
                 }
             }
@@ -2182,9 +2308,9 @@ impl EditorView {
             }
             let background_start = commands.len();
             longest = longest.max(display.width + if truncated { body.width } else { 0.0 });
-            let y = body.y + self.review_layout.display_row(visual) as f32 * LINE_HEIGHT
+            let y = body.y + self.review_layout.display_row(visual) as f32 * self.editor.line_height()
                 - self.viewport.scroll_y;
-            let text_y = centered_text_y(y, LINE_HEIGHT, text_height);
+            let text_y = centered_text_y(y, self.editor.line_height(), text_height);
             let visible_body = if !sticky_rows.is_empty() && y < body.y + reveal_top_inset {
                 Rect::new(body.x, body.y, body.width, reveal_top_inset)
             } else {
@@ -2194,7 +2320,7 @@ impl EditorView {
             let Some(row_clip) = visible_rows.intersection(clip) else {
                 continue;
             };
-            if Rect::new(rect.x, y, rect.width, LINE_HEIGHT)
+            if Rect::new(rect.x, y, rect.width, self.editor.line_height())
                 .intersection(row_clip)
                 .is_none()
             {
@@ -2202,13 +2328,15 @@ impl EditorView {
             }
             commands.push(DrawCommand::PushClip(row_clip));
             if self.review_layout.added(row) {
+                if self.editor.diff_backgrounds {
+                    commands.push(DrawCommand::FillRect {
+                        rect: Rect::new(rect.x, y, rect.width, self.editor.line_height()),
+                        color: review::ADDED_FILL,
+                        radius: 0.0,
+                    });
+                }
                 commands.push(DrawCommand::FillRect {
-                    rect: Rect::new(rect.x, y, rect.width, LINE_HEIGHT),
-                    color: review::ADDED_FILL,
-                    radius: 0.0,
-                });
-                commands.push(DrawCommand::FillRect {
-                    rect: Rect::new(rect.x, y, 2.0, LINE_HEIGHT),
+                    rect: Rect::new(rect.x, y, 2.0, self.editor.line_height()),
                     color: review::ADDED_MARKER,
                     radius: 0.0,
                 });
@@ -2218,7 +2346,7 @@ impl EditorView {
                     self.structure_controls.push(structure::fold_control(
                         candidate,
                         folded,
-                        Rect::new(body.x - fold_lane - 4.0, y, fold_lane, LINE_HEIGHT),
+                        Rect::new(body.x - fold_lane - 4.0, y, fold_lane, self.editor.line_height()),
                         row_clip,
                         self.editor.palette,
                     ));
@@ -2232,7 +2360,7 @@ impl EditorView {
                         .as_deref()
                         .filter(|prefix| !prefix.is_empty() && prefix.len() <= 512)
                     {
-                        let marker_rect = Rect::new(rect.x, y, breakpoint_lane, LINE_HEIGHT);
+                        let marker_rect = Rect::new(rect.x, y, breakpoint_lane, self.editor.line_height());
                         let hovered = self.breakpoint_pointer.is_some_and(|point| {
                             marker_rect.contains(point) && row_clip.contains(point)
                         });
@@ -2261,7 +2389,7 @@ impl EditorView {
                 let x = body.x + display.x_at(ime_offset.saturating_sub(range.start))
                     - self.viewport.scroll_x
                     + composing.map_or(0.0, |state| measure(&state.text));
-                let caret = Rect::new(x, y, 1.5, LINE_HEIGHT);
+                let caret = Rect::new(x, y, 1.5, self.editor.line_height());
                 if let Some(visible_body) = visible_body.intersection(clip) {
                     if let Some(visible_caret) = caret.intersection(visible_body) {
                         self.ime_rects = Some((visible_body, visible_caret));
@@ -2280,7 +2408,7 @@ impl EditorView {
             if let Some(execution) = execution {
                 let color = Color::rgba(232, 183, 67, if execution.primary { 38 } else { 20 });
                 commands.push(DrawCommand::FillRect {
-                    rect: Rect::new(rect.x, y, rect.width, LINE_HEIGHT),
+                    rect: Rect::new(rect.x, y, rect.width, self.editor.line_height()),
                     color,
                     radius: 0.0,
                 });
@@ -2288,8 +2416,8 @@ impl EditorView {
                     commands.push(DrawCommand::FillTriangle {
                         points: [
                             Point::new(rect.x + breakpoint_lane + 1.0, y + 4.0),
-                            Point::new(rect.x + breakpoint_lane + 6.0, y + LINE_HEIGHT * 0.5),
-                            Point::new(rect.x + breakpoint_lane + 1.0, y + LINE_HEIGHT - 4.0),
+                            Point::new(rect.x + breakpoint_lane + 6.0, y + self.editor.line_height() * 0.5),
+                            Point::new(rect.x + breakpoint_lane + 1.0, y + self.editor.line_height() - 4.0),
                         ],
                         color: Color::rgb(232, 183, 67),
                     });
@@ -2297,7 +2425,7 @@ impl EditorView {
             }
             if focused && row == cursor_position.row {
                 commands.push(DrawCommand::FillRect {
-                    rect: Rect::new(rect.x, y, rect.width, LINE_HEIGHT),
+                    rect: Rect::new(rect.x, y, rect.width, self.editor.line_height()),
                     color: Color::rgba(
                         self.editor.palette.text.r,
                         self.editor.palette.text.g,
@@ -2310,6 +2438,7 @@ impl EditorView {
             if self.editor.line_numbers && !continuation {
                 let number = (row + 1).to_string();
                 commands.push(text_command(
+                    self.editor.font_size,
                     Point::new(
                         body.x - fold_lane - structure::NUMBER_TRAILING_PADDING - measure(&number),
                         text_y,
@@ -2335,14 +2464,14 @@ impl EditorView {
                     commands.push(DrawCommand::FillRect {
                         rect: Rect::new(
                             rect.x + breakpoint_lane + 3.0,
-                            y + (LINE_HEIGHT - 5.0) * 0.5,
+                            y + (self.editor.line_height() - 5.0) * 0.5,
                             5.0,
                             5.0,
                         ),
                         color: diagnostic.color,
                         radius: 2.5,
                     });
-                    let target = Rect::new(rect.x + breakpoint_lane, y, 11.0, LINE_HEIGHT);
+                    let target = Rect::new(rect.x + breakpoint_lane, y, 11.0, self.editor.line_height());
                     if hovered_diagnostic.is_none()
                         && !diagnostic.message.is_empty()
                         && pointer.is_some_and(|(point, _)| target.contains(point))
@@ -2366,6 +2495,7 @@ impl EditorView {
                 continuation,
                 body,
                 y,
+                self.editor.line_height(),
                 self.viewport.scroll_x,
                 self.editor.tab_width,
                 measure(" ").max(1.0),
@@ -2389,7 +2519,7 @@ impl EditorView {
                             body.x + display.x_at(left) - self.viewport.scroll_x,
                             y,
                             (display.x_at(right) - display.x_at(left)).max(2.0),
-                            LINE_HEIGHT,
+                            self.editor.line_height(),
                         ),
                         color: Color::rgba(218, 173, 54, 70),
                         radius: 2.0,
@@ -2420,7 +2550,7 @@ impl EditorView {
                 row,
                 range.clone(),
             );
-            display.paint(
+            display.paint(self.editor.font_size,
                 &mut commands,
                 Point::new(body.x - self.viewport.scroll_x, text_y),
                 (self.viewport.scroll_x, body.width),
@@ -2434,11 +2564,11 @@ impl EditorView {
                 let x = body.x + display.x_at(left) - self.viewport.scroll_x;
                 let width = (display.x_at(right) - display.x_at(left)).max(measure(" "));
                 commands.push(DrawCommand::FillRect {
-                    rect: Rect::new(x, y + LINE_HEIGHT - 2.0, width, 1.5),
+                    rect: Rect::new(x, y + self.editor.line_height() - 2.0, width, 1.5),
                     color: diagnostic.color,
                     radius: 0.0,
                 });
-                let target = Rect::new(x, y, width, LINE_HEIGHT);
+                let target = Rect::new(x, y, width, self.editor.line_height());
                 if hovered_diagnostic.is_none()
                     && !diagnostic.message.is_empty()
                     && pointer.is_some_and(|(point, _)| {
@@ -2482,7 +2612,7 @@ impl EditorView {
                             - self.viewport.scroll_x,
                         y,
                         width,
-                        LINE_HEIGHT,
+                        self.editor.line_height(),
                     );
                     if visible_body
                         .intersection(clip)
@@ -2511,6 +2641,7 @@ impl EditorView {
             }
             if folded {
                 commands.push(text_command(
+                    self.editor.font_size,
                     Point::new(
                         body.x + display.width - self.viewport.scroll_x + 8.0,
                         text_y,
@@ -2531,17 +2662,18 @@ impl EditorView {
                             - self.viewport.scroll_x;
                         let width = measure(&preedit.text);
                         commands.push(DrawCommand::FillRect {
-                            rect: Rect::new(x, y, width, LINE_HEIGHT),
+                            rect: Rect::new(x, y, width, self.editor.line_height()),
                             color: self.editor.palette.surface,
                             radius: 0.0,
                         });
                         commands.push(text_command(
+                    self.editor.font_size,
                             Point::new(x, text_y),
                             preedit.text.clone(),
                             self.editor.palette.text,
                         ));
                         commands.push(DrawCommand::FillRect {
-                            rect: Rect::new(x, y + LINE_HEIGHT - 2.0, width, 1.0),
+                            rect: Rect::new(x, y + self.editor.line_height() - 2.0, width, 1.0),
                             color: self.editor.palette.text,
                             radius: 0.0,
                         });
@@ -2595,6 +2727,7 @@ impl EditorView {
         if self.editor.status_bar {
             paint_editor_status(
                 &mut commands,
+                self.editor.font_size,
                 &snapshot,
                 self.editor.language,
                 self.editor.read_only,
@@ -2665,6 +2798,7 @@ fn unit_selection(snapshot: &BufferSnapshot, offset: usize, clicks: u8) -> Selec
 #[allow(clippy::too_many_arguments)]
 fn paint_editor_status(
     commands: &mut Vec<DrawCommand>,
+    font_size: f32,
     snapshot: &BufferSnapshot,
     language: CodeLanguage,
     read_only: bool,
@@ -2673,7 +2807,7 @@ fn paint_editor_status(
     measure: &dyn Fn(&str) -> f32,
     text_height: f32,
 ) {
-    if rect.width <= 16.0 || rect.height < LINE_HEIGHT {
+    if rect.width <= 16.0 || rect.height < LINE_HEIGHT * font_size / FONT_SIZE {
         return;
     }
     let position = snapshot
@@ -2750,13 +2884,14 @@ fn paint_editor_status(
     let y = centered_text_y(rect.y, rect.height, text_height);
     if !left.is_empty() {
         commands.push(text_command(
+                    font_size,
             Point::new(rect.x + 8.0, y),
             left,
             palette.muted,
         ));
     }
     let x = rect.x + rect.width - 8.0 - measure(&right);
-    commands.push(text_command(Point::new(x, y), right, palette.muted));
+    commands.push(text_command(font_size, Point::new(x, y), right, palette.muted));
     commands.push(DrawCommand::PopClip);
 }
 
@@ -2900,6 +3035,7 @@ impl DisplayLine {
     }
     fn paint(
         &self,
+        font_size: f32,
         commands: &mut Vec<DrawCommand>,
         origin: Point,
         window: (f32, f32),
@@ -2925,6 +3061,7 @@ impl DisplayLine {
                 .map_or(color, |span| span.color);
             if !run.is_empty() && tint != run_color {
                 commands.push(text_command(
+                    font_size,
                     Point::new(origin.x + run_x, origin.y),
                     std::mem::take(&mut run),
                     run_color,
@@ -2938,6 +3075,7 @@ impl DisplayLine {
         }
         if !run.is_empty() {
             commands.push(text_command(
+                    font_size,
                 Point::new(origin.x + run_x, origin.y),
                 run,
                 run_color,
@@ -2982,12 +3120,12 @@ fn centered_text_y(row_y: f32, row_height: f32, text_height: f32) -> f32 {
     row_y + (row_height - text_height).max(0.0) / 2.0
 }
 
-fn text_command(position: Point, text: String, color: Color) -> DrawCommand {
+fn text_command(font_size: f32, position: Point, text: String, color: Color) -> DrawCommand {
     DrawCommand::Text {
         position,
         text,
         color,
-        font_size: FONT_SIZE,
+        font_size,
         font_family: FontFamily::Monospace,
     }
 }
@@ -3090,6 +3228,7 @@ pub(crate) fn paint_diff(
     measure: &dyn Fn(&str) -> f32,
     text_height: f32,
 ) -> Vec<DrawCommand> {
+    let line_height = LINE_HEIGHT * diff.font_size / FONT_SIZE;
     view.syntax.update_diff(diff.lines.clone(), diff.language);
     let viewport = &mut view.viewport;
     if view
@@ -3137,14 +3276,14 @@ pub(crate) fn paint_diff(
     }
     let previous_max_y = viewport.max_y;
     let was_at_bottom = previous_max_y - viewport.scroll_y <= 2.0;
-    viewport.max_y = (diff.lines.len() as f32 * LINE_HEIGHT - viewport.body.height).max(0.0);
+    viewport.max_y = (diff.lines.len() as f32 * line_height - viewport.body.height).max(0.0);
     viewport.scroll_y = if diff.follow_tail && was_at_bottom && viewport.max_y > previous_max_y {
         viewport.max_y
     } else {
         viewport.scroll_y.min(viewport.max_y)
     };
-    let first = (viewport.scroll_y / LINE_HEIGHT).floor() as usize;
-    let end = ((viewport.scroll_y + viewport.body.height) / LINE_HEIGHT).ceil() as usize;
+    let first = (viewport.scroll_y / line_height).floor() as usize;
+    let end = ((viewport.scroll_y + viewport.body.height) / line_height).ceil() as usize;
     let visible_end = end.min(diff.lines.len());
     let mut displays = Vec::with_capacity(visible_end.saturating_sub(first));
     for row in first..visible_end {
@@ -3197,8 +3336,8 @@ pub(crate) fn paint_diff(
     let mut commands = vec![DrawCommand::PushClip(clip)];
     for (row, display) in displays {
         let line = &diff.lines[row];
-        let y = viewport.body.y + row as f32 * LINE_HEIGHT - viewport.scroll_y;
-        let text_y = centered_text_y(y, LINE_HEIGHT, text_height);
+        let y = viewport.body.y + row as f32 * line_height - viewport.scroll_y;
+        let text_y = centered_text_y(y, line_height, text_height);
         // Gutter density changes the line numbers, not the meaning of a row.
         // A created file still contains additions with a single number column.
         let (marker, marker_color, fill) = match line.kind {
@@ -3211,13 +3350,15 @@ pub(crate) fn paint_diff(
             }
         };
         if fill.a > 0 {
+            if diff.diff_backgrounds {
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(rect.x, y, rect.width, line_height),
+                    color: fill,
+                    radius: 0.0,
+                });
+            }
             commands.push(DrawCommand::FillRect {
-                rect: Rect::new(rect.x, y, rect.width, LINE_HEIGHT),
-                color: fill,
-                radius: 0.0,
-            });
-            commands.push(DrawCommand::FillRect {
-                rect: Rect::new(rect.x, y, 2.0, LINE_HEIGHT),
+                rect: Rect::new(rect.x, y, 2.0, line_height),
                 color: marker_color,
                 radius: 0.0,
             });
@@ -3233,6 +3374,7 @@ pub(crate) fn paint_diff(
         for (x, value) in numbers {
             if let Some(number) = value {
                 commands.push(text_command(
+                    diff.font_size,
                     Point::new(x, text_y),
                     number.to_string(),
                     diff.palette.muted,
@@ -3241,6 +3383,7 @@ pub(crate) fn paint_diff(
         }
         if !diff.single_gutter {
             commands.push(text_command(
+                    diff.font_size,
                 Point::new(rect.x + gutter - 16.0, text_y),
                 marker.to_owned(),
                 marker_color,
@@ -3254,7 +3397,7 @@ pub(crate) fn paint_diff(
                 0.0,
             )),
         ));
-        display.paint(
+        display.paint(diff.font_size,
             &mut commands,
             Point::new(viewport.body.x - viewport.scroll_x, text_y),
             (viewport.scroll_x, viewport.body.width),

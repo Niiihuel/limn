@@ -475,8 +475,8 @@ impl EditorView {
             return;
         }
         let visible = self.content_visible;
-        let top = (visible.y - self.viewport.body.y + self.viewport.scroll_y) / LINE_HEIGHT;
-        let bottom = top + visible.height / LINE_HEIGHT;
+        let top = (visible.y - self.viewport.body.y + self.viewport.scroll_y) / self.editor.line_height();
+        let bottom = top + visible.height / self.editor.line_height();
         let ranges = &self.review_layout.hunk_ranges;
         let is_visible = |index: usize| {
             ranges
@@ -548,7 +548,7 @@ impl EditorView {
             .filter(|point| visible.contains(*point))
             .and_then(|point| {
                 let row = ((point.y - self.viewport.body.y + self.viewport.scroll_y).max(0.0)
-                    / LINE_HEIGHT)
+                    / self.editor.line_height())
                     .floor() as usize;
                 ranges
                     .iter()
@@ -615,8 +615,8 @@ impl EditorView {
             visible.width,
             (visible.y + visible.height - controls_top).max(0.0),
         );
-        let top = body.y + rows.start as f32 * LINE_HEIGHT - self.viewport.scroll_y;
-        let bottom = body.y + rows.end as f32 * LINE_HEIGHT - self.viewport.scroll_y;
+        let top = body.y + rows.start as f32 * self.editor.line_height() - self.viewport.scroll_y;
+        let bottom = body.y + rows.end as f32 * self.editor.line_height() - self.viewport.scroll_y;
         if bottom <= visible.y || top >= visible.y + visible.height {
             return;
         }
@@ -780,7 +780,7 @@ impl EditorView {
         if !self.viewport.rect.contains(point) || point.y < self.viewport.body.y {
             return false;
         }
-        let row = ((point.y - self.viewport.body.y + self.viewport.scroll_y).max(0.0) / LINE_HEIGHT)
+        let row = ((point.y - self.viewport.body.y + self.viewport.scroll_y).max(0.0) / self.editor.line_height())
             .floor() as usize;
         self.review_layout.zone_row(row).is_some()
     }
@@ -811,21 +811,24 @@ impl EditorView {
             };
             let hunk = &self.editor.review_hunks[hunk];
             let removed = fragment.line;
-            let y = body.y + row as f32 * LINE_HEIGHT - self.viewport.scroll_y;
-            let text_y = centered_text_y(y, LINE_HEIGHT, text_height);
+            let y = body.y + row as f32 * self.editor.line_height() - self.viewport.scroll_y;
+            let text_y = centered_text_y(y, self.editor.line_height(), text_height);
+            if self.editor.diff_backgrounds {
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(rect.x, y, rect.width, self.editor.line_height()),
+                    color: REMOVED_FILL,
+                    radius: 0.0,
+                });
+            }
             commands.push(DrawCommand::FillRect {
-                rect: Rect::new(rect.x, y, rect.width, LINE_HEIGHT),
-                color: REMOVED_FILL,
-                radius: 0.0,
-            });
-            commands.push(DrawCommand::FillRect {
-                rect: Rect::new(rect.x, y, 2.0, LINE_HEIGHT),
+                rect: Rect::new(rect.x, y, 2.0, self.editor.line_height()),
                 color: REMOVED_MARKER,
                 radius: 0.0,
             });
             if self.editor.line_numbers && fragment.bytes.start == 0 {
                 let number = format!("−{}", hunk.old_start_row + removed + 1);
                 commands.push(text_command(
+                    self.editor.font_size,
                     Point::new(
                         body.x - fold_lane - structure::NUMBER_TRAILING_PADDING - measure(&number),
                         text_y,
@@ -859,7 +862,7 @@ impl EditorView {
                     .intersection(clip)
                     .unwrap_or(Rect::new(body.x, body.y, 0.0, 0.0)),
             ));
-            display.paint(
+            display.paint(self.editor.font_size,
                 commands,
                 Point::new(body.x - self.viewport.scroll_x, text_y),
                 (self.viewport.scroll_x, body.width),

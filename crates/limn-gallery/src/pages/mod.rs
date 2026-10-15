@@ -193,6 +193,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "dropdown-menu", group: "Overlays", title: "DropdownMenu", source: "overlays", view: overlays::view, sections: &["Menu", "Menu items"], since: "0.1.39" },
     Page { id: "context-menu", group: "Overlays", title: "ContextMenu", source: "overlays", view: overlays::view, sections: &["Context menu", "Menu at a point"], since: "0.1.39" },
     Page { id: "dialog", group: "Overlays", title: "Modal / AlertDialog", source: "overlays", view: overlays::view, sections: &["Dialogs"], since: "0.1.39" },
+    Page { id: "bottom-sheet", group: "Overlays", title: "BottomSheet", source: "overlays", view: overlays::view, sections: &["Bottom sheet"], since: "0.1.44" },
     Page { id: "toast", group: "Overlays", title: "Toast", source: "overlays", view: overlays::view, sections: &["Toast"], since: "0.1.39" },
     Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer"], since: "0.1.39" },
     Page { id: "picker", group: "Overlays", title: "Catalog menus", source: "menus", view: menus::view, sections: &["Select and catalog", "Menu rows", "Popover panel"], since: "0.1.39" },
@@ -266,6 +267,7 @@ pub fn update(state: &mut State, action: &UiAction) {
     toolbar::update(state, action);
     inputs::update(state, action);
     colors::update(state, action);
+    overlays::update(state, action);
 }
 
 /// Answer a secondary click or the menu key a page opens its own menu for,

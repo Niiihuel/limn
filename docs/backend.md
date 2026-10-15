@@ -47,22 +47,54 @@ the tree's origin.
 | `Text(string)` | Typed text. |
 | `Key { key, shift, ctrl }` | A non-text key: arrows, Tab, Enter, Escape, and so on. |
 | `Paste(string)`, `PasteTo { id, text }` | Clipboard text, to the focused control or a named one. |
+| `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
 | `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
 | `FilesHovered { position }`, `FilesDropped { position, paths }` | Files dragged from another application. |
 
 External file events preserve the supplied list; they do not read file
 contents. The tree resolves drop targets within floating surfaces and modal
 boundaries. Hosts validate targets and paths before starting file I/O.
-`limn_egui::events` delivers file hover/drop after the frame's ordinary input,
-so a host can apply a click or key that changes its view before admitting files.
-egui groups file metadata separately; this is not an OS event chronology.
+`limn_egui::events_indexed` places this frame-derived metadata before ordinary
+input with `source_index: None`; `events` projects the same converter. This
+supersedes the RUNE integration's earlier artificial after-input ordering.
+egui groups file metadata separately; neither position is an OS chronology.
 The touch wrapper can append derived touch actions afterward. Hosts must
-revalidate their current view and prevent an editor submission in a frame
-containing new files when their product requires preparation before sending.
+explicitly defer or reject unpositioned files, revalidate their current view,
+and prevent editor submission in that frame when preparation must precede sending.
 
 `handle_event` returns the `UiAction`s the event produced. Call
 `UiTree::layout` before delivering pointer events: they are resolved against
 the regions of the last layout.
+
+### Captured paste replies (unreleased)
+
+Use `UiTree::capture_paste_target()` after resolving focus and laying out the
+current view. Keep that opaque target with the host's delayed request, then
+apply `UiEvent::PasteCaptured { target, text }`. The target carries no clipboard
+or window resource. It is consumed once on acceptance, including an accepted
+empty/sanitized-empty result or an insertion error; clones cannot repeat it.
+A foreign/stale target is rejected before claiming, while busy-buffer or
+pending-layout attempts do not consume it and may be retried explicitly.
+
+Forward native focus through `UiTree::set_window_focused`, and preserve the
+position of paste markers relative to navigation, clicks and host-owned keys.
+Resolve earlier state changes, pending focus and layout before authorizing the
+text read or acknowledging a deferred clipboard reservation. Do not pre-process
+all navigation for a frame ahead of the marker. If a host changes a document,
+account or endpoint association outside the tree's observations, call
+`invalidate_paste_targets()` at the change, including a temporary A→B→A mapping.
+
+An active IME composition cannot be captured; its start/cancel lifecycle cuts
+old targets even without text changes. Vim mode transitions and observed
+read-only/removal/modal changes also invalidate old targets. Equivalent reflow
+can retain one after layout. These checks neither implement a clipboard owner
+nor make a synchronous clipboard getter asynchronous. The host owns transfer
+limits, reservation/ACK/completion and ordered SDK event mapping.
+
+`PasteTo` remains available with its previous ID/focus contract. The new
+`UiEvent` variant requires changes to exhaustive event matches. See
+[Captured paste targets](captured-paste.md) for complete examples, shared-buffer
+stamps, single-use semantics and the limits of tree observation.
 
 ## The frame
 
@@ -133,6 +165,7 @@ The egui backend exposes:
 | `attach_fonts(&mut tree, &ctx)` | Makes a tree measure with egui's fonts. Once per tree. |
 | `normalize_keyboard_input(&ctx)` | Fixes key and text events on remapped layouts. Each frame, before `events`. |
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
+| `events_indexed(&ctx, origin)` | Unreleased indexed-input contract: input with its source index for an ordered host loop. See below. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
 | `GlassRenderer::new(&render_state)` | Creates the native wgpu optical renderer. Supply the backdrop using `set_backdrop_rgba` or `set_backdrop_texture`, then call its `paint_at`. |
 | `GlassRenderer::paint_at_surface(ui, &frame, origin, backdrop_rect, surface_id)` | Displays the shared backdrop texture at a named surface's paint depth and renders the glass above it. This opt-in path stretches the texture to the explicit backdrop rectangle; ordinary host-fed surfaces retain their pixel mapping. See [Native glass navigation](liquid-glass.md). |
@@ -149,6 +182,57 @@ workers; clearing still releases its raster cache.
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
 | `forget_surface(id)` | Frees a surface's texture. |
+
+### Indexed input
+
+`events_indexed` returns `Vec<IndexedUiEvent>`, with public fields
+`source_index: Option<usize>` and `event: UiEvent`. The host retains ownership
+of clipboard requests, cancellation and application context.
+
+Run `normalize_keyboard_input` first. `Some(i)` refers to `input.events[i]`
+in the **same normalized snapshot and viewport**, not the earlier RawInput or
+the physical order of operating-system input. Keep that snapshot stable during
+translation and consumption; do not normalize it again or switch viewports.
+Translations retain source order, and several may share one index.
+
+An ordered host traverses **every source event in that snapshot**, including unknown events
+that produce no `UiEvent`. At each index, process its associated translations
+in order. Read physical_key, pressed, repeat and modifiers (including Alt)
+from that source Key event, rather than a whole-frame key prepass. Apply earlier
+host actions, pending focus and layout before capturing a later paste target.
+Draining only translated events, or processing all markers at the end, loses
+their place among navigation and clicks.
+
+`None` identifies frame-derived input without an `egui::Event` source. Existing
+RawInput file-hover/drop metadata keeps its compatibility position before
+ordinary events, with no invented source index or native chronology. The
+legacy `events` function shares the converter and discards the indices.
+
+Deduplication changes from whole-frame searches to forward, contiguous,
+non-overlapping pairs: pressed Enter followed by Text exactly `\n`, `\r` or
+`\r\n` keeps the Key; pressed Ctrl/Command+C/X followed by Copy/Cut keeps the
+Key and its modifiers; pressed Ctrl/Command+V followed by Paste keeps the
+unchanged Paste payload and its index. Each event belongs to at most one pair.
+Any intervening event, even an ignored one, breaks the pair. Reverse orders
+and other combinations translate individually. This behavior change applies
+to `events` too, so a later shortcut cannot suppress an earlier event across
+an unknown marker.
+
+Indices do not make every input property source-exact. Initial pointer
+position and double/triple-click detection still use whole-frame pointer
+state; MouseWheel can use that initial position until a preceding PointerMoved.
+Copy/Cut without a Key has no source modifiers and retains the final-frame
+Shift fallback. These are compatibility limits, not reconstructed per-event
+click counts, modifiers or operating-system timing. `events_with_touch` and
+its hold timers remain unchanged and are not part of the indexed API.
+
+The `captured_paste` Gallery example adds `--ordered-input` to show two fixed
+synthetic batches: navigation before the marker delivers to B; navigation
+after capturing A rejects its late reply. The visible panels show the second
+sequence's final state, with both historical results below. Use `--small` for
+600 × 580; `--verify`, theme/corner flags and new-path PNG capture are shared
+with the original mode. This demonstration uses a separate synthetic egui
+context and the visible limn tree, without requesting clipboard I/O.
 
 ### Host-fed surfaces
 
@@ -174,4 +258,5 @@ everything. Parts are applied in the order they are presented.
 ## See also
 
 - [Concepts](concepts.md) for the model a backend serves.
+- [Captured paste targets](captured-paste.md) for delayed replies and host lifetime cuts.
 - [Getting started](getting-started.md) for a complete host.

@@ -2,7 +2,7 @@
 
 use crate::components::{Component, ComponentPalette, Tooltip};
 use crate::{
-    Access, Color, Element, FontFamily, Icon, Point, PopoverPlacement, Role, ScrollArea,
+    Access, Color, CornerRadii, Element, FontFamily, Icon, Point, PopoverPlacement, Role, ScrollArea,
     ScrollbarAppearance, TextSpan,
 };
 
@@ -12,6 +12,7 @@ pub struct DismissButton {
     id: String,
     action_id: Option<String>,
     enabled: bool,
+    target_size: f32,
     palette: ComponentPalette,
 }
 
@@ -23,6 +24,7 @@ impl DismissButton {
             id: id.into(),
             action_id: None,
             enabled: true,
+            target_size: 24.0,
             palette,
         }
     }
@@ -31,6 +33,14 @@ impl DismissButton {
     /// and of its tooltip. A disabled button reports nothing.
     pub fn dispatch_as(mut self, action: impl Into<String>) -> Self {
         self.action_id = Some(action.into());
+        self
+    }
+
+    /// Enlarge the square pointer/keyboard target while keeping its icon
+    /// centered at 16 pixels. The default and minimum are 24; use 44 for touch.
+    /// A value that is not finite is ignored.
+    pub fn target_size(mut self, size: f32) -> Self {
+        if size.is_finite() { self.target_size = size.max(24.0); }
         self
     }
 
@@ -70,7 +80,7 @@ impl Component for DismissButton {
         } else {
             Element::panel(icon).accessible(said.id(self.id.clone()).disabled(true))
         }
-        .size(Some(24.0), Some(24.0));
+        .size(Some(self.target_size), Some(self.target_size));
         if let Some(action) = self.action_id.filter(|_| self.enabled) {
             button = button.dispatch_as(action);
         }
@@ -85,6 +95,11 @@ const PADDING: f32 = 14.0;
 const RAIL_WIDTH: f32 = 14.0;
 // The least space kept between the card and the window, both sides together.
 const VIEWPORT_MARGIN: f32 = 24.0;
+
+struct SheetLayout {
+    max_height: f32,
+    safe_area_bottom: f32,
+}
 
 /// A controlled modal with a fixed header and footer. Only the body scrolls,
 /// up to `height` or to 480 without one, keeping its actions visible in a
@@ -106,6 +121,7 @@ pub struct Modal {
     animation_ms: u16,
     role: Role,
     spoken_description: String,
+    sheet: Option<SheetLayout>,
 }
 
 impl Modal {
@@ -138,6 +154,7 @@ impl Modal {
             animation_ms: crate::tokens().motion.enter_ms,
             role: Role::Dialog,
             spoken_description: String::new(),
+            sheet: None,
         }
     }
 
@@ -146,6 +163,12 @@ impl Modal {
     pub(crate) fn alert(mut self, description: &str) -> Self {
         self.role = Role::AlertDialog;
         self.spoken_description = description.to_owned();
+        self
+    }
+
+    // BottomSheet shares this composition, changing only its presentation.
+    pub(crate) fn bottom_sheet(mut self, max_height: f32, safe_area_bottom: f32) -> Self {
+        self.sheet = Some(SheetLayout { max_height, safe_area_bottom });
         self
     }
 
@@ -233,6 +256,7 @@ impl Component for Modal {
         }
 
         let close = DismissButton::new(format!("{}:close", self.close_id), self.palette)
+            .target_size(if self.sheet.is_some() { 44.0 } else { 24.0 })
             .dispatch_as(self.close_id.clone())
             .render();
 
@@ -243,29 +267,53 @@ impl Component for Modal {
             said = said.description(description);
         }
 
-        let mut sections = vec![Element::row(vec![
-            Element::formatted_text(vec![TextSpan::new(
-                self.title,
-                self.palette.text,
-                16.0,
-                FontFamily::Sans,
-            )])
-            .flex(1.0),
-            close,
-        ])
-        .gap(8.0)
-        .min_size(0.0, 24.0)];
+        let title = Element::formatted_text(vec![TextSpan::new(
+            self.title, self.palette.text, 16.0, FontFamily::Sans,
+        )]);
+        let header = if self.sheet.is_some() {
+            // Share one touch-height header: a separate fixed handle row
+            // would crowd the footer when the keyboard shortens the viewport.
+            // These are sibling controls, so the close button wins hit tests
+            // without nesting interactive accessibility nodes.
+            let handle = Element::column(vec![
+                Element::row(vec![
+                    Element::spacer().flex(1.0),
+                    Element::spacer().size(Some(36.0), Some(4.0))
+                        .background(self.palette.muted).radius(2.0),
+                    Element::spacer().flex(1.0),
+                ]).size(None, Some(4.0)),
+                Element::spacer().flex(1.0),
+            ]);
+            let handle = self.palette.interactive_surface(
+                Element::clickable(format!("{}:drag", self.close_id), handle)
+                    .dispatch_as(self.close_id.clone())
+                    .draggable_in_place()
+                    .accessible(Access::new(Role::Button).name(crate::labels().close))
+            ).size(None, Some(44.0));
+            let title = Element::column(vec![
+                Element::spacer().size(None, Some(12.0)), title,
+            ]).flex(1.0);
+            Element::stack(vec![handle, Element::row(vec![title, close]).gap(8.0)])
+                .size(None, Some(44.0))
+        } else {
+            Element::row(vec![title.flex(1.0), close]).gap(8.0).min_size(0.0, 24.0)
+        };
+        let mut sections = vec![header];
+        let mut body = self.body;
 
         if !self.description.is_empty() {
-            sections.push(
-                Element::text(self.description)
+            let description = Element::text(self.description)
                     .foreground(self.palette.muted)
                     .font_family(FontFamily::Sans)
-                    .font_size(12.0),
-            );
+                    .font_size(12.0);
+            if self.sheet.is_some() {
+                let mut content = vec![description];
+                if let Some(body) = body { content.push(body); }
+                body = Some(Element::column(content).gap(10.0));
+            } else { sections.push(description); }
         }
 
-        if let Some(body) = self.body {
+        if let Some(body) = body {
             sections.push(
                 ScrollArea::new(format!("modal_body:{}", self.close_id), body)
                     // A dedicated rail keeps the thumb outside bordered form
@@ -277,7 +325,7 @@ impl Component for Modal {
                             .tint(self.palette.muted),
                     )
                     .render()
-                    .max_height(self.height.unwrap_or(480.0))
+                    .max_height(self.sheet.as_ref().map_or(self.height.unwrap_or(480.0), |s| s.max_height))
                     .flex(1.0),
             );
         }
@@ -286,7 +334,16 @@ impl Component for Modal {
             sections.push(footer);
         }
 
-        let card = Element::panel(Element::column(sections).gap(10.0))
+        let mut content = Element::column(sections).gap(10.0);
+        if let Some(sheet) = &self.sheet {
+            if sheet.safe_area_bottom > 0.0 {
+                content = Element::column(vec![
+                    content.flex(1.0),
+                    Element::spacer().size(None, Some(sheet.safe_area_bottom)),
+                ]);
+            }
+        }
+        let mut card = Element::panel(content)
             .padding(PADDING)
             .size(Some(self.width), self.height)
             .background(self.palette.surface)
@@ -296,8 +353,14 @@ impl Component for Modal {
             .clip_children()
             .accessible(said);
 
+        let placement = if let Some(sheet) = self.sheet {
+            card = card.max_height(sheet.max_height)
+                .corner_radii(CornerRadii::top(crate::tokens().radius.panel));
+            PopoverPlacement::Bottom
+        } else { PopoverPlacement::Center };
+
         let mut popover =
-            Element::popover(self.base, card, self.close_id, PopoverPlacement::Center)
+            Element::popover(self.base, card, self.close_id, placement)
                 .popover_scrim(Color::rgba(0, 0, 0, 180))
                 .popover_backdrop_dismiss(self.backdrop_dismiss)
                 .popover_animation_ms(self.animation_ms);

@@ -13,8 +13,26 @@ impl PartialEq for ContextMenuRegion {
     fn eq(&self, other: &Self) -> bool {
         self.definition.id == other.definition.id
             && self.definition.entries == other.definition.entries
+            && self.definition.open_action == other.definition.open_action
             && self.rect == other.rect
             && self.region_layer == other.region_layer
+    }
+}
+
+impl Frame {
+    /// The custom context menu under a point in this frame's coordinates.
+    /// Floating surfaces and modal backdrops block targets beneath them.
+    pub fn context_menu_at(&self, position: Point) -> Option<&str> {
+        let modal = self.popover_focus.iter().rev().find(|scope| scope.modal);
+        let floor = self.regions.iter().enumerate().rev().find_map(|(index, region)| {
+            (region.kind == HitKind::Surface && (region.rect.contains(position)
+                || modal.is_some_and(|scope| region.id.strip_prefix("popover_surface:") == Some(scope.dismiss_id.as_str()))))
+                .then_some(index)
+        }).unwrap_or(0);
+        self.context_menu_regions.iter().rev().find(|region| {
+            region.region_layer >= floor && region.rect.contains(position)
+                && (!region.definition.entries.is_empty() || region.definition.open_action.is_some())
+        }).map(|region| region.definition.id.as_str())
     }
 }
 
@@ -66,7 +84,8 @@ impl ContextMenuState {
                 .get(*block)
                 .is_some_and(|text| text.source == *source),
             Target::Custom { id } => frame.context_menu_regions.iter().any(|region| {
-                region.definition.id == *id && region.definition.entries == self.entries
+                region.definition.id == *id && region.definition.open_action.is_none()
+                    && region.definition.entries == self.entries
             }),
         }
     }
@@ -92,6 +111,9 @@ impl UiTree {
     }
 
     fn close_context_menu(&mut self, now: Instant) {
+        if self.context_menu.is_some() {
+            self.invalidate_paste_targets();
+        }
         self.context_menu = None;
         self.pressed = None;
         self.scroll_drag = None;
@@ -147,10 +169,10 @@ impl UiTree {
         ))
     }
 
-    fn open_text_context_menu(&mut self, position: Point, keyboard: bool, now: Instant) {
+    fn open_text_context_menu(&mut self, position: Point, keyboard: bool, now: Instant) -> Option<UiAction> {
         self.close_context_menu(now);
         if !position.x.is_finite() || !position.y.is_finite() {
-            return;
+            return None;
         }
         // Ignore the old menu's paint until the next layout, but respect every
         // underlying floating surface and modal backdrop.
@@ -206,8 +228,12 @@ impl UiTree {
                     hit.kind,
                     HitKind::Button | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor
                 ) {
-                    self.focused = Some(hit.id.clone());
+                    let next_focus = Some(hit.id.clone());
+                    Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 }
+            }
+            if let Some(id) = region.definition.open_action {
+                return Some(UiAction::Clicked { id: self.dispatch_id(&id) });
             }
             (
                 Target::Custom {
@@ -220,13 +246,12 @@ impl UiTree {
             .as_ref()
             .filter(|hit| matches!(hit.kind, HitKind::TextInput | HitKind::TextArea))
         {
-            let Some(input) = self.inputs.get(&hit.id) else {
-                return;
-            };
+            let input = self.inputs.get(&hit.id)?;
             let selected = input.selected_range().is_some();
             let copy = selected && !input.password;
             let entries = text_entries(copy, copy, true, !input.value.is_empty());
-            self.focused = Some(hit.id.clone());
+            let next_focus = Some(hit.id.clone());
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             (
                 Target::Input { id: hit.id.clone() },
                 entries,
@@ -249,12 +274,10 @@ impl UiTree {
                     editor.context_point(position, &measure);
                 }
             }
-            let Some(editor) = self.code_editors.get(&hit.id) else {
-                return;
-            };
+            let editor = self.code_editors.get(&hit.id)?;
             let controller = editor.editor.controller.shared_buffer();
             let Ok(buffer) = controller.lock() else {
-                return;
+                return None;
             };
             let snapshot = buffer.snapshot();
             let copy = snapshot.selections().any(|selection| !selection.is_empty());
@@ -270,7 +293,8 @@ impl UiTree {
                 entries.push(ContextMenuEntry::Separator);
                 entries.extend(editor.editor.context_actions.clone());
             }
-            self.focused = Some(hit.id.clone());
+            let next_focus = Some(hit.id.clone());
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             (
                 Target::Editor {
                     id: hit.id.clone(),
@@ -288,9 +312,9 @@ impl UiTree {
                     HitKind::Button | HitKind::Scrollbar | HitKind::CodeDiff
                 )
             }) {
-                return;
+                return None;
             }
-            let Some((index, block)) =
+            let (index, block) =
                 self.frame
                     .text_blocks
                     .iter()
@@ -300,10 +324,7 @@ impl UiTree {
                         block.region_layer >= floor
                             && block.region_layer <= end
                             && block.contains(position)
-                    })
-            else {
-                return;
-            };
+                    })?;
             let preserved = self.static_selection.as_ref().is_some_and(|selection| {
                 selection.block == index && selection.source == block.source
             });
@@ -340,7 +361,7 @@ impl UiTree {
             )
         };
         if entries.is_empty() {
-            return;
+            return None;
         }
         let selected = keyboard
             .then(|| {
@@ -351,6 +372,7 @@ impl UiTree {
             .flatten();
         self.scroll_offsets.remove(context_menu::SCROLL_ID);
         self.scroll_transitions.remove(context_menu::SCROLL_ID);
+        self.invalidate_paste_targets();
         self.context_menu = Some(ContextMenuState {
             target,
             position,
@@ -362,6 +384,7 @@ impl UiTree {
         });
         self.pointer = Some(position);
         self.tooltip_hover_since = None;
+        None
     }
 
     fn activate_context_menu(&mut self, index: usize, now: Instant) -> Vec<UiAction> {
@@ -390,8 +413,7 @@ impl UiTree {
                     return Vec::new();
                 };
                 if item.action_id == "select_all" {
-                    input.anchor = Some(0);
-                    input.cursor = input.value.chars().count();
+                    input.set_selection(input.value.chars().count(), Some(0));
                     input.keep_cursor_visible = true;
                     return Vec::new();
                 }
@@ -463,7 +485,8 @@ impl UiTree {
                 if item.action_id == "select_all" {
                     selection.anchor = 0;
                     selection.cursor = source.chars().count();
-                    self.focused = None;
+                    let next_focus = None;
+                    Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                     return Vec::new();
                 }
                 self.selected_text()
@@ -502,8 +525,7 @@ impl UiTree {
                     self.close_context_menu(now);
                     return Some(vec![UiAction::Clicked { id }]);
                 }
-                self.open_text_context_menu(*position, false, now);
-                return Some(Vec::new());
+                return Some(self.open_text_context_menu(*position, false, now).into_iter().collect());
             }
             UiEvent::ContextMenuKeyboard => {
                 let point = self
@@ -528,7 +550,7 @@ impl UiTree {
                     });
                 if let Some(mut point) = point {
                     point.y -= 1.0;
-                    self.open_text_context_menu(point, true, now);
+                    return Some(self.open_text_context_menu(point, true, now).into_iter().collect());
                 }
                 return Some(Vec::new());
             }

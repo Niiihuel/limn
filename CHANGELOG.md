@@ -3,16 +3,23 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
-## 0.1.42 — 2026-10-14
 ## Unreleased
 
-- `Composer::drop_target()` opts the enabled editor into file drops using its existing ID, without adding a hit region or changing focus. The host owns validation and file access; disabled composers never accept drops. The Editor gallery records the count without opening files.
-- File hover and drop targets respect floating surfaces, context menus and modals, keeping files from reaching covered background controls.
-- The egui bridge delivers native files after the frame's ordinary input, allowing hosts to revalidate an editor after a click or key changes the view.
+- RUNE integration: preserve opt-in Composer file-drop targets and their floating-surface/modal checks; hosts still own validation and file access. Frame-derived files now use the indexed converter's unindexed prefix, superseding the integration's former after-input ordering without inventing native chronology.
+- `Element::shrink_height_to_fit`: opt-in height shrinking for a non-flex child of a column. Short content keeps its natural height; a bounded scroll area can yield room to a fixed footer without covering it. Marked children yield in order, minimums first and then toward zero if necessary; flexible siblings keep their minimum heights and share the rest by weight. Rows, unmarked columns and the width-only `shrink_to_fit` keep their behavior. `Style` adds public `shrink_height`, false by default; code building `Style` literally adds that field. The ScrollArea gallery shows short, tall and constrained content
+
+- Add indexed input: `limn_egui::events_indexed` returns `IndexedUiEvent { source_index, event }` for the same post-normalization viewport snapshot. Hosts can interleave untranslated events and read Key/Alt metadata from their source; frame-derived file metadata has no index. See [Indexed input](docs/backend.md#indexed-input).
+- Input compatibility: `events` and the indexed API share a converter that deduplicates only forward, contiguous, non-overlapping Enter/Text and clipboard Key/payload pairs. An unknown intervening event breaks a pair. Initial pointer state, double/triple-click detection and unpaired Copy/Cut Shift remain whole-frame compatibility data; touch translation is unchanged.
+- Gallery: `captured_paste --ordered-input` demonstrates the two synthetic navigation/marker orders using the visible destinations; `--small` selects 600 × 580. Verification and captures remain synthetic and separate from native clipboard integration.
+
+- Add the captured-paste API contract: `UiTree::capture_paste_target`, `invalidate_paste_targets`, opaque single-use `PasteTarget`, and `UiEvent::PasteCaptured`. Delayed text replies remain tied to observed tree/focus/editable state, including IME and Vim mode changes; accepted empty or failed insertions consume the capture, while busy/pending-layout attempts do not. This does not provide clipboard I/O, an owner, ACK/completion or native clipboard integration. See [Captured paste targets](docs/captured-paste.md).
+- Add opaque `limn_editor::EditStateToken` and `TextBuffer::edit_state_token` for buffer instance, text revision and primary/secondary selection state. Shared-buffer selection changes and ABA invalidate it; no-op setters preserve it. Validate and edit under the same nonblocking buffer guard.
+- API compatibility: `UiEvent::PasteCaptured` is a new variant for exhaustive matches to handle. Legacy `PasteTo` remains available with its previous ID/focus semantics; the new capture has no serialization contract and retains no text or editor resources.
+
+- Gallery: `captured_paste` example checks synthetic Unicode delivery, stale invalidation and empty-once replay in a TextArea and CodeEditor. It includes limn Run/Close/theme/corner controls, `--verify`, dark/light and square variants, and `--screenshot` to a new PNG. It does not request clipboard I/O; eframe may initialize its default backend. Native visual QA is separate.
 
 ## 0.1.43 — 2026-10-15
 
-- `Element::shrink_height_to_fit`: opt-in height shrinking for a non-flex child of a column. Short content keeps its natural height; a bounded scroll area can yield room to a fixed footer without covering it. Marked children yield in order, minimums first and then toward zero if necessary; flexible siblings keep their minimum heights and share the rest by weight. Rows, unmarked columns and the width-only `shrink_to_fit` keep their behavior. `Style` adds public `shrink_height`, false by default; code building `Style` literally adds that field. The ScrollArea gallery shows short, tall and constrained content
 - CodeEditor and CodeDiff: `font_size` keeps text, row geometry, scrolling and pointer selection at the same size; `diff_backgrounds(false)` hides row tints while preserving change markers. Both add public `font_size` and `diff_backgrounds` fields for hosts building their structs literally
 - CodeBlock: `font_size` overrides code without changing its label; `word_wrap(false)` preserves source lines in a horizontal viewport. Markdown exposes independent fenced-code settings through `code_font_size` and `code_word_wrap`, included in its render cache key. Set `id` on a block or preview to preserve horizontal offsets when rebuilding it; equal fences and cached previews keep separate viewport identities
 - Anonymous code viewport state is discarded when replacing the visual tree, keeping repeated renders bounded; explicitly named code viewports and other scroll state keep their offsets
@@ -21,6 +28,9 @@ in any release.
 - `limn_egui::install_fonts`: Noto Emoji 3.002 monochrome fallback, appended after every existing face. A 623-entry emoji fixture verifies scalar coverage in all five families, with existing glyph widths preserved. The unmodified variable font adds 1,982,596 bytes under OFL-1.1; provenance, license and synthetic Text gallery examples are included. Regional flags and some combined sequences remain limited by font selection; this does not add color emoji
 - `limn_egui::install_fonts`: Noto Sans Symbols 2 v2.008 fallback for monochrome decorative symbols such as `✦`, `❖` and `➜`. Every family preserves its existing glyph priority. The unmodified OpenType face adds 404,576 bytes under OFL-1.1; full license, release source and hashes are included, with synthetic examples in the Text gallery
 - `limn_egui::install_fonts`: bundled Noto Sans Math fallback for mathematical alphabets such as `𝖗𝖚𝖓𝖊` and `𝓡𝓤𝓝𝓔`, in every limn font family. Existing UI faces and egui fallbacks keep their priority. The unmodified font adds about 1 MiB under SIL OFL-1.1; its license and pinned provenance are included. The Text gallery shows synthetic samples
+
+## 0.1.42 — 2026-10-14
+
 - `ScrollArea::measured_list` and `Element::measured_list`: a virtualized list of rows of their own heights, such as the messages of a conversation. Rows are built only while in view and measured then; a key per row keeps its height, and holds the row at the top of the viewport still while rows above it are measured, change height or are added. `follow_end` (`Element::list_follow_end`) keeps the end in view as rows arrive while the list is scrolled there. `reveal` and `anchor_offset` reach what the rows in view hold
 - `UiTree::visible_rows(id)`: the rows of a uniform or a measured list built at the last layout
 - `ScalarTransition::shift`: moves a transition's start and end by the same amount, keeping its pace
