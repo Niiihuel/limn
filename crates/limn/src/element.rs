@@ -1686,6 +1686,9 @@ pub struct Style {
     /// Paint-only scrim above children, transparent at its top edge and
     /// tinted at the bottom. Scroll areas show it only above hidden content.
     pub bottom_fade: Option<(Color, f32)>,
+    /// Paint-only distances from the top and bottom edges to the corresponding
+    /// fade bands. Opaque floating bars can occupy this space; defaults to zero.
+    pub fade_insets: (f32, f32),
     /// Passive bottom background behind children, for dedicated footer space.
     pub bottom_background_fade: Option<(Color, f32)>,
     /// Passive top background behind children: the color at the top edge,
@@ -1768,6 +1771,7 @@ impl Default for Style {
             background: None,
             top_fade: None,
             bottom_fade: None,
+            fade_insets: (0.0, 0.0),
             bottom_background_fade: None,
             top_background_fade: None,
             horizontal_edge_fade: None,
@@ -3169,6 +3173,16 @@ impl Element {
     /// pointer regions. Scroll areas leave their final visible row unobscured.
     pub fn bottom_fade(mut self, color: Color, height: f32) -> Self {
         self.style.bottom_fade = (height.is_finite() && height > 0.0).then_some((color, height));
+        self
+    }
+
+    /// Inset the top and bottom fade bands from the viewport edges, for content
+    /// beneath opaque floating bars. Fade heights remain the visible transition
+    /// outside the bars. This changes paint only; the host still reserves content
+    /// space for its bars. Negative or non-finite insets become zero.
+    pub fn fade_insets(mut self, top: f32, bottom: f32) -> Self {
+        let inset = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        self.style.fade_insets = (inset(top), inset(bottom));
         self
     }
 
