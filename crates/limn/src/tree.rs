@@ -22,6 +22,9 @@ mod sticky_tests;
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
 #[cfg(test)]
+#[path = "scrollbar_visibility_tests.rs"]
+mod scrollbar_visibility_tests;
+#[cfg(test)]
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
@@ -47,6 +50,7 @@ use crate::motion::{
     skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
 };
 use crate::shortcut;
+use crate::scroll_area::ScrollbarState;
 use crate::text_width_cache::TextWidthCache;
 #[path = "formatted_text_cache.rs"]
 mod formatted_text_cache;
@@ -2946,6 +2950,7 @@ pub struct UiTree {
     code_view_epoch: u64,
     scroll_offsets: HashMap<String, f32>,
     scroll_transitions: HashMap<String, ScalarTransition>,
+    scrollbar_states: HashMap<String, ScrollbarState>,
     scroll_to_end: HashSet<String>,
     scroll_to_index: HashMap<String, usize>,
     /// What each measured list keeps between layouts, by its ID.
@@ -3030,6 +3035,7 @@ impl UiTree {
             code_view_epoch: 0,
             scroll_offsets: HashMap::new(),
             scroll_transitions: HashMap::new(),
+            scrollbar_states: HashMap::new(),
             measured_lists: HashMap::new(),
             scroll_to_end: HashSet::new(),
             scroll_to_index: HashMap::new(),
@@ -3412,6 +3418,7 @@ impl UiTree {
 
     fn visual_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
         let animation = self.other_animation_repaint_after_at(now);
+        let scrollbar = self.scrollbar_states.values().filter_map(|state| state.repaint_after(now)).min();
         // A text area's scrollbar hides a moment after its last scroll.
         let bar = self
             .inputs
@@ -3420,6 +3427,10 @@ impl UiTree {
             .map(|at| (at + TEXT_AREA_BAR_HOLD).saturating_duration_since(now))
             .filter(|left| !left.is_zero())
             .min();
+        let bar = match (bar, scrollbar) {
+            (Some(bar), Some(scrollbar)) => Some(bar.min(scrollbar)),
+            (bar, scrollbar) => bar.or(scrollbar),
+        };
         match (animation, bar) {
             (Some(animation), Some(bar)) => Some(animation.min(bar)),
             (animation, bar) => animation.or(bar),
@@ -3646,6 +3657,7 @@ impl UiTree {
         refresh_hover_paint: bool,
     ) -> Frame {
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
+        for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
         self.repeat_scroll_button(now);
         if self.pending_scroll_focus.as_deref() != self.focused.as_deref() {
@@ -3725,6 +3737,7 @@ impl UiTree {
                 code_diffs: &mut self.code_diffs,
                 scroll_offsets: &mut self.scroll_offsets,
                 scroll_transitions: &mut self.scroll_transitions,
+                scrollbar_states: &mut self.scrollbar_states,
                 measured_lists: &mut self.measured_lists,
                 scroll_to_end: &mut self.scroll_to_end,
                 scroll_to_index: &mut self.scroll_to_index,
@@ -4366,6 +4379,7 @@ impl UiTree {
                 motion.is_active(now)
             }
         });
+        self.scrollbar_states.retain(|_, state| state.seen);
         self.frame = frame;
         self.closed_submenu_triggers
             .retain(|id| self.frame.submenu_triggers.contains(id));
@@ -6678,6 +6692,7 @@ struct LayoutBuilder<'a> {
     code_diffs: &'a mut HashMap<String, crate::code_editor::DiffView>,
     scroll_offsets: &'a mut HashMap<String, f32>,
     scroll_transitions: &'a mut HashMap<String, ScalarTransition>,
+    scrollbar_states: &'a mut HashMap<String, ScrollbarState>,
     measured_lists: &'a mut HashMap<String, MeasuredListState>,
     scroll_to_end: &'a mut HashSet<String>,
     scroll_to_index: &'a mut HashMap<String, usize>,
@@ -8179,6 +8194,7 @@ impl LayoutBuilder<'_> {
         content: Rect,
         clip: Option<Rect>,
         foreground: Color,
+        visibility: crate::ScrollbarVisibility,
     ) {
         let Some(MeasuredRows { key, follow_end }) = list.measured.as_ref() else {
             return;
@@ -8365,7 +8381,7 @@ impl LayoutBuilder<'_> {
             },
         );
         if let Some(scrollbar) = scrollbar {
-            self.paint_scrollbar(id, scrollbar, content, clip, foreground, list.appearance);
+            self.paint_scrollbar(id, scrollbar, content, clip, foreground, list.appearance, visibility);
         }
         state.anchor = keys.get(first).map(|key| (*key, top[first]));
         state.end = max_offset;
@@ -8386,6 +8402,7 @@ impl LayoutBuilder<'_> {
         clip: Option<Rect>,
         ink: Color,
         appearance: crate::ScrollbarAppearance,
+        visibility: crate::ScrollbarVisibility,
     ) {
         let visible = clip
             .and_then(|outer| outer.intersection(content))
@@ -8393,7 +8410,25 @@ impl LayoutBuilder<'_> {
         let Some(visible) = visible else {
             return;
         };
+        let active = self.dragging_scrollbar == Some(id);
+        let hovered = self.hovered_scrollbar == Some(id);
+        let opacity = match visibility {
+            crate::ScrollbarVisibility::Always => {
+                self.scrollbar_states.remove(id);
+                1.0
+            }
+            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => {
+                let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
+                let interacting = active || hovered || self.scroll_button_hold.is_some_and(|hold| hold.id == id);
+                self.scrollbar_states.entry(id.to_owned())
+                    .or_insert_with(|| ScrollbarState::new(offset, self.now))
+                    .observe(offset, interacting, hold_ms, fade_ms, self.reduced_motion, self.now)
+            }
+        };
+        if opacity <= 0.0 { return; }
         let ink = appearance.tint.unwrap_or(ink);
+        let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
+        let appearance = crate::ScrollbarAppearance { tint: None, ..appearance };
         let alpha = |opacity: u8| {
             Color::rgba(
                 ink.r,
@@ -8402,8 +8437,6 @@ impl LayoutBuilder<'_> {
                 ((u16::from(ink.a) * u16::from(opacity)) / 255) as u8,
             )
         };
-        let active = self.dragging_scrollbar == Some(id);
-        let hovered = self.hovered_scrollbar == Some(id);
         self.frame.commands.push(DrawCommand::PushClip(visible));
         // The overlay rail never paints a permanent gray stripe behind
         // content. Its track appears only while interacting with it.
@@ -9354,6 +9387,7 @@ impl LayoutBuilder<'_> {
     }
 
     fn place_inner(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        let scrollbar_visibility = element.kept.as_ref().map_or(crate::ScrollbarVisibility::Always, |kept| kept.scrollbar_visibility);
         if let Some(text) = self.rolling_text(element) {
             return self.place_inner(&text, rect, clip);
         }
@@ -10079,11 +10113,12 @@ impl LayoutBuilder<'_> {
                         clip,
                         style.foreground,
                         *appearance,
+                        scrollbar_visibility,
                     );
                 }
             }
             ElementKind::UniformList(list) if list.measured.is_some() => {
-                self.place_measured_list(list, rect, content, clip, style.foreground);
+                self.place_measured_list(list, rect, content, clip, style.foreground, scrollbar_visibility);
             }
             ElementKind::UniformList(list) => {
                 let id = list.id.as_str();
@@ -10209,6 +10244,7 @@ impl LayoutBuilder<'_> {
                         clip,
                         style.foreground,
                         list.appearance,
+                        scrollbar_visibility,
                     );
                 }
             }
