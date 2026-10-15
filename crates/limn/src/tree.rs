@@ -5393,6 +5393,7 @@ impl UiTree {
                 self.hovered_scrollbar = None;
                 self.pressed = None;
                 self.scroll_drag = None;
+                self.horizontal_pan = None;
                 self.scroll_button_hold = None;
                 self.keyboard_tooltip_focus = false;
                 if let Some(selection) = self.static_selection.as_mut() {
