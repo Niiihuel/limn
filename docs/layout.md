@@ -150,6 +150,13 @@ slanted by the host.
 `.clip_children()` keeps a container's descendants, and their click targets,
 inside its bounds.
 
+`.block_pointer(id)` keeps presses on a container's passive parts from reaching
+controls painted beneath it. Its children keep their own targets, so a floating
+header can block covered rows without losing its buttons. The unique, stable `id` names
+only a clipped hit surface: it adds no action, Tab stop or accessibility node.
+Translation moves the surface with the element. Scroll events still reach the
+scroll areas underneath; touch gesture ownership remains with the host.
+
 `.top_background_fade(color, height)` and `.bottom_background_fade(color, height)`
 paint a colour behind a container's children that starts at that edge and is
 gone `height` further in: a tint behind a page's header, or under the last

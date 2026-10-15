@@ -767,6 +767,7 @@ pub(crate) struct Kept {
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
     pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
     pub(crate) translation: Option<Point>,
+    pub(crate) pointer_blocker: Option<String>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1953,6 +1954,16 @@ impl Element {
         if offset.x.is_finite() && offset.y.is_finite() {
             self.kept.get_or_insert_default().translation = Some(offset);
         }
+        self
+    }
+
+    /// Block presses from reaching elements beneath this element's visible
+    /// bounds, while controls inside it keep their own targets. The unique, stable
+    /// `id` names a passive hit region, with no action, focus or accessibility
+    /// node. Clipping and translation apply normally. Scroll events still
+    /// reach scroll areas underneath; the host owns touch gesture arbitration.
+    pub fn block_pointer(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().pointer_blocker = Some(id.into());
         self
     }
 
