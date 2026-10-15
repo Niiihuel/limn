@@ -1415,6 +1415,31 @@ struct PopoverFocusScope {
     pointed: bool,
 }
 
+fn modal_popover_scopes<'a>(
+    scopes: &'a [PopoverFocusScope],
+    closed: &HashSet<String>,
+) -> Vec<&'a PopoverFocusScope> {
+    let modal = scopes.iter().rposition(|scope| scope.modal);
+    let mut allowed = HashSet::new();
+    let mut exposed = Vec::new();
+    for scope in &scopes[modal.unwrap_or(0)..] {
+        if scope.submenu && scope.trigger_id.as_ref().is_some_and(|id| closed.contains(id)) {
+            continue;
+        }
+        // Hover children are absent from their parent's static focus order.
+        // Admit their descendants transitively, but never a covered base menu.
+        if modal.is_none()
+            || scope.modal
+            || scope.trigger_id.as_deref().is_some_and(|id| allowed.contains(id))
+            || scope.focusables.iter().any(|(id, _)| allowed.contains(id.as_str()))
+        {
+            allowed.extend(scope.focusables.iter().map(|(id, _)| id.as_str()));
+            exposed.push(scope);
+        }
+    }
+    exposed
+}
+
 /// A `sticky_top` child held back to be placed above its scroll area: the
 /// element, where it is drawn, the clip, and the fade under it with its
 /// strength.
@@ -4373,6 +4398,12 @@ impl UiTree {
             .rev()
             .find(|scope| scope.modal);
         let had_modal = previous_popovers.iter().any(|scope| scope.modal);
+        let modal_scopes = modal.map(|_| modal_popover_scopes(
+            &self.frame.popover_focus, &self.closed_submenu_triggers,
+        ));
+        let modal_contains = |id: &str| modal_scopes.as_ref().is_none_or(|scopes| {
+            scopes.iter().any(|scope| scope.focusables.iter().any(|(candidate, _)| candidate == id))
+        });
         if let Some(scope) = modal {
             if !had_modal {
                 self.modal_return_focus = scope
@@ -4382,11 +4413,7 @@ impl UiTree {
                     .cloned()
                     .or_else(|| self.focused.clone());
             }
-            if !scope
-                .focusables
-                .iter()
-                .any(|(id, _)| self.focused.as_deref() == Some(id.as_str()))
-            {
+            if !self.focused.as_deref().is_some_and(modal_contains) {
                 self.focused = scope
                     .initial_focus
                     .as_ref()
@@ -4410,14 +4437,14 @@ impl UiTree {
             .popover_focus
             .iter()
             .rev()
-            .find(|scope| {
+            .filter(|scope| {
                 !scope.modal
                     && scope.initial_focus.is_some()
                     && !previous_popovers
                         .iter()
                         .any(|previous| previous.dismiss_id == scope.dismiss_id)
             })
-            .and_then(|scope| {
+            .find_map(|scope| {
                 scope.initial_focus.as_ref().filter(|preferred| {
                     scope.focusables.iter().any(|(id, kind)| {
                         id == *preferred
@@ -4428,8 +4455,7 @@ impl UiTree {
                                     | HitKind::TextArea
                                     | HitKind::CodeEditor
                             )
-                    }) && modal
-                        .is_none_or(|modal| modal.focusables.iter().any(|(id, _)| id == *preferred))
+                    }) && modal_contains(preferred)
                 })
             })
             .cloned();
@@ -6048,38 +6074,19 @@ impl UiTree {
     }
 
     fn active_popover_scope(&self) -> Option<&PopoverFocusScope> {
-        if let Some(modal) = self
-            .frame
-            .popover_focus
-            .iter()
-            .rev()
-            .find(|scope| scope.modal)
-        {
-            return Some(modal);
-        }
+        let scopes = modal_popover_scopes(&self.frame.popover_focus, &self.closed_submenu_triggers);
         let focused = self.focused.as_deref();
-        let open = |scope: &&PopoverFocusScope| {
-            !scope.submenu
-                || !scope
-                    .trigger_id
-                    .as_ref()
-                    .is_some_and(|id| self.closed_submenu_triggers.contains(id))
-        };
-        self.frame
-            .popover_focus
+        scopes
             .iter()
             .rev()
-            .filter(open)
+            .copied()
             .find(|scope| {
                 focused.is_some_and(|id| {
                     scope.trigger_id.as_deref() == Some(id)
-                        || scope
-                            .focusables
-                            .iter()
-                            .any(|(candidate, _)| candidate == id)
+                        || scope.focusables.iter().any(|(candidate, _)| candidate == id)
                 })
             })
-            .or_else(|| self.frame.popover_focus.iter().rev().find(open))
+            .or_else(|| scopes.last().copied())
     }
 
     fn step_tab(&mut self, key: Key, actions: &mut Vec<UiAction>) -> bool {
