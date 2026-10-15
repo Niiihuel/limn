@@ -12081,6 +12081,111 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// Fit opted-in, non-flex column children without changing their widths.
+    /// A scroll area inside a row then receives its actual shorter viewport.
+    fn fit_column_heights(children: &[Element], sizes: &mut [Size], height: f32, gap: f32) -> bool {
+        let shrinks = |child: &Element| child.style.shrink_height && child.style.flex <= 0.0;
+        if !height.is_finite() || !children.iter().any(shrinks) {
+            return false;
+        }
+        // Viewport-like children without an explicit height measure as
+        // unbounded. Start them at the finite column budget so shrinking
+        // never subtracts infinity from itself or discards all their space.
+        for (child, size) in children.iter().zip(sizes.iter_mut()) {
+            if shrinks(child) && size.height == f32::INFINITY {
+                size.height = height.max(0.0);
+            }
+        }
+        let reserved = f64::from(gap) * children.len().saturating_sub(1) as f64
+            + children
+                .iter()
+                .zip(sizes.iter())
+                .filter(|(child, _)| !shrinks(child))
+                .map(|(child, size)| {
+                    f64::from(if child.style.flex > 0.0 {
+                        child.style.min_height
+                    } else {
+                        size.height
+                    })
+                })
+                .sum::<f64>();
+        let natural: f64 = children
+            .iter()
+            .zip(sizes.iter())
+            .filter(|(child, _)| shrinks(child))
+            .map(|(_, size)| f64::from(size.height))
+            .sum();
+        let mut deficit = natural - (f64::from(height) - reserved).max(0.0);
+        for respect_minimum in [true, false] {
+            for (child, size) in children.iter().zip(sizes.iter_mut()) {
+                if deficit <= 0.0 || !shrinks(child) {
+                    continue;
+                }
+                let floor = if respect_minimum {
+                    f64::from(child.style.min_height)
+                } else {
+                    0.0
+                };
+                let given = (f64::from(size.height) - floor).clamp(0.0, deficit);
+                size.height = (f64::from(size.height) - given).max(0.0) as f32;
+                deficit -= given;
+            }
+        }
+        true
+    }
+
+    /// Keep weighted shares until a minimum binds, then divide the rest among
+    /// the remaining children. Only a column opting in to height shrinking uses
+    /// this allocator; existing rows and columns retain their distribution.
+    fn fit_column_flex(children: &[Element], sizes: &mut [Size], available: f32) {
+        let mut weights: Vec<f64> = children
+            .iter()
+            .map(|child| f64::from(child.style.flex.max(0.0)))
+            .collect();
+        let minimum: f64 = children
+            .iter()
+            .filter(|child| child.style.flex > 0.0)
+            .map(|child| f64::from(child.style.min_height))
+            .sum();
+        if minimum > f64::from(available) {
+            // Fixed siblings, gaps and minima cannot all fit. Preserve those
+            // constraints; an opted-in child cannot repair an impossible base.
+            for (child, size) in children.iter().zip(sizes) {
+                if child.style.flex > 0.0 {
+                    size.height = child.style.min_height;
+                }
+            }
+            return;
+        }
+        let mut remaining = f64::from(available);
+        loop {
+            let total: f64 = weights.iter().sum();
+            if total <= 0.0 {
+                break;
+            }
+            let round_remaining = remaining;
+            let mut constrained = false;
+            for ((child, size), weight) in children.iter().zip(sizes.iter_mut()).zip(&mut weights) {
+                if *weight > 0.0
+                    && round_remaining * *weight / total < f64::from(child.style.min_height)
+                {
+                    size.height = child.style.min_height;
+                    remaining -= f64::from(size.height);
+                    *weight = 0.0;
+                    constrained = true;
+                }
+            }
+            if !constrained {
+                for (size, weight) in sizes.iter_mut().zip(&weights) {
+                    if *weight > 0.0 {
+                        size.height = (remaining * weight / total) as f32;
+                    }
+                }
+                break;
+            }
+        }
+    }
+
     /// Where a row, a column or a tab strip puts its children in `content`.
     fn child_rects(&mut self, element: &Element, children: &[Element], content: Rect) -> Vec<Rect> {
         match element.wrapping_line_gap() {
@@ -12174,6 +12279,8 @@ impl LayoutBuilder<'_> {
             }
             sizes.push(measured);
         }
+        let fitted_height =
+            !row && Self::fit_column_heights(children, &mut sizes, available_main, gap);
         if row {
             self.fit_row_shortcuts(
                 children,
@@ -12194,13 +12301,28 @@ impl LayoutBuilder<'_> {
                     .filter(|(child, _)| child.style.flex <= 0.0)
                     .map(|(_, size)| size.width)
                     .sum::<f32>();
+        } else if fitted_height {
+            fixed = gap * count.saturating_sub(1) as f32
+                + children
+                    .iter()
+                    .zip(&sizes)
+                    .filter(|(child, _)| child.style.flex <= 0.0)
+                    .map(|(_, size)| size.height)
+                    .sum::<f32>();
         }
         let flexible = (available_main - fixed).max(0.0);
+        if fitted_height {
+            Self::fit_column_flex(children, &mut sizes, flexible);
+        }
         let mut offset = 0.0;
         let mut rects = Vec::with_capacity(count);
         for (child, measured) in children.iter().zip(sizes) {
             let main = if child.style.flex > 0.0 && weights > 0.0 {
-                flexible * child.style.flex / weights
+                if fitted_height {
+                    measured.height
+                } else {
+                    flexible * child.style.flex / weights
+                }
             } else if row {
                 measured.width
             } else {
