@@ -1306,7 +1306,14 @@ fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
             }
         });
         if node.focused {
-            ui.ctx().memory_mut(|memory| memory.request_focus(access_id(&node.id)));
+            let id = access_id(&node.id);
+            // Retain egui's focus without interrupting IME composition on every paint.
+            ui.interact(bounds, id, egui::Sense::focusable_noninteractive());
+            ui.ctx().memory_mut(|memory| {
+                if !memory.has_focus(id) {
+                    memory.request_focus(id);
+                }
+            });
         }
     }
 }
@@ -2940,6 +2947,45 @@ mod tests {
                 let alpha = image.pixels.iter().map(|pixel| pixel.a()).collect::<Vec<_>>();
                 assert!(!masks.contains(&alpha), "semantic icon reused another shape: {icon:?}");
                 masks.push(alpha);
+            }
+        }
+    }
+
+    #[test]
+    fn platform_focus_keeps_ime_composition_until_the_focused_control_changes() {
+        use limn::{Element, Size, UiTree};
+        let size = Size::new(320.0, 200.0);
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::text_input("search", "", "Search"),
+            Element::text_input("name", "", "Name"),
+        ]));
+        tree.layout(size);
+        let context = egui::Context::default();
+
+        for id in ["search", "name"] {
+            assert!(tree.focus(id));
+            for step in 0..4 {
+                let frame = tree.layout(size);
+                let mut output = context.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.width, size.height))),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        // Native hosts publish the current field's IME geometry before painting.
+                        ui.ctx().output_mut(|output| output.ime = Some(egui::output::IMEOutput {
+                            purpose: egui::IMEPurpose::Normal,
+                            rect: ui.max_rect(),
+                            cursor_rect: ui.max_rect(),
+                            should_interrupt_composition: false,
+                        }));
+                        paint_at(ui, &frame, egui::Pos2::ZERO);
+                    },
+                );
+                output.textures_delta.clear();
+                let ime = output.platform_output.ime.expect("the focused field keeps its keyboard");
+                assert_eq!(ime.should_interrupt_composition, step == 0, "{id}, frame {step}");
+                assert_eq!(context.memory(|memory| memory.focused()), Some(access_id(id)), "{id}, frame {step}");
             }
         }
     }
