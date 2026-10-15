@@ -11755,6 +11755,13 @@ impl LayoutBuilder<'_> {
             | ElementKind::RollingNumber { .. }
             | ElementKind::Spacer => {}
         }
+        let fade_area = |mut area: Rect| {
+            let top = style.fade_insets.0.clamp(0.0, area.height);
+            let bottom = style.fade_insets.1.clamp(0.0, area.height);
+            area.y += top;
+            area.height = (area.height - top - bottom).max(0.0);
+            area
+        };
         if let Some((color, height)) = style.top_fade {
             let scroll_area = |id: &str| {
                 (self.scroll_offsets.get(id).copied().unwrap_or(0.0) > 0.0).then(|| {
@@ -11784,7 +11791,7 @@ impl LayoutBuilder<'_> {
                 _ => Some(content),
             };
             if let Some(area) =
-                area.filter(|area| area.width > 0.0 && area.height > 0.0 && height > 0.0)
+                area.map(fade_area).filter(|area| area.width > 0.0 && area.height > 0.0 && height > 0.0)
             {
                 self.frame.commands.push(DrawCommand::FillVerticalGradient {
                     rect: Rect::new(area.x, area.y, area.width, height.min(area.height)),
@@ -11811,7 +11818,7 @@ impl LayoutBuilder<'_> {
                 ElementKind::UniformList(list) => scroll_area(&list.id),
                 _ => Some(content),
             };
-            if let Some(area) = area.filter(|area| area.width > 0.0 && area.height > 0.0) {
+            if let Some(area) = area.map(fade_area).filter(|area| area.width > 0.0 && area.height > 0.0) {
                 let height = height.min(area.height);
                 let fade = Rect::new(area.x, area.y + area.height - height, area.width, height);
                 if let Some(visible) = clip.map_or(Some(fade), |clip| fade.intersection(clip)) {

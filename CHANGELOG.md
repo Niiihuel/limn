@@ -3,6 +3,10 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## Unreleased
+
+- `Element::fade_insets(top, bottom)` positions edge fade bands outside opaque floating bars without changing scroll range, layout or pointer targets. Fade heights describe the visible transition beside the bars; zero insets preserve existing rendering. `Style` adds the public `fade_insets` field, defaulting to `(0.0, 0.0)`.
+
 ## 0.1.43 — 2026-10-15
 
 - CodeEditor and CodeDiff: `font_size` keeps text, row geometry, scrolling and pointer selection at the same size; `diff_backgrounds(false)` hides row tints while preserving change markers. Both add public `font_size` and `diff_backgrounds` fields for hosts building their structs literally
