@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- Passive scroll anchors retain current layout geometry inside clipped static branches, including the first deep layout and changes to width or font size. `UiTree::anchor_offset` no longer loses nested anchors when their container leaves the viewport; those hidden branches still produce no painting or hit targets.
 - `limn_egui::set_icon_rasterizer` installs an optional UI-thread renderer for native icon masks, using the existing bounded texture cache and tint. Missing or malformed masks fall back to SVG; file-type artwork preserves its colors. Replacing or removing the renderer refreshes cached icon textures
 - `Element::fade_insets(top, bottom)` positions edge fade bands outside opaque floating bars without changing scroll range, layout or pointer targets. Fade heights describe the visible transition beside the bars; zero insets preserve existing rendering. `Style` adds the public `fade_insets` field, defaulting to `(0.0, 0.0)`.
 - Horizontal viewports stop their pointer pan on `PointerLeave`, preserving the current offset when a touch host takes over scrolling or cancels the gesture. A later touch no longer resumes the old grab and jumps the content back

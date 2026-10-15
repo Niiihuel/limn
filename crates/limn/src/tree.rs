@@ -3620,7 +3620,9 @@ impl UiTree {
 
     /// Where the `Element::anchor` named `id` was at the last layout: how far
     /// its top is below the top of the scroll area around it, negative once
-    /// it has scrolled past. `None` when it was not laid out.
+    /// it has scrolled past. Anchors in clipped static branches retain their
+    /// current geometry without being painted. `None` when the anchor is absent
+    /// (including a virtual row that has not been built).
     pub fn anchor_offset(&self, id: &str) -> Option<f32> {
         let target = self.frame.scroll_focus_targets.get(id)?;
         Some(target.rect.y - target.viewport.y)
@@ -3689,9 +3691,7 @@ impl UiTree {
             .as_deref()
             .or(self.pending_reveal.as_ref().map(|(id, ..)| id.as_str()));
         let mut focus_path = HashSet::new();
-        if let Some(id) = probe {
-            find_focus_path(&self.root, id, &mut focus_path);
-        }
+        find_focus_path(&self.root, probe, &mut focus_path);
         let mut observed_buttons = HashSet::new();
         let mut observed_popovers = HashSet::new();
         let mut observed_replacements = HashSet::new();
@@ -3811,11 +3811,9 @@ impl UiTree {
                 let previous_scope = builder.enter_measurement_scope();
                 match overlay {
                     DeferredOverlay::Free { floating, area } => {
-                        if let Some(id) = builder.focus_probe {
-                            let mut floating_path = HashSet::new();
-                            find_focus_path(&floating, id, &mut floating_path);
-                            builder.focus_path.extend(floating_path);
-                        }
+                        let mut floating_path = HashSet::new();
+                        find_focus_path(&floating, builder.focus_probe, &mut floating_path);
+                        builder.focus_path.extend(floating_path);
                         builder.place(&floating, area, Some(viewport_rect));
                     }
                     DeferredOverlay::Anchored {
@@ -3977,11 +3975,9 @@ impl UiTree {
                         // Rebuild the pointer-based focus path for that clone
                         // so an offscreen field can be found inside its scroll
                         // area and revealed when focused.
-                        if let Some(id) = builder.focus_probe {
-                            let mut floating_path = HashSet::new();
-                            find_focus_path(&floating, id, &mut floating_path);
-                            builder.focus_path.extend(floating_path);
-                        }
+                        let mut floating_path = HashSet::new();
+                        find_focus_path(&floating, builder.focus_probe, &mut floating_path);
+                        builder.focus_path.extend(floating_path);
                         let mut travel = (0.0, 0.0);
                         if let Some(coach) = coach {
                             let radius = coach
@@ -6640,36 +6636,36 @@ fn holds_submenu(element: &Element, hovered: Option<&str>, focused: Option<&str>
     }
 }
 
-/// Record only the ancestors of the requested control. The normal layout can
-/// skip every other clipped branch, even while locating an offscreen target.
-fn find_focus_path(element: &Element, id: &str, path: &mut HashSet<usize>) -> bool {
-    let found = if focusable_id(element) == Some(id) {
-        true
-    } else {
-        match &element.kind {
-            ElementKind::FormattedText(spans) => spans
-                .iter()
-                .any(|span| !span.text.is_empty() && span.action.as_deref() == Some(id)),
-            ElementKind::Column(children)
-            | ElementKind::Row(children)
-            | ElementKind::TabStrip { children, .. }
-            | ElementKind::Stack(children) => children
-                .iter()
-                .any(|child| find_focus_path(child, id, path)),
-            ElementKind::Panel(child)
-            | ElementKind::Clickable { child, .. }
-            | ElementKind::Scroll { child, .. }
-            | ElementKind::HorizontalScroll { child, .. } => find_focus_path(child, id, path),
-            ElementKind::Overlay { base, floating } => {
-                find_focus_path(base, id, path) || find_focus_path(floating, id, path)
-            }
-            ElementKind::Popover {
-                anchor, floating, ..
-            } => find_focus_path(anchor, id, path) || find_focus_path(floating, id, path),
-            ElementKind::Tooltip { anchor, .. } => find_focus_path(anchor, id, path),
-            _ => false,
+/// Record paths to explicit anchors and the requested control. Clipped branches
+/// outside these paths still skip their descendants entirely.
+fn find_focus_path(element: &Element, id: Option<&str>, path: &mut HashSet<usize>) -> bool {
+    let descendants = match &element.kind {
+        ElementKind::FormattedText(spans) => spans
+            .iter()
+            .any(|span| !span.text.is_empty() && span.action.as_deref().is_some_and(|action| Some(action) == id)),
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
+            let mut found = false;
+            for child in children { found |= find_focus_path(child, id, path); }
+            found
         }
+        ElementKind::Panel(child)
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. } => find_focus_path(child, id, path),
+        ElementKind::Overlay { base, floating } => {
+            find_focus_path(base, id, path) | find_focus_path(floating, id, path)
+        }
+        ElementKind::Popover {
+            anchor, floating, ..
+        } => find_focus_path(anchor, id, path) | find_focus_path(floating, id, path),
+        ElementKind::Tooltip { anchor, .. } => find_focus_path(anchor, id, path),
+        _ => false,
     };
+    let found = descendants || element.anchor.is_some()
+        || focusable_id(element).is_some_and(|target| Some(target) == id);
     if found {
         path.insert(element as *const Element as usize);
     }
@@ -9498,11 +9494,7 @@ impl LayoutBuilder<'_> {
                     .scroll_focus_candidates
                     .extend(focusables.into_iter().map(|(id, _)| id));
             }
-            if self.focus_probe.is_some()
-                && self
-                    .focus_path
-                    .contains(&(element as *const Element as usize))
-            {
+            if self.focus_path.contains(&(element as *const Element as usize)) {
                 self.probe_scroll_focus_translated(element, rect, clip);
             }
             return;
@@ -11904,17 +11896,14 @@ impl LayoutBuilder<'_> {
         }
     }
 
-    /// Resolve the requested control's geometry inside a clipped branch.
+    /// Resolve anchors and the requested control inside a clipped branch.
     /// This does not paint, add hit regions, or visit unrelated descendants.
     fn probe_scroll_focus(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         self.probe_scroll_focus_translated(element, Self::translated_rect(element, rect), clip);
     }
 
     fn probe_scroll_focus_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
-        if focusable_id(element) == self.focus_probe {
-            self.record_scroll_focus_target(element, rect);
-            return;
-        }
+        self.record_scroll_focus_target(element, rect);
         let style = element.style;
         let content = rect.inset(style.padding);
         let clip = if style.clip_children {
@@ -11965,7 +11954,6 @@ impl LayoutBuilder<'_> {
                         .contains(&(child as *const Element as usize))
                     {
                         self.probe_scroll_focus(child, child_rect, clip);
-                        break;
                     }
                 }
             }
@@ -11975,9 +11963,10 @@ impl LayoutBuilder<'_> {
                 self.probe_scroll_focus(child, content, clip);
             }
             ElementKind::Stack(children) => {
-                let path = &self.focus_path;
-                if let Some(child) = children.iter().find(|child| path.contains(&(*child as *const Element as usize))) {
-                    self.probe_scroll_focus(child, content, clip);
+                for child in children {
+                    if self.focus_path.contains(&(child as *const Element as usize)) {
+                        self.probe_scroll_focus(child, content, clip);
+                    }
                 }
             }
             ElementKind::Scroll {
@@ -11999,7 +11988,8 @@ impl LayoutBuilder<'_> {
                 };
                 let max_offset = (child_height - content.height).max(0.0);
                 self.frame.scroll_extents.insert(id.clone(), max_offset);
-                let current_offset = self.scroll_position(id, max_offset, *motion, None);
+                let snap = self.scroll_to_end.remove(id).then_some(max_offset);
+                let current_offset = self.scroll_position(id, max_offset, *motion, snap);
                 let child_rect = Rect::new(
                     content.x,
                     content.y - current_offset,
@@ -12009,18 +11999,13 @@ impl LayoutBuilder<'_> {
                 let new_clip = clip
                     .and_then(|outer| outer.intersection(content))
                     .or_else(|| clip.is_none().then_some(content));
-                if let Some(new_clip) = new_clip {
-                    self.scroll_focus_context.push(ScrollFocusContext {
-                        id: id.clone(),
-                        viewport: new_clip,
-                        offset: current_offset,
-                    });
-                    self.probe_scroll_focus(child, child_rect, Some(new_clip));
-                    self.scroll_focus_context.pop();
-                } else {
-                    // The outer scroll area must reveal this nested area first.
-                    self.probe_scroll_focus(child, child_rect, clip);
-                }
+                self.scroll_focus_context.push(ScrollFocusContext {
+                    id: id.clone(),
+                    viewport: new_clip.unwrap_or(content),
+                    offset: current_offset,
+                });
+                self.probe_scroll_focus(child, child_rect, new_clip.or(clip));
+                self.scroll_focus_context.pop();
             }
             ElementKind::Overlay { base, .. }
                 if self
