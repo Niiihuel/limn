@@ -3,6 +3,14 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
+## Unreleased
+
+- Add the captured-paste API contract: `UiTree::capture_paste_target`, `invalidate_paste_targets`, opaque single-use `PasteTarget`, and `UiEvent::PasteCaptured`. Delayed text replies remain tied to observed tree/focus/editable state, including IME and Vim mode changes; accepted empty or failed insertions consume the capture, while busy/pending-layout attempts do not. This does not provide clipboard I/O, an owner, ACK/completion or native clipboard integration. See [Captured paste targets](docs/captured-paste.md).
+- Add opaque `limn_editor::EditStateToken` and `TextBuffer::edit_state_token` for buffer instance, text revision and primary/secondary selection state. Shared-buffer selection changes and ABA invalidate it; no-op setters preserve it. Validate and edit under the same nonblocking buffer guard.
+- API compatibility: `UiEvent::PasteCaptured` is a new variant for exhaustive matches to handle. Legacy `PasteTo` remains available with its previous ID/focus semantics; the new capture has no serialization contract and retains no text or editor resources.
+
+- Gallery: `captured_paste` example checks synthetic Unicode delivery, stale invalidation and empty-once replay in a TextArea and CodeEditor. It includes limn Run/Close/theme/corner controls, `--verify`, dark/light and square variants, and `--screenshot` to a new PNG. It does not request clipboard I/O; eframe may initialize its default backend. Native visual QA is separate.
+
 ## 0.1.43 — 2026-10-15
 
 - CodeEditor and CodeDiff: `font_size` keeps text, row geometry, scrolling and pointer selection at the same size; `diff_backgrounds(false)` hides row tints while preserving change markers. Both add public `font_size` and `diff_backgrounds` fields for hosts building their structs literally
