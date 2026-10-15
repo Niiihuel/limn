@@ -25,6 +25,9 @@ mod top_fade_tests;
 #[path = "scrollbar_visibility_tests.rs"]
 mod scrollbar_visibility_tests;
 #[cfg(test)]
+#[path = "translation_tests.rs"]
+mod translation_tests;
+#[cfg(test)]
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
@@ -3709,6 +3712,7 @@ impl UiTree {
                 overlays: VecDeque::new(),
                 scroll_focus_context: Vec::new(),
                 pinned: Vec::new(),
+                translated_overflow: HashMap::new(),
                 focus_path,
                 focus_probe: probe,
                 drag_source: self
@@ -3921,12 +3925,18 @@ impl UiTree {
                                 None,
                             ),
                         };
+                        let rect = LayoutBuilder::translated_rect(&floating, rect);
                         builder.observed_popovers.insert(dismiss_id.clone());
-                        builder.frame.regions.push(HitRegion {
-                            id: format!("popover_surface:{dismiss_id}"),
-                            rect,
-                            kind: HitKind::Surface,
-                        });
+                        let surface = if floating.kept.as_ref().is_some_and(|kept| kept.translation.is_some()) {
+                            rect.intersection(viewport_rect)
+                        } else { Some(rect) };
+                        if let Some(visible) = surface {
+                            builder.frame.regions.push(HitRegion {
+                                id: format!("popover_surface:{dismiss_id}"),
+                                rect: visible,
+                                kind: HitKind::Surface,
+                            });
+                        }
                         let progress = if builder.reduced_motion || animation_ms == 0 {
                             1.0
                         } else {
@@ -4008,7 +4018,7 @@ impl UiTree {
                             });
                         }
                         let bubble_start = builder.frame.commands.len();
-                        builder.place(&floating, rect, Some(viewport_rect));
+                        builder.place_translated(&floating, rect, Some(viewport_rect));
                         if let (Some(coach), Some(side)) = (coach, coach_side) {
                             builder.frame.commands.push(DrawCommand::FillTriangle {
                                 points: coach_caret(anchor, rect, side),
@@ -6667,6 +6677,8 @@ struct LayoutBuilder<'a> {
     scroll_focus_context: Vec<ScrollFocusContext>,
     /// Sticky children the scroll area being placed draws last.
     pinned: Vec<PinnedChild>,
+    /// Per-layout, scope-aware queries for descendants that can leave their flow slot.
+    translated_overflow: HashMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
     /// Source of the active pointer drag and the commands it painted.
@@ -9283,7 +9295,43 @@ impl LayoutBuilder<'_> {
         )
     }
 
+    fn translated_rect(element: &Element, rect: Rect) -> Rect {
+        match element.kept.as_ref().and_then(|kept| kept.translation) {
+            Some(offset) => Rect::new(rect.x + offset.x, rect.y + offset.y, rect.width, rect.height),
+            None => rect,
+        }
+    }
+
+    fn has_translated_overflow(&mut self, element: &Element) -> bool {
+        // These viewports clip their descendants even without clip_children.
+        if element.style.clip_children || matches!(element.kind,
+            ElementKind::Scroll { .. } | ElementKind::HorizontalScroll { .. } | ElementKind::UniformList(_)) {
+            return false;
+        }
+        let key = (self.measurement_scope, element as *const Element as usize);
+        if let Some(found) = self.translated_overflow.get(&key) { return *found; }
+        let mut translated = |child: &Element| {
+            child.kept.as_ref().is_some_and(|kept| kept.translation.is_some())
+                || self.has_translated_overflow(child)
+        };
+        let found = match &element.kind {
+            ElementKind::Column(children) | ElementKind::Row(children)
+            | ElementKind::TabStrip { children, .. } | ElementKind::Stack(children) => children.iter().any(&mut translated),
+            ElementKind::Panel(child) | ElementKind::Clickable { child, .. }
+            | ElementKind::Tooltip { anchor: child, .. } => translated(child),
+            ElementKind::Overlay { base, floating }
+            | ElementKind::Popover { anchor: base, floating, .. } => translated(base) || translated(floating),
+            _ => false,
+        };
+        self.translated_overflow.insert(key, found);
+        found
+    }
+
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        self.place_translated(element, Self::translated_rect(element, rect), clip);
+    }
+
+    fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let dragged = element.draggable
             && !element.drag_in_place
             && self.drag_source.is_some()
@@ -9409,14 +9457,18 @@ impl LayoutBuilder<'_> {
                 // A column keeps its children under the same box.
                 fading.kept.as_mut().unwrap().foreground = None;
                 fading.style.foreground = ink;
-                return self.place_inner(&fading, rect, clip);
+                let previous_scope = self.enter_measurement_scope();
+                self.place_inner(&fading, rect, clip);
+                self.measurement_scope = previous_scope;
+                return;
             }
         }
         // Retain the un-clipped bounds of directly laid-out controls in a
         // scroll area. A menu can then focus its next option and reveal it,
         // even when that option has no visible hit region yet.
         self.record_scroll_focus_target(element, rect);
-        if clip.is_some_and(|clip| rect.intersection(clip).is_none()) {
+        if clip.is_some_and(|clip| rect.intersection(clip).is_none())
+            && !self.has_translated_overflow(element) {
             if !self.scroll_focus_context.is_empty() {
                 // Composite menu rows can be skipped before their controls
                 // receive geometry. Keep only their IDs reachable; selecting
@@ -9432,7 +9484,7 @@ impl LayoutBuilder<'_> {
                     .focus_path
                     .contains(&(element as *const Element as usize))
             {
-                self.probe_scroll_focus(element, rect, clip);
+                self.probe_scroll_focus_translated(element, rect, clip);
             }
             return;
         }
@@ -9736,6 +9788,7 @@ impl LayoutBuilder<'_> {
         match &element.kind {
             ElementKind::Column(children) => {
                 let kept = self.with_leaving(element, children);
+                let previous_scope = matches!(&kept, Cow::Owned(_)).then(|| self.enter_measurement_scope());
                 let children = kept.as_ref();
                 if let Some(list) = element.kept.as_ref().and_then(|kept| kept.leaving.as_deref()) {
                     let slots = children.iter().filter_map(Self::slot_id).map(str::to_owned).collect();
@@ -9754,6 +9807,7 @@ impl LayoutBuilder<'_> {
                         self.place_flex(children, content, style.gap, false, clip);
                     }
                 }
+                if let Some(scope) = previous_scope { self.measurement_scope = scope; }
             }
             ElementKind::Row(children) => {
                 for (child, rect) in children
@@ -11772,7 +11826,7 @@ impl LayoutBuilder<'_> {
         // bounds even when place() skips the wrapper before visiting its child.
         // Menu keyboard navigation can then reach and reveal offscreen options.
         if let ElementKind::Tooltip { anchor, .. } = &element.kind {
-            self.record_scroll_focus_target(anchor, rect.inset(element.style.padding));
+            self.record_scroll_focus_target(anchor, Self::translated_rect(anchor, rect.inset(element.style.padding)));
         }
         // A control that is also an anchor answers to both names.
         let ids = [focusable_id(element), element.anchor.as_deref()];
@@ -11823,6 +11877,10 @@ impl LayoutBuilder<'_> {
     /// Resolve the requested control's geometry inside a clipped branch.
     /// This does not paint, add hit regions, or visit unrelated descendants.
     fn probe_scroll_focus(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        self.probe_scroll_focus_translated(element, Self::translated_rect(element, rect), clip);
+    }
+
+    fn probe_scroll_focus_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         if focusable_id(element) == self.focus_probe {
             self.record_scroll_focus_target(element, rect);
             return;
