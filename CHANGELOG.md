@@ -3,7 +3,7 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
-## Unreleased
+## 0.1.43 — 2026-10-15
 
 - CodeEditor and CodeDiff: `font_size` keeps text, row geometry, scrolling and pointer selection at the same size; `diff_backgrounds(false)` hides row tints while preserving change markers. Both add public `font_size` and `diff_backgrounds` fields for hosts building their structs literally
 - CodeBlock: `font_size` overrides code without changing its label; `word_wrap(false)` preserves source lines in a horizontal viewport. Markdown exposes independent fenced-code settings through `code_font_size` and `code_word_wrap`, included in its render cache key. Set `id` on a block or preview to preserve horizontal offsets when rebuilding it; equal fences and cached previews keep separate viewport identities

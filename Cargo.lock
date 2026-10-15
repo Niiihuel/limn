@@ -1925,7 +1925,7 @@ dependencies = [
 
 [[package]]
 name = "limn"
-version = "0.1.42"
+version = "0.1.43"
 dependencies = [
  "dioxus-devtools",
  "limn-editor",
@@ -1940,7 +1940,7 @@ dependencies = [
 
 [[package]]
 name = "limn-dnd"
-version = "0.1.42"
+version = "0.1.43"
 dependencies = [
  "raw-window-handle",
  "smithay-client-toolkit 0.20.0",
@@ -1949,7 +1949,7 @@ dependencies = [
 
 [[package]]
 name = "limn-editor"
-version = "0.1.42"
+version = "0.1.43"
 dependencies = [
  "regex",
  "ropey",
@@ -1960,7 +1960,7 @@ dependencies = [
 
 [[package]]
 name = "limn-egui"
-version = "0.1.42"
+version = "0.1.43"
 dependencies = [
  "base64",
  "eframe",
@@ -1974,7 +1974,7 @@ dependencies = [
 
 [[package]]
 name = "limn-gallery"
-version = "0.1.42"
+version = "0.1.43"
 dependencies = [
  "eframe",
  "image",
@@ -1988,7 +1988,7 @@ dependencies = [
 
 [[package]]
 name = "limn-language"
-version = "0.1.42"
+version = "0.1.43"
 dependencies = [
  "limn-editor",
  "pulldown-cmark",
