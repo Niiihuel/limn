@@ -176,6 +176,7 @@ impl LayoutBuilder<'_> {
         fade: Option<(Color, f32)>,
         vertical_wheel: bool,
         pan_bar: Option<Color>,
+        visibility: crate::ScrollbarVisibility,
     ) {
         self.add_region(id, content, HitKind::Scroll, clip);
         self.frame
@@ -272,17 +273,20 @@ impl LayoutBuilder<'_> {
                 }
             }
             if let Some(color) = pan_bar.filter(|_| width > content.width + 0.5) {
-                let scale = content.width / width;
-                self.frame.commands.push(DrawCommand::FillRect {
-                    rect: Rect::new(
-                        content.x + offset * scale,
-                        content.y + content.height - 3.0,
-                        content.width * scale,
-                        3.0,
-                    ),
-                    color: Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45) as u8),
-                    radius: 1.5,
-                });
+                let opacity = self.scrollbar_opacity(id, offset, self.dragging_horizontal == Some(id), visibility);
+                if opacity > 0.0 {
+                    let scale = content.width / width;
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect: Rect::new(
+                            content.x + offset * scale,
+                            content.y + content.height - 3.0,
+                            content.width * scale,
+                            3.0,
+                        ),
+                        color: Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45 * opacity) as u8),
+                        radius: 1.5,
+                    });
+                }
             }
             self.frame.commands.push(DrawCommand::PopClip);
         }

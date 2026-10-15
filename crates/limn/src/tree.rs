@@ -25,6 +25,9 @@ mod top_fade_tests;
 #[path = "scrollbar_visibility_tests.rs"]
 mod scrollbar_visibility_tests;
 #[cfg(test)]
+#[path = "horizontal_scrollbar_visibility_tests.rs"]
+mod horizontal_scrollbar_visibility_tests;
+#[cfg(test)]
 #[path = "translation_tests.rs"]
 mod translation_tests;
 #[cfg(test)]
@@ -3750,6 +3753,7 @@ impl UiTree {
                 scroll_to_index: &mut self.scroll_to_index,
                 hovered_scrollbar: self.hovered_scrollbar.as_deref(),
                 dragging_scrollbar: self.scroll_drag.as_ref().map(|drag| drag.id.as_str()),
+                dragging_horizontal: self.horizontal_pan.as_ref().map(|(id, _)| id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 pointer: self.pointer,
                 region_hovered: false,
@@ -6713,6 +6717,7 @@ struct LayoutBuilder<'a> {
     scroll_to_index: &'a mut HashMap<String, usize>,
     hovered_scrollbar: Option<&'a str>,
     dragging_scrollbar: Option<&'a str>,
+    dragging_horizontal: Option<&'a str>,
     scroll_button_hold: Option<&'a ScrollButtonHold>,
     pointer: Option<Point>,
     /// The pointer is over the `hover_region` being placed.
@@ -8409,6 +8414,26 @@ impl LayoutBuilder<'_> {
         self.measured_lists.insert(list.id.clone(), state);
     }
 
+    fn scrollbar_opacity(
+        &mut self,
+        id: &str,
+        offset: f32,
+        interacting: bool,
+        visibility: crate::ScrollbarVisibility,
+    ) -> f32 {
+        match visibility {
+            crate::ScrollbarVisibility::Always => {
+                self.scrollbar_states.remove(id);
+                1.0
+            }
+            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => {
+                self.scrollbar_states.entry(id.to_owned())
+                    .or_insert_with(|| ScrollbarState::new(offset, self.now))
+                    .observe(offset, interacting, hold_ms, fade_ms, self.reduced_motion, self.now)
+            }
+        }
+    }
+
     fn paint_scrollbar(
         &mut self,
         id: &str,
@@ -8427,19 +8452,9 @@ impl LayoutBuilder<'_> {
         };
         let active = self.dragging_scrollbar == Some(id);
         let hovered = self.hovered_scrollbar == Some(id);
-        let opacity = match visibility {
-            crate::ScrollbarVisibility::Always => {
-                self.scrollbar_states.remove(id);
-                1.0
-            }
-            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => {
-                let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
-                let interacting = active || hovered || self.scroll_button_hold.is_some_and(|hold| hold.id == id);
-                self.scrollbar_states.entry(id.to_owned())
-                    .or_insert_with(|| ScrollbarState::new(offset, self.now))
-                    .observe(offset, interacting, hold_ms, fade_ms, self.reduced_motion, self.now)
-            }
-        };
+        let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
+        let interacting = active || hovered || self.scroll_button_hold.is_some_and(|hold| hold.id == id);
+        let opacity = self.scrollbar_opacity(id, offset, interacting, visibility);
         if opacity <= 0.0 { return; }
         let ink = appearance.tint.unwrap_or(ink);
         let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
@@ -10117,6 +10132,7 @@ impl LayoutBuilder<'_> {
                     style.horizontal_edge_fade,
                     *vertical_wheel,
                     drag_pan.then_some(style.foreground),
+                    scrollbar_visibility,
                 );
             }
             ElementKind::Scroll {
