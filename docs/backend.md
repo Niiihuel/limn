@@ -50,6 +50,10 @@ the tree's origin.
 | `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
 | `FilesHovered { position }`, `FilesDropped { position, paths }` | Files dragged from another application. |
 
+External file events preserve the supplied list; they do not read file
+contents. The tree resolves drop targets within floating surfaces and modal
+boundaries. Hosts validate targets and paths before starting file I/O.
+
 `handle_event` returns the `UiAction`s the event produced. Call
 `UiTree::layout` before delivering pointer events: they are resolved against
 the regions of the last layout.

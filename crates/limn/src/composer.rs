@@ -26,6 +26,7 @@ pub struct Composer {
     inline_controls: bool,
     editor_font_size: f32,
     enter_submits: bool,
+    drop_target: bool,
     editor_action: Option<Element>,
     editor_highlights: Vec<TextHighlight>,
     link_preview: Option<Element>,
@@ -67,6 +68,7 @@ impl Composer {
             inline_controls: false,
             editor_font_size: 13.0,
             enter_submits: false,
+            drop_target: false,
             editor_action: None,
             editor_highlights: Vec::new(),
             link_preview: None,
@@ -163,6 +165,14 @@ impl Composer {
     /// Off by default: Enter breaks the line.
     pub fn enter_submits(mut self, submits: bool) -> Self {
         self.enter_submits = submits;
+        self
+    }
+
+    /// Accept file drops on the enabled editor, using its existing ID as the
+    /// target of `UiAction::FilesDropped`. Off by default. The host validates
+    /// the paths and owns any file access; this component never opens files.
+    pub fn drop_target(mut self) -> Self {
+        self.drop_target = true;
         self
     }
 
@@ -276,6 +286,7 @@ impl Composer {
         let (highlights, palette, enabled) = (self.editor_highlights, self.palette, self.enabled);
         let (font_size, height, auto_grow) = (self.editor_font_size, self.editor_height, self.auto_grow);
         let enter_submits = self.enter_submits;
+        let drop_target = self.drop_target;
         let editor = move |padding: f32| {
             if !enabled {
                 // Text in the editor's box, as a disabled `TextArea` is: no
@@ -306,7 +317,7 @@ impl Composer {
                 }
                 return text;
             }
-            let editor = Element::text_area(id, prompt, placeholder)
+            let mut editor = Element::text_area(id, prompt, placeholder)
                 .text_area_highlights(highlights)
                 .text_area_enter_submits(enter_submits)
                 .background(palette.selected)
@@ -316,6 +327,9 @@ impl Composer {
                 .padding(padding)
                 .radius(crate::tokens().radius.surface)
                 .size(None, Some(height));
+            if drop_target {
+                editor = editor.drop_target();
+            }
             if let Some((minimum, maximum)) = auto_grow {
                 editor.text_area_auto_grow(minimum, maximum)
             } else {
@@ -400,6 +414,28 @@ impl Composer {
 mod tests {
     use super::*;
     use crate::{Key, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn file_drops_are_opt_in_and_share_only_the_enabled_editors_region() {
+        for accepts in [false, true] {
+            for enabled in [false, true] {
+                let mut composer = Composer::new("prompt", "Draft", "Message", 320.0, ComponentPalette::neutral_dark());
+                if accepts { composer = composer.drop_target(); }
+                let mut tree = UiTree::new(composer.enabled(enabled).render());
+                tree.set_reduced_motion(true);
+                let frame = tree.layout(Size::new(320.0, 160.0));
+                assert_eq!(frame.regions.iter().filter(|region| region.id == "prompt").count(), usize::from(enabled));
+                let focused = if enabled { assert!(tree.focus("prompt")); Some("prompt") } else { None };
+                let position = Point::new(20.0, 20.0);
+                let paths = vec!["/tmp/limn-one.txt".into(), "/tmp/limn-two.txt".into()];
+                assert_eq!(
+                    tree.handle_event(UiEvent::FilesDropped { position, paths: paths.clone() }),
+                    vec![UiAction::FilesDropped { position, target: (accepts && enabled).then(|| "prompt".into()), paths }]
+                );
+                assert_eq!(tree.focused_id(), focused);
+            }
+        }
+    }
 
     #[test]
     fn the_editor_is_named_by_its_placeholder_and_gives_its_draft_enabled_or_not() {
