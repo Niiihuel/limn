@@ -766,6 +766,7 @@ pub(crate) struct Kept {
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
     pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
+    pub(crate) translation: Option<Point>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1939,6 +1940,19 @@ impl Element {
     /// in the page's flow, which leaves at once when it is removed.
     pub fn animate_enter(mut self, id: impl Into<String>) -> Self {
         self.presence = Some((id.into(), false));
+        self
+    }
+
+    /// Translate this element and its descendants without changing their slot
+    /// in the parent's flow. Paint, pointer, accessibility and scroll geometry
+    /// move together; ancestor clips remain fixed. Non-finite offsets are ignored.
+    /// The host owns the offset, including direct manipulation and animation.
+    /// Viewport popovers retain their placement; translate their floating
+    /// surface itself when it should move independently of its anchor.
+    pub fn translate(mut self, offset: Point) -> Self {
+        if offset.x.is_finite() && offset.y.is_finite() {
+            self.kept.get_or_insert_default().translation = Some(offset);
+        }
         self
     }
 

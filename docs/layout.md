@@ -202,6 +202,26 @@ that is resolved at the next layout, once sizes are known.
 that is not otherwise interactive can be an `Element::clickable`. Rows of a
 uniform list exist only while in view; use `scroll_to_index` for those.
 
+## Translation without reflow
+
+```rust
+surface.translate(Point::new(0.0, drag_offset))
+```
+
+`Element::translate` moves an element and its normal descendants after the
+parent has assigned their slot. Paint, hit regions, accessibility bounds and
+scroll geometry move together; siblings keep their original positions and
+scroll ranges do not grow. Translations nest by addition. The ancestor's clip
+stays fixed, so put the surface in a parent with `clip_children()` to keep it
+inside a viewport. Nonfinite offsets are ignored. Virtual lists still choose
+which rows to build from their unchanged flow slots.
+
+Floating popovers keep their viewport placement, as they do when their
+anchor scrolls. Translate the floating surface itself to move one. A
+translation is direct state, so reduced motion does not suppress it; the host
+skips any autonomous animation that produces the offset. See
+[controlled dismiss gestures](animation.md#controlled-dismiss-gestures).
+
 ## The root
 
 The root element is given the whole window. To keep a component at its own
