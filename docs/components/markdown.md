@@ -68,6 +68,18 @@ ignored, and the rest is kept between 8 and 96. In a column too narrow for a
 large size, a list gives up its nesting first and then the width of its marker
 column, so an item's text always starts inside the column.
 
+`code_font_size(size)` sets fenced code independently of the body, in logical
+pixels. Without it, code keeps its existing proportion to the body. Invalid
+numbers and nonpositive sizes are ignored; valid sizes stay within 1 to 96.
+`code_word_wrap(false)` preserves each code source line in a horizontal
+viewport; prose continues to wrap. Both settings take effect in cached and
+streaming previews. A standalone `CodeBlock` offers the same controls as
+`font_size(size)` and `word_wrap(bool)`; its label keeps its original size.
+Give the preview a stable `.id(message_id)` to preserve code viewport offsets
+when rebuilding it each frame. Each code fence then receives its own ID within
+that message, including identical fences. Standalone blocks take `.id(block_id)`.
+Anonymous instances have independent temporary identities.
+
 ## Streaming
 
 ```rust

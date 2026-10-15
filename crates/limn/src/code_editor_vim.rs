@@ -108,7 +108,7 @@ impl EditorView {
         self.cancel_composition();
         let before = buffer.snapshot();
         let timestamp = now.saturating_duration_since(self.started).as_millis() as u64;
-        let page = (self.viewport.body.height / LINE_HEIGHT).floor().max(1.0) as usize;
+        let page = (self.viewport.body.height / self.editor.line_height()).floor().max(1.0) as usize;
         let mut copied = None;
         let result = self.vim.handle(
             event,

@@ -46,6 +46,11 @@ CodeDiff::new("review", rows).height(240.0).render()
 `height` is in logical pixels, never under 24; the default is 320. Rows past
 it scroll under the wheel or the scrollbar.
 
+`font_size(size)` changes the text, gutter and row layout together, 13 logical
+pixels by default. Invalid numbers and nonpositive sizes are ignored; valid
+sizes are kept within 1 to 96. `diff_backgrounds(false)` hides the full row
+tints while preserving the +/- marks and colored edge bands.
+
 ## Language
 
 ```rust

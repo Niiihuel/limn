@@ -155,6 +155,8 @@ pub(crate) struct MarkdownPresentation {
     radius_bits: [u32; 4],
     // The body size every text and line height is scaled from, as bits.
     font_size_bits: u32,
+    code_font_size_bits: Option<u32>,
+    code_word_wrap: bool,
 }
 
 impl MarkdownPresentation {
@@ -199,6 +201,7 @@ pub struct Markdown<'a> {
     streaming: bool,
     plain_line_height: Option<f32>,
     diagram_sources: &'a [u64],
+    id: Option<String>,
 }
 
 impl<'a> Markdown<'a> {
@@ -221,11 +224,22 @@ impl<'a> Markdown<'a> {
                     [radius.control, radius.surface, radius.card, radius.panel].map(f32::to_bits)
                 },
                 font_size_bits: BODY_SIZE.to_bits(),
+                code_font_size_bits: None,
+                code_word_wrap: true,
             },
             streaming: false,
             plain_line_height: None,
             diagram_sources: &[],
+            id: None,
         }
+    }
+
+    /// Stable identity of this preview's code viewports. Set it when rebuilding
+    /// a preview each frame to retain horizontal scroll offsets. Source trees
+    /// remain shareable in the cache; IDs are applied to the returned instance.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
     }
 
     /// The reading column in logical pixels, kept between 48 and 1,200. A
@@ -243,6 +257,23 @@ impl<'a> Markdown<'a> {
         if size.is_finite() && size > 0.0 {
             self.presentation.font_size_bits = size.clamp(8.0, 96.0).to_bits();
         }
+        self
+    }
+
+    /// Set the absolute size of fenced code, independently of body text.
+    /// Without an override it stays proportional to the body. Nonpositive or
+    /// nonfinite values are ignored; valid sizes stay within 1..=96.
+    pub fn code_font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.presentation.code_font_size_bits = Some(size.clamp(1.0, 96.0).to_bits());
+        }
+        self
+    }
+
+    /// Wrap fenced code to the reading width (the default). Disabled code keeps
+    /// source lines in a horizontal viewport; prose continues to wrap normally.
+    pub fn code_word_wrap(mut self, enabled: bool) -> Self {
+        self.presentation.code_word_wrap = enabled;
         self
     }
 
@@ -335,7 +366,7 @@ impl<'a> Markdown<'a> {
     /// displayed content, width or presentation changes; the host still
     /// performs layout.
     pub fn render(self) -> MarkdownPreview {
-        match self.plain_line_height {
+        let mut preview = match self.plain_line_height {
             Some(line_height) => MarkdownPreview {
                 element: render_plain(self.source, &self.presentation, line_height),
                 limited: false,
@@ -346,7 +377,12 @@ impl<'a> Markdown<'a> {
                 self.streaming,
                 self.diagram_sources,
             ),
+        };
+        if !self.presentation.code_word_wrap {
+            let scope = self.id.unwrap_or_else(crate::code_block::anonymous_code_scroll_id);
+            scope_code_scrolls(&mut preview.element, &scope, &mut 0);
         }
+        preview
     }
 
     /// Hold the returned guard while building one frame of a transcript:
@@ -530,14 +566,34 @@ fn render_inline_mode(
 
 fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation) -> Element {
     let mut block = CodeBlock::new(content, presentation.palette)
+        .word_wrap(presentation.code_word_wrap)
+        .font_scale(presentation.scale())
         .label(if language.is_empty() {
             presentation.labels.code_fallback.to_owned()
         } else {
             language.to_uppercase()
-        })
-        .render();
-    scale_text(&mut block, presentation.scale());
-    block
+        });
+    if let Some(size) = presentation.code_font_size_bits {
+        block = block.font_size(f32::from_bits(size));
+    }
+    block.render()
+}
+
+fn scope_code_scrolls(element: &mut Element, scope: &str, ordinal: &mut usize) {
+    match &mut element.kind {
+        ElementKind::Column(children) | ElementKind::Row(children) => {
+            for child in children { scope_code_scrolls(child, scope, ordinal); }
+        }
+        ElementKind::Panel(child) => scope_code_scrolls(child, scope, ordinal),
+        ElementKind::HorizontalScroll { id, child, .. } => {
+            if id.starts_with("code_block:auto:") {
+                *id = format!("markdown:{scope}:code:{ordinal}");
+                *ordinal += 1;
+            }
+            scope_code_scrolls(child, scope, ordinal);
+        }
+        _ => {}
+    }
 }
 
 /// Multiply every text size and line height in a card that sets its text by
@@ -561,7 +617,7 @@ fn scale_text(element: &mut Element, scale: f32) {
                 scale_text(child, scale);
             }
         }
-        ElementKind::Panel(child) => scale_text(child, scale),
+        ElementKind::Panel(child) | ElementKind::HorizontalScroll { child, .. } => scale_text(child, scale),
         _ => {}
     }
 }

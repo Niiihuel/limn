@@ -2115,6 +2115,12 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
 /// monochrome emoji after all existing faces, without reading
 /// system fonts. See `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
 pub fn install_fonts(ctx: &egui::Context) {
+    ctx.set_fonts(font_definitions());
+}
+
+/// The bundled font families and their Unicode fallbacks. Hosts can prepend
+/// system faces before installing these definitions with `Context::set_fonts`.
+pub fn font_definitions() -> egui::FontDefinitions {
     let mut fonts = egui::FontDefinitions::default();
     let name = "Ubuntu-Regular".to_owned();
     fonts.font_data.insert(
@@ -2173,7 +2179,7 @@ pub fn install_fonts(ctx: &egui::Context) {
         .entry(egui::FontFamily::Proportional)
         .or_default()
         .insert(0, name);
-    ctx.set_fonts(fonts);
+    fonts
 }
 
 const SANS_MEDIUM: &str = "limn-sans-medium";

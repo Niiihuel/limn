@@ -128,6 +128,7 @@ impl IndentGuideCache {
         continuation: bool,
         body: Rect,
         y: f32,
+        line_height: f32,
         scroll_x: f32,
         tab_width: usize,
         space_width: f32,
@@ -163,7 +164,7 @@ impl IndentGuideCache {
                     .as_ref()
                     .is_some_and(|(rows, active)| *active == level && rows.contains(&row));
             commands.push(DrawCommand::FillRect {
-                rect: Rect::new(x, y, 1.0, LINE_HEIGHT),
+                rect: Rect::new(x, y, 1.0, line_height),
                 color: Color::rgba(color.r, color.g, color.b, if active { 140 } else { 52 }),
                 radius: 0.0,
             });
@@ -204,6 +205,7 @@ mod tests {
             false,
             body,
             4.0,
+            LINE_HEIGHT,
             10.0,
             4,
             7.0,
@@ -224,6 +226,7 @@ mod tests {
             true,
             body,
             24.0,
+            LINE_HEIGHT,
             0.0,
             4,
             7.0,

@@ -93,6 +93,12 @@ CodeEditor::new("source", controller)
 
 `IndentStyle` is in `limn_editor`.
 
+`font_size(size)` sets code and gutter text, 13 logical pixels by default.
+Rows, scrolling, soft wrap, selections, the caret and pointer positioning use
+the same size. Invalid numbers and nonpositive sizes are ignored; valid sizes
+are kept within 1 to 96. `diff_backgrounds(false)` hides the row tints of review
+hunks while keeping their edge markers, removed lines and controls.
+
 ## Read-only
 
 ```rust
