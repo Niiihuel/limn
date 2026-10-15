@@ -1,5 +1,7 @@
 //! The labelled card that holds a block of code inside prose.
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::{Component, ComponentPalette, Element, FontFamily, RadiusRole, TextRole, TextSpan};
 
 /// The type of a [`CodeBlock`]: the label's role and family, and the role of
@@ -39,6 +41,10 @@ pub struct CodeBlock {
     spans: Option<Vec<TextSpan>>,
     sizing: CodeBlockSizing,
     width: Option<f32>,
+    font_size: Option<f32>,
+    font_scale: f32,
+    word_wrap: bool,
+    id: Option<String>,
 }
 
 impl CodeBlock {
@@ -51,6 +57,10 @@ impl CodeBlock {
             spans: None,
             sizing: CodeBlockSizing::CHAT,
             width: None,
+            font_size: None,
+            font_scale: 1.0,
+            word_wrap: true,
+            id: None,
         }
     }
 
@@ -73,15 +83,54 @@ impl CodeBlock {
         self
     }
 
-    /// Fix the width, in logical pixels, and wrap the code inside it. Without
-    /// it the block fills the width it is given. Values that are negative or
-    /// not finite are ignored.
+    /// Stable identity of the horizontal viewport when wrapping is disabled.
+    /// Set this when rebuilding the block each frame to retain its scroll offset.
+    /// Without it, each rendered instance gets a distinct, temporary identity.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// Override the code size without changing its label. Explicit span colors
+    /// and families are preserved. Invalid values are ignored; valid sizes stay
+    /// within 1..=96 logical pixels.
+    pub fn font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.font_size = Some(size.clamp(1.0, 96.0));
+        }
+        self
+    }
+
+    pub(crate) fn font_scale(mut self, scale: f32) -> Self {
+        self.font_scale = scale;
+        self
+    }
+
+    /// Wrap code to the available width (the default). Otherwise preserve each
+    /// source line in a horizontal viewport. Set `id` to retain its scroll position.
+    pub fn word_wrap(mut self, enabled: bool) -> Self {
+        self.word_wrap = enabled;
+        self
+    }
+
+    /// Fix the width, in logical pixels, of the wrapped code or its horizontal
+    /// viewport. Without it the block fills the width it is given. Values that
+    /// are negative or not finite are ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() && width >= 0.0 {
             self.width = Some(width);
         }
         self
     }
+}
+
+pub(crate) fn anonymous_code_scroll_id() -> String {
+    static NEXT_ID: AtomicU64 = AtomicU64::new(0);
+    format!("code_block:auto:{}", NEXT_ID.fetch_add(1, Ordering::Relaxed))
+}
+
+pub(crate) fn is_anonymous_code_scroll_id(id: &str) -> bool {
+    id.strip_prefix("markdown:").unwrap_or(id).starts_with("code_block:auto:")
 }
 
 const PADDING: f32 = 12.0;
@@ -97,16 +146,24 @@ impl Component for CodeBlock {
                     } else {
                         FontFamily::Sans
                     })
-                    .font_size(self.sizing.label.size())
+                    .font_size(self.sizing.label.size() * self.font_scale)
                     .foreground(self.palette.muted),
             );
         }
         let code = match self.spans {
-            Some(spans) => Element::formatted_text(spans),
+            Some(mut spans) => {
+                if let Some(size) = self.font_size {
+                    for span in &mut spans { span.font_size = size; }
+                }
+                Element::formatted_text(spans)
+            },
             None => Element::text(self.text)
                 .font_family(FontFamily::Monospace)
-                .font_size(self.sizing.code.size())
+                .font_size(self.font_size.unwrap_or_else(|| self.sizing.code.size() * self.font_scale))
                 .foreground(self.palette.text),
+        };
+        let code = if self.word_wrap { code } else {
+            Element::horizontal_scroll_2d(self.id.unwrap_or_else(anonymous_code_scroll_id), code)
         };
         children.push(match self.width {
             Some(width) => code.size(Some((width - 2.0 * PADDING).max(0.0)), None),

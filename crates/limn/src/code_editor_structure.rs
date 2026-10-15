@@ -450,12 +450,12 @@ impl EditorView {
         find_inset: f32,
     ) -> Vec<CodeStickyScope> {
         let count =
-            (((body.height - find_inset).max(0.0) * 0.25 / LINE_HEIGHT).floor() as usize).min(3);
+            (((body.height - find_inset).max(0.0) * 0.25 / self.editor.line_height()).floor() as usize).min(3);
         if count == 0 {
             return Vec::new();
         }
         let anchor = (self.viewport.scroll_y + find_inset).max(0.0);
-        let first_visual = (anchor / LINE_HEIGHT).floor() as usize;
+        let first_visual = (anchor / self.editor.line_height()).floor() as usize;
         let first = self.structure_physical_row(first_visual, snapshot.line_count());
         let last =
             self.structure_physical_row(first_visual.saturating_add(count), snapshot.line_count());
@@ -472,8 +472,8 @@ impl EditorView {
                 continue;
             }
             let end = self.structure_visual_row(scope.end_row, snapshot.line_count());
-            let edge = anchor + result.len() as f32 * LINE_HEIGHT;
-            if start as f32 * LINE_HEIGHT < edge && end as f32 * LINE_HEIGHT > edge + LINE_HEIGHT {
+            let edge = anchor + result.len() as f32 * self.editor.line_height();
+            if start as f32 * self.editor.line_height() < edge && end as f32 * self.editor.line_height() > edge + self.editor.line_height() {
                 result.push(scope);
                 if result.len() == count {
                     break;
@@ -497,8 +497,8 @@ impl EditorView {
         commands: &mut Vec<DrawCommand>,
     ) {
         for (index, scope) in scopes.iter().enumerate() {
-            let y = body.y + find_inset + index as f32 * LINE_HEIGHT;
-            let header = Rect::new(rect.x, y, (rect.width - 8.0).max(0.0), LINE_HEIGHT);
+            let y = body.y + find_inset + index as f32 * self.editor.line_height();
+            let header = Rect::new(rect.x, y, (rect.width - 8.0).max(0.0), self.editor.line_height());
             let Some(header_clip) = header.intersection(clip) else {
                 continue;
             };
@@ -508,10 +508,11 @@ impl EditorView {
                 color: self.editor.palette.surface,
                 radius: 0.0,
             });
-            let text_y = centered_text_y(y, LINE_HEIGHT, text_height);
+            let text_y = centered_text_y(y, self.editor.line_height(), text_height);
             if self.editor.line_numbers {
                 let number = (scope.start_row + 1).to_string();
                 commands.push(text_command(
+                    self.editor.font_size,
                     Point::new(
                         body.x - fold_lane - NUMBER_TRAILING_PADDING - measure(&number),
                         text_y,
@@ -539,9 +540,9 @@ impl EditorView {
                 body.x,
                 y,
                 body.width,
-                LINE_HEIGHT,
+                self.editor.line_height(),
             )));
-            display.paint(
+            display.paint(self.editor.font_size,
                 commands,
                 Point::new(body.x - self.viewport.scroll_x, text_y),
                 (self.viewport.scroll_x, body.width),
@@ -562,7 +563,7 @@ impl EditorView {
             commands.push(DrawCommand::FillRect {
                 rect: Rect::new(
                     rect.x,
-                    body.y + find_inset + scopes.len() as f32 * LINE_HEIGHT - 1.0,
+                    body.y + find_inset + scopes.len() as f32 * self.editor.line_height() - 1.0,
                     (rect.width - 8.0).max(0.0),
                     1.0,
                 ),

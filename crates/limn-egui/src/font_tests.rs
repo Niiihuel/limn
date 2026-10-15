@@ -13,6 +13,24 @@ fn context(install: bool) -> egui::Context {
 }
 
 #[test]
+fn hosts_can_extend_bundled_definitions_without_losing_fallbacks() {
+    let mut definitions = font_definitions();
+    let fallback = definitions.families[&egui::FontFamily::Proportional].clone();
+    definitions.font_data.insert("host-face".into(), definitions.font_data["Ubuntu-Regular"].clone());
+    definitions.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0, "host-face".into());
+    let ctx = egui::Context::default();
+    ctx.set_fonts(definitions);
+    let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+    output.textures_delta.clear();
+    ctx.fonts_mut(|fonts| {
+        let family = &fonts.definitions().families[&egui::FontFamily::Proportional];
+        assert_eq!(family.first().map(String::as_str), Some("host-face"));
+        assert_eq!(family[1..], fallback);
+        assert!(fonts.has_glyph(&egui::FontId::proportional(14.0), '𝓡'));
+    });
+}
+
+#[test]
 fn mathematical_names_have_real_glyphs_in_every_limn_family() {
     let baseline = context(false);
     let ctx = context(true);

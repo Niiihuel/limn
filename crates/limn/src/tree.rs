@@ -3157,11 +3157,14 @@ impl UiTree {
         self.text_height_measurer = None;
     }
 
-    /// Replaces the visual tree without discarding input, focus or scroll state.
-    /// Reuse IDs for widgets that represent the same logical control.
+    /// Replaces the visual tree without discarding named input, focus or scroll
+    /// state. Reuse IDs for widgets that represent the same logical control.
+    /// Temporary anonymous code viewports belong to the replaced instance.
     pub fn set_root(&mut self, root: Element) {
         self.root = root;
         self.action_aliases.clear();
+        // Anonymous code viewports belong to the replaced instance; explicit IDs retain state.
+        self.horizontal_scrolls.retain(|id, _| !crate::code_block::is_anonymous_code_scroll_id(id));
     }
 
     /// The text a text input or text area holds now. `None` until a field
@@ -4870,14 +4873,14 @@ impl UiTree {
 
     fn handle_code_event(&mut self, event: &UiEvent, now: Instant) -> Option<Vec<UiAction>> {
         let measurer = self.text_measurer.clone();
-        let advance = self.metrics.char_width * 13.0 / DEFAULT_FONT_SIZE;
-        let measure = |text: &str| {
+        let char_width = self.metrics.char_width;
+        let measure = |size: f32, text: &str| {
             measured_width(
                 measurer.as_deref(),
                 text,
-                13.0,
+                size,
                 FontFamily::Monospace,
-                advance,
+                char_width * size / DEFAULT_FONT_SIZE,
             )
         };
         match event {
@@ -4940,11 +4943,10 @@ impl UiTree {
                     UiEvent::PointerDownModified { shift, .. } => (*shift, false, false, 1),
                     _ => (false, false, false, 1),
                 };
-                Some(
-                    self.code_editors
-                        .get_mut(&id)?
-                        .pointer_modified(*point, extend, add, rectangle, clicks, true, &measure),
-                )
+                let state = self.code_editors.get_mut(&id)?;
+                let size = state.editor.font_size;
+                Some(state.pointer_modified(*point, extend, add, rectangle, clicks, true,
+                    &|text| measure(size, text)))
             }
             UiEvent::PointerMove(point) | UiEvent::PointerUp(point) => {
                 if let Some(viewport) = self
@@ -4962,7 +4964,8 @@ impl UiTree {
                 })?;
                 self.pointer = Some(*point);
                 let dragging = matches!(event, UiEvent::PointerMove(_));
-                Some(state.point(*point, true, dragging, &measure))
+                let size = state.editor.font_size;
+                Some(state.point(*point, true, dragging, &|text| measure(size, text)))
             }
             UiEvent::Scroll { position, delta_y }
             | UiEvent::ScrollDirect { position, delta_y }
@@ -5050,7 +5053,8 @@ impl UiTree {
                 if state.editor.read_only && matches!(event, UiEvent::Key { key: Key::Tab, .. }) {
                     return None;
                 }
-                Some(state.input(event, now, &measure))
+                let size = state.editor.font_size;
+                Some(state.input(event, now, &|text| measure(size, text)))
             }
             _ => None,
         }
@@ -7247,14 +7251,14 @@ impl LayoutBuilder<'_> {
         }
     }
 
-    fn code_text_height(&self) -> f32 {
+    fn code_text_height(&self, size: f32) -> f32 {
         self.text_height_measurer
             .as_ref()
-            .map(|measure| measure(crate::code_editor::FONT_SIZE, FontFamily::Monospace))
+            .map(|measure| measure(size, FontFamily::Monospace))
             .filter(|height| height.is_finite() && *height > 0.0)
             .unwrap_or_else(|| {
                 self.metrics
-                    .at_size(crate::code_editor::FONT_SIZE)
+                    .at_size(size)
                     .line_height
             })
     }
@@ -10963,14 +10967,14 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::CodeEditor(editor) => {
                 self.add_region(&editor.id, rect, HitKind::CodeEditor, clip);
-                let text_height = self.code_text_height();
+                let text_height = self.code_text_height(editor.font_size);
                 let measurer = self.text_measurer.clone();
-                let advance = metrics.char_width;
+                let advance = self.metrics.at_size(editor.font_size).char_width;
                 let measure = |text: &str| {
                     measured_width(
                         measurer.as_deref(),
                         text,
-                        13.0,
+                        editor.font_size,
                         FontFamily::Monospace,
                         advance,
                     )
@@ -11027,14 +11031,14 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::CodeDiff(diff) => {
                 self.add_region(&diff.id, rect, HitKind::CodeDiff, clip);
-                let text_height = self.code_text_height();
+                let text_height = self.code_text_height(diff.font_size);
                 let measurer = self.text_measurer.clone();
-                let advance = metrics.char_width;
+                let advance = self.metrics.at_size(diff.font_size).char_width;
                 let measure = |text: &str| {
                     measured_width(
                         measurer.as_deref(),
                         text,
-                        13.0,
+                        diff.font_size,
                         FontFamily::Monospace,
                         advance,
                     )
