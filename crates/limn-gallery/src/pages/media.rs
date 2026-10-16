@@ -227,7 +227,8 @@ pub fn layer(cx: &Cx, base: Element) -> Element {
     match mode {
         "loading" => viewer,
         "failed" => viewer.error("The picture could not be decoded."),
-        "animation" => viewer.surface(ANIMATION, "A band of light"),
+        // Not a picture: the arrows say what they move to.
+        "animation" => viewer.surface(ANIMATION, "A band of light").navigation_labels("Previous item", "Next item"),
         _ => viewer.image(picture(index)),
     }
     .render()

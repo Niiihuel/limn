@@ -21,6 +21,7 @@ pub struct ImageViewer {
     total: usize,
     previous_action: Option<String>,
     next_action: Option<String>,
+    navigation_labels: Option<[String; 2]>,
     return_focus: Option<String>,
     zoom: f32,
     zoom_actions: Option<[String; 3]>,
@@ -52,6 +53,7 @@ impl ImageViewer {
             total: 1,
             previous_action: None,
             next_action: None,
+            navigation_labels: None,
             return_focus: None,
             zoom: 1.0,
             zoom_actions: None,
@@ -110,6 +112,14 @@ impl ImageViewer {
     /// picture.
     pub fn next_action(mut self, id: impl Into<String>) -> Self {
         self.next_action = Some(id.into());
+        self
+    }
+
+    /// What the arrows are called, for a gallery of something other than images, such
+    /// as the pages of a document: the names a screen reader says and the hints show,
+    /// in place of `Labels::previous_image` and `Labels::next_image`.
+    pub fn navigation_labels(mut self, previous: impl Into<String>, next: impl Into<String>) -> Self {
+        self.navigation_labels = Some([previous.into(), next.into()]);
         self
     }
 
@@ -265,6 +275,9 @@ impl Component for ImageViewer {
             Element::column(content).gap(12.0)
         }
         .flex(1.0);
+        let [previous_label, next_label] = self
+            .navigation_labels
+            .unwrap_or_else(|| [crate::labels().previous_image.into(), crate::labels().next_image.into()]);
         let mut body = Vec::new();
         if self.total > 1 {
             if let Some(id) = &self.previous_action {
@@ -274,8 +287,8 @@ impl Component for ImageViewer {
                         control(
                             id,
                             Icon::ArrowLeft,
-                            crate::labels().previous_image,
-                            &format!("{} · ←", crate::labels().previous_image),
+                            &previous_label,
+                            &format!("{previous_label} · ←"),
                             self.index > 0,
                             controls,
                         ),
@@ -294,8 +307,8 @@ impl Component for ImageViewer {
                         control(
                             id,
                             Icon::ArrowRight,
-                            crate::labels().next_image,
-                            &format!("{} · →", crate::labels().next_image),
+                            &next_label,
+                            &format!("{next_label} · →"),
                             self.index + 1 < self.total,
                             controls,
                         ),
@@ -459,6 +472,28 @@ mod tests {
         assert_eq!(fitted, picture(&tree.layout(WINDOW)));
         let zoomed = shown(2.0, false).0;
         assert_eq!((zoomed.width, zoomed.height), (fitted.width * 2.0, fitted.height * 2.0));
+    }
+
+    #[test]
+    fn the_arrows_are_named_for_images_unless_the_host_names_them() {
+        let names = |labels: Option<[&str; 2]>| {
+            let mut viewer = ImageViewer::new(Element::spacer(), true, "report.pdf", "close", ComponentPalette::neutral_dark())
+                .viewport(WINDOW)
+                .gallery(1, 3)
+                .previous_action("before")
+                .next_action("after");
+            if let Some([previous, next]) = labels {
+                viewer = viewer.navigation_labels(previous, next);
+            }
+            let mut tree = UiTree::new(viewer.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(WINDOW);
+            let name = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap().name.clone();
+            [name("before"), name("after")]
+        };
+        let labels = crate::labels();
+        assert_eq!(names(None), [labels.previous_image, labels.next_image]);
+        assert_eq!(names(Some(["Previous page", "Next page"])), ["Previous page", "Next page"]);
     }
 
     #[test]
