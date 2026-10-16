@@ -1,6 +1,7 @@
 //! Synthetic captured-paste scenarios; this code does not request clipboard I/O.
 //!
 //! `cargo run -p limn-gallery --example captured_paste -- --verify`
+//! Add `--ordered-input` for synthetic source-order scenarios, or `--small` for 600×580.
 //! Add `--light`, `--square`, or `--screenshot new.png`. Screenshots imply verify.
 //! The logic deadline needs ticks; use an external watchdog for startup/starvation.
 //! eframe may still initialize its default clipboard backend.
@@ -11,7 +12,7 @@ use limn::{
     Button, CodeEditor, Color, Component, EditorController, Element, Radius, ScrollArea, Size,
     Theme, Tokens, UiAction, UiEvent, UiTree,
 };
-use limn_editor::{Selection, TextBuffer};
+use limn_editor::{EditKind, Selection, TextBuffer};
 use std::{
     cell::Cell,
     collections::VecDeque,
@@ -38,6 +39,8 @@ struct Options {
     screenshot: Option<PathBuf>,
     light: bool,
     square: bool,
+    ordered_input: bool,
+    small: bool,
 }
 
 impl Options {
@@ -47,6 +50,8 @@ impl Options {
         while let Some(argument) = arguments.next() {
             match argument.as_str() {
                 "--verify" => options.verify = true,
+                "--ordered-input" => options.ordered_input = true,
+                "--small" => options.small = true,
                 "--light" => options.light = true,
                 "--square" => options.square = true,
                 "--screenshot" => {
@@ -57,7 +62,7 @@ impl Options {
                     ));
                     options.verify = true;
                 }
-                _ => return Err("Use --verify, --light, --square or --screenshot new.png".into()),
+                _ => return Err("Use --verify, --ordered-input, --small, --light, --square or --screenshot new.png".into()),
             }
         }
         Ok(options)
@@ -103,6 +108,79 @@ impl Report {
     fn passed(&self) -> bool {
         self.field.passed() && self.editor.passed()
     }
+}
+
+struct OrderedResult {
+    sequence: &'static str,
+    visited: String,
+    translated: String,
+    captured: &'static str,
+    passed: bool,
+    field: String,
+    editor: String,
+}
+
+enum DemoReport {
+    Captured(Report),
+    Ordered(Option<[OrderedResult; 2]>),
+}
+
+impl DemoReport {
+    fn passed(&self) -> bool {
+        match self {
+            Self::Captured(report) => report.passed(),
+            Self::Ordered(Some(rows)) => rows.iter().all(|row| row.passed),
+            Self::Ordered(None) => false,
+        }
+    }
+}
+
+// This context has no window/backend; only its normalized synthetic snapshot is used.
+fn indexed_fixture(
+    navigation_first: bool,
+) -> Result<(Vec<egui::Event>, Vec<limn_egui::IndexedUiEvent>), String> {
+    let navigation = egui::Event::Key {
+        key: egui::Key::ArrowDown,
+        physical_key: None,
+        pressed: true,
+        repeat: false,
+        modifiers: egui::Modifiers {
+            alt: true,
+            ..Default::default()
+        },
+    };
+    let marker = egui::Event::Zoom(1.0);
+    let events = if navigation_first {
+        vec![navigation, marker]
+    } else {
+        vec![marker, navigation]
+    };
+    let ctx = egui::Context::default();
+    let mut observed = None;
+    let mut output = ctx.run_ui(
+        egui::RawInput {
+            events,
+            ..Default::default()
+        },
+        |ui| {
+            limn_egui::normalize_keyboard_input(ui.ctx());
+            let source = ui.ctx().input(|input| input.events.clone());
+            observed = Some((
+                source,
+                limn_egui::events_indexed(ui.ctx(), egui::Pos2::ZERO),
+            ));
+        },
+    );
+    output.textures_delta.clear();
+    observed.ok_or_else(|| "Synthetic input snapshot was not produced".into())
+}
+
+fn shown(value: &str) -> String {
+    value
+        .chars()
+        .take(96)
+        .collect::<String>()
+        .replace('\n', "\\n")
 }
 
 fn controller() -> EditorController {
@@ -212,7 +290,7 @@ fn run_scenario(tree: &mut UiTree, editor: &EditorController) -> Result<Report, 
     })
 }
 
-fn panel(title: &str, content: Element, status: Option<Checks>, theme: Theme) -> Element {
+fn panel(title: &str, content: Element, status: Option<String>, theme: Theme) -> Element {
     let mut children = vec![
         Element::text(title)
             .font_size(18.0)
@@ -220,7 +298,7 @@ fn panel(title: &str, content: Element, status: Option<Checks>, theme: Theme) ->
         content,
     ];
     children.push(
-        Element::text(status.map_or_else(|| "Waiting for the scenario".into(), Checks::label))
+        Element::text(status.unwrap_or_else(|| "Waiting for the scenario".into()))
             .font_size(13.0)
             .foreground(theme.text_sub()),
     );
@@ -235,29 +313,72 @@ fn panel(title: &str, content: Element, status: Option<Checks>, theme: Theme) ->
 fn view(
     value: &str,
     editor: &EditorController,
-    report: Option<&Report>,
+    report: Option<&DemoReport>,
     notes: &VecDeque<String>,
     window: Size,
     light: bool,
     square: bool,
 ) -> Element {
     let theme = if light { LIGHT } else { Theme::DARK };
+    let ordered = matches!(report, Some(DemoReport::Ordered(_)));
+    let legacy = match report {
+        Some(DemoReport::Captured(report)) => Some(report),
+        _ => None,
+    };
+    let final_state = matches!(report, Some(DemoReport::Ordered(Some(_))))
+        .then(|| "Final state after sequence 2; historical results below".to_owned());
     let field = Element::text_area(FIELD, value, "Synthetic text")
-        .size(None, Some(88.0))
+        .size(None, Some(if ordered { 52.0 } else { 88.0 }))
         .background(theme.surface(2))
         .foreground(theme.text())
         .border(theme.outline(), 1.0)
         .radius(limn::tokens().radius.control);
     let code = CodeEditor::new(EDITOR, editor.clone())
         .palette(theme.palette())
-        .height(150.0)
+        .height(if ordered { 84.0 } else { 150.0 })
         .render();
     let mut details = vec![
-        panel("TextArea", field, report.map(|r| r.field), theme),
-        panel("CodeEditor", code, report.map(|r| r.editor), theme),
-        Element::text("A stored capture is delivered with synthetic Unicode text; an explicitly invalidated capture and an empty replay must leave it unchanged.")
-            .foreground(theme.text_sub()),
+        panel(if ordered { "A · TextArea" } else { "TextArea" }, field,
+            legacy.map(|r| r.field.label()).or_else(|| final_state.clone()), theme),
+        panel(if ordered { "B · CodeEditor" } else { "CodeEditor" }, code,
+            legacy.map(|r| r.editor.label()).or(final_state), theme),
+        Element::text(if ordered {
+            "Two synthetic normalized batches; Zoom is a fixture marker, not an SDK paste request. No clipboard, token or ACK. Panels show only the final state of sequence 2."
+        } else {
+            "A stored capture is delivered with synthetic Unicode text; an explicitly invalidated capture and an empty replay must leave it unchanged."
+        }).foreground(theme.text_sub()),
     ];
+    if let Some(DemoReport::Ordered(Some(rows))) = report {
+        for row in rows {
+            details.push(
+                Element::column(vec![
+                    Element::text(format!(
+                        "{} · {}",
+                        row.sequence,
+                        if row.passed { "PASS" } else { "FAIL" }
+                    ))
+                    .foreground(theme.text()),
+                    Element::text(format!(
+                        "{} · translations: {} · captured {}",
+                        row.visited, row.translated, row.captured
+                    ))
+                    .font_size(12.0)
+                    .foreground(theme.text_sub()),
+                    Element::text(format!("Historical A: {}", shown(&row.field)))
+                        .font_size(12.0)
+                        .foreground(theme.text()),
+                    Element::text(format!("Historical B: {}", shown(&row.editor)))
+                        .font_size(12.0)
+                        .foreground(theme.text()),
+                ])
+                .gap(6.0)
+                .padding(12.0)
+                .background(theme.surface(1))
+                .border(theme.outline(), 1.0)
+                .radius(limn::tokens().radius.card),
+            );
+        }
+    }
     for note in notes {
         details.push(
             Element::text(note)
@@ -266,11 +387,19 @@ fn view(
         );
     }
     Element::column(vec![
-        Element::text("Captured paste targets")
-            .font_size(24.0)
-            .foreground(theme.text()),
-        Element::text("Simulated delayed text · no clipboard reads or writes")
-            .foreground(theme.accent_text()),
+        Element::text(if ordered {
+            "Indexed input order"
+        } else {
+            "Captured paste targets"
+        })
+        .font_size(24.0)
+        .foreground(theme.text()),
+        Element::text(if ordered {
+            "Simulated indexed input · no clipboard reads or writes"
+        } else {
+            "Simulated delayed text · no clipboard reads or writes"
+        })
+        .foreground(theme.accent_text()),
         ScrollArea::new("captured-paste-details", Element::column(details).gap(14.0))
             .render()
             .flex(1.0),
@@ -307,7 +436,7 @@ struct App {
     tree: UiTree,
     editor: EditorController,
     value: String,
-    report: Option<Report>,
+    report: Option<DemoReport>,
     notes: VecDeque<String>,
     options: Options,
     completion: Rc<Completion>,
@@ -330,7 +459,7 @@ impl App {
             tree: UiTree::new(Element::spacer()),
             editor: controller(),
             value: FIELD_TEXT.into(),
-            report: None,
+            report: options.ordered_input.then_some(DemoReport::Ordered(None)),
             notes: VecDeque::new(),
             options,
             completion,
@@ -353,9 +482,14 @@ impl App {
     fn reset(&mut self) {
         self.tree.invalidate_paste_targets();
         self.tree.set_input_value(FIELD, FIELD_TEXT);
-        self.editor = controller();
+        if !self.options.ordered_input {
+            self.editor = controller();
+        }
         self.value = FIELD_TEXT.into();
-        self.report = None;
+        self.report = self
+            .options
+            .ordered_input
+            .then_some(DemoReport::Ordered(None));
         self.pending_run = true;
         self.opened = Instant::now();
         self.settled_frames = 0;
@@ -386,6 +520,155 @@ impl App {
             self.options.square,
         ));
         self.tree.layout(size)
+    }
+
+    fn ordered_sequence(
+        &mut self,
+        size: Size,
+        navigation_first: bool,
+    ) -> Result<OrderedResult, String> {
+        self.tree.invalidate_paste_targets();
+        self.tree.set_input_value(FIELD, FIELD_TEXT);
+        self.tree
+            .set_input_cursor(FIELD, FIELD_TEXT.chars().count());
+        self.value = FIELD_TEXT.into();
+        {
+            let shared = self.editor.shared_buffer();
+            let mut buffer = shared.try_lock().map_err(|_| "Synthetic buffer is busy")?;
+            let count = buffer.snapshot().char_count();
+            buffer
+                .edit(
+                    0..count,
+                    CODE_TEXT,
+                    Selection::caret(CODE_TEXT.chars().count()),
+                    EditKind::Replace,
+                    0,
+                )
+                .map_err(|error| error.to_string())?;
+        }
+        self.layout(size);
+        if !self.tree.focus(FIELD) {
+            return Err("Synthetic A cannot be focused".into());
+        }
+        self.tree.layout(size);
+        let (source, indexed) = indexed_fixture(navigation_first)?;
+        let navigation_index = usize::from(!navigation_first);
+        let provenance = indexed.len() == 1
+            && indexed[0].source_index == Some(navigation_index)
+            && matches!(
+                indexed[0].event,
+                UiEvent::Key {
+                    key: limn::Key::ArrowDown,
+                    ctrl: false,
+                    shift: false
+                }
+            );
+        let translated = format!(
+            "{:?}",
+            indexed
+                .iter()
+                .map(|item| item.source_index)
+                .collect::<Vec<_>>()
+        );
+        let mut indexed = indexed.into_iter().peekable();
+        let mut target = None;
+        let mut captured = "missing";
+        let mut visited = Vec::with_capacity(2);
+        while indexed
+            .peek()
+            .is_some_and(|item| item.source_index.is_none())
+        {
+            let item = indexed.next().ok_or("Synthetic derived event is missing")?;
+            if !self.tree.handle_event(item.event).is_empty() {
+                return Err("Unexpected action from synthetic derived input".into());
+            }
+            self.layout(size);
+        }
+        for (index, event) in source.iter().enumerate() {
+            let consumed = match event {
+                egui::Event::Key {
+                    key: egui::Key::ArrowDown,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                    ..
+                } if modifiers.alt => {
+                    if !self.tree.focus(EDITOR) {
+                        return Err("Synthetic B cannot be focused".into());
+                    }
+                    self.layout(size);
+                    visited.push(format!("{index}: Alt+Down → B"));
+                    true
+                }
+                egui::Event::Zoom(_) => {
+                    self.layout(size);
+                    captured = match self.tree.focused_id() {
+                        Some(FIELD) => "A",
+                        Some(EDITOR) => "B",
+                        _ => return Err("Synthetic marker has no editable destination".into()),
+                    };
+                    target = self.tree.capture_paste_target();
+                    visited.push(format!("{index}: marker → {captured}"));
+                    false
+                }
+                _ => return Err("Unexpected source in the fixed synthetic batch".into()),
+            };
+            while indexed
+                .peek()
+                .is_some_and(|item| item.source_index == Some(index))
+            {
+                let item = indexed.next().ok_or("Synthetic translation is missing")?;
+                if !consumed && !self.tree.handle_event(item.event).is_empty() {
+                    return Err("Unexpected action before synthetic completion".into());
+                }
+                self.layout(size);
+            }
+        }
+        if indexed.next().is_some() {
+            return Err("Synthetic translation has no source index".into());
+        }
+        let actions = self.tree.handle_event(UiEvent::PasteCaptured {
+            target: target.ok_or("Synthetic marker was not captured")?,
+            text: REPLY.into(),
+        });
+        let field = current_text(&self.tree, &self.editor, FIELD)?;
+        let editor = editor_text(&self.editor)?;
+        let delivery = if navigation_first {
+            let shared = self.editor.shared_buffer();
+            let buffer = shared.try_lock().map_err(|_| "Synthetic buffer is busy")?;
+            let snapshot = buffer.snapshot();
+            matches!(actions.as_slice(), [UiAction::EditorChanged { id, document_id, revision }]
+                if id == EDITOR && *document_id == snapshot.document_id() && *revision == snapshot.revision())
+                && captured == "B"
+                && editor == format!("{CODE_TEXT}{REPLY}")
+        } else {
+            actions.is_empty() && captured == "A" && editor == CODE_TEXT
+        };
+        self.value = field.clone();
+        Ok(OrderedResult {
+            sequence: if navigation_first {
+                "1 · Alt+Down → marker · delivery to B"
+            } else {
+                "2 · marker → Alt+Down · stale reply rejected"
+            },
+            visited: visited.join("; "),
+            translated,
+            captured,
+            passed: provenance
+                && source.len() == 2
+                && visited.len() == 2
+                && self.tree.focused_id() == Some(EDITOR)
+                && field == FIELD_TEXT
+                && delivery,
+            field,
+            editor,
+        })
+    }
+
+    fn run_ordered(&mut self, size: Size) -> Result<DemoReport, String> {
+        let first = self.ordered_sequence(size, true)?;
+        let second = self.ordered_sequence(size, false)?;
+        Ok(DemoReport::Ordered(Some([first, second])))
     }
 
     fn action(&mut self, action: UiAction, ctx: &egui::Context) {
@@ -508,7 +791,12 @@ impl eframe::App for App {
         self.layout(size);
         if self.pending_run && ctx.input(|input| input.focused) {
             self.pending_run = false;
-            match run_scenario(&mut self.tree, &self.editor) {
+            let scenario = if self.options.ordered_input {
+                self.run_ordered(size)
+            } else {
+                run_scenario(&mut self.tree, &self.editor).map(DemoReport::Captured)
+            };
+            match scenario {
                 Ok(report) => {
                     let passed = report.passed();
                     self.value = self
@@ -519,7 +807,11 @@ impl eframe::App for App {
                     self.report = Some(report);
                     self.completion.verified.set(passed);
                     if passed {
-                        self.note("Verified field/editor valid, stale and empty-once scenarios");
+                        self.note(if self.options.ordered_input {
+                            "Verified synthetic indexed order: delivery to B, then stale A rejected"
+                        } else {
+                            "Verified field/editor valid, stale and empty-once scenarios"
+                        });
                     } else {
                         self.fail(&ctx, "A synthetic scenario failed verification");
                     }
@@ -529,7 +821,14 @@ impl eframe::App for App {
         }
         let frame = self.layout(size);
         limn_egui::paint_at(ui, &frame, area.min);
-        limn_egui::name_window(&ctx, "Captured paste targets — simulated");
+        limn_egui::name_window(
+            &ctx,
+            if self.options.ordered_input {
+                "Indexed input order — simulated"
+            } else {
+                "Captured paste targets — simulated"
+            },
+        );
         if let Some(after) = self.tree.animation_repaint_after() {
             ctx.request_repaint_after(after);
         }
@@ -545,13 +844,23 @@ fn failure(message: &str) -> eframe::Error {
 fn main() -> eframe::Result {
     let options = Options::parse().map_err(|error| failure(&error))?;
     let screenshot_required = options.screenshot.is_some();
+    let ordered_input = options.ordered_input;
+    let initial_size = if options.small {
+        [600.0, 580.0]
+    } else {
+        [760.0, 820.0]
+    };
     let completion = Rc::new(Completion::default());
     let observed = Rc::clone(&completion);
     eframe::run_native(
-        "Captured paste targets — simulated",
+        if ordered_input {
+            "Indexed input order — simulated"
+        } else {
+            "Captured paste targets — simulated"
+        },
         eframe::NativeOptions {
             viewport: egui::ViewportBuilder::default()
-                .with_inner_size([760.0, 820.0])
+                .with_inner_size(initial_size)
                 .with_min_inner_size([600.0, 580.0]),
             ..Default::default()
         },
@@ -565,7 +874,13 @@ fn main() -> eframe::Result {
             "Captured-paste verification or screenshot did not complete",
         ));
     }
-    println!("Captured paste verified: valid/stale/empty-once; synthetic field and editor only");
+    if ordered_input {
+        println!("Indexed input verified: navigation-before-marker delivers B; marker-before-navigation rejects A; synthetic only");
+    } else {
+        println!(
+            "Captured paste verified: valid/stale/empty-once; synthetic field and editor only"
+        );
+    }
     Ok(())
 }
 
