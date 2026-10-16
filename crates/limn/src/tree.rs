@@ -11,6 +11,9 @@ mod popover_initial_focus_tests;
 #[cfg(test)]
 #[path = "coach_mark_tests.rs"]
 mod coach_mark_tests;
+#[cfg(test)]
+#[path = "region_focus_tests.rs"]
+mod region_focus_tests;
 
 #[cfg(test)]
 #[path = "drag_drop_tests.rs"]
@@ -3087,6 +3090,8 @@ pub struct UiTree {
     slider_motion: HashMap<String, SliderMotion>,
     hovered_scrollbar: Option<String>,
     focus_order: Vec<(String, HitKind)>,
+    /// Each landmark region and its controls in focus order, outermost first.
+    focus_regions: Vec<(String, Vec<String>)>,
     action_aliases: HashMap<String, String>,
     focused: Option<String>,
     caret_blink: crate::caret_blink::CaretBlink,
@@ -3172,6 +3177,7 @@ impl UiTree {
             slider_motion: HashMap::new(),
             hovered_scrollbar: None,
             focus_order: Vec::new(),
+            focus_regions: Vec::new(),
             action_aliases: HashMap::new(),
             focused: None,
             caret_blink: crate::caret_blink::CaretBlink::default(),
@@ -3432,6 +3438,48 @@ impl UiTree {
     pub fn cursor(&self) -> Option<Cursor> {
         let dragged = self.pointer_drag.as_ref().filter(|drag| drag.active).map(|drag| drag.id.as_str());
         self.frame.cursors.get(dragged.or(self.hovered.as_deref())?).copied()
+    }
+
+    /// The controls inside the landmark region `region` (an element marked
+    /// `Access::new(Role::Region).id(region)`), in focus order, as of the
+    /// last layout. Empty for an ID that is not a region.
+    pub fn focusables_within(&self, region: &str) -> Vec<&str> {
+        self.focus_regions
+            .iter()
+            .find(|(id, _)| id == region)
+            .map(|(_, members)| members.iter().map(String::as_str).collect())
+            .unwrap_or_default()
+    }
+
+    /// Move the focus to the first control of the next landmark region, or
+    /// of the previous one with `reverse`, wrapping around, as F6 and
+    /// Shift+F6 do. Regions follow the order they are in the tree, a nested
+    /// one after the region around it; one with nothing to focus is passed
+    /// over. Returns the ID of the region reached, for a host that would
+    /// rather land on another of its controls; `None` when a popover holds
+    /// the focus or no region has a control.
+    pub fn focus_next_region(&mut self, reverse: bool) -> Option<String> {
+        if self.has_open_popover() {
+            return None;
+        }
+        let reachable: Vec<usize> =
+            (0..self.focus_regions.len()).filter(|index| !self.focus_regions[*index].1.is_empty()).collect();
+        let focused = self.focused.as_deref();
+        // The innermost region the focus is in: nested regions come later.
+        let current = focused.and_then(|id| {
+            reachable.iter().rposition(|index| self.focus_regions[*index].1.iter().any(|member| member == id))
+        });
+        let count = reachable.len();
+        let next = match (current, reverse) {
+            _ if count == 0 => return None,
+            (Some(at), false) => (at + 1) % count,
+            (Some(at), true) => (at + count - 1) % count,
+            (None, false) => 0,
+            (None, true) => count - 1,
+        };
+        let (region, members) = &self.focus_regions[reachable[next]];
+        let (region, first) = (region.clone(), members[0].clone());
+        self.focus(&first).then_some(region)
     }
 
     /// Focus an interactive element after layout. Returns false for an unknown ID.
@@ -4449,18 +4497,34 @@ impl UiTree {
                 }
             }
         }
-        self.focus_order = focus_order
+        let expand = |order: Vec<(String, HitKind)>| -> Vec<(String, HitKind)> {
+            order
+                .into_iter()
+                .flat_map(|(id, kind)| {
+                    if kind == HitKind::Scroll && id.starts_with(VIRTUAL_FOCUS_PREFIX) {
+                        frame
+                            .virtual_lists
+                            .get(&id[VIRTUAL_FOCUS_PREFIX.len()..])
+                            .map(|scope| scope.focusables().cloned().collect::<Vec<_>>())
+                            .unwrap_or_default()
+                    } else {
+                        vec![(id, kind)]
+                    }
+                })
+                .collect()
+        };
+        self.focus_order = expand(focus_order);
+        let mut regions = Vec::new();
+        collect_focus_regions(&self.root, &mut regions);
+        self.focus_regions = regions
             .into_iter()
-            .flat_map(|(id, kind)| {
-                if kind == HitKind::Scroll && id.starts_with(VIRTUAL_FOCUS_PREFIX) {
-                    frame
-                        .virtual_lists
-                        .get(&id[VIRTUAL_FOCUS_PREFIX.len()..])
-                        .map(|scope| scope.focusables().cloned().collect::<Vec<_>>())
-                        .unwrap_or_default()
-                } else {
-                    vec![(id, kind)]
-                }
+            .map(|(id, order)| {
+                let members = expand(order)
+                    .into_iter()
+                    .map(|(member, _)| member)
+                    .filter(|member| self.focus_order.iter().any(|(id, _)| id == member))
+                    .collect();
+                (id, members)
             })
             .collect();
         if let Some(id) = self.focused.as_ref().filter(|id| {
@@ -5825,7 +5889,7 @@ impl UiTree {
                     }
                 }
             }
-            UiEvent::Key { key, shift, ctrl, .. } => {
+            UiEvent::Key { key, shift, ctrl, alt } => {
                 if matches!(key, Key::PageUp | Key::PageDown) && !ctrl && self.scroll_by_page(key == Key::PageDown, now) {
                     // Scrolled: a page of what is behind the focus, or under the pointer.
                 } else if key == Key::Escape {
@@ -5874,6 +5938,8 @@ impl UiTree {
                             }
                         }
                     }
+                } else if key == Key::F6 && !ctrl && !alt {
+                    self.focus_next_region(shift);
                 } else if key == Key::Tab {
                     self.step_focus(shift);
                     self.keyboard_focus = true;
@@ -6465,6 +6531,47 @@ fn find_uniform_list<'a>(element: &'a Element, id: &str) -> Option<&'a UniformLi
         } => find_uniform_list(anchor, id).or_else(|| find_uniform_list(floating, id)),
         ElementKind::Tooltip { anchor, .. } => find_uniform_list(anchor, id),
         _ => None,
+    }
+}
+
+/// Each landmark region in `element`, outermost first, with what it holds in
+/// focus order (virtual list markers included, for layout to expand).
+fn collect_focus_regions(element: &Element, out: &mut Vec<(String, Vec<(String, HitKind)>)>) {
+    let region = element
+        .access
+        .as_deref()
+        .filter(|said| said.role == Some(crate::Role::Region))
+        .and_then(|said| said.id.clone());
+    if let Some(id) = region {
+        let mut order = Vec::new();
+        collect_focus_order(element, &mut order, &mut HashSet::new());
+        out.push((id, order));
+    }
+    match &element.kind {
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
+            for child in children {
+                collect_focus_regions(child, out);
+            }
+        }
+        ElementKind::Panel(child)
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. }
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Tooltip { anchor: child, .. } => collect_focus_regions(child, out),
+        ElementKind::Overlay { base, floating } => {
+            collect_focus_regions(base, out);
+            collect_focus_regions(floating, out);
+        }
+        ElementKind::Popover { anchor, floating, hover_open, .. } => {
+            collect_focus_regions(anchor, out);
+            if !*hover_open {
+                collect_focus_regions(floating, out);
+            }
+        }
+        _ => {}
     }
 }
 
