@@ -2030,22 +2030,6 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                 }
             )
         });
-        // The OS owns the pointer during an external drag, so the position is
-        // the last one egui saw; it can lag until the drop on some platforms.
-        if let Some(position) = input.pointer.latest_pos().map(|pos| relative(origin, pos)) {
-            let paths: Vec<_> = input
-                .raw
-                .dropped_files
-                .iter()
-                .map(|file| file.path().to_path_buf())
-                .filter(|path| !path.as_os_str().is_empty())
-                .collect();
-            if !paths.is_empty() {
-                events.push(UiEvent::FilesDropped { position, paths });
-            } else if !input.raw.hovered_files.is_empty() {
-                events.push(UiEvent::FilesHovered { position });
-            }
-        }
         for event in &input.events {
             match event {
                 egui::Event::PointerMoved(pos) => {
@@ -2258,6 +2242,24 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
                     }
                 }
                 _ => {}
+            }
+        }
+        // egui groups native files separately from ordinary events. Deliver
+        // them last so a host can apply this frame's input and revalidate its
+        // current editor/modal before admitting files. The OS owns the pointer
+        // during external drags; its last reported position can still lag.
+        if let Some(position) = input.pointer.latest_pos().map(|pos| relative(origin, pos)) {
+            let paths: Vec<_> = input
+                .raw
+                .dropped_files
+                .iter()
+                .map(|file| file.path().to_path_buf())
+                .filter(|path| !path.as_os_str().is_empty())
+                .collect();
+            if !paths.is_empty() {
+                events.push(UiEvent::FilesDropped { position, paths });
+            } else if !input.raw.hovered_files.is_empty() {
+                events.push(UiEvent::FilesHovered { position });
             }
         }
         events
@@ -2508,6 +2510,42 @@ mod tests {
         assert_eq!(corner_points(f32::NAN, card), 0);
         let radii = corners(limn::CornerRadii { top_left: 12.0, top_right: 50.0, bottom_right: 0.0, bottom_left: 3.4 }, card);
         assert_eq!((radii.nw, radii.ne, radii.se, radii.sw), (12, u8::MAX, 0, 3));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn file_drop_bridge_preserves_the_whole_batch_and_needs_a_pointer_position() {
+        #[derive(Debug)]
+        struct UnreadFile(std::path::PathBuf);
+        impl egui::DroppedFile for UnreadFile {
+            fn path(&self) -> &std::path::Path { &self.0 }
+            fn bytes(&self) -> Result<Vec<u8>, String> { panic!("event translation must not read file contents") }
+        }
+        for pointer in [false, true] {
+            let ctx = egui::Context::default();
+            let paths: Vec<std::path::PathBuf> = vec!["/tmp/limn-a.txt".into(), "/tmp/limn-b.txt".into()];
+            let dropped_files = paths.iter().map(|path| {
+                std::sync::Arc::new(UnreadFile(path.clone())) as egui::DroppedFileHandle
+            }).collect();
+            let input = egui::RawInput {
+                events: if pointer { vec![
+                    egui::Event::PointerMoved(Pos2::new(150.0, 90.0)),
+                    egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE },
+                ] } else { Vec::new() },
+                dropped_files,
+                ..Default::default()
+            };
+            let mut forwarded = Vec::new();
+            let mut output = ctx.run_ui(input, |ui| forwarded = events(ui.ctx(), Pos2::new(100.0, 50.0)));
+            output.textures_delta.clear();
+            assert_eq!(forwarded, if pointer {
+                vec![
+                    UiEvent::PointerMove(Point::new(50.0, 40.0)),
+                    UiEvent::Key { key: Key::Escape, shift: false, ctrl: false },
+                    UiEvent::FilesDropped { position: Point::new(50.0, 40.0), paths },
+                ]
+            } else { Vec::new() });
+        }
     }
 
     #[test]
