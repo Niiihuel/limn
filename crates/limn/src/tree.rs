@@ -634,6 +634,18 @@ pub enum DrawCommand {
     /// Clip every command up to the matching `PopClip` to this rectangle,
     /// intersected with the clips already in force.
     PushClip(Rect),
+    /// Round the clip of the `PushClip` just before it: until that clip's
+    /// `PopClip`, fills and images stay inside `rect` with these corners, so
+    /// content flush with or past the edge of a rounded panel keeps the
+    /// panel's corners. Text is not affected. A nested rounded clip replaces
+    /// it; a nested plain one keeps it. A backend that cannot round a clip
+    /// may ignore this and keep the rectangle.
+    RoundClip {
+        /// The rounded shape, inside the rectangle of the clip it rounds.
+        rect: Rect,
+        /// Its corners.
+        radii: CornerRadii,
+    },
     /// End the innermost `PushClip`.
     PopClip,
 }
@@ -721,7 +733,7 @@ impl DrawCommand {
                 *position = Point::new(position.x + dx, position.y + dy);
                 fade(color);
             }
-            Self::PushClip(rect) => shift(rect),
+            Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
         }
         ghost
@@ -1208,6 +1220,13 @@ fn animate_popover_command(
             *own_opacity *= opacity.clamp(0.0, 1.0);
         }
         DrawCommand::PushClip(rect) => scale_rect(rect, scale, origin, slide_y),
+        DrawCommand::RoundClip { rect, radii } => {
+            scale_rect(rect, scale, origin, slide_y);
+            radii.top_left *= scale;
+            radii.top_right *= scale;
+            radii.bottom_right *= scale;
+            radii.bottom_left *= scale;
+        }
         DrawCommand::PopClip => {}
     }
 }
@@ -8172,6 +8191,22 @@ impl LayoutBuilder<'_> {
         lines
     }
 
+    /// Round the clip just pushed for `content` as the element's own corners
+    /// are, less its padding, so they stay concentric.
+    fn round_clip(&mut self, content: Rect, style: &Style) {
+        let radii = style.corner_radii.unwrap_or(CornerRadii::same(style.radius));
+        let inner = |radius: f32| (radius - style.padding).max(0.0);
+        let radii = CornerRadii {
+            top_left: inner(radii.top_left),
+            top_right: inner(radii.top_right),
+            bottom_right: inner(radii.bottom_right),
+            bottom_left: inner(radii.bottom_left),
+        };
+        if [radii.top_left, radii.top_right, radii.bottom_right, radii.bottom_left].iter().any(|radius| *radius > 0.0) {
+            self.frame.commands.push(DrawCommand::RoundClip { rect: content, radii });
+        }
+    }
+
     fn draw_focus_ring(&mut self, rect: Rect, style: Style) {
         if !style.focus_ring {
             return;
@@ -9828,6 +9863,7 @@ impl LayoutBuilder<'_> {
                     }
                 });
             self.frame.commands.push(DrawCommand::PushClip(child_clip));
+            self.round_clip(content, &style);
             Some(child_clip)
         } else {
             clip
@@ -10198,6 +10234,7 @@ impl LayoutBuilder<'_> {
                     .or_else(|| clip.is_none().then_some(content));
                 if let Some(new_clip) = new_clip {
                     self.frame.commands.push(DrawCommand::PushClip(new_clip));
+                    self.round_clip(content, &style);
                     self.scroll_focus_context.push(ScrollFocusContext {
                         id: id.clone(),
                         viewport: new_clip,

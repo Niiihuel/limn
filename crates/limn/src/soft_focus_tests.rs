@@ -162,3 +162,28 @@ fn a_host_sets_a_vertical_scroll_offset_that_the_layout_clamps() {
     tree.layout_at(size, start + Duration::from_secs(2));
     assert_eq!(tree.scroll_offset("rows"), 500.0, "no further than the content scrolls");
 }
+
+#[test]
+fn a_rounded_panel_that_clips_rounds_its_clip_concentric_with_its_corners() {
+    let rounds = |root: Element| -> Vec<(Rect, CornerRadii)> {
+        UiTree::new(root).layout(Size::new(300.0, 200.0)).commands.iter().filter_map(|command| match command {
+            DrawCommand::RoundClip { rect, radii } => Some((*rect, *radii)),
+            _ => None,
+        }).collect()
+    };
+    let tile = || Element::spacer().size(Some(80.0), Some(80.0)).background(Color::WHITE);
+    let card = |radius: f32, padding: f32| {
+        Element::column(vec![Element::panel(tile()).radius(radius).padding(padding).clip_children().size(Some(120.0), Some(90.0))])
+    };
+    assert_eq!(rounds(card(16.0, 0.0)), [(Rect::new(0.0, 0.0, 120.0, 90.0), CornerRadii::same(16.0))]);
+    assert_eq!(rounds(card(16.0, 4.0)), [(Rect::new(4.0, 4.0, 112.0, 82.0), CornerRadii::same(12.0))]);
+    assert!(rounds(card(4.0, 6.0)).is_empty(), "padding deeper than the corner");
+    assert!(rounds(card(0.0, 0.0)).is_empty());
+    let pill = Element::column(vec![Element::panel(tile()).round().clip_children().size(Some(120.0), Some(40.0))]);
+    assert_eq!(rounds(pill), [(Rect::new(0.0, 0.0, 120.0, 40.0), CornerRadii::same(20.0))]);
+    let top = Element::column(vec![Element::panel(tile()).corner_radii(CornerRadii::top(10.0)).clip_children().size(Some(120.0), Some(90.0))]);
+    assert_eq!(rounds(top), [(Rect::new(0.0, 0.0, 120.0, 90.0), CornerRadii::top(10.0))]);
+    // A scroll viewport with corners rounds what scrolls in it.
+    let list = Element::scroll("list", Element::column((0..10).map(|_| tile()).collect())).radius(12.0).size(Some(120.0), Some(100.0));
+    assert_eq!(rounds(Element::column(vec![list])), [(Rect::new(0.0, 0.0, 120.0, 100.0), CornerRadii::same(12.0))]);
+}

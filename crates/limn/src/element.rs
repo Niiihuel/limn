@@ -614,7 +614,8 @@ pub struct Border {
 }
 
 /// Independent corner radii for backgrounds, solid borders and keyboard focus.
-/// They affect paint only; child clipping and hit regions remain rectangular.
+/// They affect paint and, with [`Element::clip_children`], the fills and
+/// images of descendants; hit regions remain rectangular.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CornerRadii {
     /// Radius of the top left corner, in logical pixels.
@@ -3383,6 +3384,10 @@ impl Element {
 
     /// Keep descendants inside this element's content rectangle. Useful for
     /// a dock whose width changes while its children retain intrinsic sizes.
+    /// On a rounded element the clip is rounded too, concentric with its
+    /// corners less its padding: fills and images that reach a corner take
+    /// it (see [`crate::DrawCommand::RoundClip`]). Text is clipped to the
+    /// rectangle only.
     pub fn clip_children(mut self) -> Self {
         self.style.clip_children = true;
         self
@@ -3563,7 +3568,7 @@ impl Element {
     }
 
     /// Override the uniform radius for backgrounds, solid borders and focus.
-    /// Shadows and descendant clipping retain their existing behavior.
+    /// Shadows keep the uniform radius; a clip of descendants follows these.
     pub fn corner_radii(mut self, radii: CornerRadii) -> Self {
         self.style.corner_radii = Some(radii.normalized());
         self

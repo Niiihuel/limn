@@ -1300,6 +1300,44 @@ fn corners(radii: limn::CornerRadii, area: EguiRect) -> CornerRadius {
     }
 }
 
+/// The rounded shape a `RoundClip` gave the clip in force, if any.
+type RoundedClip = Option<(EguiRect, limn::CornerRadii)>;
+
+/// egui clips to rectangles only. Under a rounded clip, a fill or an image is
+/// cut to the part of `area` inside the clip's shape, and each corner of that
+/// part that would poke past the clip's arc is rounded concentric with it, so
+/// content flush with or past a rounded panel's edge keeps the panel's
+/// corners. A corner the cut moved loses its own rounding; anything well
+/// inside is unchanged.
+fn under_rounded_clip(area: EguiRect, own: limn::CornerRadii, clip: RoundedClip) -> (EguiRect, limn::CornerRadii) {
+    let Some((shape, radii)) = clip else {
+        return (area, own);
+    };
+    let inside = area.intersect(shape);
+    if !inside.is_positive() {
+        return (area, own);
+    }
+    let limit = shape.width().min(shape.height()) / 2.0;
+    // `dx` and `dy` are how far the corner is from the clip's corner.
+    let corner = |own: f32, moved: bool, radius: f32, dx: f32, dy: f32| {
+        let own = if moved { 0.0 } else { own };
+        let radius = if radius.is_nan() { 0.0 } else { radius.clamp(0.0, limit) };
+        let outside_arc = dx < radius && dy < radius && (radius - dx).powi(2) + (radius - dy).powi(2) > radius * radius;
+        if outside_arc { own.max(radius - dx.max(dy)) } else { own }
+    };
+    let (left, top) = (inside.min.x - shape.min.x, inside.min.y - shape.min.y);
+    let (right, bottom) = (shape.max.x - inside.max.x, shape.max.y - inside.max.y);
+    let (cut_left, cut_top) = (inside.min.x != area.min.x, inside.min.y != area.min.y);
+    let (cut_right, cut_bottom) = (inside.max.x != area.max.x, inside.max.y != area.max.y);
+    let radii = limn::CornerRadii {
+        top_left: corner(own.top_left, cut_left || cut_top, radii.top_left, left, top),
+        top_right: corner(own.top_right, cut_right || cut_top, radii.top_right, right, top),
+        bottom_right: corner(own.bottom_right, cut_right || cut_bottom, radii.bottom_right, right, bottom),
+        bottom_left: corner(own.bottom_left, cut_left || cut_bottom, radii.bottom_left, left, bottom),
+    };
+    (inside, radii)
+}
+
 fn corner_points(radius: f32, area: EguiRect) -> u8 {
     if radius.is_nan() || radius <= 0.0 {
         return 0;
@@ -1476,7 +1514,10 @@ fn paint_at_impl(
 ) {
     publish_access(ui, frame, origin);
     let mut clips = vec![ui.clip_rect()];
+    // The rounded shape of each clip in force, from a `RoundClip`.
+    let mut rounds: Vec<RoundedClip> = vec![None];
     for command in &frame.commands {
+        let round = *rounds.last().unwrap();
         match command {
             DrawCommand::Glass {
                 rect: area,
@@ -1510,10 +1551,15 @@ fn paint_at_impl(
                     .unwrap_or(ui.clip_rect())
                     .intersect(rect(origin, *area));
                 clips.push(next);
+                rounds.push(round);
+            }
+            DrawCommand::RoundClip { rect: area, radii } => {
+                *rounds.last_mut().unwrap() = Some((rect(origin, *area), *radii));
             }
             DrawCommand::PopClip => {
                 if clips.len() > 1 {
                     clips.pop();
+                    rounds.pop();
                 }
             }
             DrawCommand::Shadow {
@@ -1549,8 +1595,8 @@ fn paint_at_impl(
                 radius,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let area = rect(origin, *area);
-                painter.rect_filled(area, corner(*radius, area), color(*fill));
+                let (area, radii) = under_rounded_clip(rect(origin, *area), limn::CornerRadii::same(*radius), round);
+                painter.rect_filled(area, corners(radii, area), color(*fill));
             }
             DrawCommand::FillCornerRect {
                 rect: area,
@@ -1558,8 +1604,8 @@ fn paint_at_impl(
                 radii,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let area = rect(origin, *area);
-                painter.rect_filled(area, corners(*radii, area), color(*fill));
+                let (area, radii) = under_rounded_clip(rect(origin, *area), *radii, round);
+                painter.rect_filled(area, corners(radii, area), color(*fill));
             }
             DrawCommand::CornerMask {
                 rect: area,
@@ -1807,10 +1853,19 @@ fn paint_at_impl(
                     } else {
                         (fit_image(area, pixels), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)))
                     };
+                    let (shown, radii) = under_rounded_clip(target, limn::CornerRadii::same(*radius), round);
+                    // The texture coordinates of the part still shown.
+                    let at = |point: Pos2| {
+                        Pos2::new(
+                            uv.min.x + (point.x - target.min.x) / target.width() * uv.width(),
+                            uv.min.y + (point.y - target.min.y) / target.height() * uv.height(),
+                        )
+                    };
+                    let uv = if shown == target { uv } else { EguiRect::from_min_max(at(shown.min), at(shown.max)) };
                     painter.add(
                         egui::epaint::RectShape::filled(
-                            target,
-                            corner(*radius, target),
+                            shown,
+                            corners(radii, shown),
                             Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
                         )
                         .with_texture(texture, uv),
@@ -2373,6 +2428,62 @@ mod tests {
         tessellator.tessellate_rect(&egui::epaint::RectShape::filled(area, radius, Color32::WHITE), &mut mesh);
         let left = mesh.vertices.iter().map(|vertex| vertex.pos.x).fold(f32::INFINITY, f32::min);
         mesh.vertices.iter().filter(|vertex| (vertex.pos.x - left).abs() < 1e-3).count()
+    }
+
+    #[test]
+    fn fills_under_a_rounded_clip_take_its_corners_where_they_reach_them() {
+        let card = EguiRect::from_min_size(Pos2::new(10.0, 20.0), egui::vec2(200.0, 100.0));
+        let clip = Some((card, limn::CornerRadii::same(16.0)));
+        let square = limn::CornerRadii::same(0.0);
+        let at = |x: f32, y: f32, w: f32, h: f32| EguiRect::from_min_size(Pos2::new(x, y), egui::vec2(w, h));
+        let radii = |r: limn::CornerRadii| (r.top_left, r.top_right, r.bottom_right, r.bottom_left);
+
+        // Flush with the bottom right corner: that corner is the card's.
+        let (shown, flush) = under_rounded_clip(at(150.0, 80.0, 60.0, 40.0), square, clip);
+        assert_eq!(shown, at(150.0, 80.0, 60.0, 40.0));
+        assert_eq!(radii(flush), (0.0, 0.0, 16.0, 0.0));
+        // Pushed past it, as a tile tucked into a corner: the part shown is cut
+        // and rounded there; its own 4 survives only where it was not cut.
+        let (shown, past) = under_rounded_clip(at(170.0, 90.0, 64.0, 64.0), limn::CornerRadii::same(4.0), clip);
+        assert_eq!(shown, at(170.0, 90.0, 40.0, 30.0));
+        assert_eq!(radii(past), (4.0, 0.0, 16.0, 0.0));
+        // A full-width row at the bottom takes both bottom corners.
+        let (_, row) = under_rounded_clip(at(10.0, 100.0, 200.0, 20.0), square, clip);
+        assert_eq!(radii(row), (0.0, 0.0, 16.0, 16.0));
+        // Two points in from the corner, it stays concentric: 14.
+        let (_, inset) = under_rounded_clip(at(150.0, 80.0, 58.0, 38.0), square, clip);
+        assert_eq!(radii(inset), (0.0, 0.0, 14.0, 0.0));
+        // Inside the arc, or away from the corners, nothing changes.
+        let dot = at(196.0, 106.0, 4.0, 4.0);
+        assert_eq!(under_rounded_clip(dot, square, clip), (dot, square));
+        let middle = at(60.0, 40.0, 40.0, 40.0);
+        assert_eq!(under_rounded_clip(middle, limn::CornerRadii::same(3.0), clip), (middle, limn::CornerRadii::same(3.0)));
+        // Without a rounded clip, or wholly outside it, it is as given.
+        assert_eq!(under_rounded_clip(dot, square, None), (dot, square));
+        let away = at(400.0, 400.0, 10.0, 10.0);
+        assert_eq!(under_rounded_clip(away, square, clip), (away, square));
+    }
+
+    #[test]
+    fn a_frame_under_a_rounded_clip_paints_a_flush_fill_with_the_clip_corner() {
+        let card = limn::Rect::new(0.0, 0.0, 200.0, 100.0);
+        let mut frame = Frame::default();
+        frame.commands = vec![
+            DrawCommand::PushClip(card),
+            DrawCommand::RoundClip { rect: card, radii: limn::CornerRadii::same(16.0) },
+            DrawCommand::FillRect { rect: limn::Rect::new(140.0, 60.0, 60.0, 40.0), color: limn::Color::WHITE, radius: 0.0 },
+            DrawCommand::PopClip,
+            // Outside the clip again: square as asked.
+            DrawCommand::FillRect { rect: limn::Rect::new(140.0, 160.0, 60.0, 40.0), color: limn::Color::WHITE, radius: 0.0 },
+        ];
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| paint_at(ui, &frame, Pos2::ZERO));
+        output.textures_delta.clear();
+        let rounding: Vec<CornerRadius> = output.shapes.iter().filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Rect(shape) => Some(shape.corner_radius),
+            _ => None,
+        }).collect();
+        assert_eq!(rounding, [CornerRadius { nw: 0, ne: 0, se: 16, sw: 0 }, CornerRadius::ZERO]);
     }
 
     #[test]
