@@ -41,6 +41,7 @@ pub struct Select {
     height: Option<f32>,
     enabled: bool,
     accessibility_label: Option<String>,
+    header: Option<Box<Element>>,
 }
 
 impl Select {
@@ -71,6 +72,7 @@ impl Select {
             height: None,
             enabled: true,
             accessibility_label: None,
+            header: None,
         }
     }
 
@@ -85,6 +87,15 @@ impl Select {
     /// Paint the list with another palette than the trigger's.
     pub fn menu_palette(mut self, palette: ComponentPalette) -> Self {
         self.menu_palette = Some(palette);
+        self
+    }
+
+    /// Content kept above the open menu's options, such as a search field.
+    /// The header shares the menu's focus scope and does not scroll with its
+    /// options. The host owns filtering and can set `popover_initial_focus`
+    /// on the rendered element to focus a control inside the header.
+    pub fn header(mut self, header: Element) -> Self {
+        self.header = Some(Box::new(header));
         self
     }
 
@@ -222,7 +233,7 @@ impl Component for Select {
         let menu_width = self
             .menu_width
             .unwrap_or_else(|| self.sizing.map_or(width, |sizing| sizing.preferred_width));
-        DropdownMenu::new(
+        let mut menu = DropdownMenu::new(
             // Over what the button says of itself, disabled or not.
             trigger.accessible(access),
             entries,
@@ -232,9 +243,11 @@ impl Component for Select {
         )
         .context_menu_style()
         .width(menu_width)
-        .placement(self.placement)
-        .render()
-        .size(Some(width), Some(height))
+        .placement(self.placement);
+        if let Some(header) = self.header {
+            menu = menu.header(*header);
+        }
+        menu.render().size(Some(width), Some(height))
     }
 }
 
@@ -644,5 +657,118 @@ mod tests {
         let frame = tree.layout(VIEWPORT);
         assert!(frame.regions.iter().all(|region| region.id != "toggle" && region.id != "shell:zsh"));
         assert!(!tree.focus("toggle"));
+    }
+
+    #[test]
+    fn a_header_only_appears_in_the_open_menu_and_leaves_the_trigger_unchanged() {
+        let header = || {
+            crate::SearchField::new(
+                "query",
+                "",
+                "Filter shells",
+                ComponentPalette::neutral_dark(),
+            )
+            .size(ControlSize::Compact)
+            .width(184.0)
+            .render()
+        };
+        let closed = tree(select(false)).layout(VIEWPORT);
+        let with_closed_header = tree(select(false).header(header())).layout(VIEWPORT);
+        assert_eq!(
+            with_closed_header, closed,
+            "an optional header must not change the closed markup"
+        );
+        let baseline = tree(select(true)).layout(VIEWPORT);
+        let open = tree(select(true).header(header())).layout(VIEWPORT);
+        assert_eq!(rect(&open, "toggle"), rect(&baseline, "toggle"));
+        let query = rect(&open, "query").expect("the open menu contains its header");
+        let surface = rect(&open, "popover_surface:dismiss").unwrap();
+        let first = rect(&open, "shell:bash").unwrap();
+        assert!(query.x >= surface.x && query.x + query.width <= surface.x + surface.width);
+        assert!(query.y >= surface.y && query.y + query.height <= first.y);
+        assert!(first.y > rect(&baseline, "shell:bash").unwrap().y);
+        assert!(!baseline.regions.iter().any(|region| region.id == "query"));
+    }
+
+    #[test]
+    fn a_header_search_keeps_filtering_owned_by_the_host_and_shares_menu_focus_and_escape() {
+        let render = |query: &str, open| {
+            let options = [("shell:bash", "Bash"), ("shell:zsh", "Zsh")]
+                .into_iter()
+                .filter(|(_, label)| label.to_ascii_lowercase().contains(query))
+                .map(|(id, label)| DropdownOption::new(id, label))
+                .collect();
+            Select::new(
+                "toggle",
+                "Bash",
+                options,
+                open,
+                "dismiss",
+                ComponentPalette::neutral_dark(),
+            )
+            .header(
+                crate::SearchField::new(
+                    "query",
+                    query,
+                    "Filter shells",
+                    ComponentPalette::neutral_dark(),
+                )
+                .size(ControlSize::Compact)
+                .width(184.0)
+                .render(),
+            )
+            .render()
+            .popover_initial_focus("query")
+            .popover_return_focus("toggle")
+        };
+        let mut tree = UiTree::new(render("", true));
+        tree.set_reduced_motion(true);
+        tree.layout(VIEWPORT);
+        assert_eq!(tree.focused_id(), Some("query"));
+        assert_eq!(
+            tree.handle_event(UiEvent::Text("z".into())),
+            vec![UiAction::InputChanged {
+                id: "query".into(),
+                value: "z".into()
+            }]
+        );
+        tree.set_root(render("z", true));
+        let filtered = tree.layout(VIEWPORT);
+        assert_eq!(tree.focused_id(), Some("query"));
+        assert!(
+            !filtered
+                .regions
+                .iter()
+                .any(|region| region.id == "shell:bash")
+        );
+        assert!(
+            filtered
+                .regions
+                .iter()
+                .any(|region| region.id == "shell:zsh")
+        );
+        let key = |key| UiEvent::Key {
+            key,
+            shift: false,
+            ctrl: false,
+        };
+        assert_eq!(
+            tree.handle_event(key(Key::Escape)),
+            vec![UiAction::Clicked {
+                id: "dismiss".into()
+            }]
+        );
+        tree.set_root(render("z", false));
+        tree.layout(VIEWPORT);
+        assert_eq!(tree.focused_id(), Some("toggle"));
+        tree.set_root(render("z", true));
+        tree.layout(VIEWPORT);
+        assert!(tree.focus("shell:zsh"));
+        assert_eq!(
+            tree.handle_event(key(Key::Enter)),
+            vec![UiAction::Clicked {
+                id: "shell:zsh".into()
+            }]
+        );
     }
 }

@@ -113,6 +113,7 @@ fn composer(cx: &Cx, width: f32) -> Element {
     }
     let trailing = Element::row(trailing).gap(4.0);
     Composer::new("editor-composer", cx.state.text("editor-composer"), "Describe a task", width, palette)
+        .drop_target()
         .pill_controls(tool("editor-composer-add", Icon::Add), trailing)
         .auto_grow(28.0, 120.0)
         .header_strip(strip, ComponentPalette { surface: palette.raised, ..palette })
@@ -172,6 +173,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             vec![
                 caption(cx, "The strip holds message metadata, attached to the card’s top edge."),
                 row(vec![composer(cx, cx.width.min(480.0))]),
+                caption(cx, &format!("Drop files on the editor. Last drop: {} files; the demo never opens them.", state.choice("editor-composer-files", "0"))),
                 caption(cx, "The composer microphone advances with each click: idle, starting, listening, transcribing."),
                 row(vec![
                     DictationButton::new("editor-dictation-idle", DictationState::Idle, palette).render(),

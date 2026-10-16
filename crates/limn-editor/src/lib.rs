@@ -32,6 +32,39 @@ pub type DocumentId = u64;
 static NEXT_DOCUMENT_ID: AtomicU64 = AtomicU64::new(1);
 const GROUP_INTERVAL_MS: u64 = 500;
 
+/// An opaque identity for one buffer's text and selections at a point in time.
+///
+/// Clones compare equal. A different buffer, a text edit (including undo/redo), or
+/// a real primary or secondary selection change produces a different token, even
+/// if the visible state later returns to its previous value. No document contents
+/// or buffer resources are retained. The token has no serialization contract.
+///
+/// Compare it with [`TextBuffer::edit_state_token`] while holding the same buffer
+/// lock used for the following edit. It is not permission to edit or a substitute
+/// for the host invalidating changes of context or buffer association.
+#[derive(Clone)]
+pub struct EditStateToken {
+    identity: Arc<()>,
+    revision: u64,
+    selection: Arc<()>,
+}
+
+impl fmt::Debug for EditStateToken {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EditStateToken").finish_non_exhaustive()
+    }
+}
+
+impl PartialEq for EditStateToken {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.identity, &other.identity)
+            && self.revision == other.revision
+            && Arc::ptr_eq(&self.selection, &other.selection)
+    }
+}
+
+impl Eq for EditStateToken {}
+
 /// A directed selection in character offsets. `head` is the end that moves and may come
 /// before `anchor`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -302,6 +335,8 @@ struct HistoryEntry {
 pub struct TextBuffer {
     rope: Rope,
     document_id: DocumentId,
+    edit_identity: Arc<()>,
+    selection_epoch: Arc<()>,
     revision: u64,
     state: u64,
     saved_state: u64,
@@ -339,6 +374,8 @@ impl TextBuffer {
         Ok(Self {
             rope: Rope::from_str(text),
             document_id: NEXT_DOCUMENT_ID.fetch_add(1, Ordering::Relaxed),
+            edit_identity: Arc::new(()),
+            selection_epoch: Arc::new(()),
             revision: 0,
             state: 0,
             saved_state: 0,
@@ -375,6 +412,18 @@ impl TextBuffer {
     /// Counter that goes up by one on every change to the text, including undo and redo.
     pub fn revision(&self) -> u64 {
         self.revision
+    }
+    /// Capture this buffer's current text/selection identity without retaining its contents.
+    ///
+    /// Identical selection setters preserve the token. Invalid setters do not change
+    /// it. An observed selection change cannot be undone by moving back; text edits,
+    /// undo and redo are distinguished by the existing monotonic text revision.
+    pub fn edit_state_token(&self) -> EditStateToken {
+        EditStateToken {
+            identity: Arc::clone(&self.edit_identity),
+            revision: self.revision,
+            selection: Arc::clone(&self.selection_epoch),
+        }
     }
     /// The revision recorded by the last `mark_saved` or `mark_saved_snapshot`; 0 before any.
     pub fn saved_revision(&self) -> u64 {
@@ -452,6 +501,7 @@ impl TextBuffer {
         validate_selection(selection, self.rope.len_chars())?;
         if selection != self.selection || !self.secondary.is_empty() {
             self.break_undo_group();
+            self.selection_epoch = Arc::new(());
         }
         self.selection = selection;
         self.secondary = Arc::from([]);
@@ -1146,5 +1196,7 @@ fn is_groupable(
 
 #[cfg(test)]
 mod advanced_tests;
+#[cfg(test)]
+mod captured_paste_tests;
 #[cfg(test)]
 mod tests;

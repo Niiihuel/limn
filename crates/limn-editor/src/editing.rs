@@ -3,7 +3,7 @@ use crate::{
     validate_selection, BufferSnapshot, EditKind, EditorError, LineEnding, Position, SearchOptions,
     Selection, TextBuffer, TextEdit,
 };
-use std::{collections::BTreeMap, ops::Range};
+use std::{collections::BTreeMap, ops::Range, sync::Arc};
 
 const CURSOR_LIMIT: usize = 256;
 /// What one indent level inserts. The number is its width in columns: the spaces written, or
@@ -231,6 +231,9 @@ impl TextBuffer {
     /// merged. An empty list, more than 256 selections or an end past the document is an error.
     pub fn set_selections(&mut self, selections: Vec<Selection>) -> Result<(), EditorError> {
         let selections = normalize_selections(selections, self.rope.len_chars())?;
+        if self.selection != selections[0] || self.secondary.as_ref() != &selections[1..] {
+            self.selection_epoch = Arc::new(());
+        }
         self.break_undo_group();
         self.selection = selections[0];
         self.secondary = selections[1..].to_vec().into();

@@ -78,6 +78,8 @@ should still read as one.
 `width` fixes the width; without it the state takes the width it is given.
 `height` sets a minimum height, never below the 208 or 168 px of its density.
 The description wraps, and wrapped copy or actions make the state taller.
+Its 440 px copy limit also constrains measurement: wrapped lines keep the
+normal gap before the actions, even in a wide pane.
 
 ## Actions
 

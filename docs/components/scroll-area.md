@@ -7,7 +7,7 @@ each take their own, only the rows in view.
 ## Import
 
 ```rust
-use limn::{Component, ScrollArea, ScrollMotion, ScrollbarAppearance};
+use limn::{Component, ScrollArea, ScrollMotion, ScrollbarAppearance, ScrollbarVisibility};
 ```
 
 ## Usage
@@ -28,6 +28,29 @@ fn view(state: &State, palette: ComponentPalette) -> Element {
 It reports no actions. To scroll it from the host see
 [Layout](../layout.md#scrolling-from-the-host), and to keep a child pinned at
 its top see [Layout](../layout.md#sticky-children).
+
+## Sharing a short column with a fixed footer
+
+Give the rendered scroll area a `max_height` to keep short content at its
+natural height. Mark its direct column child with `shrink_height_to_fit()`
+to yield more height when the footer needs it:
+
+```rust
+Element::column(vec![
+    body.flex(1.0),
+    ScrollArea::new("notices", notices)
+        .render()
+        .max_height(160.0)
+        .shrink_height_to_fit(),
+    footer,
+]).gap(8.0)
+```
+
+If a row wraps the scroll area, mark that row instead. Its actual assigned
+height bounds the viewport, so the last row remains reachable by scrolling.
+The flag does not change row widths or columns that do not use it. See
+[Layout](../layout.md#giving-up-height-shrink_height_to_fit) for minimums
+and the limits of an already overfilled column.
 
 ## A list of uniform rows
 
@@ -118,6 +141,40 @@ width. Content that fits shows no scrollbar and reserves no rail.
 
 `ScrollArea::buttons(enabled)` and `ScrollArea::tint(color)` change that one
 field and keep the rest of the appearance.
+
+To show a scrollbar only after scrolling, opt in to activity visibility:
+
+```rust
+ScrollArea::new("files", content)
+    .appearance(ScrollbarAppearance::overlay().buttons(false))
+    .visibility(ScrollbarVisibility::AutoHide { hold_ms: 600, fade_ms: 200 })
+    .render()
+```
+
+The bar starts hidden. Changes in scroll position show it immediately;
+hovering or dragging a visible bar keeps it shown. After activity stops it
+stays for `hold_ms`, then fades over `fade_ms`. A hidden bar has no pointer
+target. Hiding preserves content width, including any reserved rail, so rows
+never move sideways. `UiTree::animation_repaint_after()` includes its hold
+deadline and fade; reduced motion keeps the hold and hides without fading.
+`ScrollbarVisibility::Always` is the unchanged default. The policy also
+works on uniform and measured lists, and on low-level scroll elements through
+`Element::scrollbar_visibility`.
+
+The same policy applies to the thin indicator enabled by `drag_to_pan()` on
+`Element::horizontal_scroll` and `horizontal_scroll_2d`:
+
+```rust
+Element::horizontal_scroll_2d("shelf", cards)
+    .drag_to_pan()
+    .scrollbar_visibility(ScrollbarVisibility::AutoHide { hold_ms: 600, fade_ms: 200 })
+```
+
+Horizontal position changes show it, and an active pointer pan keeps it visible
+until release. Only the indicator's paint hides: the viewport still scrolls,
+drags and dispatches child controls while it is hidden. The indicator overlays
+the same content bounds throughout. Without `drag_to_pan()` no indicator is
+added. Its default is still `Always`, with the existing geometry and opacity.
 
 ## Motion
 

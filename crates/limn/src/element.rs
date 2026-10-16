@@ -614,7 +614,8 @@ pub struct Border {
 }
 
 /// Independent corner radii for backgrounds, solid borders and keyboard focus.
-/// They affect paint only; child clipping and hit regions remain rectangular.
+/// They affect paint and, with [`Element::clip_children`], the fills and
+/// images of descendants; hit regions remain rectangular.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CornerRadii {
     /// Radius of the top left corner, in logical pixels.
@@ -756,6 +757,9 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// The ID a paint scale is kept under, its factor, and the point it grows
+    /// from as shares of the element's width and height.
+    pub(crate) scale: Option<(String, f32, Point)>,
     /// Set by [`Element::wrap`]: a row moves children onto more lines.
     pub(crate) wrap: bool,
     /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
@@ -765,6 +769,9 @@ pub(crate) struct Kept {
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
+    pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
+    pub(crate) translation: Option<Point>,
+    pub(crate) pointer_blocker: Option<String>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1675,6 +1682,9 @@ pub struct Style {
     pub flex: f32,
     /// In a row, give up width the row cannot spare instead of overflowing.
     pub shrink: bool,
+    /// In a column, give up height the column cannot spare. Off by default;
+    /// set by [`Element::shrink_height_to_fit`].
+    pub shrink_height: bool,
     /// Fill of the element's bounds. `None` paints none.
     pub background: Option<Color>,
     /// Paint-only scrim above children, opaque at the top and transparent at
@@ -1683,6 +1693,9 @@ pub struct Style {
     /// Paint-only scrim above children, transparent at its top edge and
     /// tinted at the bottom. Scroll areas show it only above hidden content.
     pub bottom_fade: Option<(Color, f32)>,
+    /// Paint-only distances from the top and bottom edges to the corresponding
+    /// fade bands. Opaque floating bars can occupy this space; defaults to zero.
+    pub fade_insets: (f32, f32),
     /// Passive bottom background behind children, for dedicated footer space.
     pub bottom_background_fade: Option<(Color, f32)>,
     /// Passive top background behind children: the color at the top edge,
@@ -1762,9 +1775,11 @@ impl Default for Style {
             gap: 0.0,
             flex: 0.0,
             shrink: false,
+            shrink_height: false,
             background: None,
             top_fade: None,
             bottom_fade: None,
+            fade_insets: (0.0, 0.0),
             bottom_background_fade: None,
             top_background_fade: None,
             horizontal_edge_fade: None,
@@ -1850,8 +1865,9 @@ impl Element {
 
     /// Name this element as a place to scroll to, without making it a
     /// control: `UiTree::reveal(id)` brings it into view and
-    /// `UiTree::anchor_offset(id)` says where it is. It has to be laid out
-    /// by a column of a scroll area, as a message of a conversation is.
+    /// `UiTree::anchor_offset(id)` says where it is inside its scroll area.
+    /// Static branches retain anchor geometry when clipped outside the viewport;
+    /// a virtual row must have been built before its anchors can be located.
     pub fn anchor(mut self, id: impl Into<String>) -> Self {
         self.anchor = Some(id.into());
         self
@@ -1941,6 +1957,29 @@ impl Element {
         self
     }
 
+    /// Translate this element and its descendants without changing their slot
+    /// in the parent's flow. Paint, pointer, accessibility and scroll geometry
+    /// move together; ancestor clips remain fixed. Non-finite offsets are ignored.
+    /// The host owns the offset, including direct manipulation and animation.
+    /// Viewport popovers retain their placement; translate their floating
+    /// surface itself when it should move independently of its anchor.
+    pub fn translate(mut self, offset: Point) -> Self {
+        if offset.x.is_finite() && offset.y.is_finite() {
+            self.kept.get_or_insert_default().translation = Some(offset);
+        }
+        self
+    }
+
+    /// Block presses from reaching elements beneath this element's visible
+    /// bounds, while controls inside it keep their own targets. The unique, stable
+    /// `id` names a passive hit region, with no action, focus or accessibility
+    /// node. Clipping and translation apply normally. Scroll events still
+    /// reach scroll areas underneath; the host owns touch gesture arbitration.
+    pub fn block_pointer(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().pointer_blocker = Some(id.into());
+        self
+    }
+
     /// As [`Element::animate_enter`], and fade out in place once removed.
     /// For floating content such as a toast: nothing else moves into the
     /// space it leaves, so its last paint can linger there.
@@ -1988,6 +2027,26 @@ impl Element {
     pub fn soft_focus(mut self, id: impl Into<String>, radius: f32) -> Self {
         let radius = if radius.is_finite() { radius.clamp(0.0, 8.0) } else { 0.0 };
         self.kept.get_or_insert_default().soft = Some((id.into(), radius));
+        self
+    }
+
+    /// Paint this element and what is inside it at `factor` times its size,
+    /// growing from the middle of its left edge. Layout, hit targets and line
+    /// breaks stay those of factor one, so the line being read can grow
+    /// without re-wrapping or moving its neighbours. The factor is kept under
+    /// `id` and springs to a new one in one move, or changes at once under
+    /// reduced motion. A factor that is not finite or not above zero is ignored.
+    pub fn animate_scale(self, id: impl Into<String>, factor: f32) -> Self {
+        self.animate_scale_about(id, factor, Point::new(0.0, 0.5))
+    }
+
+    /// As [`Element::animate_scale`], growing from `anchor`, given as shares
+    /// of the element's width and height: `(0.5, 0.5)` is its center. An
+    /// anchor that is not finite is ignored with the rest.
+    pub fn animate_scale_about(mut self, id: impl Into<String>, factor: f32, anchor: Point) -> Self {
+        if factor.is_finite() && factor > 0.0 && anchor.x.is_finite() && anchor.y.is_finite() {
+            self.kept.get_or_insert_default().scale = Some((id.into(), factor, anchor));
+        }
         self
     }
 
@@ -2602,6 +2661,17 @@ impl Element {
         self
     }
 
+    /// Show an ordinary, virtual or horizontal scroll indicator only while
+    /// active, or keep its idle appearance visible. Does not change layout or
+    /// scrolling. A horizontal indicator requires [`Element::drag_to_pan`];
+    /// hiding it never disables the viewport's pointer or scroll targets.
+    pub fn scrollbar_visibility(mut self, visibility: crate::ScrollbarVisibility) -> Self {
+        if matches!(self.kind, ElementKind::Scroll { .. } | ElementKind::UniformList(_) | ElementKind::HorizontalScroll { .. }) {
+            self.kept.get_or_insert_default().scrollbar_visibility = visibility;
+        }
+        self
+    }
+
     /// Configure wheel and scrollbar-button interpolation for ordinary
     /// scroll content or a virtual list without changing scrollbar appearance.
     pub fn scroll_motion(mut self, motion: ScrollMotion) -> Self {
@@ -3135,6 +3205,16 @@ impl Element {
         self
     }
 
+    /// Inset the top and bottom fade bands from the viewport edges, for content
+    /// beneath opaque floating bars. Fade heights remain the visible transition
+    /// outside the bars. This changes paint only; the host still reserves content
+    /// space for its bars. Negative or non-finite insets become zero.
+    pub fn fade_insets(mut self, top: f32, bottom: f32) -> Self {
+        let inset = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        self.style.fade_insets = (inset(top), inset(bottom));
+        self
+    }
+
     /// Add a quiet bottom background behind children. Use dedicated footer
     /// space so the tint never covers the last line or the collapse control.
     pub fn bottom_background_fade(mut self, color: Color, height: f32) -> Self {
@@ -3197,7 +3277,8 @@ impl Element {
     /// Let the pointer drag a horizontal viewport's content sideways, and
     /// show a thin bar where it sits while there is more than fits. The bar
     /// takes the viewport's foreground; pressing a control inside still
-    /// presses that control.
+    /// presses that control. [`Element::scrollbar_visibility`] can make the
+    /// indicator transient without disabling drag input.
     pub fn drag_to_pan(mut self) -> Self {
         if let ElementKind::HorizontalScroll { drag_pan, .. } = &mut self.kind {
             *drag_pan = true;
@@ -3270,6 +3351,8 @@ impl Element {
 
     /// Center the text, or a button's content, across the element's width
     /// instead of starting it at the edge.
+    /// Single-line inputs center values that fit, with matching caret,
+    /// selection and pointer geometry; overflowing values scroll normally.
     pub fn center_content(mut self) -> Self {
         self.style.center_content = true;
         self
@@ -3307,6 +3390,10 @@ impl Element {
 
     /// Keep descendants inside this element's content rectangle. Useful for
     /// a dock whose width changes while its children retain intrinsic sizes.
+    /// On a rounded element the clip is rounded too, concentric with its
+    /// corners less its padding: fills and images that reach a corner take
+    /// it (see [`crate::DrawCommand::RoundClip`]). Text is clipped to the
+    /// rectangle only.
     pub fn clip_children(mut self) -> Self {
         self.style.clip_children = true;
         self
@@ -3415,6 +3502,19 @@ impl Element {
         self
     }
 
+    /// Keep the natural height while the column has room, and give up height
+    /// before pushing fixed siblings out. Only a direct, non-flex child of a
+    /// column uses this flag; rows and unbounded columns leave it alone.
+    /// Multiple children give up height in order, down to their minimums first
+    /// and then below them if necessary. Flexible siblings keep their minimum
+    /// heights. Put overflowing content in a scroll area or clip it explicitly.
+    /// A child with unbounded natural height starts at the column's finite
+    /// height before yielding room to its siblings.
+    pub fn shrink_height_to_fit(mut self) -> Self {
+        self.style.shrink_height = true;
+        self
+    }
+
     /// Take a share of the space a row or column has left, in proportion to
     /// this factor among the flexible children. Zero, the default, keeps the
     /// natural size; a negative factor becomes zero, and one that is not
@@ -3469,15 +3569,25 @@ impl Element {
 
     /// Round the four corners by this radius, in logical pixels. It replaces
     /// any `corner_radii`; a negative value becomes zero, and one that is not
-    /// finite is ignored.
+    /// finite is ignored. A painted radius never exceeds half the shorter side.
     pub fn radius(mut self, radius: f32) -> Self {
         self.style.radius = length(radius, self.style.radius);
         self.style.corner_radii = None;
         self
     }
 
+    /// Round the ends fully: half the shorter side of wherever the element is
+    /// laid out, so a pill or a circle stays one when its size changes later.
+    /// It replaces any `radius` or `corner_radii`.
+    pub fn round(mut self) -> Self {
+        // Painting clamps every radius to the rectangle it rounds.
+        self.style.radius = f32::INFINITY;
+        self.style.corner_radii = None;
+        self
+    }
+
     /// Override the uniform radius for backgrounds, solid borders and focus.
-    /// Shadows and descendant clipping retain their existing behavior.
+    /// Shadows keep the uniform radius; a clip of descendants follows these.
     pub fn corner_radii(mut self, radii: CornerRadii) -> Self {
         self.style.corner_radii = Some(radii.normalized());
         self
