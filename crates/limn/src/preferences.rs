@@ -863,7 +863,7 @@ mod tests {
             let point = Point::new(bounds.x + 1.0, bounds.y + 1.0);
             assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
             assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
-            assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+            assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false }).is_empty());
             assert!(frame.commands.iter().all(|command| match command {
                 DrawCommand::Text { color, .. } => *color == palette.muted,
                 DrawCommand::Icon { tint, .. } => *tint == palette.muted,

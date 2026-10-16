@@ -456,7 +456,7 @@ mod tests {
         assert!(button(&hidden, "retry").is_none(), "a disabled action is passive");
         let mut order = Vec::new();
         for _ in 0..3 {
-            tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false });
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false, alt: false });
             order.push(tree.focused_id().unwrap().to_owned());
             assert!(icon_alpha(&tree.layout(SIZE), Icon::Copy).unwrap() > 0);
         }

@@ -647,7 +647,7 @@ mod tests {
         assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
         assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
         // The arrow keys go from one neighbour to the other, both ways.
-        let key = |tree: &mut UiTree, key| tree.handle_event(UiEvent::Key { key, ctrl: false, shift: false });
+        let key = |tree: &mut UiTree, key| tree.handle_event(UiEvent::Key { key, ctrl: false, shift: false, alt: false });
         assert!(tree.focus("tab:0"));
         assert_eq!(key(&mut tree, Key::ArrowRight), vec![UiAction::Clicked { id: "tab:2".into() }]);
         assert_eq!(key(&mut tree, Key::ArrowLeft), vec![UiAction::Clicked { id: "tab:0".into() }]);

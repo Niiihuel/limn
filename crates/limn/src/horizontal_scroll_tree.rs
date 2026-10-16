@@ -492,6 +492,7 @@ mod tests {
                 key,
                 ctrl: false,
                 shift: false,
+                alt: false,
             });
             assert!(
                 actions.iter().any(|action| matches!(action,

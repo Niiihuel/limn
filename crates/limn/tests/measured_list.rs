@@ -291,7 +291,7 @@ fn tab_walks_past_the_rows_in_view() {
     tree.layout(VIEW);
     let shown = tree.visible_rows("messages").unwrap().len();
     for _ in 0..shown + 3 {
-        tree.handle_event(UiEvent::Key { key: limn::Key::Tab, shift: false, ctrl: false });
+        tree.handle_event(UiEvent::Key { key: limn::Key::Tab, shift: false, ctrl: false, alt: false });
         tree.layout(VIEW);
     }
     let focused = tree.focused_id().expect("a row has focus").to_owned();

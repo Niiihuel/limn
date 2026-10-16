@@ -184,7 +184,7 @@ mod tests {
             assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty(), "{id}");
             assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty(), "{id}");
         }
-        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false }).is_empty());
         assert_eq!(places(&frame), places(&enabled));
     }
 }

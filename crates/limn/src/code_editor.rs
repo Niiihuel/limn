@@ -1223,7 +1223,7 @@ impl EditorView {
             self.ensure_visual_map(&snapshot, self.viewport.body.width, measure);
         }
         self.ensure_review_layout(&snapshot);
-        let targets = if let UiEvent::Key { key, shift, ctrl } = event {
+        let targets = if let UiEvent::Key { key, shift, ctrl, .. } = event {
             let mut targets = Vec::new();
             let mut primary_x = self.viewport.desired_x;
             for (index, selected) in snapshot.selections().enumerate() {
@@ -1295,6 +1295,7 @@ impl EditorView {
                 key: Key::D,
                 ctrl: true,
                 shift,
+                ..
             } => {
                 result = buffer
                     .execute_command(
@@ -3704,7 +3705,7 @@ mod tests {
         (controller, tree)
     }
     fn key(tree: &mut UiTree, key: Key, shift: bool, ctrl: bool) -> Vec<UiAction> {
-        tree.handle_event(UiEvent::Key { key, shift, ctrl })
+        tree.handle_event(UiEvent::Key { key, shift, ctrl, alt: false })
     }
     fn text(controller: &EditorController) -> String {
         let snapshot = controller.snapshot().unwrap();
@@ -3783,6 +3784,7 @@ mod tests {
                 key: Key::ArrowUp,
                 shift: false,
                 ctrl: false,
+                alt: false,
             },
             Instant::now(),
             &measure,

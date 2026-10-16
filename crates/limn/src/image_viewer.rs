@@ -402,7 +402,7 @@ mod tests {
             let mut tree = UiTree::new(gallery(index));
             tree.set_reduced_motion(true);
             tree.layout(WINDOW);
-            tree.handle_event(crate::UiEvent::Key { key, shift: false, ctrl: false })
+            tree.handle_event(crate::UiEvent::Key { key, shift: false, ctrl: false, alt: false })
         };
         let clicked = |id: &str| vec![UiAction::Clicked { id: id.into() }];
         assert_eq!(press(1, crate::Key::ArrowLeft), clicked("before"));

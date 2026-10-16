@@ -2115,6 +2115,20 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                 }
                 egui::Event::PointerButton {
                     pos,
+                    button: button @ (egui::PointerButton::Extra1 | egui::PointerButton::Extra2),
+                    pressed: true,
+                    ..
+                } => {
+                    pointer = Some(*pos);
+                    let position = relative(origin, *pos);
+                    emit(if *button == egui::PointerButton::Extra1 {
+                        UiEvent::PointerBack(position)
+                    } else {
+                        UiEvent::PointerForward(position)
+                    });
+                }
+                egui::Event::PointerButton {
+                    pos,
                     button: egui::PointerButton::Primary,
                     pressed,
                     modifiers,
@@ -2219,11 +2233,13 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                     key: Key::C,
                     shift: input.modifiers.shift,
                     ctrl: true,
+                    alt: false,
                 }),
                 egui::Event::Cut => emit(UiEvent::Key {
                     key: Key::X,
                     shift: input.modifiers.shift,
                     ctrl: true,
+                    alt: false,
                 }),
                 egui::Event::Key {
                     key: egui::Key::F10,
@@ -2241,8 +2257,15 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                 } => {
                     let mapped = match key {
                         egui::Key::Escape => Some(Key::Escape),
+                        egui::Key::F1 => Some(Key::F1),
                         egui::Key::F2 => Some(Key::F2),
+                        egui::Key::F3 => Some(Key::F3),
+                        egui::Key::F4 => Some(Key::F4),
                         egui::Key::F5 => Some(Key::F5),
+                        egui::Key::F6 => Some(Key::F6),
+                        egui::Key::F7 => Some(Key::F7),
+                        egui::Key::F8 => Some(Key::F8),
+                        egui::Key::Slash => Some(Key::Slash),
                         egui::Key::F9 => Some(Key::F9),
                         egui::Key::F10 => Some(Key::F10),
                         egui::Key::F11 => Some(Key::F11),
@@ -2293,6 +2316,7 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                             key,
                             shift: modifiers.shift,
                             ctrl: modifiers.ctrl || modifiers.command,
+                            alt: modifiers.alt,
                         });
                     }
                 }
@@ -2597,7 +2621,7 @@ mod tests {
             assert_eq!(forwarded, if pointer {
                 vec![
                     UiEvent::PointerMove(Point::new(50.0, 40.0)),
-                    UiEvent::Key { key: Key::Escape, shift: false, ctrl: false },
+                    UiEvent::Key { key: Key::Escape, shift: false, ctrl: false, alt: false },
                     UiEvent::FilesDropped { position: Point::new(50.0, 40.0), paths },
                 ]
             } else { Vec::new() });
@@ -2620,6 +2644,36 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn region_and_shortcut_keys_carry_alt_and_side_buttons_are_history() {
+        let ctx = egui::Context::default();
+        let mut forwarded = Vec::new();
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        let side = |button, pressed| egui::Event::PointerButton {
+            pos: egui::pos2(30.0, 20.0), button, pressed, modifiers: egui::Modifiers::default(),
+        };
+        let mut output = ctx.run_ui(egui::RawInput {
+            events: vec![
+                key(egui::Key::F6, egui::Modifiers::SHIFT),
+                key(egui::Key::Slash, egui::Modifiers::CTRL),
+                key(egui::Key::ArrowLeft, egui::Modifiers::ALT),
+                side(egui::PointerButton::Extra1, true),
+                side(egui::PointerButton::Extra2, true),
+                // A release is not a second press.
+                side(egui::PointerButton::Extra1, false),
+            ],
+            ..Default::default()
+        }, |ui| forwarded = events(ui.ctx(), Pos2::new(10.0, 10.0)));
+        output.textures_delta.clear();
+        assert_eq!(forwarded, vec![
+            UiEvent::Key { key: Key::F6, shift: true, ctrl: false, alt: false },
+            UiEvent::Key { key: Key::Slash, shift: false, ctrl: true, alt: false },
+            UiEvent::Key { key: Key::ArrowLeft, shift: false, ctrl: false, alt: true },
+            UiEvent::PointerBack(Point::new(20.0, 10.0)),
+            UiEvent::PointerForward(Point::new(20.0, 10.0)),
+        ]);
+    }
+
+    #[test]
     fn debugger_function_keys_keep_shift_f10_as_the_context_menu_shortcut() {
         let ctx = egui::Context::default();
         let mut forwarded = Vec::new();
@@ -2631,10 +2685,10 @@ mod tests {
                 }).collect(), ..Default::default()
         }, |ui| forwarded = events(ui.ctx(), Pos2::ZERO));
         output.textures_delta.clear();
-        assert_eq!(forwarded, vec![UiEvent::Key {key: Key::F5, ctrl: false, shift: false},
-            UiEvent::Key {key: Key::F10, ctrl: false, shift: false},
-            UiEvent::Key {key: Key::F11, ctrl: false, shift: false},
-            UiEvent::Key {key: Key::F11, ctrl: false, shift: true}, UiEvent::ContextMenuKeyboard]);
+        assert_eq!(forwarded, vec![UiEvent::Key {key: Key::F5, ctrl: false, shift: false, alt: false},
+            UiEvent::Key {key: Key::F10, ctrl: false, shift: false, alt: false},
+            UiEvent::Key {key: Key::F11, ctrl: false, shift: false, alt: false},
+            UiEvent::Key {key: Key::F11, ctrl: false, shift: true, alt: false}, UiEvent::ContextMenuKeyboard]);
     }
 
     #[test]
@@ -2683,12 +2737,14 @@ mod tests {
                 UiEvent::Key {
                     key: Key::C,
                     ctrl: true,
-                    shift: false
+                    shift: false,
+                    alt: false
                 },
                 UiEvent::Key {
                     key: Key::X,
                     ctrl: true,
-                    shift: false
+                    shift: false,
+                    alt: false
                 },
                 UiEvent::ContextMenuKeyboard,
             ]
@@ -2731,12 +2787,14 @@ mod tests {
                 UiEvent::Key {
                     key: Key::C,
                     ctrl: true,
-                    shift: true
+                    shift: true,
+                    alt: false
                 },
                 UiEvent::Key {
                     key: Key::X,
                     ctrl: true,
-                    shift: false
+                    shift: false,
+                    alt: false
                 },
                 UiEvent::Paste("ñ 東京".into()),
             ]

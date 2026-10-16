@@ -244,6 +244,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             },
         );
         assert_eq!(fraction(&state, "glass-x", DEFAULT_X), DEFAULT_X);
@@ -280,6 +281,7 @@ mod tests {
                     key: Key::End,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 },
             );
             assert_eq!(fraction(&state, id, 0.0), 1.0);
@@ -293,6 +295,7 @@ mod tests {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             },
         );
         assert_eq!(fraction(&state, "glass-x", 0.0), DEFAULT_X);
@@ -366,6 +369,7 @@ mod tests {
                     key: Key::Space,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 },
             );
             assert_eq!(state.choice("glass-animate", "on"), expected);

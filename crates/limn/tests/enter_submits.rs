@@ -28,7 +28,7 @@ fn typed(field: Element, id: &str) -> UiTree {
 }
 
 fn key(tree: &mut UiTree, shift: bool, ctrl: bool) -> Vec<UiAction> {
-    let actions = tree.handle_event(UiEvent::Key { key: Key::Enter, shift, ctrl });
+    let actions = tree.handle_event(UiEvent::Key { key: Key::Enter, shift, ctrl, alt: false });
     tree.layout(VIEW);
     actions
 }

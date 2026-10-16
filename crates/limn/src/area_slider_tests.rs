@@ -168,6 +168,7 @@ fn an_area_sliders_arrows_move_it_across_and_up_and_down() {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         })
     };
     for (pressed, x, y) in [
@@ -222,7 +223,8 @@ fn a_track_slider_still_ignores_up_and_down() {
         .handle_event(UiEvent::Key {
             key: Key::ArrowUp,
             shift: false,
-            ctrl: false
+            ctrl: false,
+            alt: false
         })
         .is_empty());
 }

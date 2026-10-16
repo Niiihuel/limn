@@ -367,6 +367,7 @@ mod tests {
             key: limn::Key::Enter,
             shift: false,
             ctrl: false,
+            alt: false,
         }) {
             update(&mut state, &action);
         }

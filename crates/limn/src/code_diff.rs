@@ -186,6 +186,7 @@ mod tests {
                 key: Key::Tab,
                 shift: false,
                 ctrl: false,
+                alt: false,
             });
             assert_eq!(
                 tree.focused_id(),
@@ -203,6 +204,7 @@ mod tests {
                     key: Key::Backspace,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 },
             ] {
                 assert!(

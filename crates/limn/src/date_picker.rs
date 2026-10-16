@@ -416,7 +416,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "date:day:2025-05-14".into()
@@ -465,7 +466,7 @@ mod tests {
         let point = Point::new(day.x + day.width / 2.0, day.y + day.height / 2.0);
         assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
         assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
-        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false }).is_empty());
         assert!(tree.handle_event(UiEvent::Text("6".into())).is_empty());
         // The same days in the same places, all muted.
         let (passive, active) = (days(&frame), days(&enabled));

@@ -199,7 +199,7 @@ mod tests {
             tree.set_reduced_motion(true);
             let frame = tree.layout(window);
             let drawn = frame.commands.iter().filter(|command| matches!(command, DrawCommand::RasterImage { .. })).count();
-            for action in tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false }) {
+            for action in tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false, alt: false }) {
                 app::update(state, &action);
             }
             drawn

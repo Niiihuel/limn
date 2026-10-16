@@ -443,11 +443,13 @@ mod tests {
                 key: Key::Tab,
                 shift: false,
                 ctrl: false,
+                alt: false,
             },
             UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             },
         ] {
             assert!(tree.handle_event(event).is_empty());
@@ -534,7 +536,7 @@ mod tests {
     }
 
     fn key(key: Key) -> UiEvent {
-        UiEvent::Key { key, shift: false, ctrl: false }
+        UiEvent::Key { key, shift: false, ctrl: false, alt: false }
     }
 
     #[test]

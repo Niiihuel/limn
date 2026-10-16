@@ -241,7 +241,7 @@ mod tests {
         assert!(tree.handle_event(UiEvent::PointerDown(at(106.0))).is_empty());
         assert!(tree.handle_event(UiEvent::PointerMove(at(60.0))).is_empty());
         assert!(tree.handle_event(UiEvent::PointerUp(at(60.0))).is_empty());
-        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false }).is_empty());
         assert!(tree.layout(size).commands.is_empty(), "it draws nothing, under the pointer or held");
         assert_eq!(pane(&mut tree), pane(&mut tree_of(true)));
         assert_eq!(pane(&mut tree).x, 112.0);

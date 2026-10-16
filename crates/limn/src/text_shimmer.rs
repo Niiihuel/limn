@@ -87,7 +87,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::C,
                 ctrl: true,
-                shift: false
+                shift: false,
+                alt: false
             }),
             vec![UiAction::CopyRequested { text: label.into() }]
         );
