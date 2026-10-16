@@ -312,6 +312,13 @@ does not return its owner's worker or display lease. Owned workers use one
 global reaper. All paths share a non-refundable budget
 of 64 initial get_registry attempts; startup failure or close does not restore
 it. An existing Ready receiver needs no new registry to receive more drops.
+`FileDnd::attach` spends its credit before starting its thread and returns
+`None` once the budget or the four reservations are used up.
+
+A refused drag offer (another surface, no `text/uri-list`, busy, cancelled or
+invalidated while hovering) gets `accept(serial, null)` and `set_actions(none)`
+and stays alive until Leave or Drop: wlroots compositors cancel the user's drag
+when its offer is destroyed while it is still over the window.
 
 The worker uses Calloop Ping for controls, level-triggered readiness on the
 same pipe reader, and a guest-queue tick of at most 20 ms between attempts,

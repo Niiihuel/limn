@@ -111,6 +111,9 @@ impl UiTree {
     }
 
     fn close_context_menu(&mut self, now: Instant) {
+        if self.context_menu.is_some() {
+            self.invalidate_paste_targets();
+        }
         self.context_menu = None;
         self.pressed = None;
         self.scroll_drag = None;
@@ -225,7 +228,8 @@ impl UiTree {
                     hit.kind,
                     HitKind::Button | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor
                 ) {
-                    self.focused = Some(hit.id.clone());
+                    let next_focus = Some(hit.id.clone());
+                    Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                 }
             }
             if let Some(id) = region.definition.open_action {
@@ -246,7 +250,8 @@ impl UiTree {
             let selected = input.selected_range().is_some();
             let copy = selected && !input.password;
             let entries = text_entries(copy, copy, true, !input.value.is_empty());
-            self.focused = Some(hit.id.clone());
+            let next_focus = Some(hit.id.clone());
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             (
                 Target::Input { id: hit.id.clone() },
                 entries,
@@ -288,7 +293,8 @@ impl UiTree {
                 entries.push(ContextMenuEntry::Separator);
                 entries.extend(editor.editor.context_actions.clone());
             }
-            self.focused = Some(hit.id.clone());
+            let next_focus = Some(hit.id.clone());
+            Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             (
                 Target::Editor {
                     id: hit.id.clone(),
@@ -366,6 +372,7 @@ impl UiTree {
             .flatten();
         self.scroll_offsets.remove(context_menu::SCROLL_ID);
         self.scroll_transitions.remove(context_menu::SCROLL_ID);
+        self.invalidate_paste_targets();
         self.context_menu = Some(ContextMenuState {
             target,
             position,
@@ -406,8 +413,7 @@ impl UiTree {
                     return Vec::new();
                 };
                 if item.action_id == "select_all" {
-                    input.anchor = Some(0);
-                    input.cursor = input.value.chars().count();
+                    input.set_selection(input.value.chars().count(), Some(0));
                     input.keep_cursor_visible = true;
                     return Vec::new();
                 }
@@ -479,7 +485,8 @@ impl UiTree {
                 if item.action_id == "select_all" {
                     selection.anchor = 0;
                     selection.cursor = source.chars().count();
-                    self.focused = None;
+                    let next_focus = None;
+                    Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                     return Vec::new();
                 }
                 self.selected_text()

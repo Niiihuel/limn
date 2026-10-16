@@ -90,8 +90,9 @@ fn public_unpolled_text_excludes_native_copy_then_expires_before_same_selection_
         .iter()
         .all(|request| !matches!(
             request,
-            OfferRequest::Accept(502, Some(_)) | OfferRequest::Actions(502, _, _)
-        )));
+            OfferRequest::Accept(502, Some(_))
+        ) && !matches!(request, OfferRequest::Actions(502, actions, _)
+            if *actions != WEnum::Value(wl_data_device_manager::DndAction::None))));
     assert!(endpoint.poll().is_empty());
     assert!(fd_a.upgrade().is_none());
     assert!(matches!(

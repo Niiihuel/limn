@@ -130,6 +130,20 @@ wrapped lines between two heights, and `editor_height` fixes it instead.
 its sides and filled with that palette's `surface`. Build the strip's content
 `Composer::header_strip_width(width)` wide.
 
+### Files from another application
+
+Add `.drop_target()` to opt the enabled editor into external file drops.
+`UiAction::FilesDropped` uses the editor's existing ID as its `target` and
+preserves the list of paths. It does not submit the draft, change its text or
+move focus. Disabled composers accept no drops, even with this option set.
+Hover/drop resolution stays inside a modal while it is open.
+
+The host validates the complete list, permissions and current account before
+opening files in its own service. The component and event bridge never read
+their contents. A native backend needs a pointer position to resolve a target;
+the operating system's last reported position can lag during external drags.
+The Editor gallery demonstrates the action by retaining only the file count.
+
 ### Disabled
 
 ```rust

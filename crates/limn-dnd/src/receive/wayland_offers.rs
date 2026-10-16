@@ -25,6 +25,8 @@ pub(super) struct Offer {
     pub(super) plain: bool,
     selected_copy: bool,
     pub(super) role: OfferRole,
+    /// Serial of the Enter that put this offer over the surface.
+    serial: u32,
 }
 
 impl Offer {
@@ -91,6 +93,48 @@ impl State {
         Self::destroy_proxy(&offer.proxy);
     }
 
+    fn is_hovered(&self, index: usize) -> bool {
+        let object = self.offers[index].proxy.id();
+        self.seats
+            .iter()
+            .any(|seat| seat.hover.as_ref() == Some(&object))
+    }
+
+    /// Refuse an offer that is still over the surface, keeping it until Leave or Drop.
+    /// wlroots cancels the whole drag when its v3 offer is destroyed during hover.
+    fn refuse_offer(&mut self, index: usize) {
+        let offer = &mut self.offers[index];
+        offer.role = OfferRole::Pending;
+        let _ = offer.proxy.send_request(wl_data_offer::Request::Accept {
+            serial: offer.serial,
+            mime_type: None,
+        });
+        if offer.proxy.version() >= 3 {
+            let none = wl_data_device_manager::DndAction::None;
+            let _ = offer
+                .proxy
+                .send_request(wl_data_offer::Request::SetActions {
+                    dnd_actions: WEnum::Value(none),
+                    preferred_action: WEnum::Value(none),
+                });
+        }
+    }
+
+    /// Destroy the offer this device hovered once it was refused, at Leave or Drop.
+    fn release_refused_hover(&mut self, device: &ObjectId) {
+        let Some(seat) = self.seat_for_device(device) else {
+            return;
+        };
+        let Some(object) = self.seats[seat].hover.take() else {
+            return;
+        };
+        if let Some(index) = self.offer_for_device(&object, device) {
+            if self.offers[index].drop_id().is_none() {
+                self.remove_offer(index);
+            }
+        }
+    }
+
     pub(super) fn cleanup_offers(&mut self) {
         let closing = self.control.header().is_closing();
         let mut index = 0;
@@ -101,9 +145,12 @@ impl State {
                         || matches!(self.offer_phase(id), Some(Phase::TerminalQueued))
                 })
             });
-            if closing || retired {
+            if closing || (retired && !self.is_hovered(index)) {
                 self.remove_offer(index);
             } else {
+                if retired {
+                    self.refuse_offer(index);
+                }
                 index += 1;
             }
         }
@@ -163,17 +210,15 @@ impl State {
             plain: false,
             selected_copy: false,
             role: OfferRole::Pending,
+            serial: 0,
         });
     }
 
-    fn reject_offer(&mut self, index: usize, serial: u32) {
-        let _ = self.offers[index]
-            .proxy
-            .send_request(wl_data_offer::Request::Accept {
-                serial,
-                mime_type: None,
-            });
-        self.remove_offer(index);
+    fn reject_offer(&mut self, index: usize) {
+        if let Some(seat) = self.seat_for_device(&self.offers[index].device) {
+            self.seats[seat].hover = Some(self.offers[index].proxy.id());
+        }
+        self.refuse_offer(index);
     }
 
     fn enter_offer(
@@ -193,6 +238,7 @@ impl State {
         if self.offers[index].role != OfferRole::Pending {
             return;
         }
+        self.offers[index].serial = serial;
         let endpoint = self.endpoints.iter().position(|endpoint| {
             !endpoint.retiring && endpoint.surface.as_ref() == Some(&surface.id())
         });
@@ -201,7 +247,7 @@ impl State {
             || !self.offers[index].has_uri
             || self.failure.is_some()
         {
-            self.reject_offer(index, serial);
+            self.reject_offer(index);
             return;
         }
         let endpoint = endpoint.expect("validated exact registered surface");
@@ -219,7 +265,7 @@ impl State {
             .reserve_incoming_drop(registration, id)
             .is_err()
         {
-            self.reject_offer(index, serial);
+            self.reject_offer(index);
             return;
         }
         self.offers[index].role = OfferRole::Drop(id);
@@ -230,12 +276,15 @@ impl State {
             Ok(()) => {}
             Err(_) => {
                 self.offers[index].role = OfferRole::Pending;
-                self.reject_offer(index, serial);
+                self.reject_offer(index);
                 // enter failed before a pipe or watcher could exist.
                 self.control
                     .release_incoming_after_cleanup(IncomingLease::Drop { registration, id });
                 return;
             }
+        }
+        if let Some(seat) = self.seat_for_device(&device.id()) {
+            self.seats[seat].hover = Some(proxy.id());
         }
         if self.endpoints[endpoint]
             .coordinator
@@ -244,9 +293,6 @@ impl State {
         {
             self.cleanup_offers();
             return;
-        }
-        if let Some(seat) = self.seat_for_device(&device.id()) {
-            self.seats[seat].hover = Some(proxy.id());
         }
         let copy = wl_data_device_manager::DndAction::Copy;
         let result = proxy
@@ -279,14 +325,13 @@ impl State {
                 let _ = self.endpoints[endpoint].coordinator.leave(id);
             }
         }
-        if let Some(seat) = self.seat_for_device(device) {
-            self.seats[seat].hover = None;
-        }
+        self.release_refused_hover(device);
         self.cleanup_offers();
     }
 
     fn start_offer(&mut self, device: &ObjectId) {
         let Some((_, id)) = self.hovered_offer(device) else {
+            self.release_refused_hover(device);
             return;
         };
         let Some(endpoint) = self.endpoint_for_offer(id) else {

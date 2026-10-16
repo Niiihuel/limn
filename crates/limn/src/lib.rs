@@ -6,6 +6,9 @@
 //! [`UiEvent`] and paints the resulting [`Frame`].
 #![warn(missing_docs)]
 
+#[cfg(test)]
+mod captured_paste_tests;
+
 mod accordion;
 mod alert;
 mod alert_dialog;
@@ -81,6 +84,7 @@ mod radio;
 mod raster_image;
 mod scheme;
 mod scroll_area;
+mod dismiss_drag;
 mod select;
 mod selector_sizing;
 mod resize_handle;
@@ -202,7 +206,7 @@ pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
 pub use notice::{Notice, NoticeSizing};
-pub use number_input::NumberInput;
+pub use number_input::{NumberInput, NumberInputButtonPlacement};
 pub use navigation_bar::{NavigationAction, NavigationBar, NavigationWorkspace};
 pub use output_block::OutputBlock;
 pub use page::{CardGrid, PageColumn, PageHeader, PageHeaderSizing, SectionHeader, SectionHeaderSizing};
@@ -218,7 +222,8 @@ pub use progress::Progress;
 pub use radio::{RadioGroup, RadioOption};
 pub use raster_image::{RasterImage, RasterImageFormat};
 pub use scheme::{ControlColors, Scheme, Surface};
-pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement};
+pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement, ScrollbarVisibility};
+pub use dismiss_drag::DismissDrag;
 pub use select::{Select, SelectVariant};
 pub use selector_sizing::SelectorSizing;
 pub use resize_handle::ResizeHandle;
@@ -251,8 +256,8 @@ pub use labels::{labels, set_labels, Labels};
 pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
 pub use theme::Theme;
 pub use tree::{
-    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, TextLayoutBlock, TextLayoutRun,
-    UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
+    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, PasteTarget, TextLayoutBlock,
+    TextLayoutRun, UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
 };
 pub use tree_view::{guides_for_depths, TreeGuides, TreeRow};
 pub use typography::{truncate_measured, wrap_measured, TextRole};

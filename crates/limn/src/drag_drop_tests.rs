@@ -114,6 +114,64 @@ fn files_from_another_application_resolve_the_drop_target_under_the_pointer() {
 }
 
 #[test]
+fn files_cannot_reach_a_target_behind_a_modal_but_can_reach_its_body() {
+    use crate::{Component, ComponentPalette, Modal};
+    let palette = ComponentPalette::neutral_dark();
+    let background = Element::button("behind", "Background")
+        .size(Some(480.0), Some(480.0))
+        .drop_target();
+    let modal = Modal::new(background, true, "Import", "", "close", palette)
+        .width(280.0)
+        .body(Element::button("inside", "Import files").drop_target())
+        .render();
+    let mut tree = UiTree::new(modal);
+    tree.set_reduced_motion(true);
+    let frame = tree.layout(Size::new(480.0, 480.0));
+    let inside = frame.regions.iter().find(|region| region.id == "inside").unwrap().rect;
+    let points = [
+        (Point::new(5.0, 5.0), None),
+        (Point::new(inside.x + 2.0, inside.y + 2.0), Some("inside".to_owned())),
+    ];
+    let paths = vec!["/tmp/limn-a.txt".into(), "/tmp/limn-b.txt".into()];
+    for (position, target) in points {
+        assert_eq!(
+            tree.handle_event(UiEvent::FilesHovered { position }),
+            vec![UiAction::FilesHovered { position, over: target.clone() }],
+            "file hover must stay in the active modal"
+        );
+        assert_eq!(
+            tree.handle_event(UiEvent::FilesDropped { position, paths: paths.clone() }),
+            vec![UiAction::FilesDropped { position, target, paths: paths.clone() }],
+            "the complete file list must stay in the active modal"
+        );
+    }
+}
+
+#[test]
+fn files_cannot_reach_a_target_through_an_open_context_menu() {
+    use crate::{Component, ComponentPalette, ContextMenu, ContextMenuEntry, ContextMenuItem};
+    let root = ContextMenu::new(
+        "file-menu",
+        Element::button("behind", "Background").size(Some(480.0), Some(480.0)).drop_target(),
+        vec![ContextMenuEntry::Item(ContextMenuItem::new("inspect", "Inspect"))],
+        ComponentPalette::neutral_dark(),
+    ).render();
+    let mut tree = UiTree::new(root);
+    tree.set_reduced_motion(true);
+    tree.layout(Size::new(480.0, 480.0));
+    tree.handle_event(UiEvent::ContextMenu { position: Point::new(20.0, 20.0) });
+    assert!(tree.context_menu_open());
+    let frame = tree.layout(Size::new(480.0, 480.0));
+    let menu = frame.regions.iter().find(|region| region.id == "__context_menu:surface").unwrap().rect;
+    let position = Point::new(menu.x + 4.0, menu.y + 4.0);
+    assert_eq!(tree.handle_event(UiEvent::FilesHovered { position }), vec![UiAction::FilesHovered { position, over: None }]);
+    assert_eq!(
+        tree.handle_event(UiEvent::FilesDropped { position, paths: vec!["/tmp/limn-a.txt".into()] }),
+        vec![UiAction::FilesDropped { position, target: None, paths: vec!["/tmp/limn-a.txt".into()] }]
+    );
+}
+
+#[test]
 fn ghost_survives_its_source_scrolling_out_of_a_virtual_list() {
     let list = Element::uniform_list("files", 100, 30.0, |index| {
         Element::button(format!("row{index}"), format!("row{index}")).draggable()

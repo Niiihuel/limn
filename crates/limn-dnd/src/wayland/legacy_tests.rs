@@ -429,7 +429,11 @@ fn legacy_worker_spends_registry_credit_at_the_real_helper_and_never_refunds_fai
     drop(fixture.spawn(pool.clone(), first.clone()).unwrap());
     let after_failure = pool.consume_registry();
     let second = Hooks::default();
-    drop(fixture.spawn(pool, second.clone()).unwrap());
+    let exhausted = fixture.spawn(pool, second.clone());
+    assert!(
+        exhausted.is_none(),
+        "an exhausted budget returns no handle rather than one whose thread already exited"
+    );
 
     assert_eq!(
         first.registry.load(Ordering::SeqCst),

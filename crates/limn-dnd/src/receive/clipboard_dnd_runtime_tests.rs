@@ -159,7 +159,9 @@ fn reserved_and_reading_text_reject_native_copy_without_replacing_the_transfer()
             .server
             .requests
             .iter()
-            .all(|event| !matches!(event, OfferRequest::Actions(402, _, _))));
+            // Refusal offers no action; it never selects Copy.
+            .all(|event| !matches!(event, OfferRequest::Actions(402, actions, _)
+                if *actions != WEnum::Value(wl_data_device_manager::DndAction::None))));
         assert!(case.lifecycle.incoming() == Some(IncomingLease::Text(request.id())));
         assert!(a_control.incoming() == Some(IncomingLease::Text(request.id())));
         assert!(b_control.incoming() == Some(IncomingLease::Text(request.id())));

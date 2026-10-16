@@ -28,6 +28,7 @@ an explicit size in that direction keeps it.
 | `.max_width(w)` | Caps the natural width. Content wider than this is not re-wrapped; pair with `.clip_children()` or a truncating text. |
 | `.flex(n)` | Takes a share of the space left over, in proportion to `n`. |
 | `.shrink_to_fit()` | Keeps its natural width while there is room, and gives it up when there is not. |
+| `.shrink_height_to_fit()` | A non-flex child of a column keeps its natural height while there is room, then gives it up before fixed siblings overflow. |
 
 ### Sharing spare space: `flex`
 
@@ -65,6 +66,50 @@ When several children can shrink, they give up width in order: the first one
 shrinks down to its `min_size`, then the next, and only if that is still not
 enough do they shrink below their minimums. Flexible siblings keep their
 minimum widths throughout.
+
+### Giving up height: `shrink_height_to_fit`
+
+A column normally keeps every non-flex child's natural height. Mark just the
+child that can yield height; leave its footer or editor unmarked:
+
+```rust
+Element::column(vec![
+    messages.flex(1.0),
+    Element::row(vec![
+        Element::spacer().flex(1.0),
+        ScrollArea::new("notices", notices)
+            .render()
+            .size(Some(320.0), None)
+            .max_height(160.0),
+    ]).shrink_height_to_fit(),
+    editor,
+]).gap(8.0)
+```
+
+The flag belongs to the direct child of the column: the whole row in this
+example. The row gives its scroll area the shorter height that was actually
+assigned. Short content stays short; long content scrolls instead of covering
+the editor. The column measures at its real width before assigning heights,
+so wrapped text keeps its width as it gives up height.
+
+Gaps, unmarked children and flexible siblings' minimum heights are reserved
+first. Marked children give up height in order, down to their `min_size` and,
+only if that is insufficient, below those minimums toward zero. Flexible
+siblings retain their weighted shares while they meet their minimum heights;
+a sibling at its minimum leaves the rest for the others to share.
+
+A marked child with no finite natural height, such as an editor whose explicit
+height was removed, starts at the column's finite height before yielding room
+to its siblings. The column never subtracts one unbounded height from another.
+
+Limits: the opt-in changes only direct, non-flex children of a finite-height
+column. It does nothing in a row or in unbounded scroll content, and is
+independent of the existing width-only `shrink_to_fit`. It assigns a smaller
+box; use a scroll area or `.clip_children()` to contain content that cannot
+fit that box. If fixed children, gaps and flexible minimums already exceed
+the column's height, shrinking another child to zero cannot make them fit.
+This flag does not guarantee a minimum readable amount of content; the host
+must also give its editor and other fixed controls a feasible size.
 
 ## Wrapping rows
 
@@ -150,6 +195,13 @@ slanted by the host.
 `.clip_children()` keeps a container's descendants, and their click targets,
 inside its bounds.
 
+`.block_pointer(id)` keeps presses on a container's passive parts from reaching
+controls painted beneath it. Its children keep their own targets, so a floating
+header can block covered rows without losing its buttons. The unique, stable `id` names
+only a clipped hit surface: it adds no action, Tab stop or accessibility node.
+Translation moves the surface with the element. Scroll events still reach the
+scroll areas underneath; touch gesture ownership remains with the host.
+
 `.top_background_fade(color, height)` and `.bottom_background_fade(color, height)`
 paint a colour behind a container's children that starts at that edge and is
 gone `height` further in: a tint behind a page's header, or under the last
@@ -201,6 +253,26 @@ that is resolved at the next layout, once sizes are known.
 `reveal` finds a control by its ID, so give the thing to reveal one: a row
 that is not otherwise interactive can be an `Element::clickable`. Rows of a
 uniform list exist only while in view; use `scroll_to_index` for those.
+
+## Translation without reflow
+
+```rust
+surface.translate(Point::new(0.0, drag_offset))
+```
+
+`Element::translate` moves an element and its normal descendants after the
+parent has assigned their slot. Paint, hit regions, accessibility bounds and
+scroll geometry move together; siblings keep their original positions and
+scroll ranges do not grow. Translations nest by addition. The ancestor's clip
+stays fixed, so put the surface in a parent with `clip_children()` to keep it
+inside a viewport. Nonfinite offsets are ignored. Virtual lists still choose
+which rows to build from their unchanged flow slots.
+
+Floating popovers keep their viewport placement, as they do when their
+anchor scrolls. Translate the floating surface itself to move one. A
+translation is direct state, so reduced motion does not suppress it; the host
+skips any autonomous animation that produces the offset. See
+[controlled dismiss gestures](animation.md#controlled-dismiss-gestures).
 
 ## The root
 
