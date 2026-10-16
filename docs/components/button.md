@@ -69,6 +69,21 @@ Button::new("open", "Open", palette)
 `IconButton` is the button whose icon is mandatory; without a label it is
 square.
 
+## Picture
+
+```rust
+Button::new("join", "Join", palette)
+    .image(emoji)
+    .render()
+```
+
+`image` takes a `RasterImage`, such as a custom emoji, and draws it in the
+icon's slot, 16 px on a side and at its own proportions, in place of any icon.
+The button keeps its action, hit region, hint and disabled state; the picture
+keeps its own colors, so ink, hover and disabled do not tint it. With an empty
+label it is square and called by the picture's text alternative unless it has
+a hint or an `accessibility_label`. `loading` still shows the spinner.
+
 ## Loading and disabled
 
 ```rust
