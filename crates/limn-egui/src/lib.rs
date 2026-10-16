@@ -192,13 +192,20 @@ thread_local! {
 const MAX_IMAGE_SOURCE_SIDE: u32 = 4096;
 const MAX_IMAGE_SOURCE_PIXELS: u64 = 12 * 1024 * 1024;
 const MAX_IMAGE_DECODE_ALLOCATION: u64 = 64 * 1024 * 1024;
-const IMAGE_THUMBNAIL_SIDE: u32 = 384;
+const IMAGE_THUMBNAIL_SIDE: u32 = 1024;
+/// Thumbnails are decoded in steps of this many pixels, so a picture that is
+/// drawn a little larger or smaller reuses the texture it has.
+const IMAGE_THUMBNAIL_STEP: u32 = 128;
 const IMAGE_TEXTURE_CACHE_ENTRIES: usize = 16;
 const FULL_IMAGE_TEXTURE_CACHE_ENTRIES: usize = 2;
 
 thread_local! {
     static IMAGE_CACHE_ENTRIES: std::cell::Cell<usize> =
         const { std::cell::Cell::new(IMAGE_TEXTURE_CACHE_ENTRIES) };
+    static FULL_IMAGE_CACHE_ENTRIES: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(FULL_IMAGE_TEXTURE_CACHE_ENTRIES) };
+    static IMAGE_THUMBNAIL_MAX_SIDE: std::cell::Cell<u32> =
+        const { std::cell::Cell::new(IMAGE_THUMBNAIL_SIDE) };
 }
 
 /// How many decoded images stay on the GPU at once. The default suits a
@@ -206,6 +213,30 @@ thread_local! {
 /// raises it so scrolling does not decode the same images again and again.
 pub fn set_image_cache_entries(entries: usize) {
     IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 1024)));
+}
+
+/// How many [`RasterImage::full_resolution`] images stay on the GPU at once,
+/// 2 by default; at least 1 and at most 64.
+pub fn set_full_image_cache_entries(entries: usize) {
+    FULL_IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 64)));
+}
+
+/// The longest side, in pixels, an image that is not full resolution is
+/// decoded at. Below it a thumbnail follows the size the image is drawn at
+/// times the display's pixels per point, in steps of 128, so a cover on a
+/// 3x phone stays sharp and a small one costs little. 1024 by default; at
+/// least 128 and at most 4096.
+pub fn set_image_thumbnail_side(side: u32) {
+    IMAGE_THUMBNAIL_MAX_SIDE.with(|cell| cell.set(side.clamp(IMAGE_THUMBNAIL_STEP, MAX_IMAGE_SOURCE_SIDE)));
+}
+
+/// The side to decode a thumbnail drawn over `area` at: its longest side in
+/// pixels, rounded up to a step and capped by [`set_image_thumbnail_side`].
+fn thumbnail_side(area: EguiRect, pixels_per_point: f32) -> u32 {
+    let pixels = area.width().max(area.height()) * pixels_per_point;
+    let pixels = if pixels.is_finite() { pixels.ceil().clamp(1.0, MAX_IMAGE_SOURCE_SIDE as f32) as u32 } else { 1 };
+    let stepped = pixels.div_ceil(IMAGE_THUMBNAIL_STEP) * IMAGE_THUMBNAIL_STEP;
+    stepped.min(IMAGE_THUMBNAIL_MAX_SIDE.with(std::cell::Cell::get))
 }
 
 /// Release this UI thread's raster textures and queued image sources, for
@@ -235,8 +266,8 @@ enum RasterTexture {
 #[derive(Default)]
 struct RasterCache {
     context: Option<egui::Context>,
-    entries: HashMap<(String, RasterImageFormat, bool), RasterCacheEntry>,
-    order: VecDeque<(String, RasterImageFormat, bool)>,
+    entries: HashMap<RasterKey, RasterCacheEntry>,
+    order: VecDeque<RasterKey>,
     generation: std::sync::Arc<()>,
     #[cfg(not(target_arch = "wasm32"))]
     workers: Option<image_workers::ImageWorkers>,
@@ -266,7 +297,7 @@ fn raster_format(format: RasterImageFormat) -> image::ImageFormat {
 /// Only this path may turn journal image bytes into pixels. It verifies the
 /// digest and declared format again at the render boundary, then checks
 /// dimensions before asking a decoder to allocate the full image.
-fn decode_raster_thumbnail(source: &RasterImage) -> Option<egui::ColorImage> {
+fn decode_raster_thumbnail(source: &RasterImage, side: u32) -> Option<egui::ColorImage> {
     use base64::Engine as _;
     use sha2::Digest as _;
     let size = source.size_bytes() as usize;
@@ -297,14 +328,14 @@ fn decode_raster_thumbnail(source: &RasterImage) -> Option<egui::ColorImage> {
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes.as_slice()), format);
     reader.limits(limits);
     let decoded = reader.decode().ok()?;
-    let thumbnail = if source.is_full_resolution()
-        || (width <= IMAGE_THUMBNAIL_SIDE && height <= IMAGE_THUMBNAIL_SIDE)
-    {
+    // A cover is cropped to its box: its shorter side has to fill the side.
+    let scale = f64::from(side.max(1))
+        / f64::from(if source.is_cover() { width.min(height) } else { width.max(height) });
+    let thumbnail = if source.is_full_resolution() || scale >= 1.0 {
         decoded.to_rgba8()
     } else {
-        decoded
-            .thumbnail(IMAGE_THUMBNAIL_SIDE, IMAGE_THUMBNAIL_SIDE)
-            .to_rgba8()
+        let fit = |length: u32| ((f64::from(length) * scale).round() as u32).max(1);
+        decoded.thumbnail(fit(width), fit(height)).to_rgba8()
     };
     Some(egui::ColorImage::from_rgba_unmultiplied(
         [thumbnail.width() as usize, thumbnail.height() as usize],
@@ -312,12 +343,13 @@ fn decode_raster_thumbnail(source: &RasterImage) -> Option<egui::ColorImage> {
     ))
 }
 
-fn raster_cache_key(image: &RasterImage) -> (String, RasterImageFormat, bool) {
-    (
-        image.sha256().to_owned(),
-        image.format(),
-        image.is_full_resolution(),
-    )
+/// An image's digest, format, whether it is full resolution, and the side
+/// its thumbnail is decoded at (zero at full resolution).
+type RasterKey = (String, RasterImageFormat, bool, u32);
+
+fn raster_cache_key(image: &RasterImage, side: u32) -> RasterKey {
+    let full = image.is_full_resolution();
+    (image.sha256().to_owned(), image.format(), full, if full { 0 } else { side })
 }
 
 fn decode_current_image(
@@ -333,14 +365,25 @@ fn decode_current_image(
     }
 }
 
-fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
+/// The texture of `image` drawn over `area`, decoded for that size.
+fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterTexture {
+    let side = thumbnail_side(area, ui.ctx().pixels_per_point());
     RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
             cache.clear();
             cache.context = Some(ui.ctx().clone());
         }
-        let key = raster_cache_key(image);
+        let key = raster_cache_key(image, side);
+        // Another size of the same picture, shown while this one decodes.
+        let other_size = |cache: &RasterCache| {
+            cache.entries.iter().find_map(|(other, entry)| match entry {
+                RasterCacheEntry::Ready(texture) if other.0 == key.0 && other.1 == key.1 && other.2 == key.2 => {
+                    Some(RasterTexture::Ready(texture.id(), texture.size()))
+                }
+                _ => None,
+            })
+        };
         if let Some(entry) = cache.entries.get_mut(&key) {
             if let RasterCacheEntry::Decoding(decoded) = entry {
                 match decoded.try_recv() {
@@ -361,7 +404,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
                 RasterCacheEntry::Ready(texture) => {
                     RasterTexture::Ready(texture.id(), texture.size())
                 }
-                RasterCacheEntry::Decoding(_) => RasterTexture::Decoding,
+                RasterCacheEntry::Decoding(_) => other_size(&cache).unwrap_or(RasterTexture::Decoding),
                 RasterCacheEntry::Unavailable => RasterTexture::Unavailable,
             };
         }
@@ -371,7 +414,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
         let (source, ctx) = (image.clone(), ui.ctx().clone());
         let generation = std::sync::Arc::downgrade(&cache.generation);
         let decode = move || {
-            decode_current_image(generation, || decode_raster_thumbnail(&source), landed);
+            decode_current_image(generation, || decode_raster_thumbnail(&source, side), landed);
             ctx.request_repaint();
         };
         #[cfg(not(target_arch = "wasm32"))]
@@ -386,7 +429,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
                 // A full queue has no entry yet: retry without retaining a
                 // second source. Also wake if all old jobs were just cleared.
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
-                return RasterTexture::Decoding;
+                return other_size(&cache).unwrap_or(RasterTexture::Decoding);
             }
         }
         // A browser has no thread to give; the image lands on the next frame.
@@ -395,10 +438,10 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
         cache
             .entries
             .insert(key.clone(), RasterCacheEntry::Decoding(decoded));
-        cache.order.push_back(key);
+        cache.order.push_back(key.clone());
         let full = image.is_full_resolution();
         let limit = if full {
-            FULL_IMAGE_TEXTURE_CACHE_ENTRIES
+            FULL_IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         } else {
             IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         };
@@ -408,7 +451,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
                 cache.entries.remove(&oldest);
             }
         }
-        RasterTexture::Decoding
+        other_size(&cache).unwrap_or(RasterTexture::Decoding)
     })
 }
 
@@ -1758,7 +1801,7 @@ fn paint_at_impl(
                     egui::WidgetInfo::labeled(egui::WidgetType::Image, true, image.alt())
                 });
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let texture = raster_texture(ui, image);
+                let texture = raster_texture(ui, image, area);
                 if let RasterTexture::Ready(texture, pixels) = texture {
                     let (target, uv) = if image.is_cover() {
                         (area, cover_uv(area, pixels))
@@ -1849,7 +1892,7 @@ fn paint_at_impl(
                 paint_record(&painter, sleeve, *out, *angle, *opacity);
                 let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
                 let corner = corner(*radius, sleeve);
-                match image.as_ref().map(|image| raster_texture(ui, image)) {
+                match image.as_ref().map(|image| raster_texture(ui, image, sleeve)) {
                     Some(RasterTexture::Ready(texture, pixels)) => {
                         painter.add(
                             egui::epaint::RectShape::filled(sleeve, corner, Color32::from_white_alpha(alpha))
@@ -2566,13 +2609,13 @@ mod tests {
     fn image_decoder_requires_digest_format_and_bounded_dimensions() {
         let png = test_png(2, 1);
         let image = raster(png.clone(), RasterImageFormat::Png);
-        let thumbnail = decode_raster_thumbnail(&image).unwrap();
+        let thumbnail = decode_raster_thumbnail(&image, 128).unwrap();
         assert_eq!(thumbnail.size, [2, 1]);
         assert_eq!(thumbnail.pixels.len(), 2);
 
         let wrong_format = raster(png.clone(), RasterImageFormat::Jpeg);
-        assert_ne!(raster_cache_key(&image), raster_cache_key(&wrong_format));
-        assert!(decode_raster_thumbnail(&wrong_format).is_none());
+        assert_ne!(raster_cache_key(&image, 128), raster_cache_key(&wrong_format, 128));
+        assert!(decode_raster_thumbnail(&wrong_format, 128).is_none());
         let wrong_digest = RasterImage::new(
             "0".repeat(64),
             RasterImageFormat::Png,
@@ -2581,14 +2624,41 @@ mod tests {
             "Imagen de prueba",
         )
         .unwrap();
-        assert!(decode_raster_thumbnail(&wrong_digest).is_none());
+        assert!(decode_raster_thumbnail(&wrong_digest, 128).is_none());
 
         // A narrow PNG crosses the dimension limit without a large allocation.
         let oversized = raster(
             test_png(MAX_IMAGE_SOURCE_SIDE + 1, 1),
             RasterImageFormat::Png,
         );
-        assert!(decode_raster_thumbnail(&oversized).is_none());
+        assert!(decode_raster_thumbnail(&oversized, 128).is_none());
+    }
+
+    #[test]
+    fn a_thumbnail_follows_the_drawn_size_on_the_display_in_steps() {
+        let area = |side: f32| EguiRect::from_min_size(Pos2::ZERO, egui::vec2(side, side * 0.5));
+        // A 160 point cover on a 3x phone: 480 pixels, decoded at 512.
+        assert_eq!(thumbnail_side(area(160.0), 3.0), 512);
+        assert_eq!(thumbnail_side(area(40.0), 3.0), 128);
+        assert_eq!(thumbnail_side(area(40.0), 1.0), 128);
+        assert_eq!(thumbnail_side(area(1000.0), 3.0), IMAGE_THUMBNAIL_SIDE);
+        assert_eq!(thumbnail_side(area(f32::NAN), 3.0), 128);
+        set_image_thumbnail_side(300);
+        assert_eq!(thumbnail_side(area(160.0), 3.0), 300);
+        set_image_thumbnail_side(1);
+        assert_eq!(thumbnail_side(area(160.0), 3.0), IMAGE_THUMBNAIL_STEP);
+        set_image_thumbnail_side(IMAGE_THUMBNAIL_SIDE);
+
+        let square = raster(test_png(1200, 1200), RasterImageFormat::Png);
+        assert_eq!(decode_raster_thumbnail(&square, 512).unwrap().size, [512, 512]);
+        assert_eq!(decode_raster_thumbnail(&square, 2048).unwrap().size, [1200, 1200]);
+        // A covering banner keeps its height at the side; a fitted one its width.
+        let banner = raster(test_png(1200, 600), RasterImageFormat::Png);
+        assert_eq!(decode_raster_thumbnail(&banner, 300).unwrap().size, [300, 150]);
+        assert_eq!(decode_raster_thumbnail(&banner.clone().cover(), 300).unwrap().size, [600, 300]);
+        assert_ne!(raster_cache_key(&square, 128), raster_cache_key(&square, 512));
+        let full = square.clone().full_resolution();
+        assert_eq!(raster_cache_key(&full, 128), raster_cache_key(&full, 512));
     }
 
     #[test]
@@ -2598,7 +2668,8 @@ mod tests {
         let broken = raster(b"not a picture".to_vec(), RasterImageFormat::Png);
         let paint = |image: &RasterImage| {
             let mut texture = RasterTexture::Unavailable;
-            let mut output = ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, image));
+            let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(40.0, 40.0));
+            let mut output = ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, image, area));
             output.textures_delta.clear();
             texture
         };
@@ -2616,6 +2687,11 @@ mod tests {
         };
         assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
         assert_eq!(settled(&broken), RasterTexture::Unavailable);
+        // Drawn larger, it shows the size it has while the new one decodes.
+        let large = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 400.0));
+        let mut texture = RasterTexture::Unavailable;
+        ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, &image, large)).textures_delta.clear();
+        assert!(matches!(texture, RasterTexture::Ready(_, [2, 1])), "{texture:?}");
         clear_image_cache();
         RASTER_CACHE.with(|cache| {
             let cache = cache.borrow();
