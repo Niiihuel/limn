@@ -120,6 +120,25 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .tooltip("Delete")
                 .render(),
         ])]),
+        section(cx, "With picture", vec![
+            caption(cx, "A picture in the icon's place, such as a custom emoji; it keeps its own colors when disabled."),
+            row(vec![
+                Button::new("button-picture", "Dusk", palette).image(super::media::picture(0)).render(),
+                Button::new("button-picture-outline", "Forest", palette)
+                    .variant(ButtonVariant::Outline)
+                    .image(super::media::picture(1))
+                    .render(),
+                Button::new("button-picture-disabled", "Tide", palette)
+                    .variant(ButtonVariant::Secondary)
+                    .image(super::media::picture(2))
+                    .disabled()
+                    .render(),
+                Button::new("button-picture-alone", "", palette)
+                    .variant(ButtonVariant::Ghost)
+                    .image(super::media::picture(0))
+                    .render(),
+            ]),
+        ]),
         section(cx, "Clipboard", vec![
             caption(cx, "The icon becomes a checkmark while the host reports it (1.5 s with `ClipboardCopied`), and a toast announces it. Clicking here toggles it."),
             row(vec![

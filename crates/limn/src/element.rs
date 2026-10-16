@@ -772,6 +772,8 @@ pub(crate) struct Kept {
     pub(crate) line_gap: Option<f32>,
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
+    /// A picture an icon button draws in its icon's place.
+    pub(crate) leading_image: Option<crate::RasterImage>,
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
@@ -2963,6 +2965,15 @@ impl Element {
         } = &mut self.kind
         {
             *leading_icon_tint = Some(color);
+        }
+        self
+    }
+
+    /// Draw `image` in an icon button's icon slot, [`ICON_SIZE`] on a side,
+    /// in place of its icon. Other elements ignore it.
+    pub(crate) fn leading_image(mut self, image: crate::RasterImage) -> Self {
+        if matches!(self.kind, ElementKind::IconButton { .. }) {
+            self.kept.get_or_insert_default().leading_image = Some(image);
         }
         self
     }
