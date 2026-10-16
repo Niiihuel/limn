@@ -299,6 +299,7 @@ fn main() {
                 eframe::WebOptions::default(),
                 Box::new(move |creation| {
                     limn_egui::install_fonts(&creation.egui_ctx);
+                    limn_egui::set_color_emoji(Some(pages::demo_emoji));
                     Ok(Box::new(Host {
                         glass: creation
                             .wgpu_render_state
@@ -381,6 +382,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |creation| {
             limn_egui::install_fonts(&creation.egui_ctx);
+            limn_egui::set_color_emoji(Some(pages::demo_emoji));
             Ok(Box::new(Host {
                 glass: creation
                     .wgpu_render_state

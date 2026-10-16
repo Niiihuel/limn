@@ -114,6 +114,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, "Sequence limits: regional flags and some keycaps / joined flags can still use an earlier font."),
             Element::text("🇦🇷 · #️⃣ · 🏳️‍🌈").font_size(20.0).foreground(palette.muted),
         ]).collect()),
+        section(cx, "Color emoji", vec![
+            caption(cx, "limn_egui::set_color_emoji: the host's artwork over the glyphs; here synthetic discs for 😀, ❤️ and 👍🏽. Width, selection and copied text stay the font's."),
+            Element::text("Text 😀 with ❤️ and 👍🏽, and ❤ without VS16").font_size(20.0).foreground(palette.text),
+            Element::text("Italic 😀 · faded ❤️").font_family(limn::FontFamily::SansItalic).font_size(16.0).foreground(palette.muted),
+        ]),
         section(cx, "Separator", vec![
             Element::column(vec![
                 Text::new("Above", palette).render(),
@@ -138,4 +143,36 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, "Vertical: centered in the toolbar with margin, and with no options (fills the height)."),
         ]),
     ]
+}
+
+/// The gallery's color emoji: a disc of one color for each of three
+/// clusters, drawn here rather than shipping anyone's artwork. `❤` without
+/// VS16 asks for text presentation and keeps its glyph.
+pub fn demo_emoji(cluster: &str) -> Option<&'static [u8]> {
+    use std::sync::OnceLock;
+    static DISCS: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+    let discs = DISCS.get_or_init(|| {
+        [[255, 204, 77], [221, 46, 68], [175, 126, 87]]
+            .into_iter()
+            .map(|[r, g, b]| {
+                let disc = image::RgbaImage::from_fn(72, 72, |x, y| {
+                    let (dx, dy) = (x as f32 - 35.5, y as f32 - 35.5);
+                    let alpha = (33.0 - (dx * dx + dy * dy).sqrt()).clamp(0.0, 1.0);
+                    image::Rgba([r, g, b, (alpha * 255.0) as u8])
+                });
+                let mut png = Vec::new();
+                image::DynamicImage::ImageRgba8(disc)
+                    .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                    .expect("encode a disc");
+                png
+            })
+            .collect()
+    });
+    let index = match cluster {
+        "😀" => 0,
+        "❤\u{fe0f}" => 1,
+        "👍🏽" => 2,
+        _ => return None,
+    };
+    Some(&discs[index])
 }

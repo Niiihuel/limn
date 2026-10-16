@@ -169,6 +169,11 @@ mod selection_contour_render;
 mod keyboard_input;
 pub use keyboard_input::normalize_keyboard_input;
 
+mod color_emoji;
+pub use color_emoji::{set_color_emoji, ColorEmoji};
+#[cfg(test)]
+mod color_emoji_tests;
+
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct IconKey {
@@ -1826,32 +1831,31 @@ fn paint_at_impl(
                 font_family,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let font = match font_family {
-                    FontFamily::Monospace => FontId::monospace(*font_size),
-                    FontFamily::Sans => FontId::proportional(*font_size),
+                let (font, italics) = match font_family {
+                    FontFamily::Monospace => (FontId::monospace(*font_size), false),
+                    FontFamily::Sans => (FontId::proportional(*font_size), false),
                     FontFamily::SansMedium | FontFamily::SansBold => {
-                        FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
+                        (FontId::new(*font_size, egui_family(ui.ctx(), *font_family)), false)
                     }
-                    FontFamily::SansItalic => {
-                        // egui slants the regular face, so advances match Sans.
-                        let format = egui::TextFormat {
-                            font_id: FontId::proportional(*font_size),
-                            color: color(*ink),
-                            italics: true,
-                            ..Default::default()
-                        };
-                        let job = egui::text::LayoutJob::single_section(text.clone(), format);
-                        painter.galley(pos(origin, *position), painter.layout_job(job), color(*ink));
-                        continue;
-                    }
+                    // egui slants the regular face, so advances match Sans.
+                    FontFamily::SansItalic => (FontId::proportional(*font_size), true),
                 };
-                painter.text(
-                    pos(origin, *position),
-                    Align2::LEFT_TOP,
-                    text,
-                    font,
-                    color(*ink),
-                );
+                let at = pos(origin, *position);
+                if color_emoji::paint(&painter, at, text, &font, italics, color(*ink)) {
+                    continue;
+                }
+                if italics {
+                    let format = egui::TextFormat {
+                        font_id: font,
+                        color: color(*ink),
+                        italics: true,
+                        ..Default::default()
+                    };
+                    let job = egui::text::LayoutJob::single_section(text.clone(), format);
+                    painter.galley(at, painter.layout_job(job), color(*ink));
+                } else {
+                    painter.text(at, Align2::LEFT_TOP, text, font, color(*ink));
+                }
             }
             DrawCommand::Icon {
                 rect: area,
