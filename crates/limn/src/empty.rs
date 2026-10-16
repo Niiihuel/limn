@@ -197,6 +197,47 @@ mod tests {
     use crate::{DrawCommand, Point, Size, UiAction, UiEvent, UiTree};
 
     #[test]
+    fn capped_empty_copy_keeps_its_gap_before_the_action() {
+        let description = "Choose a skill from the list. Its source, installed state and available updates are shown in the Sources tab.";
+        for width in [360.0, 900.0] {
+            let mut tree = UiTree::new(
+                Empty::new(
+                    "Choose a skill",
+                    description,
+                    ComponentPalette::neutral_dark(),
+                )
+                .compact()
+                .icon(Icon::Grid)
+                .action("sources", "View sources", ButtonVariant::Outline)
+                .width(width)
+                .render(),
+            );
+            let frame = tree.layout(Size::new(width, 600.0));
+            let blocks = frame.text_layouts();
+            let copy = blocks
+                .iter()
+                .find(|block| block.source == description)
+                .unwrap();
+            assert!(copy.runs.len() >= 2, "description must wrap at {width}");
+            let bottom = copy
+                .runs
+                .iter()
+                .map(|run| run.rect.y + run.rect.height)
+                .fold(0.0_f32, f32::max);
+            let action = frame
+                .regions
+                .iter()
+                .find(|region| region.id == "sources")
+                .unwrap();
+            assert!(
+                action.rect.y >= bottom + 16.0 - 0.1,
+                "description consumed the action gap at {width}: bottom={bottom}, action={:?}",
+                action.rect
+            );
+        }
+    }
+
+    #[test]
     fn the_title_of_an_empty_state_with_an_id_is_a_heading_and_its_actions_are_buttons() {
         let palette = ComponentPalette::neutral_dark();
         let empty = || {

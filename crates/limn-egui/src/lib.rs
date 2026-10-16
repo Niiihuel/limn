@@ -22,6 +22,8 @@ pub use glass::GlassRenderer;
 
 #[cfg(test)]
 mod touch_context_tests;
+#[cfg(test)]
+mod icon_rasterizer_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod image_workers;
@@ -107,8 +109,31 @@ pub fn repaint_on_patch(ctx: &egui::Context) {
 /// Bootstrap Icons.
 pub type IconPack = fn(Icon) -> Option<&'static str>;
 
+/// A host's monochrome icon renderer, given an icon and its physical pixel side.
+/// Return a square white coverage mask of that size, or `None` for SVG artwork.
+pub type IconRasterizer = fn(Icon, u16) -> Option<egui::ColorImage>;
+
 thread_local! {
     static ICON_PACK: std::cell::Cell<Option<IconPack>> = const { std::cell::Cell::new(None) };
+    static ICON_RASTERIZER: std::cell::Cell<Option<IconRasterizer>> = const { std::cell::Cell::new(None) };
+}
+
+/// Install or remove this UI thread's native icon renderer.
+///
+/// It runs on cache misses, including for [`Icon::Custom`]. `None`, a wrong
+/// image size or incomplete pixel data falls back to the configured SVG pack
+/// and bundled artwork. File-type icons always retain their original colors.
+///
+/// Replacing or removing the renderer clears cached icon textures and requests
+/// a repaint. Raster-image caches are independent and remain intact.
+pub fn set_icon_rasterizer(rasterizer: Option<IconRasterizer>) {
+    ICON_RASTERIZER.with(|cell| cell.set(rasterizer));
+    ICON_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.textures.clear();
+        cache.order.clear();
+        if let Some(ctx) = &cache.context { ctx.request_repaint(); }
+    });
 }
 
 /// Draw the semantic icons from another set. Bootstrap Icons stay for
@@ -723,6 +748,16 @@ fn monochrome_svg(source: &str) -> String {
 }
 
 fn raster_icon(key: IconKey) -> Option<egui::ColorImage> {
+    if key.pixels == 0 { return None; }
+    let side = usize::from(key.pixels);
+    if !matches!(key.icon, Icon::FileType(_)) {
+        if let Some(image) = ICON_RASTERIZER.with(std::cell::Cell::get)
+            .and_then(|rasterizer| rasterizer(key.icon, key.pixels))
+            .filter(|image| image.size == [side; 2] && image.pixels.len() == side * side)
+        {
+            return Some(image);
+        }
+    }
     let packed = packed_svg(key.icon);
     let source = if matches!(key.icon, Icon::FileType(_)) {
         std::borrow::Cow::Borrowed(icon_svg(key.icon))

@@ -7,7 +7,7 @@ is nudged.
 ## Import
 
 ```rust
-use limn::{Component, NumberInput};
+use limn::{Component, NumberInput, NumberInputButtonPlacement};
 ```
 
 ## Usage
@@ -126,6 +126,20 @@ NumberInput::new("quantity", &state.quantity, palette).size(ControlSize::Spaciou
 always keeps 80, so a narrower width is widened to fit. A width that is not
 finite is ignored.
 
+The buttons follow the value by default. To put decrease on the left and
+increase on the right, with the editable value centered between them:
+
+```rust
+NumberInput::new("font-size", "13", palette)
+    .button_placement(NumberInputButtonPlacement::Split)
+    .render()
+```
+
+`button_placement(NumberInputButtonPlacement::End)` restores the default.
+Both placements keep the same total width, actions and bounds. A long value
+uses the field's ordinary horizontal scrolling; caret placement and selection
+use the same origin as the centered text. A disabled value stays centered.
+
 ## Disabled
 
 ```rust
@@ -142,6 +156,8 @@ nothing.
 The field and each button that has somewhere to go are tab stops. Enter or
 Space on a button reports its click. The arrow keys in the field move the
 caret, as in any field: they do not step the value.
+In `Split`, Tab follows the visual order: decrease, field, increase, skipping
+disabled buttons. The default remains field, decrease, increase.
 
 ## Motion
 

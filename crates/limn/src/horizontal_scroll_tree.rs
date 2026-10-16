@@ -176,6 +176,7 @@ impl LayoutBuilder<'_> {
         fade: Option<(Color, f32)>,
         vertical_wheel: bool,
         pan_bar: Option<Color>,
+        visibility: crate::ScrollbarVisibility,
     ) {
         self.add_region(id, content, HitKind::Scroll, clip);
         self.frame
@@ -272,17 +273,20 @@ impl LayoutBuilder<'_> {
                 }
             }
             if let Some(color) = pan_bar.filter(|_| width > content.width + 0.5) {
-                let scale = content.width / width;
-                self.frame.commands.push(DrawCommand::FillRect {
-                    rect: Rect::new(
-                        content.x + offset * scale,
-                        content.y + content.height - 3.0,
-                        content.width * scale,
-                        3.0,
-                    ),
-                    color: Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45) as u8),
-                    radius: 1.5,
-                });
+                let opacity = self.scrollbar_opacity(id, offset, self.dragging_horizontal == Some(id), visibility);
+                if opacity > 0.0 {
+                    let scale = content.width / width;
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect: Rect::new(
+                            content.x + offset * scale,
+                            content.y + content.height - 3.0,
+                            content.width * scale,
+                            3.0,
+                        ),
+                        color: Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45 * opacity) as u8),
+                        radius: 1.5,
+                    });
+                }
             }
             self.frame.commands.push(DrawCommand::PopClip);
         }
@@ -292,6 +296,48 @@ impl LayoutBuilder<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cancelling_a_pointer_pan_preserves_touch_scrolling_across_later_presses() {
+        let shelf = |width| Element::horizontal_scroll_2d(
+            "shelf", Element::spacer().size(Some(width), Some(80.0)),
+        ).drag_to_pan().size(Some(240.0), Some(80.0));
+        let size = Size::new(240.0, 80.0);
+        let mut tree = UiTree::new(shelf(1000.0));
+        tree.layout(size);
+
+        // A touch begins on the viewport itself, then the host takes over
+        // after the pan slop and sends direct scroll deltas instead of pointer moves.
+        tree.handle_event(UiEvent::PointerDown(Point::new(160.0, 40.0)));
+        tree.handle_event(UiEvent::PointerLeave);
+        tree.handle_event(UiEvent::Scroll2D {
+            position: Point::new(160.0, 40.0), delta_x: -80.0, delta_y: 0.0,
+            shift: false, direct: true,
+        });
+        tree.handle_event(UiEvent::PointerLeave);
+        assert_eq!(tree.horizontal_scroll_offset("shelf"), 80.0);
+
+        // Playback repaints, a temporarily different route, and more loaded
+        // content must retain the named shelf's position.
+        tree.set_root(shelf(1000.0));
+        tree.layout(size);
+        tree.set_root(Element::text("Another route"));
+        tree.layout(size);
+        tree.set_root(shelf(1200.0));
+        tree.layout(size);
+        assert_eq!(tree.horizontal_scroll_offset("shelf"), 80.0);
+
+        // The emulated pointer moves before the next touch's down event.
+        // It must not resume the cancelled drag from the previous gesture.
+        tree.handle_event(UiEvent::PointerMove(Point::new(220.0, 40.0)));
+        assert_eq!(tree.horizontal_scroll_offset("shelf"), 80.0);
+        tree.handle_event(UiEvent::PointerDown(Point::new(220.0, 40.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(180.0, 40.0)));
+        assert_eq!(tree.horizontal_scroll_offset("shelf"), 120.0);
+        tree.handle_event(UiEvent::PointerUp(Point::new(180.0, 40.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 40.0)));
+        assert_eq!(tree.horizontal_scroll_offset("shelf"), 120.0);
+    }
 
     #[test]
     fn rebuilding_anonymous_code_viewports_bounds_state_and_preserves_explicit_ids() {
