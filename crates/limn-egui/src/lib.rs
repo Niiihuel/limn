@@ -464,9 +464,11 @@ const SURFACE_TEXTURE: egui::TextureOptions = egui::TextureOptions::LINEAR;
 
 /// One frame of a [`DrawCommand::Surface`], or the part of one that changed.
 /// Build it where the pixels are decoded, away from the UI thread: converting
-/// them is the costly part.
+/// them is the costly part. A clone shares the converted pixels, so the
+/// frames of an animation are built once and presented again as it loops.
+#[derive(Clone)]
 pub struct SurfaceFrame {
-    image: egui::ColorImage,
+    image: std::sync::Arc<egui::ColorImage>,
     pixels_per_point: f32,
     /// The size of the frame these pixels are a part of and where they go in
     /// it, when they are not all of it.
@@ -489,7 +491,7 @@ impl SurfaceFrame {
     /// display scale the pixels were rendered for.
     pub fn from_rgba(size: [usize; 2], rgba: &[u8], pixels_per_point: f32) -> Option<Self> {
         Self::bounded(size, rgba.len(), 4, pixels_per_point).then(|| Self {
-            image: egui::ColorImage::from_rgba_unmultiplied(size, rgba),
+            image: std::sync::Arc::new(egui::ColorImage::from_rgba_unmultiplied(size, rgba)),
             pixels_per_point,
             part: None,
         })
@@ -498,7 +500,7 @@ impl SurfaceFrame {
     /// Rows of opaque RGB, as a JPEG decodes: no alpha channel is carried.
     pub fn from_rgb(size: [usize; 2], rgb: &[u8], pixels_per_point: f32) -> Option<Self> {
         Self::bounded(size, rgb.len(), 3, pixels_per_point).then(|| Self {
-            image: egui::ColorImage::from_rgb(size, rgb),
+            image: std::sync::Arc::new(egui::ColorImage::from_rgb(size, rgb)),
             pixels_per_point,
             part: None,
         })
@@ -625,6 +627,50 @@ fn surface_rect(area: EguiRect, pixels: [usize; 2], density: f32, pixels_per_poi
         Pos2::new(snap(area.min.x), snap(area.min.y)),
         egui::vec2(pixels[0] as f32 / density, pixels[1] as f32 / density),
     )
+}
+
+/// Paint `texture` over `target`, showing the `uv` part of it, rounded to
+/// `radius` and cut to the rounded clip in force. `exact` paints a square,
+/// unclipped one as a bare quad, without the anti-aliased fringe a rounded
+/// shape has, so a surface's texels stay on the pixel grid.
+fn paint_texture(
+    painter: &egui::Painter,
+    texture: egui::TextureId,
+    (target, uv): (EguiRect, EguiRect),
+    radius: f32,
+    round: RoundedClip,
+    opacity: f32,
+    exact: bool,
+) {
+    let (shown, radii) = under_rounded_clip(target, limn::CornerRadii::same(radius), round);
+    if exact && shown == target && radii == limn::CornerRadii::same(0.0) {
+        painter.image(texture, target, uv, Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8));
+        return;
+    }
+    // The texture coordinates of the part still shown.
+    let at = |point: Pos2| {
+        Pos2::new(
+            uv.min.x + (point.x - target.min.x) / target.width() * uv.width(),
+            uv.min.y + (point.y - target.min.y) / target.height() * uv.height(),
+        )
+    };
+    let uv = if shown == target { uv } else { EguiRect::from_min_max(at(shown.min), at(shown.max)) };
+    painter.add(
+        egui::epaint::RectShape::filled(
+            shown,
+            corners(radii, shown),
+            Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
+        )
+        .with_texture(texture, uv),
+    );
+}
+
+/// The largest rectangle with the proportions of `pixels` centered in `area`.
+fn contain(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
+    let size = egui::vec2(pixels[0] as f32, pixels[1] as f32);
+    // A frame is never empty: `SurfaceFrame` refuses a side of 0.
+    let scale = (area.width() / size.x).min(area.height() / size.y);
+    EguiRect::from_center_size(area.center(), size * scale)
 }
 
 fn fit_image(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
@@ -1857,23 +1903,7 @@ fn paint_at_impl(
                     } else {
                         (fit_image(area, pixels), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)))
                     };
-                    let (shown, radii) = under_rounded_clip(target, limn::CornerRadii::same(*radius), round);
-                    // The texture coordinates of the part still shown.
-                    let at = |point: Pos2| {
-                        Pos2::new(
-                            uv.min.x + (point.x - target.min.x) / target.width() * uv.width(),
-                            uv.min.y + (point.y - target.min.y) / target.height() * uv.height(),
-                        )
-                    };
-                    let uv = if shown == target { uv } else { EguiRect::from_min_max(at(shown.min), at(shown.max)) };
-                    painter.add(
-                        egui::epaint::RectShape::filled(
-                            shown,
-                            corners(radii, shown),
-                            Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
-                        )
-                        .with_texture(texture, uv),
-                    );
+                    paint_texture(&painter, texture, (target, uv), *radius, round, *opacity, false);
                 } else if texture == RasterTexture::Unavailable {
                     painter.rect_filled(area, CornerRadius::same(6), Color32::from_gray(37));
                     painter.text(
@@ -1890,6 +1920,8 @@ fn paint_at_impl(
                 id,
                 label,
                 opacity,
+                fit,
+                radius,
             } => {
                 let area = rect(origin, *area);
                 let response = ui.interact(
@@ -1911,12 +1943,13 @@ fn paint_at_impl(
                         Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
                     );
                 } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
-                    painter.image(
-                        texture,
-                        surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),
-                        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                        Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
-                    );
+                    let whole = EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                    let placed = match fit {
+                        limn::SurfaceFit::Contain => (contain(area, pixels), whole),
+                        limn::SurfaceFit::Cover => (area, cover_uv(area, pixels)),
+                        limn::SurfaceFit::Native => (surface_rect(area, pixels, density, ui.ctx().pixels_per_point()), whole),
+                    };
+                    paint_texture(&painter, texture, placed, *radius, round, *opacity, true);
                 }
             }
             DrawCommand::ProgressRing {
@@ -3075,6 +3108,49 @@ mod tests {
             forget_surface("page");
             ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
         }
+    }
+
+    #[test]
+    fn a_fitted_surface_is_placed_as_a_picture_and_rounded_and_its_frames_are_shared() {
+        // 200 by 100 pixels in a 100 by 100 box at the origin.
+        let mesh_of = |fit: limn::SurfaceFit, radius: f32| {
+            let ctx = egui::Context::default();
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+            let root = limn::Element::surface("loop", "Loop").surface_fit(fit).radius(radius).size(Some(100.0), Some(100.0));
+            let frame = limn::UiTree::new(root).layout(limn::Size::new(100.0, 100.0));
+            let first = SurfaceFrame::from_rgba([200, 100], &[90; 200 * 100 * 4], 1.0).unwrap();
+            let mut texture = None;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                // A clone shares the pixels: presenting it again copies none.
+                assert!(present_surface(ui.ctx(), "loop", first.clone()));
+                assert!(present_surface(ui.ctx(), "loop", first.clone()));
+                texture = surface_texture(ui, "loop").map(|(id, ..)| id);
+                paint_at(ui, &frame, Pos2::ZERO);
+            });
+            output.textures_delta.clear();
+            forget_surface("loop");
+            ctx.tessellate(output.shapes, output.pixels_per_point)
+                .into_iter()
+                .find_map(|clipped| match clipped.primitive {
+                    egui::epaint::Primitive::Mesh(mesh) if Some(mesh.texture_id) == texture => Some(mesh),
+                    _ => None,
+                })
+                .expect("the surface is painted")
+        };
+        let uv_of = |mesh: &egui::epaint::Mesh| {
+            mesh.vertices.iter().fold(EguiRect::NOTHING, |seen, vertex| seen.union(EguiRect::from_min_max(vertex.uv, vertex.uv)))
+        };
+        let square = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 100.0));
+        let contained = mesh_of(limn::SurfaceFit::Contain, 0.0);
+        assert_eq!(contained.calc_bounds(), EguiRect::from_min_max(Pos2::new(0.0, 25.0), Pos2::new(100.0, 75.0)), "fitted inside, centered");
+        // A frame smaller than its box is enlarged to fit it, so a zoomed viewer zooms it.
+        assert_eq!(contain(square, [20, 10]), contain(square, [200, 100]));
+        assert_eq!(uv_of(&contained), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)));
+        let covered = mesh_of(limn::SurfaceFit::Cover, 0.0);
+        assert_eq!(covered.calc_bounds(), square, "filling the box");
+        assert_eq!(uv_of(&covered), cover_uv(square, [200, 100]), "cropped at the sides");
+        // Rounded corners are more than the four vertices of a rectangle.
+        assert!(mesh_of(limn::SurfaceFit::Cover, 12.0).vertices.len() > covered.vertices.len());
     }
 
     #[test]

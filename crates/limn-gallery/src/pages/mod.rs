@@ -30,6 +30,7 @@ mod lists;
 mod loading;
 mod markdown;
 mod media;
+pub use media::present_animation;
 mod menus;
 mod messages;
 mod navigation;

@@ -56,6 +56,19 @@ viewer.error("The picture could not be decoded.")
 the room the panel leaves. Without one the viewer shows a spinner and a line
 saying the image is loading. `error` replaces both with the host's message.
 
+## Animation or video
+
+```rust
+viewer.surface("animation:loop", "A looping animation")
+```
+
+`surface` shows the pixels the host presents under that ID, as
+`Element::surface` does, in place of a picture: an animated GIF, a video. They
+are fitted to the same room a picture gets, enlarged or reduced, and zoomed
+and panned the same way. The host presents the first frame before it opens
+the viewer and the next ones as they fall due; see
+[Host-fed surfaces](../backend.md#host-fed-surfaces).
+
 ## Gallery
 
 ```rust

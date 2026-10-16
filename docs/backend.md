@@ -178,7 +178,7 @@ decoded again. There is no filesystem or network I/O in the decoder. Limits
 on source dimensions and decoder allocations are unchanged. Browsers retain
 the existing synchronous decode path because that backend has no native
 workers; clearing still releases its raster cache.
-| `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
+| `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. A clone shares the converted pixels: keep an animation's frames and present clones as it loops. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
 | `forget_surface(id)` | Frees a surface's texture. |
@@ -247,6 +247,18 @@ snapped to the pixel grid; a frame a pixel larger or smaller than the
 rectangle is clipped or leaves a gap, and is not resampled. At another scale
 it keeps its logical size. Each side is at most 8192 pixels and a frame at
 most 16 megapixels. A surface holds its last frame until `forget_surface`.
+
+`Element::surface(..).surface_fit(fit)` places the pixels as a raster image
+places its own: `SurfaceFit::Contain` scales them up or down to fit the
+rectangle, centered, and `SurfaceFit::Cover` fills it and crops around the
+center. Either ignores the frame's scale, so an animation can stand where its
+still first frame stood, at the same size. `.radius(r)` rounds the corners of
+the pixels shown in any fit. `SurfaceFit::Native`, the default, is the
+one-to-one placement above.
+
+An animation converts each frame once, into a `SurfaceFrame` it keeps, and
+presents a clone of the one that is due: a clone shares the pixels, so
+looping copies nothing more on the host side.
 
 A source that knows what changed sends only that: `frame.within(size, at)`
 turns the pixels of one rectangle into a part of the frame of `size` pixels
