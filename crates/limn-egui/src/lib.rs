@@ -17,7 +17,13 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
 mod glass;
+mod touch_context;
 pub use glass::GlassRenderer;
+
+#[cfg(test)]
+mod touch_context_tests;
+#[cfg(test)]
+mod icon_rasterizer_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod image_workers;
@@ -103,8 +109,31 @@ pub fn repaint_on_patch(ctx: &egui::Context) {
 /// Bootstrap Icons.
 pub type IconPack = fn(Icon) -> Option<&'static str>;
 
+/// A host's monochrome icon renderer, given an icon and its physical pixel side.
+/// Return a square white coverage mask of that size, or `None` for SVG artwork.
+pub type IconRasterizer = fn(Icon, u16) -> Option<egui::ColorImage>;
+
 thread_local! {
     static ICON_PACK: std::cell::Cell<Option<IconPack>> = const { std::cell::Cell::new(None) };
+    static ICON_RASTERIZER: std::cell::Cell<Option<IconRasterizer>> = const { std::cell::Cell::new(None) };
+}
+
+/// Install or remove this UI thread's native icon renderer.
+///
+/// It runs on cache misses, including for [`Icon::Custom`]. `None`, a wrong
+/// image size or incomplete pixel data falls back to the configured SVG pack
+/// and bundled artwork. File-type icons always retain their original colors.
+///
+/// Replacing or removing the renderer clears cached icon textures and requests
+/// a repaint. Raster-image caches are independent and remain intact.
+pub fn set_icon_rasterizer(rasterizer: Option<IconRasterizer>) {
+    ICON_RASTERIZER.with(|cell| cell.set(rasterizer));
+    ICON_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.textures.clear();
+        cache.order.clear();
+        if let Some(ctx) = &cache.context { ctx.request_repaint(); }
+    });
 }
 
 /// Draw the semantic icons from another set. Bootstrap Icons stay for
@@ -719,6 +748,16 @@ fn monochrome_svg(source: &str) -> String {
 }
 
 fn raster_icon(key: IconKey) -> Option<egui::ColorImage> {
+    if key.pixels == 0 { return None; }
+    let side = usize::from(key.pixels);
+    if !matches!(key.icon, Icon::FileType(_)) {
+        if let Some(image) = ICON_RASTERIZER.with(std::cell::Cell::get)
+            .and_then(|rasterizer| rasterizer(key.icon, key.pixels))
+            .filter(|image| image.size == [side; 2] && image.pixels.len() == side * side)
+        {
+            return Some(image);
+        }
+    }
     let packed = packed_svg(key.icon);
     let source = if matches!(key.icon, Icon::FileType(_)) {
         std::borrow::Cow::Borrowed(icon_svg(key.icon))
@@ -1306,7 +1345,14 @@ fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
             }
         });
         if node.focused {
-            ui.ctx().memory_mut(|memory| memory.request_focus(access_id(&node.id)));
+            let id = access_id(&node.id);
+            // Retain egui's focus without interrupting IME composition on every paint.
+            ui.interact(bounds, id, egui::Sense::focusable_noninteractive());
+            ui.ctx().memory_mut(|memory| {
+                if !memory.has_focus(id) {
+                    memory.request_focus(id);
+                }
+            });
         }
     }
 }
@@ -2104,6 +2150,14 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
         }
         events
     })
+}
+
+/// Translate input like [`events`], with stationary holds on custom context-menu
+/// targets from the current laid-out frame. A 430 ms touch requests context once;
+/// moving 8 points, scrolling or cancellation aborts it. Its release cannot click.
+/// Use the returned events with the same tree and coordinate origin as `frame`.
+pub fn events_with_touch(ctx: &egui::Context, origin: Pos2, frame: &Frame) -> Vec<UiEvent> {
+    touch_context::translate(ctx, origin, events(ctx, origin), frame)
 }
 
 /// Use Ubuntu Regular for UI text. egui's default proportional face is
@@ -2940,6 +2994,45 @@ mod tests {
                 let alpha = image.pixels.iter().map(|pixel| pixel.a()).collect::<Vec<_>>();
                 assert!(!masks.contains(&alpha), "semantic icon reused another shape: {icon:?}");
                 masks.push(alpha);
+            }
+        }
+    }
+
+    #[test]
+    fn platform_focus_keeps_ime_composition_until_the_focused_control_changes() {
+        use limn::{Element, Size, UiTree};
+        let size = Size::new(320.0, 200.0);
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::text_input("search", "", "Search"),
+            Element::text_input("name", "", "Name"),
+        ]));
+        tree.layout(size);
+        let context = egui::Context::default();
+
+        for id in ["search", "name"] {
+            assert!(tree.focus(id));
+            for step in 0..4 {
+                let frame = tree.layout(size);
+                let mut output = context.run_ui(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size.width, size.height))),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        // Native hosts publish the current field's IME geometry before painting.
+                        ui.ctx().output_mut(|output| output.ime = Some(egui::output::IMEOutput {
+                            purpose: egui::IMEPurpose::Normal,
+                            rect: ui.max_rect(),
+                            cursor_rect: ui.max_rect(),
+                            should_interrupt_composition: false,
+                        }));
+                        paint_at(ui, &frame, egui::Pos2::ZERO);
+                    },
+                );
+                output.textures_delta.clear();
+                let ime = output.platform_output.ime.expect("the focused field keeps its keyboard");
+                assert_eq!(ime.should_interrupt_composition, step == 0, "{id}, frame {step}");
+                assert_eq!(context.memory(|memory| memory.focused()), Some(access_id(id)), "{id}, frame {step}");
             }
         }
     }

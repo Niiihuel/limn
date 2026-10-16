@@ -66,6 +66,7 @@ pub(crate) struct ContextMenuDefinition {
     pub id: String,
     pub entries: Vec<ContextMenuEntry>,
     pub palette: ComponentPalette,
+    pub open_action: Option<String>,
 }
 
 /// Attach a contextual menu without adding layout, a primary-click target,
@@ -90,8 +91,17 @@ impl ContextMenu {
                 id: id.into(),
                 entries,
                 palette,
+                open_action: None,
             },
         }
+    }
+
+    /// Request a host-controlled surface instead of opening the built-in menu.
+    /// Pointer context requests and the keyboard shortcut emit `UiAction::Clicked`
+    /// with this ID. The host owns the surface's content and open state.
+    pub fn open_action(mut self, id: impl Into<String>) -> Self {
+        self.definition.open_action = Some(id.into());
+        self
     }
 }
 

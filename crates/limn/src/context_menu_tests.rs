@@ -3,6 +3,35 @@ use crate::{
     CodeEditor, Component, ContextMenu, ContextMenuEntry, ContextMenuItem, EditorController, Modal,
 };
 
+#[test]
+fn controlled_context_requests_the_hosts_action_without_opening_a_menu_or_clicking_the_row() {
+    let mut tree = UiTree::new(ContextMenu::new(
+        "song-context",
+        Element::button("play:song", "Song").size(Some(240.0), Some(60.0)),
+        Vec::new(),
+        ComponentPalette::neutral_dark(),
+    ).open_action("more:song").render());
+    tree.layout(Size::new(320.0, 100.0));
+    let point = Point::new(20.0, 20.0);
+    assert_eq!(tree.frame.context_menu_at(point), Some("song-context"));
+    tree.handle_event(UiEvent::PointerDown(point));
+    assert_eq!(tree.handle_event(UiEvent::ContextMenu { position: point }), vec![UiAction::Clicked { id: "more:song".into() }]);
+    assert!(!tree.context_menu_open());
+    assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+    tree.focus("play:song");
+    assert_eq!(tree.handle_event(UiEvent::ContextMenuKeyboard), vec![UiAction::Clicked { id: "more:song".into() }]);
+    assert!(!tree.context_menu_open());
+}
+
+#[test]
+fn context_hit_testing_does_not_reach_through_a_modal_backdrop() {
+    let palette = ComponentPalette::neutral_dark();
+    let row = ContextMenu::new("song-context", Element::button("song", "Song"), Vec::new(), palette).open_action("more:song").render();
+    let root = Modal::new(row, true, "Actions", "", "close", palette).body(Element::button("action", "Action")).render();
+    let frame = UiTree::new(root).layout(Size::new(320.0, 480.0));
+    assert_eq!(frame.context_menu_at(Point::new(5.0, 5.0)), None);
+}
+
 fn key(key: Key, ctrl: bool) -> UiEvent {
     UiEvent::Key {
         key,

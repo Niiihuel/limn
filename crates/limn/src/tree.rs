@@ -22,6 +22,18 @@ mod sticky_tests;
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
 #[cfg(test)]
+#[path = "scrollbar_visibility_tests.rs"]
+mod scrollbar_visibility_tests;
+#[cfg(test)]
+#[path = "horizontal_scrollbar_visibility_tests.rs"]
+mod horizontal_scrollbar_visibility_tests;
+#[cfg(test)]
+#[path = "translation_tests.rs"]
+mod translation_tests;
+#[cfg(test)]
+#[path = "pointer_blocking_tests.rs"]
+mod pointer_blocking_tests;
+#[cfg(test)]
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
@@ -47,6 +59,7 @@ use crate::motion::{
     skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
 };
 use crate::shortcut;
+use crate::scroll_area::ScrollbarState;
 use crate::text_width_cache::TextWidthCache;
 #[path = "formatted_text_cache.rs"]
 mod formatted_text_cache;
@@ -2971,6 +2984,7 @@ pub struct UiTree {
     code_view_epoch: u64,
     scroll_offsets: HashMap<String, f32>,
     scroll_transitions: HashMap<String, ScalarTransition>,
+    scrollbar_states: HashMap<String, ScrollbarState>,
     scroll_to_end: HashSet<String>,
     scroll_to_index: HashMap<String, usize>,
     /// What each measured list keeps between layouts, by its ID.
@@ -3055,6 +3069,7 @@ impl UiTree {
             code_view_epoch: 0,
             scroll_offsets: HashMap::new(),
             scroll_transitions: HashMap::new(),
+            scrollbar_states: HashMap::new(),
             measured_lists: HashMap::new(),
             scroll_to_end: HashSet::new(),
             scroll_to_index: HashMap::new(),
@@ -3277,6 +3292,17 @@ impl UiTree {
         self.focused.as_deref()
     }
 
+    /// Dismiss the focused control and cancel its native composition without
+    /// changing window focus. Returns whether a control had focus.
+    pub fn clear_focus(&mut self) -> bool {
+        let had_focus = self.focused.take().is_some();
+        self.pending_scroll_focus = None;
+        self.keyboard_focus = false;
+        self.keyboard_tooltip_focus = false;
+        self.validate_ime_owner(Instant::now());
+        had_focus
+    }
+
     /// Whether the current focus came from keyboard navigation rather than a
     /// pointer press. Hosts can retain focus while navigating a tab strip.
     pub fn has_keyboard_focus(&self) -> bool {
@@ -3426,6 +3452,7 @@ impl UiTree {
 
     fn visual_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
         let animation = self.other_animation_repaint_after_at(now);
+        let scrollbar = self.scrollbar_states.values().filter_map(|state| state.repaint_after(now)).min();
         // A text area's scrollbar hides a moment after its last scroll.
         let bar = self
             .inputs
@@ -3434,6 +3461,10 @@ impl UiTree {
             .map(|at| (at + TEXT_AREA_BAR_HOLD).saturating_duration_since(now))
             .filter(|left| !left.is_zero())
             .min();
+        let bar = match (bar, scrollbar) {
+            (Some(bar), Some(scrollbar)) => Some(bar.min(scrollbar)),
+            (bar, scrollbar) => bar.or(scrollbar),
+        };
         match (animation, bar) {
             (Some(animation), Some(bar)) => Some(animation.min(bar)),
             (animation, bar) => animation.or(bar),
@@ -3614,7 +3645,9 @@ impl UiTree {
 
     /// Where the `Element::anchor` named `id` was at the last layout: how far
     /// its top is below the top of the scroll area around it, negative once
-    /// it has scrolled past. `None` when it was not laid out.
+    /// it has scrolled past. Anchors in clipped static branches retain their
+    /// current geometry without being painted. `None` when the anchor is absent
+    /// (including a virtual row that has not been built).
     pub fn anchor_offset(&self, id: &str) -> Option<f32> {
         let target = self.frame.scroll_focus_targets.get(id)?;
         Some(target.rect.y - target.viewport.y)
@@ -3660,6 +3693,7 @@ impl UiTree {
         refresh_hover_paint: bool,
     ) -> Frame {
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
+        for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
         self.repeat_scroll_button(now);
         if self.pending_scroll_focus.as_deref() != self.focused.as_deref() {
@@ -3682,9 +3716,7 @@ impl UiTree {
             .as_deref()
             .or(self.pending_reveal.as_ref().map(|(id, ..)| id.as_str()));
         let mut focus_path = HashSet::new();
-        if let Some(id) = probe {
-            find_focus_path(&self.root, id, &mut focus_path);
-        }
+        find_focus_path(&self.root, probe, &mut focus_path);
         let mut observed_buttons = HashSet::new();
         let mut observed_popovers = HashSet::new();
         let mut observed_replacements = HashSet::new();
@@ -3711,6 +3743,7 @@ impl UiTree {
                 overlays: VecDeque::new(),
                 scroll_focus_context: Vec::new(),
                 pinned: Vec::new(),
+                translated_overflow: HashMap::new(),
                 focus_path,
                 focus_probe: probe,
                 drag_source: self
@@ -3739,11 +3772,13 @@ impl UiTree {
                 code_diffs: &mut self.code_diffs,
                 scroll_offsets: &mut self.scroll_offsets,
                 scroll_transitions: &mut self.scroll_transitions,
+                scrollbar_states: &mut self.scrollbar_states,
                 measured_lists: &mut self.measured_lists,
                 scroll_to_end: &mut self.scroll_to_end,
                 scroll_to_index: &mut self.scroll_to_index,
                 hovered_scrollbar: self.hovered_scrollbar.as_deref(),
                 dragging_scrollbar: self.scroll_drag.as_ref().map(|drag| drag.id.as_str()),
+                dragging_horizontal: self.horizontal_pan.as_ref().map(|(id, _)| id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 pointer: self.pointer,
                 region_hovered: false,
@@ -3801,11 +3836,9 @@ impl UiTree {
                 let previous_scope = builder.enter_measurement_scope();
                 match overlay {
                     DeferredOverlay::Free { floating, area } => {
-                        if let Some(id) = builder.focus_probe {
-                            let mut floating_path = HashSet::new();
-                            find_focus_path(&floating, id, &mut floating_path);
-                            builder.focus_path.extend(floating_path);
-                        }
+                        let mut floating_path = HashSet::new();
+                        find_focus_path(&floating, builder.focus_probe, &mut floating_path);
+                        builder.focus_path.extend(floating_path);
                         builder.place(&floating, area, Some(viewport_rect));
                     }
                     DeferredOverlay::Anchored {
@@ -3901,12 +3934,17 @@ impl UiTree {
                         // Measure wrapped content at the width the viewport
                         // can actually allocate. Shrinking only the painted
                         // rectangle would retain the wider layout's height.
+                        let available_width = if placement == PopoverPlacement::Bottom {
+                            viewport.width.max(0.0)
+                        } else {
+                            (viewport.width - 16.0).max(0.0)
+                        };
                         if let Some(width) = floating.style.width.as_mut() {
-                            *width = width.min((viewport.width - 16.0).max(0.0));
+                            *width = width.min(available_width);
                         }
                         let measured = builder.measure(
                             &floating,
-                            Size::new((viewport.width - 16.0).max(0.0), f32::INFINITY),
+                            Size::new(available_width, f32::INFINITY),
                         );
                         let (rect, coach_side) = match coach {
                             Some(coach) => {
@@ -3917,12 +3955,18 @@ impl UiTree {
                                 None,
                             ),
                         };
+                        let rect = LayoutBuilder::translated_rect(&floating, rect);
                         builder.observed_popovers.insert(dismiss_id.clone());
-                        builder.frame.regions.push(HitRegion {
-                            id: format!("popover_surface:{dismiss_id}"),
-                            rect,
-                            kind: HitKind::Surface,
-                        });
+                        let surface = if floating.kept.as_ref().is_some_and(|kept| kept.translation.is_some()) {
+                            rect.intersection(viewport_rect)
+                        } else { Some(rect) };
+                        if let Some(visible) = surface {
+                            builder.frame.regions.push(HitRegion {
+                                id: format!("popover_surface:{dismiss_id}"),
+                                rect: visible,
+                                kind: HitKind::Surface,
+                            });
+                        }
                         let progress = if builder.reduced_motion || animation_ms == 0 {
                             1.0
                         } else {
@@ -3956,11 +4000,9 @@ impl UiTree {
                         // Rebuild the pointer-based focus path for that clone
                         // so an offscreen field can be found inside its scroll
                         // area and revealed when focused.
-                        if let Some(id) = builder.focus_probe {
-                            let mut floating_path = HashSet::new();
-                            find_focus_path(&floating, id, &mut floating_path);
-                            builder.focus_path.extend(floating_path);
-                        }
+                        let mut floating_path = HashSet::new();
+                        find_focus_path(&floating, builder.focus_probe, &mut floating_path);
+                        builder.focus_path.extend(floating_path);
                         let mut travel = (0.0, 0.0);
                         if let Some(coach) = coach {
                             let radius = coach
@@ -4004,14 +4046,15 @@ impl UiTree {
                             });
                         }
                         let bubble_start = builder.frame.commands.len();
-                        builder.place(&floating, rect, Some(viewport_rect));
+                        builder.place_translated(&floating, rect, Some(viewport_rect));
                         if let (Some(coach), Some(side)) = (coach, coach_side) {
                             builder.frame.commands.push(DrawCommand::FillTriangle {
                                 points: coach_caret(anchor, rect, side),
                                 color: coach.fill,
                             });
                         }
-                        let slide_sign = if rect.y >= anchor.y + anchor.height {
+                        let slide_sign = if placement == PopoverPlacement::Bottom
+                            || rect.y >= anchor.y + anchor.height {
                             1.0
                         } else {
                             -1.0
@@ -4374,6 +4417,7 @@ impl UiTree {
                 motion.is_active(now)
             }
         });
+        self.scrollbar_states.retain(|_, state| state.seen);
         self.frame = frame;
         self.closed_submenu_triggers
             .retain(|id| self.frame.submenu_triggers.contains(id));
@@ -5371,6 +5415,7 @@ impl UiTree {
                 self.hovered_scrollbar = None;
                 self.pressed = None;
                 self.scroll_drag = None;
+                self.horizontal_pan = None;
                 self.scroll_button_hold = None;
                 self.keyboard_tooltip_focus = false;
                 if let Some(selection) = self.static_selection.as_mut() {
@@ -6598,36 +6643,36 @@ fn holds_submenu(element: &Element, hovered: Option<&str>, focused: Option<&str>
     }
 }
 
-/// Record only the ancestors of the requested control. The normal layout can
-/// skip every other clipped branch, even while locating an offscreen target.
-fn find_focus_path(element: &Element, id: &str, path: &mut HashSet<usize>) -> bool {
-    let found = if focusable_id(element) == Some(id) {
-        true
-    } else {
-        match &element.kind {
-            ElementKind::FormattedText(spans) => spans
-                .iter()
-                .any(|span| !span.text.is_empty() && span.action.as_deref() == Some(id)),
-            ElementKind::Column(children)
-            | ElementKind::Row(children)
-            | ElementKind::TabStrip { children, .. }
-            | ElementKind::Stack(children) => children
-                .iter()
-                .any(|child| find_focus_path(child, id, path)),
-            ElementKind::Panel(child)
-            | ElementKind::Clickable { child, .. }
-            | ElementKind::Scroll { child, .. }
-            | ElementKind::HorizontalScroll { child, .. } => find_focus_path(child, id, path),
-            ElementKind::Overlay { base, floating } => {
-                find_focus_path(base, id, path) || find_focus_path(floating, id, path)
-            }
-            ElementKind::Popover {
-                anchor, floating, ..
-            } => find_focus_path(anchor, id, path) || find_focus_path(floating, id, path),
-            ElementKind::Tooltip { anchor, .. } => find_focus_path(anchor, id, path),
-            _ => false,
+/// Record paths to explicit anchors and the requested control. Clipped branches
+/// outside these paths still skip their descendants entirely.
+fn find_focus_path(element: &Element, id: Option<&str>, path: &mut HashSet<usize>) -> bool {
+    let descendants = match &element.kind {
+        ElementKind::FormattedText(spans) => spans
+            .iter()
+            .any(|span| !span.text.is_empty() && span.action.as_deref().is_some_and(|action| Some(action) == id)),
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
+            let mut found = false;
+            for child in children { found |= find_focus_path(child, id, path); }
+            found
         }
+        ElementKind::Panel(child)
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. } => find_focus_path(child, id, path),
+        ElementKind::Overlay { base, floating } => {
+            find_focus_path(base, id, path) | find_focus_path(floating, id, path)
+        }
+        ElementKind::Popover {
+            anchor, floating, ..
+        } => find_focus_path(anchor, id, path) | find_focus_path(floating, id, path),
+        ElementKind::Tooltip { anchor, .. } => find_focus_path(anchor, id, path),
+        _ => false,
     };
+    let found = descendants || element.anchor.is_some()
+        || focusable_id(element).is_some_and(|target| Some(target) == id);
     if found {
         path.insert(element as *const Element as usize);
     }
@@ -6643,6 +6688,8 @@ struct LayoutBuilder<'a> {
     scroll_focus_context: Vec<ScrollFocusContext>,
     /// Sticky children the scroll area being placed draws last.
     pinned: Vec<PinnedChild>,
+    /// Per-layout, scope-aware queries for descendants that can leave their flow slot.
+    translated_overflow: HashMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
     /// Source of the active pointer drag and the commands it painted.
@@ -6668,11 +6715,13 @@ struct LayoutBuilder<'a> {
     code_diffs: &'a mut HashMap<String, crate::code_editor::DiffView>,
     scroll_offsets: &'a mut HashMap<String, f32>,
     scroll_transitions: &'a mut HashMap<String, ScalarTransition>,
+    scrollbar_states: &'a mut HashMap<String, ScrollbarState>,
     measured_lists: &'a mut HashMap<String, MeasuredListState>,
     scroll_to_end: &'a mut HashSet<String>,
     scroll_to_index: &'a mut HashMap<String, usize>,
     hovered_scrollbar: Option<&'a str>,
     dragging_scrollbar: Option<&'a str>,
+    dragging_horizontal: Option<&'a str>,
     scroll_button_hold: Option<&'a ScrollButtonHold>,
     pointer: Option<Point>,
     /// The pointer is over the `hover_region` being placed.
@@ -6771,6 +6820,16 @@ fn place_popover(
     placement: PopoverPlacement,
     gap: f32,
 ) -> Rect {
+    if placement == PopoverPlacement::Bottom {
+        let width = desired.width.max(0.0).min(viewport.width.max(0.0));
+        let height = desired.height.max(0.0).min((viewport.height - 8.0).max(0.0));
+        return Rect::new(
+            viewport.x + (viewport.width - width) / 2.0,
+            viewport.y + viewport.height - height,
+            width,
+            height,
+        );
+    }
     let inset = 8.0;
     let width = desired
         .width
@@ -8159,6 +8218,7 @@ impl LayoutBuilder<'_> {
         content: Rect,
         clip: Option<Rect>,
         foreground: Color,
+        visibility: crate::ScrollbarVisibility,
     ) {
         let Some(MeasuredRows { key, follow_end }) = list.measured.as_ref() else {
             return;
@@ -8345,7 +8405,7 @@ impl LayoutBuilder<'_> {
             },
         );
         if let Some(scrollbar) = scrollbar {
-            self.paint_scrollbar(id, scrollbar, content, clip, foreground, list.appearance);
+            self.paint_scrollbar(id, scrollbar, content, clip, foreground, list.appearance, visibility);
         }
         state.anchor = keys.get(first).map(|key| (*key, top[first]));
         state.end = max_offset;
@@ -8358,6 +8418,26 @@ impl LayoutBuilder<'_> {
         self.measured_lists.insert(list.id.clone(), state);
     }
 
+    fn scrollbar_opacity(
+        &mut self,
+        id: &str,
+        offset: f32,
+        interacting: bool,
+        visibility: crate::ScrollbarVisibility,
+    ) -> f32 {
+        match visibility {
+            crate::ScrollbarVisibility::Always => {
+                self.scrollbar_states.remove(id);
+                1.0
+            }
+            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => {
+                self.scrollbar_states.entry(id.to_owned())
+                    .or_insert_with(|| ScrollbarState::new(offset, self.now))
+                    .observe(offset, interacting, hold_ms, fade_ms, self.reduced_motion, self.now)
+            }
+        }
+    }
+
     fn paint_scrollbar(
         &mut self,
         id: &str,
@@ -8366,6 +8446,7 @@ impl LayoutBuilder<'_> {
         clip: Option<Rect>,
         ink: Color,
         appearance: crate::ScrollbarAppearance,
+        visibility: crate::ScrollbarVisibility,
     ) {
         let visible = clip
             .and_then(|outer| outer.intersection(content))
@@ -8373,7 +8454,15 @@ impl LayoutBuilder<'_> {
         let Some(visible) = visible else {
             return;
         };
+        let active = self.dragging_scrollbar == Some(id);
+        let hovered = self.hovered_scrollbar == Some(id);
+        let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
+        let interacting = active || hovered || self.scroll_button_hold.is_some_and(|hold| hold.id == id);
+        let opacity = self.scrollbar_opacity(id, offset, interacting, visibility);
+        if opacity <= 0.0 { return; }
         let ink = appearance.tint.unwrap_or(ink);
+        let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
+        let appearance = crate::ScrollbarAppearance { tint: None, ..appearance };
         let alpha = |opacity: u8| {
             Color::rgba(
                 ink.r,
@@ -8382,8 +8471,6 @@ impl LayoutBuilder<'_> {
                 ((u16::from(ink.a) * u16::from(opacity)) / 255) as u8,
             )
         };
-        let active = self.dragging_scrollbar == Some(id);
-        let hovered = self.hovered_scrollbar == Some(id);
         self.frame.commands.push(DrawCommand::PushClip(visible));
         // The overlay rail never paints a permanent gray stripe behind
         // content. Its track appears only while interacting with it.
@@ -9233,7 +9320,43 @@ impl LayoutBuilder<'_> {
         )
     }
 
+    fn translated_rect(element: &Element, rect: Rect) -> Rect {
+        match element.kept.as_ref().and_then(|kept| kept.translation) {
+            Some(offset) => Rect::new(rect.x + offset.x, rect.y + offset.y, rect.width, rect.height),
+            None => rect,
+        }
+    }
+
+    fn has_translated_overflow(&mut self, element: &Element) -> bool {
+        // These viewports clip their descendants even without clip_children.
+        if element.style.clip_children || matches!(element.kind,
+            ElementKind::Scroll { .. } | ElementKind::HorizontalScroll { .. } | ElementKind::UniformList(_)) {
+            return false;
+        }
+        let key = (self.measurement_scope, element as *const Element as usize);
+        if let Some(found) = self.translated_overflow.get(&key) { return *found; }
+        let mut translated = |child: &Element| {
+            child.kept.as_ref().is_some_and(|kept| kept.translation.is_some())
+                || self.has_translated_overflow(child)
+        };
+        let found = match &element.kind {
+            ElementKind::Column(children) | ElementKind::Row(children)
+            | ElementKind::TabStrip { children, .. } | ElementKind::Stack(children) => children.iter().any(&mut translated),
+            ElementKind::Panel(child) | ElementKind::Clickable { child, .. }
+            | ElementKind::Tooltip { anchor: child, .. } => translated(child),
+            ElementKind::Overlay { base, floating }
+            | ElementKind::Popover { anchor: base, floating, .. } => translated(base) || translated(floating),
+            _ => false,
+        };
+        self.translated_overflow.insert(key, found);
+        found
+    }
+
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        self.place_translated(element, Self::translated_rect(element, rect), clip);
+    }
+
+    fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let dragged = element.draggable
             && !element.drag_in_place
             && self.drag_source.is_some()
@@ -9337,6 +9460,7 @@ impl LayoutBuilder<'_> {
     }
 
     fn place_inner(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        let scrollbar_visibility = element.kept.as_ref().map_or(crate::ScrollbarVisibility::Always, |kept| kept.scrollbar_visibility);
         if let Some(text) = self.rolling_text(element) {
             return self.place_inner(&text, rect, clip);
         }
@@ -9358,14 +9482,18 @@ impl LayoutBuilder<'_> {
                 // A column keeps its children under the same box.
                 fading.kept.as_mut().unwrap().foreground = None;
                 fading.style.foreground = ink;
-                return self.place_inner(&fading, rect, clip);
+                let previous_scope = self.enter_measurement_scope();
+                self.place_inner(&fading, rect, clip);
+                self.measurement_scope = previous_scope;
+                return;
             }
         }
         // Retain the un-clipped bounds of directly laid-out controls in a
         // scroll area. A menu can then focus its next option and reveal it,
         // even when that option has no visible hit region yet.
         self.record_scroll_focus_target(element, rect);
-        if clip.is_some_and(|clip| rect.intersection(clip).is_none()) {
+        if clip.is_some_and(|clip| rect.intersection(clip).is_none())
+            && !self.has_translated_overflow(element) {
             if !self.scroll_focus_context.is_empty() {
                 // Composite menu rows can be skipped before their controls
                 // receive geometry. Keep only their IDs reachable; selecting
@@ -9376,14 +9504,13 @@ impl LayoutBuilder<'_> {
                     .scroll_focus_candidates
                     .extend(focusables.into_iter().map(|(id, _)| id));
             }
-            if self.focus_probe.is_some()
-                && self
-                    .focus_path
-                    .contains(&(element as *const Element as usize))
-            {
-                self.probe_scroll_focus(element, rect, clip);
+            if self.focus_path.contains(&(element as *const Element as usize)) {
+                self.probe_scroll_focus_translated(element, rect, clip);
             }
             return;
+        }
+        if let Some(id) = element.kept.as_ref().and_then(|kept| kept.pointer_blocker.as_deref()) {
+            self.add_region(id, rect, HitKind::Surface, clip);
         }
         // Virtual rows and deferred overlays do not exist in the static root
         // walk. Register their actual, visible controls as they are placed.
@@ -9685,6 +9812,7 @@ impl LayoutBuilder<'_> {
         match &element.kind {
             ElementKind::Column(children) => {
                 let kept = self.with_leaving(element, children);
+                let previous_scope = matches!(&kept, Cow::Owned(_)).then(|| self.enter_measurement_scope());
                 let children = kept.as_ref();
                 if let Some(list) = element.kept.as_ref().and_then(|kept| kept.leaving.as_deref()) {
                     let slots = children.iter().filter_map(Self::slot_id).map(str::to_owned).collect();
@@ -9703,6 +9831,7 @@ impl LayoutBuilder<'_> {
                         self.place_flex(children, content, style.gap, false, clip);
                     }
                 }
+                if let Some(scope) = previous_scope { self.measurement_scope = scope; }
             }
             ElementKind::Row(children) => {
                 for (child, rect) in children
@@ -10006,6 +10135,7 @@ impl LayoutBuilder<'_> {
                     style.horizontal_edge_fade,
                     *vertical_wheel,
                     drag_pan.then_some(style.foreground),
+                    scrollbar_visibility,
                 );
             }
             ElementKind::Scroll {
@@ -10062,11 +10192,12 @@ impl LayoutBuilder<'_> {
                         clip,
                         style.foreground,
                         *appearance,
+                        scrollbar_visibility,
                     );
                 }
             }
             ElementKind::UniformList(list) if list.measured.is_some() => {
-                self.place_measured_list(list, rect, content, clip, style.foreground);
+                self.place_measured_list(list, rect, content, clip, style.foreground, scrollbar_visibility);
             }
             ElementKind::UniformList(list) => {
                 let id = list.id.as_str();
@@ -10192,6 +10323,7 @@ impl LayoutBuilder<'_> {
                         clip,
                         style.foreground,
                         list.appearance,
+                        scrollbar_visibility,
                     );
                 }
             }
@@ -11638,6 +11770,13 @@ impl LayoutBuilder<'_> {
             | ElementKind::RollingNumber { .. }
             | ElementKind::Spacer => {}
         }
+        let fade_area = |mut area: Rect| {
+            let top = style.fade_insets.0.clamp(0.0, area.height);
+            let bottom = style.fade_insets.1.clamp(0.0, area.height);
+            area.y += top;
+            area.height = (area.height - top - bottom).max(0.0);
+            area
+        };
         if let Some((color, height)) = style.top_fade {
             let scroll_area = |id: &str| {
                 (self.scroll_offsets.get(id).copied().unwrap_or(0.0) > 0.0).then(|| {
@@ -11667,7 +11806,7 @@ impl LayoutBuilder<'_> {
                 _ => Some(content),
             };
             if let Some(area) =
-                area.filter(|area| area.width > 0.0 && area.height > 0.0 && height > 0.0)
+                area.map(fade_area).filter(|area| area.width > 0.0 && area.height > 0.0 && height > 0.0)
             {
                 self.frame.commands.push(DrawCommand::FillVerticalGradient {
                     rect: Rect::new(area.x, area.y, area.width, height.min(area.height)),
@@ -11694,7 +11833,7 @@ impl LayoutBuilder<'_> {
                 ElementKind::UniformList(list) => scroll_area(&list.id),
                 _ => Some(content),
             };
-            if let Some(area) = area.filter(|area| area.width > 0.0 && area.height > 0.0) {
+            if let Some(area) = area.map(fade_area).filter(|area| area.width > 0.0 && area.height > 0.0) {
                 let height = height.min(area.height);
                 let fade = Rect::new(area.x, area.y + area.height - height, area.width, height);
                 if let Some(visible) = clip.map_or(Some(fade), |clip| fade.intersection(clip)) {
@@ -11731,7 +11870,7 @@ impl LayoutBuilder<'_> {
         // bounds even when place() skips the wrapper before visiting its child.
         // Menu keyboard navigation can then reach and reveal offscreen options.
         if let ElementKind::Tooltip { anchor, .. } = &element.kind {
-            self.record_scroll_focus_target(anchor, rect.inset(element.style.padding));
+            self.record_scroll_focus_target(anchor, Self::translated_rect(anchor, rect.inset(element.style.padding)));
         }
         // A control that is also an anchor answers to both names.
         let ids = [focusable_id(element), element.anchor.as_deref()];
@@ -11779,13 +11918,14 @@ impl LayoutBuilder<'_> {
         }
     }
 
-    /// Resolve the requested control's geometry inside a clipped branch.
+    /// Resolve anchors and the requested control inside a clipped branch.
     /// This does not paint, add hit regions, or visit unrelated descendants.
     fn probe_scroll_focus(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
-        if focusable_id(element) == self.focus_probe {
-            self.record_scroll_focus_target(element, rect);
-            return;
-        }
+        self.probe_scroll_focus_translated(element, Self::translated_rect(element, rect), clip);
+    }
+
+    fn probe_scroll_focus_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        self.record_scroll_focus_target(element, rect);
         let style = element.style;
         let content = rect.inset(style.padding);
         let clip = if style.clip_children {
@@ -11836,7 +11976,6 @@ impl LayoutBuilder<'_> {
                         .contains(&(child as *const Element as usize))
                     {
                         self.probe_scroll_focus(child, child_rect, clip);
-                        break;
                     }
                 }
             }
@@ -11846,9 +11985,10 @@ impl LayoutBuilder<'_> {
                 self.probe_scroll_focus(child, content, clip);
             }
             ElementKind::Stack(children) => {
-                let path = &self.focus_path;
-                if let Some(child) = children.iter().find(|child| path.contains(&(*child as *const Element as usize))) {
-                    self.probe_scroll_focus(child, content, clip);
+                for child in children {
+                    if self.focus_path.contains(&(child as *const Element as usize)) {
+                        self.probe_scroll_focus(child, content, clip);
+                    }
                 }
             }
             ElementKind::Scroll {
@@ -11870,7 +12010,8 @@ impl LayoutBuilder<'_> {
                 };
                 let max_offset = (child_height - content.height).max(0.0);
                 self.frame.scroll_extents.insert(id.clone(), max_offset);
-                let current_offset = self.scroll_position(id, max_offset, *motion, None);
+                let snap = self.scroll_to_end.remove(id).then_some(max_offset);
+                let current_offset = self.scroll_position(id, max_offset, *motion, snap);
                 let child_rect = Rect::new(
                     content.x,
                     content.y - current_offset,
@@ -11880,18 +12021,13 @@ impl LayoutBuilder<'_> {
                 let new_clip = clip
                     .and_then(|outer| outer.intersection(content))
                     .or_else(|| clip.is_none().then_some(content));
-                if let Some(new_clip) = new_clip {
-                    self.scroll_focus_context.push(ScrollFocusContext {
-                        id: id.clone(),
-                        viewport: new_clip,
-                        offset: current_offset,
-                    });
-                    self.probe_scroll_focus(child, child_rect, Some(new_clip));
-                    self.scroll_focus_context.pop();
-                } else {
-                    // The outer scroll area must reveal this nested area first.
-                    self.probe_scroll_focus(child, child_rect, clip);
-                }
+                self.scroll_focus_context.push(ScrollFocusContext {
+                    id: id.clone(),
+                    viewport: new_clip.unwrap_or(content),
+                    offset: current_offset,
+                });
+                self.probe_scroll_focus(child, child_rect, new_clip.or(clip));
+                self.scroll_focus_context.pop();
             }
             ElementKind::Overlay { base, .. }
                 if self
@@ -14438,6 +14574,41 @@ mod tests {
         );
         assert_eq!(rect.height, 180.0);
         assert!(rect.y >= 8.0 && rect.y + rect.height <= 292.0);
+    }
+
+    #[test]
+    fn bottom_popover_ignores_anchor_and_gap_and_meets_the_safe_viewport_edge() {
+        let viewport = Rect::new(12.0, 24.0, 390.0, 700.0);
+        for anchor in [viewport, Rect::new(80.0, 400.0, 40.0, 30.0)] {
+            for gap in [0.0, 90.0] {
+                assert_eq!(
+                    place_popover(anchor, Size::new(560.0, 300.0), viewport, PopoverPlacement::Bottom, gap),
+                    Rect::new(12.0, 424.0, 390.0, 300.0),
+                );
+                assert_eq!(
+                    place_popover(anchor, Size::new(240.0, 900.0), viewport, PopoverPlacement::Bottom, gap),
+                    Rect::new(87.0, 32.0, 240.0, 692.0),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn bottom_popover_measures_wrapped_content_at_full_phone_width() {
+        let mut tree = UiTree::new(Element::popover(
+            Element::spacer(),
+            Element::button("sheet_body", "Actions").size(Some(560.0), Some(120.0)),
+            "sheet_close",
+            PopoverPlacement::Bottom,
+        ));
+        tree.set_reduced_motion(true);
+        for width in [320.0, 390.0, 430.0] {
+            let frame = tree.layout(Size::new(width, 700.0));
+            let surface = frame.regions.iter().find(|r| r.id == "popover_surface:sheet_close").unwrap().rect;
+            let body = frame.regions.iter().find(|r| r.id == "sheet_body").unwrap().rect;
+            assert_eq!(surface, Rect::new(0.0, 580.0, width, 120.0));
+            assert_eq!(body, surface);
+        }
     }
 
     #[test]

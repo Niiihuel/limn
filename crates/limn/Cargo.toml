@@ -24,8 +24,8 @@ hot = ["dep:subsecond", "dep:dioxus-devtools"]
 [dependencies]
 # The standard clock everywhere but a browser, where std's panics.
 web-time = "1.1"
-limn-editor = { version = "0.1.42", path = "../limn-editor" }
-limn-language = { version = "0.1.42", path = "../limn-language", optional = true }
+limn-editor = { version = "0.1.43", path = "../limn-editor" }
+limn-language = { version = "0.1.43", path = "../limn-language", optional = true }
 unicode-linebreak = "0.1.5"
 unicode-segmentation = "1.12"
 unicode-width = "0.2"

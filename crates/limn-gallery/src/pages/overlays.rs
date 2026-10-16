@@ -1,10 +1,10 @@
 use super::{caption, row, section, Cx, Section};
 use crate::app::State;
 use limn::{
-    AlertDialog, AlertTone, Button, ButtonVariant, Color, Component, ContextMenu, ContextMenuEntry,
+    AlertDialog, AlertTone, BottomSheet, BottomSheetDrag, Button, ButtonVariant, Color, Component, ContextMenu, ContextMenuEntry,
     ContextMenuItem, DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
     DropdownOption, Element, FontFamily, FormField, Icon, Modal, Point, Popover, TextField, Toast,
-    TooltipSpec, UiEvent, UiTree,
+    TooltipSpec, UiAction, UiEvent, UiTree,
 };
 
 /// The area a secondary click opens the menu at a point on. Enter, Space and
@@ -126,6 +126,10 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 trigger(cx, "overlay-alert=open", "Open confirmation"),
             ]),
             caption(cx, &format!("Confirmation: {}", state.text("overlay-alert"))),
+        ]),
+        section(cx, "Bottom sheet", vec![
+            row(vec![trigger(cx, "overlay-sheet=open", "Open bottom sheet")]),
+            caption(cx, "A fixed title and footer, a scrolling body, and a downward drag to dismiss."),
         ]),
         section(cx, "Toast", vec![row(vec![
             trigger(cx, "overlay-toast=shown", "Show toasts"),
@@ -253,10 +257,42 @@ pub fn context_menu(state: &mut State, tree: &UiTree, event: &UiEvent) -> bool {
     }
 }
 
+/// The gallery's hot-reloadable state is a text map. Save the handle's origin
+/// there, then restore the same controlled drag before interpreting its release.
+pub fn update(state: &mut State, action: &UiAction) {
+    const DISMISS: &str = "overlay-sheet=closed";
+    const HANDLE: &str = "overlay-sheet=closed:drag";
+    const ORIGIN: &str = "overlay-sheet-drag-origin";
+    match action {
+        UiAction::DragStarted { id, position } if id == HANDLE => {
+            state.set(ORIGIN, &format!("{},{}", position.x, position.y));
+        }
+        UiAction::Dropped { id, .. } if id == HANDLE => {
+            let mut drag = BottomSheetDrag::new(DISMISS);
+            if let Some((x, y)) = state.text(ORIGIN).split_once(',') {
+                if let (Ok(x), Ok(y)) = (x.parse(), y.parse()) {
+                    drag.handle_action(&UiAction::DragStarted { id: HANDLE.into(), position: Point::new(x, y) });
+                }
+            }
+            state.set(ORIGIN, "");
+            if drag.handle_action(action) { state.set("overlay-sheet", "closed"); }
+        }
+        UiAction::DragCancelled { id } if id == HANDLE => state.set(ORIGIN, ""),
+        UiAction::Clicked { id } if id == "overlay-sheet=open" || id == DISMISS => state.set(ORIGIN, ""),
+        _ => {}
+    }
+}
+
 /// Wrap the window in the layers this page controls.
 pub fn layers(cx: &Cx, base: Element) -> Element {
     let palette = cx.palette;
     let state = cx.state;
+    let base = BottomSheet::new(base, state.text("overlay-sheet") == "open", "Song actions", "Choose what to do with this song.", "overlay-sheet=closed", palette)
+        .body(Element::column(["Play next", "Add to queue", "Save to library", "Add to playlist", "View album", "View artist", "Share song", "Song information"]
+            .into_iter().enumerate().map(|(index, label)| Button::new(format!("overlay-song-action={index}"), label, palette).render().size(None, Some(44.0))).collect()).gap(8.0))
+        .max_height(500.0)
+        .footer(Button::new("overlay-sheet=closed", "Done", palette).render().size(None, Some(44.0)))
+        .render();
     let base = Modal::new(
         base,
         state.text("overlay-modal") == "open",
