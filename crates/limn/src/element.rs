@@ -1678,6 +1678,9 @@ pub struct Style {
     pub flex: f32,
     /// In a row, give up width the row cannot spare instead of overflowing.
     pub shrink: bool,
+    /// In a column, give up height the column cannot spare. Off by default;
+    /// set by [`Element::shrink_height_to_fit`].
+    pub shrink_height: bool,
     /// Fill of the element's bounds. `None` paints none.
     pub background: Option<Color>,
     /// Paint-only scrim above children, opaque at the top and transparent at
@@ -1768,6 +1771,7 @@ impl Default for Style {
             gap: 0.0,
             flex: 0.0,
             shrink: false,
+            shrink_height: false,
             background: None,
             top_fade: None,
             bottom_fade: None,
@@ -3467,6 +3471,19 @@ impl Element {
     /// is left once it does not. Flex siblings keep their minimum widths.
     pub fn shrink_to_fit(mut self) -> Self {
         self.style.shrink = true;
+        self
+    }
+
+    /// Keep the natural height while the column has room, and give up height
+    /// before pushing fixed siblings out. Only a direct, non-flex child of a
+    /// column uses this flag; rows and unbounded columns leave it alone.
+    /// Multiple children give up height in order, down to their minimums first
+    /// and then below them if necessary. Flexible siblings keep their minimum
+    /// heights. Put overflowing content in a scroll area or clip it explicitly.
+    /// A child with unbounded natural height starts at the column's finite
+    /// height before yielding room to its siblings.
+    pub fn shrink_height_to_fit(mut self) -> Self {
+        self.style.shrink_height = true;
         self
     }
 

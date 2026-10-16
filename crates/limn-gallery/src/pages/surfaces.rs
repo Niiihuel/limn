@@ -316,6 +316,53 @@ fn scroll_areas(cx: &Cx, width: f32) -> Vec<Element> {
     ]
 }
 
+/// A short notice tray yields height while its footer stays in the column.
+fn column_height_budget(cx: &Cx, width: f32, height: f32, long: bool, name: &str) -> Element {
+    let notice = if long {
+        "This notice wraps and scrolls without covering the footer. ".repeat(30)
+    } else {
+        "A short notice keeps its natural height.".into()
+    };
+    let content = Element::column(vec![
+        caption(cx, &notice),
+        Button::new(
+            format!("column-height:{name}:last"),
+            "Last notice",
+            cx.palette,
+        )
+        .button_size(ButtonSize::Small)
+        .render(),
+    ])
+    .gap(6.0);
+    Element::panel(
+        Element::column(vec![
+            label(cx, "A column of limited height", 12.0).size(None, Some(20.0)),
+            caption(cx, "Flexible body").min_size(0.0, 24.0).flex(1.0),
+            Element::row(vec![
+                Element::spacer().flex(1.0),
+                ScrollArea::new(format!("column-height:{name}:notices"), content)
+                    .appearance(ScrollbarAppearance::reserved().buttons(false))
+                    .render()
+                    .size(Some((width - 16.0).max(0.0)), None)
+                    .max_height(140.0),
+            ])
+            .shrink_height_to_fit(),
+            Button::new(
+                format!("column-height:{name}:footer"),
+                "Keep editing",
+                cx.palette,
+            )
+            .render()
+            .size(None, Some(36.0)),
+        ])
+        .gap(6.0),
+    )
+    .padding(8.0)
+    .size(Some(width), Some(height))
+    .border(cx.palette.border, 1.0)
+    .radius(limn::tokens().radius.panel)
+}
+
 pub fn view(cx: &Cx) -> Vec<Section> {
     let width = cx.width.min(320.0);
     let accent = AlertColors::for_tone(AlertTone::Info, cx.palette).accent;
@@ -334,6 +381,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         ]),
         section(cx, "Framed card", framed_cards(cx, width)),
         section(cx, "Scroll area", scroll_areas(cx, width)),
+        section(cx, "Column height budgets", vec![
+            caption(cx, "Short notices keep their natural height; the flexible body receives the rest."),
+            column_height_budget(cx, width, 240.0, false, "short"),
+            caption(cx, "Tall content is capped even with room to spare."),
+            column_height_budget(cx, width, 300.0, true, "tall"),
+            caption(cx, "In a shorter column, only the notice row gives up height. Scroll to Last notice; Keep editing stays visible."),
+            column_height_budget(cx, width, 180.0, true, "tight"),
+        ]),
     ]
 }
 
@@ -356,5 +411,38 @@ mod tests {
         let folded = rows(&state);
         assert_eq!(folded.len(), TREE.len() - 5);
         assert!(!folded.contains(&"surfaces-tree=lib.rs".to_owned()) && folded.contains(&"surfaces-tree=components.md".to_owned()));
+    }
+
+    #[test]
+    fn a_constrained_notice_tray_keeps_its_footer_and_last_notice_reachable() {
+        for width in [180.0, 320.0] {
+            let state = State::default();
+            let cx = Cx {
+                state: &state,
+                palette: ComponentPalette::neutral_dark(),
+                width,
+            };
+            let mut tree = UiTree::new(Element::column(vec![
+                column_height_budget(&cx, width, 180.0, true, "test"),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(true);
+            let window = Size::new(width, 280.0);
+            let frame = tree.layout(window);
+            let rect = |frame: &limn::Frame, id: &str| {
+                frame
+                    .regions
+                    .iter()
+                    .find(|region| region.id == id)
+                    .unwrap()
+                    .rect
+            };
+            let footer = rect(&frame, "column-height:test:footer");
+            assert!(footer.y >= 0.0 && footer.y + footer.height <= 180.0);
+            tree.scroll_to_end("column-height:test:notices");
+            let frame = tree.layout(window);
+            let last = rect(&frame, "column-height:test:last");
+            assert!(last.y >= 0.0 && last.y + last.height <= footer.y);
+        }
     }
 }
