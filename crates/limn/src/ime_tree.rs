@@ -14,6 +14,12 @@ pub(super) struct ImeOwner {
 }
 
 impl UiTree {
+    pub(super) fn ime_composing(&self) -> bool {
+        self.ime_owner
+            .as_ref()
+            .is_some_and(|owner| !owner.cancelled)
+    }
+
     fn current_ime_target(&self) -> Option<Target> {
         if !self.ime_window_focused || self.context_menu.is_some() {
             return None;
@@ -42,8 +48,10 @@ impl UiTree {
     }
 
     fn cancel_ime_owner(&mut self, now: Instant) {
+        let mut changed = false;
         if let Some(owner) = &mut self.ime_owner {
             if !owner.cancelled {
+                changed = true;
                 owner.cancelled = true;
                 if let Target::Editor { id, .. } = &owner.target {
                     if let Some(editor) = self.code_editors.get_mut(id) {
@@ -51,6 +59,9 @@ impl UiTree {
                     }
                 }
             }
+        }
+        if changed {
+            self.invalidate_paste_targets();
         }
     }
 
@@ -75,6 +86,9 @@ impl UiTree {
                 let Some(target) = self.current_ime_target() else {
                     return true;
                 };
+                if !self.ime_composing() {
+                    self.invalidate_paste_targets();
+                }
                 self.ime_owner = Some(ImeOwner {
                     target,
                     cancelled: false,
