@@ -2,7 +2,95 @@
 //! configured independently. The same appearance is used by ordinary scroll
 //! content and lazily built uniform lists.
 
+use crate::motion::ScalarTransition;
 use crate::{Color, Component, Element, ScrollMotion};
+use web_time::{Duration, Instant};
+
+/// When an ordinary, virtual or horizontal scroll surface shows its indicator.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ScrollbarVisibility {
+    /// Keep the configured idle appearance visible. This is the default.
+    #[default]
+    Always,
+    /// Show after scrolling or scrollbar interaction, then hold and fade out.
+    /// Initially hidden; hiding never changes the reserved content width.
+    /// Hidden vertical bars have no pointer target; a horizontal viewport keeps
+    /// its scroll and drag targets. Reduced motion keeps the hold but skips
+    /// the fade. Durations are in milliseconds; zero is immediate.
+    AutoHide {
+        /// How long the bar stays fully visible after the last activity.
+        hold_ms: u16,
+        /// How long it fades after the hold, skipped under reduced motion.
+        fade_ms: u16,
+    },
+}
+
+pub(crate) struct ScrollbarState {
+    offset: f32,
+    activity: Option<Instant>,
+    interacting: bool,
+    hold_ms: u16,
+    opacity: ScalarTransition,
+    pub(crate) seen: bool,
+}
+
+impl ScrollbarState {
+    pub(crate) fn new(offset: f32, now: Instant) -> Self {
+        Self {
+            offset,
+            activity: None,
+            interacting: false,
+            hold_ms: 0,
+            opacity: ScalarTransition::new(0.0, now),
+            seen: false,
+        }
+    }
+
+    pub(crate) fn observe(
+        &mut self,
+        offset: f32,
+        interacting: bool,
+        hold_ms: u16,
+        fade_ms: u16,
+        reduced_motion: bool,
+        now: Instant,
+    ) -> f32 {
+        self.seen = true;
+        self.hold_ms = hold_ms;
+        if self.offset != offset || interacting || self.interacting {
+            self.activity = Some(now);
+            self.opacity.snap_to(1.0, now);
+        }
+        self.offset = offset;
+        self.interacting = interacting;
+        if let Some(deadline) = self
+            .activity
+            .map(|at| at + Duration::from_millis(u64::from(hold_ms)))
+        {
+            if !interacting && now >= deadline {
+                if reduced_motion || fade_ms == 0 {
+                    self.opacity.snap_to(0.0, now);
+                } else {
+                    self.opacity
+                        .retarget(0.0, deadline, Duration::from_millis(u64::from(fade_ms)));
+                }
+            }
+        }
+        self.opacity.value(now)
+    }
+
+    pub(crate) fn repaint_after(&self, now: Instant) -> Option<Duration> {
+        if self.interacting {
+            return None;
+        }
+        let deadline = self.activity? + Duration::from_millis(u64::from(self.hold_ms));
+        if now < deadline {
+            Some(deadline - now)
+        } else {
+            self.opacity.is_active(now).then_some(Duration::ZERO)
+        }
+    }
+}
 
 /// Where the scrollbar sits relative to scroll content.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -203,7 +291,13 @@ impl ScrollArea {
         build_row: impl Fn(usize) -> Element + Send + Sync + 'static,
     ) -> Self {
         Self {
-            element: Element::measured_list(id, row_count, estimated_row_height, row_key, build_row),
+            element: Element::measured_list(
+                id,
+                row_count,
+                estimated_row_height,
+                row_key,
+                build_row,
+            ),
         }
     }
 
@@ -231,6 +325,13 @@ impl ScrollArea {
     /// Set how wheel and scrollbar-button scrolling is interpolated.
     pub fn motion(mut self, motion: ScrollMotion) -> Self {
         self.element = self.element.scroll_motion(motion);
+        self
+    }
+
+    /// Choose whether the scrollbar stays visible or follows scroll activity.
+    /// Applies equally to ordinary, uniform and measured scroll content.
+    pub fn visibility(mut self, visibility: ScrollbarVisibility) -> Self {
+        self.element = self.element.scrollbar_visibility(visibility);
         self
     }
 

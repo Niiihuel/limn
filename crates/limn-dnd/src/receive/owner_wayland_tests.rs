@@ -251,6 +251,11 @@ fn empty_owner_discovers_once_then_routes_two_surfaces_on_the_same_first_device(
     case.fixture_mut().serve();
     assert!(a_control.poll().is_empty());
     assert!(rejected(case.fixture(), 1));
+    // Destroying a hovered offer would cancel the drag on wlroots: wait for Leave.
+    assert_eq!(destroyed(case.fixture(), 1), 0);
+    case.fixture().server.device_resources[0].leave();
+    case.deliver();
+    case.fixture_mut().serve();
     assert_eq!(destroyed(case.fixture(), 1), 1);
     assert_eq!(case.fixture().received(1), 0);
 

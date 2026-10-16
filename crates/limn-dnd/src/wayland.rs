@@ -96,6 +96,9 @@ impl Worker {
             Connection::from_backend(unsafe { Backend::from_foreign_display(display.cast()) });
         let id = unsafe { ObjectId::from_ptr(WlSurface::interface(), surface.cast()) }.ok()?;
         let surface = WlSurface::from_id(&connection, id).ok()?;
+        // Spend the registry credit here so an exhausted budget returns None
+        // instead of a handle whose thread has already exited.
+        pool.consume_registry().ok()?;
         let (commands, receiver) = channel::channel();
         let (sender, events) = mpsc::channel();
         let replies = commands.clone();
@@ -111,7 +114,6 @@ impl Worker {
                     replies,
                     sender,
                     wake,
-                    pool,
                     #[cfg(test)]
                     hooks,
                 )
@@ -150,12 +152,8 @@ fn run(
     replies: Sender<Command>,
     events: mpsc::Sender<DndEvent>,
     wake: Box<dyn Fn() + Send>,
-    pool: Arc<WorkerPool>,
     #[cfg(test)] hooks: legacy_tests::Hooks,
 ) {
-    if pool.consume_registry().is_err() {
-        return;
-    }
     #[cfg(test)]
     hooks.registry_entered();
     let Ok((globals, queue)) = registry_queue_init::<State>(&connection) else {

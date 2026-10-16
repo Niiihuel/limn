@@ -110,6 +110,7 @@ impl EditorView {
         let timestamp = now.saturating_duration_since(self.started).as_millis() as u64;
         let page = (self.viewport.body.height / self.editor.line_height()).floor().max(1.0) as usize;
         let mut copied = None;
+        let before_mode = self.vim.mode;
         let result = self.vim.handle(
             event,
             &mut buffer,
@@ -119,6 +120,9 @@ impl EditorView {
             timestamp,
             &mut copied,
         );
+        if self.vim.mode != before_mode {
+            self.paste_epoch = Arc::new(());
+        }
         let after = buffer.snapshot();
         self.vim.observe_local_edit(&buffer);
         if before.revision() != after.revision() {

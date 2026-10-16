@@ -137,6 +137,10 @@ pub fn update(state: &mut State, action: &UiAction) {
         UiAction::InputChanged { id, value } => state.set(id, value),
         UiAction::SliderChanged { id, fraction, .. } => state.set(id, &fraction.to_string()),
         UiAction::Submitted { id, .. } => state.set("last-action", &format!("Submitted {id}")),
+        UiAction::FilesDropped { target: Some(target), paths, .. } if target == "editor-composer" => {
+            // The demo only records a count. Opening files belongs to the host.
+            state.set("editor-composer-files", &paths.len().to_string());
+        }
         _ => {}
     }
 }
@@ -415,5 +419,19 @@ mod tests {
         assert_eq!((state.text("language"), state.text("list")), ("rust", "closed"));
         update(&mut state, &UiAction::InputChanged { id: "name".into(), value: "ñ".into() });
         assert_eq!(state.text("name"), "ñ");
+    }
+
+    #[test]
+    fn composer_file_demo_records_only_the_count_without_changing_the_draft() {
+        let mut state = State::default();
+        state.set("editor-composer", "Keep this draft");
+        update(&mut state, &UiAction::FilesDropped {
+            position: limn::Point::new(10.0, 10.0),
+            target: Some("editor-composer".into()),
+            paths: vec!["/not-opened/one.txt".into(), "/not-opened/two.txt".into()],
+        });
+        assert_eq!(state.text("editor-composer-files"), "2");
+        assert_eq!(state.text("editor-composer"), "Keep this draft");
+        assert!(!state.serialize().contains("not-opened"));
     }
 }

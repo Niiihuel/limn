@@ -164,7 +164,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "attachment", group: "Data", title: "Attachment", source: "media", view: media::view, sections: &["Attachment"], since: "0.1.39" },
     Page { id: "card", group: "Layout", title: "Card", source: "blocks", view: blocks::view, sections: &["Card"], since: "0.1.39" },
     Page { id: "framed-card", group: "Layout", title: "FramedCard", source: "surfaces", view: surfaces::view, sections: &["Framed card"], since: "0.1.39" },
-    Page { id: "scroll-area", group: "Layout", title: "ScrollArea", source: "surfaces", view: surfaces::view, sections: &["Scroll area"], since: "0.1.39" },
+    Page { id: "scroll-area", group: "Layout", title: "ScrollArea", source: "surfaces", view: surfaces::view, sections: &["Scroll area", "Column height budgets"], since: "0.1.39" },
     Page { id: "media-tile", group: "Layout", title: "MediaTile", source: "blocks", view: blocks::view, sections: &["Media tile"], since: "0.1.39" },
     Page { id: "media-card", group: "Layout", title: "MediaCard", source: "blocks", view: blocks::view, sections: &["Track card"], since: "0.1.39" },
     Page { id: "page-header", group: "Layout", title: "PageHeader", source: "page", view: page::view, sections: &["Page header"], since: "0.1.39" },
