@@ -319,7 +319,7 @@ impl WorkerPool {
             .checked_add(timeout)
             .ok_or(ReceiveError::InvalidLimits)?;
         let id = state.available_surface(key)?;
-        let control = ReceiveControl::new_for_owner(ReceiveEpoch(1), parent.clone())?;
+        let control = ReceiveControl::new_for_surface(ReceiveEpoch(1), parent.clone(), id)?;
         let detached = Arc::new(AtomicBool::new(false));
         state.surfaces[id.index] = Some(SurfaceSlot {
             id: id.id,

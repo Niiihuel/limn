@@ -1,8 +1,10 @@
 // Wire as a child of wayland::tests::offers::runtime to reuse its real fixture.
 use super::*;
 use crate::receive::{
+    clipboard_control::ClipboardControl,
     control::AttemptGate,
-    runtime::spawn_owner,
+    read_tag::ReadTag,
+    runtime::{spawn_owner, spawn_owner_with_text},
     worker_pool::{OwnerId, SurfaceLease},
 };
 use std::{
@@ -28,11 +30,50 @@ struct LiveOwnerCase {
     observed: testing::Observations,
     display_owner: Weak<DisplayOwner>,
     closed_wakes: Arc<AtomicUsize>,
+    clipboard: Option<ClipboardControl>,
 }
 
 impl LiveOwnerCase {
     fn new(hooks: testing::Hooks) -> Self {
-        let mut fixture = Fixture::new(Some(3), &[5]);
+        Self::with_mode(hooks, ReceiveLimits::default(), None)
+    }
+
+    fn with_text(
+        hooks: testing::Hooks,
+        receive: ReceiveLimits,
+        text: crate::TextClipboardLimits,
+    ) -> Self {
+        Self::with_mode(hooks, receive, Some(text))
+    }
+
+    fn with_text_seats(
+        hooks: testing::Hooks,
+        receive: ReceiveLimits,
+        text: crate::TextClipboardLimits,
+        seats: &[u32],
+    ) -> Self {
+        Self::with_mode_seats(hooks, receive, Some(text), seats)
+    }
+
+    fn with_mode(
+        hooks: testing::Hooks,
+        receive: ReceiveLimits,
+        text: Option<crate::TextClipboardLimits>,
+    ) -> Self {
+        Self::with_mode_seats(hooks, receive, text, &[5])
+    }
+
+    fn with_mode_seats(
+        hooks: testing::Hooks,
+        receive: ReceiveLimits,
+        text: Option<crate::TextClipboardLimits>,
+        seats: &[u32],
+    ) -> Self {
+        let mut fixture = if text.is_some() {
+            Fixture::new_text(Some(3), seats)
+        } else {
+            Fixture::new(Some(3), seats)
+        };
         fixture.create_surfaces();
         let pool = WorkerPool::isolated();
         let lifecycle = control();
@@ -45,25 +86,43 @@ impl LiveOwnerCase {
         let closed_wakes = Arc::new(AtomicUsize::new(0));
         let callback_closed = closed_wakes.clone();
         let callback_control = lifecycle.clone();
-        let (owner, ping) = testing::with_hooks(hooks, || {
-            // The retained display owner and fixture preserve the actual native
-            // connection and coordinated host reader through cleanup and join.
-            unsafe {
-                spawn_owner(
-                    pool.clone(),
-                    fixture.host.backend().display_ptr() as usize,
-                    owner,
-                    lifecycle.clone(),
-                    ReceiveLimits::default(),
-                    Box::new(move || {
-                        if matches!(callback_control.status(), ReceiveStatus::Closed(_)) {
-                            callback_closed.fetch_add(1, Ordering::SeqCst);
-                        }
-                    }),
-                )
+        let (owner, ping, clipboard) = testing::with_hooks(hooks, || {
+            let wake = Box::new(move || {
+                if matches!(callback_control.status(), ReceiveStatus::Closed(_)) {
+                    callback_closed.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+            // Both paths retain the exact real display and its coordinated host
+            // reader through cleanup/join; text uses its permanent admission.
+            if let Some(text) = text {
+                let (owner, ping, clipboard) = unsafe {
+                    spawn_owner_with_text(
+                        pool.clone(),
+                        fixture.host.backend().display_ptr() as usize,
+                        owner,
+                        lifecycle.clone(),
+                        receive,
+                        text,
+                        wake,
+                    )
+                }
+                .expect("the real text owner runtime is admitted");
+                (owner, ping, Some(clipboard))
+            } else {
+                let (owner, ping) = unsafe {
+                    spawn_owner(
+                        pool.clone(),
+                        fixture.host.backend().display_ptr() as usize,
+                        owner,
+                        lifecycle.clone(),
+                        receive,
+                        wake,
+                    )
+                }
+                .expect("the real shared-owner runtime is admitted");
+                (owner, ping, None)
             }
-        })
-        .expect("the real shared-owner runtime is admitted");
+        });
         Self {
             fixture: Some(fixture),
             pool,
@@ -73,7 +132,14 @@ impl LiveOwnerCase {
             observed,
             display_owner,
             closed_wakes,
+            clipboard,
         }
+    }
+
+    fn clipboard(&self) -> &ClipboardControl {
+        self.clipboard
+            .as_ref()
+            .expect("this runtime opted into text")
     }
 
     fn fixture(&self) -> &Fixture {
@@ -195,7 +261,7 @@ fn watched_fd(observed: &testing::Observations, id: OfferId) -> Weak<OwnedFd> {
         || {},
         || {
             if let Some((actual, fd)) = observed.watched_pipe.lock().unwrap().as_ref() {
-                if *actual == id && fd.upgrade().is_some() {
+                if *actual == ReadTag::Drop(id) && fd.upgrade().is_some() {
                     result = Some(fd.clone());
                 }
             }
@@ -472,3 +538,7 @@ fn uncertain_shared_cleanup_with_a_live_pipe_retains_detaching_and_display_exclu
     assert_eq!(case.closed_wakes.load(Ordering::SeqCst), 0);
     // LiveOwnerCase retains the real fixture instead of destroying unconfirmed IO.
 }
+#[path = "clipboard_runtime_tests.rs"]
+mod clipboard;
+#[path = "owner_incoming_runtime_tests.rs"]
+mod incoming;

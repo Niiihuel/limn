@@ -25,11 +25,41 @@ struct PublicOwnerCase {
     fixture: Option<Fixture>,
     display: Weak<FixtureDisplay>,
     wakes: Arc<AtomicUsize>,
+    observed: testing::Observations,
+    _public_pool_guard: Option<std::sync::MutexGuard<'static, ()>>,
 }
 
 impl PublicOwnerCase {
     fn new() -> Self {
-        let mut fixture = Fixture::new(Some(3), &[5]);
+        Self::with_mode(
+            testing::Hooks::default(),
+            ReceiveLimits::default(),
+            None,
+            Some(public_pool_guard()),
+        )
+    }
+
+    fn with_text(
+        hooks: testing::Hooks,
+        receive: ReceiveLimits,
+        text: crate::TextClipboardLimits,
+    ) -> Self {
+        Self::with_mode(hooks, receive, Some(text), Some(public_pool_guard()))
+    }
+
+    // None guard is used only by a second real display in a test whose first
+    // case already retains the shared guard; never acquire the mutex twice.
+    fn with_mode(
+        hooks: testing::Hooks,
+        receive: ReceiveLimits,
+        text: Option<crate::TextClipboardLimits>,
+        public_pool_guard: Option<std::sync::MutexGuard<'static, ()>>,
+    ) -> Self {
+        let mut fixture = if text.is_some() {
+            Fixture::new_text(Some(3), &[5])
+        } else {
+            Fixture::new(Some(3), &[5])
+        };
         fixture.create_surfaces();
         let display = Arc::new(FixtureDisplay {
             connection: fixture.host.clone(),
@@ -40,19 +70,33 @@ impl PublicOwnerCase {
         let calls = Cell::new(0_u64); // Fn + Send, intentionally not Sync.
                                       // Fixture, host reader and this exact connection stay alive until the
                                       // public owner confirms cleanup and actual worker join with Closed.
-        let owner = unsafe {
-            WaylandDataOwner::attach_owned(display, ReceiveLimits::default(), move || {
+        let observed = hooks.observed.clone();
+        let owner = testing::with_hooks(hooks, || {
+            let wake = move || {
                 calls.set(calls.get().wrapping_add(1));
                 callback_wakes.fetch_add(1, Ordering::SeqCst);
-            })
-        }
-        .expect("the actual public Wayland display is admitted")
-        .expect("the display is Wayland");
+            };
+            // The fixture retains this actual native display and coordinated
+            // reader until this same public owner confirms cleanup and join.
+            if let Some(text) = text {
+                unsafe {
+                    WaylandDataOwner::attach_owned_with_text_clipboard(display, receive, text, wake)
+                }
+                .expect("the actual public text display is admitted")
+                .expect("the display is Wayland")
+            } else {
+                unsafe { WaylandDataOwner::attach_owned(display, receive, wake) }
+                    .expect("the actual public Wayland display is admitted")
+                    .expect("the display is Wayland")
+            }
+        });
         Self {
             owner: Some(owner),
             fixture: Some(fixture),
             display: weak,
             wakes,
+            observed,
+            _public_pool_guard: public_pool_guard,
         }
     }
 
@@ -308,3 +352,6 @@ fn public_display_owner_receives_two_surfaces_and_preserves_host_until_actual_cl
         .iter()
         .all(|surface| surface.is_alive()));
 }
+
+#[path = "public_text_owner_tests.rs"]
+mod text;

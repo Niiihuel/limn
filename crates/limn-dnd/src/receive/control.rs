@@ -1,13 +1,16 @@
 //! Shared admission and the single receive-only mailbox.
 //! Header guards never own paths, protocol objects, or user callbacks.
 
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex, MutexGuard, Weak};
 use std::time::Instant;
 
 use super::{
-    events::ReceiveMailbox, DropDecision, OfferId, ReceiveEpoch, ReceiveEvent, ReceiveStatus,
+    clipboard_control::{TextHeader, TextRequestCore, TextRequestId},
+    events::ReceiveMailbox,
+    worker_pool::SurfaceId,
+    DropDecision, OfferId, ReceiveEpoch, ReceiveEvent, ReceiveStatus,
 };
-use crate::ReceiveError;
+use crate::{ClipboardError, ReceiveError};
 
 #[derive(Clone)]
 pub(super) struct ReceiveControl {
@@ -16,6 +19,7 @@ pub(super) struct ReceiveControl {
 
 struct Shared {
     parent: Option<ReceiveControl>,
+    registration: Option<SurfaceId>,
     header: Mutex<Header>,
     mailbox: Mutex<ReceiveMailbox>,
 }
@@ -27,6 +31,45 @@ pub(super) struct Header {
     pub(super) close_cause: Option<ReceiveError>,
     pub(super) offer: Option<OfferHeader>,
     pub(super) decision: Option<DecisionSlot>,
+    pub(super) incoming: IncomingGate,
+    pub(super) text: Option<TextHeader>,
+    pub(super) text_sealed: Option<(SurfaceId, ReceiveEpoch)>,
+    text_request: Option<Weak<TextRequestCore>>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum IncomingLease {
+    Drop {
+        registration: Option<SurfaceId>,
+        id: OfferId,
+    },
+    Text(TextRequestId),
+}
+
+pub(super) struct IncomingGate {
+    current: Option<IncomingLease>,
+}
+
+impl IncomingGate {
+    pub(super) fn current(&self) -> Option<IncomingLease> {
+        self.current
+    }
+
+    pub(super) fn acquire(&mut self, lease: IncomingLease) -> Result<(), ReceiveError> {
+        if self.current.is_some() {
+            return Err(ReceiveError::Busy);
+        }
+        self.current = Some(lease);
+        Ok(())
+    }
+
+    pub(super) fn release(&mut self, exact: IncomingLease) -> bool {
+        if self.current != Some(exact) {
+            return false;
+        }
+        self.current = None;
+        true
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -71,35 +114,57 @@ impl Header {
         }
     }
 
+    fn cancel_text(&mut self, error: ClipboardError) {
+        self.text_sealed = None;
+        if let Some(text) = self.text.as_ref() {
+            text.cancel(error);
+        }
+        // Core owns metadata only. This never reacquires the parent header.
+        if let Some(request) = self.text_request.as_ref().and_then(Weak::upgrade) {
+            request.cancel(error);
+        }
+    }
+
+    pub(super) fn set_text_request(&mut self, request: Weak<TextRequestCore>) {
+        self.text_request = Some(request);
+    }
+
     pub(super) fn request_close(&mut self, cause: Option<ReceiveError>) {
         if !matches!(self.status, ReceiveStatus::Closed(_)) {
             self.armed = false;
             self.status = ReceiveStatus::Closing;
             self.close_cause = self.close_cause.or(cause);
             self.cancel_open(cause.unwrap_or(ReceiveError::Cancelled));
+            self.cancel_text(ClipboardError::Closed);
         }
     }
 }
 
 impl ReceiveControl {
     pub(super) fn new(epoch: ReceiveEpoch) -> Result<Self, ReceiveError> {
-        Self::with_parent(epoch, None)
+        Self::with_parent(epoch, None, None)
     }
 
-    pub(super) fn new_for_owner(
+    pub(super) fn new_for_surface(
         epoch: ReceiveEpoch,
         parent: ReceiveControl,
+        registration: SurfaceId,
     ) -> Result<Self, ReceiveError> {
-        Self::with_parent(epoch, Some(parent))
+        if !parent.is_root() {
+            return Err(ReceiveError::Unavailable);
+        }
+        Self::with_parent(epoch, Some(parent), Some(registration))
     }
 
     fn with_parent(
         epoch: ReceiveEpoch,
         parent: Option<ReceiveControl>,
+        registration: Option<SurfaceId>,
     ) -> Result<Self, ReceiveError> {
         Ok(Self {
             shared: Arc::new(Shared {
                 parent,
+                registration,
                 header: Mutex::new(Header {
                     epoch,
                     armed: false,
@@ -107,10 +172,89 @@ impl ReceiveControl {
                     close_cause: None,
                     offer: None,
                     decision: None,
+                    incoming: IncomingGate { current: None },
+                    text: None,
+                    text_sealed: None,
+                    text_request: None,
                 }),
                 mailbox: Mutex::new(ReceiveMailbox::new()),
             }),
         })
+    }
+
+    pub(super) fn is_root(&self) -> bool {
+        self.shared.parent.is_none()
+    }
+
+    pub(super) fn belongs_to(&self, root: &Self) -> bool {
+        self.shared
+            .parent
+            .as_ref()
+            .is_some_and(|parent| Arc::ptr_eq(&parent.shared, &root.shared))
+    }
+
+    pub(super) fn registration(&self) -> Option<SurfaceId> {
+        self.shared.registration
+    }
+
+    pub(super) fn incoming(&self) -> Option<IncomingLease> {
+        self.shared
+            .parent
+            .as_ref()
+            .unwrap_or(self)
+            .header()
+            .incoming
+            .current()
+    }
+
+    pub(super) fn reserve_incoming_drop(
+        &self,
+        registration: Option<SurfaceId>,
+        id: OfferId,
+    ) -> Result<(), ReceiveError> {
+        if self.registration() != registration {
+            return Err(ReceiveError::StaleOffer);
+        }
+        let lease = IncomingLease::Drop { registration, id };
+        if let Some(parent) = self.shared.parent.as_ref() {
+            let mut root = parent.header();
+            let endpoint = self.header();
+            if root.is_closing() || endpoint.is_closing() {
+                return Err(ReceiveError::Closed);
+            }
+            if root.status != ReceiveStatus::Ready
+                || endpoint.status != ReceiveStatus::Ready
+                || !endpoint.armed
+            {
+                return Err(ReceiveError::Unavailable);
+            }
+            root.incoming.acquire(lease)
+        } else {
+            let mut root = self.header();
+            if root.is_closing() {
+                return Err(ReceiveError::Closed);
+            }
+            if root.status != ReceiveStatus::Ready || !root.armed {
+                return Err(ReceiveError::Unavailable);
+            }
+            root.incoming.acquire(lease)
+        }
+    }
+
+    pub(super) fn release_incoming_after_cleanup(&self, exact: IncomingLease) -> bool {
+        self.shared
+            .parent
+            .as_ref()
+            .unwrap_or(self)
+            .header()
+            .incoming
+            .release(exact)
+    }
+
+    #[cfg(test)]
+    pub(super) fn lifetime_observer(&self) -> impl Fn() -> bool + Send + 'static {
+        let weak = Arc::downgrade(&self.shared);
+        move || weak.strong_count() > 0
     }
 
     pub(super) fn header(&self) -> MutexGuard<'_, Header> {
@@ -127,6 +271,7 @@ impl ReceiveControl {
         }
         header.armed = false;
         header.cancel_open(ReceiveError::Cancelled);
+        header.cancel_text(ClipboardError::Cancelled);
         let Some(next) = header.epoch.0.checked_add(1) else {
             header.request_close(Some(ReceiveError::ResourceLimit));
             return Err(ReceiveError::ResourceLimit);

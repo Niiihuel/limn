@@ -13,7 +13,9 @@ use std::{
 use wayland_backend::client::Backend;
 use wayland_server::{
     backend::GlobalId,
-    protocol::{wl_compositor, wl_data_device, wl_data_device_manager, wl_seat, wl_surface},
+    protocol::{
+        wl_compositor, wl_data_device, wl_data_device_manager, wl_keyboard, wl_seat, wl_surface,
+    },
     Client, DataInit, Dispatch, Display, DisplayHandle, GlobalDispatch, New, Resource,
 };
 
@@ -29,6 +31,13 @@ struct ServerState {
     device_resources: Vec<wl_data_device::WlDataDevice>,
     surfaces: Vec<wl_surface::WlSurface>,
     requests: Vec<offers::OfferRequest>,
+    text_keyboards: bool,
+    seat_resources: Vec<wl_seat::WlSeat>,
+    keyboard_capabilities: Vec<bool>,
+    device_seats: Vec<wayland_server::backend::ObjectId>,
+    keyboards: Vec<clipboard_fixture::KeyboardRecord>,
+    released_keyboards: usize,
+    keyboard_serial: u32,
 }
 
 impl GlobalDispatch<wl_data_device_manager::WlDataDeviceManager, ()> for ServerState {
@@ -56,7 +65,14 @@ impl GlobalDispatch<wl_seat::WlSeat, ()> for ServerState {
     ) {
         let seat = init.init(resource, ());
         state.seat_versions.push(seat.version());
-        seat.capabilities(wl_seat::Capability::Pointer);
+        state.seat_resources.push(seat.clone());
+        state.keyboard_capabilities.push(state.text_keyboards);
+        let capabilities = if state.text_keyboards {
+            wl_seat::Capability::Pointer | wl_seat::Capability::Keyboard
+        } else {
+            wl_seat::Capability::Pointer
+        };
+        seat.capabilities(capabilities);
     }
 }
 
@@ -71,8 +87,9 @@ impl Dispatch<wl_data_device_manager::WlDataDeviceManager, ()> for ServerState {
         init: &mut DataInit<'_, Self>,
     ) {
         match request {
-            wl_data_device_manager::Request::GetDataDevice { id, .. } => {
+            wl_data_device_manager::Request::GetDataDevice { id, seat } => {
                 let device = init.init(id, ());
+                state.device_seats.push(seat.id());
                 state.device_resources.push(device);
                 state.devices += 1;
             }
@@ -85,12 +102,16 @@ impl Dispatch<wl_seat::WlSeat, ()> for ServerState {
     fn request(
         state: &mut Self,
         _: &Client,
-        _: &wl_seat::WlSeat,
+        seat: &wl_seat::WlSeat,
         request: wl_seat::Request,
         _: &(),
         _: &DisplayHandle,
-        _: &mut DataInit<'_, Self>,
+        init: &mut DataInit<'_, Self>,
     ) {
+        if let wl_seat::Request::GetKeyboard { id } = request {
+            state.create_keyboard(seat, id, init);
+            return;
+        }
         assert!(matches!(request, wl_seat::Request::Release));
         state.released_seats += 1;
     }
@@ -473,3 +494,5 @@ fn a_stale_first_pump_timestamp_cannot_start_discovery_after_the_real_deadline()
     assert!(!guest.state.discovery_complete);
     assert!(wake_count.load(Ordering::SeqCst) > 0);
 }
+#[path = "clipboard_fixture_tests.rs"]
+mod clipboard_fixture;

@@ -22,6 +22,62 @@ pub(super) struct DropLease {
 }
 
 impl State {
+    fn drop_lease(&self) -> Option<DropLease> {
+        match self.control.incoming()? {
+            IncomingLease::Drop { registration, id } => Some(DropLease { registration, id }),
+            IncomingLease::Text(_) => None,
+        }
+    }
+
+    fn release_drop_lease(&mut self, lease: DropLease) {
+        if self
+            .drop_reader
+            .as_ref()
+            .is_some_and(|(id, _)| *id != lease.id)
+        {
+            return;
+        }
+        if self
+            .control
+            .release_incoming_after_cleanup(IncomingLease::Drop {
+                registration: lease.registration,
+                id: lease.id,
+            })
+        {
+            self.drop_reader = None;
+        }
+    }
+
+    pub(super) fn release_unwatched_drop(&mut self) {
+        let Some(lease) = self.drop_lease() else {
+            return;
+        };
+        let Some(endpoint) = self.endpoint_for_registration(lease.registration) else {
+            return;
+        };
+        if self.endpoints[endpoint].retiring
+            || self.endpoints[endpoint]
+                .coordinator
+                .offer_phase(lease.id)
+                .is_some()
+            || self
+                .offers
+                .iter()
+                .any(|offer| offer.drop_id() == Some(lease.id))
+        {
+            return;
+        }
+        // None proves this lease never created a reader. After EOF/cancel only
+        // zero strong owners proves that no external runtime watcher remains.
+        if self
+            .drop_reader
+            .as_ref()
+            .is_none_or(|(id, reader)| *id == lease.id && reader.strong_count() == 0)
+        {
+            self.release_drop_lease(lease);
+        }
+    }
+
     pub(super) fn offer_phase(&self, id: OfferId) -> Option<Phase> {
         self.endpoints
             .iter()
@@ -113,10 +169,14 @@ impl State {
                 endpoint.retiring = true;
             }
         }
-        // A terminal's SDK offer may be gone while the coordinator still holds
-        // its undrained Ended. Only that coordinator's exact acknowledgement
-        // releases the lease, unless the registration is fully detached below.
-        if let Some(lease) = self.lease {
+        Ok(())
+    }
+
+    pub(super) fn finish_retirements(&mut self) -> Result<(), ReceiveError> {
+        self.finish_clipboard_retirements()?;
+        // The caller has removed the runtime watcher. Coordinator acknowledgement
+        // alone cannot prove that its Arc<OwnedFd> has been dropped.
+        if let Some(lease) = self.drop_lease() {
             let retained = self
                 .endpoint_for_registration(lease.registration)
                 .is_some_and(|index| {
@@ -124,13 +184,9 @@ impl State {
                     endpoint.retiring || endpoint.coordinator.offer_phase(lease.id).is_some()
                 });
             if !retained {
-                self.lease = None;
+                self.release_drop_lease(lease);
             }
         }
-        Ok(())
-    }
-
-    pub(super) fn finish_retirements(&mut self) -> Result<(), ReceiveError> {
         let Some(owner) = self.owner else {
             return Ok(());
         };
@@ -145,23 +201,22 @@ impl State {
                 .expect("explicit endpoint registration");
             if self.offers.iter().any(|offer| {
                 offer
-                    .id
+                    .drop_id()
                     .is_some_and(|id| self.endpoints[index].coordinator.offer_phase(id).is_some())
-            }) || self
-                .pipe
-                .as_ref()
-                .is_some_and(|(id, _)| self.endpoints[index].coordinator.offer_phase(*id).is_some())
-            {
+            }) || self.pipe.as_ref().is_some_and(|(tag, _)| match tag {
+                ReadTag::Drop(id) => self.endpoints[index].coordinator.offer_phase(*id).is_some(),
+                ReadTag::Text(_) => false,
+            }) {
                 return Err(ReceiveError::InvalidPhase);
             }
             // Caller removed the runtime watcher before reaching this boundary.
             // A pending callback keeps only its identity tombstone, not authority.
             self.pool.retire_surface(owner, registration)?;
-            if self
-                .lease
-                .is_some_and(|lease| lease.registration == Some(registration))
+            if let Some(lease) = self
+                .drop_lease()
+                .filter(|lease| lease.registration == Some(registration))
             {
-                self.lease = None;
+                self.release_drop_lease(lease);
             }
             let mut endpoint = self.endpoints.remove(index);
             // Preserve the next surviving registration when vector indices shift.

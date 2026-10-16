@@ -15,15 +15,20 @@ use std::path::PathBuf;
 
 mod receive;
 mod receive_limits;
+mod text_clipboard_limits;
 mod uri_list;
 #[cfg(target_os = "linux")]
 mod wayland;
 
 pub use receive::{
     DropDecision, EndpointStatus, FileDropEndpoint, FileDropReceiver, OfferId, ReceiveEpoch,
-    ReceiveEvent, ReceiveStatus, SurfacePoint, WaylandDataOwner,
+    ReceiveEvent, ReceiveStatus, SurfacePoint, TextPasteRequest, WaylandDataOwner,
 };
 pub use receive_limits::{ReceiveError, ReceiveLimits};
+pub use text_clipboard_limits::{ClipboardError, TextClipboardLimits};
+
+#[cfg(test)]
+mod text_clipboard_limits_tests;
 
 /// Positions are in logical pixels relative to the window's surface.
 #[derive(Clone, Debug, PartialEq)]

@@ -9,24 +9,43 @@ use crate::{receive::coordinator::Phase, SurfacePoint};
 
 const MIME: &str = "text/uri-list";
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum OfferRole {
+    Pending,
+    Drop(OfferId),
+    Selection(ClipboardStamp),
+}
+
 pub(super) struct Offer {
-    proxy: wl_data_offer::WlDataOffer,
-    device: ObjectId,
-    seat: ObjectId,
+    pub(super) proxy: wl_data_offer::WlDataOffer,
+    pub(super) device: ObjectId,
+    pub(super) seat: ObjectId,
     has_uri: bool,
+    pub(super) utf8: bool,
+    pub(super) plain: bool,
     selected_copy: bool,
-    pub(super) id: Option<OfferId>,
+    pub(super) role: OfferRole,
+}
+
+impl Offer {
+    pub(super) fn drop_id(&self) -> Option<OfferId> {
+        if let OfferRole::Drop(id) = self.role {
+            Some(id)
+        } else {
+            None
+        }
+    }
 }
 
 impl State {
     pub(super) fn offer_proxy(&self, id: OfferId) -> Option<wl_data_offer::WlDataOffer> {
         self.offers
             .iter()
-            .find(|offer| offer.id == Some(id))
+            .find(|offer| offer.drop_id() == Some(id))
             .map(|offer| offer.proxy.clone())
     }
 
-    fn seat_for_device(&self, device: &ObjectId) -> Option<usize> {
+    pub(super) fn seat_for_device(&self, device: &ObjectId) -> Option<usize> {
         self.seats.iter().position(|seat| {
             seat.device
                 .as_ref()
@@ -34,7 +53,7 @@ impl State {
         })
     }
 
-    fn offer_for_device(&self, object: &ObjectId, device: &ObjectId) -> Option<usize> {
+    pub(super) fn offer_for_device(&self, object: &ObjectId, device: &ObjectId) -> Option<usize> {
         let seat = self
             .seats
             .get(self.seat_for_device(device)?)?
@@ -53,9 +72,10 @@ impl State {
         }
     }
 
-    fn remove_offer(&mut self, index: usize) {
+    pub(super) fn remove_offer(&mut self, index: usize) {
         let offer = self.offers.remove(index);
         let object = offer.proxy.id();
+        self.clipboard_offer_removed(&object);
         for seat in &mut self.seats {
             if seat.hover.as_ref() == Some(&object) {
                 seat.hover = None;
@@ -64,7 +84,7 @@ impl State {
         if self
             .pipe
             .as_ref()
-            .is_some_and(|(id, _)| Some(*id) == offer.id)
+            .is_some_and(|(id, _)| matches!((*id, offer.role), (ReadTag::Drop(actual), OfferRole::Drop(expected)) if actual == expected))
         {
             self.pipe = None;
         }
@@ -75,7 +95,7 @@ impl State {
         let closing = self.control.header().is_closing();
         let mut index = 0;
         while index < self.offers.len() {
-            let retired = self.offers[index].id.is_some_and(|id| {
+            let retired = self.offers[index].drop_id().is_some_and(|id| {
                 self.endpoint_for_offer(id).is_none_or(|endpoint| {
                     self.endpoints[endpoint].retiring
                         || matches!(self.offer_phase(id), Some(Phase::TerminalQueued))
@@ -87,13 +107,14 @@ impl State {
                 index += 1;
             }
         }
+        self.release_unwatched_drop();
     }
 
     pub(super) fn retire_device_offers(&mut self, device: &ObjectId) {
         let mut index = 0;
         while index < self.offers.len() {
             if self.offers[index].device == *device {
-                if let Some(id) = self.offers[index].id {
+                if let Some(id) = self.offers[index].drop_id() {
                     if let Some(endpoint) = self.endpoint_for_offer(id) {
                         let _ = self.endpoints[endpoint].coordinator.cancel(id);
                     }
@@ -114,10 +135,11 @@ impl State {
             Self::destroy_proxy(&proxy);
             return;
         };
-        if !self
-            .endpoints
-            .iter()
-            .any(|endpoint| endpoint.surface.is_some() && !endpoint.retiring)
+        if (self.clipboard.is_none()
+            && !self
+                .endpoints
+                .iter()
+                .any(|endpoint| endpoint.surface.is_some() && !endpoint.retiring))
             || self.failure.is_some()
         {
             Self::destroy_proxy(&proxy);
@@ -137,8 +159,10 @@ impl State {
             device: device.id(),
             seat: seat.id(),
             has_uri: false,
+            utf8: false,
+            plain: false,
             selected_copy: false,
-            id: None,
+            role: OfferRole::Pending,
         });
     }
 
@@ -166,11 +190,14 @@ impl State {
         let Some(index) = self.offer_for_device(&proxy.id(), &device.id()) else {
             return;
         };
+        if self.offers[index].role != OfferRole::Pending {
+            return;
+        }
         let endpoint = self.endpoints.iter().position(|endpoint| {
             !endpoint.retiring && endpoint.surface.as_ref() == Some(&surface.id())
         });
         if endpoint.is_none()
-            || self.lease.is_some()
+            || self.control.incoming().is_some()
             || !self.offers[index].has_uri
             || self.failure.is_some()
         {
@@ -185,22 +212,31 @@ impl State {
                 return;
             }
         };
-        self.offers[index].id = Some(id);
+        let registration = self.endpoints[endpoint].registration;
+        // Reserve before enter publishes Hover or invokes the caller's wake.
+        if self.endpoints[endpoint]
+            .control
+            .reserve_incoming_drop(registration, id)
+            .is_err()
+        {
+            self.reject_offer(index, serial);
+            return;
+        }
+        self.offers[index].role = OfferRole::Drop(id);
         match self.endpoints[endpoint]
             .coordinator
             .enter(id, point, proxy.version(), true)
         {
             Ok(()) => {}
             Err(_) => {
-                self.offers[index].id = None;
+                self.offers[index].role = OfferRole::Pending;
                 self.reject_offer(index, serial);
+                // enter failed before a pipe or watcher could exist.
+                self.control
+                    .release_incoming_after_cleanup(IncomingLease::Drop { registration, id });
                 return;
             }
         }
-        self.lease = Some(DropLease {
-            registration: self.endpoints[endpoint].registration,
-            id,
-        });
         if self.endpoints[endpoint]
             .coordinator
             .action(id, self.offers[index].selected_copy)
@@ -234,7 +270,7 @@ impl State {
         let seat = self.seat_for_device(device)?;
         let object = self.seats[seat].hover.as_ref()?;
         let index = self.offer_for_device(object, device)?;
-        Some((index, self.offers[index].id?))
+        Some((index, self.offers[index].drop_id()?))
     }
 
     fn leave_offer(&mut self, device: &ObjectId) {
@@ -287,6 +323,7 @@ impl State {
                 return;
             }
         };
+        self.drop_reader = Some((id, Arc::downgrade(&pipe.readiness_fd())));
         let proxy = self.offer_proxy(id);
         self.now = self.now.max(Instant::now());
         if self.endpoints[endpoint]
@@ -314,7 +351,7 @@ impl State {
             let _ = self.endpoints[endpoint].coordinator.fail(id, error);
             self.cleanup_offers();
         } else {
-            self.pipe = Some((id, pipe));
+            self.pipe = Some((ReadTag::Drop(id), pipe));
         }
     }
 
@@ -349,7 +386,13 @@ impl State {
         let Some((id, _)) = self.pipe.as_ref() else {
             return;
         };
-        let id = *id;
+        let id = match *id {
+            ReadTag::Drop(id) => id,
+            ReadTag::Text(id) => {
+                self.advance_text_transfer(id);
+                return;
+            }
+        };
         let Some(endpoint) = self.endpoint_for_offer(id) else {
             drop(self.pipe.take());
             return;
@@ -443,10 +486,14 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for State {
             }
             wl_data_device::Event::Leave => state.leave_offer(&device.id()),
             wl_data_device::Event::Drop => state.start_offer(&device.id()),
-            wl_data_device::Event::Selection { id: Some(proxy) } => {
-                if let Some(index) = state.offer_for_device(&proxy.id(), &device.id()) {
-                    if state.offers[index].id.is_none() {
-                        state.remove_offer(index);
+            wl_data_device::Event::Selection { id } => {
+                if state.clipboard.is_some() {
+                    state.select_text(device, id);
+                } else if let Some(proxy) = id {
+                    if let Some(index) = state.offer_for_device(&proxy.id(), &device.id()) {
+                        if state.offers[index].role == OfferRole::Pending {
+                            state.remove_offer(index);
+                        }
                     }
                 }
             }
@@ -477,12 +524,15 @@ impl Dispatch<wl_data_offer::WlDataOffer, ()> for State {
         };
         match event {
             wl_data_offer::Event::Offer { mime_type } => {
-                state.offers[index].has_uri |= mime_type == MIME
+                state.offers[index].has_uri |= mime_type == MIME;
+                state.offers[index].utf8 |= mime_type == clipboard::UTF8;
+                state.offers[index].plain |= mime_type == clipboard::PLAIN;
+                state.clipboard_mime_changed(&proxy.id());
             }
             wl_data_offer::Event::Action { dnd_action } => {
                 let copy = dnd_action == WEnum::Value(wl_data_device_manager::DndAction::Copy);
                 state.offers[index].selected_copy = copy;
-                if let Some(id) = state.offers[index].id {
+                if let Some(id) = state.offers[index].drop_id() {
                     if !copy
                         && matches!(
                             state.offer_phase(id),

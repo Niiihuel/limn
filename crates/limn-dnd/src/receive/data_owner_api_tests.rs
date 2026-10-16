@@ -94,3 +94,6 @@ fn public_owner_accepts_display_only_owners_and_send_only_wakes_without_a_fallba
     assert!(queried.load(Ordering::SeqCst) > 0);
     assert_eq!(wakes.load(Ordering::SeqCst), 0);
 }
+
+#[path = "public_text_owner_api_tests.rs"]
+mod text;

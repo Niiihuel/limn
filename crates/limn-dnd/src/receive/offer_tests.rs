@@ -152,7 +152,7 @@ impl Fixture {
         panic!("private host did not create its two surfaces");
     }
 
-    fn introduce_offer(&self, device: usize, key: usize) -> wl_data_offer::WlDataOffer {
+    pub(super) fn introduce_offer(&self, device: usize, key: usize) -> wl_data_offer::WlDataOffer {
         let device = &self.server.device_resources[device];
         let offer = device
             .client()

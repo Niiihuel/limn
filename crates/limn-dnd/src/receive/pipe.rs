@@ -1,4 +1,4 @@
-//! The worker-owned, bounded pipe for one receive-only URI list.
+//! The worker-owned bounded pipe shared by incoming text and URI lists.
 
 use std::{os::fd::OwnedFd, sync::Arc, time::Instant};
 
@@ -22,6 +22,13 @@ pub(super) struct ReceivePipe {
 impl ReceivePipe {
     pub(super) fn new(
         _id: OfferId,
+        max_bytes: usize,
+        deadline: Instant,
+    ) -> Result<(Self, OwnedFd), ReceiveError> {
+        Self::bounded(max_bytes, deadline)
+    }
+
+    pub(super) fn bounded(
         max_bytes: usize,
         deadline: Instant,
     ) -> Result<(Self, OwnedFd), ReceiveError> {

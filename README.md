@@ -51,7 +51,7 @@ Everything is in [`docs/`](docs/README.md).
 | Test without a window | [Testing](docs/testing.md) |
 | Edit your application while it runs | [Hot reload](docs/hot-reload.md) |
 | Browse and edit components live | [Gallery and hot reload](docs/gallery.md) |
-| Receive native file drops | [File drops: API, decisions and lifetimes](docs/file-drop.md) |
+| Receive native file drops or opt into Selection text | [File drops and text: APIs, decisions and lifetimes](docs/file-drop.md) |
 | Add a component | [Contributing a component](docs/contributing.md) |
 | Write a renderer | [Backend contract](docs/backend.md) |
 
@@ -76,7 +76,7 @@ Rust: `cd site && vercel build --prod && vercel deploy --prebuilt --prod`.
 | `limn-egui` | Backend: paints a frame with egui and wgpu and translates its input. |
 | `limn-editor` | The text document behind the code editor: rope, selection, search. |
 | `limn-language` | Syntax highlighting with tree-sitter and an LSP client. Optional, behind the `syntax` feature. |
-| `limn-dnd` | Receive-only Copy drops on Linux/Wayland, with explicit decisions and bounded workers; legacy outgoing drags. [Safety and lifecycle](docs/file-drop.md). |
+| `limn-dnd` | Receive-only Copy drops and opt-in Selection text on Linux/Wayland, sharing a bounded owner; legacy outgoing drags. Default attachment stays DnD-only; stock-SDK clipboard backend wiring is pending. [Safety and lifecycle](docs/file-drop.md). |
 | `limn-gallery` | The component gallery. Not published. |
 
 ## Status

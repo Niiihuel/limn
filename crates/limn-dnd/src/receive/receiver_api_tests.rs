@@ -17,6 +17,16 @@ use std::{
     thread::{self, JoinHandle, ThreadId},
 };
 
+// Public native fixtures share the actual process-wide admission budgets. Hold
+// one test-only guard through confirmed cleanup so independent test threads do
+// not accidentally spend each other's four worker/surface permits.
+fn public_pool_guard() -> std::sync::MutexGuard<'static, ()> {
+    static PUBLIC_POOL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    PUBLIC_POOL
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 const WAIT: Duration = Duration::from_secs(3);
 const DATA: &[u8] = b"file:///tmp/receiver-a.txt\r\nfile:///tmp/receiver-b.txt\r\n";
 
@@ -84,6 +94,7 @@ struct PublicCase {
     receiver: Option<FileDropReceiver>,
     owner: Weak<FixtureWindow>,
     final_wake: mpsc::Receiver<()>,
+    _public_pool_guard: std::sync::MutexGuard<'static, ()>,
 }
 
 impl PublicCase {
@@ -92,6 +103,7 @@ impl PublicCase {
         hooks: testing::Hooks,
         dropped: Option<mpsc::Sender<(ThreadId, bool)>>,
     ) -> Self {
+        let public_pool_guard = public_pool_guard();
         let window = Arc::new(FixtureWindow {
             connection: fixture.host.clone(),
             surface: fixture.host_surfaces[0].clone(),
@@ -120,6 +132,7 @@ impl PublicCase {
             receiver: Some(receiver),
             owner,
             final_wake: final_result,
+            _public_pool_guard: public_pool_guard,
         }
     }
 
