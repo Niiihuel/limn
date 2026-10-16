@@ -3393,7 +3393,9 @@ impl UiTree {
     /// interval would cap a 120 Hz display at half its rate and drift against
     /// any display, which reads as stutter. Ambient indicators such as a
     /// spinner keep a 16 ms cadence: they never finish, so painting them at
-    /// display rate would cost power for no visible gain.
+    /// display rate would cost power for no visible gain. A host that slows
+    /// its frames down when idle should do so only for those: throttling a
+    /// zero turns every transition into a stutter.
     pub fn animation_repaint_after(&self) -> Option<Duration> {
         self.animation_repaint_after_at(Instant::now())
     }

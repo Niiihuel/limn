@@ -5,6 +5,16 @@ in any release.
 
 ## Unreleased
 
+- Pills and circles are true stadiums at every scale. egui stores radii as whole points and `limn-egui` truncated them, leaving a flat strip at each end of a pill whose half height was not a whole point; radii now round, and one within half a point of half the shorter side saturates so epaint clamps it to the pixel-snapped rectangle. The tree also clamps every painted radius to the rectangle it rounds
+- `Element::round` rounds the ends fully at whatever size the element is laid out; `Button::round` and `IconButton::round` use it, so a round control given another height after it is built stays a pill
+- `ScalarSpring::launch(value, motion, now)` sets a spring off at the speed an ease-out over its settling time starts with instead of from standstill, and takes the new motion atomically. Tab indicators, coach marks, `animate_height` slots and paced springs use it, so they move on the first frame after a change (14% to over 25% of the way) and no longer jump when their pace changes mid-flight
+- `DismissDrag::velocity(now)` reads the recent downward speed, to hand a released drag to `ScalarSpring::release`
+- `Element::animate_scale(id, factor)` and `animate_scale_about(id, factor, anchor)` paint an element larger or smaller on a spring without changing layout, hit targets or line breaks; reduced motion changes it at once
+- `UiTree::set_scroll_offset(id, offset)` positions a vertical scroll area from the host, as `set_horizontal_scroll_offset` does sideways
+- `Tabs::radius(r)` rounds the selection by `r` and the segmented track by 2 more, concentric, a capsule from half the height; `Tabs::font_size(size)` sets the labels. `Tabs` adds the public `radius` and `font_size` fields
+- `ActionRow::title_size`, `subtitle_size` and `radius`; `PreferencesGroup::title_size`, `description_size` and `radius`
+- `limn-egui` decodes a thumbnail for the size it is drawn at times pixels per point, in steps of 128 up to 1024 (`set_image_thumbnail_side`), in place of a fixed 384; `set_full_image_cache_entries` sets how many full-resolution textures are kept
+
 - Passive scroll anchors retain current layout geometry inside clipped static branches, including the first deep layout and changes to width or font size. `UiTree::anchor_offset` no longer loses nested anchors when their container leaves the viewport; those hidden branches still produce no painting or hit targets.
 - `limn_egui::set_icon_rasterizer` installs an optional UI-thread renderer for native icon masks, using the existing bounded texture cache and tint. Missing or malformed masks fall back to SVG; file-type artwork preserves its colors. Replacing or removing the renderer refreshes cached icon textures
 - `Element::fade_insets(top, bottom)` positions edge fade bands outside opaque floating bars without changing scroll range, layout or pointer targets. Fade heights describe the visible transition beside the bars; zero insets preserve existing rendering. `Style` adds the public `fade_insets` field, defaulting to `(0.0, 0.0)`.
