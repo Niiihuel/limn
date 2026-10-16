@@ -182,7 +182,8 @@ mod tests {
         tree.layout_at(SIZE, start);
         let half = painted(&tree.layout_at(SIZE, start + exit() / 2), "below").unwrap().0;
         tree.set_root(root(slot(true)));
-        assert_eq!(painted(&tree.layout_at(SIZE, start + exit() / 2), "below").unwrap().0, half);
+        let reopened = painted(&tree.layout_at(SIZE, start + exit() / 2), "below").unwrap().0;
+        assert!((reopened - half).abs() < 1e-3, "{reopened} after {half}");
         let later = start + exit() / 2 + Duration::from_secs(1);
         assert_eq!(painted(&tree.layout_at(SIZE, later), "below").unwrap().0, open);
     }

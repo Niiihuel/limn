@@ -459,6 +459,9 @@ pub enum Icon {
     Leave,
     /// Two columns of dots: a handle to drag an item by.
     DragHandle,
+    /// An empty ring: an option not chosen, as an unselected radio or check
+    /// mark in a menu, beside [`Self::CheckCircle`] for the chosen one.
+    Circle,
 }
 
 impl Icon {
@@ -614,7 +617,8 @@ pub struct Border {
 }
 
 /// Independent corner radii for backgrounds, solid borders and keyboard focus.
-/// They affect paint only; child clipping and hit regions remain rectangular.
+/// They affect paint and, with [`Element::clip_children`], the fills and
+/// images of descendants; hit regions remain rectangular.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CornerRadii {
     /// Radius of the top left corner, in logical pixels.
@@ -756,6 +760,9 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// The ID a paint scale is kept under, its factor, and the point it grows
+    /// from as shares of the element's width and height.
+    pub(crate) scale: Option<(String, f32, Point)>,
     /// Set by [`Element::wrap`]: a row moves children onto more lines.
     pub(crate) wrap: bool,
     /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
@@ -778,6 +785,8 @@ pub(crate) struct SliderTravel {
     pub(crate) inset: f32,
     /// The share of the height from the top, for a slider over an area.
     pub(crate) y: Option<f32>,
+    /// Measured up the height from the bottom instead of along the width.
+    pub(crate) vertical: bool,
 }
 
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
@@ -1068,6 +1077,15 @@ pub struct LinePlot {
     pub grid: bool,
     /// True to write the ticks of the value axis.
     pub value_axis: bool,
+    /// True to write the names of the points under the plot.
+    pub point_axis: bool,
+    /// A fixed value axis from the first to the second, with ticks at its ends
+    /// and at zero, instead of one fitted to the values.
+    pub range: Option<(f64, f64)>,
+    /// True to dash the zero line.
+    pub dashed_zero: bool,
+    /// A point marked on every line with a dot, as the pointer marks one.
+    pub mark: Option<usize>,
     /// Ink of the pointer's line.
     pub text: Color,
     /// Ink of the ticks and of the points' names.
@@ -1236,6 +1254,21 @@ impl MarkRail {
         let lift = (1.0 - index.abs_diff(lead) as f32 / steps).max(0.0);
         rest.max(self.rest + (self.peak - self.rest) * lift)
     }
+}
+
+/// How a surface's pixels fill the rectangle laid out for it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SurfaceFit {
+    /// At the density they were rendered for, from the top-left corner,
+    /// clipped to the rectangle and never scaled: a remote screen, a page.
+    #[default]
+    Native,
+    /// Scaled up or down to fit inside the rectangle, centered, keeping its
+    /// proportions: as large as a picture is shown in the same rectangle.
+    Contain,
+    /// Filling the rectangle, cropped around the center, as a cover picture
+    /// ([`RasterImage::cover`](crate::RasterImage::cover)) is.
+    Cover,
 }
 
 /// What an element is: a container, a control or passive content. The
@@ -1468,6 +1501,8 @@ pub enum ElementKind {
         id: String,
         /// Names the surface for assistive technology.
         label: String,
+        /// How the pixels fill the rectangle; see [`Element::surface_fit`].
+        fit: SurfaceFit,
     },
     /// An icon centered in the element's box, [`ICON_SIZE`] on a side unless
     /// [`Style::icon_side`] says otherwise.
@@ -1689,6 +1724,9 @@ pub struct Style {
     /// Paint-only scrim above children, transparent at its top edge and
     /// tinted at the bottom. Scroll areas show it only above hidden content.
     pub bottom_fade: Option<(Color, f32)>,
+    /// Paint-only distances from the top and bottom edges to the corresponding
+    /// fade bands. Opaque floating bars can occupy this space; defaults to zero.
+    pub fade_insets: (f32, f32),
     /// Passive bottom background behind children, for dedicated footer space.
     pub bottom_background_fade: Option<(Color, f32)>,
     /// Passive top background behind children: the color at the top edge,
@@ -1772,6 +1810,7 @@ impl Default for Style {
             background: None,
             top_fade: None,
             bottom_fade: None,
+            fade_insets: (0.0, 0.0),
             bottom_background_fade: None,
             top_background_fade: None,
             horizontal_edge_fade: None,
@@ -1857,8 +1896,9 @@ impl Element {
 
     /// Name this element as a place to scroll to, without making it a
     /// control: `UiTree::reveal(id)` brings it into view and
-    /// `UiTree::anchor_offset(id)` says where it is. It has to be laid out
-    /// by a column of a scroll area, as a message of a conversation is.
+    /// `UiTree::anchor_offset(id)` says where it is inside its scroll area.
+    /// Static branches retain anchor geometry when clipped outside the viewport;
+    /// a virtual row must have been built before its anchors can be located.
     pub fn anchor(mut self, id: impl Into<String>) -> Self {
         self.anchor = Some(id.into());
         self
@@ -2021,6 +2061,26 @@ impl Element {
         self
     }
 
+    /// Paint this element and what is inside it at `factor` times its size,
+    /// growing from the middle of its left edge. Layout, hit targets and line
+    /// breaks stay those of factor one, so the line being read can grow
+    /// without re-wrapping or moving its neighbours. The factor is kept under
+    /// `id` and springs to a new one in one move, or changes at once under
+    /// reduced motion. A factor that is not finite or not above zero is ignored.
+    pub fn animate_scale(self, id: impl Into<String>, factor: f32) -> Self {
+        self.animate_scale_about(id, factor, Point::new(0.0, 0.5))
+    }
+
+    /// As [`Element::animate_scale`], growing from `anchor`, given as shares
+    /// of the element's width and height: `(0.5, 0.5)` is its center. An
+    /// anchor that is not finite is ignored with the rest.
+    pub fn animate_scale_about(mut self, id: impl Into<String>, factor: f32, anchor: Point) -> Self {
+        if factor.is_finite() && factor > 0.0 && anchor.x.is_finite() && anchor.y.is_finite() {
+            self.kept.get_or_insert_default().scale = Some((id.into(), factor, anchor));
+        }
+        self
+    }
+
     /// On a column: a child with [`Element::animate_height`] that stops being
     /// passed closes where it was, its last paint fading, instead of
     /// vanishing with a jump. The tree remembers the children under `id`
@@ -2082,7 +2142,20 @@ impl Element {
             steps,
             inset: if inset.is_finite() { inset.max(0.0) } else { 0.0 },
             y: None,
+            vertical: false,
         }));
+        self
+    }
+
+    /// Turn a clickable into a slider that stands up: the same as
+    /// [`Element::slider`], but the share is of its height measured from the
+    /// bottom, so dragging up raises it, and Up and Down step it as well as
+    /// Right and Left.
+    pub fn vertical_slider(mut self, fraction: f32, steps: usize, inset: f32) -> Self {
+        self = self.slider(fraction, steps, inset);
+        if let Some(travel) = self.slider.as_mut() {
+            travel.vertical = true;
+        }
         self
     }
 
@@ -2111,6 +2184,7 @@ impl Element {
                 0.0
             },
             y: Some(share(y)),
+            vertical: false,
         }));
         self
     }
@@ -2766,7 +2840,20 @@ impl Element {
         Self::new(ElementKind::Surface {
             id: id.into(),
             label: label.into(),
+            fit: SurfaceFit::Native,
         })
+    }
+
+    /// How a surface's pixels fill its rectangle: [`SurfaceFit::Contain`]
+    /// and [`SurfaceFit::Cover`] scale them as a raster image is scaled, so
+    /// an animation can take the place of its still first frame. Its
+    /// [`radius`](Self::radius) rounds the corners of the pixels shown. Has
+    /// no effect on an element that is not a surface.
+    pub fn surface_fit(mut self, fit: SurfaceFit) -> Self {
+        if let ElementKind::Surface { fit: own, .. } = &mut self.kind {
+            *own = fit;
+        }
+        self
     }
 
     /// An icon on its own, [`ICON_SIZE`] on a side unless `large_icon` says
@@ -3176,6 +3263,16 @@ impl Element {
         self
     }
 
+    /// Inset the top and bottom fade bands from the viewport edges, for content
+    /// beneath opaque floating bars. Fade heights remain the visible transition
+    /// outside the bars. This changes paint only; the host still reserves content
+    /// space for its bars. Negative or non-finite insets become zero.
+    pub fn fade_insets(mut self, top: f32, bottom: f32) -> Self {
+        let inset = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        self.style.fade_insets = (inset(top), inset(bottom));
+        self
+    }
+
     /// Add a quiet bottom background behind children. Use dedicated footer
     /// space so the tint never covers the last line or the collapse control.
     pub fn bottom_background_fade(mut self, color: Color, height: f32) -> Self {
@@ -3312,6 +3409,8 @@ impl Element {
 
     /// Center the text, or a button's content, across the element's width
     /// instead of starting it at the edge.
+    /// Single-line inputs center values that fit, with matching caret,
+    /// selection and pointer geometry; overflowing values scroll normally.
     pub fn center_content(mut self) -> Self {
         self.style.center_content = true;
         self
@@ -3349,6 +3448,10 @@ impl Element {
 
     /// Keep descendants inside this element's content rectangle. Useful for
     /// a dock whose width changes while its children retain intrinsic sizes.
+    /// On a rounded element the clip is rounded too, concentric with its
+    /// corners less its padding: fills and images that reach a corner take
+    /// it (see [`crate::DrawCommand::RoundClip`]). Text is clipped to the
+    /// rectangle only.
     pub fn clip_children(mut self) -> Self {
         self.style.clip_children = true;
         self
@@ -3524,15 +3627,25 @@ impl Element {
 
     /// Round the four corners by this radius, in logical pixels. It replaces
     /// any `corner_radii`; a negative value becomes zero, and one that is not
-    /// finite is ignored.
+    /// finite is ignored. A painted radius never exceeds half the shorter side.
     pub fn radius(mut self, radius: f32) -> Self {
         self.style.radius = length(radius, self.style.radius);
         self.style.corner_radii = None;
         self
     }
 
+    /// Round the ends fully: half the shorter side of wherever the element is
+    /// laid out, so a pill or a circle stays one when its size changes later.
+    /// It replaces any `radius` or `corner_radii`.
+    pub fn round(mut self) -> Self {
+        // Painting clamps every radius to the rectangle it rounds.
+        self.style.radius = f32::INFINITY;
+        self.style.corner_radii = None;
+        self
+    }
+
     /// Override the uniform radius for backgrounds, solid borders and focus.
-    /// Shadows and descendant clipping retain their existing behavior.
+    /// Shadows keep the uniform radius; a clip of descendants follows these.
     pub fn corner_radii(mut self, radii: CornerRadii) -> Self {
         self.style.corner_radii = Some(radii.normalized());
         self
@@ -3716,12 +3829,27 @@ mod surface_tests {
             .commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::Surface { rect, id, label, opacity } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
+                DrawCommand::Surface { rect, id, label, opacity, .. } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
                 _ => None,
             })
             .collect();
         // The frame carries the name only: new pixels never rebuild the tree.
         assert_eq!(surfaces, [(Rect::new(0.0, 20.0, 300.0, 200.0), "page-pixels", "Página", 1.0)]);
         assert!(frame.regions.iter().any(|region| region.id == "page" && region.rect == surfaces[0].0));
+    }
+
+    #[test]
+    fn a_surface_carries_its_fit_and_radius_and_other_elements_ignore_the_fit() {
+        let shown = |element: Element| {
+            let frame = UiTree::new(element).layout(Size::new(120.0, 80.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Surface { fit, radius, .. } => Some((*fit, *radius)),
+                _ => None,
+            })
+        };
+        assert_eq!(shown(Element::surface("a", "A")), Some((SurfaceFit::Native, 0.0)));
+        let covered = Element::surface("a", "A").surface_fit(SurfaceFit::Cover).radius(8.0);
+        assert_eq!(shown(covered), Some((SurfaceFit::Cover, 8.0)));
+        assert!(shown(Element::spacer().surface_fit(SurfaceFit::Cover)).is_none());
     }
 }

@@ -13,9 +13,22 @@
 
 use std::path::PathBuf;
 
+mod receive;
+mod receive_limits;
+mod text_clipboard_limits;
 mod uri_list;
 #[cfg(target_os = "linux")]
 mod wayland;
+
+pub use receive::{
+    DropDecision, EndpointStatus, FileDropEndpoint, FileDropReceiver, OfferId, ReceiveEpoch,
+    ReceiveEvent, ReceiveStatus, SurfacePoint, TextPasteRequest, WaylandDataOwner,
+};
+pub use receive_limits::{ReceiveError, ReceiveLimits};
+pub use text_clipboard_limits::{ClipboardError, TextClipboardLimits};
+
+#[cfg(test)]
+mod text_clipboard_limits_tests;
 
 /// Positions are in logical pixels relative to the window's surface.
 #[derive(Clone, Debug, PartialEq)]
@@ -53,8 +66,30 @@ impl FileDnd {
     /// Attach to a live window. `wake` runs on a worker thread whenever an
     /// event is ready, typically to request a repaint.
     ///
-    /// The window must outlive the returned value.
-    pub fn attach(
+    /// This legacy API borrows its handles and joins its worker synchronously on drop.
+    /// On Wayland it returns `None` when the process's four drop-worker slots are
+    /// taken or its non-refundable budget of 64 registries is spent.
+    ///
+    /// # Safety
+    ///
+    /// On Wayland, the caller must keep the native display, connection and surface
+    /// valid until dropping the returned value has finished joining its worker.
+    /// Keeping only a Rust window wrapper alive does not establish that lifetime;
+    /// the display's event-loop owner must not disconnect or destroy it first.
+    /// Readers of the shared connection must coordinate through libwayland and its
+    /// SDK; an external reader must not consume raw bytes from the display socket.
+    ///
+    /// Attaching borrowed native handles requires an explicit unsafe call:
+    ///
+    /// ```compile_fail,E0133
+    /// use limn_dnd::FileDnd;
+    /// use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
+    ///
+    /// fn attach_without_unsafe(window: &(impl HasWindowHandle + HasDisplayHandle)) {
+    ///     let _ = FileDnd::attach(window, || {});
+    /// }
+    /// ```
+    pub unsafe fn attach(
         window: &(impl raw_window_handle::HasWindowHandle + raw_window_handle::HasDisplayHandle),
         wake: impl Fn() + Send + 'static,
     ) -> Option<Self> {
@@ -67,8 +102,8 @@ impl FileDnd {
             ) else {
                 return None;
             };
-            // Safety: both pointers come from a live window that the caller
-            // keeps alive for the lifetime of the worker.
+            // Safety: the caller keeps both borrowed handles and their connection
+            // valid through the worker's synchronous join, as required above.
             let inner = unsafe {
                 wayland::Worker::spawn(
                     display.display.as_ptr(),

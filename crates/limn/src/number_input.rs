@@ -1,7 +1,7 @@
 //! A field for a number with a button that lowers it and one that raises it.
 
 use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
-use crate::{Access, CornerRadii, Element, Icon, Role};
+use crate::{Access, CornerRadii, Element, ElementKind, Icon, Role};
 
 /// The whole control unless a width is set.
 const DEFAULT_WIDTH: f32 = 160.0;
@@ -9,6 +9,16 @@ const DEFAULT_WIDTH: f32 = 160.0;
 const MIN_FIELD_WIDTH: f32 = 80.0;
 /// The hairline around the buttons and between them, as wide as the field's border.
 const RULE: f32 = 1.0;
+
+/// Where a [`NumberInput`]'s two step buttons sit relative to its editable value.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum NumberInputButtonPlacement {
+    /// Both buttons follow the field: value, decrease, increase.
+    #[default]
+    End,
+    /// The field and its text sit between decrease and increase.
+    Split,
+}
 
 /// An editable field joined to a button that lowers its number and one that
 /// raises it.
@@ -27,6 +37,7 @@ pub struct NumberInput {
     decimals: u8,
     width: f32,
     size: ControlSize,
+    button_placement: NumberInputButtonPlacement,
     enabled: bool,
     accessibility_label: Option<String>,
     step_labels: (String, String),
@@ -47,6 +58,7 @@ impl NumberInput {
             decimals: 0,
             width: DEFAULT_WIDTH,
             size: ControlSize::Regular,
+            button_placement: NumberInputButtonPlacement::End,
             enabled: true,
             accessibility_label: None,
             step_labels: ("Decrease".into(), "Increase".into()),
@@ -101,6 +113,13 @@ impl NumberInput {
     /// Take the height of a control size, as a [`TextField`] does: never under 28.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Put the step buttons after the value, the default, or on either side
+    /// of a centered editable value. IDs, actions and range behavior are unchanged.
+    pub fn button_placement(mut self, placement: NumberInputButtonPlacement) -> Self {
+        self.button_placement = placement;
         self
     }
 
@@ -244,6 +263,57 @@ impl Component for NumberInput {
         }
         let square = CornerRadii::same(0.0);
         let rule = || Element::spacer().size(Some(RULE), Some(RULE));
+        if self.button_placement == NumberInputButtonPlacement::Split {
+            let mut field = field.render().corner_radii(square).center_content();
+            // A disabled TextField keeps its value in a passive text child.
+            if let ElementKind::Panel(content) = &mut field.kind {
+                content.style.center_content = true;
+            }
+            let side = |suffix, label: &str, icon, left| {
+                let radii = if left {
+                    CornerRadii {
+                        top_left: radius,
+                        bottom_left: radius,
+                        ..square
+                    }
+                } else {
+                    CornerRadii {
+                        top_right: radius,
+                        bottom_right: radius,
+                        ..square
+                    }
+                };
+                let inner = if left {
+                    CornerRadii {
+                        top_left: radius - RULE,
+                        bottom_left: radius - RULE,
+                        ..square
+                    }
+                } else {
+                    CornerRadii {
+                        top_right: radius - RULE,
+                        bottom_right: radius - RULE,
+                        ..square
+                    }
+                };
+                let button = self.button(suffix, label, icon, inner, height);
+                let row = if left {
+                    vec![rule(), button]
+                } else {
+                    vec![button, rule()]
+                };
+                Element::panel(Element::column(vec![rule(), Element::row(row), rule()]))
+                    .background(self.palette.border)
+                    .corner_radii(radii)
+                    .size(Some(height + RULE), Some(height))
+            };
+            return Element::row(vec![
+                side("decrement", &self.step_labels.0, Icon::Minus, true),
+                field,
+                side("increment", &self.step_labels.1, Icon::Add, false),
+            ])
+            .size(Some(field_width + buttons_width), Some(height));
+        }
         // The field's own border closes the buttons on its side; a fill of
         // the border's color behind them is the line on the other three and
         // between the two.
@@ -397,6 +467,197 @@ mod tests {
     }
 
     #[test]
+    fn split_buttons_surround_a_centered_value_without_changing_total_size() {
+        for size in [
+            ControlSize::Dense,
+            ControlSize::Compact,
+            ControlSize::Regular,
+            ControlSize::Spacious,
+        ] {
+            for enabled in [true, false] {
+                let input = NumberInput::new("n", "42", palette())
+                    .size(size)
+                    .width(200.0)
+                    .enabled(enabled)
+                    .button_placement(NumberInputButtonPlacement::Split)
+                    .render();
+                let mut tree = UiTree::new(input);
+                tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 10.0);
+                let frame = tree.layout(WINDOW);
+                let rect = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap().rect;
+                let (field, down, up) = (rect("n"), rect("n:decrement"), rect("n:increment"));
+                let height = size.height().max(28.0);
+                assert_eq!(down.x, RULE);
+                assert_eq!(down.x + down.width, field.x);
+                assert_eq!(field.x + field.width, up.x);
+                assert_eq!(up.x + up.width + RULE, 200.0);
+                assert_eq!((field.y, field.height), (0.0, height));
+                let text = frame
+                    .commands
+                    .iter()
+                    .find_map(|command| match command {
+                        DrawCommand::Text { text, position, .. } if text == "42" => Some(*position),
+                        _ => None,
+                    })
+                    .unwrap();
+                assert_eq!(text.x + 10.0, field.x + field.width / 2.0);
+            }
+        }
+    }
+
+    #[test]
+    fn split_buttons_keep_left_to_right_focus_actions_and_disabled_limits() {
+        for (value, expected) in [
+            ("0", vec!["n", "n:increment"]),
+            ("5", vec!["n:decrement", "n", "n:increment"]),
+            ("10", vec!["n:decrement", "n"]),
+        ] {
+            let mut tree = UiTree::new(
+                NumberInput::new("n", value, palette())
+                    .min(0.0)
+                    .max(10.0)
+                    .button_placement(NumberInputButtonPlacement::Split)
+                    .render(),
+            );
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(WINDOW);
+            for (index, id) in expected.iter().enumerate() {
+                tree.handle_event(UiEvent::Key {
+                    key: Key::Tab,
+                    shift: false,
+                    ctrl: false,
+                    alt: false,
+                });
+                assert_eq!(tree.focused_id(), Some(*id));
+                if *id != "n" {
+                    for key in [Key::Enter, Key::Space] {
+                        assert_eq!(
+                            tree.handle_event(UiEvent::Key {
+                                key,
+                                shift: false,
+                                ctrl: false,
+                                alt: false
+                            }),
+                            vec![UiAction::Clicked { id: (*id).into() }]
+                        );
+                    }
+                    let point = center(region(&frame, id));
+                    tree.handle_event(UiEvent::PointerDown(point));
+                    assert_eq!(
+                        tree.handle_event(UiEvent::PointerUp(point)),
+                        vec![UiAction::Clicked { id: (*id).into() }]
+                    );
+                    assert!(tree.focus(id));
+                }
+                assert_eq!(tree.focused_id(), Some(expected[index]));
+            }
+            for (id, disabled) in [
+                ("n:decrement", value == "0"),
+                ("n:increment", value == "10"),
+            ] {
+                let node = frame.access.iter().find(|node| node.id == id).unwrap();
+                assert_eq!(node.disabled, disabled);
+                assert_eq!(tree.focus(id), !disabled);
+                if disabled {
+                    let point = center(node.rect);
+                    tree.handle_event(UiEvent::PointerDown(point));
+                    assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn centered_value_uses_the_same_origin_for_caret_pointer_selection_and_edits() {
+        let mut tree = UiTree::new(
+            NumberInput::new("n", "42", palette())
+                .width(200.0)
+                .button_placement(NumberInputButtonPlacement::Split)
+                .render(),
+        );
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 10.0);
+        tree.set_reduced_motion(true);
+        tree.layout(WINDOW);
+        assert!(tree.focus("n"));
+        let frame = tree.layout(WINDOW);
+        let field = region(&frame, "n");
+        let origin = field.x + field.width / 2.0 - 10.0;
+        let caret = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, .. } if rect.width == 1.5 => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(caret.x, origin + 20.0);
+        tree.handle_event(UiEvent::PointerDown(Point::new(
+            origin + 6.0,
+            field.y + 12.0,
+        )));
+        assert_eq!(tree.input_cursor("n"), Some(1));
+        tree.handle_event(UiEvent::Key {
+            key: Key::ArrowRight,
+            shift: true,
+            ctrl: false,
+            alt: false,
+        });
+        assert_eq!(tree.input_selection("n"), Some((1, 2)));
+        let selection = tree
+            .layout(WINDOW)
+            .commands
+            .into_iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. }
+                    if color == crate::Color::rgba(75, 130, 210, 130) =>
+                {
+                    Some(rect)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!((selection.x, selection.width), (origin + 10.0, 10.0));
+        assert_eq!(
+            tree.handle_event(UiEvent::Text("7".into())),
+            vec![UiAction::InputChanged {
+                id: "n".into(),
+                value: "47".into()
+            }]
+        );
+        tree.set_input_value("n", "12345678901234567890");
+        let long = tree.layout(WINDOW);
+        let text_x = |frame: &Frame| {
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Text { position, .. } => Some(position.x),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        assert_eq!(
+            text_x(&long),
+            field.x + 8.0,
+            "overflow retains ordinary horizontal editing"
+        );
+        tree.set_input_value("n", "4");
+        let short = tree.layout(WINDOW);
+        assert_eq!(text_x(&short), field.x + field.width / 2.0 - 5.0);
+        tree.set_input_value("n", "");
+        let empty = tree.layout(WINDOW);
+        let caret_x = empty
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, .. } if rect.width == 1.5 => Some(rect.x),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(caret_x, field.x + field.width / 2.0);
+    }
+
+    #[test]
     fn a_width_that_is_not_a_number_is_ignored_and_a_narrow_one_keeps_room_for_the_text() {
         let width = |input: NumberInput| {
             let frame = UiTree::new(input.render()).layout(WINDOW);
@@ -450,7 +711,7 @@ mod tests {
             assert_eq!(tree.handle_event(UiEvent::PointerUp(point)), clicked, "{id}");
             assert!(tree.focus(id));
             for key in [Key::Enter, Key::Space] {
-                assert_eq!(tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false }), clicked, "{id} {key:?}");
+                assert_eq!(tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false, alt: false }), clicked, "{id} {key:?}");
             }
         }
     }
@@ -498,7 +759,7 @@ mod tests {
             assert!(tree.handle_event(UiEvent::PointerDown(center(rect))).is_empty());
             assert!(tree.handle_event(UiEvent::PointerUp(center(rect))).is_empty());
         }
-        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false }).is_empty());
         assert!(tree.handle_event(UiEvent::Text("7".into())).is_empty());
         // The number and the two glyphs, all in muted ink.
         let inks: Vec<_> = frame

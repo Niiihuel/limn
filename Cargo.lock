@@ -1943,8 +1943,10 @@ name = "limn-dnd"
 version = "0.1.43"
 dependencies = [
  "raw-window-handle",
+ "rustix 1.1.5",
  "smithay-client-toolkit 0.20.0",
  "wayland-backend",
+ "wayland-server",
 ]
 
 [[package]]
@@ -1979,6 +1981,7 @@ dependencies = [
  "eframe",
  "image",
  "limn",
+ "limn-dnd",
  "limn-editor",
  "limn-egui",
  "wasm-bindgen-futures",
@@ -3802,7 +3805,7 @@ checksum = "f2f6fb2847f6742cd76af783a2a2c49e9375d0a111c7bef6f71cd9e738c72d6e"
 dependencies = [
  "memoffset",
  "tempfile",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4152,6 +4155,19 @@ dependencies = [
  "proc-macro2",
  "quick-xml",
  "quote",
+]
+
+[[package]]
+name = "wayland-server"
+version = "0.31.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0dde9c29be0f723a573977de51ee455bf3dfa03652730a74f9dd3b337e374d75"
+dependencies = [
+ "bitflags 2.13.2",
+ "downcast-rs",
+ "rustix 1.1.5",
+ "wayland-backend",
+ "wayland-scanner",
 ]
 
 [[package]]

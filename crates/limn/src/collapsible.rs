@@ -379,6 +379,7 @@ mod tests {
                     key: Key::Enter,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 }),
                 vec![UiAction::Clicked {
                     id: "details".into()
@@ -699,6 +700,7 @@ mod tests {
                     key: Key::Enter,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 }),
                 vec![UiAction::Clicked {
                     id: "reasoning:toggle".into()
@@ -894,7 +896,7 @@ mod tests {
             for id in ["details", "details:collapse"] {
                 assert!(!tree.focus(id));
             }
-            let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+            let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false };
             assert!(tree.handle_event(enter).is_empty());
             assert_eq!(places(&disabled), places(&enabled));
             assert!(disabled.commands.iter().any(|command| matches!(command,

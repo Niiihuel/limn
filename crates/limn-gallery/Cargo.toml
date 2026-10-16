@@ -10,6 +10,7 @@ keywords.workspace = true
 categories.workspace = true
 description = "Component gallery for limn, with hot-patched views"
 publish = false
+default-run = "limn-gallery"
 
 [lints]
 workspace = true
@@ -27,6 +28,10 @@ limn-egui = { version = "0.1.43", path = "../limn-egui", default-features = fals
 limn-editor = { version = "0.1.43", path = "../limn-editor" }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# The receive-only native demo shares the host window's Wayland connection.
+limn-dnd = { version = "0.1.43", path = "../limn-dnd" }
 
 # The browser build: `wasm32-unknown-unknown`, then `wasm-bindgen --target web`.
 [target.'cfg(target_arch = "wasm32")'.dependencies]

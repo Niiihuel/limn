@@ -19,6 +19,71 @@ check that a control reports what you expect.
 The page **Forma y movimiento** changes the [tokens](tokens.md) live: square,
 default or round corners, three paces, and a switch for reduced motion.
 
+## Shared owner lifecycle illustration
+
+```sh
+cargo run -p limn-gallery -- --page wayland-data-owner
+```
+
+This is a static, synthetic limn illustration: no native owner is attached.
+It shows why endpoint A can be Detached while endpoint B and their owner
+remain Ready. It contains no reception controls, native-handle calls or
+clipboard calls, and does not establish protocol or compositor behavior.
+See [WaylandDataOwner](components/wayland-data-owner.md) and the canonical
+[file-drop guide](file-drop.md#shared-owner-and-surface-endpoints).
+
+The shared-owner API deliberately has no live mode in the existing native
+demo below. Stock eframe owns a clipboard data device on its display;
+attaching an exclusive owner behind it would violate that owner's contract.
+A functional SDK demo depends on real shared clipboard integration. A fake
+clipboard backend, changed bind order or disabled clipboard would not prove
+that integration. The existing binary and its historical receiver results
+remain separate from this synthetic page.
+
+## Native file-drop demo
+
+The receive-only Wayland example runs in its own binary:
+
+```sh
+cargo run -p limn-gallery --bin file_drop
+```
+
+Use Linux/Wayland and drop fixture files into the outlined target. After the
+complete list reaches EOF, choose **Accept Copy** or **Reject** within 30 s.
+The demo limits a batch to eight files and 32 KiB of decoded paths; the
+library's default decision timeout remains 2 s. It shows basename metadata
+without opening files. Accept authorizes one local Copy finish attempt; it
+does not prepare or send file content.
+
+This binary attaches only `FileDropReceiver`, independently of the normal
+gallery and its hot-reload/screenshot mode. Its close handshake keeps the
+host event loop running until the worker reports Closed. A non-Wayland
+window reports unavailable without attaching the legacy path. See
+[File drops](file-drop.md) before using the unsafe API. A real fixture test on
+Hyprland 0.55.0 with Dolphin 26.04.3 reached Ready but received no drop metadata:
+drag events went to the eframe host clipboard's first data device instead of
+the receiver's separate device. Ready proves initialization only. This setup
+needs shared data-device ownership and a host/SDK integration hook that keeps
+clipboard text working; changing bind order or disabling clipboard is not a
+fix.
+
+A later native run on private nested Weston 15.0.1 received two fixture
+basenames, accepted the first offer with an explicit **Accept Copy** click
+(Ended Ok), and rejected the second with **Reject** (Ended Cancelled). The
+**Close safely** control then led to normal demo exit 0 before cleanup of the
+source and compositor. This proves only metadata reception, explicit local
+decisions and normal closure in that setup. It does not fix the Hyprland
+conflict, verify clipboard functionality, open file contents, or exercise an
+application upload/send. Other combinations remain unverified.
+
+The target and Close control stay outside the scroll area. Metadata and event
+logs scroll independently so that their growth cannot shift the target and
+invalidate its frozen geometry. An earlier nested run was cancelled by that
+layout change and then timed out; it is retained as a partial attempt, not a
+normal-close success. Three real UiTree demo tests cover hit testing and stable
+target geometry at 700×760 and 980×800. Private-server tests alone do not
+establish native interoperability.
+
 ## Hot reload
 
 ```sh

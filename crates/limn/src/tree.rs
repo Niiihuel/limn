@@ -11,6 +11,9 @@ mod popover_initial_focus_tests;
 #[cfg(test)]
 #[path = "coach_mark_tests.rs"]
 mod coach_mark_tests;
+#[cfg(test)]
+#[path = "region_focus_tests.rs"]
+mod region_focus_tests;
 
 #[cfg(test)]
 #[path = "drag_drop_tests.rs"]
@@ -543,9 +546,10 @@ pub enum DrawCommand {
         /// Corner radius the picture is rounded to.
         radius: f32,
     },
-    /// Pixels the host presents to the backend under `id`, outside the frame.
-    /// They start at the rectangle's top-left corner at their own density and
-    /// are clipped to the rectangle, never stretched to fill it.
+    /// Pixels the host presents to the backend under `id`, outside the frame,
+    /// placed in the rectangle as `fit` says and clipped to it. With
+    /// `SurfaceFit::Native` they start at the top-left corner at their own
+    /// density, never stretched to fill it.
     Surface {
         /// The area the surface shows in; its pixels are clipped to it.
         rect: Rect,
@@ -555,6 +559,10 @@ pub enum DrawCommand {
         label: String,
         /// Opacity from 0 to 1: 1 unless a transition is fading the element.
         opacity: f32,
+        /// How the pixels fill the rectangle.
+        fit: crate::SurfaceFit,
+        /// Corner radius the pixels shown are rounded to.
+        radius: f32,
     },
     /// An activity indicator that turns, sized to the shorter side of `rect`.
     Spinner {
@@ -637,6 +645,18 @@ pub enum DrawCommand {
     /// Clip every command up to the matching `PopClip` to this rectangle,
     /// intersected with the clips already in force.
     PushClip(Rect),
+    /// Round the clip of the `PushClip` just before it: until that clip's
+    /// `PopClip`, fills and images stay inside `rect` with these corners, so
+    /// content flush with or past the edge of a rounded panel keeps the
+    /// panel's corners. Text is not affected. A nested rounded clip replaces
+    /// it; a nested plain one keeps it. A backend that cannot round a clip
+    /// may ignore this and keep the rectangle.
+    RoundClip {
+        /// The rounded shape, inside the rectangle of the clip it rounds.
+        rect: Rect,
+        /// Its corners.
+        radii: CornerRadii,
+    },
     /// End the innermost `PushClip`.
     PopClip,
 }
@@ -724,7 +744,7 @@ impl DrawCommand {
                 *position = Point::new(position.x + dx, position.y + dy);
                 fade(color);
             }
-            Self::PushClip(rect) => shift(rect),
+            Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
         }
         ghost
@@ -1200,9 +1220,14 @@ fn animate_popover_command(
         DrawCommand::Surface {
             rect,
             opacity: own_opacity,
+            radius,
             ..
+        } => {
+            scale_rect(rect, scale, origin, slide_y);
+            *own_opacity *= opacity.clamp(0.0, 1.0);
+            *radius *= scale;
         }
-        | DrawCommand::EffortSlider {
+        DrawCommand::EffortSlider {
             rect,
             opacity: own_opacity,
             ..
@@ -1211,6 +1236,13 @@ fn animate_popover_command(
             *own_opacity *= opacity.clamp(0.0, 1.0);
         }
         DrawCommand::PushClip(rect) => scale_rect(rect, scale, origin, slide_y),
+        DrawCommand::RoundClip { rect, radii } => {
+            scale_rect(rect, scale, origin, slide_y);
+            radii.top_left *= scale;
+            radii.top_right *= scale;
+            radii.bottom_right *= scale;
+            radii.bottom_left *= scale;
+        }
         DrawCommand::PopClip => {}
     }
 }
@@ -1431,6 +1463,31 @@ struct PopoverFocusScope {
     pointed: bool,
 }
 
+fn modal_popover_scopes<'a>(
+    scopes: &'a [PopoverFocusScope],
+    closed: &HashSet<String>,
+) -> Vec<&'a PopoverFocusScope> {
+    let modal = scopes.iter().rposition(|scope| scope.modal);
+    let mut allowed = HashSet::new();
+    let mut exposed = Vec::new();
+    for scope in &scopes[modal.unwrap_or(0)..] {
+        if scope.submenu && scope.trigger_id.as_ref().is_some_and(|id| closed.contains(id)) {
+            continue;
+        }
+        // Hover children are absent from their parent's static focus order.
+        // Admit their descendants transitively, but never a covered base menu.
+        if modal.is_none()
+            || scope.modal
+            || scope.trigger_id.as_deref().is_some_and(|id| allowed.contains(id))
+            || scope.focusables.iter().any(|(id, _)| allowed.contains(id.as_str()))
+        {
+            allowed.extend(scope.focusables.iter().map(|(id, _)| id.as_str()));
+            exposed.push(scope);
+        }
+    }
+    exposed
+}
+
 /// A `sticky_top` child held back to be placed above its scroll area: the
 /// element, where it is drawn, the clip, and the fade under it with its
 /// strength.
@@ -1528,7 +1585,11 @@ const SLOT_OPEN: f32 = 100.0;
 /// A slot opens and closes on a spring with no overshoot: toggled midway it
 /// keeps its speed and turns back instead of starting again from rest.
 fn slot_spring(value: f32, now: Instant) -> ScalarSpring {
-    ScalarSpring::new(value, now).motion(crate::SpringMotion::settling_in(slot_settle()))
+    ScalarSpring::new(value, now).motion(slot_motion())
+}
+
+fn slot_motion() -> crate::SpringMotion {
+    crate::SpringMotion::settling_in(slot_settle())
 }
 
 /// The time in which a slot covers 99% of its way: one and a half moves.
@@ -1798,6 +1859,8 @@ struct SliderGeometry {
     animated: bool,
     /// The share of the height from the top, for a slider over an area.
     y: Option<f32>,
+    /// A slider standing up: its fraction runs from the bottom to the top.
+    vertical: bool,
 }
 
 /// What a slider reports: its fraction along a track, or both shares over an area.
@@ -1830,12 +1893,18 @@ impl SliderGeometry {
         })
     }
 
-    fn fraction_at(self, x: f32) -> f32 {
-        let travel = self.rect.width - self.inset * 2.0;
+    fn fraction_at(self, point: Point) -> f32 {
+        let (along, start, length) = if self.vertical {
+            // From the bottom: dragging up raises the value.
+            (self.rect.y + self.rect.height - point.y, 0.0, self.rect.height)
+        } else {
+            (point.x, self.rect.x, self.rect.width)
+        };
+        let travel = length - self.inset * 2.0;
         if travel <= 0.0 {
             return 0.5;
         }
-        let raw = ((x - self.rect.x - self.inset) / travel).clamp(0.0, 1.0);
+        let raw = ((along - start - self.inset) / travel).clamp(0.0, 1.0);
         if self.steps < 2 {
             return raw;
         }
@@ -2254,10 +2323,25 @@ pub enum Key {
     /// The Z key: with `ctrl` in an editable code editor, undoes, or redoes
     /// with `shift`.
     Z,
+    /// The slash key (`/`), read as a key for shortcuts such as Ctrl+/. The
+    /// character still arrives as `UiEvent::Text`.
+    Slash,
+    /// Read only as the shortcut of an item in an open context menu.
+    F1,
     /// Read only as the shortcut of an item in an open context menu.
     F2,
     /// Read only as the shortcut of an item in an open context menu.
+    F3,
+    /// Read only as the shortcut of an item in an open context menu.
+    F4,
+    /// Read only as the shortcut of an item in an open context menu.
     F5,
+    /// Read only as the shortcut of an item in an open context menu.
+    F6,
+    /// Read only as the shortcut of an item in an open context menu.
+    F7,
+    /// Read only as the shortcut of an item in an open context menu.
+    F8,
     /// Read only as the shortcut of an item in an open context menu.
     F9,
     /// Read only as the shortcut of an item in an open context menu.
@@ -2404,7 +2488,19 @@ pub enum UiEvent {
         shift: bool,
         /// True while Ctrl is held. The egui backend sets it for Command too.
         ctrl: bool,
+        /// True while Alt (Option) is held. The tree reads it only to match a
+        /// context menu item's shortcut; a host reads it for its own, such as
+        /// Alt+Left.
+        alt: bool,
     },
+    /// The pointer's back button (the first side button, mouse button 4) was
+    /// pressed at this position. The tree does nothing with it; a host reads
+    /// it to go back in its own history.
+    PointerBack(Point),
+    /// The pointer's forward button (the second side button, mouse button 5)
+    /// was pressed at this position. The tree does nothing with it; a host
+    /// reads it to go forward in its own history.
+    PointerForward(Point),
 }
 
 /// What `UiTree::handle_event` reports for the host to act on.
@@ -3004,6 +3100,8 @@ pub struct UiTree {
     slider_motion: HashMap<String, SliderMotion>,
     hovered_scrollbar: Option<String>,
     focus_order: Vec<(String, HitKind)>,
+    /// Each landmark region and its controls in focus order, outermost first.
+    focus_regions: Vec<(String, Vec<String>)>,
     action_aliases: HashMap<String, String>,
     focused: Option<String>,
     caret_blink: crate::caret_blink::CaretBlink,
@@ -3089,6 +3187,7 @@ impl UiTree {
             slider_motion: HashMap::new(),
             hovered_scrollbar: None,
             focus_order: Vec::new(),
+            focus_regions: Vec::new(),
             action_aliases: HashMap::new(),
             focused: None,
             caret_blink: crate::caret_blink::CaretBlink::default(),
@@ -3351,6 +3450,48 @@ impl UiTree {
         self.frame.cursors.get(dragged.or(self.hovered.as_deref())?).copied()
     }
 
+    /// The controls inside the landmark region `region` (an element marked
+    /// `Access::new(Role::Region).id(region)`), in focus order, as of the
+    /// last layout. Empty for an ID that is not a region.
+    pub fn focusables_within(&self, region: &str) -> Vec<&str> {
+        self.focus_regions
+            .iter()
+            .find(|(id, _)| id == region)
+            .map(|(_, members)| members.iter().map(String::as_str).collect())
+            .unwrap_or_default()
+    }
+
+    /// Move the focus to the first control of the next landmark region, or
+    /// of the previous one with `reverse`, wrapping around, as F6 and
+    /// Shift+F6 do. Regions follow the order they are in the tree, a nested
+    /// one after the region around it; one with nothing to focus is passed
+    /// over. Returns the ID of the region reached, for a host that would
+    /// rather land on another of its controls; `None` when a popover holds
+    /// the focus or no region has a control.
+    pub fn focus_next_region(&mut self, reverse: bool) -> Option<String> {
+        if self.has_open_popover() {
+            return None;
+        }
+        let reachable: Vec<usize> =
+            (0..self.focus_regions.len()).filter(|index| !self.focus_regions[*index].1.is_empty()).collect();
+        let focused = self.focused.as_deref();
+        // The innermost region the focus is in: nested regions come later.
+        let current = focused.and_then(|id| {
+            reachable.iter().rposition(|index| self.focus_regions[*index].1.iter().any(|member| member == id))
+        });
+        let count = reachable.len();
+        let next = match (current, reverse) {
+            _ if count == 0 => return None,
+            (Some(at), false) => (at + 1) % count,
+            (Some(at), true) => (at + count - 1) % count,
+            (None, false) => 0,
+            (None, true) => count - 1,
+        };
+        let (region, members) = &self.focus_regions[reachable[next]];
+        let (region, first) = (region.clone(), members[0].clone());
+        self.focus(&first).then_some(region)
+    }
+
     /// Focus an interactive element after layout. Returns false for an unknown ID.
     /// Text inputs place the caret at the end so command launchers can accept
     /// typing immediately after opening.
@@ -3426,7 +3567,9 @@ impl UiTree {
     /// interval would cap a 120 Hz display at half its rate and drift against
     /// any display, which reads as stutter. Ambient indicators such as a
     /// spinner keep a 16 ms cadence: they never finish, so painting them at
-    /// display rate would cost power for no visible gain.
+    /// display rate would cost power for no visible gain. A host that slows
+    /// its frames down when idle should do so only for those: throttling a
+    /// zero turns every transition into a stutter.
     pub fn animation_repaint_after(&self) -> Option<Duration> {
         self.animation_repaint_after_at(Instant::now())
     }
@@ -3602,6 +3745,22 @@ impl UiTree {
             .is_some_and(|maximum| maximum - self.scroll_target(id) <= tolerance.max(0.0))
     }
 
+    /// Position a vertical scroll area from the host, for example from a
+    /// spring, as [`Self::set_horizontal_scroll_offset`] does sideways. It
+    /// takes over from any wheel easing and pending end or index request; the
+    /// next layout clamps it to the content. A value that is not finite is
+    /// ignored.
+    pub fn set_scroll_offset(&mut self, id: &str, offset: f32) {
+        if !offset.is_finite() {
+            return;
+        }
+        self.scroll_transitions.remove(id);
+        self.cancel_scroll_hold(id);
+        self.scroll_to_end.remove(id);
+        self.scroll_to_index.remove(id);
+        self.scroll_offsets.insert(id.to_owned(), offset);
+    }
+
     /// Scrolls to the bottom on the next layout, after new content is measured.
     pub fn scroll_to_end(&mut self, id: &str) {
         self.scroll_transitions.remove(id);
@@ -3660,7 +3819,9 @@ impl UiTree {
 
     /// Where the `Element::anchor` named `id` was at the last layout: how far
     /// its top is below the top of the scroll area around it, negative once
-    /// it has scrolled past. `None` when it was not laid out.
+    /// it has scrolled past. Anchors in clipped static branches retain their
+    /// current geometry without being painted. `None` when the anchor is absent
+    /// (including a virtual row that has not been built).
     pub fn anchor_offset(&self, id: &str) -> Option<f32> {
         let target = self.frame.scroll_focus_targets.get(id)?;
         Some(target.rect.y - target.viewport.y)
@@ -3730,9 +3891,7 @@ impl UiTree {
             .as_deref()
             .or(self.pending_reveal.as_ref().map(|(id, ..)| id.as_str()));
         let mut focus_path = HashSet::new();
-        if let Some(id) = probe {
-            find_focus_path(&self.root, id, &mut focus_path);
-        }
+        find_focus_path(&self.root, probe, &mut focus_path);
         let mut observed_buttons = HashSet::new();
         let mut observed_popovers = HashSet::new();
         let mut observed_replacements = HashSet::new();
@@ -3852,11 +4011,9 @@ impl UiTree {
                 let previous_scope = builder.enter_measurement_scope();
                 match overlay {
                     DeferredOverlay::Free { floating, area } => {
-                        if let Some(id) = builder.focus_probe {
-                            let mut floating_path = HashSet::new();
-                            find_focus_path(&floating, id, &mut floating_path);
-                            builder.focus_path.extend(floating_path);
-                        }
+                        let mut floating_path = HashSet::new();
+                        find_focus_path(&floating, builder.focus_probe, &mut floating_path);
+                        builder.focus_path.extend(floating_path);
                         builder.place(&floating, area, Some(viewport_rect));
                     }
                     DeferredOverlay::Anchored {
@@ -4018,11 +4175,9 @@ impl UiTree {
                         // Rebuild the pointer-based focus path for that clone
                         // so an offscreen field can be found inside its scroll
                         // area and revealed when focused.
-                        if let Some(id) = builder.focus_probe {
-                            let mut floating_path = HashSet::new();
-                            find_focus_path(&floating, id, &mut floating_path);
-                            builder.focus_path.extend(floating_path);
-                        }
+                        let mut floating_path = HashSet::new();
+                        find_focus_path(&floating, builder.focus_probe, &mut floating_path);
+                        builder.focus_path.extend(floating_path);
                         let mut travel = (0.0, 0.0);
                         if let Some(coach) = coach {
                             let radius = coach
@@ -4062,7 +4217,9 @@ impl UiTree {
                                 rect: ring,
                                 color: coach.fill,
                                 width: COACH_RING_WIDTH,
-                                radius: radius + COACH_RING_GAP,
+                                radius: (radius + COACH_RING_GAP)
+                                    .min(ring.width / 2.0)
+                                    .min(ring.height / 2.0),
                             });
                         }
                         let bubble_start = builder.frame.commands.len();
@@ -4350,18 +4507,34 @@ impl UiTree {
                 }
             }
         }
-        self.focus_order = focus_order
+        let expand = |order: Vec<(String, HitKind)>| -> Vec<(String, HitKind)> {
+            order
+                .into_iter()
+                .flat_map(|(id, kind)| {
+                    if kind == HitKind::Scroll && id.starts_with(VIRTUAL_FOCUS_PREFIX) {
+                        frame
+                            .virtual_lists
+                            .get(&id[VIRTUAL_FOCUS_PREFIX.len()..])
+                            .map(|scope| scope.focusables().cloned().collect::<Vec<_>>())
+                            .unwrap_or_default()
+                    } else {
+                        vec![(id, kind)]
+                    }
+                })
+                .collect()
+        };
+        self.focus_order = expand(focus_order);
+        let mut regions = Vec::new();
+        collect_focus_regions(&self.root, &mut regions);
+        self.focus_regions = regions
             .into_iter()
-            .flat_map(|(id, kind)| {
-                if kind == HitKind::Scroll && id.starts_with(VIRTUAL_FOCUS_PREFIX) {
-                    frame
-                        .virtual_lists
-                        .get(&id[VIRTUAL_FOCUS_PREFIX.len()..])
-                        .map(|scope| scope.focusables().cloned().collect::<Vec<_>>())
-                        .unwrap_or_default()
-                } else {
-                    vec![(id, kind)]
-                }
+            .map(|(id, order)| {
+                let members = expand(order)
+                    .into_iter()
+                    .map(|(member, _)| member)
+                    .filter(|member| self.focus_order.iter().any(|(id, _)| id == member))
+                    .collect();
+                (id, members)
             })
             .collect();
         if let Some(id) = self.focused.as_ref().filter(|id| {
@@ -4468,6 +4641,12 @@ impl UiTree {
             .rev()
             .find(|scope| scope.modal);
         let had_modal = previous_popovers.iter().any(|scope| scope.modal);
+        let modal_scopes = modal.map(|_| modal_popover_scopes(
+            &self.frame.popover_focus, &self.closed_submenu_triggers,
+        ));
+        let modal_contains = |id: &str| modal_scopes.as_ref().is_none_or(|scopes| {
+            scopes.iter().any(|scope| scope.focusables.iter().any(|(candidate, _)| candidate == id))
+        });
         if let Some(scope) = modal {
             if !had_modal {
                 self.modal_return_focus = scope
@@ -4477,11 +4656,7 @@ impl UiTree {
                     .cloned()
                     .or_else(|| self.focused.clone());
             }
-            if !scope
-                .focusables
-                .iter()
-                .any(|(id, _)| self.focused.as_deref() == Some(id.as_str()))
-            {
+            if !self.focused.as_deref().is_some_and(modal_contains) {
                 let next_focus = scope
                     .initial_focus
                     .as_ref()
@@ -4507,14 +4682,14 @@ impl UiTree {
             .popover_focus
             .iter()
             .rev()
-            .find(|scope| {
+            .filter(|scope| {
                 !scope.modal
                     && scope.initial_focus.is_some()
                     && !previous_popovers
                         .iter()
                         .any(|previous| previous.dismiss_id == scope.dismiss_id)
             })
-            .and_then(|scope| {
+            .find_map(|scope| {
                 scope.initial_focus.as_ref().filter(|preferred| {
                     scope.focusables.iter().any(|(id, kind)| {
                         id == *preferred
@@ -4525,8 +4700,7 @@ impl UiTree {
                                     | HitKind::TextArea
                                     | HitKind::CodeEditor
                             )
-                    }) && modal
-                        .is_none_or(|modal| modal.focusables.iter().any(|(id, _)| id == *preferred))
+                    }) && modal_contains(preferred)
                 })
             })
             .cloned();
@@ -5175,6 +5349,8 @@ impl UiTree {
             UiEvent::PasteCaptured { target, text } => {
                 return self.paste_captured(target, text, now)
             }
+            // The host's history buttons: nothing in the tree reads them.
+            UiEvent::PointerBack(_) | UiEvent::PointerForward(_) => return Vec::new(),
             event => event,
         };
         self.validate_ime_owner(now);
@@ -5354,8 +5530,11 @@ impl UiTree {
             | UiEvent::Paste(_) => {
                 unreachable!("additive editor events normalized above")
             }
-            UiEvent::FilesHovered { .. } | UiEvent::FilesDropped { .. } => {
-                unreachable!("external file events resolved before ordinary controls")
+            UiEvent::FilesHovered { .. }
+            | UiEvent::FilesDropped { .. }
+            | UiEvent::PointerBack(_)
+            | UiEvent::PointerForward(_) => {
+                unreachable!("external file and history events resolved before ordinary controls")
             }
             UiEvent::PointerMove(point) => {
                 let moved = self.pointer != Some(point);
@@ -5412,7 +5591,7 @@ impl UiTree {
                     }
                 }
                 if let Some(drag) = self.slider_drag.as_mut() {
-                    let fraction = drag.geometry.fraction_at(point.x);
+                    let fraction = drag.geometry.fraction_at(point);
                     let y = drag.geometry.y_at(point.y);
                     if fraction != drag.fraction || y != drag.y {
                         drag.fraction = fraction;
@@ -5464,6 +5643,7 @@ impl UiTree {
                 self.hovered_scrollbar = None;
                 self.pressed = None;
                 self.scroll_drag = None;
+                self.horizontal_pan = None;
                 self.scroll_button_hold = None;
                 self.keyboard_tooltip_focus = false;
                 if let Some(selection) = self.static_selection.as_mut() {
@@ -5504,7 +5684,7 @@ impl UiTree {
                         .copied()
                         .map(|geometry| (region.id.clone(), geometry))
                 }) {
-                    let fraction = geometry.fraction_at(point.x);
+                    let fraction = geometry.fraction_at(point);
                     let y = geometry.y_at(point.y);
                     self.slider_drag = Some(SliderDrag {
                         id: id.clone(),
@@ -5647,7 +5827,7 @@ impl UiTree {
                 self.set_hovered(self.frame.hit_test(point).map(str::to_owned), now);
                 self.tooltip_hover_since = self.hovered.as_ref().map(|id| (id.clone(), now));
                 if let Some(drag) = self.slider_drag.take() {
-                    let released_fraction = drag.geometry.fraction_at(point.x);
+                    let released_fraction = drag.geometry.fraction_at(point);
                     let snapped = drag.geometry.snap(released_fraction);
                     if !self.reduced_motion && drag.geometry.animated {
                         let motion = self
@@ -5719,7 +5899,7 @@ impl UiTree {
                     }
                 }
             }
-            UiEvent::Key { key, shift, ctrl } => {
+            UiEvent::Key { key, shift, ctrl, alt } => {
                 if matches!(key, Key::PageUp | Key::PageDown) && !ctrl && self.scroll_by_page(key == Key::PageDown, now) {
                     // Scrolled: a page of what is behind the focus, or under the pointer.
                 } else if key == Key::Escape {
@@ -5768,6 +5948,8 @@ impl UiTree {
                             }
                         }
                     }
+                } else if key == Key::F6 && !ctrl && !alt {
+                    self.focus_next_region(shift);
                 } else if key == Key::Tab {
                     self.step_focus(shift);
                     self.keyboard_focus = true;
@@ -5967,6 +6149,12 @@ impl UiTree {
             });
             return true;
         }
+        // A vertical slider: Up raises it and Down lowers it.
+        let key = match (geometry.vertical, key) {
+            (true, Key::ArrowUp) => Key::ArrowRight,
+            (true, Key::ArrowDown) => Key::ArrowLeft,
+            (_, key) => key,
+        };
         if geometry.steps < 2 {
             let current = geometry.fraction.clamp(0.0, 1.0);
             let fraction = match key {
@@ -6175,38 +6363,19 @@ impl UiTree {
     }
 
     fn active_popover_scope(&self) -> Option<&PopoverFocusScope> {
-        if let Some(modal) = self
-            .frame
-            .popover_focus
-            .iter()
-            .rev()
-            .find(|scope| scope.modal)
-        {
-            return Some(modal);
-        }
+        let scopes = modal_popover_scopes(&self.frame.popover_focus, &self.closed_submenu_triggers);
         let focused = self.focused.as_deref();
-        let open = |scope: &&PopoverFocusScope| {
-            !scope.submenu
-                || !scope
-                    .trigger_id
-                    .as_ref()
-                    .is_some_and(|id| self.closed_submenu_triggers.contains(id))
-        };
-        self.frame
-            .popover_focus
+        scopes
             .iter()
             .rev()
-            .filter(open)
+            .copied()
             .find(|scope| {
                 focused.is_some_and(|id| {
                     scope.trigger_id.as_deref() == Some(id)
-                        || scope
-                            .focusables
-                            .iter()
-                            .any(|(candidate, _)| candidate == id)
+                        || scope.focusables.iter().any(|(candidate, _)| candidate == id)
                 })
             })
-            .or_else(|| self.frame.popover_focus.iter().rev().find(open))
+            .or_else(|| scopes.last().copied())
     }
 
     fn step_tab(&mut self, key: Key, actions: &mut Vec<UiAction>) -> bool {
@@ -6372,6 +6541,47 @@ fn find_uniform_list<'a>(element: &'a Element, id: &str) -> Option<&'a UniformLi
         } => find_uniform_list(anchor, id).or_else(|| find_uniform_list(floating, id)),
         ElementKind::Tooltip { anchor, .. } => find_uniform_list(anchor, id),
         _ => None,
+    }
+}
+
+/// Each landmark region in `element`, outermost first, with what it holds in
+/// focus order (virtual list markers included, for layout to expand).
+fn collect_focus_regions(element: &Element, out: &mut Vec<(String, Vec<(String, HitKind)>)>) {
+    let region = element
+        .access
+        .as_deref()
+        .filter(|said| said.role == Some(crate::Role::Region))
+        .and_then(|said| said.id.clone());
+    if let Some(id) = region {
+        let mut order = Vec::new();
+        collect_focus_order(element, &mut order, &mut HashSet::new());
+        out.push((id, order));
+    }
+    match &element.kind {
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
+            for child in children {
+                collect_focus_regions(child, out);
+            }
+        }
+        ElementKind::Panel(child)
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. }
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Tooltip { anchor: child, .. } => collect_focus_regions(child, out),
+        ElementKind::Overlay { base, floating } => {
+            collect_focus_regions(base, out);
+            collect_focus_regions(floating, out);
+        }
+        ElementKind::Popover { anchor, floating, hover_open, .. } => {
+            collect_focus_regions(anchor, out);
+            if !*hover_open {
+                collect_focus_regions(floating, out);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -6722,36 +6932,36 @@ fn holds_submenu(element: &Element, hovered: Option<&str>, focused: Option<&str>
     }
 }
 
-/// Record only the ancestors of the requested control. The normal layout can
-/// skip every other clipped branch, even while locating an offscreen target.
-fn find_focus_path(element: &Element, id: &str, path: &mut HashSet<usize>) -> bool {
-    let found = if focusable_id(element) == Some(id) {
-        true
-    } else {
-        match &element.kind {
-            ElementKind::FormattedText(spans) => spans
-                .iter()
-                .any(|span| !span.text.is_empty() && span.action.as_deref() == Some(id)),
-            ElementKind::Column(children)
-            | ElementKind::Row(children)
-            | ElementKind::TabStrip { children, .. }
-            | ElementKind::Stack(children) => children
-                .iter()
-                .any(|child| find_focus_path(child, id, path)),
-            ElementKind::Panel(child)
-            | ElementKind::Clickable { child, .. }
-            | ElementKind::Scroll { child, .. }
-            | ElementKind::HorizontalScroll { child, .. } => find_focus_path(child, id, path),
-            ElementKind::Overlay { base, floating } => {
-                find_focus_path(base, id, path) || find_focus_path(floating, id, path)
-            }
-            ElementKind::Popover {
-                anchor, floating, ..
-            } => find_focus_path(anchor, id, path) || find_focus_path(floating, id, path),
-            ElementKind::Tooltip { anchor, .. } => find_focus_path(anchor, id, path),
-            _ => false,
+/// Record paths to explicit anchors and the requested control. Clipped branches
+/// outside these paths still skip their descendants entirely.
+fn find_focus_path(element: &Element, id: Option<&str>, path: &mut HashSet<usize>) -> bool {
+    let descendants = match &element.kind {
+        ElementKind::FormattedText(spans) => spans
+            .iter()
+            .any(|span| !span.text.is_empty() && span.action.as_deref().is_some_and(|action| Some(action) == id)),
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
+            let mut found = false;
+            for child in children { found |= find_focus_path(child, id, path); }
+            found
         }
+        ElementKind::Panel(child)
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. } => find_focus_path(child, id, path),
+        ElementKind::Overlay { base, floating } => {
+            find_focus_path(base, id, path) | find_focus_path(floating, id, path)
+        }
+        ElementKind::Popover {
+            anchor, floating, ..
+        } => find_focus_path(anchor, id, path) | find_focus_path(floating, id, path),
+        ElementKind::Tooltip { anchor, .. } => find_focus_path(anchor, id, path),
+        _ => false,
     };
+    let found = descendants || element.anchor.is_some()
+        || focusable_id(element).is_some_and(|target| Some(target) == id);
     if found {
         path.insert(element as *const Element as usize);
     }
@@ -8234,6 +8444,22 @@ impl LayoutBuilder<'_> {
         lines
     }
 
+    /// Round the clip just pushed for `content` as the element's own corners
+    /// are, less its padding, so they stay concentric.
+    fn round_clip(&mut self, content: Rect, style: &Style) {
+        let radii = style.corner_radii.unwrap_or(CornerRadii::same(style.radius));
+        let inner = |radius: f32| (radius - style.padding).max(0.0);
+        let radii = CornerRadii {
+            top_left: inner(radii.top_left),
+            top_right: inner(radii.top_right),
+            bottom_right: inner(radii.bottom_right),
+            bottom_left: inner(radii.bottom_left),
+        };
+        if [radii.top_left, radii.top_right, radii.bottom_right, radii.bottom_left].iter().any(|radius| *radius > 0.0) {
+            self.frame.commands.push(DrawCommand::RoundClip { rect: content, radii });
+        }
+    }
+
     fn draw_focus_ring(&mut self, rect: Rect, style: Style) {
         if !style.focus_ring {
             return;
@@ -8695,7 +8921,7 @@ impl LayoutBuilder<'_> {
             if present && (!expand || self.locating) && state.fraction.value(now) <= 0.0 {
                 state.fraction = slot_spring(SLOT_OPEN, now);
             } else {
-                state.fraction.retarget(target, now);
+                state.fraction.launch(target, slot_motion(), now);
             }
         }
         state.natural * (state.fraction.value(now) / SLOT_OPEN).clamp(0.0, 1.0)
@@ -8815,8 +9041,7 @@ impl LayoutBuilder<'_> {
                 crate::tokens().motion.move_ms,
             )));
             for (value, target) in state.values.iter_mut().zip(targets) {
-                *value = value.motion(motion);
-                value.retarget(target, now);
+                value.launch(target, motion, now);
             }
         } else if state.key != key
             || state.values.iter().zip(targets).any(|(value, target)| value.target() != target)
@@ -8951,9 +9176,8 @@ impl LayoutBuilder<'_> {
             state.value = ScalarSpring::new(target, self.now);
         } else if target != state.value.target() {
             let pace = paced(if target > state.value.target() { rise_ms } else { fall_ms });
-            // It turns from where it is, at the speed it has, and only then takes its new pace.
-            state.value.retarget(target, self.now);
-            state.value = state.value.motion(pace);
+            // It turns from where it is, at the speed it has, and takes its new pace from there.
+            state.value.launch(target, pace, self.now);
         }
         state.value.value(self.now)
     }
@@ -9025,6 +9249,10 @@ impl LayoutBuilder<'_> {
             (style.width.unwrap_or(available.width) - padding).max(0.0),
             (available.height - padding).max(0.0),
         );
+        // A paragraph's width cap also constrains its wrapping. Containers
+        // still measure intrinsically before their own final width is capped.
+        let wrap_width = inner.width.min(style.max_width
+            .map_or(f32::INFINITY, |max| (max - padding).max(0.0)));
         let natural = match &element.kind {
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
@@ -9032,7 +9260,7 @@ impl LayoutBuilder<'_> {
                 truncated: false,
                 ..
             } => {
-                let lines = self.wrapped_lines(value, inner.width, style);
+                let lines = self.wrapped_lines(value, wrap_width, style);
                 let longest = lines
                     .iter()
                     .map(|line| self.text_width(line, style))
@@ -9082,8 +9310,7 @@ impl LayoutBuilder<'_> {
                 )
             }
             ElementKind::FormattedText(spans) => {
-                let width = style.width.unwrap_or(available.width);
-                let lines = self.formatted_lines(spans, (width - padding).max(0.0), style);
+                let lines = self.formatted_lines(spans, wrap_width, style);
                 Size::new(
                     lines.iter().map(|line| line.width).fold(0.0, f32::max) + padding,
                     lines.iter().map(|line| line.height).sum::<f32>() + padding,
@@ -9471,6 +9698,15 @@ impl LayoutBuilder<'_> {
         if let Some((id, radius)) = element.kept.as_ref().and_then(|kept| kept.soft.as_ref()) {
             self.soften(id, *radius, start);
         }
+        if let Some((id, factor, anchor)) = element.kept.as_ref().and_then(|kept| kept.scale.as_ref()) {
+            let scale = self.spring(&format!("scale/{id}"), *factor);
+            if scale != 1.0 {
+                let origin = Point::new(rect.x + rect.width * anchor.x, rect.y + rect.height * anchor.y);
+                for command in &mut self.frame.commands[start..] {
+                    animate_popover_command(command, 1.0, 0.0, scale, origin);
+                }
+            }
+        }
         match &element.presence {
             Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed) => {
                 self.reveal_on_hover(element, id, start, reveal == HoverReveal::Concealed)
@@ -9580,11 +9816,7 @@ impl LayoutBuilder<'_> {
                     .scroll_focus_candidates
                     .extend(focusables.into_iter().map(|(id, _)| id));
             }
-            if self.focus_probe.is_some()
-                && self
-                    .focus_path
-                    .contains(&(element as *const Element as usize))
-            {
+            if self.focus_path.contains(&(element as *const Element as usize)) {
                 self.probe_scroll_focus_translated(element, rect, clip);
             }
             return;
@@ -9643,6 +9875,9 @@ impl LayoutBuilder<'_> {
             }
         }
         let mut style = element.style;
+        // Fill, border, focus ring and shadow share one radius that fits the
+        // rectangle: what `f32::INFINITY` asks for, and an exact pill otherwise.
+        style.radius = style.radius.min(rect.width / 2.0).min(rect.height / 2.0).max(0.0);
         if let ElementKind::Skeleton {
             id,
             base,
@@ -9884,6 +10119,7 @@ impl LayoutBuilder<'_> {
                     }
                 });
             self.frame.commands.push(DrawCommand::PushClip(child_clip));
+            self.round_clip(content, &style);
             Some(child_clip)
         } else {
             clip
@@ -9953,10 +10189,10 @@ impl LayoutBuilder<'_> {
                         } else if state.selected_id != selection.selected_id {
                             let duration = Duration::from_millis(u64::from(selection.animation_ms));
                             let motion = crate::SpringMotion::settling_in(duration);
-                            state.x = state.x.motion(motion);
-                            state.width = state.width.motion(motion);
-                            state.x.retarget(target.x, self.now);
-                            state.width.retarget(target.width, self.now);
+                            // Setting a pace before rebasing would redraw the
+                            // flight so far on the new curve: a jump.
+                            state.x.launch(target.x, motion, self.now);
+                            state.width.launch(target.width, motion, self.now);
                             state.selected_id.clone_from(&selection.selected_id);
                         } else if state.x.target() != target.x
                             || state.width.target() != target.width
@@ -9966,17 +10202,18 @@ impl LayoutBuilder<'_> {
                             state.x.snap_to(target.x, self.now);
                             state.width.snap_to(target.width, self.now);
                         }
+                        let indicator = Rect::new(
+                            state.x.value(self.now),
+                            target.y,
+                            state.width.value(self.now),
+                            target.height,
+                        );
                         self.frame.commands.insert(
                             command_start,
                             DrawCommand::FillRect {
-                                rect: Rect::new(
-                                    state.x.value(self.now),
-                                    target.y,
-                                    state.width.value(self.now),
-                                    target.height,
-                                ),
+                                rect: indicator,
                                 color: selection.color,
-                                radius: selection.radius,
+                                radius: selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0),
                             },
                         );
                     }
@@ -10006,6 +10243,7 @@ impl LayoutBuilder<'_> {
                             inset: travel.inset,
                             animated: false,
                             y: travel.y,
+                            vertical: travel.vertical,
                         },
                     );
                 }
@@ -10253,6 +10491,7 @@ impl LayoutBuilder<'_> {
                     .or_else(|| clip.is_none().then_some(content));
                 if let Some(new_clip) = new_clip {
                     self.frame.commands.push(DrawCommand::PushClip(new_clip));
+                    self.round_clip(content, &style);
                     self.scroll_focus_context.push(ScrollFocusContext {
                         id: id.clone(),
                         viewport: new_clip,
@@ -10760,12 +10999,14 @@ impl LayoutBuilder<'_> {
                     radius: style.radius,
                 });
             }
-            ElementKind::Surface { id, label } => {
+            ElementKind::Surface { id, label, fit } => {
                 self.frame.commands.push(DrawCommand::Surface {
                     rect: content,
                     id: id.clone(),
                     label: label.clone(),
                     opacity: 1.0,
+                    fit: *fit,
+                    radius: style.radius,
                 });
             }
             ElementKind::Icon(icon) => {
@@ -11081,12 +11322,15 @@ impl LayoutBuilder<'_> {
                     state.paste_epoch = Arc::new(());
                 }
                 state.password = *password;
-                state.content_x = content.x;
                 state.char_width = metrics.char_width;
                 state.content_width = content.width;
                 state.font_size = style.font_size;
                 state.font_family = style.font_family;
                 state.measurer = self.text_measurer.clone();
+                let center_text = style.center_content && state.width(&state.value) <= content.width - 2.0;
+                if center_text {
+                    state.view_start = 0;
+                }
                 if state.cursor < state.view_start {
                     state.view_start = state.cursor;
                 }
@@ -11123,6 +11367,15 @@ impl LayoutBuilder<'_> {
                         char_range(&state.value, state.view_start, visible_end).to_owned()
                     }
                 };
+                let text_x = if center_text {
+                    let text_width = measured_width(
+                        state.measurer.as_deref(), &shown, style.font_size, style.font_family, metrics.char_width,
+                    );
+                    content.x + ((content.width - text_width) / 2.0).max(0.0)
+                } else {
+                    content.x
+                };
+                state.content_x = text_x;
                 let input_clip = clip
                     .and_then(|outer| outer.intersection(content))
                     .or_else(|| clip.is_none().then_some(content));
@@ -11138,7 +11391,7 @@ impl LayoutBuilder<'_> {
                                 state.width(char_range(&state.value, state.view_start, end));
                             self.frame.commands.push(DrawCommand::FillRect {
                                 rect: Rect::new(
-                                    content.x + left,
+                                    text_x + left,
                                     content.y,
                                     right - left,
                                     metrics.line_height,
@@ -11149,7 +11402,7 @@ impl LayoutBuilder<'_> {
                         }
                     }
                     self.frame.commands.push(DrawCommand::Text {
-                        position: Point::new(content.x, content.y),
+                        position: Point::new(text_x, content.y),
                         text: shown,
                         color: if is_placeholder {
                             Color::rgba(
@@ -11168,7 +11421,7 @@ impl LayoutBuilder<'_> {
                         let cursor_x =
                             state.width(char_range(&state.value, state.view_start, state.cursor));
                         let caret_rect =
-                            Rect::new(content.x + cursor_x, content.y, 1.5, metrics.line_height);
+                            Rect::new(text_x + cursor_x, content.y, 1.5, metrics.line_height);
                         if caret_rect.intersection(input_clip).is_some()
                             && self.caret_blink.observe(
                                 id,
@@ -11831,6 +12084,7 @@ impl LayoutBuilder<'_> {
                         inset: SLIDER_THUMB_INSET,
                         animated: true,
                         y: None,
+                        vertical: false,
                     },
                 );
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
@@ -11848,6 +12102,13 @@ impl LayoutBuilder<'_> {
             | ElementKind::RollingNumber { .. }
             | ElementKind::Spacer => {}
         }
+        let fade_area = |mut area: Rect| {
+            let top = style.fade_insets.0.clamp(0.0, area.height);
+            let bottom = style.fade_insets.1.clamp(0.0, area.height);
+            area.y += top;
+            area.height = (area.height - top - bottom).max(0.0);
+            area
+        };
         if let Some((color, height)) = style.top_fade {
             let scroll_area = |id: &str| {
                 (self.scroll_offsets.get(id).copied().unwrap_or(0.0) > 0.0).then(|| {
@@ -11877,7 +12138,7 @@ impl LayoutBuilder<'_> {
                 _ => Some(content),
             };
             if let Some(area) =
-                area.filter(|area| area.width > 0.0 && area.height > 0.0 && height > 0.0)
+                area.map(fade_area).filter(|area| area.width > 0.0 && area.height > 0.0 && height > 0.0)
             {
                 self.frame.commands.push(DrawCommand::FillVerticalGradient {
                     rect: Rect::new(area.x, area.y, area.width, height.min(area.height)),
@@ -11904,7 +12165,7 @@ impl LayoutBuilder<'_> {
                 ElementKind::UniformList(list) => scroll_area(&list.id),
                 _ => Some(content),
             };
-            if let Some(area) = area.filter(|area| area.width > 0.0 && area.height > 0.0) {
+            if let Some(area) = area.map(fade_area).filter(|area| area.width > 0.0 && area.height > 0.0) {
                 let height = height.min(area.height);
                 let fade = Rect::new(area.x, area.y + area.height - height, area.width, height);
                 if let Some(visible) = clip.map_or(Some(fade), |clip| fade.intersection(clip)) {
@@ -11989,17 +12250,14 @@ impl LayoutBuilder<'_> {
         }
     }
 
-    /// Resolve the requested control's geometry inside a clipped branch.
+    /// Resolve anchors and the requested control inside a clipped branch.
     /// This does not paint, add hit regions, or visit unrelated descendants.
     fn probe_scroll_focus(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         self.probe_scroll_focus_translated(element, Self::translated_rect(element, rect), clip);
     }
 
     fn probe_scroll_focus_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
-        if focusable_id(element) == self.focus_probe {
-            self.record_scroll_focus_target(element, rect);
-            return;
-        }
+        self.record_scroll_focus_target(element, rect);
         let style = element.style;
         let content = rect.inset(style.padding);
         let clip = if style.clip_children {
@@ -12050,7 +12308,6 @@ impl LayoutBuilder<'_> {
                         .contains(&(child as *const Element as usize))
                     {
                         self.probe_scroll_focus(child, child_rect, clip);
-                        break;
                     }
                 }
             }
@@ -12060,9 +12317,10 @@ impl LayoutBuilder<'_> {
                 self.probe_scroll_focus(child, content, clip);
             }
             ElementKind::Stack(children) => {
-                let path = &self.focus_path;
-                if let Some(child) = children.iter().find(|child| path.contains(&(*child as *const Element as usize))) {
-                    self.probe_scroll_focus(child, content, clip);
+                for child in children {
+                    if self.focus_path.contains(&(child as *const Element as usize)) {
+                        self.probe_scroll_focus(child, content, clip);
+                    }
                 }
             }
             ElementKind::Scroll {
@@ -12084,7 +12342,8 @@ impl LayoutBuilder<'_> {
                 };
                 let max_offset = (child_height - content.height).max(0.0);
                 self.frame.scroll_extents.insert(id.clone(), max_offset);
-                let current_offset = self.scroll_position(id, max_offset, *motion, None);
+                let snap = self.scroll_to_end.remove(id).then_some(max_offset);
+                let current_offset = self.scroll_position(id, max_offset, *motion, snap);
                 let child_rect = Rect::new(
                     content.x,
                     content.y - current_offset,
@@ -12094,18 +12353,13 @@ impl LayoutBuilder<'_> {
                 let new_clip = clip
                     .and_then(|outer| outer.intersection(content))
                     .or_else(|| clip.is_none().then_some(content));
-                if let Some(new_clip) = new_clip {
-                    self.scroll_focus_context.push(ScrollFocusContext {
-                        id: id.clone(),
-                        viewport: new_clip,
-                        offset: current_offset,
-                    });
-                    self.probe_scroll_focus(child, child_rect, Some(new_clip));
-                    self.scroll_focus_context.pop();
-                } else {
-                    // The outer scroll area must reveal this nested area first.
-                    self.probe_scroll_focus(child, child_rect, clip);
-                }
+                self.scroll_focus_context.push(ScrollFocusContext {
+                    id: id.clone(),
+                    viewport: new_clip.unwrap_or(content),
+                    offset: current_offset,
+                });
+                self.probe_scroll_focus(child, child_rect, new_clip.or(clip));
+                self.scroll_focus_context.pop();
             }
             ElementKind::Overlay { base, .. }
                 if self
@@ -12666,6 +12920,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         for (from, direction, expected) in [
             ("main:1", Key::ArrowDown, "main:2"),
@@ -12699,6 +12954,7 @@ mod tests {
                 key: Key::Tab,
                 shift: true,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("main:1"));
@@ -12743,6 +12999,7 @@ mod tests {
                 key: Key::End,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("main:2"));
@@ -12767,6 +13024,7 @@ mod tests {
                 key: Key::Tab,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("close:2"));
@@ -12782,14 +13040,56 @@ mod tests {
             key: Key::ArrowDown,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("close:1"));
         tree.handle_event(UiEvent::Key {
             key: Key::End,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("close:2"));
+    }
+
+    #[test]
+    fn max_width_paragraph_measures_its_wrapped_height_before_the_next_sibling() {
+        let description = "A paragraph whose natural width is longer than its maximum must keep every wrapped line above the following control.";
+        for width in [160.0, 480.0] {
+            let paragraph = Element::text(description)
+                .max_width(120.0)
+                .shrink_to_fit()
+                .centered_x();
+            let mut tree = UiTree::new(
+                Element::column(vec![
+                    paragraph,
+                    Element::button("next", "Continue").size(None, Some(32.0)),
+                ])
+                .gap(12.0),
+            );
+            let frame = tree.layout(Size::new(width, 600.0));
+            let blocks = frame.text_layouts();
+            let paragraph = blocks
+                .iter()
+                .find(|block| block.source == description)
+                .unwrap();
+            assert!(
+                paragraph.runs.len() > 1,
+                "the capped paragraph must wrap at {width}"
+            );
+            let bottom = paragraph
+                .runs
+                .iter()
+                .map(|run| run.rect.y + run.rect.height)
+                .fold(0.0_f32, f32::max);
+            let next = frame
+                .regions
+                .iter()
+                .find(|region| region.id == "next")
+                .unwrap();
+            assert!(next.rect.y >= bottom + 12.0 - 0.1,
+                "wrapped paragraph consumed its following gap at {width}: bottom={bottom}, next={:?}", next.rect);
+        }
     }
 
     #[test]
@@ -13132,7 +13432,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 [UiAction::Clicked {
                     id: "rounded-row".into()
@@ -13364,9 +13665,11 @@ mod tests {
             inset: SLIDER_THUMB_INSET,
             animated: true,
             y: None,
+            vertical: false,
         };
         let three = SliderGeometry { steps: 3, ..five };
         let x = SLIDER_THUMB_INSET + 0.3 * (rect.width - 2.0 * SLIDER_THUMB_INSET);
+        let x = Point::new(x, 0.0);
         assert!(five.fraction_at(x) < 0.3, "five stops attract toward 0.25");
         assert!(three.fraction_at(x) > 0.3, "three stops attract toward 0.5");
         assert_eq!(five.snap(five.fraction_at(x)), 0.25);
@@ -13456,6 +13759,7 @@ mod tests {
                 key: Key::ArrowRight,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::SliderChanged {
                 id: "effort".into(),
@@ -13664,6 +13968,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         let exiting = tree.layout_at(viewport, start + Duration::from_millis(205));
@@ -14217,6 +14522,7 @@ mod tests {
             key: Key::Backspace,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert!(placeholder(&tree.layout(viewport)).is_some());
         assert!(tree.focus("other"));
@@ -14359,6 +14665,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let focused = tree.layout(Size::new(200.0, 100.0));
         assert!(focused
@@ -14601,7 +14908,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "exact-model".into()
@@ -14822,6 +15130,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -14880,6 +15189,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         tree.handle_event(key(Key::ArrowDown));
         assert_eq!(tree.focused_id(), Some("pin"));
@@ -15098,6 +15408,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("new"));
         for key in [Key::Enter, Key::Space] {
@@ -15105,7 +15416,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked { id: "new".into() }]
             );
@@ -15114,6 +15426,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("second"));
     }
@@ -15147,12 +15460,14 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("before"));
         tree.handle_event(UiEvent::Key {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("link"));
         let frame = tree.layout(viewport);
@@ -15172,6 +15487,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             tree.focused_id(),
@@ -15295,6 +15611,7 @@ mod tests {
                 key: Key::C,
                 shift: false,
                 ctrl: true,
+                alt: false,
             }),
             vec![UiAction::CopyRequested {
                 text: "hi 👩‍💻".into(),
@@ -15464,6 +15781,7 @@ mod tests {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         let selected = tree.layout(Size::new(120.0, 30.0));
         assert!(selected.commands.iter().any(|command| matches!(
@@ -15502,11 +15820,13 @@ mod tests {
             key: Key::ArrowLeft,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowUp,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let moved = tree.layout(Size::new(20.0, 60.0));
         assert!(moved.commands.iter().any(|command| matches!(
@@ -15710,12 +16030,14 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked { id: "new".into() }]
         );
@@ -15837,6 +16159,7 @@ mod tests {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::InputChanged {
                 id: "prompt".into(),
@@ -15852,6 +16175,7 @@ mod tests {
                 key: Key::Enter,
                 shift: false,
                 ctrl: true,
+                alt: false,
             }),
             vec![UiAction::Submitted {
                 id: "prompt".into(),
@@ -15906,6 +16230,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert!(tree
             .layout(Size::new(100.0, 28.0))
@@ -16269,6 +16594,7 @@ mod tests {
                 key: Key::A,
                 shift: false,
                 ctrl: true,
+                alt: false,
             });
             let mut expected = String::new();
             for character in "fixture ñ🦀".chars() {
@@ -16291,6 +16617,7 @@ mod tests {
                 key: Key::A,
                 shift: false,
                 ctrl: true,
+                alt: false,
             });
             tree.handle_event(UiEvent::Text("n".into()));
             tree.handle_event(UiEvent::Text("a".into()));
@@ -16307,6 +16634,7 @@ mod tests {
             key: Key::ArrowLeft,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Paste("ñ".into()));
         tree.handle_event(UiEvent::Text("🦀".into()));
@@ -16316,6 +16644,7 @@ mod tests {
                 key: Key::C,
                 shift: false,
                 ctrl: true,
+                alt: false,
             })
             .is_empty(),
             "typing must leave no active selection"
@@ -16330,11 +16659,13 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         let selected = tree.layout(Size::new(240.0, 88.0));
         assert_eq!(
@@ -16350,6 +16681,7 @@ mod tests {
             key: Key::ArrowUp,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Text("!".into()));
         assert_eq!(tree.input_value("prompt"), Some("x!"));
@@ -17596,11 +17928,13 @@ mod tests {
             key: Key::ArrowLeft,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::Backspace,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.input_value("prompt"), Some("a🦀"));
         tree.set_root(Element::text_input("prompt", "stale", "Ask"));
@@ -17802,7 +18136,7 @@ mod tests {
             ]),
         );
         let tab = |tree: &mut UiTree, shift: bool| {
-            tree.handle_event(UiEvent::Key { key: Key::Tab, shift, ctrl: false });
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift, ctrl: false, alt: false });
             tree.layout(Size::new(120.0, 60.0));
         };
         let mut tree = UiTree::new(list);
@@ -17872,6 +18206,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("row:3"));
         let frame = tree.layout(Size::new(120.0, 60.0));
@@ -17883,6 +18218,7 @@ mod tests {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("menu:0"));
         let frame = tree.layout(Size::new(120.0, 60.0));
@@ -17951,7 +18287,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "command_pick:0:workspace-b/query-b".into(),
@@ -18033,6 +18370,7 @@ mod tests {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         tree.handle_event(UiEvent::Text("rust".into()));
         assert_eq!(tree.input_value("input"), Some("rust"));
@@ -18040,7 +18378,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Submitted {
                 id: "input".into(),
@@ -18064,6 +18403,7 @@ mod tests {
             key: Key::Tab,
             shift,
             ctrl: false,
+            alt: false,
         };
         tree.handle_event(tab(false));
         assert_eq!(tree.focused_id(), Some("first"));
@@ -18089,6 +18429,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         for key in [Key::Enter, Key::Space] {
             assert_eq!(
@@ -18096,6 +18437,7 @@ mod tests {
                     key,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 }),
                 vec![UiAction::Clicked { id: "send".into() }]
             );
@@ -18116,6 +18458,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.set_root(Element::button("new", "New"));
         tree.layout(Size::new(100.0, 40.0));
@@ -18124,6 +18467,7 @@ mod tests {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("new"));
     }

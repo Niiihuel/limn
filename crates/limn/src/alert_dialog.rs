@@ -285,18 +285,21 @@ mod tests {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("cancel:close"));
         tree.handle_event(UiEvent::Key {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("confirm"));
         tree.handle_event(UiEvent::Key {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("cancel"));
         assert_eq!(
@@ -304,6 +307,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "cancel".into()
@@ -349,6 +353,7 @@ mod tests {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "cancel".into()

@@ -1792,7 +1792,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "replace".into()
@@ -2122,6 +2123,7 @@ mod tests {
                         key: Key::End,
                         ctrl: false,
                         shift: false,
+                        alt: false,
                     });
                     let frame = tree.layout(viewport);
                     let last = frame
@@ -2141,7 +2143,8 @@ mod tests {
                         tree.handle_event(UiEvent::Key {
                             key: Key::Enter,
                             ctrl: false,
-                            shift: false
+                            shift: false,
+                            alt: false
                         }),
                         vec![UiAction::Clicked {
                             id: "wrapped:11".into()
@@ -2206,6 +2209,7 @@ mod tests {
                 key: Key::End,
                 ctrl: false,
                 shift: false,
+                alt: false,
             });
             let frame = tree.layout(viewport);
             let last = frame
@@ -2219,7 +2223,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     ctrl: false,
-                    shift: false
+                    shift: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "action:13".into()
@@ -2273,6 +2278,7 @@ mod tests {
             key: Key::ArrowRight,
             ctrl: false,
             shift: false,
+            alt: false,
         });
         tree.layout(viewport);
         assert_eq!(tree.focused_id(), Some("child"));
@@ -2280,7 +2286,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::ArrowLeft,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             })
             .is_empty()
         );
@@ -2289,7 +2296,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Escape,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -2316,7 +2324,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Escape,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             })
             .is_empty()
         );
@@ -2334,7 +2343,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Escape,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -2463,6 +2473,7 @@ mod tests {
             key: Key::ArrowRight,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             tree.focused_id(),
@@ -2616,6 +2627,7 @@ mod tests {
             key: Key::End,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let end = tree.layout(viewport);
         assert_eq!(tree.focused_id(), Some("tail:1"));
@@ -2625,7 +2637,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "tail:1".into()
@@ -2699,6 +2712,7 @@ mod tests {
                 key: Key::End,
                 shift: false,
                 ctrl: false,
+                alt: false,
             });
             let end = tree.layout(viewport);
             assert_eq!(tree.focused_id(), Some("model:11"));
@@ -2722,7 +2736,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "model:11".into()
@@ -2732,7 +2747,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Escape,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "dismiss".into()
@@ -2778,12 +2794,14 @@ mod tests {
             key: Key::ArrowDown,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("open"));
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowDown,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("settings"));
         let option = frame
@@ -2800,6 +2818,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -2928,12 +2947,14 @@ mod tests {
             key: Key::ArrowRight,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("account"));
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowLeft,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("settings"));
     }
@@ -3114,7 +3135,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Escape,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -3363,6 +3385,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         })
     }
 

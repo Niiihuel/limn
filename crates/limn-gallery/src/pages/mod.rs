@@ -23,12 +23,14 @@ mod diagrams;
 mod editor;
 mod empty;
 mod feedback;
+mod file_drop;
 pub mod glass;
 mod inputs;
 mod lists;
 mod loading;
 mod markdown;
 mod media;
+pub use media::present_animation;
 mod menus;
 mod messages;
 mod navigation;
@@ -200,6 +202,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "suggestion-list", group: "Overlays", title: "SuggestionList", source: "menus", view: menus::view, sections: &["Suggestion list"], since: "0.1.39" },
     Page { id: "tooltip", group: "Overlays", title: "Tooltip", source: "tooltip", view: tooltip::view, sections: &[], since: "0.1.39" },
     Page { id: "tour", group: "Overlays", title: "Tour", source: "tour", view: tour::view, sections: &[], since: "0.1.39" },
+    Page { id: "wayland-data-owner", group: "Native", title: "WaylandDataOwner", source: "file_drop", view: file_drop::view, sections: &[], since: "0.1.43" },
 ];
 
 /// The components as JSON, one page each: what a site needs to give every

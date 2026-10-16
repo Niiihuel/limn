@@ -159,7 +159,7 @@ fn the_focused_control_says_it_has_the_focus() {
         Button::new("two", "Two", palette()).render(),
     ]));
     tree.layout(Size::new(320.0, 200.0));
-    tree.handle_event(UiEvent::Key { key: limn::Key::Tab, shift: false, ctrl: false });
+    tree.handle_event(UiEvent::Key { key: limn::Key::Tab, shift: false, ctrl: false, alt: false });
     let frame = tree.layout(Size::new(320.0, 200.0));
     let focused: Vec<_> = frame.access.iter().filter(|node| node.focused).map(|node| node.id.as_str()).collect();
     assert_eq!(focused, ["one"]);

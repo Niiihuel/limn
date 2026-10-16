@@ -14,6 +14,64 @@ fn fades(frame: &Frame) -> Vec<Rect> {
 }
 
 #[test]
+fn inset_fade_bands_begin_outside_floating_bars_without_changing_scroll_or_hits() {
+    let color = Color::rgb(20, 20, 20);
+    let size = Size::new(240.0, 280.0);
+    for virtualized in [false, true] {
+        let body = if virtualized {
+            Element::uniform_list("rows", 30, 36.0, |index| {
+                Element::button(format!("row:{index}"), format!("Row {index}"))
+                    .size(None, Some(36.0))
+            })
+        } else {
+            Element::scroll("rows", Element::column((0..30).map(|index| {
+                Element::button(format!("row:{index}"), format!("Row {index}"))
+                    .size(None, Some(36.0))
+            }).collect()))
+        };
+        let mut plain = UiTree::new(body.clone());
+        let mut tree = UiTree::new(body.top_fade(color, 48.0).bottom_fade(color, 56.0)
+            .fade_insets(76.0, 64.0));
+        plain.set_reduced_motion(true);
+        tree.set_reduced_motion(true);
+        let first = tree.layout(size);
+        let width = first.scrollbars["rows"].rail.x;
+        assert_eq!(fades(&first), vec![Rect::new(0.0, 160.0, width, 56.0)]);
+        assert_eq!(first.regions, plain.layout(size).regions);
+        for surface in [&mut plain, &mut tree] {
+            surface.handle_event(UiEvent::ScrollDirect {
+                position: Point::new(30.0, 130.0), delta_y: -100.0,
+            });
+        }
+        let frame = tree.layout(size);
+        assert_eq!(frame.regions, plain.layout(size).regions);
+        let bands: Vec<_> = frame.commands.iter().filter_map(|command| match command {
+            DrawCommand::FillVerticalGradient { rect, top, bottom } => Some((*rect, *top, *bottom)),
+            _ => None,
+        }).collect();
+        assert_eq!(bands, vec![
+            (Rect::new(0.0, 76.0, width, 48.0), color, Color { a: 0, ..color }),
+            (Rect::new(0.0, 160.0, width, 56.0), Color { a: 0, ..color }, color),
+        ]);
+        tree.scroll_to_end("rows");
+        let end = tree.layout(size);
+        assert_eq!(fades(&end), vec![Rect::new(0.0, 76.0, width, 48.0)],
+            "the bottom fade disappears at the real scroll end");
+    }
+}
+
+#[test]
+fn fade_insets_are_bounded_by_the_viewport_and_normalize_invalid_values() {
+    let normalized = Element::spacer().fade_insets(-5.0, f32::NAN);
+    assert_eq!(normalized.style.fade_insets, (0.0, 0.0));
+    assert_eq!(Element::spacer().fade_insets(f32::INFINITY, 8.0).style.fade_insets, (0.0, 8.0));
+    let frame = UiTree::new(Element::spacer().top_fade(Color::rgb(0, 0, 0), 48.0)
+        .bottom_fade(Color::rgb(0, 0, 0), 56.0).fade_insets(400.0, 400.0))
+        .layout(Size::new(240.0, 280.0));
+    assert!(fades(&frame).is_empty(), "bars filling the viewport leave no fade area");
+}
+
+#[test]
 fn scroll_top_fade_requires_hidden_content_and_leaves_headers_and_scrollbars_clear() {
     for virtualized in [false, true] {
         let body = if virtualized {
@@ -79,7 +137,8 @@ fn scroll_top_fade_requires_hidden_content_and_leaves_headers_and_scrollbars_cle
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked { id: id.into() }]
             );
@@ -188,7 +247,8 @@ fn scroll_bottom_fade_overlays_only_hidden_content_without_intercepting_input() 
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "row:19".into()

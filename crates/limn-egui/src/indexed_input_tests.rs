@@ -30,7 +30,7 @@ fn shortcut(keycode: egui::Key, command: bool, shift: bool) -> Event {
 }
 
 fn ui_key(key: Key, ctrl: bool, shift: bool) -> UiEvent {
-    UiEvent::Key { key, ctrl, shift }
+    UiEvent::Key { key, ctrl, shift, alt: false }
 }
 
 fn frame(
@@ -201,8 +201,9 @@ fn indexed_input_uses_post_normalization_indices_and_keeps_native_key_metadata()
         mapped(&items),
         vec![
             (Some(0), UiEvent::Text(">".into())),
-            (Some(2), ui_key(Key::ArrowDown, false, false)),
-            (Some(3), ui_key(Key::ArrowDown, false, false)),
+            // Alt+Down: the translation carries Alt; repeat stays native.
+            (Some(2), UiEvent::Key { key: Key::ArrowDown, ctrl: false, shift: false, alt: true }),
+            (Some(3), UiEvent::Key { key: Key::ArrowDown, ctrl: false, shift: false, alt: true }),
         ]
     );
     for (index, expected_repeat) in [(2, false), (3, true)] {

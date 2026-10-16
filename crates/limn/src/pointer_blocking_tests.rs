@@ -83,7 +83,8 @@ fn pointer_blockers_add_no_accessibility_node_or_keyboard_focus_stop() {
             .handle_event(UiEvent::Key {
                 key: Key::Tab,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some(expected));
