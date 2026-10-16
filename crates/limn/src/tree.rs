@@ -1843,6 +1843,8 @@ struct SliderGeometry {
     animated: bool,
     /// The share of the height from the top, for a slider over an area.
     y: Option<f32>,
+    /// A slider standing up: its fraction runs from the bottom to the top.
+    vertical: bool,
 }
 
 /// What a slider reports: its fraction along a track, or both shares over an area.
@@ -1875,12 +1877,18 @@ impl SliderGeometry {
         })
     }
 
-    fn fraction_at(self, x: f32) -> f32 {
-        let travel = self.rect.width - self.inset * 2.0;
+    fn fraction_at(self, point: Point) -> f32 {
+        let (along, start, length) = if self.vertical {
+            // From the bottom: dragging up raises the value.
+            (self.rect.y + self.rect.height - point.y, 0.0, self.rect.height)
+        } else {
+            (point.x, self.rect.x, self.rect.width)
+        };
+        let travel = length - self.inset * 2.0;
         if travel <= 0.0 {
             return 0.5;
         }
-        let raw = ((x - self.rect.x - self.inset) / travel).clamp(0.0, 1.0);
+        let raw = ((along - start - self.inset) / travel).clamp(0.0, 1.0);
         if self.steps < 2 {
             return raw;
         }
@@ -5414,7 +5422,7 @@ impl UiTree {
                     }
                 }
                 if let Some(drag) = self.slider_drag.as_mut() {
-                    let fraction = drag.geometry.fraction_at(point.x);
+                    let fraction = drag.geometry.fraction_at(point);
                     let y = drag.geometry.y_at(point.y);
                     if fraction != drag.fraction || y != drag.y {
                         drag.fraction = fraction;
@@ -5507,7 +5515,7 @@ impl UiTree {
                         .copied()
                         .map(|geometry| (region.id.clone(), geometry))
                 }) {
-                    let fraction = geometry.fraction_at(point.x);
+                    let fraction = geometry.fraction_at(point);
                     let y = geometry.y_at(point.y);
                     self.slider_drag = Some(SliderDrag {
                         id: id.clone(),
@@ -5647,7 +5655,7 @@ impl UiTree {
                 self.set_hovered(self.frame.hit_test(point).map(str::to_owned), now);
                 self.tooltip_hover_since = self.hovered.as_ref().map(|id| (id.clone(), now));
                 if let Some(drag) = self.slider_drag.take() {
-                    let released_fraction = drag.geometry.fraction_at(point.x);
+                    let released_fraction = drag.geometry.fraction_at(point);
                     let snapped = drag.geometry.snap(released_fraction);
                     if !self.reduced_motion && drag.geometry.animated {
                         let motion = self
@@ -5967,6 +5975,12 @@ impl UiTree {
             });
             return true;
         }
+        // A vertical slider: Up raises it and Down lowers it.
+        let key = match (geometry.vertical, key) {
+            (true, Key::ArrowUp) => Key::ArrowRight,
+            (true, Key::ArrowDown) => Key::ArrowLeft,
+            (_, key) => key,
+        };
         if geometry.steps < 2 {
             let current = geometry.fraction.clamp(0.0, 1.0);
             let fraction = match key {
@@ -10005,6 +10019,7 @@ impl LayoutBuilder<'_> {
                             inset: travel.inset,
                             animated: false,
                             y: travel.y,
+                            vertical: travel.vertical,
                         },
                     );
                 }
@@ -11833,6 +11848,7 @@ impl LayoutBuilder<'_> {
                         inset: SLIDER_THUMB_INSET,
                         animated: true,
                         y: None,
+                        vertical: false,
                     },
                 );
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
@@ -13406,9 +13422,11 @@ mod tests {
             inset: SLIDER_THUMB_INSET,
             animated: true,
             y: None,
+            vertical: false,
         };
         let three = SliderGeometry { steps: 3, ..five };
         let x = SLIDER_THUMB_INSET + 0.3 * (rect.width - 2.0 * SLIDER_THUMB_INSET);
+        let x = Point::new(x, 0.0);
         assert!(five.fraction_at(x) < 0.3, "five stops attract toward 0.25");
         assert!(three.fraction_at(x) > 0.3, "three stops attract toward 0.5");
         assert_eq!(five.snap(five.fraction_at(x)), 0.25);
