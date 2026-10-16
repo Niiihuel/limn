@@ -4017,7 +4017,9 @@ impl UiTree {
                                 rect: ring,
                                 color: coach.fill,
                                 width: COACH_RING_WIDTH,
-                                radius: radius + COACH_RING_GAP,
+                                radius: (radius + COACH_RING_GAP)
+                                    .min(ring.width / 2.0)
+                                    .min(ring.height / 2.0),
                             });
                         }
                         let bubble_start = builder.frame.commands.len();
@@ -9553,6 +9555,9 @@ impl LayoutBuilder<'_> {
             }
         }
         let mut style = element.style;
+        // Fill, border, focus ring and shadow share one radius that fits the
+        // rectangle: what `f32::INFINITY` asks for, and an exact pill otherwise.
+        style.radius = style.radius.min(rect.width / 2.0).min(rect.height / 2.0).max(0.0);
         if let ElementKind::Skeleton {
             id,
             base,

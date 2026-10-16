@@ -1013,8 +1013,9 @@ impl Component for Button {
             padding
         };
         let height = sizing.height;
-        // Half the height is a shape, not a token.
-        let radius = if self.round { height / 2.0 } else { self.radius.px() };
+        // A shape, not a token: half the height of whatever size it is laid out at.
+        let (round, radius) = (self.round, self.radius.px());
+        let shape = move |element: Element| if round { element.round() } else { element.radius(radius) };
 
         if self.state == ControlState::Disabled || self.loading {
             // The engine's Button element always registers a hit target. A
@@ -1095,14 +1096,13 @@ impl Component for Button {
             // without clipping large button sizes or the spinner's slot.
             let vertical_padding = ((height - content_height) / 2.0).max(0.0);
             let extra_horizontal = (padding - vertical_padding).max(0.0);
-            let mut element = Element::panel(Element::row(vec![
+            let mut element = shape(Element::panel(Element::row(vec![
                 Element::spacer().size(Some(extra_horizontal), None),
                 visual.size(None, Some(content_height)).flex(1.0),
                 Element::spacer().size(Some(extra_horizontal), None),
             ]))
             .padding(vertical_padding)
-            .background(base)
-            .radius(radius)
+            .background(base))
             .size(width, Some(height));
             if outline {
                 element = element.border(self.palette.border, 1.0);
@@ -1129,9 +1129,8 @@ impl Component for Button {
             .font_family(FontFamily::Sans)
             .font_size(sizing.font_size)
             .padding(padding)
-            .gap(spacing)
-            .radius(radius)
-            .size(width, Some(height));
+            .gap(spacing);
+        element = shape(element).size(width, Some(height));
         if matches!(
             self.variant,
             ButtonVariant::Default
@@ -4043,12 +4042,31 @@ mod tests {
             let height = size.button_sizing().height;
             let icon = || IconButton::new("send", Icon::ArrowUp, palette).size(size).round();
             for element in [icon().render(), icon().disabled().render()] {
-                assert_eq!(element.style.radius, height / 2.0);
                 assert_eq!((element.style.width, element.style.height), (Some(height), Some(height)));
+                assert_eq!(painted_fill(element), (height, height / 2.0));
             }
-            let pill = Button::new("save", "Save", palette).size(size).radius(RadiusRole::Card).round();
-            assert_eq!(pill.render().style.radius, height / 2.0);
+            let pill = || Button::new("save", "Save", palette).size(size).radius(RadiusRole::Card).round();
+            assert_eq!(painted_fill(pill().render()), (height, height / 2.0));
+            // Given another height after it is built, it is still a pill.
+            assert_eq!(painted_fill(pill().render().size(None, Some(44.0))), (44.0, 22.0));
+            assert_eq!(painted_fill(pill().disabled().render().size(None, Some(45.0))), (45.0, 22.5));
         }
+        // A radius larger than the shape is painted as the half it can be.
+        let square = Button::new("save", "Save", palette).radius(RadiusRole::Panel).render().size(None, Some(10.0));
+        assert_eq!(painted_fill(square), (10.0, 5.0));
+    }
+
+    /// The height and radius of the first fill a lone element paints.
+    fn painted_fill(element: Element) -> (f32, f32) {
+        let mut tree = UiTree::new(Element::column(vec![element]));
+        tree.layout(Size::new(400.0, 200.0))
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, radius, .. } => Some((rect.height, *radius)),
+                _ => None,
+            })
+            .expect("a fill")
     }
 
     #[test]

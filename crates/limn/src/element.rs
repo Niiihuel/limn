@@ -3522,9 +3522,19 @@ impl Element {
 
     /// Round the four corners by this radius, in logical pixels. It replaces
     /// any `corner_radii`; a negative value becomes zero, and one that is not
-    /// finite is ignored.
+    /// finite is ignored. A painted radius never exceeds half the shorter side.
     pub fn radius(mut self, radius: f32) -> Self {
         self.style.radius = length(radius, self.style.radius);
+        self.style.corner_radii = None;
+        self
+    }
+
+    /// Round the ends fully: half the shorter side of wherever the element is
+    /// laid out, so a pill or a circle stays one when its size changes later.
+    /// It replaces any `radius` or `corner_radii`.
+    pub fn round(mut self) -> Self {
+        // Painting clamps every radius to the rectangle it rounds.
+        self.style.radius = f32::INFINITY;
         self.style.corner_radii = None;
         self
     }
