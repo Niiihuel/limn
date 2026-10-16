@@ -275,3 +275,241 @@ fn nested_action_menu_left_and_escape_close_child_without_focus_reopening_it() {
         }]
     );
 }
+
+fn modal_with_select(open: bool, background_menu: bool) -> Element {
+    use crate::{Component, ComponentPalette, DropdownOption, Modal, Select};
+    let background = Element::button("behind", "Background");
+    let background = if background_menu {
+        // This child's deferred scope is painted after the modal, even
+        // though its trigger belongs to the covered background tree.
+        Element::popover(
+            background,
+            Element::popover(
+                Element::button("behind_trigger", "Background menu"),
+                Element::popover(
+                    Element::button("behind_second_trigger", "Background submenu"),
+                    Element::button("behind_action", "Background action"),
+                    "behind_grandchild_dismiss",
+                    PopoverPlacement::BottomStart,
+                )
+                .popover_initial_focus("behind_action"),
+                "behind_child_dismiss",
+                PopoverPlacement::BottomStart,
+            ),
+            "behind_dismiss",
+            PopoverPlacement::BottomStart,
+        )
+    } else {
+        background
+    };
+    let select = Select::new(
+        "choice",
+        "First",
+        ["first", "second", "third"]
+            .into_iter()
+            .map(|id| DropdownOption::new(id, id))
+            .collect(),
+        open,
+        "choice_dismiss",
+        ComponentPalette::neutral_dark(),
+    )
+    .width(180.0)
+    .menu_width(220.0)
+    .render()
+    .popover_initial_focus("first")
+    .popover_return_focus("choice");
+    Modal::new(
+        background,
+        true,
+        "Edit",
+        "",
+        "modal_dismiss",
+        ComponentPalette::neutral_dark(),
+    )
+    .width(320.0)
+    .height(260.0)
+    .body(
+        Element::column(vec![
+            Element::text_input("form_name", "draft", "Name"),
+            select,
+        ])
+        .gap(8.0),
+    )
+    .footer(Element::button("save", "Save"))
+    .initial_focus("form_name")
+    .return_focus("behind")
+    .render()
+}
+
+#[test]
+fn modal_select_escape_closes_the_select_before_the_modal() {
+    let mut tree = UiTree::new(modal_with_select(false, false));
+    tree.set_reduced_motion(true);
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("form_name"));
+    assert!(tree.focus("choice"));
+    tree.set_root(modal_with_select(true, false));
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("first"));
+    assert_eq!(
+        tree.handle_event(key(Key::Escape)),
+        [UiAction::Clicked {
+            id: "choice_dismiss".into()
+        }]
+    );
+    tree.set_root(modal_with_select(false, false));
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("choice"));
+    assert_eq!(
+        tree.handle_event(key(Key::Escape)),
+        [UiAction::Clicked {
+            id: "modal_dismiss".into()
+        }]
+    );
+}
+
+#[test]
+fn modal_select_tab_and_arrows_stay_in_the_open_child() {
+    let mut tree = UiTree::new(modal_with_select(true, false));
+    tree.set_reduced_motion(true);
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("first"));
+    for expected in ["second", "third", "first"] {
+        assert!(tree.handle_event(key(Key::Tab)).is_empty());
+        assert_eq!(tree.focused_id(), Some(expected));
+    }
+    tree.handle_event(UiEvent::Key {
+        key: Key::Tab,
+        shift: true,
+        ctrl: false,
+    });
+    assert_eq!(tree.focused_id(), Some("third"));
+    for (key_value, expected) in [
+        (Key::Home, "first"),
+        (Key::ArrowUp, "third"),
+        (Key::ArrowDown, "first"),
+        (Key::End, "third"),
+    ] {
+        assert!(tree.handle_event(key(key_value)).is_empty());
+        assert_eq!(tree.focused_id(), Some(expected));
+    }
+    assert_eq!(
+        tree.handle_event(key(Key::Enter)),
+        [UiAction::Clicked { id: "third".into() }]
+    );
+}
+
+#[test]
+fn modal_masks_background_scopes_even_when_they_are_deferred_after_it() {
+    let mut opened = UiTree::new(modal_with_select(true, true));
+    opened.set_reduced_motion(true);
+    opened.layout(VIEWPORT);
+    assert_eq!(
+        opened.focused_id(),
+        Some("first"),
+        "a later background target cannot hide the valid child initial focus"
+    );
+    let mut tree = UiTree::new(modal_with_select(false, true));
+    tree.set_reduced_motion(true);
+    tree.layout(VIEWPORT);
+    let scopes = &tree.frame.popover_focus;
+    let modal = scopes
+        .iter()
+        .position(|scope| scope.dismiss_id == "modal_dismiss")
+        .unwrap();
+    let behind = scopes
+        .iter()
+        .position(|scope| scope.dismiss_id == "behind_child_dismiss")
+        .unwrap();
+    assert!(
+        behind > modal,
+        "fixture must cover a later background scope"
+    );
+    for _ in 0..10 {
+        tree.handle_event(key(Key::Tab));
+        assert!(!tree.focused_id().unwrap().starts_with("behind"));
+    }
+    assert_eq!(
+        tree.handle_event(key(Key::Escape)),
+        [UiAction::Clicked {
+            id: "modal_dismiss".into()
+        }]
+    );
+    tree.set_root(modal_with_select(true, true));
+    tree.layout(VIEWPORT);
+    let scopes = &tree.frame.popover_focus;
+    let choice = scopes
+        .iter()
+        .position(|scope| scope.dismiss_id == "choice_dismiss")
+        .unwrap();
+    let behind = scopes
+        .iter()
+        .position(|scope| scope.dismiss_id == "behind_grandchild_dismiss")
+        .unwrap();
+    assert!(
+        behind > choice,
+        "fixture must cover a later background initial focus"
+    );
+    assert_eq!(tree.focused_id(), Some("first"));
+    assert_eq!(
+        tree.handle_event(key(Key::Escape)),
+        [UiAction::Clicked {
+            id: "choice_dismiss".into()
+        }]
+    );
+}
+
+#[test]
+fn modal_menu_keeps_nested_hover_submenus_reachable_with_the_keyboard() {
+    use crate::{Component, ComponentPalette, DropdownMenu, DropdownMenuItem, Modal};
+    let palette = ComponentPalette::neutral_dark();
+    let menu = DropdownMenu::new(
+        Element::button("menu", "Menu"),
+        vec![DropdownMenuItem::new("category", "Category")
+            .submenu(vec![DropdownMenuItem::new("subcategory", "Subcategory")
+                .submenu(vec![DropdownMenuItem::new("leaf", "Leaf").into()])
+                .into()])
+            .into()],
+        true,
+        "menu_dismiss",
+        palette,
+    )
+    .context_menu_style()
+    .render();
+    let mut tree = UiTree::new(
+        Modal::new(
+            Element::button("behind", "Behind"),
+            true,
+            "Edit",
+            "",
+            "modal_dismiss",
+            palette,
+        )
+        .width(280.0)
+        .height(200.0)
+        .body(menu)
+        .initial_focus("category")
+        .render(),
+    );
+    tree.set_reduced_motion(true);
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("category"));
+    for expected in ["subcategory", "leaf"] {
+        tree.handle_event(key(Key::ArrowRight));
+        tree.layout(VIEWPORT);
+        assert_eq!(tree.focused_id(), Some(expected));
+    }
+    assert!(tree.handle_event(key(Key::Escape)).is_empty());
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("subcategory"));
+    assert!(!tree.frame.regions.iter().any(|region| region.id == "leaf"));
+    assert!(tree.handle_event(key(Key::Escape)).is_empty());
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("category"));
+    assert_eq!(
+        tree.handle_event(key(Key::Escape)),
+        [UiAction::Clicked {
+            id: "menu_dismiss".into()
+        }]
+    );
+}

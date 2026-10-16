@@ -3323,6 +3323,8 @@ impl Element {
 
     /// Center the text, or a button's content, across the element's width
     /// instead of starting it at the edge.
+    /// Single-line inputs center values that fit, with matching caret,
+    /// selection and pointer geometry; overflowing values scroll normally.
     pub fn center_content(mut self) -> Self {
         self.style.center_content = true;
         self

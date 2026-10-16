@@ -1428,6 +1428,31 @@ struct PopoverFocusScope {
     pointed: bool,
 }
 
+fn modal_popover_scopes<'a>(
+    scopes: &'a [PopoverFocusScope],
+    closed: &HashSet<String>,
+) -> Vec<&'a PopoverFocusScope> {
+    let modal = scopes.iter().rposition(|scope| scope.modal);
+    let mut allowed = HashSet::new();
+    let mut exposed = Vec::new();
+    for scope in &scopes[modal.unwrap_or(0)..] {
+        if scope.submenu && scope.trigger_id.as_ref().is_some_and(|id| closed.contains(id)) {
+            continue;
+        }
+        // Hover children are absent from their parent's static focus order.
+        // Admit their descendants transitively, but never a covered base menu.
+        if modal.is_none()
+            || scope.modal
+            || scope.trigger_id.as_deref().is_some_and(|id| allowed.contains(id))
+            || scope.focusables.iter().any(|(id, _)| allowed.contains(id.as_str()))
+        {
+            allowed.extend(scope.focusables.iter().map(|(id, _)| id.as_str()));
+            exposed.push(scope);
+        }
+    }
+    exposed
+}
+
 /// A `sticky_top` child held back to be placed above its scroll area: the
 /// element, where it is drawn, the clip, and the fade under it with its
 /// strength.
@@ -4417,6 +4442,12 @@ impl UiTree {
             .rev()
             .find(|scope| scope.modal);
         let had_modal = previous_popovers.iter().any(|scope| scope.modal);
+        let modal_scopes = modal.map(|_| modal_popover_scopes(
+            &self.frame.popover_focus, &self.closed_submenu_triggers,
+        ));
+        let modal_contains = |id: &str| modal_scopes.as_ref().is_none_or(|scopes| {
+            scopes.iter().any(|scope| scope.focusables.iter().any(|(candidate, _)| candidate == id))
+        });
         if let Some(scope) = modal {
             if !had_modal {
                 self.modal_return_focus = scope
@@ -4426,11 +4457,7 @@ impl UiTree {
                     .cloned()
                     .or_else(|| self.focused.clone());
             }
-            if !scope
-                .focusables
-                .iter()
-                .any(|(id, _)| self.focused.as_deref() == Some(id.as_str()))
-            {
+            if !self.focused.as_deref().is_some_and(modal_contains) {
                 self.focused = scope
                     .initial_focus
                     .as_ref()
@@ -4454,14 +4481,14 @@ impl UiTree {
             .popover_focus
             .iter()
             .rev()
-            .find(|scope| {
+            .filter(|scope| {
                 !scope.modal
                     && scope.initial_focus.is_some()
                     && !previous_popovers
                         .iter()
                         .any(|previous| previous.dismiss_id == scope.dismiss_id)
             })
-            .and_then(|scope| {
+            .find_map(|scope| {
                 scope.initial_focus.as_ref().filter(|preferred| {
                     scope.focusables.iter().any(|(id, kind)| {
                         id == *preferred
@@ -4472,8 +4499,7 @@ impl UiTree {
                                     | HitKind::TextArea
                                     | HitKind::CodeEditor
                             )
-                    }) && modal
-                        .is_none_or(|modal| modal.focusables.iter().any(|(id, _)| id == *preferred))
+                    }) && modal_contains(preferred)
                 })
             })
             .cloned();
@@ -6093,38 +6119,19 @@ impl UiTree {
     }
 
     fn active_popover_scope(&self) -> Option<&PopoverFocusScope> {
-        if let Some(modal) = self
-            .frame
-            .popover_focus
-            .iter()
-            .rev()
-            .find(|scope| scope.modal)
-        {
-            return Some(modal);
-        }
+        let scopes = modal_popover_scopes(&self.frame.popover_focus, &self.closed_submenu_triggers);
         let focused = self.focused.as_deref();
-        let open = |scope: &&PopoverFocusScope| {
-            !scope.submenu
-                || !scope
-                    .trigger_id
-                    .as_ref()
-                    .is_some_and(|id| self.closed_submenu_triggers.contains(id))
-        };
-        self.frame
-            .popover_focus
+        scopes
             .iter()
             .rev()
-            .filter(open)
+            .copied()
             .find(|scope| {
                 focused.is_some_and(|id| {
                     scope.trigger_id.as_deref() == Some(id)
-                        || scope
-                            .focusables
-                            .iter()
-                            .any(|(candidate, _)| candidate == id)
+                        || scope.focusables.iter().any(|(candidate, _)| candidate == id)
                 })
             })
-            .or_else(|| self.frame.popover_focus.iter().rev().find(open))
+            .or_else(|| scopes.last().copied())
     }
 
     fn step_tab(&mut self, key: Key, actions: &mut Vec<UiAction>) -> bool {
@@ -8939,6 +8946,10 @@ impl LayoutBuilder<'_> {
             (style.width.unwrap_or(available.width) - padding).max(0.0),
             (available.height - padding).max(0.0),
         );
+        // A paragraph's width cap also constrains its wrapping. Containers
+        // still measure intrinsically before their own final width is capped.
+        let wrap_width = inner.width.min(style.max_width
+            .map_or(f32::INFINITY, |max| (max - padding).max(0.0)));
         let natural = match &element.kind {
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
@@ -8946,7 +8957,7 @@ impl LayoutBuilder<'_> {
                 truncated: false,
                 ..
             } => {
-                let lines = self.wrapped_lines(value, inner.width, style);
+                let lines = self.wrapped_lines(value, wrap_width, style);
                 let longest = lines
                     .iter()
                     .map(|line| self.text_width(line, style))
@@ -8996,8 +9007,7 @@ impl LayoutBuilder<'_> {
                 )
             }
             ElementKind::FormattedText(spans) => {
-                let width = style.width.unwrap_or(available.width);
-                let lines = self.formatted_lines(spans, (width - padding).max(0.0), style);
+                let lines = self.formatted_lines(spans, wrap_width, style);
                 Size::new(
                     lines.iter().map(|line| line.width).fold(0.0, f32::max) + padding,
                     lines.iter().map(|line| line.height).sum::<f32>() + padding,
@@ -10987,12 +10997,15 @@ impl LayoutBuilder<'_> {
                     .entry(id.clone())
                     .or_insert_with(|| InputState::new(initial_value.clone()));
                 state.password = *password;
-                state.content_x = content.x;
                 state.char_width = metrics.char_width;
                 state.content_width = content.width;
                 state.font_size = style.font_size;
                 state.font_family = style.font_family;
                 state.measurer = self.text_measurer.clone();
+                let center_text = style.center_content && state.width(&state.value) <= content.width - 2.0;
+                if center_text {
+                    state.view_start = 0;
+                }
                 if state.cursor < state.view_start {
                     state.view_start = state.cursor;
                 }
@@ -11029,6 +11042,15 @@ impl LayoutBuilder<'_> {
                         char_range(&state.value, state.view_start, visible_end).to_owned()
                     }
                 };
+                let text_x = if center_text {
+                    let text_width = measured_width(
+                        state.measurer.as_deref(), &shown, style.font_size, style.font_family, metrics.char_width,
+                    );
+                    content.x + ((content.width - text_width) / 2.0).max(0.0)
+                } else {
+                    content.x
+                };
+                state.content_x = text_x;
                 let input_clip = clip
                     .and_then(|outer| outer.intersection(content))
                     .or_else(|| clip.is_none().then_some(content));
@@ -11044,7 +11066,7 @@ impl LayoutBuilder<'_> {
                                 state.width(char_range(&state.value, state.view_start, end));
                             self.frame.commands.push(DrawCommand::FillRect {
                                 rect: Rect::new(
-                                    content.x + left,
+                                    text_x + left,
                                     content.y,
                                     right - left,
                                     metrics.line_height,
@@ -11055,7 +11077,7 @@ impl LayoutBuilder<'_> {
                         }
                     }
                     self.frame.commands.push(DrawCommand::Text {
-                        position: Point::new(content.x, content.y),
+                        position: Point::new(text_x, content.y),
                         text: shown,
                         color: if is_placeholder {
                             Color::rgba(
@@ -11074,7 +11096,7 @@ impl LayoutBuilder<'_> {
                         let cursor_x =
                             state.width(char_range(&state.value, state.view_start, state.cursor));
                         let caret_rect =
-                            Rect::new(content.x + cursor_x, content.y, 1.5, metrics.line_height);
+                            Rect::new(text_x + cursor_x, content.y, 1.5, metrics.line_height);
                         if caret_rect.intersection(input_clip).is_some()
                             && self.caret_blink.observe(
                                 id,
@@ -12568,6 +12590,46 @@ mod tests {
             ctrl: false,
         });
         assert_eq!(tree.focused_id(), Some("close:2"));
+    }
+
+    #[test]
+    fn max_width_paragraph_measures_its_wrapped_height_before_the_next_sibling() {
+        let description = "A paragraph whose natural width is longer than its maximum must keep every wrapped line above the following control.";
+        for width in [160.0, 480.0] {
+            let paragraph = Element::text(description)
+                .max_width(120.0)
+                .shrink_to_fit()
+                .centered_x();
+            let mut tree = UiTree::new(
+                Element::column(vec![
+                    paragraph,
+                    Element::button("next", "Continue").size(None, Some(32.0)),
+                ])
+                .gap(12.0),
+            );
+            let frame = tree.layout(Size::new(width, 600.0));
+            let blocks = frame.text_layouts();
+            let paragraph = blocks
+                .iter()
+                .find(|block| block.source == description)
+                .unwrap();
+            assert!(
+                paragraph.runs.len() > 1,
+                "the capped paragraph must wrap at {width}"
+            );
+            let bottom = paragraph
+                .runs
+                .iter()
+                .map(|run| run.rect.y + run.rect.height)
+                .fold(0.0_f32, f32::max);
+            let next = frame
+                .regions
+                .iter()
+                .find(|region| region.id == "next")
+                .unwrap();
+            assert!(next.rect.y >= bottom + 12.0 - 0.1,
+                "wrapped paragraph consumed its following gap at {width}: bottom={bottom}, next={:?}", next.rect);
+        }
     }
 
     #[test]
