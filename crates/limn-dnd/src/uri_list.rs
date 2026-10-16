@@ -77,6 +77,108 @@ pub fn decode(data: &[u8]) -> Vec<PathBuf> {
         .collect()
 }
 
+/// Validate a complete receive-only list without probing or normalizing paths.
+pub(crate) fn decode_received(
+    data: &[u8],
+    limits: &crate::ReceiveLimits,
+) -> Result<Vec<PathBuf>, crate::ReceiveError> {
+    use crate::ReceiveError;
+
+    limits.validate()?;
+    if data.len() > limits.max_list_bytes {
+        return Err(ReceiveError::TooLarge);
+    }
+    let mut paths: Vec<PathBuf> = Vec::new();
+    let mut total = 0usize;
+    for line in data.split(|byte| *byte == b'\n' || *byte == b'\r') {
+        if line.is_empty() || line.starts_with(b"#") {
+            continue;
+        }
+        if paths.len() == limits.max_files {
+            return Err(ReceiveError::TooMany);
+        }
+        let decoded = receive_path(line, limits.max_path_bytes)?;
+        total = total
+            .checked_add(decoded.len())
+            .ok_or(ReceiveError::TooLarge)?;
+        if total > limits.max_total_path_bytes {
+            return Err(ReceiveError::TooLarge);
+        }
+        let decoded = path(decoded);
+        // Path equality folds some separators; compare the actual decoded names.
+        if paths
+            .iter()
+            .any(|existing| existing.as_os_str() == decoded.as_os_str())
+        {
+            return Err(ReceiveError::InvalidUriList);
+        }
+        paths.push(decoded);
+    }
+    if paths.is_empty() {
+        return Err(ReceiveError::InvalidUriList);
+    }
+    Ok(paths)
+}
+
+fn receive_path(line: &[u8], max_bytes: usize) -> Result<Vec<u8>, crate::ReceiveError> {
+    use crate::ReceiveError;
+
+    let rest = line
+        .strip_prefix(b"file://")
+        .ok_or(ReceiveError::InvalidUriList)?;
+    let rest = rest.strip_prefix(b"localhost").unwrap_or(rest);
+    if !rest.starts_with(b"/") {
+        return Err(ReceiveError::InvalidUriList);
+    }
+    let mut decoded = Vec::new();
+    let mut index = 0;
+    while index < rest.len() {
+        let byte = if rest[index] == b'%' {
+            let hex = rest
+                .get(index + 1..index + 3)
+                .ok_or(ReceiveError::InvalidUriList)?;
+            let high = receive_hex(hex[0]).ok_or(ReceiveError::InvalidUriList)?;
+            let low = receive_hex(hex[1]).ok_or(ReceiveError::InvalidUriList)?;
+            index += 3;
+            (high << 4) | low
+        } else {
+            let byte = rest[index];
+            if !byte.is_ascii_alphanumeric() && !b"-._~!$&'()*+,;=:@/".contains(&byte) {
+                return Err(ReceiveError::InvalidUriList);
+            }
+            index += 1;
+            byte
+        };
+        if byte.is_ascii_control() {
+            return Err(ReceiveError::InvalidUriList);
+        }
+        if decoded.len() == max_bytes {
+            return Err(ReceiveError::TooLarge);
+        }
+        decoded.push(byte);
+    }
+    if decoded
+        .split(|byte| *byte == b'/')
+        .any(|segment| segment == b"." || segment == b"..")
+    {
+        return Err(ReceiveError::InvalidUriList);
+    }
+    Ok(decoded)
+}
+
+fn receive_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+#[path = "uri_list/receive_tests.rs"]
+mod receive_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
