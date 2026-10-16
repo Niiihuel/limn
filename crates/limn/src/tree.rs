@@ -4555,7 +4555,13 @@ impl UiTree {
                     .cloned()
                     .or_else(|| self.focused.clone());
             }
-            if !self.focused.as_deref().is_some_and(modal_contains) {
+            // A press on blank space inside the open modal blurs; only focus
+            // that is outside it (or a modal that just opened) is moved in.
+            let blurred_inside = self.focused.is_none()
+                && previous_popovers
+                    .iter()
+                    .any(|previous| previous.modal && previous.dismiss_id == scope.dismiss_id);
+            if !blurred_inside && !self.focused.as_deref().is_some_and(modal_contains) {
                 let next_focus = scope
                     .initial_focus
                     .as_ref()
