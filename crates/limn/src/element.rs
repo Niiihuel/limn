@@ -338,6 +338,9 @@ pub enum Icon {
     Archive,
     /// A box with an arrow leaving it upwards.
     ArchiveUp,
+    /// A box with an arrow leaving it up and to the right: a link that
+    /// opens outside the application.
+    ExternalLink,
     /// A waste bin: delete.
     Trash,
     /// A pencil: edit or rename.
