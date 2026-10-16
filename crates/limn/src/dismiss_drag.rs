@@ -114,6 +114,24 @@ impl DismissDrag {
         self.offset
     }
 
+    /// Downward speed over the last 100 ms in logical pixels per second, or
+    /// zero before capture. Read it before [`Self::release`] to hand the
+    /// gesture to a spring with [`crate::ScalarSpring::release`], so the
+    /// content keeps the finger's speed instead of restarting from rest.
+    pub fn velocity(&self, now: Instant) -> f32 {
+        let window = |time: &Instant| now.saturating_duration_since(*time) <= VELOCITY_WINDOW;
+        let (Some(&(since, start)), Some(&(_, end))) =
+            (self.samples.iter().find(|(time, _)| window(time)), self.samples.back())
+        else {
+            return 0.0;
+        };
+        let seconds = now.saturating_duration_since(since).as_secs_f32();
+        if !self.dragging || seconds <= 0.0 {
+            return 0.0;
+        }
+        (end - start) / seconds
+    }
+
     /// Whether the current pointer sequence has been captured.
     pub fn is_dragging(&self) -> bool {
         self.dragging
@@ -158,6 +176,26 @@ impl DismissDrag {
 mod tests {
     use super::*;
     use web_time::Duration;
+
+    #[test]
+    fn velocity_is_the_recent_downward_speed_for_a_spring_handoff() {
+        let now = Instant::now();
+        let at = |ms| now + Duration::from_millis(ms);
+        let mut drag = DismissDrag::new(80.0, 800.0);
+        drag.begin(Point::default(), now, true);
+        assert_eq!(drag.velocity(now), 0.0);
+        assert!(drag.update(Point::new(0.0, 10.0), at(10)));
+        for step in 2..=10 {
+            drag.update(Point::new(0.0, 10.0 * step as f32), at(10 * step));
+        }
+        // 10 px every 10 ms over the last 100 ms.
+        assert!((drag.velocity(at(100)) - 1000.0).abs() < 1.0, "{}", drag.velocity(at(100)));
+        // A finger held still slows it, and the release clears it.
+        assert!(drag.velocity(at(150)) < 1000.0);
+        assert_eq!(drag.velocity(at(400)), 0.0);
+        drag.release(at(400));
+        assert_eq!(drag.velocity(at(400)), 0.0);
+    }
 
     #[test]
     fn captures_only_after_eight_pixels_downward() {
