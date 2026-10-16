@@ -45,7 +45,8 @@ the tree's origin.
 | `ContextMenu { position }`, `ContextMenuKeyboard` | Secondary button, or the keyboard shortcut that opens a context menu. |
 | `Scroll { position, delta_y }`, `ScrollDirect { .. }`, `Scroll2D { .. }` | Wheel, precise touchpad, and two-axis scrolling. |
 | `Text(string)` | Typed text. |
-| `Key { key, shift, ctrl }` | A non-text key: arrows, Tab, Enter, Escape, and so on. |
+| `Key { key, shift, ctrl, alt }` | A non-text key: arrows, Tab, Enter, Escape, F1 to F12, `/` for shortcuts, and so on. The tree reads `alt` only for context menu shortcuts; the host reads it for its own, such as Alt+Left. |
+| `PointerBack(point)`, `PointerForward(point)` | The pointer's side buttons (mouse buttons 4 and 5). The tree ignores them; a host reads them to move through its own history. |
 | `Paste(string)`, `PasteTo { id, text }` | Clipboard text, to the focused control or a named one. |
 | `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
 | `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
@@ -196,8 +197,9 @@ Translations retain source order, and several may share one index.
 
 An ordered host traverses **every source event in that snapshot**, including unknown events
 that produce no `UiEvent`. At each index, process its associated translations
-in order. Read physical_key, pressed, repeat and modifiers (including Alt)
-from that source Key event, rather than a whole-frame key prepass. Apply earlier
+in order. A translated `UiEvent::Key` carries Shift, Ctrl and Alt; read
+physical_key, pressed, repeat and any other modifier from that source Key
+event, rather than a whole-frame key prepass. Apply earlier
 host actions, pending focus and layout before capturing a later paste target.
 Draining only translated events, or processing all markers at the end, loses
 their place among navigation and clicks.

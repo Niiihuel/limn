@@ -121,6 +121,7 @@ fn tab_and_assistive_technology_take_the_children_in_order_across_lines() {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         walked.extend(tree.focused_id().map(str::to_owned));
     }

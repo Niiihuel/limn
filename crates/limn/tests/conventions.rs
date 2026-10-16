@@ -191,7 +191,7 @@ fn page_down_and_page_up_scroll_what_the_wheel_scrolls() {
     let rows: Vec<Element> = (0..60).map(|row| Button::new(format!("row-{row}"), format!("Row {row}"), palette).render()).collect();
     let window = Size::new(320.0, 240.0);
     let mut tree = UiTree::new(ScrollArea::new("list", Element::column(rows)).render().size(Some(window.width), Some(window.height)));
-    let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+    let key = |key| UiEvent::Key { key, shift: false, ctrl: false, alt: false };
     let settle = |tree: &mut UiTree| {
         // A smooth scroll arrives over a few frames.
         let start = web_time::Instant::now();

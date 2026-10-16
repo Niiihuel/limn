@@ -673,7 +673,7 @@ fn stage(element: Element) -> UiTree {
 }
 
 fn key(key: Key) -> UiEvent {
-    UiEvent::Key { key, shift: false, ctrl: false }
+    UiEvent::Key { key, shift: false, ctrl: false, alt: false }
 }
 
 fn region(frame: &Frame, id: &str) -> Option<Rect> {

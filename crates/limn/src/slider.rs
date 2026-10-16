@@ -395,7 +395,7 @@ mod tests {
         let palette = ComponentPalette::neutral_dark();
         let mut tree = tree(Slider::new("s", 0.5, palette).width(WIDTH));
         assert!(tree.focus("s"));
-        let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+        let key = |key| UiEvent::Key { key, shift: false, ctrl: false, alt: false };
         let (fraction, committed) = changed(&tree.handle_event(key(Key::ArrowRight)));
         assert!((fraction - 0.55).abs() < 0.001 && committed);
         assert!((changed(&tree.handle_event(key(Key::ArrowLeft))).0 - 0.45).abs() < 0.001);
@@ -720,7 +720,7 @@ mod tests {
         let palette = ComponentPalette::neutral_dark();
         let mut tree = standing(Slider::new("s", 0.5, palette).steps(5));
         assert!(tree.focus("s"));
-        let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+        let key = |key| UiEvent::Key { key, shift: false, ctrl: false, alt: false };
         assert_eq!(changed(&tree.handle_event(key(Key::ArrowUp))), (0.75, true));
         assert_eq!(changed(&tree.handle_event(key(Key::ArrowDown))).0, 0.25);
         assert_eq!(changed(&tree.handle_event(key(Key::ArrowRight))).0, 0.75);

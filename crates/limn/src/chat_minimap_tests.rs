@@ -38,7 +38,7 @@ fn shows(frame: &Frame, text: &str) -> bool {
 }
 
 fn key(key: Key) -> UiEvent {
-    UiEvent::Key { key, shift: false, ctrl: false }
+    UiEvent::Key { key, shift: false, ctrl: false, alt: false }
 }
 
 #[test]

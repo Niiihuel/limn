@@ -330,11 +330,11 @@ mod tests {
             assert!(tree.focus("bell"));
             for key in [Key::Enter, Key::Space] {
                 assert_eq!(
-                    tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false }),
+                    tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false, alt: false }),
                     vec![UiAction::Clicked { id: "bell".into() }]
                 );
             }
-            tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false });
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false, alt: false });
             assert_eq!(tree.focused_id(), Some("after"));
         }
     }

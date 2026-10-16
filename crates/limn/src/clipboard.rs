@@ -215,7 +215,7 @@ mod tests {
         assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
         assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
         assert!(!tree.focus("copy-link"));
-        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false };
         assert!(tree.handle_event(enter).is_empty());
         let (was, now) = (marks(&enabled), marks(&disabled));
         // The icon and the label are muted; the text beside it is not the button's.

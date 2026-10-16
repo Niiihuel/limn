@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn the_keyboard_moves_through_enabled_options_chooses_and_dismisses() {
-        let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+        let key = |key| UiEvent::Key { key, shift: false, ctrl: false, alt: false };
         let mut tree = tree(select(true));
         tree.layout(VIEWPORT);
         assert!(tree.focus("toggle"));
@@ -751,6 +751,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert_eq!(
             tree.handle_event(key(Key::Escape)),

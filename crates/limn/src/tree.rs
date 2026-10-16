@@ -2310,10 +2310,25 @@ pub enum Key {
     /// The Z key: with `ctrl` in an editable code editor, undoes, or redoes
     /// with `shift`.
     Z,
+    /// The slash key (`/`), read as a key for shortcuts such as Ctrl+/. The
+    /// character still arrives as `UiEvent::Text`.
+    Slash,
+    /// Read only as the shortcut of an item in an open context menu.
+    F1,
     /// Read only as the shortcut of an item in an open context menu.
     F2,
     /// Read only as the shortcut of an item in an open context menu.
+    F3,
+    /// Read only as the shortcut of an item in an open context menu.
+    F4,
+    /// Read only as the shortcut of an item in an open context menu.
     F5,
+    /// Read only as the shortcut of an item in an open context menu.
+    F6,
+    /// Read only as the shortcut of an item in an open context menu.
+    F7,
+    /// Read only as the shortcut of an item in an open context menu.
+    F8,
     /// Read only as the shortcut of an item in an open context menu.
     F9,
     /// Read only as the shortcut of an item in an open context menu.
@@ -2460,7 +2475,19 @@ pub enum UiEvent {
         shift: bool,
         /// True while Ctrl is held. The egui backend sets it for Command too.
         ctrl: bool,
+        /// True while Alt (Option) is held. The tree reads it only to match a
+        /// context menu item's shortcut; a host reads it for its own, such as
+        /// Alt+Left.
+        alt: bool,
     },
+    /// The pointer's back button (the first side button, mouse button 4) was
+    /// pressed at this position. The tree does nothing with it; a host reads
+    /// it to go back in its own history.
+    PointerBack(Point),
+    /// The pointer's forward button (the second side button, mouse button 5)
+    /// was pressed at this position. The tree does nothing with it; a host
+    /// reads it to go forward in its own history.
+    PointerForward(Point),
 }
 
 /// What `UiTree::handle_event` reports for the host to act on.
@@ -5248,6 +5275,8 @@ impl UiTree {
             UiEvent::PasteCaptured { target, text } => {
                 return self.paste_captured(target, text, now)
             }
+            // The host's history buttons: nothing in the tree reads them.
+            UiEvent::PointerBack(_) | UiEvent::PointerForward(_) => return Vec::new(),
             event => event,
         };
         self.validate_ime_owner(now);
@@ -5427,8 +5456,11 @@ impl UiTree {
             | UiEvent::Paste(_) => {
                 unreachable!("additive editor events normalized above")
             }
-            UiEvent::FilesHovered { .. } | UiEvent::FilesDropped { .. } => {
-                unreachable!("external file events resolved before ordinary controls")
+            UiEvent::FilesHovered { .. }
+            | UiEvent::FilesDropped { .. }
+            | UiEvent::PointerBack(_)
+            | UiEvent::PointerForward(_) => {
+                unreachable!("external file and history events resolved before ordinary controls")
             }
             UiEvent::PointerMove(point) => {
                 let moved = self.pointer != Some(point);
@@ -5793,7 +5825,7 @@ impl UiTree {
                     }
                 }
             }
-            UiEvent::Key { key, shift, ctrl } => {
+            UiEvent::Key { key, shift, ctrl, .. } => {
                 if matches!(key, Key::PageUp | Key::PageDown) && !ctrl && self.scroll_by_page(key == Key::PageDown, now) {
                     // Scrolled: a page of what is behind the focus, or under the pointer.
                 } else if key == Key::Escape {
@@ -12769,6 +12801,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         for (from, direction, expected) in [
             ("main:1", Key::ArrowDown, "main:2"),
@@ -12802,6 +12835,7 @@ mod tests {
                 key: Key::Tab,
                 shift: true,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("main:1"));
@@ -12846,6 +12880,7 @@ mod tests {
                 key: Key::End,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("main:2"));
@@ -12870,6 +12905,7 @@ mod tests {
                 key: Key::Tab,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("close:2"));
@@ -12885,12 +12921,14 @@ mod tests {
             key: Key::ArrowDown,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("close:1"));
         tree.handle_event(UiEvent::Key {
             key: Key::End,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("close:2"));
     }
@@ -13275,7 +13313,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 [UiAction::Clicked {
                     id: "rounded-row".into()
@@ -13601,6 +13640,7 @@ mod tests {
                 key: Key::ArrowRight,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::SliderChanged {
                 id: "effort".into(),
@@ -13809,6 +13849,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         let exiting = tree.layout_at(viewport, start + Duration::from_millis(205));
@@ -14362,6 +14403,7 @@ mod tests {
             key: Key::Backspace,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert!(placeholder(&tree.layout(viewport)).is_some());
         assert!(tree.focus("other"));
@@ -14504,6 +14546,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let focused = tree.layout(Size::new(200.0, 100.0));
         assert!(focused
@@ -14746,7 +14789,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "exact-model".into()
@@ -14967,6 +15011,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -15025,6 +15070,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         tree.handle_event(key(Key::ArrowDown));
         assert_eq!(tree.focused_id(), Some("pin"));
@@ -15243,6 +15289,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("new"));
         for key in [Key::Enter, Key::Space] {
@@ -15250,7 +15297,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked { id: "new".into() }]
             );
@@ -15259,6 +15307,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("second"));
     }
@@ -15292,12 +15341,14 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("before"));
         tree.handle_event(UiEvent::Key {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("link"));
         let frame = tree.layout(viewport);
@@ -15317,6 +15368,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             tree.focused_id(),
@@ -15440,6 +15492,7 @@ mod tests {
                 key: Key::C,
                 shift: false,
                 ctrl: true,
+                alt: false,
             }),
             vec![UiAction::CopyRequested {
                 text: "hi 👩‍💻".into(),
@@ -15609,6 +15662,7 @@ mod tests {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         let selected = tree.layout(Size::new(120.0, 30.0));
         assert!(selected.commands.iter().any(|command| matches!(
@@ -15647,11 +15701,13 @@ mod tests {
             key: Key::ArrowLeft,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowUp,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let moved = tree.layout(Size::new(20.0, 60.0));
         assert!(moved.commands.iter().any(|command| matches!(
@@ -15855,12 +15911,14 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked { id: "new".into() }]
         );
@@ -15982,6 +16040,7 @@ mod tests {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::InputChanged {
                 id: "prompt".into(),
@@ -15997,6 +16056,7 @@ mod tests {
                 key: Key::Enter,
                 shift: false,
                 ctrl: true,
+                alt: false,
             }),
             vec![UiAction::Submitted {
                 id: "prompt".into(),
@@ -16051,6 +16111,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert!(tree
             .layout(Size::new(100.0, 28.0))
@@ -16414,6 +16475,7 @@ mod tests {
                 key: Key::A,
                 shift: false,
                 ctrl: true,
+                alt: false,
             });
             let mut expected = String::new();
             for character in "fixture ñ🦀".chars() {
@@ -16436,6 +16498,7 @@ mod tests {
                 key: Key::A,
                 shift: false,
                 ctrl: true,
+                alt: false,
             });
             tree.handle_event(UiEvent::Text("n".into()));
             tree.handle_event(UiEvent::Text("a".into()));
@@ -16452,6 +16515,7 @@ mod tests {
             key: Key::ArrowLeft,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Paste("ñ".into()));
         tree.handle_event(UiEvent::Text("🦀".into()));
@@ -16461,6 +16525,7 @@ mod tests {
                 key: Key::C,
                 shift: false,
                 ctrl: true,
+                alt: false,
             })
             .is_empty(),
             "typing must leave no active selection"
@@ -16475,11 +16540,13 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         let selected = tree.layout(Size::new(240.0, 88.0));
         assert_eq!(
@@ -16495,6 +16562,7 @@ mod tests {
             key: Key::ArrowUp,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Text("!".into()));
         assert_eq!(tree.input_value("prompt"), Some("x!"));
@@ -17741,11 +17809,13 @@ mod tests {
             key: Key::ArrowLeft,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::Backspace,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.input_value("prompt"), Some("a🦀"));
         tree.set_root(Element::text_input("prompt", "stale", "Ask"));
@@ -17947,7 +18017,7 @@ mod tests {
             ]),
         );
         let tab = |tree: &mut UiTree, shift: bool| {
-            tree.handle_event(UiEvent::Key { key: Key::Tab, shift, ctrl: false });
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift, ctrl: false, alt: false });
             tree.layout(Size::new(120.0, 60.0));
         };
         let mut tree = UiTree::new(list);
@@ -18017,6 +18087,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("row:3"));
         let frame = tree.layout(Size::new(120.0, 60.0));
@@ -18028,6 +18099,7 @@ mod tests {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("menu:0"));
         let frame = tree.layout(Size::new(120.0, 60.0));
@@ -18096,7 +18168,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "command_pick:0:workspace-b/query-b".into(),
@@ -18178,6 +18251,7 @@ mod tests {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         tree.handle_event(UiEvent::Text("rust".into()));
         assert_eq!(tree.input_value("input"), Some("rust"));
@@ -18185,7 +18259,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Submitted {
                 id: "input".into(),
@@ -18209,6 +18284,7 @@ mod tests {
             key: Key::Tab,
             shift,
             ctrl: false,
+            alt: false,
         };
         tree.handle_event(tab(false));
         assert_eq!(tree.focused_id(), Some("first"));
@@ -18234,6 +18310,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         for key in [Key::Enter, Key::Space] {
             assert_eq!(
@@ -18241,6 +18318,7 @@ mod tests {
                     key,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 }),
                 vec![UiAction::Clicked { id: "send".into() }]
             );
@@ -18261,6 +18339,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.set_root(Element::button("new", "New"));
         tree.layout(Size::new(100.0, 40.0));
@@ -18269,6 +18348,7 @@ mod tests {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("new"));
     }
