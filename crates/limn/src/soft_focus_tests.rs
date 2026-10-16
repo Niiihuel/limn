@@ -136,3 +136,29 @@ fn center_brings_a_control_to_the_middle_of_its_scroll_area() {
     moving.layout_at(size, start + Duration::from_secs(1));
     assert_eq!(moving.scroll_offset("rows"), 265.0);
 }
+
+#[test]
+fn a_host_sets_a_vertical_scroll_offset_that_the_layout_clamps() {
+    let rows = Element::scroll(
+        "rows",
+        Element::column((0..20).map(|index| Element::button(format!("row:{index}"), "Row").size(None, Some(30.0))).collect()),
+    )
+    .size(None, Some(100.0));
+    let size = Size::new(200.0, 100.0);
+    let start = Instant::now();
+    let mut tree = UiTree::new(rows);
+    tree.layout_at(size, start);
+    let row = |frame: &Frame| frame.regions.iter().find(|region| region.id == "row:2").unwrap().rect.y;
+    // A wheel step is easing in; the host takes over at once.
+    tree.handle_event(UiEvent::Scroll { position: Point::new(10.0, 10.0), delta_y: -90.0 });
+    tree.set_scroll_offset("rows", 42.5);
+    let frame = tree.layout_at(size, start + Duration::from_millis(16));
+    assert_eq!(tree.scroll_offset("rows"), 42.5);
+    assert_eq!(row(&frame), 60.0 - 42.5);
+    tree.layout_at(size, start + Duration::from_secs(1));
+    assert_eq!(tree.scroll_offset("rows"), 42.5, "no easing resumes");
+    tree.set_scroll_offset("rows", f32::NAN);
+    tree.set_scroll_offset("rows", 9_000.0);
+    tree.layout_at(size, start + Duration::from_secs(2));
+    assert_eq!(tree.scroll_offset("rows"), 500.0, "no further than the content scrolls");
+}

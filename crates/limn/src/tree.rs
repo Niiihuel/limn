@@ -3566,6 +3566,22 @@ impl UiTree {
             .is_some_and(|maximum| maximum - self.scroll_target(id) <= tolerance.max(0.0))
     }
 
+    /// Position a vertical scroll area from the host, for example from a
+    /// spring, as [`Self::set_horizontal_scroll_offset`] does sideways. It
+    /// takes over from any wheel easing and pending end or index request; the
+    /// next layout clamps it to the content. A value that is not finite is
+    /// ignored.
+    pub fn set_scroll_offset(&mut self, id: &str, offset: f32) {
+        if !offset.is_finite() {
+            return;
+        }
+        self.scroll_transitions.remove(id);
+        self.cancel_scroll_hold(id);
+        self.scroll_to_end.remove(id);
+        self.scroll_to_index.remove(id);
+        self.scroll_offsets.insert(id.to_owned(), offset);
+    }
+
     /// Scrolls to the bottom on the next layout, after new content is measured.
     pub fn scroll_to_end(&mut self, id: &str) {
         self.scroll_transitions.remove(id);
