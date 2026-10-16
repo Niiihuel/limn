@@ -77,6 +77,11 @@ pass its rendered element as the content. See [Catalog menus](picker.md).
 | Tab | Moves among the controls inside the popover. |
 | Escape | Reports the dismiss ID and returns focus to the anchor. |
 
+Inside a modal, an open child popover keeps its own keyboard scope. Escape
+closes the child first and returns to its trigger; the next Escape can close
+the modal. Tab and the menu arrow keys stay in the active child, including
+nested submenus. Menus in the covered background cannot take that scope.
+
 ## Motion
 
 The surface fades in and settles 4 px into place, and fades out; see

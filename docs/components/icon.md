@@ -87,4 +87,30 @@ on the UI thread when the window is created, before the first frame: an icon
 already drawn stays as it was. File type icons and `Icon::Custom` are not
 asked of the pack.
 
+## Platform-rendered icons
+
+A host can render system artwork, such as SF Symbols on iOS, without
+converting it to SVG. Supply a function with this signature:
+
+```rust
+fn render_platform_icon(icon: Icon, pixels: u16) -> Option<eframe::egui::ColorImage>
+```
+
+Install it on the UI thread with
+`limn_egui::set_icon_rasterizer(Some(render_platform_icon))`. It receives the
+final physical pixel side, including display scaling. Return a square image
+of that exact size containing a white alpha mask; the painter applies the
+element's color. Native premultiplied RGBA bytes can be converted with
+`ColorImage::from_rgba_premultiplied`.
+
+Return `None` for an unsupported symbol or for application artwork that
+should remain unchanged. A missing or malformed image uses the configured
+SVG pack, then the usual bundled artwork. The rasterizer can explicitly
+handle `Icon::Custom`; file-type icons always keep their original colors.
+
+The normal bounded texture cache reuses each icon at each physical size.
+Replacing the renderer, or removing it with `set_icon_rasterizer(None)`,
+clears only cached icon textures and requests a repaint. Raster images and
+the application's own artwork data remain in their separate caches.
+
 See [Icons](../components.md#icons) in the component reference.

@@ -97,9 +97,6 @@ fn walk(
 ) -> Vec<UiAction> {
     let mut items = items.into_iter().peekable();
     let mut actions = Vec::new();
-    while items.peek().is_some_and(|item| item.source_index.is_none()) {
-        actions.extend(tree.handle_event(items.next().unwrap().event));
-    }
     for (index, native) in source.iter().enumerate() {
         let consumed = host(index, native, tree, &actions);
         while items
@@ -112,10 +109,14 @@ fn walk(
             }
         }
     }
-    assert!(
-        items.next().is_none(),
-        "every translation was associated with its source or derived prefix"
-    );
+    // Frame-derived file metadata trails every indexed translation.
+    for item in items {
+        assert!(
+            item.source_index.is_none(),
+            "every translation was associated with its source or the derived suffix"
+        );
+        actions.extend(tree.handle_event(item.event));
+    }
     actions
 }
 
@@ -641,8 +642,8 @@ fn indexed_input_preserves_mixed_source_order_and_marks_frame_derived_files() {
     assert_eq!(
         mapped(&hovered),
         vec![
-            (None, UiEvent::FilesHovered { position }),
-            (Some(1), UiEvent::PointerMove(position))
+            (Some(1), UiEvent::PointerMove(position)),
+            (None, UiEvent::FilesHovered { position })
         ]
     );
 
@@ -675,14 +676,14 @@ fn indexed_input_preserves_mixed_source_order_and_marks_frame_derived_files() {
         assert_eq!(
             mapped(&dropped),
             vec![
+                (Some(1), UiEvent::PointerMove(position)),
                 (
                     None,
                     UiEvent::FilesDropped {
                         position,
                         paths: vec![path]
                     }
-                ),
-                (Some(1), UiEvent::PointerMove(position))
+                )
             ]
         );
     }

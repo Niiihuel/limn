@@ -25,6 +25,8 @@ mod indexed_input_tests;
 
 #[cfg(test)]
 mod touch_context_tests;
+#[cfg(test)]
+mod icon_rasterizer_tests;
 
 #[cfg(not(target_arch = "wasm32"))]
 mod image_workers;
@@ -110,8 +112,31 @@ pub fn repaint_on_patch(ctx: &egui::Context) {
 /// Bootstrap Icons.
 pub type IconPack = fn(Icon) -> Option<&'static str>;
 
+/// A host's monochrome icon renderer, given an icon and its physical pixel side.
+/// Return a square white coverage mask of that size, or `None` for SVG artwork.
+pub type IconRasterizer = fn(Icon, u16) -> Option<egui::ColorImage>;
+
 thread_local! {
     static ICON_PACK: std::cell::Cell<Option<IconPack>> = const { std::cell::Cell::new(None) };
+    static ICON_RASTERIZER: std::cell::Cell<Option<IconRasterizer>> = const { std::cell::Cell::new(None) };
+}
+
+/// Install or remove this UI thread's native icon renderer.
+///
+/// It runs on cache misses, including for [`Icon::Custom`]. `None`, a wrong
+/// image size or incomplete pixel data falls back to the configured SVG pack
+/// and bundled artwork. File-type icons always retain their original colors.
+///
+/// Replacing or removing the renderer clears cached icon textures and requests
+/// a repaint. Raster-image caches are independent and remain intact.
+pub fn set_icon_rasterizer(rasterizer: Option<IconRasterizer>) {
+    ICON_RASTERIZER.with(|cell| cell.set(rasterizer));
+    ICON_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.textures.clear();
+        cache.order.clear();
+        if let Some(ctx) = &cache.context { ctx.request_repaint(); }
+    });
 }
 
 /// Draw the semantic icons from another set. Bootstrap Icons stay for
@@ -170,13 +195,20 @@ thread_local! {
 const MAX_IMAGE_SOURCE_SIDE: u32 = 4096;
 const MAX_IMAGE_SOURCE_PIXELS: u64 = 12 * 1024 * 1024;
 const MAX_IMAGE_DECODE_ALLOCATION: u64 = 64 * 1024 * 1024;
-const IMAGE_THUMBNAIL_SIDE: u32 = 384;
+const IMAGE_THUMBNAIL_SIDE: u32 = 1024;
+/// Thumbnails are decoded in steps of this many pixels, so a picture that is
+/// drawn a little larger or smaller reuses the texture it has.
+const IMAGE_THUMBNAIL_STEP: u32 = 128;
 const IMAGE_TEXTURE_CACHE_ENTRIES: usize = 16;
 const FULL_IMAGE_TEXTURE_CACHE_ENTRIES: usize = 2;
 
 thread_local! {
     static IMAGE_CACHE_ENTRIES: std::cell::Cell<usize> =
         const { std::cell::Cell::new(IMAGE_TEXTURE_CACHE_ENTRIES) };
+    static FULL_IMAGE_CACHE_ENTRIES: std::cell::Cell<usize> =
+        const { std::cell::Cell::new(FULL_IMAGE_TEXTURE_CACHE_ENTRIES) };
+    static IMAGE_THUMBNAIL_MAX_SIDE: std::cell::Cell<u32> =
+        const { std::cell::Cell::new(IMAGE_THUMBNAIL_SIDE) };
 }
 
 /// How many decoded images stay on the GPU at once. The default suits a
@@ -184,6 +216,30 @@ thread_local! {
 /// raises it so scrolling does not decode the same images again and again.
 pub fn set_image_cache_entries(entries: usize) {
     IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 1024)));
+}
+
+/// How many [`RasterImage::full_resolution`] images stay on the GPU at once,
+/// 2 by default; at least 1 and at most 64.
+pub fn set_full_image_cache_entries(entries: usize) {
+    FULL_IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 64)));
+}
+
+/// The longest side, in pixels, an image that is not full resolution is
+/// decoded at. Below it a thumbnail follows the size the image is drawn at
+/// times the display's pixels per point, in steps of 128, so a cover on a
+/// 3x phone stays sharp and a small one costs little. 1024 by default; at
+/// least 128 and at most 4096.
+pub fn set_image_thumbnail_side(side: u32) {
+    IMAGE_THUMBNAIL_MAX_SIDE.with(|cell| cell.set(side.clamp(IMAGE_THUMBNAIL_STEP, MAX_IMAGE_SOURCE_SIDE)));
+}
+
+/// The side to decode a thumbnail drawn over `area` at: its longest side in
+/// pixels, rounded up to a step and capped by [`set_image_thumbnail_side`].
+fn thumbnail_side(area: EguiRect, pixels_per_point: f32) -> u32 {
+    let pixels = area.width().max(area.height()) * pixels_per_point;
+    let pixels = if pixels.is_finite() { pixels.ceil().clamp(1.0, MAX_IMAGE_SOURCE_SIDE as f32) as u32 } else { 1 };
+    let stepped = pixels.div_ceil(IMAGE_THUMBNAIL_STEP) * IMAGE_THUMBNAIL_STEP;
+    stepped.min(IMAGE_THUMBNAIL_MAX_SIDE.with(std::cell::Cell::get))
 }
 
 /// Release this UI thread's raster textures and queued image sources, for
@@ -213,8 +269,8 @@ enum RasterTexture {
 #[derive(Default)]
 struct RasterCache {
     context: Option<egui::Context>,
-    entries: HashMap<(String, RasterImageFormat, bool), RasterCacheEntry>,
-    order: VecDeque<(String, RasterImageFormat, bool)>,
+    entries: HashMap<RasterKey, RasterCacheEntry>,
+    order: VecDeque<RasterKey>,
     generation: std::sync::Arc<()>,
     #[cfg(not(target_arch = "wasm32"))]
     workers: Option<image_workers::ImageWorkers>,
@@ -244,7 +300,7 @@ fn raster_format(format: RasterImageFormat) -> image::ImageFormat {
 /// Only this path may turn journal image bytes into pixels. It verifies the
 /// digest and declared format again at the render boundary, then checks
 /// dimensions before asking a decoder to allocate the full image.
-fn decode_raster_thumbnail(source: &RasterImage) -> Option<egui::ColorImage> {
+fn decode_raster_thumbnail(source: &RasterImage, side: u32) -> Option<egui::ColorImage> {
     use base64::Engine as _;
     use sha2::Digest as _;
     let size = source.size_bytes() as usize;
@@ -275,14 +331,14 @@ fn decode_raster_thumbnail(source: &RasterImage) -> Option<egui::ColorImage> {
     let mut reader = image::ImageReader::with_format(Cursor::new(bytes.as_slice()), format);
     reader.limits(limits);
     let decoded = reader.decode().ok()?;
-    let thumbnail = if source.is_full_resolution()
-        || (width <= IMAGE_THUMBNAIL_SIDE && height <= IMAGE_THUMBNAIL_SIDE)
-    {
+    // A cover is cropped to its box: its shorter side has to fill the side.
+    let scale = f64::from(side.max(1))
+        / f64::from(if source.is_cover() { width.min(height) } else { width.max(height) });
+    let thumbnail = if source.is_full_resolution() || scale >= 1.0 {
         decoded.to_rgba8()
     } else {
-        decoded
-            .thumbnail(IMAGE_THUMBNAIL_SIDE, IMAGE_THUMBNAIL_SIDE)
-            .to_rgba8()
+        let fit = |length: u32| ((f64::from(length) * scale).round() as u32).max(1);
+        decoded.thumbnail(fit(width), fit(height)).to_rgba8()
     };
     Some(egui::ColorImage::from_rgba_unmultiplied(
         [thumbnail.width() as usize, thumbnail.height() as usize],
@@ -290,12 +346,13 @@ fn decode_raster_thumbnail(source: &RasterImage) -> Option<egui::ColorImage> {
     ))
 }
 
-fn raster_cache_key(image: &RasterImage) -> (String, RasterImageFormat, bool) {
-    (
-        image.sha256().to_owned(),
-        image.format(),
-        image.is_full_resolution(),
-    )
+/// An image's digest, format, whether it is full resolution, and the side
+/// its thumbnail is decoded at (zero at full resolution).
+type RasterKey = (String, RasterImageFormat, bool, u32);
+
+fn raster_cache_key(image: &RasterImage, side: u32) -> RasterKey {
+    let full = image.is_full_resolution();
+    (image.sha256().to_owned(), image.format(), full, if full { 0 } else { side })
 }
 
 fn decode_current_image(
@@ -311,14 +368,25 @@ fn decode_current_image(
     }
 }
 
-fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
+/// The texture of `image` drawn over `area`, decoded for that size.
+fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterTexture {
+    let side = thumbnail_side(area, ui.ctx().pixels_per_point());
     RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
             cache.clear();
             cache.context = Some(ui.ctx().clone());
         }
-        let key = raster_cache_key(image);
+        let key = raster_cache_key(image, side);
+        // Another size of the same picture, shown while this one decodes.
+        let other_size = |cache: &RasterCache| {
+            cache.entries.iter().find_map(|(other, entry)| match entry {
+                RasterCacheEntry::Ready(texture) if other.0 == key.0 && other.1 == key.1 && other.2 == key.2 => {
+                    Some(RasterTexture::Ready(texture.id(), texture.size()))
+                }
+                _ => None,
+            })
+        };
         if let Some(entry) = cache.entries.get_mut(&key) {
             if let RasterCacheEntry::Decoding(decoded) = entry {
                 match decoded.try_recv() {
@@ -339,7 +407,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
                 RasterCacheEntry::Ready(texture) => {
                     RasterTexture::Ready(texture.id(), texture.size())
                 }
-                RasterCacheEntry::Decoding(_) => RasterTexture::Decoding,
+                RasterCacheEntry::Decoding(_) => other_size(&cache).unwrap_or(RasterTexture::Decoding),
                 RasterCacheEntry::Unavailable => RasterTexture::Unavailable,
             };
         }
@@ -349,7 +417,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
         let (source, ctx) = (image.clone(), ui.ctx().clone());
         let generation = std::sync::Arc::downgrade(&cache.generation);
         let decode = move || {
-            decode_current_image(generation, || decode_raster_thumbnail(&source), landed);
+            decode_current_image(generation, || decode_raster_thumbnail(&source, side), landed);
             ctx.request_repaint();
         };
         #[cfg(not(target_arch = "wasm32"))]
@@ -364,7 +432,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
                 // A full queue has no entry yet: retry without retaining a
                 // second source. Also wake if all old jobs were just cleared.
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(16));
-                return RasterTexture::Decoding;
+                return other_size(&cache).unwrap_or(RasterTexture::Decoding);
             }
         }
         // A browser has no thread to give; the image lands on the next frame.
@@ -373,10 +441,10 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
         cache
             .entries
             .insert(key.clone(), RasterCacheEntry::Decoding(decoded));
-        cache.order.push_back(key);
+        cache.order.push_back(key.clone());
         let full = image.is_full_resolution();
         let limit = if full {
-            FULL_IMAGE_TEXTURE_CACHE_ENTRIES
+            FULL_IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         } else {
             IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         };
@@ -386,7 +454,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage) -> RasterTexture {
                 cache.entries.remove(&oldest);
             }
         }
-        RasterTexture::Decoding
+        other_size(&cache).unwrap_or(RasterTexture::Decoding)
     })
 }
 
@@ -726,6 +794,16 @@ fn monochrome_svg(source: &str) -> String {
 }
 
 fn raster_icon(key: IconKey) -> Option<egui::ColorImage> {
+    if key.pixels == 0 { return None; }
+    let side = usize::from(key.pixels);
+    if !matches!(key.icon, Icon::FileType(_)) {
+        if let Some(image) = ICON_RASTERIZER.with(std::cell::Cell::get)
+            .and_then(|rasterizer| rasterizer(key.icon, key.pixels))
+            .filter(|image| image.size == [side; 2] && image.pixels.len() == side * side)
+        {
+            return Some(image);
+        }
+    }
     let packed = packed_svg(key.icon);
     let source = if matches!(key.icon, Icon::FileType(_)) {
         std::borrow::Cow::Borrowed(icon_svg(key.icon))
@@ -965,7 +1043,7 @@ fn paint_effort_gradient(painter: &egui::Painter, area: EguiRect, opacity: f32) 
     if right <= left {
         painter.rect_filled(
             area,
-            CornerRadius::same(radius as u8),
+            corner(radius, area),
             effort_color(
                 effort_palette().blue.r,
                 effort_palette().blue.g,
@@ -1207,6 +1285,72 @@ fn aligned_icon_rect(area: EguiRect, pixels_per_point: f32) -> Option<(EguiRect,
     Some((EguiRect::from_min_size(min, size), pixels))
 }
 
+/// egui keeps corner radii in whole points. Round to the nearest one, and
+/// saturate a radius within half a point of half the shorter side: epaint then
+/// clamps it to exactly half of the pixel-snapped rectangle, so a pill or a
+/// circle keeps true semicircular ends at every scale and through scaling
+/// animations, instead of truncating to a flat strip at each end.
+fn corner(radius: f32, area: EguiRect) -> CornerRadius {
+    CornerRadius::same(corner_points(radius, area))
+}
+
+fn corners(radii: limn::CornerRadii, area: EguiRect) -> CornerRadius {
+    CornerRadius {
+        nw: corner_points(radii.top_left, area),
+        ne: corner_points(radii.top_right, area),
+        se: corner_points(radii.bottom_right, area),
+        sw: corner_points(radii.bottom_left, area),
+    }
+}
+
+/// The rounded shape a `RoundClip` gave the clip in force, if any.
+type RoundedClip = Option<(EguiRect, limn::CornerRadii)>;
+
+/// egui clips to rectangles only. Under a rounded clip, a fill or an image is
+/// cut to the part of `area` inside the clip's shape, and each corner of that
+/// part that would poke past the clip's arc is rounded concentric with it, so
+/// content flush with or past a rounded panel's edge keeps the panel's
+/// corners. A corner the cut moved loses its own rounding; anything well
+/// inside is unchanged.
+fn under_rounded_clip(area: EguiRect, own: limn::CornerRadii, clip: RoundedClip) -> (EguiRect, limn::CornerRadii) {
+    let Some((shape, radii)) = clip else {
+        return (area, own);
+    };
+    let inside = area.intersect(shape);
+    if !inside.is_positive() {
+        return (area, own);
+    }
+    let limit = shape.width().min(shape.height()) / 2.0;
+    // `dx` and `dy` are how far the corner is from the clip's corner.
+    let corner = |own: f32, moved: bool, radius: f32, dx: f32, dy: f32| {
+        let own = if moved { 0.0 } else { own };
+        let radius = if radius.is_nan() { 0.0 } else { radius.clamp(0.0, limit) };
+        let outside_arc = dx < radius && dy < radius && (radius - dx).powi(2) + (radius - dy).powi(2) > radius * radius;
+        if outside_arc { own.max(radius - dx.max(dy)) } else { own }
+    };
+    let (left, top) = (inside.min.x - shape.min.x, inside.min.y - shape.min.y);
+    let (right, bottom) = (shape.max.x - inside.max.x, shape.max.y - inside.max.y);
+    let (cut_left, cut_top) = (inside.min.x != area.min.x, inside.min.y != area.min.y);
+    let (cut_right, cut_bottom) = (inside.max.x != area.max.x, inside.max.y != area.max.y);
+    let radii = limn::CornerRadii {
+        top_left: corner(own.top_left, cut_left || cut_top, radii.top_left, left, top),
+        top_right: corner(own.top_right, cut_right || cut_top, radii.top_right, right, top),
+        bottom_right: corner(own.bottom_right, cut_right || cut_bottom, radii.bottom_right, right, bottom),
+        bottom_left: corner(own.bottom_left, cut_left || cut_bottom, radii.bottom_left, left, bottom),
+    };
+    (inside, radii)
+}
+
+fn corner_points(radius: f32, area: EguiRect) -> u8 {
+    if radius.is_nan() || radius <= 0.0 {
+        return 0;
+    }
+    if radius * 2.0 + 1.0 >= area.width().min(area.height()) {
+        return u8::MAX;
+    }
+    radius.round().min(255.0) as u8
+}
+
 /// Paint a frame with its origin at the top-left corner of the space `ui` has available.
 pub fn paint(ui: &egui::Ui, frame: &Frame) {
     paint_at(ui, frame, ui.max_rect().min);
@@ -1373,7 +1517,10 @@ fn paint_at_impl(
 ) {
     publish_access(ui, frame, origin);
     let mut clips = vec![ui.clip_rect()];
+    // The rounded shape of each clip in force, from a `RoundClip`.
+    let mut rounds: Vec<RoundedClip> = vec![None];
     for command in &frame.commands {
+        let round = *rounds.last().unwrap();
         match command {
             DrawCommand::Glass {
                 rect: area,
@@ -1390,7 +1537,7 @@ fn paint_at_impl(
                     let tint = material.tint;
                     painter.rect_filled(
                         area,
-                        CornerRadius::same(*radius as u8),
+                        corner(*radius, area),
                         Color32::from_rgba_unmultiplied(
                             tint.r,
                             tint.g,
@@ -1407,10 +1554,15 @@ fn paint_at_impl(
                     .unwrap_or(ui.clip_rect())
                     .intersect(rect(origin, *area));
                 clips.push(next);
+                rounds.push(round);
+            }
+            DrawCommand::RoundClip { rect: area, radii } => {
+                *rounds.last_mut().unwrap() = Some((rect(origin, *area), *radii));
             }
             DrawCommand::PopClip => {
                 if clips.len() > 1 {
                     clips.pop();
+                    rounds.pop();
                 }
             }
             DrawCommand::Shadow {
@@ -1437,7 +1589,7 @@ fn paint_at_impl(
                     spread: shadow.spread.round().clamp(0.0, u8::MAX as f32) as u8,
                     color: color(shadow.color),
                 }
-                .as_shape(rect(origin, *area), CornerRadius::same(*radius as u8));
+                .as_shape(rect(origin, *area), corner(*radius, rect(origin, *area)));
                 painter.add(shape);
             }
             DrawCommand::FillRect {
@@ -1446,11 +1598,8 @@ fn paint_at_impl(
                 radius,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                painter.rect_filled(
-                    rect(origin, *area),
-                    CornerRadius::same(*radius as u8),
-                    color(*fill),
-                );
+                let (area, radii) = under_rounded_clip(rect(origin, *area), limn::CornerRadii::same(*radius), round);
+                painter.rect_filled(area, corners(radii, area), color(*fill));
             }
             DrawCommand::FillCornerRect {
                 rect: area,
@@ -1458,16 +1607,8 @@ fn paint_at_impl(
                 radii,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                painter.rect_filled(
-                    rect(origin, *area),
-                    CornerRadius {
-                        nw: radii.top_left.clamp(0.0, 255.0) as u8,
-                        ne: radii.top_right.clamp(0.0, 255.0) as u8,
-                        se: radii.bottom_right.clamp(0.0, 255.0) as u8,
-                        sw: radii.bottom_left.clamp(0.0, 255.0) as u8,
-                    },
-                    color(*fill),
-                );
+                let (area, radii) = under_rounded_clip(rect(origin, *area), *radii, round);
+                painter.rect_filled(area, corners(radii, area), color(*fill));
             }
             DrawCommand::CornerMask {
                 rect: area,
@@ -1566,9 +1707,10 @@ fn paint_at_impl(
                 radius,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
                 painter.rect_stroke(
-                    rect(origin, *area),
-                    CornerRadius::same(*radius as u8),
+                    area,
+                    corner(*radius, area),
                     Stroke::new(*width, color(*ink)),
                     StrokeKind::Inside,
                 );
@@ -1580,14 +1722,10 @@ fn paint_at_impl(
                 radii,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
                 painter.rect_stroke(
-                    rect(origin, *area),
-                    CornerRadius {
-                        nw: radii.top_left.clamp(0.0, 255.0) as u8,
-                        ne: radii.top_right.clamp(0.0, 255.0) as u8,
-                        se: radii.bottom_right.clamp(0.0, 255.0) as u8,
-                        sw: radii.bottom_left.clamp(0.0, 255.0) as u8,
-                    },
+                    area,
+                    corners(*radii, area),
                     Stroke::new(*width, color(*ink)),
                     StrokeKind::Inside,
                 );
@@ -1711,17 +1849,26 @@ fn paint_at_impl(
                     egui::WidgetInfo::labeled(egui::WidgetType::Image, true, image.alt())
                 });
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let texture = raster_texture(ui, image);
+                let texture = raster_texture(ui, image, area);
                 if let RasterTexture::Ready(texture, pixels) = texture {
                     let (target, uv) = if image.is_cover() {
                         (area, cover_uv(area, pixels))
                     } else {
                         (fit_image(area, pixels), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)))
                     };
+                    let (shown, radii) = under_rounded_clip(target, limn::CornerRadii::same(*radius), round);
+                    // The texture coordinates of the part still shown.
+                    let at = |point: Pos2| {
+                        Pos2::new(
+                            uv.min.x + (point.x - target.min.x) / target.width() * uv.width(),
+                            uv.min.y + (point.y - target.min.y) / target.height() * uv.height(),
+                        )
+                    };
+                    let uv = if shown == target { uv } else { EguiRect::from_min_max(at(shown.min), at(shown.max)) };
                     painter.add(
                         egui::epaint::RectShape::filled(
-                            target,
-                            CornerRadius::same(radius.clamp(0.0, 255.0) as u8),
+                            shown,
+                            corners(radii, shown),
                             Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
                         )
                         .with_texture(texture, uv),
@@ -1801,8 +1948,8 @@ fn paint_at_impl(
                 let sleeve = EguiRect::from_min_size(area.min, egui::vec2(side, side));
                 paint_record(&painter, sleeve, *out, *angle, *opacity);
                 let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
-                let corner = CornerRadius::same(radius.clamp(0.0, 255.0) as u8);
-                match image.as_ref().map(|image| raster_texture(ui, image)) {
+                let corner = corner(*radius, sleeve);
+                match image.as_ref().map(|image| raster_texture(ui, image, sleeve)) {
                     Some(RasterTexture::Ready(texture, pixels)) => {
                         painter.add(
                             egui::epaint::RectShape::filled(sleeve, corner, Color32::from_white_alpha(alpha))
@@ -1881,8 +2028,8 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
 /// Translate input while retaining each event's index in the current viewport.
 /// Call [`normalize_keyboard_input`] first and keep the same input snapshot while
 /// consuming the result. This function neither normalizes nor consumes input.
-/// Frame-derived file metadata comes first, with no source index. Unknown native
-/// events have no translation: hosts that handle them must visit every source
+/// Frame-derived file metadata comes last, after every indexed event, with no
+/// source index, as in [`events`]. Unknown native events have no translation: hosts that handle them must visit every source
 /// index, applying translations at their corresponding positions.
 /// Only adjacent forward Enter/newline, Ctrl/Command C/Copy, X/Cut and V/Paste
 /// pairs collapse; reversed pairs and intervening events remain independent.
@@ -1898,22 +2045,6 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
             })
         };
         let mut pointer = input.pointer.hover_pos();
-        // The OS owns the pointer during an external drag, so the position is
-        // the last one egui saw; it can lag until the drop on some platforms.
-        if let Some(position) = input.pointer.latest_pos().map(|pos| relative(origin, pos)) {
-            let paths: Vec<_> = input
-                .raw
-                .dropped_files
-                .iter()
-                .map(|file| file.path().to_path_buf())
-                .filter(|path| !path.as_os_str().is_empty())
-                .collect();
-            if !paths.is_empty() {
-                emit(None, UiEvent::FilesDropped { position, paths });
-            } else if !input.raw.hovered_files.is_empty() {
-                emit(None, UiEvent::FilesHovered { position });
-            }
-        }
         let mut source = input.events.iter().enumerate().peekable();
         while let Some((index, event)) = source.next() {
             // Only recognized forward neighbours are deduplicated.
@@ -2168,6 +2299,25 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                 _ => {}
             }
         }
+        // egui groups native files separately from ordinary events, with no
+        // source index. Deliver them last so a host can apply this frame's
+        // input and revalidate its current editor/modal before admitting files,
+        // and so the drop follows the pointer moves that reached its position.
+        // The OS owns the pointer during external drags; it can still lag.
+        if let Some(position) = input.pointer.latest_pos().map(|pos| relative(origin, pos)) {
+            let paths: Vec<_> = input
+                .raw
+                .dropped_files
+                .iter()
+                .map(|file| file.path().to_path_buf())
+                .filter(|path| !path.as_os_str().is_empty())
+                .collect();
+            if !paths.is_empty() {
+                emit(None, UiEvent::FilesDropped { position, paths });
+            } else if !input.raw.hovered_files.is_empty() {
+                emit(None, UiEvent::FilesHovered { position });
+            }
+        }
         events
     })
 }
@@ -2326,6 +2476,133 @@ mod font_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How many outline points sit on the leftmost edge of a filled rounded
+    /// rectangle, tessellated as an iPhone (three pixels a point) would.
+    fn leftmost_points(area: EguiRect, radius: CornerRadius) -> usize {
+        let options = egui::epaint::TessellationOptions { feathering: false, ..Default::default() };
+        let mut tessellator = egui::epaint::Tessellator::new(3.0, options, [1, 1], Vec::new());
+        let mut mesh = egui::Mesh::default();
+        tessellator.tessellate_rect(&egui::epaint::RectShape::filled(area, radius, Color32::WHITE), &mut mesh);
+        let left = mesh.vertices.iter().map(|vertex| vertex.pos.x).fold(f32::INFINITY, f32::min);
+        mesh.vertices.iter().filter(|vertex| (vertex.pos.x - left).abs() < 1e-3).count()
+    }
+
+    #[test]
+    fn fills_under_a_rounded_clip_take_its_corners_where_they_reach_them() {
+        let card = EguiRect::from_min_size(Pos2::new(10.0, 20.0), egui::vec2(200.0, 100.0));
+        let clip = Some((card, limn::CornerRadii::same(16.0)));
+        let square = limn::CornerRadii::same(0.0);
+        let at = |x: f32, y: f32, w: f32, h: f32| EguiRect::from_min_size(Pos2::new(x, y), egui::vec2(w, h));
+        let radii = |r: limn::CornerRadii| (r.top_left, r.top_right, r.bottom_right, r.bottom_left);
+
+        // Flush with the bottom right corner: that corner is the card's.
+        let (shown, flush) = under_rounded_clip(at(150.0, 80.0, 60.0, 40.0), square, clip);
+        assert_eq!(shown, at(150.0, 80.0, 60.0, 40.0));
+        assert_eq!(radii(flush), (0.0, 0.0, 16.0, 0.0));
+        // Pushed past it, as a tile tucked into a corner: the part shown is cut
+        // and rounded there; its own 4 survives only where it was not cut.
+        let (shown, past) = under_rounded_clip(at(170.0, 90.0, 64.0, 64.0), limn::CornerRadii::same(4.0), clip);
+        assert_eq!(shown, at(170.0, 90.0, 40.0, 30.0));
+        assert_eq!(radii(past), (4.0, 0.0, 16.0, 0.0));
+        // A full-width row at the bottom takes both bottom corners.
+        let (_, row) = under_rounded_clip(at(10.0, 100.0, 200.0, 20.0), square, clip);
+        assert_eq!(radii(row), (0.0, 0.0, 16.0, 16.0));
+        // Two points in from the corner, it stays concentric: 14.
+        let (_, inset) = under_rounded_clip(at(150.0, 80.0, 58.0, 38.0), square, clip);
+        assert_eq!(radii(inset), (0.0, 0.0, 14.0, 0.0));
+        // Inside the arc, or away from the corners, nothing changes.
+        let dot = at(196.0, 106.0, 4.0, 4.0);
+        assert_eq!(under_rounded_clip(dot, square, clip), (dot, square));
+        let middle = at(60.0, 40.0, 40.0, 40.0);
+        assert_eq!(under_rounded_clip(middle, limn::CornerRadii::same(3.0), clip), (middle, limn::CornerRadii::same(3.0)));
+        // Without a rounded clip, or wholly outside it, it is as given.
+        assert_eq!(under_rounded_clip(dot, square, None), (dot, square));
+        let away = at(400.0, 400.0, 10.0, 10.0);
+        assert_eq!(under_rounded_clip(away, square, clip), (away, square));
+    }
+
+    #[test]
+    fn a_frame_under_a_rounded_clip_paints_a_flush_fill_with_the_clip_corner() {
+        let card = limn::Rect::new(0.0, 0.0, 200.0, 100.0);
+        let mut frame = Frame::default();
+        frame.commands = vec![
+            DrawCommand::PushClip(card),
+            DrawCommand::RoundClip { rect: card, radii: limn::CornerRadii::same(16.0) },
+            DrawCommand::FillRect { rect: limn::Rect::new(140.0, 60.0, 60.0, 40.0), color: limn::Color::WHITE, radius: 0.0 },
+            DrawCommand::PopClip,
+            // Outside the clip again: square as asked.
+            DrawCommand::FillRect { rect: limn::Rect::new(140.0, 160.0, 60.0, 40.0), color: limn::Color::WHITE, radius: 0.0 },
+        ];
+        let ctx = egui::Context::default();
+        let mut output = ctx.run_ui(Default::default(), |ui| paint_at(ui, &frame, Pos2::ZERO));
+        output.textures_delta.clear();
+        let rounding: Vec<CornerRadius> = output.shapes.iter().filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Rect(shape) => Some(shape.corner_radius),
+            _ => None,
+        }).collect();
+        assert_eq!(rounding, [CornerRadius { nw: 0, ne: 0, se: 16, sw: 0 }, CornerRadius::ZERO]);
+    }
+
+    #[test]
+    fn a_pill_has_semicircular_ends_at_every_scale_and_fraction() {
+        // Heights a layout or a scaling entrance produce, on and off the pixel grid.
+        for (y, height) in [(10.0, 44.0), (10.1, 44.2), (3.3, 43.98), (0.0, 42.24), (7.5, 37.0)] {
+            let area = EguiRect::from_min_size(Pos2::new(5.3, y), egui::vec2(160.0, height));
+            let radius = height / 2.0;
+            assert_eq!(corner_points(radius, area), u8::MAX, "{height}");
+            // One apex on each end: no straight strip between two arcs.
+            assert_eq!(leftmost_points(area, corner(radius, area)), 1, "{height}");
+        }
+        // Truncating 21.99 to 21 left a strip one and a half points tall.
+        let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(160.0, 43.98));
+        assert!(leftmost_points(area, CornerRadius::same(21)) > 1);
+        // Smaller radii round to the nearest point instead of truncating.
+        let card = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(200.0, 100.0));
+        assert_eq!(corner_points(7.6, card), 8);
+        assert_eq!(corner_points(4.0, card), 4);
+        assert_eq!(corner_points(0.0, card), 0);
+        assert_eq!(corner_points(-3.0, card), 0);
+        assert_eq!(corner_points(f32::NAN, card), 0);
+        let radii = corners(limn::CornerRadii { top_left: 12.0, top_right: 50.0, bottom_right: 0.0, bottom_left: 3.4 }, card);
+        assert_eq!((radii.nw, radii.ne, radii.se, radii.sw), (12, u8::MAX, 0, 3));
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn file_drop_bridge_preserves_the_whole_batch_and_needs_a_pointer_position() {
+        #[derive(Debug)]
+        struct UnreadFile(std::path::PathBuf);
+        impl egui::DroppedFile for UnreadFile {
+            fn path(&self) -> &std::path::Path { &self.0 }
+            fn bytes(&self) -> Result<Vec<u8>, String> { panic!("event translation must not read file contents") }
+        }
+        for pointer in [false, true] {
+            let ctx = egui::Context::default();
+            let paths: Vec<std::path::PathBuf> = vec!["/tmp/limn-a.txt".into(), "/tmp/limn-b.txt".into()];
+            let dropped_files = paths.iter().map(|path| {
+                std::sync::Arc::new(UnreadFile(path.clone())) as egui::DroppedFileHandle
+            }).collect();
+            let input = egui::RawInput {
+                events: if pointer { vec![
+                    egui::Event::PointerMoved(Pos2::new(150.0, 90.0)),
+                    egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::NONE },
+                ] } else { Vec::new() },
+                dropped_files,
+                ..Default::default()
+            };
+            let mut forwarded = Vec::new();
+            let mut output = ctx.run_ui(input, |ui| forwarded = events(ui.ctx(), Pos2::new(100.0, 50.0)));
+            output.textures_delta.clear();
+            assert_eq!(forwarded, if pointer {
+                vec![
+                    UiEvent::PointerMove(Point::new(50.0, 40.0)),
+                    UiEvent::Key { key: Key::Escape, shift: false, ctrl: false },
+                    UiEvent::FilesDropped { position: Point::new(50.0, 40.0), paths },
+                ]
+            } else { Vec::new() });
+        }
+    }
 
     #[test]
     fn a_covering_image_shows_its_centered_part_at_the_box_proportions() {
@@ -2536,13 +2813,13 @@ mod tests {
     fn image_decoder_requires_digest_format_and_bounded_dimensions() {
         let png = test_png(2, 1);
         let image = raster(png.clone(), RasterImageFormat::Png);
-        let thumbnail = decode_raster_thumbnail(&image).unwrap();
+        let thumbnail = decode_raster_thumbnail(&image, 128).unwrap();
         assert_eq!(thumbnail.size, [2, 1]);
         assert_eq!(thumbnail.pixels.len(), 2);
 
         let wrong_format = raster(png.clone(), RasterImageFormat::Jpeg);
-        assert_ne!(raster_cache_key(&image), raster_cache_key(&wrong_format));
-        assert!(decode_raster_thumbnail(&wrong_format).is_none());
+        assert_ne!(raster_cache_key(&image, 128), raster_cache_key(&wrong_format, 128));
+        assert!(decode_raster_thumbnail(&wrong_format, 128).is_none());
         let wrong_digest = RasterImage::new(
             "0".repeat(64),
             RasterImageFormat::Png,
@@ -2551,14 +2828,41 @@ mod tests {
             "Imagen de prueba",
         )
         .unwrap();
-        assert!(decode_raster_thumbnail(&wrong_digest).is_none());
+        assert!(decode_raster_thumbnail(&wrong_digest, 128).is_none());
 
         // A narrow PNG crosses the dimension limit without a large allocation.
         let oversized = raster(
             test_png(MAX_IMAGE_SOURCE_SIDE + 1, 1),
             RasterImageFormat::Png,
         );
-        assert!(decode_raster_thumbnail(&oversized).is_none());
+        assert!(decode_raster_thumbnail(&oversized, 128).is_none());
+    }
+
+    #[test]
+    fn a_thumbnail_follows_the_drawn_size_on_the_display_in_steps() {
+        let area = |side: f32| EguiRect::from_min_size(Pos2::ZERO, egui::vec2(side, side * 0.5));
+        // A 160 point cover on a 3x phone: 480 pixels, decoded at 512.
+        assert_eq!(thumbnail_side(area(160.0), 3.0), 512);
+        assert_eq!(thumbnail_side(area(40.0), 3.0), 128);
+        assert_eq!(thumbnail_side(area(40.0), 1.0), 128);
+        assert_eq!(thumbnail_side(area(1000.0), 3.0), IMAGE_THUMBNAIL_SIDE);
+        assert_eq!(thumbnail_side(area(f32::NAN), 3.0), 128);
+        set_image_thumbnail_side(300);
+        assert_eq!(thumbnail_side(area(160.0), 3.0), 300);
+        set_image_thumbnail_side(1);
+        assert_eq!(thumbnail_side(area(160.0), 3.0), IMAGE_THUMBNAIL_STEP);
+        set_image_thumbnail_side(IMAGE_THUMBNAIL_SIDE);
+
+        let square = raster(test_png(1200, 1200), RasterImageFormat::Png);
+        assert_eq!(decode_raster_thumbnail(&square, 512).unwrap().size, [512, 512]);
+        assert_eq!(decode_raster_thumbnail(&square, 2048).unwrap().size, [1200, 1200]);
+        // A covering banner keeps its height at the side; a fitted one its width.
+        let banner = raster(test_png(1200, 600), RasterImageFormat::Png);
+        assert_eq!(decode_raster_thumbnail(&banner, 300).unwrap().size, [300, 150]);
+        assert_eq!(decode_raster_thumbnail(&banner.clone().cover(), 300).unwrap().size, [600, 300]);
+        assert_ne!(raster_cache_key(&square, 128), raster_cache_key(&square, 512));
+        let full = square.clone().full_resolution();
+        assert_eq!(raster_cache_key(&full, 128), raster_cache_key(&full, 512));
     }
 
     #[test]
@@ -2568,7 +2872,8 @@ mod tests {
         let broken = raster(b"not a picture".to_vec(), RasterImageFormat::Png);
         let paint = |image: &RasterImage| {
             let mut texture = RasterTexture::Unavailable;
-            let mut output = ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, image));
+            let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(40.0, 40.0));
+            let mut output = ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, image, area));
             output.textures_delta.clear();
             texture
         };
@@ -2586,6 +2891,11 @@ mod tests {
         };
         assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
         assert_eq!(settled(&broken), RasterTexture::Unavailable);
+        // Drawn larger, it shows the size it has while the new one decodes.
+        let large = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 400.0));
+        let mut texture = RasterTexture::Unavailable;
+        ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, &image, large)).textures_delta.clear();
+        assert!(matches!(texture, RasterTexture::Ready(_, [2, 1])), "{texture:?}");
         clear_image_cache();
         RASTER_CACHE.with(|cache| {
             let cache = cache.borrow();
