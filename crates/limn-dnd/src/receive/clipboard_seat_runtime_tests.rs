@@ -156,3 +156,35 @@ fn two_sealed_seats_are_ambiguous_and_losing_one_preserves_the_other_selection()
     assert_eq!(case.fixture().server.released_keyboards, 2);
     assert!(case.fixture().server.keyboards.is_empty());
 }
+
+#[test]
+fn an_enter_without_a_leave_moves_focus_and_keeps_the_owner_and_its_file_drops() {
+    let mut case = LiveOwnerCase::with_text_seats(
+        testing::Hooks::default(),
+        ReceiveLimits::default(),
+        TextClipboardLimits::default(),
+        &[5],
+    );
+    drive_text(&mut case, |case| {
+        case.lifecycle.status() == ReceiveStatus::Ready && case.fixture().has_keyboard(0)
+    });
+    let (a, _) = case.register(0, || {});
+    let (b, _) = case.register(1, || {});
+    drive_text(&mut case, |_| {
+        a.control().status() == ReceiveStatus::Ready && b.control().status() == ReceiveStatus::Ready
+    });
+    case.fixture_mut().keyboard_enter(0, 0);
+    drive_text(&mut case, |case| focused(case, Some(a.id())).is_some());
+    // The focused window closes: focus moves to B with no Leave for A.
+    case.fixture_mut().keyboard_forget(0);
+    case.fixture_mut().keyboard_enter(0, 1);
+    drive_text(&mut case, |case| focused(case, Some(b.id())).is_some());
+    assert!(focused(&case, Some(a.id())).is_none());
+    assert_eq!(case.lifecycle.status(), ReceiveStatus::Ready);
+    assert_eq!(a.control().status(), ReceiveStatus::Ready);
+    assert_eq!(b.control().status(), ReceiveStatus::Ready);
+    // File drops still reach the surviving endpoint.
+    let (_, writer) = case.start(1, 901, &b.control());
+    drop(writer);
+    assert_eq!(case.lifecycle.status(), ReceiveStatus::Ready);
+}

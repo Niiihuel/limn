@@ -593,15 +593,19 @@ impl State {
         seat: usize,
         surface: ObjectId,
         entered: bool,
+        live: bool,
     ) -> Result<(), ReceiveError> {
         let text = self.seats[seat]
             .clipboard
             .as_ref()
             .ok_or(ReceiveError::InvalidPhase)?;
-        if entered && text.focus.is_some() {
-            return Err(ReceiveError::InvalidPhase);
-        }
-        if !entered && text.focus.as_ref() != Some(&surface) {
+        // Destroying the focused surface can clear focus without a Leave, or send
+        // one naming a dead surface: treat a new Enter as an implicit Leave.
+        if entered {
+            if let Some(focus) = text.focus.clone() {
+                self.keyboard_focus(seat, focus, false, true)?;
+            }
+        } else if text.focus.is_none() || (live && text.focus.as_ref() != Some(&surface)) {
             return Ok(());
         }
         let generation = stamp()?;
@@ -886,10 +890,10 @@ impl Dispatch<wl_keyboard::WlKeyboard, KeyboardTag> for State {
                         Ordering::SeqCst,
                     );
                 }
-                state.keyboard_focus(index, surface.id(), true)
+                state.keyboard_focus(index, surface.id(), true, true)
             }
             wl_keyboard::Event::Leave { surface, .. } => {
-                state.keyboard_focus(index, surface.id(), false)
+                state.keyboard_focus(index, surface.id(), false, surface.is_alive())
             }
             _ => Ok(()),
         };

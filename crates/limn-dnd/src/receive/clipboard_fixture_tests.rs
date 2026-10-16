@@ -111,6 +111,12 @@ impl Fixture {
         keyboard.resource.modifiers(serial, 0, 0, 0, 0);
     }
 
+    /// Clear focus without a Leave, as compositors do when the focused surface is destroyed.
+    pub(super) fn keyboard_forget(&mut self, device: usize) {
+        let index = self.server.keyboard_index(device);
+        self.server.keyboards[index].focused = None;
+    }
+
     pub(super) fn keyboard_leave(&mut self, device: usize, surface: usize) {
         let index = self.server.keyboard_index(device);
         let serial = self.server.keyboard_serial();
