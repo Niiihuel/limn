@@ -756,6 +756,9 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// The ID a paint scale is kept under, its factor, and the point it grows
+    /// from as shares of the element's width and height.
+    pub(crate) scale: Option<(String, f32, Point)>,
     /// Set by [`Element::wrap`]: a row moves children onto more lines.
     pub(crate) wrap: bool,
     /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
@@ -2019,6 +2022,26 @@ impl Element {
     pub fn soft_focus(mut self, id: impl Into<String>, radius: f32) -> Self {
         let radius = if radius.is_finite() { radius.clamp(0.0, 8.0) } else { 0.0 };
         self.kept.get_or_insert_default().soft = Some((id.into(), radius));
+        self
+    }
+
+    /// Paint this element and what is inside it at `factor` times its size,
+    /// growing from the middle of its left edge. Layout, hit targets and line
+    /// breaks stay those of factor one, so the line being read can grow
+    /// without re-wrapping or moving its neighbours. The factor is kept under
+    /// `id` and springs to a new one in one move, or changes at once under
+    /// reduced motion. A factor that is not finite or not above zero is ignored.
+    pub fn animate_scale(self, id: impl Into<String>, factor: f32) -> Self {
+        self.animate_scale_about(id, factor, Point::new(0.0, 0.5))
+    }
+
+    /// As [`Element::animate_scale`], growing from `anchor`, given as shares
+    /// of the element's width and height: `(0.5, 0.5)` is its center. An
+    /// anchor that is not finite is ignored with the rest.
+    pub fn animate_scale_about(mut self, id: impl Into<String>, factor: f32, anchor: Point) -> Self {
+        if factor.is_finite() && factor > 0.0 && anchor.x.is_finite() && anchor.y.is_finite() {
+            self.kept.get_or_insert_default().scale = Some((id.into(), factor, anchor));
+        }
         self
     }
 

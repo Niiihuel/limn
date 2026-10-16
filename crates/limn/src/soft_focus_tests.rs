@@ -54,6 +54,53 @@ fn a_soft_focus_springs_to_its_radius() {
     assert!((settled - 4.0).abs() < 0.01, "{settled}");
 }
 
+fn scaled(factor: f32) -> Element {
+    Element::column(vec![
+        Element::button("lyric", "a line of a song").animate_scale("lyric", factor),
+        Element::text("next"),
+    ])
+}
+
+fn text_of(frame: &Frame, wanted: &str) -> (Point, f32) {
+    frame.commands.iter().find_map(|command| match command {
+        DrawCommand::Text { position, text, font_size, .. } if text == wanted => Some((*position, *font_size)),
+        _ => None,
+    }).unwrap()
+}
+
+#[test]
+fn an_animated_scale_grows_the_paint_on_a_spring_and_leaves_layout_alone() {
+    let size = Size::new(300.0, 80.0);
+    let start = Instant::now();
+    let mut tree = UiTree::new(scaled(1.0));
+    let rest = tree.layout_at(size, start);
+    let (line, font) = text_of(&rest, "a line of a song");
+    let region = rest.regions[0].rect;
+    tree.set_root(scaled(1.25));
+    tree.layout_at(size, start);
+    let midway = text_of(&tree.layout_at(size, start + Duration::from_millis(40)), "a line of a song").1;
+    assert!(midway > font && midway < font * 1.25, "on its way: {midway}");
+    let settled = tree.layout_at(size, start + Duration::from_secs(2));
+    let (grown, grown_font) = text_of(&settled, "a line of a song");
+    assert!((grown_font - font * 1.25).abs() < 1e-3);
+    // From the middle of the left edge: the start stays, the text grows rightwards.
+    assert!(grown.x >= line.x && (grown.x - line.x) < (line.x - region.x) * 0.3 + 0.01);
+    // The neighbour, the hit target and the line break are those of factor one.
+    assert_eq!(settled.regions[0].rect, region);
+    assert_eq!(text_of(&settled, "next"), text_of(&rest, "next"));
+
+    // A first sight rests on its factor; reduced motion changes at once.
+    let mut first = UiTree::new(scaled(1.25));
+    assert!((text_of(&first.layout_at(size, start), "a line of a song").1 - font * 1.25).abs() < 1e-3);
+    first.set_reduced_motion(true);
+    first.set_root(scaled(1.0));
+    assert_eq!(text_of(&first.layout_at(size, start), "a line of a song").1, font);
+    // Bad factors are ignored.
+    for bad in [f32::NAN, 0.0, -1.0, f32::INFINITY] {
+        assert!(Element::text("x").animate_scale("x", bad).kept.is_none(), "{bad}");
+    }
+}
+
 #[test]
 fn center_brings_a_control_to_the_middle_of_its_scroll_area() {
     let rows = |count: usize| {

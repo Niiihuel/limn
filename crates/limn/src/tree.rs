@@ -9389,6 +9389,15 @@ impl LayoutBuilder<'_> {
         if let Some((id, radius)) = element.kept.as_ref().and_then(|kept| kept.soft.as_ref()) {
             self.soften(id, *radius, start);
         }
+        if let Some((id, factor, anchor)) = element.kept.as_ref().and_then(|kept| kept.scale.as_ref()) {
+            let scale = self.spring(&format!("scale/{id}"), *factor);
+            if scale != 1.0 {
+                let origin = Point::new(rect.x + rect.width * anchor.x, rect.y + rect.height * anchor.y);
+                for command in &mut self.frame.commands[start..] {
+                    animate_popover_command(command, 1.0, 0.0, scale, origin);
+                }
+            }
+        }
         match &element.presence {
             Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed) => {
                 self.reveal_on_hover(element, id, start, reveal == HoverReveal::Concealed)
