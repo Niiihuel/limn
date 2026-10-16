@@ -4,7 +4,7 @@
 //! these controls are rebuilt on every frame.
 
 use crate::{
-    Access, Color, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement, TooltipItem,
+    Access, Color, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement, RasterImage, TooltipItem,
     RadiusRole, TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
 };
 use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion, Role};
@@ -611,6 +611,7 @@ impl ControlSize {
 pub struct Button {
     action_id: String,
     content: ButtonContent,
+    image: Option<RasterImage>,
     trailing_icon: Option<Icon>,
     variant: ButtonVariant,
     size: ControlSize,
@@ -653,6 +654,7 @@ impl Button {
         Self {
             action_id: action_id.into(),
             content,
+            image: None,
             trailing_icon: None,
             variant: ButtonVariant::default(),
             size: ControlSize::Regular,
@@ -677,7 +679,8 @@ impl Button {
     }
 
     /// What the button is called to the platform, in place of its label. A
-    /// button of an icon alone is called by its hint's title without one.
+    /// button of an icon alone is called by its hint's title without one, and
+    /// one of a picture alone by the picture's text alternative.
     pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
         self.accessibility_label = Some(name.into());
         self
@@ -691,7 +694,8 @@ impl Button {
         let name = self
             .accessibility_label
             .clone()
-            .or_else(|| if label.is_empty() { title.clone() } else { None });
+            .or_else(|| if label.is_empty() { title.clone() } else { None })
+            .or_else(|| self.image.as_ref().filter(|_| label.is_empty()).map(|image| image.alt().to_owned()));
         let spoken = name.clone().unwrap_or(label);
         let mut access = Access::default();
         if let Some(name) = name {
@@ -712,6 +716,16 @@ impl Button {
         } else {
             ButtonContent::IconAndLabel(icon, label)
         };
+        self
+    }
+
+    /// Put a picture before the label, such as a custom emoji, in place of
+    /// any icon: it takes the icon's slot, [`ICON_SIZE`] on a side, fitted at
+    /// its own proportions and in its own colors, so ink, hover and a disabled
+    /// state do not tint it. With an empty label the button shows the picture
+    /// alone and is as wide as it is high. `loading` still shows the spinner.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(image);
         self
     }
 
@@ -1004,7 +1018,8 @@ impl Component for Button {
         let padding = sizing.horizontal_padding;
         let spacing = self.gap.unwrap_or(sizing.inner_spacing);
         let (icon, label) = self.content.parts();
-        let icon_only = (icon.is_some() || self.loading) && label.is_empty();
+        let image = self.image;
+        let icon_only = (icon.is_some() || image.is_some() || self.loading) && label.is_empty();
         let width = self.width.or(icon_only.then_some(sizing.height));
         // A square icon button keeps room for its glyph at every size.
         let padding = if icon_only {
@@ -1025,7 +1040,7 @@ impl Component for Button {
             // Passive content has no name of its own: the label is said.
             let access = Access::new(Role::Button).id(self.action_id.clone()).disabled(true).over(access);
             let access = if has_label { access.over(Access::named(label.clone())) } else { access };
-            let icon_space = if icon.is_some() || self.loading {
+            let icon_space = if icon.is_some() || image.is_some() || self.loading {
                 sizing.icon_size + spacing
             } else {
                 0.0
@@ -1052,6 +1067,10 @@ impl Component for Button {
                         .size(sizing.icon_size)
                         .decorative()
                         .render(),
+                ))
+            } else if let Some(image) = image {
+                Some(center_icon(
+                    Element::raster_image(image).size(Some(ICON_SIZE), Some(ICON_SIZE)).centered_x(),
                 ))
             } else {
                 icon.map(|icon| {
@@ -1110,7 +1129,10 @@ impl Component for Button {
             return self.tooltip.wrap(element.accessible(access), self.action_id, self.palette);
         }
 
-        let mut element = if let Some(icon) = icon {
+        let mut element = if let Some(image) = image {
+            // The icon is never drawn: the picture takes its slot.
+            Element::icon_button(self.action_id.clone(), icon.unwrap_or(Icon::Add), label).leading_image(image)
+        } else if let Some(icon) = icon {
             Element::icon_button(self.action_id.clone(), icon, label)
         } else {
             Element::button(self.action_id.clone(), label)
@@ -5054,6 +5076,69 @@ mod tests {
                 id: "backend:codex".into()
             }]
         );
+    }
+
+    #[test]
+    fn a_picture_takes_the_icon_slot_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let picture = || {
+            RasterImage::new("a".repeat(64), crate::RasterImageFormat::Png, 4, std::sync::Arc::from("AAAA"), "party")
+                .unwrap()
+        };
+        let pictured = |frame: &crate::Frame| {
+            let rects: Vec<_> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect();
+            assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Icon { .. })), "no glyph");
+            assert_eq!(rects.len(), 1, "one picture");
+            rects[0]
+        };
+        let button = || Button::new("join", "Join", palette).image(picture()).variant(ButtonVariant::Raised);
+        let mut tree = UiTree::new(Element::row(vec![button().render()]));
+        let frame = tree.layout(Size::new(300.0, 32.0));
+        let region = frame.regions[0].rect;
+        let slot = pictured(&frame);
+        assert_eq!((slot.width, slot.height), (ICON_SIZE, ICON_SIZE));
+        assert_eq!(slot.y - region.y, (region.height - ICON_SIZE) / 2.0);
+        // The plain button is narrower by the slot and its gap.
+        let plain = UiTree::new(Element::row(vec![Button::new("join", "Join", palette).variant(ButtonVariant::Raised).render()]))
+            .layout(Size::new(300.0, 32.0));
+        let gap = ControlSize::Regular.button_sizing().inner_spacing;
+        assert_eq!(region.width, plain.regions[0].rect.width + ICON_SIZE + gap);
+        tree.handle_event(UiEvent::PointerDown(Point::new(slot.x + 1.0, slot.y + 1.0)));
+        assert_eq!(
+            tree.handle_event(UiEvent::PointerUp(Point::new(slot.x + 1.0, slot.y + 1.0))),
+            vec![UiAction::Clicked { id: "join".into() }]
+        );
+
+        let disabled = UiTree::new(Element::row(vec![button().disabled().render()])).layout(Size::new(300.0, 32.0));
+        assert!(disabled.regions.is_empty());
+        let still = pictured(&disabled);
+        assert_eq!((still.width, still.height), (ICON_SIZE, ICON_SIZE));
+        assert!(disabled.commands.iter().any(|command| matches!(
+            command,
+            DrawCommand::FillRect { rect, color, .. } if rect.width == region.width && *color == palette.raised
+        )));
+        assert!(disabled.commands.iter().any(|command| matches!(
+            command,
+            DrawCommand::Text { color, .. } if *color == palette.muted
+        )));
+
+        // A picture alone: square, and called by its text alternative.
+        for enabled in [true, false] {
+            let alone = Button::new("party", "", palette).image(picture()).enabled(enabled);
+            assert_eq!(access_node(alone.render(), "party").name, "party");
+        }
+        let alone = UiTree::new(Element::row(vec![Button::new("party", "", palette).image(picture()).render()]))
+            .layout(Size::new(100.0, 32.0));
+        let (square, slot) = (alone.regions[0].rect, pictured(&alone));
+        assert_eq!((square.width, square.height), (32.0, 32.0));
+        assert_eq!((slot.x - square.x, slot.y - square.y), (8.0, 8.0));
     }
 
     #[test]

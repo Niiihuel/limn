@@ -11011,7 +11011,15 @@ impl LayoutBuilder<'_> {
                     side,
                     side,
                 );
-                self.draw_icon(*icon, icon_rect, style);
+                match element.kept.as_ref().and_then(|kept| kept.leading_image.as_ref()) {
+                    Some(image) => self.frame.commands.push(DrawCommand::RasterImage {
+                        rect: icon_rect,
+                        image: image.clone(),
+                        opacity: 1.0,
+                        radius: 0.0,
+                    }),
+                    None => self.draw_icon(*icon, icon_rect, style),
+                }
                 if !label.is_empty() {
                     let text_x = start_x + side + style.gap;
                     let text_y = content.y + (content.height - metrics.line_height) / 2.0;
