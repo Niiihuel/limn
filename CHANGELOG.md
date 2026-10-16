@@ -5,6 +5,9 @@ in any release.
 
 ## Unreleased
 
+- `Composer::drop_target()` opts the enabled editor into file drops using its existing ID, without adding a hit region or changing focus. The host owns validation and file access; disabled composers never accept drops. The Editor gallery records the count without opening files.
+- File hover and drop targets respect floating surfaces, context menus and modals, keeping files from reaching covered background controls.
+- The egui bridge delivers native files after the frame's ordinary input, allowing hosts to revalidate an editor after a click or key changes the view.
 - NumberInput: `button_placement(NumberInputButtonPlacement::Split)` places decrease and increase on either side of a centered editable value, with matching caret, selection and pointer geometry. The default `End` placement and existing actions, sizes and bounds are unchanged
 - Passive scroll anchors retain current layout geometry inside clipped static branches, including the first deep layout and changes to width or font size. `UiTree::anchor_offset` no longer loses nested anchors when their container leaves the viewport; those hidden branches still produce no painting or hit targets.
 - `limn_egui::set_icon_rasterizer` installs an optional UI-thread renderer for native icon masks, using the existing bounded texture cache and tint. Missing or malformed masks fall back to SVG; file-type artwork preserves its colors. Replacing or removing the renderer refreshes cached icon textures
