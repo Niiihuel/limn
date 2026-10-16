@@ -459,6 +459,9 @@ pub enum Icon {
     Leave,
     /// Two columns of dots: a handle to drag an item by.
     DragHandle,
+    /// An empty ring: an option not chosen, as an unselected radio or check
+    /// mark in a menu, beside [`Self::CheckCircle`] for the chosen one.
+    Circle,
 }
 
 impl Icon {
