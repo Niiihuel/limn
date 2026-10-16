@@ -997,7 +997,7 @@ fn paint_effort_gradient(painter: &egui::Painter, area: EguiRect, opacity: f32) 
     if right <= left {
         painter.rect_filled(
             area,
-            CornerRadius::same(radius as u8),
+            corner(radius, area),
             effort_color(
                 effort_palette().blue.r,
                 effort_palette().blue.g,
@@ -1239,6 +1239,35 @@ fn aligned_icon_rect(area: EguiRect, pixels_per_point: f32) -> Option<(EguiRect,
     Some((EguiRect::from_min_size(min, size), pixels))
 }
 
+/// egui keeps corner radii in whole points. Round to the nearest one, and
+/// saturate a radius within half a point of half the shorter side: epaint then
+/// clamps it to exactly half of the pixel-snapped rectangle, so a pill or a
+/// circle keeps true semicircular ends at every scale and through scaling
+/// animations, instead of truncating to a flat strip at each end.
+fn corner(radius: f32, area: EguiRect) -> CornerRadius {
+    CornerRadius::same(corner_points(radius, area))
+}
+
+fn corners(radii: limn::CornerRadii, area: EguiRect) -> CornerRadius {
+    CornerRadius {
+        nw: corner_points(radii.top_left, area),
+        ne: corner_points(radii.top_right, area),
+        se: corner_points(radii.bottom_right, area),
+        sw: corner_points(radii.bottom_left, area),
+    }
+}
+
+fn corner_points(radius: f32, area: EguiRect) -> u8 {
+    // Also false for NaN.
+    if !(radius > 0.0) {
+        return 0;
+    }
+    if radius * 2.0 + 1.0 >= area.width().min(area.height()) {
+        return u8::MAX;
+    }
+    radius.round().min(255.0) as u8
+}
+
 /// Paint a frame with its origin at the top-left corner of the space `ui` has available.
 pub fn paint(ui: &egui::Ui, frame: &Frame) {
     paint_at(ui, frame, ui.max_rect().min);
@@ -1422,7 +1451,7 @@ fn paint_at_impl(
                     let tint = material.tint;
                     painter.rect_filled(
                         area,
-                        CornerRadius::same(*radius as u8),
+                        corner(*radius, area),
                         Color32::from_rgba_unmultiplied(
                             tint.r,
                             tint.g,
@@ -1469,7 +1498,7 @@ fn paint_at_impl(
                     spread: shadow.spread.round().clamp(0.0, u8::MAX as f32) as u8,
                     color: color(shadow.color),
                 }
-                .as_shape(rect(origin, *area), CornerRadius::same(*radius as u8));
+                .as_shape(rect(origin, *area), corner(*radius, rect(origin, *area)));
                 painter.add(shape);
             }
             DrawCommand::FillRect {
@@ -1478,11 +1507,8 @@ fn paint_at_impl(
                 radius,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                painter.rect_filled(
-                    rect(origin, *area),
-                    CornerRadius::same(*radius as u8),
-                    color(*fill),
-                );
+                let area = rect(origin, *area);
+                painter.rect_filled(area, corner(*radius, area), color(*fill));
             }
             DrawCommand::FillCornerRect {
                 rect: area,
@@ -1490,16 +1516,8 @@ fn paint_at_impl(
                 radii,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                painter.rect_filled(
-                    rect(origin, *area),
-                    CornerRadius {
-                        nw: radii.top_left.clamp(0.0, 255.0) as u8,
-                        ne: radii.top_right.clamp(0.0, 255.0) as u8,
-                        se: radii.bottom_right.clamp(0.0, 255.0) as u8,
-                        sw: radii.bottom_left.clamp(0.0, 255.0) as u8,
-                    },
-                    color(*fill),
-                );
+                let area = rect(origin, *area);
+                painter.rect_filled(area, corners(*radii, area), color(*fill));
             }
             DrawCommand::CornerMask {
                 rect: area,
@@ -1598,9 +1616,10 @@ fn paint_at_impl(
                 radius,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
                 painter.rect_stroke(
-                    rect(origin, *area),
-                    CornerRadius::same(*radius as u8),
+                    area,
+                    corner(*radius, area),
                     Stroke::new(*width, color(*ink)),
                     StrokeKind::Inside,
                 );
@@ -1612,14 +1631,10 @@ fn paint_at_impl(
                 radii,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
                 painter.rect_stroke(
-                    rect(origin, *area),
-                    CornerRadius {
-                        nw: radii.top_left.clamp(0.0, 255.0) as u8,
-                        ne: radii.top_right.clamp(0.0, 255.0) as u8,
-                        se: radii.bottom_right.clamp(0.0, 255.0) as u8,
-                        sw: radii.bottom_left.clamp(0.0, 255.0) as u8,
-                    },
+                    area,
+                    corners(*radii, area),
                     Stroke::new(*width, color(*ink)),
                     StrokeKind::Inside,
                 );
@@ -1753,7 +1768,7 @@ fn paint_at_impl(
                     painter.add(
                         egui::epaint::RectShape::filled(
                             target,
-                            CornerRadius::same(radius.clamp(0.0, 255.0) as u8),
+                            corner(*radius, target),
                             Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
                         )
                         .with_texture(texture, uv),
@@ -1833,7 +1848,7 @@ fn paint_at_impl(
                 let sleeve = EguiRect::from_min_size(area.min, egui::vec2(side, side));
                 paint_record(&painter, sleeve, *out, *angle, *opacity);
                 let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
-                let corner = CornerRadius::same(radius.clamp(0.0, 255.0) as u8);
+                let corner = corner(*radius, sleeve);
                 match image.as_ref().map(|image| raster_texture(ui, image)) {
                     Some(RasterTexture::Ready(texture, pixels)) => {
                         painter.add(
@@ -2306,6 +2321,41 @@ mod font_tests;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// How many outline points sit on the leftmost edge of a filled rounded
+    /// rectangle, tessellated as an iPhone (three pixels a point) would.
+    fn leftmost_points(area: EguiRect, radius: CornerRadius) -> usize {
+        let options = egui::epaint::TessellationOptions { feathering: false, ..Default::default() };
+        let mut tessellator = egui::epaint::Tessellator::new(3.0, options, [1, 1], Vec::new());
+        let mut mesh = egui::Mesh::default();
+        tessellator.tessellate_rect(&egui::epaint::RectShape::filled(area, radius, Color32::WHITE), &mut mesh);
+        let left = mesh.vertices.iter().map(|vertex| vertex.pos.x).fold(f32::INFINITY, f32::min);
+        mesh.vertices.iter().filter(|vertex| (vertex.pos.x - left).abs() < 1e-3).count()
+    }
+
+    #[test]
+    fn a_pill_has_semicircular_ends_at_every_scale_and_fraction() {
+        // Heights a layout or a scaling entrance produce, on and off the pixel grid.
+        for (y, height) in [(10.0, 44.0), (10.1, 44.2), (3.3, 43.98), (0.0, 42.24), (7.5, 37.0)] {
+            let area = EguiRect::from_min_size(Pos2::new(5.3, y), egui::vec2(160.0, height));
+            let radius = height / 2.0;
+            assert_eq!(corner_points(radius, area), u8::MAX, "{height}");
+            // One apex on each end: no straight strip between two arcs.
+            assert_eq!(leftmost_points(area, corner(radius, area)), 1, "{height}");
+        }
+        // Truncating 21.99 to 21 left a strip one and a half points tall.
+        let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(160.0, 43.98));
+        assert!(leftmost_points(area, CornerRadius::same(21)) > 1);
+        // Smaller radii round to the nearest point instead of truncating.
+        let card = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(200.0, 100.0));
+        assert_eq!(corner_points(7.6, card), 8);
+        assert_eq!(corner_points(4.0, card), 4);
+        assert_eq!(corner_points(0.0, card), 0);
+        assert_eq!(corner_points(-3.0, card), 0);
+        assert_eq!(corner_points(f32::NAN, card), 0);
+        let radii = corners(limn::CornerRadii { top_left: 12.0, top_right: 50.0, bottom_right: 0.0, bottom_left: 3.4 }, card);
+        assert_eq!((radii.nw, radii.ne, radii.se, radii.sw), (12, u8::MAX, 0, 3));
+    }
 
     #[test]
     fn a_covering_image_shows_its_centered_part_at_the_box_proportions() {
