@@ -1972,6 +1972,7 @@ dependencies = [
  "resvg",
  "sha2",
  "skrifa",
+ "unicode-segmentation",
 ]
 
 [[package]]

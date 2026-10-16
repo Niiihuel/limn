@@ -169,6 +169,7 @@ The egui backend exposes:
 | `GlassRenderer::new(&render_state)` | Creates the native wgpu optical renderer. Supply the backdrop using `set_backdrop_rgba` or `set_backdrop_texture`, then call its `paint_at`. |
 | `GlassRenderer::paint_at_surface(ui, &frame, origin, backdrop_rect, surface_id)` | Displays the shared backdrop texture at a named surface's paint depth and renders the glass above it. This opt-in path stretches the texture to the explicit backdrop rectangle; ordinary host-fed surfaces retain their pixel mapping. See [Native glass navigation](liquid-glass.md). |
 | `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
+| `set_color_emoji(Some(source))` | Paints the host's color pictures over the glyphs of emoji in every text run. See [Color emoji](#color-emoji). |
 | `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
 
 The native ImageViewer gallery's **Reload image cache** button exercises this
@@ -232,6 +233,31 @@ sequence's final state, with both historical results below. Use `--small` for
 600 × 580; `--verify`, theme/corner flags and new-path PNG capture are shared
 with the original mode. This demonstration uses a separate synthetic egui
 context and the visible limn tree, without requesting clipboard I/O.
+
+### Color emoji
+
+limn bundles only monochrome Noto Emoji. A host with color artwork installs
+`set_color_emoji(Some(source))` on the UI thread, where `source` is a
+`fn(&str) -> Option<&'static [u8]>`: given one extended grapheme cluster of
+painted text, it returns a PNG or `None`. Skin tones, joined sequences, flags
+and keycaps arrive as the one cluster they form, with any variation selector,
+so the host decides presentation (for example drawing `❤️` but not `❤` or
+`❤︎`). All-ASCII text is never asked about.
+
+Nothing about the text changes: the tree measures and wraps with the font,
+the glyph keeps its place and is painted transparent, and the picture is
+fitted to that place, between 1 and 1.2 ems wide, centered on the line and
+tinted with the text's alpha. Selection, copied text and accessibility keep
+the original characters. This covers every `DrawCommand::Text`: labels,
+formatted text, tooltips and editors alike.
+
+Pictures are decoded on the UI thread, downscaled to the size drawn in steps
+of 4 pixels, and cached per egui context (1024 textures). A paint pass
+decodes at most 24 new ones and requests another pass for the rest, which
+show their glyph meanwhile. A source that is not a PNG, is larger than
+256 KiB, or exceeds 512 pixels a side keeps the glyph. Replacing or
+removing the source clears the cache. The Text gallery page installs three
+synthetic discs.
 
 ### Host-fed surfaces
 
