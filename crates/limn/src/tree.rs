@@ -1525,7 +1525,11 @@ const SLOT_OPEN: f32 = 100.0;
 /// A slot opens and closes on a spring with no overshoot: toggled midway it
 /// keeps its speed and turns back instead of starting again from rest.
 fn slot_spring(value: f32, now: Instant) -> ScalarSpring {
-    ScalarSpring::new(value, now).motion(crate::SpringMotion::settling_in(slot_settle()))
+    ScalarSpring::new(value, now).motion(slot_motion())
+}
+
+fn slot_motion() -> crate::SpringMotion {
+    crate::SpringMotion::settling_in(slot_settle())
 }
 
 /// The time in which a slot covers 99% of its way: one and a half moves.
@@ -8611,7 +8615,7 @@ impl LayoutBuilder<'_> {
             if present && (!expand || self.locating) && state.fraction.value(now) <= 0.0 {
                 state.fraction = slot_spring(SLOT_OPEN, now);
             } else {
-                state.fraction.retarget(target, now);
+                state.fraction.launch(target, slot_motion(), now);
             }
         }
         state.natural * (state.fraction.value(now) / SLOT_OPEN).clamp(0.0, 1.0)
@@ -8731,8 +8735,7 @@ impl LayoutBuilder<'_> {
                 crate::tokens().motion.move_ms,
             )));
             for (value, target) in state.values.iter_mut().zip(targets) {
-                *value = value.motion(motion);
-                value.retarget(target, now);
+                value.launch(target, motion, now);
             }
         } else if state.key != key
             || state.values.iter().zip(targets).any(|(value, target)| value.target() != target)
@@ -8867,9 +8870,8 @@ impl LayoutBuilder<'_> {
             state.value = ScalarSpring::new(target, self.now);
         } else if target != state.value.target() {
             let pace = paced(if target > state.value.target() { rise_ms } else { fall_ms });
-            // It turns from where it is, at the speed it has, and only then takes its new pace.
-            state.value.retarget(target, self.now);
-            state.value = state.value.motion(pace);
+            // It turns from where it is, at the speed it has, and takes its new pace from there.
+            state.value.launch(target, pace, self.now);
         }
         state.value.value(self.now)
     }
@@ -9868,10 +9870,10 @@ impl LayoutBuilder<'_> {
                         } else if state.selected_id != selection.selected_id {
                             let duration = Duration::from_millis(u64::from(selection.animation_ms));
                             let motion = crate::SpringMotion::settling_in(duration);
-                            state.x = state.x.motion(motion);
-                            state.width = state.width.motion(motion);
-                            state.x.retarget(target.x, self.now);
-                            state.width.retarget(target.width, self.now);
+                            // Setting a pace before rebasing would redraw the
+                            // flight so far on the new curve: a jump.
+                            state.x.launch(target.x, motion, self.now);
+                            state.width.launch(target.width, motion, self.now);
                             state.selected_id.clone_from(&selection.selected_id);
                         } else if state.x.target() != target.x
                             || state.width.target() != target.width

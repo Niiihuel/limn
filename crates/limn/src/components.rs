@@ -6046,6 +6046,32 @@ mod tests {
     }
 
     #[test]
+    fn a_tab_selection_sets_off_on_the_first_frame_after_the_change() {
+        let palette = ComponentPalette::neutral_dark();
+        let tabs = |chosen: usize| {
+            let tab = |index: usize| Tab::new(format!("t{index}"), "Tab", 80.0).active(index == chosen);
+            Tabs::new(vec![tab(0), tab(1), tab(2)], palette).id("tabs").render()
+        };
+        let size = Size::new(300.0, 40.0);
+        let start = web_time::Instant::now() - web_time::Duration::from_secs(10);
+        let frame = web_time::Duration::from_micros(16_667);
+        let mut tree = UiTree::new(tabs(0));
+        let from = fills(&tree.layout_at(size, start), palette.selected)[0].x;
+        tree.set_root(tabs(2));
+        assert_eq!(fills(&tree.layout_at(size, start), palette.selected)[0].x, from);
+        let to = {
+            let mut rest = UiTree::new(tabs(2));
+            fills(&rest.layout(size), palette.selected)[0].x
+        };
+        // An ease-out over the move token covers a quarter of the way in one
+        // frame; a spring from standstill covered under a seventh.
+        let first = fills(&tree.layout_at(size, start + frame), palette.selected)[0].x;
+        assert!((first - from) / (to - from) > 0.25, "{first} between {from} and {to}");
+        let settled = start + web_time::Duration::from_secs(2);
+        assert_eq!(fills(&tree.layout_at(size, settled), palette.selected)[0].x, to);
+    }
+
+    #[test]
     fn monospace_text_field_changes_only_the_family_enabled_and_disabled() {
         let palette = ComponentPalette::neutral_dark();
         for disabled in [false, true] {
