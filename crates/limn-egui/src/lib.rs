@@ -1414,6 +1414,7 @@ fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 Role::Image => Platform::Image,
                 Role::Heading => Platform::Heading,
                 Role::Label => Platform::Label,
+                Role::Region => Platform::Region,
                 // A role this backend does not know yet is still a thing with a name.
                 _ => Platform::Group,
             });

@@ -3,8 +3,8 @@
 
 use crate::pages::{self, Cx};
 use limn::{
-    Button, ButtonSize, ButtonVariant, Color, Component, Element, FontFamily, Motion, Radius,
-    ScrollArea, Size, Theme, Tokens, UiAction,
+    Access, Button, ButtonSize, ButtonVariant, Color, Component, Element, FontFamily, Motion, Radius,
+    Role, ScrollArea, Size, Theme, Tokens, UiAction,
 };
 use std::collections::HashMap;
 
@@ -227,11 +227,16 @@ pub fn view(state: &State, window: Size) -> Element {
         vec![ScrollArea::new("page-scroll", page).render().flex(1.0)]
     } else {
         vec![
+            // Landmarks: F6 and Shift+F6 move the focus between the two.
             Element::panel(Element::column(sidebar).gap(2.0))
                 .padding(12.0)
                 .background(palette.surface)
-                .size(Some(SIDEBAR_WIDTH), None),
-            ScrollArea::new("page-scroll", page).render().flex(1.0),
+                .size(Some(SIDEBAR_WIDTH), None)
+                .accessible(Access::new(Role::Region).id("gallery-navigation").name("Components")),
+            ScrollArea::new("page-scroll", page)
+                .render()
+                .flex(1.0)
+                .accessible(Access::new(Role::Region).id("gallery-page").name(current.title)),
         ]
     };
     let root = Element::panel(Element::row(content))
@@ -246,6 +251,21 @@ mod tests {
     use super::*;
     use limn::{UiEvent, UiTree};
     use std::collections::HashSet;
+
+    #[test]
+    fn f6_moves_between_the_navigation_and_the_page() {
+        let window = Size::new(1280.0, 800.0);
+        let mut tree = UiTree::new(view(&State::starting_at("button"), window));
+        tree.layout(window);
+        let key = |shift| UiEvent::Key { key: limn::Key::F6, shift, ctrl: false, alt: false };
+        tree.handle_event(key(false));
+        let first = tree.focused_id().map(str::to_owned);
+        assert_eq!(first.as_deref(), tree.focusables_within("gallery-navigation").first().copied());
+        tree.handle_event(key(false));
+        assert_eq!(tree.focused_id(), tree.focusables_within("gallery-page").first().copied());
+        tree.handle_event(key(true));
+        assert_eq!(tree.focused_id().map(str::to_owned), first);
+    }
 
     #[test]
     fn the_gallery_keeps_english_library_labels() {
