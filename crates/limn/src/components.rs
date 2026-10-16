@@ -5244,7 +5244,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: crate::Key::ArrowRight,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "project".into()
@@ -5437,6 +5438,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert_eq!(
             tree.handle_event(key(crate::Key::Enter)),
@@ -5554,6 +5556,7 @@ mod tests {
                 key: crate::Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "keep_awake".into()
@@ -5680,6 +5683,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert!(tree.focus("sessions"));
         assert!(tree
@@ -5687,6 +5691,7 @@ mod tests {
                 key: crate::Key::ArrowRight,
                 shift: true,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("sessions"));
@@ -5752,6 +5757,7 @@ mod tests {
                 key: crate::Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -5806,6 +5812,7 @@ mod tests {
             key: crate::Key::End,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let final_frame = tree.layout(Size::new(360.0, 280.0));
         assert_eq!(tree.focused_id(), Some("choice:4"));
@@ -5819,6 +5826,7 @@ mod tests {
                 key: crate::Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "choice:4".into()
@@ -6009,6 +6017,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert_eq!(
             tree.handle_event(key(crate::Key::ArrowRight)),
@@ -6292,6 +6301,7 @@ mod tests {
             key,
             shift,
             ctrl: false,
+            alt: false,
         };
         let mut tree = UiTree::new(make_dropdown());
         tree.layout(Size::new(400.0, 300.0));
@@ -6364,6 +6374,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         for _ in 0..9 {
             tree.handle_event(key(crate::Key::ArrowDown));
@@ -6388,6 +6399,7 @@ mod tests {
             key: crate::Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("option:11"));
         let wrapped = tree.layout(viewport);
@@ -6486,7 +6498,7 @@ mod tests {
         assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
         assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
         assert!(!tree.focus("docs"));
-        let enter = UiEvent::Key { key: crate::Key::Enter, shift: false, ctrl: false };
+        let enter = UiEvent::Key { key: crate::Key::Enter, shift: false, ctrl: false, alt: false };
         assert!(tree.handle_event(enter).is_empty());
         // Hovered, it is still the same muted line with no underline.
         assert_eq!(tree.layout(size).commands, disabled.commands);

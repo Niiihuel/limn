@@ -56,6 +56,19 @@ viewer.error("The picture could not be decoded.")
 the room the panel leaves. Without one the viewer shows a spinner and a line
 saying the image is loading. `error` replaces both with the host's message.
 
+## Animation or video
+
+```rust
+viewer.surface("animation:loop", "A looping animation")
+```
+
+`surface` shows the pixels the host presents under that ID, as
+`Element::surface` does, in place of a picture: an animated GIF, a video. They
+are fitted to the same room a picture gets, enlarged or reduced, and zoomed
+and panned the same way. The host presents the first frame before it opens
+the viewer and the next ones as they fall due; see
+[Host-fed surfaces](../backend.md#host-fed-surfaces).
+
 ## Gallery
 
 ```rust
@@ -70,6 +83,13 @@ footer reads `2 of 5`. With more than one, `previous_action` and
 `next_action` put an arrow at each side of the picture. The arrow at an end
 of the gallery is drawn disabled. The host changes the index and passes the
 picture that goes with it.
+
+The arrows are named "Previous image" and "Next image". For a gallery of
+something else, such as the pages of a document, name them:
+
+```rust
+viewer.navigation_labels("Previous page", "Next page")
+```
 
 ## Zoom
 

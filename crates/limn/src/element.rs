@@ -459,6 +459,9 @@ pub enum Icon {
     Leave,
     /// Two columns of dots: a handle to drag an item by.
     DragHandle,
+    /// An empty ring: an option not chosen, as an unselected radio or check
+    /// mark in a menu, beside [`Self::CheckCircle`] for the chosen one.
+    Circle,
 }
 
 impl Icon {
@@ -1253,6 +1256,21 @@ impl MarkRail {
     }
 }
 
+/// How a surface's pixels fill the rectangle laid out for it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SurfaceFit {
+    /// At the density they were rendered for, from the top-left corner,
+    /// clipped to the rectangle and never scaled: a remote screen, a page.
+    #[default]
+    Native,
+    /// Scaled up or down to fit inside the rectangle, centered, keeping its
+    /// proportions: as large as a picture is shown in the same rectangle.
+    Contain,
+    /// Filling the rectangle, cropped around the center, as a cover picture
+    /// ([`RasterImage::cover`](crate::RasterImage::cover)) is.
+    Cover,
+}
+
 /// What an element is: a container, a control or passive content. The
 /// constructors of [`Element`] build each kind.
 #[derive(Clone, Debug)]
@@ -1483,6 +1501,8 @@ pub enum ElementKind {
         id: String,
         /// Names the surface for assistive technology.
         label: String,
+        /// How the pixels fill the rectangle; see [`Element::surface_fit`].
+        fit: SurfaceFit,
     },
     /// An icon centered in the element's box, [`ICON_SIZE`] on a side unless
     /// [`Style::icon_side`] says otherwise.
@@ -2820,7 +2840,20 @@ impl Element {
         Self::new(ElementKind::Surface {
             id: id.into(),
             label: label.into(),
+            fit: SurfaceFit::Native,
         })
+    }
+
+    /// How a surface's pixels fill its rectangle: [`SurfaceFit::Contain`]
+    /// and [`SurfaceFit::Cover`] scale them as a raster image is scaled, so
+    /// an animation can take the place of its still first frame. Its
+    /// [`radius`](Self::radius) rounds the corners of the pixels shown. Has
+    /// no effect on an element that is not a surface.
+    pub fn surface_fit(mut self, fit: SurfaceFit) -> Self {
+        if let ElementKind::Surface { fit: own, .. } = &mut self.kind {
+            *own = fit;
+        }
+        self
     }
 
     /// An icon on its own, [`ICON_SIZE`] on a side unless `large_icon` says
@@ -3796,12 +3829,27 @@ mod surface_tests {
             .commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::Surface { rect, id, label, opacity } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
+                DrawCommand::Surface { rect, id, label, opacity, .. } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
                 _ => None,
             })
             .collect();
         // The frame carries the name only: new pixels never rebuild the tree.
         assert_eq!(surfaces, [(Rect::new(0.0, 20.0, 300.0, 200.0), "page-pixels", "Página", 1.0)]);
         assert!(frame.regions.iter().any(|region| region.id == "page" && region.rect == surfaces[0].0));
+    }
+
+    #[test]
+    fn a_surface_carries_its_fit_and_radius_and_other_elements_ignore_the_fit() {
+        let shown = |element: Element| {
+            let frame = UiTree::new(element).layout(Size::new(120.0, 80.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Surface { fit, radius, .. } => Some((*fit, *radius)),
+                _ => None,
+            })
+        };
+        assert_eq!(shown(Element::surface("a", "A")), Some((SurfaceFit::Native, 0.0)));
+        let covered = Element::surface("a", "A").surface_fit(SurfaceFit::Cover).radius(8.0);
+        assert_eq!(shown(covered), Some((SurfaceFit::Cover, 8.0)));
+        assert!(shown(Element::spacer().surface_fit(SurfaceFit::Cover)).is_none());
     }
 }

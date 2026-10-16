@@ -57,6 +57,7 @@ fn key(key: Key) -> UiEvent {
         key,
         shift: false,
         ctrl: false,
+        alt: false,
     }
 }
 
@@ -382,6 +383,7 @@ fn modal_select_tab_and_arrows_stay_in_the_open_child() {
         key: Key::Tab,
         shift: true,
         ctrl: false,
+        alt: false,
     });
     assert_eq!(tree.focused_id(), Some("third"));
     for (key_value, expected) in [

@@ -63,6 +63,7 @@ fn key(tree: &mut UiTree, key: Key) {
         key,
         ctrl: false,
         shift: false,
+        alt: false,
     });
 }
 

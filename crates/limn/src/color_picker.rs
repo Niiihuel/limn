@@ -710,6 +710,7 @@ mod tests {
                 key,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
         };
         let next =
@@ -738,6 +739,7 @@ mod tests {
                 key: Key::Tab,
                 shift: false,
                 ctrl: false,
+                alt: false,
             });
             let frame = tree.layout(window());
             let rect = region(&frame, part);
@@ -766,7 +768,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Backspace,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::InputChanged {
                 id: "c:hex".into(),

@@ -3,7 +3,7 @@ use crate::{Size, UiTree};
 use std::time::Duration;
 
 fn key(key: Key, ctrl: bool, shift: bool) -> UiEvent {
-    UiEvent::Key { key, ctrl, shift }
+    UiEvent::Key { key, ctrl, shift, alt: false }
 }
 fn measure(text: &str) -> f32 {
     text.chars().count() as f32 * 8.0

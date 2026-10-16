@@ -497,6 +497,7 @@ mod tests {
             key: Key::Enter,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             enter,
@@ -548,7 +549,7 @@ mod tests {
                 assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
                 assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
                 assert!(tree.handle_event(UiEvent::Text("hola".into())).is_empty());
-                let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+                let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false };
                 assert!(tree.handle_event(enter).is_empty());
                 // The draft, or the placeholder, is there in muted ink.
                 let shown = frame

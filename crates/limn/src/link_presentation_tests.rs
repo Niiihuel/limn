@@ -49,7 +49,8 @@ fn decorative_link_icon_reserves_width_but_never_enters_selection_or_copy() {
         tree.handle_event(UiEvent::Key {
             key: Key::C,
             shift: false,
-            ctrl: true
+            ctrl: true,
+            alt: false
         }),
         vec![UiAction::CopyRequested {
             text: "á GitHub fin".into()
@@ -132,11 +133,13 @@ fn editable_url_color_preserves_unicode_geometry_selection_copy_and_stale_edits(
             key: Key::Home,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowRight,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.input_value("prompt"), Some(source));
     }
@@ -170,12 +173,14 @@ fn editable_url_color_preserves_unicode_geometry_selection_copy_and_stale_edits(
         key: Key::A,
         shift: false,
         ctrl: true,
+        alt: false,
     });
     assert_eq!(
         styled.handle_event(UiEvent::Key {
             key: Key::C,
             shift: false,
-            ctrl: true
+            ctrl: true,
+            alt: false
         }),
         vec![UiAction::CopyRequested {
             text: source.into()

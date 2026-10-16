@@ -37,6 +37,7 @@ fn key(key: Key, ctrl: bool) -> UiEvent {
         key,
         ctrl,
         shift: false,
+        alt: false,
     }
 }
 fn input() -> Element {
@@ -551,7 +552,8 @@ fn custom_context_shortcuts_match_modifiers_and_native_paste_dispatches_owner_ac
         tree.handle_event(UiEvent::Key {
             key: Key::C,
             ctrl: true,
-            shift: true
+            shift: true,
+            alt: false
         }),
         vec![UiAction::Clicked {
             id: "terminal:7:copy_selection".into()
@@ -563,7 +565,8 @@ fn custom_context_shortcuts_match_modifiers_and_native_paste_dispatches_owner_ac
         tree.handle_event(UiEvent::Key {
             key: Key::V,
             ctrl: true,
-            shift: true
+            shift: true,
+            alt: false
         }),
         vec![UiAction::Clicked {
             id: "terminal:7:paste".into()
@@ -586,6 +589,34 @@ fn custom_context_shortcuts_match_modifiers_and_native_paste_dispatches_owner_ac
             id: "terminal:7:clear".into()
         }]
     );
+}
+
+#[test]
+fn alt_and_slash_shortcuts_match_only_with_their_modifiers() {
+    let root = ContextMenu::new(
+        "doc",
+        Element::button("page", "Page").size(Some(280.0), Some(32.0)),
+        vec![
+            ContextMenuEntry::Item(ContextMenuItem::new("doc:back", "Back").shortcut("Alt+E")),
+            ContextMenuEntry::Item(ContextMenuItem::new("doc:keys", "Shortcuts").shortcut("Ctrl+/")),
+            ContextMenuEntry::Item(ContextMenuItem::new("doc:find", "Find").shortcut("Ctrl+F")),
+        ],
+        ComponentPalette::neutral_dark(),
+    )
+    .render();
+    let press = |key, ctrl, alt| {
+        let mut tree = UiTree::new(root.clone());
+        tree.layout(Size::new(300.0, 240.0));
+        open(&mut tree, Point::new(15.0, 15.0));
+        tree.handle_event(UiEvent::Key { key, ctrl, shift: false, alt })
+    };
+    let clicked = |id: &str| vec![UiAction::Clicked { id: id.into() }];
+    assert_eq!(press(Key::E, false, true), clicked("doc:back"));
+    assert!(press(Key::E, false, false).is_empty());
+    assert_eq!(press(Key::Slash, true, false), clicked("doc:keys"));
+    assert_eq!(press(Key::F, true, false), clicked("doc:find"));
+    // Alt held is a different chord, not the one without it.
+    assert!(press(Key::F, true, true).is_empty());
 }
 
 #[test]
