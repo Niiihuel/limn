@@ -15,7 +15,7 @@ pub(super) struct Offer {
     seat: ObjectId,
     has_uri: bool,
     selected_copy: bool,
-    id: Option<OfferId>,
+    pub(super) id: Option<OfferId>,
     /// Serial of the Enter that put this offer over the surface.
     serial: u32,
 }
@@ -120,10 +120,10 @@ impl State {
         let mut index = 0;
         while index < self.offers.len() {
             let retired = self.offers[index].id.is_some_and(|id| {
-                matches!(
-                    self.coordinator.offer_phase(id),
-                    None | Some(Phase::TerminalQueued)
-                )
+                self.endpoint_for_offer(id).is_none_or(|endpoint| {
+                    self.endpoints[endpoint].retiring
+                        || matches!(self.offer_phase(id), Some(Phase::TerminalQueued))
+                })
             });
             if closing || (retired && !self.is_hovered(index)) {
                 self.remove_offer(index);
@@ -141,7 +141,9 @@ impl State {
         while index < self.offers.len() {
             if self.offers[index].device == *device {
                 if let Some(id) = self.offers[index].id {
-                    let _ = self.coordinator.cancel(id);
+                    if let Some(endpoint) = self.endpoint_for_offer(id) {
+                        let _ = self.endpoints[endpoint].coordinator.cancel(id);
+                    }
                 }
                 self.remove_offer(index);
             } else {
@@ -159,7 +161,12 @@ impl State {
             Self::destroy_proxy(&proxy);
             return;
         };
-        if self.target_surface.is_none() || self.failure.is_some() {
+        if !self
+            .endpoints
+            .iter()
+            .any(|endpoint| endpoint.surface.is_some() && !endpoint.retiring)
+            || self.failure.is_some()
+        {
             Self::destroy_proxy(&proxy);
             return;
         }
@@ -205,13 +212,18 @@ impl State {
             return;
         };
         self.offers[index].serial = serial;
-        if self.target_surface.as_ref() != Some(&surface.id())
+        let endpoint = self.endpoints.iter().position(|endpoint| {
+            !endpoint.retiring && endpoint.surface.as_ref() == Some(&surface.id())
+        });
+        if endpoint.is_none()
+            || self.lease.is_some()
             || !self.offers[index].has_uri
             || self.failure.is_some()
         {
             self.reject_offer(index);
             return;
         }
+        let endpoint = endpoint.expect("validated exact registered surface");
         let id = match next_offer_id() {
             Ok(id) => id,
             Err(error) => {
@@ -220,7 +232,10 @@ impl State {
             }
         };
         self.offers[index].id = Some(id);
-        match self.coordinator.enter(id, point, proxy.version(), true) {
+        match self.endpoints[endpoint]
+            .coordinator
+            .enter(id, point, proxy.version(), true)
+        {
             Ok(()) => {}
             Err(_) => {
                 self.offers[index].id = None;
@@ -228,10 +243,14 @@ impl State {
                 return;
             }
         }
+        self.lease = Some(DropLease {
+            registration: self.endpoints[endpoint].registration,
+            id,
+        });
         if let Some(seat) = self.seat_for_device(&device.id()) {
             self.seats[seat].hover = Some(proxy.id());
         }
-        if self
+        if self.endpoints[endpoint]
             .coordinator
             .action(id, self.offers[index].selected_copy)
             .is_err()
@@ -252,7 +271,7 @@ impl State {
                 })
             });
         if result.is_err() {
-            let _ = self.coordinator.cancel(id);
+            let _ = self.endpoints[endpoint].coordinator.cancel(id);
             self.cleanup_offers();
         }
     }
@@ -266,7 +285,9 @@ impl State {
 
     fn leave_offer(&mut self, device: &ObjectId) {
         if let Some((_, id)) = self.hovered_offer(device) {
-            let _ = self.coordinator.leave(id);
+            if let Some(endpoint) = self.endpoint_for_offer(id) {
+                let _ = self.endpoints[endpoint].coordinator.leave(id);
+            }
         }
         self.release_refused_hover(device);
         self.cleanup_offers();
@@ -277,16 +298,26 @@ impl State {
             self.release_refused_hover(device);
             return;
         };
+        let Some(endpoint) = self.endpoint_for_offer(id) else {
+            return;
+        };
         if let Some(seat) = self.seat_for_device(device) {
             self.seats[seat].hover = None;
         }
         self.now = self.now.max(Instant::now());
-        if self.coordinator.start(id, self.now).is_err() {
+        if self.endpoints[endpoint]
+            .coordinator
+            .start(id, self.now)
+            .is_err()
+        {
             self.cleanup_offers();
             return;
         }
         self.now = self.now.max(Instant::now());
-        let deadline = match self.coordinator.reading_deadline(id, self.now) {
+        let deadline = match self.endpoints[endpoint]
+            .coordinator
+            .reading_deadline(id, self.now)
+        {
             Ok(deadline) => deadline,
             Err(_) => {
                 self.cleanup_offers();
@@ -296,14 +327,18 @@ impl State {
         let (pipe, writer) = match ReceivePipe::new(id, self.limits.max_list_bytes, deadline) {
             Ok(pair) => pair,
             Err(error) => {
-                let _ = self.coordinator.fail(id, error);
+                let _ = self.endpoints[endpoint].coordinator.fail(id, error);
                 self.cleanup_offers();
                 return;
             }
         };
         let proxy = self.offer_proxy(id);
         self.now = self.now.max(Instant::now());
-        if self.coordinator.reading_deadline(id, self.now).is_err() {
+        if self.endpoints[endpoint]
+            .coordinator
+            .reading_deadline(id, self.now)
+            .is_err()
+        {
             drop(writer);
             drop(pipe);
             self.cleanup_offers();
@@ -321,7 +356,7 @@ impl State {
         drop(writer);
         if let Err(error) = result {
             drop(pipe);
-            let _ = self.coordinator.fail(id, error);
+            let _ = self.endpoints[endpoint].coordinator.fail(id, error);
             self.cleanup_offers();
         } else {
             self.pipe = Some((id, pipe));
@@ -329,26 +364,30 @@ impl State {
     }
 
     pub(super) fn consume_decision(&mut self) {
-        self.now = self.now.max(Instant::now());
-        let _ = self.coordinator.reconcile(self.now);
-        self.cleanup_offers();
-        let decision = self.control.take_decision();
-        self.now = self.now.max(Instant::now());
-        let _ = self.coordinator.reconcile(self.now);
-        self.cleanup_offers();
-        let Some((id, decision)) = decision else {
-            return;
-        };
-        let proxy = self.offer_proxy(id);
-        self.now = self.now.max(Instant::now());
-        let _ = self.coordinator.decide(id, decision, self.now, |_| {
-            proxy
-                .as_ref()
-                .ok_or(ReceiveError::Io)?
-                .send_request(wl_data_offer::Request::Finish {})
-                .map_err(|_| ReceiveError::Io)
-        });
-        self.cleanup_offers();
+        for endpoint in 0..self.endpoints.len() {
+            self.now = self.now.max(Instant::now());
+            let _ = self.reconcile_endpoints(self.now);
+            self.cleanup_offers();
+            let decision = self.endpoints[endpoint].control.take_decision();
+            self.now = self.now.max(Instant::now());
+            let _ = self.reconcile_endpoints(self.now);
+            self.cleanup_offers();
+            let Some((id, decision)) = decision else {
+                continue;
+            };
+            let proxy = self.offer_proxy(id);
+            self.now = self.now.max(Instant::now());
+            let _ = self.endpoints[endpoint]
+                .coordinator
+                .decide(id, decision, self.now, |_| {
+                    proxy
+                        .as_ref()
+                        .ok_or(ReceiveError::Io)?
+                        .send_request(wl_data_offer::Request::Finish {})
+                        .map_err(|_| ReceiveError::Io)
+                });
+            self.cleanup_offers();
+        }
     }
 
     pub(super) fn advance_transfer(&mut self) {
@@ -356,8 +395,16 @@ impl State {
             return;
         };
         let id = *id;
+        let Some(endpoint) = self.endpoint_for_offer(id) else {
+            drop(self.pipe.take());
+            return;
+        };
         self.now = self.now.max(Instant::now());
-        if self.coordinator.reading_deadline(id, self.now).is_err() {
+        if self.endpoints[endpoint]
+            .coordinator
+            .reading_deadline(id, self.now)
+            .is_err()
+        {
             self.cleanup_offers();
             return;
         }
@@ -366,7 +413,11 @@ impl State {
             None => return,
         };
         self.now = self.now.max(Instant::now());
-        if self.coordinator.reading_deadline(id, self.now).is_err() {
+        if self.endpoints[endpoint]
+            .coordinator
+            .reading_deadline(id, self.now)
+            .is_err()
+        {
             self.cleanup_offers();
             return;
         }
@@ -374,7 +425,7 @@ impl State {
             Ok(None) => {}
             Err(error) => {
                 drop(self.pipe.take());
-                let _ = self.coordinator.fail(id, error);
+                let _ = self.endpoints[endpoint].coordinator.fail(id, error);
                 self.cleanup_offers();
             }
             Ok(Some(bytes)) => {
@@ -382,16 +433,22 @@ impl State {
                 // Neither the decoder nor its owned buffers run under control/mailbox guards.
                 let decoded = crate::uri_list::decode_received(&bytes, &self.limits);
                 self.now = self.now.max(Instant::now());
-                if self.coordinator.reading_deadline(id, self.now).is_err() {
+                if self.endpoints[endpoint]
+                    .coordinator
+                    .reading_deadline(id, self.now)
+                    .is_err()
+                {
                     self.cleanup_offers();
                     return;
                 }
                 match decoded {
                     Ok(paths) => {
-                        let _ = self.coordinator.complete_validated(id, paths, self.now);
+                        let _ = self.endpoints[endpoint]
+                            .coordinator
+                            .complete_validated(id, paths, self.now);
                     }
                     Err(error) => {
-                        let _ = self.coordinator.fail(id, error);
+                        let _ = self.endpoints[endpoint].coordinator.fail(id, error);
                     }
                 }
                 self.cleanup_offers();
@@ -409,7 +466,7 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for State {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        let _ = state.coordinator.reconcile(state.now);
+        let _ = state.reconcile_endpoints(state.now.max(Instant::now()));
         state.cleanup_offers();
         match event {
             wl_data_device::Event::DataOffer { id } => state.introduce_offer(device, id),
@@ -422,7 +479,11 @@ impl Dispatch<wl_data_device::WlDataDevice, ()> for State {
             } => state.enter_offer(device, serial, &surface, SurfacePoint { x, y }, id),
             wl_data_device::Event::Motion { x, y, .. } => {
                 if let Some((_, id)) = state.hovered_offer(&device.id()) {
-                    let _ = state.coordinator.motion(id, SurfacePoint { x, y });
+                    if let Some(endpoint) = state.endpoint_for_offer(id) {
+                        let _ = state.endpoints[endpoint]
+                            .coordinator
+                            .motion(id, SurfacePoint { x, y });
+                    }
                 }
             }
             wl_data_device::Event::Leave => state.leave_offer(&device.id()),
@@ -469,14 +530,18 @@ impl Dispatch<wl_data_offer::WlDataOffer, ()> for State {
                 if let Some(id) = state.offers[index].id {
                     if !copy
                         && matches!(
-                            state.coordinator.offer_phase(id),
+                            state.offer_phase(id),
                             Some(Phase::Reading { .. } | Phase::AwaitingDecision { .. })
                         )
                     {
-                        let _ = state.coordinator.cancel(id);
+                        if let Some(endpoint) = state.endpoint_for_offer(id) {
+                            let _ = state.endpoints[endpoint].coordinator.cancel(id);
+                        }
                         state.cleanup_offers();
                     } else {
-                        let _ = state.coordinator.action(id, copy);
+                        if let Some(endpoint) = state.endpoint_for_offer(id) {
+                            let _ = state.endpoints[endpoint].coordinator.action(id, copy);
+                        }
                     }
                 }
             }

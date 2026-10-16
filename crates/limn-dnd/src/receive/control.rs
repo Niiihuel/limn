@@ -15,6 +15,7 @@ pub(super) struct ReceiveControl {
 }
 
 struct Shared {
+    parent: Option<ReceiveControl>,
     header: Mutex<Header>,
     mailbox: Mutex<ReceiveMailbox>,
 }
@@ -82,8 +83,23 @@ impl Header {
 
 impl ReceiveControl {
     pub(super) fn new(epoch: ReceiveEpoch) -> Result<Self, ReceiveError> {
+        Self::with_parent(epoch, None)
+    }
+
+    pub(super) fn new_for_owner(
+        epoch: ReceiveEpoch,
+        parent: ReceiveControl,
+    ) -> Result<Self, ReceiveError> {
+        Self::with_parent(epoch, Some(parent))
+    }
+
+    fn with_parent(
+        epoch: ReceiveEpoch,
+        parent: Option<ReceiveControl>,
+    ) -> Result<Self, ReceiveError> {
         Ok(Self {
             shared: Arc::new(Shared {
+                parent,
                 header: Mutex::new(Header {
                     epoch,
                     armed: false,
@@ -120,6 +136,10 @@ impl ReceiveControl {
     }
 
     pub(super) fn decide(&self, id: OfferId, decision: DropDecision) -> Result<(), ReceiveError> {
+        let parent = self.shared.parent.as_ref().map(Self::header);
+        if parent.as_ref().is_some_and(|header| header.is_closing()) {
+            return Err(ReceiveError::Closed);
+        }
         let mut header = self.header();
         if header.is_closing() {
             return Err(ReceiveError::Closed);
@@ -150,6 +170,10 @@ impl ReceiveControl {
     }
 
     pub(super) fn take_decision(&self) -> Option<(OfferId, DropDecision)> {
+        let parent = self.shared.parent.as_ref().map(Self::header);
+        if parent.as_ref().is_some_and(|header| header.is_closing()) {
+            return None;
+        }
         let mut header = self.header();
         let Some(DecisionSlot::Queued(id, decision)) = header.decision else {
             return None;
@@ -180,6 +204,12 @@ impl ReceiveControl {
         epoch: ReceiveEpoch,
         now: Instant,
     ) -> Result<(), ReceiveError> {
+        // The owner cut and this claim arbitrate under the same parent header.
+        // Neither guard survives into the caller's protocol request.
+        let parent = self.shared.parent.as_ref().map(Self::header);
+        if parent.as_ref().is_some_and(|header| header.is_closing()) {
+            return Err(ReceiveError::StaleOffer);
+        }
         let mut header = self.header();
         let now = now.max(Instant::now());
         if header.is_closing() || !header.armed || header.epoch != epoch {

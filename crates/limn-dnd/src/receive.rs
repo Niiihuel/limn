@@ -6,6 +6,7 @@ use crate::ReceiveError;
 
 mod control;
 mod coordinator;
+mod data_owner;
 mod events;
 mod file_drop_receiver;
 #[cfg(target_os = "linux")]
@@ -16,7 +17,12 @@ mod runtime;
 mod wayland;
 pub(crate) mod worker_pool;
 
+pub use data_owner::{EndpointStatus, FileDropEndpoint, WaylandDataOwner};
 pub use file_drop_receiver::FileDropReceiver;
+
+#[cfg(test)]
+#[path = "receive/data_owner_api_tests.rs"]
+mod data_owner_api_tests;
 
 /// An opaque offer identity, never reused by receive-only connections.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

@@ -16,7 +16,7 @@ use sctk::reexports::calloop::{
 use super::{
     control::ReceiveControl,
     wayland::GuestStartup,
-    worker_pool::{ExitSignal, SurfaceKey, Wake, WorkerExit, WorkerPool},
+    worker_pool::{ExitSignal, OwnerId, SurfaceKey, Wake, WorkerExit, WorkerPool},
     OfferId,
 };
 use crate::{ReceiveError, ReceiveLimits};
@@ -41,12 +41,12 @@ pub(super) unsafe fn spawn_owned(
     if key.display == 0 || key.surface == 0 {
         return Err(ReceiveError::Unavailable);
     }
+    let (ping, source) = make_ping().map_err(|_| ReceiveError::Io)?;
     let started = Instant::now();
     let reservation = pool.reserve_owned(key, owner, control.clone())?;
-    let (ping, source) = make_ping().map_err(|_| ReceiveError::Io)?;
     let job = Job {
         pool,
-        key,
+        target: Target::Surface(key),
         control,
         limits,
         wake,
@@ -60,9 +60,65 @@ pub(super) unsafe fn spawn_owned(
     Ok(ping)
 }
 
+/// # Safety
+///
+/// `display` must be the live Wayland display retained by `owner`. Its host
+/// must preserve coordinated reading until certified cleanup and actual join.
+pub(super) unsafe fn spawn_owner(
+    pool: Arc<WorkerPool>,
+    display: usize,
+    owner: Arc<dyn Any + Send + Sync>,
+    control: ReceiveControl,
+    limits: ReceiveLimits,
+    wake: Wake,
+) -> Result<(OwnerId, Ping), ReceiveError> {
+    limits.validate()?;
+    if display == 0 {
+        return Err(ReceiveError::Unavailable);
+    }
+    // A failed Ping must precede admission of any owner or endpoint resources.
+    let (ping, source) = make_ping().map_err(|_| ReceiveError::Io)?;
+    let started = Instant::now();
+    let (owner, reservation) =
+        pool.reserve_owner(display, owner, control.clone(), limits.startup_timeout)?;
+    let job = Job {
+        pool,
+        target: Target::Owner { display, owner },
+        control,
+        limits,
+        wake,
+        source,
+        started,
+        #[cfg(test)]
+        hooks: testing::take(),
+    };
+    reservation.spawn(move |exit| job.run(exit))?;
+    Ok((owner, ping))
+}
+
+#[derive(Clone, Copy)]
+enum Target {
+    Surface(SurfaceKey),
+    Owner { display: usize, owner: OwnerId },
+}
+
+impl Target {
+    fn request_close(
+        self,
+        pool: &WorkerPool,
+        control: &ReceiveControl,
+        cause: Option<ReceiveError>,
+    ) {
+        match self {
+            Self::Surface(_) => control.header().request_close(cause),
+            Self::Owner { owner, .. } => pool.close_owner(owner, cause),
+        }
+    }
+}
+
 struct Job {
     pool: Arc<WorkerPool>,
-    key: SurfaceKey,
+    target: Target,
     control: ReceiveControl,
     limits: ReceiveLimits,
     wake: Wake,
@@ -84,7 +140,7 @@ impl Job {
     fn run(self, exit: ExitSignal) -> WorkerExit {
         let Self {
             pool,
-            key,
+            target,
             control,
             limits,
             wake,
@@ -94,12 +150,27 @@ impl Job {
             mut hooks,
         } = self;
         // Nothing in this constructor touches the foreign display or calls wake.
-        let mut guest = GuestStartup::dormant(pool, control.clone(), limits, started, wake);
+        let mut guest = match target {
+            Target::Surface(_) => {
+                GuestStartup::dormant(pool.clone(), control.clone(), limits, started, wake)
+            }
+            Target::Owner { owner, .. } => GuestStartup::dormant_owner(
+                pool.clone(),
+                owner,
+                control.clone(),
+                limits,
+                started,
+                wake,
+            ),
+        };
         let mut source = Some(source);
         let mut runtime = None;
         let work = catch_unwind(AssertUnwindSafe(|| -> Result<(), ReceiveError> {
             // The pool retained the exact owner before it enabled this job.
-            unsafe { guest.install_foreign(key)? };
+            match target {
+                Target::Surface(key) => unsafe { guest.install_foreign(key)? },
+                Target::Owner { display, .. } => unsafe { guest.install_foreign_display(display)? },
+            }
             #[cfg(test)]
             if hooks.panic_startup {
                 panic!("private startup panic");
@@ -138,7 +209,26 @@ impl Job {
                     .completed_pumps
                     .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                 let runtime = runtime.as_mut().expect("loop was installed before pumping");
+                #[cfg(test)]
+                if runtime
+                    .pipe
+                    .as_ref()
+                    .is_some_and(|(id, _)| Some(*id) != guest.pipe_fd().map(|(current, _)| current))
+                {
+                    if let Some((entered, release)) = hooks.before_retire_sync.take() {
+                        entered.send(()).map_err(|_| ReceiveError::Io)?;
+                        let released = release.recv_timeout(Duration::from_secs(3)).is_ok();
+                        hooks
+                            .observed
+                            .retirement_gate_released
+                            .store(released, std::sync::atomic::Ordering::SeqCst);
+                        if !released {
+                            return Err(ReceiveError::Io);
+                        }
+                    }
+                }
                 runtime.sync_pipe(&guest)?;
+                guest.finish_retirements()?;
                 let wait = guest.next_deadline().map_or(GUEST_TICK, |deadline| {
                     GUEST_TICK.min(deadline.saturating_duration_since(Instant::now()))
                 });
@@ -148,17 +238,25 @@ impl Job {
         let (cause, work_panic) = match work {
             Ok(Ok(())) => (None, None),
             Ok(Err(error)) => {
-                let mut header = control.header();
-                if !header.is_closing() {
-                    header.request_close(Some(error));
-                }
-                (header.close_cause, None)
+                let cause = {
+                    let header = control.header();
+                    if header.is_closing() {
+                        header.close_cause
+                    } else {
+                        Some(error)
+                    }
+                };
+                target.request_close(&pool, &control, cause);
+                (control.header().close_cause, None)
             }
             Err(panic) => {
-                control.header().request_close(Some(ReceiveError::Io));
+                target.request_close(&pool, &control, Some(ReceiveError::Io));
                 (Some(ReceiveError::Io), Some(panic))
             }
         };
+        // Parent authority and every endpoint are cut even if cleanup itself
+        // fails before it can enter GuestStartup::cleanup.
+        target.request_close(&pool, &control, None);
         let cleanup = catch_unwind(AssertUnwindSafe(|| -> Result<(), ReceiveError> {
             // These contain only control and FD sources. Destroy all Calloop Rc
             // state here, before either cleanup or retention of the SDK guest.
@@ -188,7 +286,7 @@ impl Job {
                 }
             }
             failed => {
-                control.header().request_close(Some(ReceiveError::Io));
+                target.request_close(&pool, &control, Some(ReceiveError::Io));
                 let cleanup_panic = match failed {
                     Err(panic) => Some(panic),
                     Ok(Err(_)) => None,
@@ -251,6 +349,8 @@ impl Runtime {
         if let Some((id, fd)) = pipe {
             #[cfg(test)]
             let observed = self.observed.clone();
+            #[cfg(test)]
+            let watched = Arc::downgrade(&fd);
             let token = self
                 .events
                 .handle()
@@ -267,6 +367,10 @@ impl Runtime {
                 )
                 .map_err(|_| ReceiveError::Io)?;
             self.pipe = Some((id, token));
+            #[cfg(test)]
+            {
+                *self.observed.watched_pipe.lock().unwrap() = Some((id, watched));
+            }
         }
         Ok(())
     }
@@ -291,8 +395,12 @@ pub(super) mod testing {
         },
     };
 
+    type WatchedPipe = (super::OfferId, std::sync::Weak<std::os::fd::OwnedFd>);
+
     #[derive(Clone, Default)]
     pub(in crate::receive) struct Observations {
+        pub(in crate::receive) watched_pipe: Arc<std::sync::Mutex<Option<WatchedPipe>>>,
+        pub(in crate::receive) retirement_gate_released: Arc<AtomicBool>,
         pub(in crate::receive) pipe_callbacks: Arc<AtomicUsize>,
         pub(in crate::receive) completed_pumps: Arc<AtomicUsize>,
         pub(in crate::receive) cleaned: Arc<AtomicBool>,
@@ -304,6 +412,7 @@ pub(super) mod testing {
     pub(in crate::receive) struct Hooks {
         pub(in crate::receive) observed: Observations,
         pub(in crate::receive) before_dispatch: Option<(SyncSender<()>, Receiver<()>)>,
+        pub(in crate::receive) before_retire_sync: Option<(SyncSender<()>, Receiver<()>)>,
         pub(in crate::receive) panic_startup: bool,
         pub(in crate::receive) panic_cleanup: bool,
     }

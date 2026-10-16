@@ -141,7 +141,7 @@ fn a_valid_prefix_waits_for_eof_and_ready_alone_never_finishes_copy() {
         assert!(control.poll().is_empty());
     }
     assert!(matches!(
-        guest.state.coordinator.offer_phase(id),
+        guest.state.offer_phase(id),
         Some(Phase::Reading { .. })
     ));
     fixture.serve();

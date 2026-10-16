@@ -491,3 +491,57 @@ fn an_invalid_complete_list_ends_the_drop_without_publishing_a_prefix() {
         .any(|event| matches!(event, ReceiveEvent::DropReady { .. })));
     assert_terminal(&events, 1, Err(ReceiveError::InvalidUriList));
 }
+
+#[test]
+fn a_stale_timestamp_cannot_rearm_after_the_real_sync_deadline() {
+    use super::super::ReceiveStatus;
+    use std::sync::mpsc::{self, RecvTimeoutError};
+
+    for invalidate_epoch in [false, true] {
+        let limits = ReceiveLimits {
+            startup_timeout: Duration::from_millis(20),
+            ..ReceiveLimits::default()
+        };
+        let control = ReceiveControl::new(ReceiveEpoch(17)).unwrap();
+        let mut coordinator = Coordinator::with_control(limits, control.clone(), || {}).unwrap();
+        let initial_now = Instant::now();
+        let initial = coordinator.next_sync(initial_now).unwrap().unwrap();
+        coordinator.sync_done(initial.epoch, initial_now).unwrap();
+        assert!(control.header().armed);
+        assert_eq!(control.status(), ReceiveStatus::Ready);
+
+        let next_epoch = control.invalidate_pending().unwrap();
+        let checkpoint = Instant::now();
+        let request = coordinator.next_sync(checkpoint).unwrap().unwrap();
+        assert_eq!(request.epoch, next_epoch);
+        if invalidate_epoch {
+            assert_ne!(control.invalidate_pending().unwrap(), request.epoch);
+        }
+
+        // The checkpoint is stale after this exact real deadline. This does not
+        // synthesize or claim to observe a mutex wait or a native SDK callback.
+        let (sender, receiver) = mpsc::channel::<()>();
+        while let Some(remaining) = request.deadline.checked_duration_since(Instant::now()) {
+            if remaining.is_zero() {
+                break;
+            }
+            assert_eq!(
+                receiver.recv_timeout(remaining),
+                Err(RecvTimeoutError::Timeout)
+            );
+        }
+        assert!(Instant::now() >= request.deadline);
+        assert_eq!(
+            coordinator.sync_done(request.epoch, checkpoint),
+            Err(ReceiveError::Timeout),
+            "an expired sync cannot arm or renew its authority even with a stale checkpoint"
+        );
+        let header = control.header();
+        assert!(!header.armed);
+        assert_eq!(header.status, ReceiveStatus::Closing);
+        assert_eq!(header.close_cause, Some(ReceiveError::Timeout));
+        drop(header);
+        assert!(coordinator.poll().is_empty());
+        drop(sender);
+    }
+}

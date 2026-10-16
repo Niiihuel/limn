@@ -378,3 +378,6 @@ fn public_drop_never_joins_and_keeps_owner_and_exclusion_until_guest_exit() {
     assert!(case.owner.upgrade().is_none());
     assert!(WorkerPool::global().reserve_legacy(key).is_ok());
 }
+
+#[path = "public_owner_tests.rs"]
+mod shared_owner;
