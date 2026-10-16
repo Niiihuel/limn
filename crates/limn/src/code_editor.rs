@@ -670,6 +670,9 @@ impl CodeViewport {
 type CachedVisualMap = (u64, usize, usize, Arc<[std::ops::Range<usize>]>, VisualMap);
 
 pub(crate) struct EditorView {
+    paste_epoch: Arc<()>,
+    paste_seen: bool,
+    paste_present: bool,
     pub editor: CodeEditor,
     pub viewport: CodeViewport,
     document_id: Option<u64>,
@@ -847,6 +850,9 @@ impl EditorView {
             .ok()
             .map(|snapshot| snapshot.document_id());
         Self {
+            paste_epoch: Arc::new(()),
+            paste_seen: false,
+            paste_present: false,
             editor,
             viewport: CodeViewport::default(),
             document_id,
@@ -879,11 +885,19 @@ impl EditorView {
     /// Take this frame's description of the editor. A different document resets the viewport,
     /// the caches and the composition; that, or a change of `vim_mode`, resets modal editing.
     pub fn update(&mut self, editor: CodeEditor) {
+        self.paste_seen = true;
         let next_id = editor
             .controller
             .snapshot()
             .ok()
             .map(|snapshot| snapshot.document_id());
+        if next_id != self.document_id
+            || !Arc::ptr_eq(&editor.controller.0, &self.editor.controller.0)
+            || editor.read_only != self.editor.read_only
+            || editor.vim_mode != self.editor.vim_mode
+        {
+            self.paste_epoch = Arc::new(());
+        }
         if next_id != self.document_id || editor.vim_mode != self.editor.vim_mode {
             self.vim = Default::default();
         }
@@ -1054,6 +1068,75 @@ impl EditorView {
             _ => None,
         }
     }
+    pub(crate) fn begin_paste_layout(&mut self) {
+        self.paste_seen = false;
+    }
+
+    pub(crate) fn finish_paste_layout(&mut self, visible: bool) {
+        let present = visible && self.paste_seen;
+        if self.paste_present != present {
+            self.paste_epoch = Arc::new(());
+            self.paste_present = present;
+        }
+    }
+
+    fn accepts_captured_paste(&self) -> bool {
+        self.paste_present
+            && !self.editor.read_only
+            && (!self.editor.vim_mode || self.vim.mode == VimMode::Insert)
+            && self
+                .composition
+                .as_ref()
+                .is_none_or(|state| state.cancelled)
+    }
+
+    pub(crate) fn capture_paste_state(&self) -> Option<(Arc<()>, limn_editor::EditStateToken)> {
+        if !self.accepts_captured_paste() {
+            return None;
+        }
+        let buffer = self.editor.controller.0.try_lock().ok()?;
+        Some((self.paste_epoch.clone(), buffer.edit_state_token()))
+    }
+
+    pub(crate) fn paste_captured(
+        &mut self,
+        epoch: &Arc<()>,
+        state: &limn_editor::EditStateToken,
+        ticket: &std::sync::atomic::AtomicBool,
+        text: &str,
+        now: Instant,
+    ) -> Option<Vec<UiAction>> {
+        use std::sync::atomic::Ordering;
+        if !self.accepts_captured_paste() || !Arc::ptr_eq(epoch, &self.paste_epoch) {
+            return None;
+        }
+        let controller = self.editor.controller.clone();
+        let Ok(mut buffer) = controller.0.try_lock() else {
+            return None;
+        };
+        // Authority is checked and claimed under the same guard as the edit.
+        if *state != buffer.edit_state_token()
+            || ticket
+                .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
+                .is_err()
+        {
+            return None;
+        }
+        if text.is_empty() {
+            return Some(Vec::new());
+        }
+        self.cancel_composition();
+        let snapshot = buffer.snapshot();
+        let timestamp = now
+            .saturating_duration_since(self.started)
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64;
+        let result = buffer
+            .insert(text, EditKind::Paste, timestamp)
+            .map_err(|error| error.to_string());
+        Some(self.finish_input(&buffer, &snapshot, result, Vec::new(), false))
+    }
+
     /// Apply a key, text, paste or other input event and return the actions it caused. `measure`
     /// gives the width of a string in the editor's font.
     pub fn input(
@@ -1305,20 +1388,33 @@ impl EditorView {
             }
             _ => {}
         }
+        let history = matches!(
+            event,
+            UiEvent::Key {
+                key: Key::Z | Key::Y,
+                ctrl: true,
+                ..
+            }
+        );
+        self.finish_input(&buffer, &snapshot, result, actions, history)
+    }
+
+    fn finish_input(
+        &mut self,
+        buffer: &TextBuffer,
+        snapshot: &BufferSnapshot,
+        result: Result<bool, String>,
+        mut actions: Vec<UiAction>,
+        history: bool,
+    ) -> Vec<UiAction> {
         match result {
             Err(error) => actions.push(self.fail(error)),
-            Ok(_) if before != buffer.revision() => {
+            Ok(_) if snapshot.revision() != buffer.revision() => {
                 self.viewport.desired_x = None;
-                let changed_row = if matches!(
-                    event,
-                    UiEvent::Key {
-                        key: Key::Z | Key::Y,
-                        ctrl: true,
-                        ..
-                    }
-                ) {
+                let changed_row = if history {
                     0
                 } else {
+                    let selection = snapshot.selection();
                     let before_row = snapshot
                         .position_of(selection.anchor.min(selection.head))
                         .map_or(0, |position| position.row);
@@ -1339,7 +1435,7 @@ impl EditorView {
             }
             Ok(_) => {}
         }
-        self.vim.observe_local_edit(&buffer);
+        self.vim.observe_local_edit(buffer);
         self.viewport.reveal_caret = true;
         actions
     }

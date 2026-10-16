@@ -47,6 +47,7 @@ the tree's origin.
 | `Text(string)` | Typed text. |
 | `Key { key, shift, ctrl }` | A non-text key: arrows, Tab, Enter, Escape, and so on. |
 | `Paste(string)`, `PasteTo { id, text }` | Clipboard text, to the focused control or a named one. |
+| `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
 | `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
 | `FilesHovered { position }`, `FilesDropped { position, paths }` | Files dragged from another application. |
 
@@ -63,6 +64,36 @@ containing new files when their product requires preparation before sending.
 `handle_event` returns the `UiAction`s the event produced. Call
 `UiTree::layout` before delivering pointer events: they are resolved against
 the regions of the last layout.
+
+### Captured paste replies (unreleased)
+
+Use `UiTree::capture_paste_target()` after resolving focus and laying out the
+current view. Keep that opaque target with the host's delayed request, then
+apply `UiEvent::PasteCaptured { target, text }`. The target carries no clipboard
+or window resource. It is consumed once on acceptance, including an accepted
+empty/sanitized-empty result or an insertion error; clones cannot repeat it.
+A foreign/stale target is rejected before claiming, while busy-buffer or
+pending-layout attempts do not consume it and may be retried explicitly.
+
+Forward native focus through `UiTree::set_window_focused`, and preserve the
+position of paste markers relative to navigation, clicks and host-owned keys.
+Resolve earlier state changes, pending focus and layout before authorizing the
+text read or acknowledging a deferred clipboard reservation. Do not pre-process
+all navigation for a frame ahead of the marker. If a host changes a document,
+account or endpoint association outside the tree's observations, call
+`invalidate_paste_targets()` at the change, including a temporary A→B→A mapping.
+
+An active IME composition cannot be captured; its start/cancel lifecycle cuts
+old targets even without text changes. Vim mode transitions and observed
+read-only/removal/modal changes also invalidate old targets. Equivalent reflow
+can retain one after layout. These checks neither implement a clipboard owner
+nor make a synchronous clipboard getter asynchronous. The host owns transfer
+limits, reservation/ACK/completion and ordered SDK event mapping.
+
+`PasteTo` remains available with its previous ID/focus contract. The new
+`UiEvent` variant requires changes to exhaustive event matches. See
+[Captured paste targets](captured-paste.md) for complete examples, shared-buffer
+stamps, single-use semantics and the limits of tree observation.
 
 ## The frame
 
@@ -174,4 +205,5 @@ everything. Parts are applied in the order they are presented.
 ## See also
 
 - [Concepts](concepts.md) for the model a backend serves.
+- [Captured paste targets](captured-paste.md) for delayed replies and host lifetime cuts.
 - [Getting started](getting-started.md) for a complete host.
