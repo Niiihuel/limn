@@ -2426,6 +2426,12 @@ pub struct Tabs {
     /// Ink of the active tab, and color of the underline. `None`, the default,
     /// takes the palette's `text`.
     pub accent: Option<Color>,
+    /// Corners of the selection, in logical pixels; the segmented track
+    /// rounds 2 more so the two stay concentric. `None`, the default, takes
+    /// the `control` radius token for the selection and `surface` for the track.
+    pub radius: Option<f32>,
+    /// Size of the labels in logical pixels, 11.5 by default.
+    pub font_size: f32,
 }
 
 impl Tabs {
@@ -2440,7 +2446,29 @@ impl Tabs {
             animation_ms: crate::tokens().motion.move_ms,
             variant: TabsVariant::Segmented,
             accent: None,
+            radius: None,
+            font_size: TAB_FONT_SIZE,
         }
+    }
+
+    /// Round the selection by `radius` logical pixels and the segmented track
+    /// by 2 more, concentric with it, in place of the radius tokens. Half the
+    /// height or more makes both a capsule. A negative radius becomes zero;
+    /// one that is not finite is ignored.
+    pub fn radius(mut self, radius: f32) -> Self {
+        if radius.is_finite() {
+            self.radius = Some(radius.max(0.0));
+        }
+        self
+    }
+
+    /// Set the label size in logical pixels, in place of 11.5. A size that is
+    /// not finite or not above zero is ignored.
+    pub fn font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.font_size = size;
+        }
+        self
     }
 
     /// Choose how the active tab is marked; see [`TabsVariant`].
@@ -2530,6 +2558,9 @@ impl Component for Tabs {
                 .unwrap_or_else(|| "tabs:empty".to_owned())
         });
         let accent = self.accent.unwrap_or(self.palette.text);
+        let selection_radius = self.radius.unwrap_or_else(control_radius);
+        let track_radius = self.radius.map_or_else(surface_radius, |radius| radius + TAB_TRACK_PADDING);
+        let font_size = self.font_size;
         // Underlined, a strip of slots under the tabs gives the sliding
         // underline its thin target while the tabs keep their full height.
         let slots = (self.variant == TabsVariant::Underlined).then(|| {
@@ -2570,7 +2601,7 @@ impl Component for Tabs {
                     let label = Element::text(item.label)
                         .foreground(self.palette.muted)
                         .font_family(FontFamily::Sans)
-                        .font_size(TAB_FONT_SIZE);
+                        .font_size(font_size);
                     let visual = if let Some(icon) = item.icon {
                         Element::row(vec![
                             Element::icon(icon).foreground(self.palette.muted),
@@ -2588,7 +2619,7 @@ impl Component for Tabs {
                     ])
                     .padding(TAB_ITEM_PADDING)
                     .background(Color::TRANSPARENT)
-                    .radius(control_radius())
+                    .radius(selection_radius)
                     .size(Some(item.width), Some(self.height))
                     .accessible(access);
                 }
@@ -2603,10 +2634,10 @@ impl Component for Tabs {
                     .pressed_foreground(hover_ink)
                     .foreground(ink)
                     .font_family(FontFamily::Sans)
-                    .font_size(TAB_FONT_SIZE)
+                    .font_size(font_size)
                     .padding(TAB_ITEM_PADDING)
                     .gap(TAB_ICON_GAP)
-                    .radius(control_radius())
+                    .radius(selection_radius)
                     .center_content()
                     .size(Some(item.width), Some(self.height))
                     .accessible(access)
@@ -2653,13 +2684,13 @@ impl Component for Tabs {
         }
         let strip = strip
             .background(self.palette.surface)
-            .radius(surface_radius());
+            .radius(track_radius);
         if let Some(selected_id) = selected_id {
             strip.tab_selection(
                 group_id,
                 selected_id,
                 self.palette.selected,
-                control_radius(),
+                selection_radius,
                 self.animation_ms,
             )
         } else {
@@ -6043,6 +6074,40 @@ mod tests {
         let underline = fills(&frame, accent);
         assert_eq!(underline.len(), 1);
         assert!(inside(&underline[0]));
+    }
+
+    #[test]
+    fn capsule_tabs_are_concentric_stadiums_with_labels_of_their_own_size() {
+        let palette = ComponentPalette::neutral_dark();
+        let tabs = |radius: Option<f32>| {
+            let tab = |index: usize| Tab::new(format!("t{index}"), "Tab", 90.0).active(index == 0);
+            let tabs = Tabs::new(vec![tab(0), tab(1)], palette).height(40.0).font_size(15.0);
+            match radius { Some(radius) => tabs.radius(radius), None => tabs }.render()
+        };
+        let painted = |radius| {
+            let mut tree = UiTree::new(Element::column(vec![tabs(radius)]));
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(300.0, 60.0));
+            let fill = |color| frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, color: fill, radius } if *fill == color => Some((rect.height, *radius)),
+                _ => None,
+            }).unwrap();
+            let size = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { font_size, .. } => Some(*font_size),
+                _ => None,
+            });
+            (fill(palette.surface), fill(palette.selected), size)
+        };
+        // A radius of half the height or more: both ends are semicircles.
+        assert_eq!(painted(Some(100.0)), ((44.0, 22.0), (40.0, 20.0), Some(15.0)));
+        // A smaller one keeps the track concentric, 2 rounder.
+        assert_eq!(painted(Some(10.0)), ((44.0, 12.0), (40.0, 10.0), Some(15.0)));
+        assert_eq!(painted(None), ((44.0, surface_radius()), (40.0, control_radius()), Some(15.0)));
+        let plain = Tabs::new(Vec::new(), palette);
+        assert_eq!((plain.radius, plain.font_size), (None, TAB_FONT_SIZE));
+        let ignored = Tabs::new(Vec::new(), palette).radius(f32::NAN).font_size(0.0).font_size(f32::INFINITY);
+        assert_eq!((ignored.radius, ignored.font_size), (None, TAB_FONT_SIZE));
+        assert_eq!(Tabs::new(Vec::new(), palette).radius(-3.0).radius, Some(0.0));
     }
 
     #[test]

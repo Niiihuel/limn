@@ -9908,17 +9908,18 @@ impl LayoutBuilder<'_> {
                             state.x.snap_to(target.x, self.now);
                             state.width.snap_to(target.width, self.now);
                         }
+                        let indicator = Rect::new(
+                            state.x.value(self.now),
+                            target.y,
+                            state.width.value(self.now),
+                            target.height,
+                        );
                         self.frame.commands.insert(
                             command_start,
                             DrawCommand::FillRect {
-                                rect: Rect::new(
-                                    state.x.value(self.now),
-                                    target.y,
-                                    state.width.value(self.now),
-                                    target.height,
-                                ),
+                                rect: indicator,
                                 color: selection.color,
-                                radius: selection.radius,
+                                radius: selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0),
                             },
                         );
                     }
