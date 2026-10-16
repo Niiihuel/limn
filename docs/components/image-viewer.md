@@ -84,6 +84,13 @@ footer reads `2 of 5`. With more than one, `previous_action` and
 of the gallery is drawn disabled. The host changes the index and passes the
 picture that goes with it.
 
+The arrows are named "Previous image" and "Next image". For a gallery of
+something else, such as the pages of a document, name them:
+
+```rust
+viewer.navigation_labels("Previous page", "Next page")
+```
+
 ## Zoom
 
 ```rust

@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- `ImageViewer::navigation_labels(previous, next)` names the gallery's arrows, for a screen reader and in their hints, in place of "Previous image" and "Next image", for a gallery of pages or other items
 - Surfaces fit like pictures: `Element::surface(..).surface_fit(SurfaceFit::Contain | Cover)` scales a host-fed surface's pixels to fit its rectangle (up or down) or to fill it, cropped around the center, ignoring the frame's scale; `.radius(r)` rounds the corners of the pixels shown. `SurfaceFit::Native`, the default, keeps the one-to-one placement. `DrawCommand::Surface` carries the new `fit` and `radius` (**Breaking** for patterns and initializers without `..`, as is `ElementKind::Surface`'s `fit`); `limn-egui` paints them, and a square native surface stays an exact quad on the pixel grid
 - `limn_egui::SurfaceFrame` is `Clone` and a clone shares the converted pixels, so an animation converts each frame once and presents clones as it loops
 - `ImageViewer::surface(id, label)` shows a host-fed surface, such as an animated GIF, in place of a picture, fitted and zoomed the same way. The gallery's ImageViewer page plays an animation on a rounded cover thumbnail and in the viewer
