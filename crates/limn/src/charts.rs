@@ -671,8 +671,9 @@ impl ColumnChart {
         Self(BarChart::series(id, categories, series, palette).0)
     }
 
-    /// It made ticks whole numbers. Ticks are now always round steps of 1, 2 or 5.
-    #[deprecated(note = "ticks are always round steps; this has no effect")]
+    /// It made ticks whole numbers. Data that are all whole numbers now get whole ticks on
+    /// their own, and the rest round steps of 1, 2 or 5.
+    #[deprecated(note = "whole-number data get whole ticks on their own; this has no effect")]
     pub fn integer_ticks(self, _integer: bool) -> Self {
         self
     }
@@ -1292,6 +1293,22 @@ mod tests {
             ComponentPalette::neutral_dark(),
         )
         .width(400.0)
+    }
+
+    #[test]
+    fn whole_number_data_get_whole_ticks_and_fractions_keep_half_steps() {
+        let ticks = |value: f64| {
+            let chart = ColumnChart::new("count", vec![ChartDatum::new("a", "A", value)], ComponentPalette::neutral_dark())
+                .width(400.0)
+                .height(200.0)
+                .value_labels(false);
+            let mut tree = UiTree::new(chart.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout_at(Size::new(400.0, 200.0), web_time::Instant::now());
+            texts(&frame).into_iter().filter(|text| text != "A").collect::<Vec<_>>()
+        };
+        assert_eq!(ticks(1.0), ["0", "1"]);
+        assert!(ticks(1.5).contains(&"0.5".to_owned()));
     }
 
     #[test]
