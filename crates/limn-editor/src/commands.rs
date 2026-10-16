@@ -225,6 +225,53 @@ impl TextBuffer {
         };
         self.apply_transaction(&edits, after, EditKind::Indent, timestamp_ms)
     }
+
+    /// Remove the spaces and tabs that end each line, as one undo step; line terminators stay
+    /// exact and every selection keeps its place in its line. Returns `Ok(false)` when no line
+    /// ends in either. Past 4096 changed lines it is one replacement spanning all of them, and
+    /// only the primary selection is kept.
+    pub fn trim_trailing_whitespace(&mut self, timestamp_ms: u64) -> Result<bool, EditorError> {
+        let snapshot = self.snapshot();
+        let mut edits = Vec::new();
+        for row in 0..snapshot.line_count() {
+            let line = snapshot.line_range(row)?;
+            let text = snapshot.line_text(row)?;
+            let trailing = text.chars().count() - text.trim_end_matches([' ', '\t']).chars().count();
+            if trailing > 0 {
+                edits.push(TextEdit {
+                    range: line.end - trailing..line.end,
+                    replacement: String::new(),
+                });
+            }
+        }
+        if edits.is_empty() {
+            return Ok(false);
+        }
+        // An endpoint inside removed whitespace moves to where that whitespace began.
+        let mapped = |offset: usize| {
+            let mut removed = 0;
+            for edit in edits.iter().take_while(|edit| edit.range.start < offset) {
+                removed += offset.min(edit.range.end) - edit.range.start;
+            }
+            offset - removed
+        };
+        let map = |selection: Selection| Selection {
+            anchor: mapped(selection.anchor),
+            head: mapped(selection.head),
+        };
+        if edits.len() <= 4096 {
+            let selections = self.selections().map(map).collect();
+            return self.apply_transaction_selections(&edits, selections, EditKind::Replace, timestamp_ms);
+        }
+        let span = edits[0].range.start..edits[edits.len() - 1].range.end;
+        let mut replacement = String::new();
+        let mut cursor = span.start;
+        for edit in &edits {
+            replacement.push_str(&snapshot.text_range(cursor..edit.range.start)?);
+            cursor = edit.range.end;
+        }
+        self.edit(span, &replacement, map(self.selection()), EditKind::Replace, timestamp_ms)
+    }
 }
 
 #[cfg(test)]
@@ -392,5 +439,27 @@ mod tests {
         assert_eq!(text(&buffer), source);
         assert_eq!(buffer.selection(), selection);
         assert_eq!(buffer.revision(), 0);
+    }
+
+    #[test]
+    fn trailing_whitespace_is_trimmed_as_one_undo_step_keeping_terminators_and_selections() {
+        let mut buffer = TextBuffer::new("a  \r\n\tb\t\nc\n  ").unwrap();
+        buffer
+            .set_selections(vec![Selection::caret(2), Selection { anchor: 6, head: 10 }])
+            .unwrap();
+        assert!(buffer.trim_trailing_whitespace(1).unwrap());
+        assert_eq!(text(&buffer), "a\r\n\tb\nc\n");
+        let selections: Vec<_> = buffer.selections().collect();
+        assert_eq!(selections, [Selection::caret(1), Selection { anchor: 4, head: 7 }]);
+        assert!(!buffer.trim_trailing_whitespace(2).unwrap());
+        buffer.undo().unwrap();
+        assert_eq!(text(&buffer), "a  \r\n\tb\t\nc\n  ");
+
+        let source = "x \n".repeat(5000);
+        let mut large = TextBuffer::new(&source).unwrap();
+        large.set_selection(Selection::caret(source.chars().count())).unwrap();
+        assert!(large.trim_trailing_whitespace(1).unwrap());
+        assert_eq!(text(&large), "x\n".repeat(5000));
+        assert_eq!(large.selection(), Selection::caret(10_000));
     }
 }

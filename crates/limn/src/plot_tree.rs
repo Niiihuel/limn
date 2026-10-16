@@ -30,12 +30,18 @@ enum Tip {
 }
 
 /// A step between ticks that reads well: 1, 2 or 5 times a power of ten,
-/// for about four of them across `span`.
-fn tick_step(span: f64) -> f64 {
+/// for about four of them across `span`. Values that are all whole, such as
+/// counts, never get a step under 1: an axis of tasks has no half task.
+fn tick_step(span: f64, whole: bool) -> f64 {
     let raw = span / 4.0;
     let magnitude = 10f64.powf(raw.log10().floor());
     let share = raw / magnitude;
-    magnitude * if share <= 1.0 { 1.0 } else if share <= 2.0 { 2.0 } else if share <= 5.0 { 5.0 } else { 10.0 }
+    let step = magnitude * if share <= 1.0 { 1.0 } else if share <= 2.0 { 2.0 } else if share <= 5.0 { 5.0 } else { 10.0 };
+    if whole { step.max(1.0) } else { step }
+}
+
+fn is_whole(value: f64) -> bool {
+    value.fract() == 0.0
 }
 
 /// A value as it is written: whole numbers bare, the rest to one decimal.
@@ -270,7 +276,8 @@ impl LayoutBuilder<'_> {
                 if high - low <= 0.0 {
                     high = 1.0;
                 }
-                let step = tick_step(high - low);
+                let whole = (0..plot.series.len()).all(|series| (0..count).all(|point| is_whole(value(series, point))));
+                let step = tick_step(high - low, whole);
                 let (low, high) = ((low / step).floor() * step, (high / step).ceil() * step);
                 let ticks = (0..=((high - low) / step).round() as usize).map(|index| low + index as f64 * step).collect();
                 (low, high, step, ticks)
@@ -487,7 +494,7 @@ impl LayoutBuilder<'_> {
         };
         let greatest = (0..plot.series.len()).flat_map(|series| (0..count).map(move |axis| value(series, axis))).fold(0.0, f64::max);
         let maximum = plot.maximum.filter(|maximum| maximum.is_finite() && *maximum > 0.0).unwrap_or_else(|| {
-            let step = tick_step(greatest.max(1e-9));
+            let step = tick_step(greatest.max(1e-9), false);
             (greatest / step).ceil().max(1.0) * step
         });
         let names: f32 = plot.axes.iter().map(|name| self.axis_text_width(name)).fold(0.0, f32::max);
@@ -593,7 +600,8 @@ impl LayoutBuilder<'_> {
         if high - low <= 0.0 {
             high = 1.0;
         }
-        let step = tick_step(high - low);
+        let whole = (0..plot.series.len()).all(|series| (0..count).all(|category| is_whole(value(series, category))));
+        let step = tick_step(high - low, whole);
         let (low, high) = ((low / step).floor() * step, (high / step).ceil() * step);
         let ticks: Vec<f64> = (0..=((high - low) / step).round() as usize).map(|index| low + index as f64 * step).collect();
 

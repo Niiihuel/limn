@@ -127,6 +127,18 @@ pub struct CodeDiagnostic {
     pub message: String,
 }
 
+/// The shape of `CodeEditor`'s caret.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum CaretStyle {
+    /// A thin bar before the character. The default.
+    #[default]
+    Line,
+    /// The whole cell of the character, translucent.
+    Block,
+    /// A bar under the character.
+    Underline,
+}
+
 /// A code editor over a buffer the host owns. An edit reports `UiAction::EditorChanged` and
 /// a failed one `UiAction::EditorFailed`.
 #[derive(Clone, Debug)]
@@ -166,6 +178,18 @@ pub struct CodeEditor {
     pub soft_wrap: bool,
     /// A compact, navigable overview. Hidden automatically in narrow editors.
     pub minimap: bool,
+    /// Draw a vertical line at each indent level. True by default.
+    pub indent_guides: bool,
+    /// Tint the caret's row while the editor has focus. True by default.
+    pub highlight_current_line: bool,
+    /// Mark spaces with `·` and tabs with `→`. False by default.
+    pub show_whitespace: bool,
+    /// Columns that get a vertical guide, at most 16 within 1..=1024. Set with `rulers`.
+    pub rulers: Arc<[usize]>,
+    /// How the caret is drawn outside Vim's Normal mode, which always uses a block.
+    pub caret_style: CaretStyle,
+    /// Let the caret blink. True by default; false keeps it shown.
+    pub caret_blink: bool,
     /// Keep revealed carets below a floating surface without changing layout.
     pub reveal_top_inset: f32,
     /// The folded blocks, as ranges of zero-based rows: the first row of each stays visible
@@ -261,6 +285,12 @@ impl CodeEditor {
             auto_pairs: true,
             soft_wrap: false,
             minimap: false,
+            indent_guides: true,
+            highlight_current_line: true,
+            show_whitespace: false,
+            rulers: Arc::from([]),
+            caret_style: CaretStyle::Line,
+            caret_blink: true,
             reveal_top_inset: 0.0,
             folds: Arc::from([]),
             structure_document_id: None,
@@ -399,6 +429,41 @@ impl CodeEditor {
     /// when fewer than 380 pixels remain beside the gutter.
     pub fn minimap(mut self, enabled: bool) -> Self {
         self.minimap = enabled;
+        self
+    }
+    /// Draw a faint vertical line at each indent level. On by default.
+    pub fn indent_guides(mut self, enabled: bool) -> Self {
+        self.indent_guides = enabled;
+        self
+    }
+    /// Tint the caret's row while the editor has focus. On by default.
+    pub fn highlight_current_line(mut self, enabled: bool) -> Self {
+        self.highlight_current_line = enabled;
+        self
+    }
+    /// Mark every space with a centred `·` and every tab with `→`, in the muted colour.
+    pub fn show_whitespace(mut self, enabled: bool) -> Self {
+        self.show_whitespace = enabled;
+        self
+    }
+    /// Draw a vertical guide after each of these columns, counted in spaces. Columns outside
+    /// 1..=1024 and any past the first 16 are ignored.
+    pub fn rulers(mut self, columns: impl IntoIterator<Item = usize>) -> Self {
+        self.rulers = columns
+            .into_iter()
+            .filter(|column| (1..=1024).contains(column))
+            .take(16)
+            .collect();
+        self
+    }
+    /// Draw the caret as a line, a block or an underline. Vim's Normal mode keeps its block.
+    pub fn caret_style(mut self, style: CaretStyle) -> Self {
+        self.caret_style = style;
+        self
+    }
+    /// Let the caret blink, as it does by default. Off, it stays shown while focused.
+    pub fn caret_blink(mut self, enabled: bool) -> Self {
+        self.caret_blink = enabled;
         self
     }
     /// Reserves visibility only when revealing the caret, so opening a floating
@@ -2302,6 +2367,28 @@ impl EditorView {
         };
         let pointer = self.review_interaction.pointer();
         let mut hovered_diagnostic = None;
+        if let Some(ruler_clip) = visible_body.intersection(clip).filter(|_| !self.editor.rulers.is_empty()) {
+            let cell = measure(" ").max(1.0);
+            commands.push(DrawCommand::PushClip(ruler_clip));
+            for column in self.editor.rulers.iter() {
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(
+                        (body.x + *column as f32 * cell - self.viewport.scroll_x).round(),
+                        visible_body.y,
+                        1.0,
+                        visible_body.height,
+                    ),
+                    color: Color::rgba(
+                        self.editor.palette.muted.r,
+                        self.editor.palette.muted.g,
+                        self.editor.palette.muted.b,
+                        48,
+                    ),
+                    radius: 0.0,
+                });
+            }
+            commands.push(DrawCommand::PopClip);
+        }
         for (visual, (display, range, truncated, row, continuation, folded)) in visible_lines {
             if visual < first || visual >= end {
                 continue;
@@ -2423,7 +2510,7 @@ impl EditorView {
                     });
                 }
             }
-            if focused && row == cursor_position.row {
+            if self.editor.highlight_current_line && focused && row == cursor_position.row {
                 commands.push(DrawCommand::FillRect {
                     rect: Rect::new(rect.x, y, rect.width, self.editor.line_height()),
                     color: Color::rgba(
@@ -2489,22 +2576,24 @@ impl EditorView {
                     0.0,
                 )),
             ));
-            self.guide_cache.paint_row(
-                &snapshot,
-                row,
-                continuation,
-                body,
-                y,
-                self.editor.line_height(),
-                self.viewport.scroll_x,
-                self.editor.tab_width,
-                measure(" ").max(1.0),
-                cursor_position.row,
-                focused,
-                self.editor.language,
-                self.editor.palette.muted,
-                &mut commands,
-            );
+            if self.editor.indent_guides {
+                self.guide_cache.paint_row(
+                    &snapshot,
+                    row,
+                    continuation,
+                    body,
+                    y,
+                    self.editor.line_height(),
+                    self.viewport.scroll_x,
+                    self.editor.tab_width,
+                    measure(" ").max(1.0),
+                    cursor_position.row,
+                    focused,
+                    self.editor.language,
+                    self.editor.palette.muted,
+                    &mut commands,
+                );
+            }
             if self.editor.search_revision == Some(snapshot.revision()) {
                 for found in self
                     .editor
@@ -2558,6 +2647,17 @@ impl EditorView {
                 range.start,
                 &highlights,
             );
+            if self.editor.show_whitespace {
+                let muted = self.editor.palette.muted;
+                display.paint_whitespace(
+                    self.editor.font_size,
+                    &mut commands,
+                    Point::new(body.x - self.viewport.scroll_x, text_y),
+                    (self.viewport.scroll_x, body.width),
+                    Color::rgba(muted.r, muted.g, muted.b, 110),
+                    measure,
+                );
+            }
             for diagnostic in row_diagnostics {
                 let left = diagnostic.range.start.max(range.start).min(range.end) - range.start;
                 let right = diagnostic.range.end.min(range.end).max(range.start) - range.start;
@@ -2579,8 +2679,9 @@ impl EditorView {
                 }
             }
             for selected in &selections {
-                let block_cursor = self.editor.vim_mode && self.vim.mode != VimMode::Insert;
-                let head = if block_cursor {
+                let vim_block = self.editor.vim_mode && self.vim.mode != VimMode::Insert;
+                let style = if vim_block { CaretStyle::Block } else { self.editor.caret_style };
+                let head = if vim_block {
                     self.vim.cursor.unwrap_or(selected.head)
                 } else {
                     selected.head
@@ -2594,37 +2695,41 @@ impl EditorView {
                         .composition
                         .as_ref()
                         .is_none_or(|state| state.cancelled || state.text.is_empty())
-                    && (selected.is_empty() || block_cursor)
+                    && (selected.is_empty() || vim_block)
                     && visual == selected_visual
                     && head >= range.start
                     && head <= range.end
                 {
-                    let width = if block_cursor {
+                    let cell = || {
                         let next = snapshot.next_grapheme(head).unwrap_or(head).min(range.end);
                         (display.x_at(next.saturating_sub(range.start))
                             - display.x_at(head.saturating_sub(range.start)))
                         .max(measure(" "))
-                    } else {
-                        1.5
+                    };
+                    let (width, top, height) = match style {
+                        CaretStyle::Line => (1.5, 0.0, self.editor.line_height()),
+                        CaretStyle::Block => (cell(), 0.0, self.editor.line_height()),
+                        CaretStyle::Underline => (cell(), self.editor.line_height() - 2.0, 2.0),
                     };
                     let caret_rect = Rect::new(
                         body.x + display.x_at(head.saturating_sub(range.start))
                             - self.viewport.scroll_x,
-                        y,
+                        y + top,
                         width,
-                        self.editor.line_height(),
+                        height,
                     );
                     if visible_body
                         .intersection(clip)
                         .and_then(|clip| caret_rect.intersection(clip))
                         .is_some()
-                        && *blink.get_or_insert_with(|| {
-                            show_caret(snapshot.document_id(), snapshot.revision(), selection.head)
-                        })
+                        && (!self.editor.caret_blink
+                            || *blink.get_or_insert_with(|| {
+                                show_caret(snapshot.document_id(), snapshot.revision(), selection.head)
+                            }))
                     {
                         commands.push(DrawCommand::FillRect {
                             rect: caret_rect,
-                            color: if block_cursor {
+                            color: if style == CaretStyle::Block {
                                 Color::rgba(
                                     self.editor.palette.text.r,
                                     self.editor.palette.text.g,
@@ -2901,6 +3006,7 @@ struct Cluster {
     x: f32,
     width: f32,
     text: String,
+    tab: bool,
 }
 struct DisplayLine {
     clusters: Vec<Cluster>,
@@ -2965,6 +3071,7 @@ impl DisplayLine {
                     x,
                     width: advance,
                     text: shown,
+                    tab: grapheme == "\t",
                 });
                 if bytes >= 65_532 || clusters.len() >= 8192 {
                     truncated = true;
@@ -3005,6 +3112,7 @@ impl DisplayLine {
                 end: offset + count,
                 x,
                 width,
+                tab: grapheme == "\t",
                 text: shown,
             });
             offset += count;
@@ -3032,6 +3140,31 @@ impl DisplayLine {
             }
         }
         self.clusters.last().map_or(0, |cluster| cluster.end)
+    }
+    /// `·` centred on each visible space and `→` at the start of each visible tab.
+    fn paint_whitespace(
+        &self,
+        font_size: f32,
+        commands: &mut Vec<DrawCommand>,
+        origin: Point,
+        window: (f32, f32),
+        color: Color,
+        measure: &dyn Fn(&str) -> f32,
+    ) {
+        let (offset, width) = window;
+        let dot = measure("·");
+        for cluster in self.clusters.iter().filter(|cluster| {
+            (cluster.tab || cluster.text == " ")
+                && cluster.x + cluster.width >= offset
+                && cluster.x <= offset + width
+        }) {
+            let (mark, x) = if cluster.tab {
+                ("→", cluster.x)
+            } else {
+                ("·", cluster.x + (cluster.width - dot) * 0.5)
+            };
+            commands.push(text_command(font_size, Point::new(origin.x + x, origin.y), mark.into(), color));
+        }
     }
     fn paint(
         &self,
@@ -3742,6 +3875,58 @@ mod tests {
             tree.layout(Size::new(900.0, 140.0)).commands
         );
         assert!(!tree.is_animating());
+    }
+
+    #[test]
+    fn view_options_draw_whitespace_rulers_and_caret_shapes_and_can_hide_line_and_guides() {
+        let (controller, mut tree) = fixture("    a b\tc", 900.0);
+        let commands = |tree: &mut UiTree, editor: CodeEditor| {
+            tree.set_root(editor.height(140.0).render());
+            tree.layout(Size::new(900.0, 140.0)).commands
+        };
+        let texts = |commands: &[DrawCommand]| -> Vec<String> {
+            commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, .. } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let rects = |commands: &[DrawCommand]| -> Vec<Rect> {
+            commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::FillRect { rect, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect()
+        };
+        let base = || CodeEditor::new("editor:view:1", controller.clone()).caret_blink(false);
+        let plain = commands(&mut tree, base());
+        assert!(!texts(&plain).iter().any(|text| text == "·" || text == "→"));
+
+        let marked = commands(&mut tree, base().show_whitespace(true));
+        let marks = texts(&marked);
+        assert_eq!(marks.iter().filter(|text| *text == "·").count(), 5);
+        assert_eq!(marks.iter().filter(|text| *text == "→").count(), 1);
+
+        let ruled = commands(&mut tree, base().rulers([0, 80, 2000]));
+        let tall = |commands: &[DrawCommand]| {
+            rects(commands).into_iter().filter(|rect| rect.width == 1.0 && rect.height > 100.0).count()
+        };
+        assert_eq!(tall(&ruled), tall(&plain) + 1);
+
+        let line = rects(&plain);
+        let underline = rects(&commands(&mut tree, base().caret_style(CaretStyle::Underline)));
+        assert!(line.iter().any(|rect| rect.width == 1.5 && rect.height > 2.0));
+        assert!(underline.iter().any(|rect| rect.height == 2.0 && rect.width > 1.5));
+        assert!(!underline.iter().any(|rect| rect.width == 1.5));
+
+        let full_width = |commands: &[DrawCommand]| rects(commands).into_iter().filter(|rect| rect.width >= 899.0).count();
+        let bare = commands(&mut tree, base().highlight_current_line(false).indent_guides(false));
+        assert_eq!(full_width(&bare) + 1, full_width(&plain));
+        assert!(rects(&bare).len() < rects(&plain).len() - 1, "the indent guide is gone too");
     }
 
     #[test]
