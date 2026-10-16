@@ -264,6 +264,29 @@ impl ScalarSpring {
         self.started = now;
     }
 
+    /// Move to `value` on `motion`, for a discrete change such as a tap. From
+    /// rest a spring starts at standstill and creeps for its first frames; a
+    /// launch sets off at the speed an ease-out cubic over the same settling
+    /// time starts with, so the first frame already shows the change, and a
+    /// critically damped spring still never overshoots. In flight it keeps
+    /// its position and any faster speed, and momentum away from `value`
+    /// turns back as with [`Self::retarget`]. A value that is not finite, or
+    /// that is already the target, is ignored.
+    pub fn launch(&mut self, value: f32, motion: SpringMotion, now: Instant) {
+        if !value.is_finite() || value == self.target {
+            return;
+        }
+        let (position, velocity) = self.state(now);
+        // A critically damped spring settles at ωt = 6.64; an ease-out cubic
+        // over that time starts at 3 / 6.64 of ω times the distance.
+        let launch = (value - position) * motion.stiffness.max(f32::EPSILON).sqrt() * (3.0 / 6.64);
+        self.velocity = if velocity * launch >= 0.0 && velocity.abs() < launch.abs() { launch } else { velocity };
+        self.from = position;
+        self.target = value;
+        self.started = now;
+        self.motion = motion;
+    }
+
     /// Release a drag: continue from `value` at the pointer's `velocity`
     /// (logical pixels per second) towards `target`.
     pub fn release(&mut self, value: f32, velocity: f32, target: f32, now: Instant) {
@@ -648,6 +671,44 @@ mod tests {
 #[cfg(test)]
 mod spring_tests {
     use super::*;
+
+    #[test]
+    fn a_launch_moves_on_its_first_frame_like_an_ease_out_and_never_overshoots() {
+        let start = Instant::now();
+        let at = |ms: u64| start + Duration::from_micros(ms * 1000);
+        let motion = SpringMotion::settling_in(Duration::from_millis(170));
+        let frame = Duration::from_micros(16_667);
+        let mut retargeted = ScalarSpring::new(0.0, start).motion(motion);
+        retargeted.retarget(100.0, start);
+        let mut launched = ScalarSpring::new(0.0, start);
+        launched.launch(100.0, motion, start);
+        let eased = 100.0 * Easing::OutCubic.sample(frame.as_secs_f32() / 0.17);
+        // From standstill a retarget covers a seventh of the way in a frame.
+        assert!(retargeted.value(start + frame) < 15.0);
+        let first = launched.value(start + frame);
+        assert!(first > eased * 0.9, "{first} against an ease-out's {eased}");
+        let mut previous = 0.0;
+        for ms in 1..=600 {
+            let value = launched.value(at(ms));
+            assert!(value >= previous && value <= 100.0, "{value} at {ms} ms");
+            previous = value;
+        }
+        assert!((launched.value(at(170)) - 100.0).abs() < 1.0);
+        assert!(!launched.is_active(at(600)));
+
+        // In flight it keeps a faster speed, and turns back from momentum.
+        let mid = at(40);
+        let (position, speed) = (launched.value(mid), launched.velocity(mid));
+        launched.launch(110.0, motion, mid);
+        assert!((launched.value(mid) - position).abs() < 1e-3);
+        assert!((launched.velocity(mid) - speed).abs() < 1e-3);
+        launched.launch(0.0, motion, mid);
+        assert!((launched.velocity(mid) - speed).abs() < 1e-3);
+        assert!(launched.value(mid + frame) > position, "momentum carries it on before it turns");
+        // Ignored like a retarget.
+        launched.launch(f32::NAN, motion, mid);
+        assert_eq!(launched.target(), 0.0);
+    }
 
     #[test]
     fn a_spring_paced_by_a_duration_arrives_on_time_without_overshoot_and_keeps_its_speed() {

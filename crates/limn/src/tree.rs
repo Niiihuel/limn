@@ -634,6 +634,18 @@ pub enum DrawCommand {
     /// Clip every command up to the matching `PopClip` to this rectangle,
     /// intersected with the clips already in force.
     PushClip(Rect),
+    /// Round the clip of the `PushClip` just before it: until that clip's
+    /// `PopClip`, fills and images stay inside `rect` with these corners, so
+    /// content flush with or past the edge of a rounded panel keeps the
+    /// panel's corners. Text is not affected. A nested rounded clip replaces
+    /// it; a nested plain one keeps it. A backend that cannot round a clip
+    /// may ignore this and keep the rectangle.
+    RoundClip {
+        /// The rounded shape, inside the rectangle of the clip it rounds.
+        rect: Rect,
+        /// Its corners.
+        radii: CornerRadii,
+    },
     /// End the innermost `PushClip`.
     PopClip,
 }
@@ -721,7 +733,7 @@ impl DrawCommand {
                 *position = Point::new(position.x + dx, position.y + dy);
                 fade(color);
             }
-            Self::PushClip(rect) => shift(rect),
+            Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
         }
         ghost
@@ -1208,6 +1220,13 @@ fn animate_popover_command(
             *own_opacity *= opacity.clamp(0.0, 1.0);
         }
         DrawCommand::PushClip(rect) => scale_rect(rect, scale, origin, slide_y),
+        DrawCommand::RoundClip { rect, radii } => {
+            scale_rect(rect, scale, origin, slide_y);
+            radii.top_left *= scale;
+            radii.top_right *= scale;
+            radii.bottom_right *= scale;
+            radii.bottom_left *= scale;
+        }
         DrawCommand::PopClip => {}
     }
 }
@@ -1550,7 +1569,11 @@ const SLOT_OPEN: f32 = 100.0;
 /// A slot opens and closes on a spring with no overshoot: toggled midway it
 /// keeps its speed and turns back instead of starting again from rest.
 fn slot_spring(value: f32, now: Instant) -> ScalarSpring {
-    ScalarSpring::new(value, now).motion(crate::SpringMotion::settling_in(slot_settle()))
+    ScalarSpring::new(value, now).motion(slot_motion())
+}
+
+fn slot_motion() -> crate::SpringMotion {
+    crate::SpringMotion::settling_in(slot_settle())
 }
 
 /// The time in which a slot covers 99% of its way: one and a half moves.
@@ -3414,7 +3437,9 @@ impl UiTree {
     /// interval would cap a 120 Hz display at half its rate and drift against
     /// any display, which reads as stutter. Ambient indicators such as a
     /// spinner keep a 16 ms cadence: they never finish, so painting them at
-    /// display rate would cost power for no visible gain.
+    /// display rate would cost power for no visible gain. A host that slows
+    /// its frames down when idle should do so only for those: throttling a
+    /// zero turns every transition into a stutter.
     pub fn animation_repaint_after(&self) -> Option<Duration> {
         self.animation_repaint_after_at(Instant::now())
     }
@@ -3585,6 +3610,22 @@ impl UiTree {
             .scroll_extents
             .get(id)
             .is_some_and(|maximum| maximum - self.scroll_target(id) <= tolerance.max(0.0))
+    }
+
+    /// Position a vertical scroll area from the host, for example from a
+    /// spring, as [`Self::set_horizontal_scroll_offset`] does sideways. It
+    /// takes over from any wheel easing and pending end or index request; the
+    /// next layout clamps it to the content. A value that is not finite is
+    /// ignored.
+    pub fn set_scroll_offset(&mut self, id: &str, offset: f32) {
+        if !offset.is_finite() {
+            return;
+        }
+        self.scroll_transitions.remove(id);
+        self.cancel_scroll_hold(id);
+        self.scroll_to_end.remove(id);
+        self.scroll_to_index.remove(id);
+        self.scroll_offsets.insert(id.to_owned(), offset);
     }
 
     /// Scrolls to the bottom on the next layout, after new content is measured.
@@ -4042,7 +4083,9 @@ impl UiTree {
                                 rect: ring,
                                 color: coach.fill,
                                 width: COACH_RING_WIDTH,
-                                radius: radius + COACH_RING_GAP,
+                                radius: (radius + COACH_RING_GAP)
+                                    .min(ring.width / 2.0)
+                                    .min(ring.height / 2.0),
                             });
                         }
                         let bubble_start = builder.frame.commands.len();
@@ -8163,6 +8206,22 @@ impl LayoutBuilder<'_> {
         lines
     }
 
+    /// Round the clip just pushed for `content` as the element's own corners
+    /// are, less its padding, so they stay concentric.
+    fn round_clip(&mut self, content: Rect, style: &Style) {
+        let radii = style.corner_radii.unwrap_or(CornerRadii::same(style.radius));
+        let inner = |radius: f32| (radius - style.padding).max(0.0);
+        let radii = CornerRadii {
+            top_left: inner(radii.top_left),
+            top_right: inner(radii.top_right),
+            bottom_right: inner(radii.bottom_right),
+            bottom_left: inner(radii.bottom_left),
+        };
+        if [radii.top_left, radii.top_right, radii.bottom_right, radii.bottom_left].iter().any(|radius| *radius > 0.0) {
+            self.frame.commands.push(DrawCommand::RoundClip { rect: content, radii });
+        }
+    }
+
     fn draw_focus_ring(&mut self, rect: Rect, style: Style) {
         if !style.focus_ring {
             return;
@@ -8624,7 +8683,7 @@ impl LayoutBuilder<'_> {
             if present && (!expand || self.locating) && state.fraction.value(now) <= 0.0 {
                 state.fraction = slot_spring(SLOT_OPEN, now);
             } else {
-                state.fraction.retarget(target, now);
+                state.fraction.launch(target, slot_motion(), now);
             }
         }
         state.natural * (state.fraction.value(now) / SLOT_OPEN).clamp(0.0, 1.0)
@@ -8744,8 +8803,7 @@ impl LayoutBuilder<'_> {
                 crate::tokens().motion.move_ms,
             )));
             for (value, target) in state.values.iter_mut().zip(targets) {
-                *value = value.motion(motion);
-                value.retarget(target, now);
+                value.launch(target, motion, now);
             }
         } else if state.key != key
             || state.values.iter().zip(targets).any(|(value, target)| value.target() != target)
@@ -8880,9 +8938,8 @@ impl LayoutBuilder<'_> {
             state.value = ScalarSpring::new(target, self.now);
         } else if target != state.value.target() {
             let pace = paced(if target > state.value.target() { rise_ms } else { fall_ms });
-            // It turns from where it is, at the speed it has, and only then takes its new pace.
-            state.value.retarget(target, self.now);
-            state.value = state.value.motion(pace);
+            // It turns from where it is, at the speed it has, and takes its new pace from there.
+            state.value.launch(target, pace, self.now);
         }
         state.value.value(self.now)
     }
@@ -9403,6 +9460,15 @@ impl LayoutBuilder<'_> {
         if let Some((id, radius)) = element.kept.as_ref().and_then(|kept| kept.soft.as_ref()) {
             self.soften(id, *radius, start);
         }
+        if let Some((id, factor, anchor)) = element.kept.as_ref().and_then(|kept| kept.scale.as_ref()) {
+            let scale = self.spring(&format!("scale/{id}"), *factor);
+            if scale != 1.0 {
+                let origin = Point::new(rect.x + rect.width * anchor.x, rect.y + rect.height * anchor.y);
+                for command in &mut self.frame.commands[start..] {
+                    animate_popover_command(command, 1.0, 0.0, scale, origin);
+                }
+            }
+        }
         match &element.presence {
             Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed) => {
                 self.reveal_on_hover(element, id, start, reveal == HoverReveal::Concealed)
@@ -9571,6 +9637,9 @@ impl LayoutBuilder<'_> {
             }
         }
         let mut style = element.style;
+        // Fill, border, focus ring and shadow share one radius that fits the
+        // rectangle: what `f32::INFINITY` asks for, and an exact pill otherwise.
+        style.radius = style.radius.min(rect.width / 2.0).min(rect.height / 2.0).max(0.0);
         if let ElementKind::Skeleton {
             id,
             base,
@@ -9812,6 +9881,7 @@ impl LayoutBuilder<'_> {
                     }
                 });
             self.frame.commands.push(DrawCommand::PushClip(child_clip));
+            self.round_clip(content, &style);
             Some(child_clip)
         } else {
             clip
@@ -9881,10 +9951,10 @@ impl LayoutBuilder<'_> {
                         } else if state.selected_id != selection.selected_id {
                             let duration = Duration::from_millis(u64::from(selection.animation_ms));
                             let motion = crate::SpringMotion::settling_in(duration);
-                            state.x = state.x.motion(motion);
-                            state.width = state.width.motion(motion);
-                            state.x.retarget(target.x, self.now);
-                            state.width.retarget(target.width, self.now);
+                            // Setting a pace before rebasing would redraw the
+                            // flight so far on the new curve: a jump.
+                            state.x.launch(target.x, motion, self.now);
+                            state.width.launch(target.width, motion, self.now);
                             state.selected_id.clone_from(&selection.selected_id);
                         } else if state.x.target() != target.x
                             || state.width.target() != target.width
@@ -9894,17 +9964,18 @@ impl LayoutBuilder<'_> {
                             state.x.snap_to(target.x, self.now);
                             state.width.snap_to(target.width, self.now);
                         }
+                        let indicator = Rect::new(
+                            state.x.value(self.now),
+                            target.y,
+                            state.width.value(self.now),
+                            target.height,
+                        );
                         self.frame.commands.insert(
                             command_start,
                             DrawCommand::FillRect {
-                                rect: Rect::new(
-                                    state.x.value(self.now),
-                                    target.y,
-                                    state.width.value(self.now),
-                                    target.height,
-                                ),
+                                rect: indicator,
                                 color: selection.color,
-                                radius: selection.radius,
+                                radius: selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0),
                             },
                         );
                     }
@@ -10181,6 +10252,7 @@ impl LayoutBuilder<'_> {
                     .or_else(|| clip.is_none().then_some(content));
                 if let Some(new_clip) = new_clip {
                     self.frame.commands.push(DrawCommand::PushClip(new_clip));
+                    self.round_clip(content, &style);
                     self.scroll_focus_context.push(ScrollFocusContext {
                         id: id.clone(),
                         viewport: new_clip,

@@ -9,6 +9,11 @@ fn group_radius() -> f32 {
     crate::tokens().radius.card
 }
 
+/// A size or radius from the host: finite and not negative, or not taken.
+fn length(value: f32) -> Option<f32> {
+    value.is_finite().then(|| value.max(0.0))
+}
+
 /// A card of settings rows separated by hairlines, under a small muted
 /// title. Without a title it is only the card.
 pub struct PreferencesGroup {
@@ -16,6 +21,9 @@ pub struct PreferencesGroup {
     description: Option<String>,
     rows: Vec<Element>,
     palette: ComponentPalette,
+    title_size: f32,
+    description_size: f32,
+    radius: Option<f32>,
 }
 impl PreferencesGroup {
     /// A group of these rows, in order, each usually an [`ActionRow`].
@@ -25,7 +33,29 @@ impl PreferencesGroup {
             description: None,
             rows,
             palette,
+            title_size: 11.0,
+            description_size: 11.0,
+            radius: None,
         }
+    }
+    /// The title's size in logical pixels, 11 unless set. A size that is not
+    /// finite is ignored.
+    pub fn title_size(mut self, size: f32) -> Self {
+        self.title_size = length(size).unwrap_or(self.title_size);
+        self
+    }
+    /// The description's size in logical pixels, 11 unless set. A size that
+    /// is not finite is ignored.
+    pub fn description_size(mut self, size: f32) -> Self {
+        self.description_size = length(size).unwrap_or(self.description_size);
+        self
+    }
+    /// Round the card, and the outer corners of its first and last rows, by
+    /// `radius` in place of the `card` token. A radius that is not finite is
+    /// ignored.
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = length(radius).or(self.radius);
+        self
     }
     /// A line of muted text under the title, saying what the group is for.
     pub fn description(mut self, description: impl Into<String>) -> Self {
@@ -36,18 +66,19 @@ impl PreferencesGroup {
 impl Component for PreferencesGroup {
     fn render(self) -> Element {
         // A quiet label names the group; the card below it carries the weight.
-        let caption = |text: String| {
+        let caption = |text: String, size: f32| {
             Element::text(text)
                 .font_family(FontFamily::Sans)
-                .font_size(11.0)
+                .font_size(size)
                 .foreground(self.palette.muted)
         };
+        let radius = self.radius.unwrap_or_else(group_radius);
         let mut heading = Vec::new();
         if !self.title.is_empty() {
-            heading.push(caption(self.title));
+            heading.push(caption(self.title, self.title_size));
         }
         if let Some(description) = self.description.filter(|text| !text.is_empty()) {
-            heading.push(caption(description));
+            heading.push(caption(description, self.description_size));
         }
         let last_row = self.rows.len().saturating_sub(1);
         let mut rows = Vec::new();
@@ -58,16 +89,16 @@ impl Component for PreferencesGroup {
             // The group's child clip is rectangular. Its boundary rows must
             // paint the same outer corners during hover, press and focus.
             rows.push(row.corner_radii(CornerRadii {
-                top_left: if index == 0 { group_radius() } else { 0.0 },
-                top_right: if index == 0 { group_radius() } else { 0.0 },
-                bottom_right: if index == last_row { group_radius() } else { 0.0 },
-                bottom_left: if index == last_row { group_radius() } else { 0.0 },
+                top_left: if index == 0 { radius } else { 0.0 },
+                top_right: if index == 0 { radius } else { 0.0 },
+                bottom_right: if index == last_row { radius } else { 0.0 },
+                bottom_left: if index == last_row { radius } else { 0.0 },
             }));
         }
         let card = Element::panel(Element::column(rows))
             .background(self.palette.surface)
             .border(self.palette.border, 1.0)
-            .radius(group_radius())
+            .radius(radius)
             .clip_children();
         // Without a title or a description the group is just its card.
         if heading.is_empty() {
@@ -126,6 +157,9 @@ pub struct ActionRow {
     trailing_top: bool,
     icon_muted: bool,
     enabled: bool,
+    title_size: f32,
+    subtitle_size: f32,
+    radius: Option<f32>,
 }
 impl ActionRow {
     /// A row with a title in the palette's text color.
@@ -144,7 +178,29 @@ impl ActionRow {
             trailing_top: false,
             icon_muted: false,
             enabled: true,
+            title_size: 12.0,
+            subtitle_size: 11.0,
+            radius: None,
         }
+    }
+    /// The title's size in logical pixels, 12 unless set. A size that is not
+    /// finite is ignored.
+    pub fn title_size(mut self, size: f32) -> Self {
+        self.title_size = length(size).unwrap_or(self.title_size);
+        self
+    }
+    /// The subtitle's size in logical pixels, 11 unless set. A size that is
+    /// not finite is ignored.
+    pub fn subtitle_size(mut self, size: f32) -> Self {
+        self.subtitle_size = length(size).unwrap_or(self.subtitle_size);
+        self
+    }
+    /// Round the row's hover and press fill by `radius` in place of the
+    /// `control` token. In a [`PreferencesGroup`] the group sets the corners
+    /// of its rows instead. A radius that is not finite is ignored.
+    pub fn radius(mut self, radius: f32) -> Self {
+        self.radius = length(radius).or(self.radius);
+        self
     }
     /// Supporting copy under the title, in the muted color. It wraps.
     pub fn subtitle(mut self, text: impl Into<String>) -> Self {
@@ -244,13 +300,13 @@ impl Component for ActionRow {
         };
         let mut copy = vec![title
             .font_family(FontFamily::Sans)
-            .font_size(12.0)
+            .font_size(self.title_size)
             .foreground(if self.enabled { self.palette.text } else { self.palette.muted })];
         if let Some(subtitle) = self.subtitle {
             copy.push(
                 Element::text(subtitle)
                     .font_family(FontFamily::Sans)
-                    .font_size(11.0)
+                    .font_size(self.subtitle_size)
                     .foreground(self.palette.muted),
             );
         }
@@ -292,12 +348,16 @@ impl Component for ActionRow {
             Element::row(children).gap(px(sizing.gap)).min_size(0.0, minimum_height)
         }
         .padding(PADDING);
-        match self.action {
+        let row = match self.action {
             Some(id) if self.enabled => self
                 .palette
                 .interactive_surface(Element::clickable(id, content).accessible(said)),
             Some(id) => content.accessible(said.id(id).disabled(true)),
             None => content,
+        };
+        match self.radius {
+            Some(radius) => row.radius(radius),
+            None => row,
         }
     }
 }
@@ -320,6 +380,40 @@ mod tests {
         }
         // Without an action it is copy, not a control.
         assert!(UiTree::new(row().render()).layout(Size::new(320.0, 80.0)).access.is_empty());
+    }
+
+    #[test]
+    fn rows_and_groups_take_their_own_text_sizes_and_corners() {
+        let palette = ComponentPalette::neutral_dark();
+        let sizes = |frame: &Frame| -> Vec<(String, f32)> {
+            frame.commands.iter().filter_map(|command| match command {
+                DrawCommand::Text { text, font_size, .. } => Some((text.clone(), *font_size)),
+                _ => None,
+            }).collect()
+        };
+        let row = || ActionRow::new("Idioma", palette).subtitle("Español");
+        let plain = UiTree::new(row().render()).layout(Size::new(320.0, 80.0));
+        assert_eq!(sizes(&plain), [("Idioma".to_owned(), 12.0), ("Español".to_owned(), 11.0)]);
+        let large = UiTree::new(row().title_size(17.0).subtitle_size(f32::NAN).subtitle_size(15.0).render())
+            .layout(Size::new(320.0, 120.0));
+        assert_eq!(sizes(&large), [("Idioma".to_owned(), 17.0), ("Español".to_owned(), 15.0)]);
+
+        let group = |group: PreferencesGroup| UiTree::new(group.render()).layout(Size::new(320.0, 200.0));
+        let rows = || vec![row().action("language").render()];
+        let card = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::StrokeRect { color, radius, .. } if *color == palette.border => Some(*radius),
+            _ => None,
+        });
+        let default = group(PreferencesGroup::new("General", rows(), palette).description("Lo básico"));
+        assert_eq!(card(&default), Some(group_radius()));
+        assert!(sizes(&default).contains(&("General".to_owned(), 11.0)));
+        let phone = group(PreferencesGroup::new("General", rows(), palette).description("Lo básico")
+            .title_size(15.0).description_size(13.0).radius(f32::INFINITY).radius(14.0));
+        assert_eq!(card(&phone), Some(14.0));
+        assert!(sizes(&phone).contains(&("General".to_owned(), 15.0)));
+        assert!(sizes(&phone).contains(&("Lo básico".to_owned(), 13.0)));
+        // A lone row with an action rounds its hover fill as asked.
+        assert_eq!(row().action("language").radius(12.0).render().style.radius, 12.0);
     }
 
     fn same_bounds(rect: Rect, bounds: Rect) -> bool {

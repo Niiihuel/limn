@@ -614,7 +614,8 @@ pub struct Border {
 }
 
 /// Independent corner radii for backgrounds, solid borders and keyboard focus.
-/// They affect paint only; child clipping and hit regions remain rectangular.
+/// They affect paint and, with [`Element::clip_children`], the fills and
+/// images of descendants; hit regions remain rectangular.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct CornerRadii {
     /// Radius of the top left corner, in logical pixels.
@@ -756,6 +757,9 @@ pub(crate) struct Kept {
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
     pub(crate) soft: Option<(String, f32)>,
+    /// The ID a paint scale is kept under, its factor, and the point it grows
+    /// from as shares of the element's width and height.
+    pub(crate) scale: Option<(String, f32, Point)>,
     /// Set by [`Element::wrap`]: a row moves children onto more lines.
     pub(crate) wrap: bool,
     /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
@@ -2023,6 +2027,26 @@ impl Element {
     pub fn soft_focus(mut self, id: impl Into<String>, radius: f32) -> Self {
         let radius = if radius.is_finite() { radius.clamp(0.0, 8.0) } else { 0.0 };
         self.kept.get_or_insert_default().soft = Some((id.into(), radius));
+        self
+    }
+
+    /// Paint this element and what is inside it at `factor` times its size,
+    /// growing from the middle of its left edge. Layout, hit targets and line
+    /// breaks stay those of factor one, so the line being read can grow
+    /// without re-wrapping or moving its neighbours. The factor is kept under
+    /// `id` and springs to a new one in one move, or changes at once under
+    /// reduced motion. A factor that is not finite or not above zero is ignored.
+    pub fn animate_scale(self, id: impl Into<String>, factor: f32) -> Self {
+        self.animate_scale_about(id, factor, Point::new(0.0, 0.5))
+    }
+
+    /// As [`Element::animate_scale`], growing from `anchor`, given as shares
+    /// of the element's width and height: `(0.5, 0.5)` is its center. An
+    /// anchor that is not finite is ignored with the rest.
+    pub fn animate_scale_about(mut self, id: impl Into<String>, factor: f32, anchor: Point) -> Self {
+        if factor.is_finite() && factor > 0.0 && anchor.x.is_finite() && anchor.y.is_finite() {
+            self.kept.get_or_insert_default().scale = Some((id.into(), factor, anchor));
+        }
         self
     }
 
@@ -3366,6 +3390,10 @@ impl Element {
 
     /// Keep descendants inside this element's content rectangle. Useful for
     /// a dock whose width changes while its children retain intrinsic sizes.
+    /// On a rounded element the clip is rounded too, concentric with its
+    /// corners less its padding: fills and images that reach a corner take
+    /// it (see [`crate::DrawCommand::RoundClip`]). Text is clipped to the
+    /// rectangle only.
     pub fn clip_children(mut self) -> Self {
         self.style.clip_children = true;
         self
@@ -3541,15 +3569,25 @@ impl Element {
 
     /// Round the four corners by this radius, in logical pixels. It replaces
     /// any `corner_radii`; a negative value becomes zero, and one that is not
-    /// finite is ignored.
+    /// finite is ignored. A painted radius never exceeds half the shorter side.
     pub fn radius(mut self, radius: f32) -> Self {
         self.style.radius = length(radius, self.style.radius);
         self.style.corner_radii = None;
         self
     }
 
+    /// Round the ends fully: half the shorter side of wherever the element is
+    /// laid out, so a pill or a circle stays one when its size changes later.
+    /// It replaces any `radius` or `corner_radii`.
+    pub fn round(mut self) -> Self {
+        // Painting clamps every radius to the rectangle it rounds.
+        self.style.radius = f32::INFINITY;
+        self.style.corner_radii = None;
+        self
+    }
+
     /// Override the uniform radius for backgrounds, solid borders and focus.
-    /// Shadows and descendant clipping retain their existing behavior.
+    /// Shadows keep the uniform radius; a clip of descendants follows these.
     pub fn corner_radii(mut self, radii: CornerRadii) -> Self {
         self.style.corner_radii = Some(radii.normalized());
         self
