@@ -765,6 +765,9 @@ pub(crate) struct Kept {
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
+    pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
+    pub(crate) translation: Option<Point>,
+    pub(crate) pointer_blocker: Option<String>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1686,6 +1689,9 @@ pub struct Style {
     /// Paint-only scrim above children, transparent at its top edge and
     /// tinted at the bottom. Scroll areas show it only above hidden content.
     pub bottom_fade: Option<(Color, f32)>,
+    /// Paint-only distances from the top and bottom edges to the corresponding
+    /// fade bands. Opaque floating bars can occupy this space; defaults to zero.
+    pub fade_insets: (f32, f32),
     /// Passive bottom background behind children, for dedicated footer space.
     pub bottom_background_fade: Option<(Color, f32)>,
     /// Passive top background behind children: the color at the top edge,
@@ -1769,6 +1775,7 @@ impl Default for Style {
             background: None,
             top_fade: None,
             bottom_fade: None,
+            fade_insets: (0.0, 0.0),
             bottom_background_fade: None,
             top_background_fade: None,
             horizontal_edge_fade: None,
@@ -1854,8 +1861,9 @@ impl Element {
 
     /// Name this element as a place to scroll to, without making it a
     /// control: `UiTree::reveal(id)` brings it into view and
-    /// `UiTree::anchor_offset(id)` says where it is. It has to be laid out
-    /// by a column of a scroll area, as a message of a conversation is.
+    /// `UiTree::anchor_offset(id)` says where it is inside its scroll area.
+    /// Static branches retain anchor geometry when clipped outside the viewport;
+    /// a virtual row must have been built before its anchors can be located.
     pub fn anchor(mut self, id: impl Into<String>) -> Self {
         self.anchor = Some(id.into());
         self
@@ -1942,6 +1950,29 @@ impl Element {
     /// in the page's flow, which leaves at once when it is removed.
     pub fn animate_enter(mut self, id: impl Into<String>) -> Self {
         self.presence = Some((id.into(), false));
+        self
+    }
+
+    /// Translate this element and its descendants without changing their slot
+    /// in the parent's flow. Paint, pointer, accessibility and scroll geometry
+    /// move together; ancestor clips remain fixed. Non-finite offsets are ignored.
+    /// The host owns the offset, including direct manipulation and animation.
+    /// Viewport popovers retain their placement; translate their floating
+    /// surface itself when it should move independently of its anchor.
+    pub fn translate(mut self, offset: Point) -> Self {
+        if offset.x.is_finite() && offset.y.is_finite() {
+            self.kept.get_or_insert_default().translation = Some(offset);
+        }
+        self
+    }
+
+    /// Block presses from reaching elements beneath this element's visible
+    /// bounds, while controls inside it keep their own targets. The unique, stable
+    /// `id` names a passive hit region, with no action, focus or accessibility
+    /// node. Clipping and translation apply normally. Scroll events still
+    /// reach scroll areas underneath; the host owns touch gesture arbitration.
+    pub fn block_pointer(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().pointer_blocker = Some(id.into());
         self
     }
 
@@ -2606,6 +2637,17 @@ impl Element {
         self
     }
 
+    /// Show an ordinary, virtual or horizontal scroll indicator only while
+    /// active, or keep its idle appearance visible. Does not change layout or
+    /// scrolling. A horizontal indicator requires [`Element::drag_to_pan`];
+    /// hiding it never disables the viewport's pointer or scroll targets.
+    pub fn scrollbar_visibility(mut self, visibility: crate::ScrollbarVisibility) -> Self {
+        if matches!(self.kind, ElementKind::Scroll { .. } | ElementKind::UniformList(_) | ElementKind::HorizontalScroll { .. }) {
+            self.kept.get_or_insert_default().scrollbar_visibility = visibility;
+        }
+        self
+    }
+
     /// Configure wheel and scrollbar-button interpolation for ordinary
     /// scroll content or a virtual list without changing scrollbar appearance.
     pub fn scroll_motion(mut self, motion: ScrollMotion) -> Self {
@@ -3139,6 +3181,16 @@ impl Element {
         self
     }
 
+    /// Inset the top and bottom fade bands from the viewport edges, for content
+    /// beneath opaque floating bars. Fade heights remain the visible transition
+    /// outside the bars. This changes paint only; the host still reserves content
+    /// space for its bars. Negative or non-finite insets become zero.
+    pub fn fade_insets(mut self, top: f32, bottom: f32) -> Self {
+        let inset = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        self.style.fade_insets = (inset(top), inset(bottom));
+        self
+    }
+
     /// Add a quiet bottom background behind children. Use dedicated footer
     /// space so the tint never covers the last line or the collapse control.
     pub fn bottom_background_fade(mut self, color: Color, height: f32) -> Self {
@@ -3201,7 +3253,8 @@ impl Element {
     /// Let the pointer drag a horizontal viewport's content sideways, and
     /// show a thin bar where it sits while there is more than fits. The bar
     /// takes the viewport's foreground; pressing a control inside still
-    /// presses that control.
+    /// presses that control. [`Element::scrollbar_visibility`] can make the
+    /// indicator transient without disabling drag input.
     pub fn drag_to_pan(mut self) -> Self {
         if let ElementKind::HorizontalScroll { drag_pan, .. } = &mut self.kind {
             *drag_pan = true;
@@ -3274,6 +3327,8 @@ impl Element {
 
     /// Center the text, or a button's content, across the element's width
     /// instead of starting it at the edge.
+    /// Single-line inputs center values that fit, with matching caret,
+    /// selection and pointer geometry; overflowing values scroll normally.
     pub fn center_content(mut self) -> Self {
         self.style.center_content = true;
         self

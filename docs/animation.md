@@ -288,6 +288,45 @@ if self.panel_width.is_active(Instant::now()) {
 `ScalarSpring` is the same idea with velocity: an interrupted movement or a
 released drag carries on instead of restarting from rest.
 
+## Controlled dismiss gestures
+
+`DismissDrag` tracks a downward pointer gesture without routing events or
+changing application state. Keep it beside the host's open state:
+
+```rust
+let mut drag = limn::DismissDrag::new(96.0, 800.0);
+// Pointer down: decide once whether this surface can own the gesture.
+drag.begin(position, now, eligible);
+// Pointer move: true means it has claimed this pointer sequence.
+if drag.update(position, now) {
+    let content = surface.translate(limn::Point::new(0.0, drag.offset()));
+}
+// Pointer up: capture the shown offset before release clears the gesture.
+let from = drag.offset();
+let dismiss = drag.release(now);
+// Pointer cancellation or window focus loss:
+drag.cancel();
+```
+
+The helper claims after 8 logical pixels downward with vertical dominance.
+Horizontal or upward movement beyond that slop cancels before claim; an
+ineligible sequence cannot become eligible midway through a scroll. The host
+can allow a header unconditionally and content only if its scroll offset was
+zero at pointer down, excluding sliders, text inputs and covered surfaces.
+
+Release dismisses after the configured distance or velocity in logical pixels
+per second. Velocity uses only the most recent 100 ms and requires 24 pixels
+of recent net downward travel; a pause or reversal cannot reuse a stale flick.
+`release` and `cancel` reset the offset and ownership. Invalid coordinates,
+backwards timestamps or invalid thresholds cannot claim a gesture.
+
+On first claim, cancel the tree's original press and consume the remaining
+pointer sequence, including release, so dragging cannot also click a child.
+The host owns a `ScalarTransition` or `ScalarSpring` for returning to zero or
+leaving the viewport. Keep direct manipulation under reduced motion, but snap
+those autonomous transitions. Keep keyboard and accessibility dismissal
+available separately from the gesture.
+
 ## How transitions behave
 
 - **Retargeting is continuous.** Hovering a button and leaving before the

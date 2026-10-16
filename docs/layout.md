@@ -195,6 +195,13 @@ slanted by the host.
 `.clip_children()` keeps a container's descendants, and their click targets,
 inside its bounds.
 
+`.block_pointer(id)` keeps presses on a container's passive parts from reaching
+controls painted beneath it. Its children keep their own targets, so a floating
+header can block covered rows without losing its buttons. The unique, stable `id` names
+only a clipped hit surface: it adds no action, Tab stop or accessibility node.
+Translation moves the surface with the element. Scroll events still reach the
+scroll areas underneath; touch gesture ownership remains with the host.
+
 `.top_background_fade(color, height)` and `.bottom_background_fade(color, height)`
 paint a colour behind a container's children that starts at that edge and is
 gone `height` further in: a tint behind a page's header, or under the last
@@ -246,6 +253,26 @@ that is resolved at the next layout, once sizes are known.
 `reveal` finds a control by its ID, so give the thing to reveal one: a row
 that is not otherwise interactive can be an `Element::clickable`. Rows of a
 uniform list exist only while in view; use `scroll_to_index` for those.
+
+## Translation without reflow
+
+```rust
+surface.translate(Point::new(0.0, drag_offset))
+```
+
+`Element::translate` moves an element and its normal descendants after the
+parent has assigned their slot. Paint, hit regions, accessibility bounds and
+scroll geometry move together; siblings keep their original positions and
+scroll ranges do not grow. Translations nest by addition. The ancestor's clip
+stays fixed, so put the surface in a parent with `clip_children()` to keep it
+inside a viewport. Nonfinite offsets are ignored. Virtual lists still choose
+which rows to build from their unchanged flow slots.
+
+Floating popovers keep their viewport placement, as they do when their
+anchor scrolls. Translate the floating surface itself to move one. A
+translation is direct state, so reduced motion does not suppress it; the host
+skips any autonomous animation that produces the offset. See
+[controlled dismiss gestures](animation.md#controlled-dismiss-gestures).
 
 ## The root
 

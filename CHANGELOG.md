@@ -3,9 +3,20 @@
 Every release of limn, newest first. Versions before 1.0 may change the API
 in any release.
 
-## 0.1.43 — 2026-10-15
+## Unreleased
 
 - `Element::shrink_height_to_fit`: opt-in height shrinking for a non-flex child of a column. Short content keeps its natural height; a bounded scroll area can yield room to a fixed footer without covering it. Marked children yield in order, minimums first and then toward zero if necessary; flexible siblings keep their minimum heights and share the rest by weight. Rows, unmarked columns and the width-only `shrink_to_fit` keep their behavior. `Style` adds public `shrink_height`, false by default; code building `Style` literally adds that field. The ScrollArea gallery shows short, tall and constrained content
+- `Composer::drop_target()` opts the enabled editor into file drops using its existing ID, without adding a hit region or changing focus. The host owns validation and file access; disabled composers never accept drops. The Editor gallery records the count without opening files.
+- File hover and drop targets respect floating surfaces, context menus and modals, keeping files from reaching covered background controls.
+- The egui bridge delivers native files after the frame's ordinary input, allowing hosts to revalidate an editor after a click or key changes the view.
+- NumberInput: `button_placement(NumberInputButtonPlacement::Split)` places decrease and increase on either side of a centered editable value, with matching caret, selection and pointer geometry. The default `End` placement and existing actions, sizes and bounds are unchanged
+- Passive scroll anchors retain current layout geometry inside clipped static branches, including the first deep layout and changes to width or font size. `UiTree::anchor_offset` no longer loses nested anchors when their container leaves the viewport; those hidden branches still produce no painting or hit targets.
+- `limn_egui::set_icon_rasterizer` installs an optional UI-thread renderer for native icon masks, using the existing bounded texture cache and tint. Missing or malformed masks fall back to SVG; file-type artwork preserves its colors. Replacing or removing the renderer refreshes cached icon textures
+- `Element::fade_insets(top, bottom)` positions edge fade bands outside opaque floating bars without changing scroll range, layout or pointer targets. Fade heights describe the visible transition beside the bars; zero insets preserve existing rendering. `Style` adds the public `fade_insets` field, defaulting to `(0.0, 0.0)`.
+- Horizontal viewports stop their pointer pan on `PointerLeave`, preserving the current offset when a touch host takes over scrolling or cancels the gesture. A later touch no longer resumes the old grab and jumps the content back
+
+## 0.1.43 — 2026-10-15
+
 - CodeEditor and CodeDiff: `font_size` keeps text, row geometry, scrolling and pointer selection at the same size; `diff_backgrounds(false)` hides row tints while preserving change markers. Both add public `font_size` and `diff_backgrounds` fields for hosts building their structs literally
 - CodeBlock: `font_size` overrides code without changing its label; `word_wrap(false)` preserves source lines in a horizontal viewport. Markdown exposes independent fenced-code settings through `code_font_size` and `code_word_wrap`, included in its render cache key. Set `id` on a block or preview to preserve horizontal offsets when rebuilding it; equal fences and cached previews keep separate viewport identities
 - Anonymous code viewport state is discarded when replacing the visual tree, keeping repeated renders bounded; explicitly named code viewports and other scroll state keep their offsets
