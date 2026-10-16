@@ -254,23 +254,38 @@ impl LayoutBuilder<'_> {
         let value = |series: usize, point: usize| {
             plot.series[series].values.get(point).copied().filter(|value| value.is_finite()).unwrap_or(0.0)
         };
-        let (mut low, mut high) = (0.0f64, 0.0f64);
-        for series in 0..plot.series.len() {
-            for point in 0..count {
-                low = low.min(value(series, point));
-                high = high.max(value(series, point));
+        let (low, high, step, ticks) = match plot.range.filter(|(low, high)| low < high) {
+            Some((low, high)) => {
+                let ticks = if low < 0.0 && high > 0.0 { vec![low, 0.0, high] } else { vec![low, high] };
+                (low, high, high - low, ticks)
             }
-        }
-        if high - low <= 0.0 {
-            high = 1.0;
-        }
-        let step = tick_step(high - low);
-        let (low, high) = ((low / step).floor() * step, (high / step).ceil() * step);
-        let ticks: Vec<f64> = (0..=((high - low) / step).round() as usize).map(|index| low + index as f64 * step).collect();
+            None => {
+                let (mut low, mut high) = (0.0f64, 0.0f64);
+                for series in 0..plot.series.len() {
+                    for point in 0..count {
+                        low = low.min(value(series, point));
+                        high = high.max(value(series, point));
+                    }
+                }
+                if high - low <= 0.0 {
+                    high = 1.0;
+                }
+                let step = tick_step(high - low);
+                let (low, high) = ((low / step).floor() * step, (high / step).ceil() * step);
+                let ticks = (0..=((high - low) / step).round() as usize).map(|index| low + index as f64 * step).collect();
+                (low, high, step, ticks)
+            }
+        };
+        let signed = plot.range.is_some() && low < 0.0;
+        let tick_text = |tick: f64| if signed && tick > 0.0 { format!("+{}", written(tick)) } else { written(tick) };
 
-        let names: f32 = plot.points.iter().map(|name| self.axis_text_width(name)).fold(0.0, f32::max);
+        let names: f32 = if plot.point_axis {
+            plot.points.iter().map(|name| self.axis_text_width(name)).fold(0.0, f32::max)
+        } else {
+            0.0
+        };
         let left = if plot.value_axis {
-            ticks.iter().map(|tick| self.axis_text_width(&written(*tick))).fold(0.0, f32::max) + 8.0
+            ticks.iter().map(|tick| self.axis_text_width(&tick_text(*tick))).fold(0.0, f32::max) + 8.0
         } else {
             8.0
         };
@@ -279,7 +294,7 @@ impl LayoutBuilder<'_> {
             content.x + left,
             content.y + 8.0,
             (content.width - left - (names / 2.0).max(8.0)).max(1.0),
-            (content.height - 8.0 - AXIS_GUTTER).max(1.0),
+            (content.height - 8.0 - if plot.point_axis { AXIS_GUTTER } else { 8.0 }).max(1.0),
         );
         let pitch = if count > 1 { area.width / (count - 1) as f32 } else { 0.0 };
         let x_of = |point: f32| if count > 1 { area.x + point * pitch } else { area.x + area.width / 2.0 };
@@ -304,12 +319,12 @@ impl LayoutBuilder<'_> {
                 self.frame.commands.push(DrawCommand::Polyline { points: points.into(), color: plot.line, width: 1.0, dashed: true });
             }
             if plot.value_axis {
-                self.axis_text(&written(*tick), plot.muted, area.x - 8.0, line - AXIS_TEXT * 0.7, 1.0, clip);
+                self.axis_text(&tick_text(*tick), plot.muted, area.x - 8.0, line - AXIS_TEXT * 0.7, 1.0, clip);
             }
         }
         let zero = y_of(0.0).round() + 0.5;
         let base = [Point::new(area.x, zero), Point::new(area.x + area.width, zero)];
-        self.frame.commands.push(DrawCommand::Polyline { points: base.into(), color: plot.line, width: 1.0, dashed: false });
+        self.frame.commands.push(DrawCommand::Polyline { points: base.into(), color: plot.line, width: 1.0, dashed: plot.dashed_zero });
 
         // The lines are drawn from the left as the plot appears: a clip that widens.
         let shown = Rect::new(area.x - 6.0, content.y, (area.width + 12.0) * appear, content.height);
@@ -341,12 +356,16 @@ impl LayoutBuilder<'_> {
                         self.plot_dot(*knot, 5.0, series.color);
                     }
                 }
+                if let Some(knot) = plot.mark.and_then(|point| knots.get(point)) {
+                    self.plot_mark(*knot, series.color, plot.ground, 1.0);
+                }
             }
             self.frame.commands.push(DrawCommand::PopClip);
         }
 
         let every = ((names + 12.0) / pitch.max(1.0)).ceil().max(1.0) as usize;
-        for (point, name) in plot.points.iter().enumerate().filter(|(point, _)| point % every == 0) {
+        let named = if plot.point_axis { plot.points.len() } else { 0 };
+        for (point, name) in plot.points.iter().take(named).enumerate().filter(|(point, _)| point % every == 0) {
             self.axis_text(name, plot.muted, x_of(point as f32), area.y + area.height + 5.0, 0.5, clip);
         }
 

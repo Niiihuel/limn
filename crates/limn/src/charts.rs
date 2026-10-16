@@ -712,6 +712,10 @@ pub struct LineChart {
     dots: bool,
     grid: bool,
     value_axis: bool,
+    point_axis: bool,
+    range: Option<(f64, f64)>,
+    dashed_zero: bool,
+    mark: Option<usize>,
 }
 
 impl LineChart {
@@ -736,6 +740,10 @@ impl LineChart {
             dots: false,
             grid: true,
             value_axis: true,
+            point_axis: true,
+            range: None,
+            dashed_zero: false,
+            mark: None,
         }
     }
 
@@ -794,6 +802,38 @@ impl LineChart {
         self.value_axis = axis;
         self
     }
+
+    /// Write or leave out the names of the points under the plot, and the room
+    /// they take. Written by default; the tooltip says them either way.
+    pub fn point_axis(mut self, axis: bool) -> Self {
+        self.point_axis = axis;
+        self
+    }
+
+    /// Fix the value axis from `low` to `high` instead of fitting it to the
+    /// values, with ticks at both ends and at zero between them; a positive
+    /// tick of an axis that runs below zero is written with its sign, as a
+    /// gain is. Values past it are drawn past it. Ignored unless both are
+    /// finite and `low` is below `high`.
+    pub fn range(mut self, low: f64, high: f64) -> Self {
+        if low.is_finite() && high.is_finite() && low < high {
+            self.range = Some((low, high));
+        }
+        self
+    }
+
+    /// Dash the zero line instead of drawing it solid.
+    pub fn dashed_zero(mut self, dashed: bool) -> Self {
+        self.dashed_zero = dashed;
+        self
+    }
+
+    /// Mark this point, counted from 0, on every line with a dot, as the
+    /// pointer marks the one it reads. A point past the last marks nothing.
+    pub fn mark(mut self, point: usize) -> Self {
+        self.mark = Some(point);
+        self
+    }
 }
 
 impl Component for LineChart {
@@ -819,6 +859,10 @@ impl Component for LineChart {
             dots: self.dots,
             grid: self.grid,
             value_axis: self.value_axis,
+            point_axis: self.point_axis,
+            range: self.range,
+            dashed_zero: self.dashed_zero,
+            mark: self.mark,
             text: palette.text,
             muted: palette.muted,
             line: Color { a: (f32::from(palette.border.a) * 0.7) as u8, ..palette.border },
@@ -1248,6 +1292,46 @@ mod tests {
             ComponentPalette::neutral_dark(),
         )
         .width(400.0)
+    }
+
+    #[test]
+    fn a_fixed_range_a_dashed_zero_line_a_mark_and_no_point_names() {
+        let window = Size::new(400.0, 160.0);
+        let chart = || {
+            LineChart::new("gain", ["31", "1K", "16K"], vec![ChartSeries::new("Gain", [3.0, -2.0, 20.0]).color(INK)], ComponentPalette::neutral_dark())
+                .width(400.0)
+                .height(160.0)
+                .grid(false)
+                .range(-12.0, 12.0)
+        };
+        let frame_of = |chart: LineChart| {
+            let mut tree = UiTree::new(chart.render());
+            tree.set_reduced_motion(true);
+            tree.layout_at(window, web_time::Instant::now())
+        };
+        let frame = frame_of(chart());
+        // The ends and zero, a gain's sign on the positive one, whatever the values reach.
+        let ticks: Vec<String> = texts(&frame).into_iter().filter(|text| !["31", "1K", "16K"].contains(&text.as_str())).collect();
+        assert_eq!(ticks, ["-12", "0", "+12"]);
+        assert_eq!(texts(&frame).len(), 6, "the points are named by default");
+        let zero_dashed = |frame: &crate::Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Polyline { points, dashed, width, .. } if *width == 1.0 && points.len() == 2 => Some(*dashed),
+                _ => None,
+            })
+        };
+        assert_eq!(zero_dashed(&frame), Some(false));
+        let marked = |frame: &crate::Frame| frame.commands.iter().filter(|command| matches!(command, DrawCommand::FillRect { color, rect, .. } if *color == INK && rect.width == 8.0)).count();
+        assert_eq!(marked(&frame), 0);
+
+        let frame = frame_of(chart().point_axis(false).dashed_zero(true).mark(1).mark(1));
+        assert_eq!(texts(&frame), ["-12", "0", "+12"]);
+        assert_eq!(zero_dashed(&frame), Some(true));
+        assert_eq!(marked(&frame), 1, "one dot on the one line");
+        // A range that is not one is ignored; a mark past the last point marks nothing.
+        let frame = frame_of(chart().range(5.0, 5.0).mark(9).point_axis(false));
+        assert_eq!(marked(&frame), 0);
+        assert!(texts(&frame).contains(&"+12".to_owned()));
     }
 
     #[test]

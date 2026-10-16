@@ -19,7 +19,8 @@ const MAX_MARKS: usize = 100;
 /// each `SliderChanged`. `committed` is false while the pointer is down and
 /// true on release and for keyboard steps, so a seek bar can wait for the
 /// release while a volume control follows the drag. Without a width the
-/// slider fills the available horizontal space.
+/// slider fills the available horizontal space; a [`Slider::vertical`] one
+/// fills the available height and the width it is given.
 pub struct Slider {
     id: String,
     fraction: f32,
@@ -32,6 +33,8 @@ pub struct Slider {
     marks: bool,
     labels: Vec<String>,
     default_stop: Option<usize>,
+    vertical: bool,
+    origin: f32,
 }
 
 impl Slider {
@@ -49,7 +52,27 @@ impl Slider {
             marks: false,
             labels: Vec::new(),
             default_stop: None,
+            vertical: false,
+            origin: 0.0,
         }
+    }
+
+    /// Stand the slider up: 0 at the bottom and 1 at the top, so dragging up
+    /// raises it and Up and Down step it. It is as tall as `width` says, or
+    /// else as its parent stretches it, as a row does, and the whole width it
+    /// is given takes the pointer, with the track down its middle. It draws
+    /// no marks and no labels: its `mark_labels` only tell the platform its value.
+    pub fn vertical(mut self) -> Self {
+        self.vertical = true;
+        self
+    }
+
+    /// Fill the track from this fraction to the value instead of from the
+    /// start: 0.5 fills from the middle either way, for a value around a
+    /// neutral one such as a gain of 0 dB. Clamped to 0 to 1; NaN is 0.
+    pub fn origin(mut self, origin: f32) -> Self {
+        self.origin = if origin.is_nan() { 0.0 } else { origin.clamp(0.0, 1.0) };
+        self
     }
 
     /// What the slider is called to the platform. It shows no text of its
@@ -59,8 +82,8 @@ impl Slider {
         self
     }
 
-    /// Fix the width, in logical pixels, never below the thumb's 12. A value that is not
-    /// finite is ignored.
+    /// Fix the length of the track, in logical pixels, never below the thumb's 12:
+    /// the width, or the height of a vertical slider. A value that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
             self.width = Some(width.max(THUMB));
@@ -133,47 +156,73 @@ impl Component for Slider {
             (true, Some(color)) => color,
             (true, None) => self.palette.text,
         };
-        let round = TRACK / 2.0;
-        let segment = |share: f32, color: Color, radii: CornerRadii| {
-            Element::panel(Element::spacer())
-                .background(color)
-                .corner_radii(radii)
-                .size(None, Some(TRACK))
-                .flex(share)
-                .centered_y()
+        let vertical = self.vertical;
+        // Sizes along the track and across it, whichever way it lies.
+        let sized = |element: Element, along: Option<f32>, across: Option<f32>| {
+            if vertical {
+                element.size(across, along).centered_x()
+            } else {
+                element.size(along, across).centered_y()
+            }
         };
-        // The thumb sits between the two segments, so its center travels from
-        // half a thumb inside one end to half a thumb inside the other: the
-        // inset the tree is told about below.
-        let mut pieces = Vec::with_capacity(3);
-        if self.fraction > 0.0 {
-            pieces.push(segment(
-                self.fraction,
-                ink,
-                CornerRadii { top_left: round, bottom_left: round, top_right: 0.0, bottom_right: 0.0 },
-            ));
+        // Pieces in order from 0 to 1: left to right, or bottom to top.
+        let line = |mut pieces: Vec<Element>| {
+            if vertical {
+                pieces.reverse();
+                Element::column(pieces)
+            } else {
+                Element::row(pieces)
+            }
+        };
+        let round = TRACK / 2.0;
+        let cap = |start: bool| {
+            let (first, last) = if start { (round, 0.0) } else { (0.0, round) };
+            if vertical {
+                CornerRadii { top_left: last, top_right: last, bottom_left: first, bottom_right: first }
+            } else {
+                CornerRadii { top_left: first, bottom_left: first, top_right: last, bottom_right: last }
+            }
+        };
+        let bar = |color: Color| Element::panel(Element::spacer()).background(color);
+        let (low, high) = (self.origin.min(self.fraction), self.origin.max(self.fraction));
+        let gray = self.palette.selected;
+        // The fill runs from the origin to the value, between stops half a
+        // thumb in from the ends, so it meets the thumb's center; each end cap
+        // takes the color of the part it closes.
+        let mut pieces = vec![sized(
+            bar(if low <= 0.0 && high > 0.0 { ink } else { gray }).corner_radii(cap(true)),
+            Some(THUMB / 2.0),
+            Some(TRACK),
+        )];
+        for (share, color) in [(low, gray), (high - low, ink), (1.0 - high, gray)] {
+            if share > 0.0 {
+                pieces.push(sized(bar(color), None, Some(TRACK)).flex(share));
+            }
         }
+        pieces.push(sized(
+            bar(if high >= 1.0 && low < 1.0 { ink } else { gray }).corner_radii(cap(false)),
+            Some(THUMB / 2.0),
+            Some(TRACK),
+        ));
+        let mut layers = vec![line(pieces)];
         if self.enabled {
-            pieces.push(
-                Element::spacer()
-                    .size(Some(THUMB), Some(THUMB))
-                    .background(ink)
-                    .radius(THUMB / 2.0)
-                    .centered_y(),
-            );
+            let mut thumb = Vec::with_capacity(3);
+            if self.fraction > 0.0 {
+                thumb.push(Element::spacer().flex(self.fraction));
+            }
+            thumb.push(sized(Element::spacer().background(ink).radius(THUMB / 2.0), Some(THUMB), Some(THUMB)));
+            if self.fraction < 1.0 {
+                thumb.push(Element::spacer().flex(1.0 - self.fraction));
+            }
+            layers.push(line(thumb));
         }
-        if self.fraction < 1.0 {
-            pieces.push(segment(
-                1.0 - self.fraction,
-                self.palette.selected,
-                CornerRadii { top_left: 0.0, bottom_left: 0.0, top_right: round, bottom_right: round },
-            ));
-        }
-        let mut track = Element::row(pieces).size(self.width, Some(HEIGHT));
+        // The pointer takes the whole of it: the thumb's height across a
+        // slider, and the width it is given across a vertical one.
+        let (width, height) = if vertical { (None, self.width) } else { (self.width, Some(HEIGHT)) };
         let stops = if self.steps >= 2 { self.steps } else { 0 };
         let mut labels = self.labels;
         labels.truncate(stops);
-        if (2..=MAX_MARKS).contains(&stops) && (self.marks || !labels.is_empty()) {
+        if !vertical && (2..=MAX_MARKS).contains(&stops) && (self.marks || !labels.is_empty()) {
             // Each mark's center is a stop: half a thumb in from the ends,
             // with even shares of the rest between them.
             let edge = || Element::spacer().size(Some((THUMB - MARK) / 2.0), None);
@@ -190,8 +239,11 @@ impl Component for Slider {
                 );
             }
             marks.push(edge());
-            track = Element::stack(vec![Element::row(marks), track]).size(self.width, Some(HEIGHT));
+            layers.insert(0, Element::row(marks));
         }
+        // Centered, so a host that makes the slider taller keeps the track in its middle.
+        let track = Element::stack(layers).size(width, height);
+        let track = if vertical { track } else { track.centered_y() };
         // Drawn disabled it is passive, and known by the ID it would have had.
         let mut access = Access::new(Role::Slider)
             .id(self.id.clone())
@@ -204,13 +256,16 @@ impl Component for Slider {
         if let Some(label) = labels.get((self.fraction * last as f32).round() as usize).filter(|label| !label.is_empty()) {
             access = access.value_text(label.clone());
         }
-        let slider = if self.enabled {
-            Element::clickable(self.id, track).slider(self.fraction, self.steps, THUMB / 2.0)
-        } else {
-            Element::panel(track)
+        let slider = match (self.enabled, vertical) {
+            (true, false) => Element::clickable(self.id, track).slider(self.fraction, self.steps, THUMB / 2.0),
+            (true, true) => Element::clickable(self.id, track).vertical_slider(self.fraction, self.steps, THUMB / 2.0),
+            (false, _) => Element::panel(track),
         }
-        .size(self.width, Some(HEIGHT))
+        .size(width, height)
         .accessible(access);
+        if vertical {
+            labels.clear();
+        }
         // Each label is a layer of its own, so a long one may reach over its
         // neighbours without moving them.
         let layers: Vec<Element> = labels
@@ -596,5 +651,117 @@ mod tests {
         let frame = tree(Slider::new("s", 0.5, palette).width(2.0)).layout(Size::new(400.0, HEIGHT));
         let region = frame.regions.iter().find(|region| region.id == "s").expect("a region");
         assert!((region.rect.width - THUMB).abs() < 0.01);
+    }
+
+    /// A vertical slider 212 tall in a column 36 wide, at the window's top left.
+    fn standing(slider: Slider) -> UiTree {
+        let column = Element::column(vec![slider.vertical().width(WIDTH).render()]).size(Some(36.0), None);
+        let mut tree = UiTree::new(Element::row(vec![column, Element::spacer().flex(1.0)]));
+        tree.layout(Size::new(400.0, 300.0));
+        tree
+    }
+
+    /// Every rectangle painted in this color, as (start, end) along the axis.
+    fn painted(frame: &crate::Frame, color: Color, vertical: bool) -> Vec<(f32, f32)> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillCornerRect { rect, color: fill, .. } | DrawCommand::FillRect { rect, color: fill, .. }
+                    if *fill == color =>
+                {
+                    Some(if vertical { (rect.y, rect.y + rect.height) } else { (rect.x, rect.x + rect.width) })
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_vertical_slider_rises_from_the_bottom_and_its_whole_width_takes_the_pointer() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = standing(Slider::new("s", 0.0, palette));
+        let frame = tree.layout(Size::new(400.0, 300.0));
+        let [region] = frame.regions.as_slice() else { panic!("one region, got {:?}", frame.regions) };
+        assert_eq!((region.rect.width, region.rect.height), (36.0, WIDTH));
+        // From the bottom: half a thumb up is 0, half a thumb down from the top is 1.
+        let at = |share: f32, x: f32| Point::new(x, WIDTH - THUMB / 2.0 - share * TRAVEL);
+        let (fraction, committed) = changed(&tree.handle_event(UiEvent::PointerDown(at(0.25, 2.0))));
+        assert!((fraction - 0.25).abs() < 0.01 && !committed, "near the column's edge too: {fraction}");
+        let (fraction, _) = changed(&tree.handle_event(UiEvent::PointerMove(at(0.75, 30.0))));
+        assert!((fraction - 0.75).abs() < 0.01, "dragging up raises it: {fraction}");
+        let (fraction, committed) = changed(&tree.handle_event(UiEvent::PointerUp(Point::new(18.0, -50.0))));
+        assert!((fraction - 1.0).abs() < 0.001 && committed);
+
+        // The thumb stands at its value, down the middle of the column.
+        let thumb = |fraction: f32| {
+            let frame = standing(Slider::new("s", fraction, palette)).layout(Size::new(400.0, 300.0));
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::FillCornerRect { rect, .. } | DrawCommand::FillRect { rect, .. }
+                        if rect.width == THUMB && rect.height == THUMB =>
+                    {
+                        Some(Point::new(rect.x + THUMB / 2.0, rect.y + THUMB / 2.0))
+                    }
+                    _ => None,
+                })
+                .expect("a thumb")
+        };
+        for fraction in [0.0, 0.3, 1.0] {
+            let center = thumb(fraction);
+            assert!((center.x - 18.0).abs() < 0.01 && (center.y - at(fraction, 0.0).y).abs() < 0.6, "{fraction}: {center:?}");
+        }
+    }
+
+    #[test]
+    fn up_and_down_step_a_vertical_slider() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = standing(Slider::new("s", 0.5, palette).steps(5));
+        assert!(tree.focus("s"));
+        let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+        assert_eq!(changed(&tree.handle_event(key(Key::ArrowUp))), (0.75, true));
+        assert_eq!(changed(&tree.handle_event(key(Key::ArrowDown))).0, 0.25);
+        assert_eq!(changed(&tree.handle_event(key(Key::ArrowRight))).0, 0.75);
+        let frame = tree.layout(Size::new(400.0, 300.0));
+        let node = frame.access.iter().find(|node| node.id == "s").expect("a node");
+        assert_eq!((node.role, node.value), (Role::Slider, Some(0.5)));
+        // Its labels say its value, and none is drawn.
+        let named = standing(Slider::new("s", 0.75, palette).steps(5).mark_labels(SIZES)).layout(Size::new(400.0, 300.0));
+        assert_eq!(named.access.iter().find(|node| node.id == "s").and_then(|node| node.value_text.as_deref()), Some("20px"));
+        assert!(labels(&named).is_empty());
+    }
+
+    #[test]
+    fn an_origin_fills_from_it_to_the_value_either_way() {
+        let palette = ComponentPalette::neutral_dark();
+        let ink = Color::rgb(250, 250, 250);
+        let middle = THUMB / 2.0 + 0.5 * TRAVEL;
+        let filled = |fraction: f32, vertical: bool| {
+            let slider = Slider::new("s", fraction, palette).ink(ink).origin(0.5);
+            let frame = if vertical {
+                standing(slider).layout(Size::new(400.0, 300.0))
+            } else {
+                tree(slider.width(WIDTH)).layout(Size::new(400.0, HEIGHT))
+            };
+            // The thumb is the ink too: leave it out.
+            let mut bars: Vec<(f32, f32)> =
+                painted(&frame, ink, vertical).into_iter().filter(|(start, end)| end - start != THUMB).collect();
+            bars.sort_by(|a, b| a.0.total_cmp(&b.0));
+            assert_eq!(bars.len(), 1, "one fill at {fraction}: {bars:?}");
+            bars[0]
+        };
+        let along = |fraction: f32| THUMB / 2.0 + fraction * TRAVEL;
+        let close = |(start, end): (f32, f32), (from, to): (f32, f32)| (start - from).abs() < 0.6 && (end - to).abs() < 0.6;
+        assert!(close(filled(0.75, false), (middle, along(0.75))), "{:?}", filled(0.75, false));
+        assert!(close(filled(0.25, false), (along(0.25), middle)), "{:?}", filled(0.25, false));
+        // Standing up, 0.75 is above the middle: nearer the top.
+        let flip = |fraction: f32| WIDTH - along(fraction);
+        assert!(close(filled(0.75, true), (flip(0.75), flip(0.5))), "{:?}", filled(0.75, true));
+        assert!(close(filled(0.25, true), (flip(0.5), flip(0.25))), "{:?}", filled(0.25, true));
+        // At the origin nothing is filled.
+        let frame = tree(Slider::new("s", 0.5, palette).ink(ink).origin(0.5).width(WIDTH)).layout(Size::new(400.0, HEIGHT));
+        assert!(painted(&frame, ink, false).iter().all(|(start, end)| end - start == THUMB));
     }
 }

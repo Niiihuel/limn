@@ -782,6 +782,8 @@ pub(crate) struct SliderTravel {
     pub(crate) inset: f32,
     /// The share of the height from the top, for a slider over an area.
     pub(crate) y: Option<f32>,
+    /// Measured up the height from the bottom instead of along the width.
+    pub(crate) vertical: bool,
 }
 
 /// A transient visual description. Interaction state belongs to [`crate::UiTree`].
@@ -1072,6 +1074,15 @@ pub struct LinePlot {
     pub grid: bool,
     /// True to write the ticks of the value axis.
     pub value_axis: bool,
+    /// True to write the names of the points under the plot.
+    pub point_axis: bool,
+    /// A fixed value axis from the first to the second, with ticks at its ends
+    /// and at zero, instead of one fitted to the values.
+    pub range: Option<(f64, f64)>,
+    /// True to dash the zero line.
+    pub dashed_zero: bool,
+    /// A point marked on every line with a dot, as the pointer marks one.
+    pub mark: Option<usize>,
     /// Ink of the pointer's line.
     pub text: Color,
     /// Ink of the ticks and of the points' names.
@@ -2111,7 +2122,20 @@ impl Element {
             steps,
             inset: if inset.is_finite() { inset.max(0.0) } else { 0.0 },
             y: None,
+            vertical: false,
         }));
+        self
+    }
+
+    /// Turn a clickable into a slider that stands up: the same as
+    /// [`Element::slider`], but the share is of its height measured from the
+    /// bottom, so dragging up raises it, and Up and Down step it as well as
+    /// Right and Left.
+    pub fn vertical_slider(mut self, fraction: f32, steps: usize, inset: f32) -> Self {
+        self = self.slider(fraction, steps, inset);
+        if let Some(travel) = self.slider.as_mut() {
+            travel.vertical = true;
+        }
         self
     }
 
@@ -2140,6 +2164,7 @@ impl Element {
                 0.0
             },
             y: Some(share(y)),
+            vertical: false,
         }));
         self
     }
