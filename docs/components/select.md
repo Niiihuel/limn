@@ -7,7 +7,7 @@ it to choose one of a few options where a
 ## Import
 
 ```rust
-use limn::{Component, ControlSize, DropdownOption, Icon, PopoverPlacement, Select, SelectVariant, SelectorSizing};
+use limn::{Component, ControlSize, DropdownOption, Icon, PopoverPlacement, SearchField, Select, SelectVariant, SelectorSizing};
 ```
 
 ## Usage
@@ -126,6 +126,41 @@ The list opens under the trigger's far edge, `BottomEnd`, by default.
 
 `icon` puts an icon before the label. `menu_palette` paints the list with
 another palette than the trigger's.
+
+## A searchable list
+
+`header` adds an optional element above the options viewport, using the
+[DropdownMenu](dropdown-menu.md) header slot. The header is only visible while
+the list is open and shares its focus scope; it does not scroll with the options.
+It leaves the trigger and select dimensions unchanged. Size header controls to
+fit inside the menu's 4-pixel inset on each side.
+
+```rust
+let options = shells.iter()
+    .filter(|shell| shell.label.to_lowercase().contains(&query.to_lowercase()))
+    .map(|shell| DropdownOption::new(&shell.action_id, &shell.label))
+    .collect();
+
+Select::new("shell", current_label, options, open, "shell:dismiss", palette)
+    .variant(SelectVariant::Field)
+    .width(240.0)
+    .menu_width(280.0)
+    .header(
+        SearchField::new("shell:query", query, "Search shells", palette)
+            .size(ControlSize::Compact)
+            .width(264.0)
+            .render(),
+    )
+    .render()
+    .popover_initial_focus("shell:query")
+    .popover_return_focus("shell")
+```
+
+The host handles `UiAction::InputChanged` from the search field and rebuilds
+the options with its filtered data. `Select` never stores or filters that data.
+Escape from the header reports the same dismiss action as from an option;
+when the host closes the list, `popover_return_focus` restores focus to the trigger.
+Omitting `header` retains the existing select markup and behavior.
 
 ## Disabled
 

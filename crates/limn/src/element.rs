@@ -1678,6 +1678,9 @@ pub struct Style {
     pub flex: f32,
     /// In a row, give up width the row cannot spare instead of overflowing.
     pub shrink: bool,
+    /// In a column, give up height the column cannot spare. Off by default;
+    /// set by [`Element::shrink_height_to_fit`].
+    pub shrink_height: bool,
     /// Fill of the element's bounds. `None` paints none.
     pub background: Option<Color>,
     /// Paint-only scrim above children, opaque at the top and transparent at
@@ -1686,6 +1689,9 @@ pub struct Style {
     /// Paint-only scrim above children, transparent at its top edge and
     /// tinted at the bottom. Scroll areas show it only above hidden content.
     pub bottom_fade: Option<(Color, f32)>,
+    /// Paint-only distances from the top and bottom edges to the corresponding
+    /// fade bands. Opaque floating bars can occupy this space; defaults to zero.
+    pub fade_insets: (f32, f32),
     /// Passive bottom background behind children, for dedicated footer space.
     pub bottom_background_fade: Option<(Color, f32)>,
     /// Passive top background behind children: the color at the top edge,
@@ -1765,9 +1771,11 @@ impl Default for Style {
             gap: 0.0,
             flex: 0.0,
             shrink: false,
+            shrink_height: false,
             background: None,
             top_fade: None,
             bottom_fade: None,
+            fade_insets: (0.0, 0.0),
             bottom_background_fade: None,
             top_background_fade: None,
             horizontal_edge_fade: None,
@@ -1853,8 +1861,9 @@ impl Element {
 
     /// Name this element as a place to scroll to, without making it a
     /// control: `UiTree::reveal(id)` brings it into view and
-    /// `UiTree::anchor_offset(id)` says where it is. It has to be laid out
-    /// by a column of a scroll area, as a message of a conversation is.
+    /// `UiTree::anchor_offset(id)` says where it is inside its scroll area.
+    /// Static branches retain anchor geometry when clipped outside the viewport;
+    /// a virtual row must have been built before its anchors can be located.
     pub fn anchor(mut self, id: impl Into<String>) -> Self {
         self.anchor = Some(id.into());
         self
@@ -3172,6 +3181,16 @@ impl Element {
         self
     }
 
+    /// Inset the top and bottom fade bands from the viewport edges, for content
+    /// beneath opaque floating bars. Fade heights remain the visible transition
+    /// outside the bars. This changes paint only; the host still reserves content
+    /// space for its bars. Negative or non-finite insets become zero.
+    pub fn fade_insets(mut self, top: f32, bottom: f32) -> Self {
+        let inset = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        self.style.fade_insets = (inset(top), inset(bottom));
+        self
+    }
+
     /// Add a quiet bottom background behind children. Use dedicated footer
     /// space so the tint never covers the last line or the collapse control.
     pub fn bottom_background_fade(mut self, color: Color, height: f32) -> Self {
@@ -3308,6 +3327,8 @@ impl Element {
 
     /// Center the text, or a button's content, across the element's width
     /// instead of starting it at the edge.
+    /// Single-line inputs center values that fit, with matching caret,
+    /// selection and pointer geometry; overflowing values scroll normally.
     pub fn center_content(mut self) -> Self {
         self.style.center_content = true;
         self
@@ -3450,6 +3471,19 @@ impl Element {
     /// is left once it does not. Flex siblings keep their minimum widths.
     pub fn shrink_to_fit(mut self) -> Self {
         self.style.shrink = true;
+        self
+    }
+
+    /// Keep the natural height while the column has room, and give up height
+    /// before pushing fixed siblings out. Only a direct, non-flex child of a
+    /// column uses this flag; rows and unbounded columns leave it alone.
+    /// Multiple children give up height in order, down to their minimums first
+    /// and then below them if necessary. Flexible siblings keep their minimum
+    /// heights. Put overflowing content in a scroll area or clip it explicitly.
+    /// A child with unbounded natural height starts at the column's finite
+    /// height before yielding room to its siblings.
+    pub fn shrink_height_to_fit(mut self) -> Self {
+        self.style.shrink_height = true;
         self
     }
 
