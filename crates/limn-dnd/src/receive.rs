@@ -4,6 +4,7 @@ use std::{fmt, path::PathBuf};
 
 use crate::ReceiveError;
 
+mod clipboard_control;
 mod control;
 mod coordinator;
 mod data_owner;
@@ -12,12 +13,14 @@ mod file_drop_receiver;
 #[cfg(target_os = "linux")]
 mod pipe;
 #[cfg(target_os = "linux")]
+mod read_tag;
+#[cfg(target_os = "linux")]
 mod runtime;
 #[cfg(target_os = "linux")]
 mod wayland;
 pub(crate) mod worker_pool;
 
-pub use data_owner::{EndpointStatus, FileDropEndpoint, WaylandDataOwner};
+pub use data_owner::{EndpointStatus, FileDropEndpoint, TextPasteRequest, WaylandDataOwner};
 pub use file_drop_receiver::FileDropReceiver;
 
 #[cfg(test)]

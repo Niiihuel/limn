@@ -4,7 +4,7 @@ use std::{
     os::fd::OwnedFd,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc,
+        Arc, Weak,
     },
     time::Instant,
 };
@@ -13,15 +13,17 @@ use sctk::reexports::client::{
     backend::{ObjectId, WaylandError},
     protocol::{
         wl_callback, wl_data_device, wl_data_device_manager, wl_data_offer, wl_display,
-        wl_registry, wl_seat, wl_surface::WlSurface,
+        wl_keyboard, wl_registry, wl_seat, wl_surface::WlSurface,
     },
     Connection, Dispatch, EventQueue, Proxy, QueueHandle,
 };
 
 use super::{
-    control::ReceiveControl,
+    clipboard_control::{next_clipboard_stamp, ClipboardStamp, ClipboardWorker},
+    control::{IncomingLease, ReceiveControl},
     coordinator::Coordinator,
     pipe::ReceivePipe,
+    read_tag::ReadTag,
     worker_pool::{OwnerId, SurfaceId, SurfaceKey, Wake, WorkerPool},
     OfferId, ReceiveEpoch,
 };
@@ -33,7 +35,11 @@ mod offers;
 #[path = "wayland_endpoints.rs"]
 mod endpoints;
 
-use endpoints::{DropLease, Endpoint};
+#[path = "wayland_clipboard.rs"]
+mod clipboard;
+
+use clipboard::{ClipboardFenceTag, SeatClipboard};
+use endpoints::Endpoint;
 
 static NEXT_OFFER_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -55,12 +61,14 @@ pub(super) enum SyncPhase {
     Discovery,
     OwnerReady,
     Arm(ReceiveEpoch),
+    Clipboard(ClipboardFenceTag),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct SyncTag {
     phase: SyncPhase,
     registration: Option<SurfaceId>,
+    clipboard_deadline: Option<Instant>,
 }
 
 pub(super) struct GuestStartup {
@@ -74,11 +82,22 @@ struct Seat {
     proxy: Option<wl_seat::WlSeat>,
     device: Option<wl_data_device::WlDataDevice>,
     hover: Option<ObjectId>,
+    clipboard: Option<SeatClipboard>,
 }
 
 struct State {
     endpoints: Vec<Endpoint>,
     next_arm: usize,
+    next_clipboard: usize,
+    prefer_clipboard: bool,
+    clipboard: Option<ClipboardWorker>,
+    #[cfg(test)]
+    clipboard_observed: Option<super::runtime::testing::Observations>,
+    #[cfg(test)]
+    before_clipboard_seal: Option<(
+        std::sync::mpsc::SyncSender<Instant>,
+        std::sync::mpsc::Receiver<()>,
+    )>,
     owner: Option<OwnerId>,
     lifecycle_wake: Option<Wake>,
     pool: Arc<WorkerPool>,
@@ -95,8 +114,9 @@ struct State {
     first_ready: bool,
     failure: Option<ReceiveError>,
     offers: Vec<offers::Offer>,
-    lease: Option<DropLease>,
-    pipe: Option<(OfferId, ReceivePipe)>,
+    // Weak witness survives pipe.take(): a runtime watcher may still own its FD.
+    drop_reader: Option<(OfferId, Weak<OwnedFd>)>,
+    pipe: Option<(ReadTag, ReceivePipe)>,
     limits: ReceiveLimits,
     now: Instant,
 }
@@ -131,8 +151,10 @@ impl GuestStartup {
         limits: ReceiveLimits,
         now: Instant,
         wake: Wake,
+        clipboard: Option<ClipboardWorker>,
     ) -> Self {
         let mut guest = Self::dormant_state(pool, control, limits, now);
+        guest.state.clipboard = clipboard;
         guest.state.owner = Some(owner);
         guest.state.lifecycle_wake = Some(wake);
         guest
@@ -153,6 +175,13 @@ impl GuestStartup {
             state: State {
                 endpoints: Vec::with_capacity(4),
                 next_arm: 0,
+                next_clipboard: 0,
+                prefer_clipboard: false,
+                clipboard: None,
+                #[cfg(test)]
+                clipboard_observed: None,
+                #[cfg(test)]
+                before_clipboard_seal: None,
                 owner: None,
                 lifecycle_wake: None,
                 pool,
@@ -169,7 +198,7 @@ impl GuestStartup {
                 first_ready: false,
                 failure: None,
                 offers: Vec::with_capacity(8),
-                lease: None,
+                drop_reader: None,
                 pipe: None,
                 limits,
                 now,
@@ -262,7 +291,7 @@ impl GuestStartup {
     pub(super) fn pump_readable(
         &mut self,
         now: Instant,
-        readable: Option<OfferId>,
+        readable: Option<ReadTag>,
     ) -> Result<(), ReceiveError> {
         let now = now.max(Instant::now());
         self.state.now = now;
@@ -275,6 +304,8 @@ impl GuestStartup {
             return Err(error);
         }
         // The host alone reads the foreign display. This only drains its guest queue.
+        #[cfg(test)]
+        self.state.observe_dispatch();
         if queue.dispatch_pending(&mut self.state).is_err() {
             self.state.fail(ReceiveError::Io);
             return Err(ReceiveError::Io);
@@ -287,6 +318,7 @@ impl GuestStartup {
             return Err(error);
         }
         self.state.consume_decision();
+        self.state.start_text_receive();
         if self
             .state
             .pipe
@@ -306,7 +338,7 @@ impl GuestStartup {
         self.state.check(self.state.now.max(Instant::now()))
     }
 
-    pub(super) fn pipe_fd(&self) -> Option<(OfferId, Arc<OwnedFd>)> {
+    pub(super) fn pipe_fd(&self) -> Option<(ReadTag, Arc<OwnedFd>)> {
         self.state
             .pipe
             .as_ref()
@@ -330,7 +362,32 @@ impl GuestStartup {
                             .chain(endpoint.coordinator.next_deadline())
                     }),
             )
+            .chain(
+                self.state
+                    .clipboard
+                    .as_ref()
+                    .and_then(ClipboardWorker::next_deadline),
+            )
+            .chain(
+                self.state
+                    .pending
+                    .as_ref()
+                    .and_then(|(_, tag)| tag.clipboard_deadline),
+            )
             .min()
+    }
+
+    #[cfg(test)]
+    pub(super) fn install_clipboard_test_hooks(
+        &mut self,
+        observed: super::runtime::testing::Observations,
+        before_clipboard_seal: Option<(
+            std::sync::mpsc::SyncSender<Instant>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+    ) {
+        self.state.clipboard_observed = Some(observed);
+        self.state.before_clipboard_seal = before_clipboard_seal;
     }
 
     pub(super) fn take_wake(&mut self) -> Wake {
@@ -357,6 +414,8 @@ impl GuestStartup {
         // Drain already queued callbacks while all admissions are disarmed.
         // Only this worker dispatches this guest queue; the host only reads it.
         if let Some(queue) = self.queue.as_mut() {
+            #[cfg(test)]
+            self.state.observe_dispatch();
             queue
                 .dispatch_pending(&mut self.state)
                 .map_err(|_| ReceiveError::Io)?;
@@ -364,6 +423,15 @@ impl GuestStartup {
         self.state.cleanup_offers();
         drop(self.state.pipe.take());
         for seat in &mut self.state.seats {
+            if let Some(text) = seat.clipboard.as_mut() {
+                if let Some(keyboard) = text.keyboard.take() {
+                    if keyboard.is_alive() {
+                        keyboard
+                            .send_request(wl_keyboard::Request::Release {})
+                            .map_err(|_| ReceiveError::Io)?;
+                    }
+                }
+            }
             if let Some(device) = seat.device.as_ref() {
                 if device.is_alive() {
                     device
@@ -444,6 +512,10 @@ impl State {
             self.request_close(None);
         }
         self.reconcile_endpoints(now)?;
+        if !self.control.header().is_closing() {
+            self.refresh_clipboard_contexts()?;
+        }
+        self.reconcile_clipboard(now);
         self.cleanup_offers();
         let closing = {
             let header = self.control.header();
@@ -457,6 +529,15 @@ impl State {
             self.failure = Some(error);
             self.notify();
             return Err(error);
+        }
+        if self
+            .pending
+            .as_ref()
+            .and_then(|(_, tag)| tag.clipboard_deadline)
+            .is_some_and(|deadline| now.max(Instant::now()) >= deadline)
+        {
+            self.fail(ReceiveError::Timeout);
+            return Err(ReceiveError::Timeout);
         }
         if !self.first_ready && now >= self.startup_deadline {
             self.fail(ReceiveError::Timeout);
@@ -518,6 +599,7 @@ impl State {
                 SyncTag {
                     phase: SyncPhase::Discovery,
                     registration: None,
+                    clipboard_deadline: None,
                 },
             );
         }
@@ -541,6 +623,7 @@ impl State {
                         SyncTag {
                             phase,
                             registration: None,
+                            clipboard_deadline: None,
                         },
                     );
                 }
@@ -562,6 +645,7 @@ impl State {
                     self.first_ready = true;
                     self.notify();
                 }
+                SyncPhase::Clipboard(_) => return Err(ReceiveError::InvalidPhase),
                 SyncPhase::Arm(epoch) => {
                     // A detached registration leaves this one physical callback
                     // as a tombstone. It cannot arm a replacement of the surface.
@@ -598,35 +682,7 @@ impl State {
             }
         }
         if self.pending.is_none() && (self.owner.is_none() || self.first_ready) {
-            let mut next = None;
-            let count = self.endpoints.len();
-            for offset in 0..count {
-                let index = (self.next_arm + offset) % count;
-                let endpoint = &mut self.endpoints[index];
-                if endpoint.retiring {
-                    continue;
-                }
-                match endpoint.coordinator.next_sync(now) {
-                    Ok(Some(request)) => {
-                        next = Some(SyncTag {
-                            phase: SyncPhase::Arm(request.epoch),
-                            registration: endpoint.registration,
-                        });
-                        self.next_arm = (index + 1) % count;
-                        break;
-                    }
-                    Ok(None) => {}
-                    Err(error) if self.owner.is_some() => {
-                        endpoint
-                            .control
-                            .header()
-                            .request_close((error != ReceiveError::Closed).then_some(error));
-                        endpoint.retiring = true;
-                    }
-                    Err(error) => return Err(error),
-                }
-            }
-            if let Some(tag) = next {
+            if let Some(tag) = self.next_sync_tag(now)? {
                 self.send_sync(connection, handle, tag)?;
             }
         }
@@ -637,10 +693,18 @@ impl State {
         &mut self,
         connection: &Connection,
         handle: &QueueHandle<Self>,
-        tag: SyncTag,
+        mut tag: SyncTag,
     ) -> Result<(), ReceiveError> {
         if self.pending.is_some() {
             return Err(ReceiveError::Busy);
+        }
+        if matches!(tag.phase, SyncPhase::Clipboard(_)) {
+            tag.clipboard_deadline = Some(
+                self.now
+                    .max(Instant::now())
+                    .checked_add(self.limits.startup_timeout)
+                    .ok_or(ReceiveError::InvalidLimits)?,
+            );
         }
         let callback = connection
             .display()
@@ -710,7 +774,30 @@ impl State {
             return;
         }
         if let Some(index) = self.seats.iter().position(|seat| seat.name == name) {
-            let seat = self.seats.remove(index);
+            let mut seat = self.seats.remove(index);
+            // Preserve the next surviving seat when vector indices shift.
+            if index < self.next_clipboard {
+                self.next_clipboard -= 1;
+            }
+            self.next_clipboard = if self.seats.is_empty() {
+                0
+            } else {
+                self.next_clipboard % self.seats.len()
+            };
+            if let Some(text) = seat.clipboard.as_mut() {
+                if let Some(worker) = self.clipboard.as_mut() {
+                    let _ = worker.observe_seat(text.seat, None);
+                }
+                if let Some(keyboard) = text.keyboard.take() {
+                    if keyboard.is_alive()
+                        && keyboard
+                            .send_request(wl_keyboard::Request::Release {})
+                            .is_err()
+                    {
+                        self.fail(ReceiveError::Io);
+                    }
+                }
+            }
             if self.discovery_complete && self.seats.is_empty() {
                 self.fail(ReceiveError::Unavailable);
             }
@@ -757,11 +844,23 @@ impl Dispatch<wl_registry::WlRegistry, ()> for State {
                         state.fail(ReceiveError::ResourceLimit);
                         return;
                     }
+                    let clipboard = if state.clipboard.is_some() {
+                        match SeatClipboard::new() {
+                            Ok(text) => Some(text),
+                            Err(error) => {
+                                state.fail(error);
+                                return;
+                            }
+                        }
+                    } else {
+                        None
+                    };
                     state.seats.push(Seat {
                         name,
                         proxy: None,
                         device: None,
                         hover: None,
+                        clipboard,
                     });
                 }
                 if state.discovery_complete {
@@ -791,7 +890,28 @@ impl Dispatch<wl_callback::WlCallback, SyncTag> for State {
             .is_some_and(|(pending, expected)| pending.id() == callback.id() && expected == tag)
         {
             state.pending = None;
-            state.completed = Some(*tag);
+            if let SyncPhase::Clipboard(clipboard) = tag.phase {
+                #[cfg(test)]
+                if clipboard.kind == clipboard::ClipboardFenceKind::Quarantine {
+                    if let Some(observed) = state.clipboard_observed.as_ref() {
+                        observed.clipboard_quarantine_dispatch.store(
+                            observed.guest_dispatches.load(Ordering::SeqCst),
+                            Ordering::SeqCst,
+                        );
+                    }
+                }
+                let outcome = tag
+                    .clipboard_deadline
+                    .ok_or(ReceiveError::InvalidPhase)
+                    .and_then(|deadline| {
+                        state.complete_clipboard_fence(clipboard, deadline, Instant::now())
+                    });
+                if let Err(error) = outcome {
+                    state.fail(error);
+                }
+            } else {
+                state.completed = Some(*tag);
+            }
         }
     }
 }
@@ -801,18 +921,6 @@ impl Dispatch<wl_data_device_manager::WlDataDeviceManager, ()> for State {
         _: &mut Self,
         _: &wl_data_device_manager::WlDataDeviceManager,
         _: wl_data_device_manager::Event,
-        _: &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-    }
-}
-
-impl Dispatch<wl_seat::WlSeat, ()> for State {
-    fn event(
-        _: &mut Self,
-        _: &wl_seat::WlSeat,
-        _: wl_seat::Event,
         _: &(),
         _: &Connection,
         _: &QueueHandle<Self>,

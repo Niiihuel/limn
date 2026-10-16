@@ -11,8 +11,10 @@ See the validation scope below.
 
 For several surfaces on one connection, use the explicit
 [`WaylandDataOwner`](#shared-owner-and-surface-endpoints) and register one
-`FileDropEndpoint` per surface. This API is DnD-only; it does not yet provide
-the clipboard backend needed to replace a stock SDK's data-device owner.
+`FileDropEndpoint` per surface. Default attachment is DnD-only; an explicit
+[text opt-in](#opt-in-selection-text) adds incoming Selection text on the same
+owner. Neither mode provides the complete clipboard backend needed to replace
+a stock SDK's data-device owner.
 
 ## Attach and control
 
@@ -112,13 +114,111 @@ eframe initializes its own clipboard, so attaching this owner behind that
 default is outside the contract. Do not force binding order, disable text
 clipboard, or substitute a no-op clipboard backend to make an example work.
 
-This slice still destroys Selection offers without receiving or finishing
-them and does not bind Primary. A functional shared clipboard integration is
-required before an SDK host demo can use this owner. The gallery's
+Default `attach_owned` still discards Selection offers. The text opt-in below
+retains them, including before surface registration, but does not bind Primary
+or publish copied data. A functional shared clipboard backend and SDK hook are
+still required before an SDK host demo can use this owner. The gallery's
 [lifecycle illustration](gallery.md#shared-owner-lifecycle-illustration) is
-synthetic and performs no native attachment. Private protocol/runtime tests
-exercise the owner; the native receiver results below are not owner/clipboard
-interoperability results.
+synthetic; its owner and text-flow sections perform no native attachment or OS
+clipboard access. Private protocol/runtime tests exercise the owner; the
+native receiver results below are not owner/clipboard interoperability results.
+
+## Opt-in Selection text
+
+`WaylandDataOwner::attach_owned_with_text_clipboard` enables bounded, incoming
+text on the existing worker, guest queue and data device per seat. It observes
+keyboard focus without handling keys or keymaps. Register surfaces with
+`register_surface_owned` as above; `reserve_text_paste` then returns an opaque
+`TextPasteRequest` for one destination.
+
+```rust,ignore
+// WaylandDataOwner methods:
+pub unsafe fn attach_owned_with_text_clipboard<W>(
+    display_owner: Arc<W>,
+    receive: ReceiveLimits,
+    text: TextClipboardLimits,
+    wake: impl Fn() + Send + 'static,
+) -> Result<Option<WaylandDataOwner>, ClipboardError>
+where W: HasDisplayHandle + Send + Sync + 'static;
+
+pub fn reserve_text_paste(
+    &self,
+    endpoint: &FileDropEndpoint,
+) -> Result<TextPasteRequest, ClipboardError>;
+
+// TextPasteRequest methods:
+pub fn acknowledge(&self) -> Result<(), ClipboardError>;
+pub fn poll(&self) -> Option<Result<String, ClipboardError>>;
+pub fn cancel(&self);
+```
+
+Both limits are validated before querying handles or admitting resources.
+Non-Wayland attachment returns `Ok(None)`; invalid handles return
+`ClipboardError::Unavailable`. `wake` requires `Send`, not `Sync`, and runs
+outside control guards. The default DnD-only owner returns `Unavailable` from
+`reserve_text_paste`.
+
+Reservation requires one seat with fresh, sealed keyboard focus on that exact
+registered endpoint and a current supported Selection. `NoSelection` means
+that seat has no Selection; `AmbiguousSeat` means multiple seats focus the
+endpoint. Unsupported MIME or unavailable focus returns `Unavailable`.
+The MIME choice is frozen at reservation: prefer `text/plain;charset=utf-8`,
+then `text/plain`. Both require strict UTF-8.
+
+1. **Reserve:** acquire the shared incoming reservation without creating a pipe,
+   issuing Receive or reading bytes. Capture the application's paste destination.
+2. **ACK:** call `acknowledge()` once to queue the read. A duplicate returns
+   `InvalidPhase`. The worker can still reject a request whose context changed.
+3. **Read:** the worker receives into bounded RAM and requires EOF and complete
+   UTF-8 validation. A valid prefix never produces a partial result.
+4. **Publish:** after removing the actual runtime reader watcher, the worker
+   revalidates the context and original read deadline before publishing text.
+5. **Poll:** transfer one `String` or one error. `None` means pending or already
+   consumed. The completion TTL starts at publication and expires even without
+   UI polling. Consuming a successful result releases the exact incoming
+   reservation; a cancelled or expired request retains it until worker cleanup
+   finishes.
+
+The result is **RAW text**, kept in RAM: no trimming, newline normalization or
+lossy decoding. CRLF is preserved and an empty `String` is a successful,
+single-use result. The caller owns a returned String and its eventual disposal.
+An invalid poll returns error metadata; admitted internal bodies are discarded
+on the worker, outside control guards. Request Debug and `ClipboardError`
+omit contents and native handles. Requests cannot be cloned.
+
+`TextClipboardLimits` defaults to 65,536 bytes, a 2 s acknowledgement timeout,
+a 5 s read timeout from ACK (including worker scheduling and watcher removal),
+and a 2 s completion TTL. The byte limit accepts 1 through 1,048,576 bytes;
+each duration must be positive and at most 60 s. Partial reads never renew a
+deadline. Oversized or invalid input reports `TooLarge` or `InvalidText`.
+`Cancelled`, `Timeout`, `StaleRequest` and `Closed` distinguish lifecycle
+failures; an error is delivered at most once by `poll`.
+
+Text and native Copy drops share **one Incoming reservation**, from text Reserve
+through consumption or cleanup. A Copy hover, read, pending decision or
+undrained terminal can return `Busy` to text; a text reservation prevents a drop
+from taking its slot. Focus loss, Selection replacement/NULL, context
+invalidation, detach or close cuts the affected text request. `cancel()` and
+request Drop cut delivery without waiting; the worker removes the watcher and
+retires its reader/body before making that slot reusable. Old requests cannot
+release a replacement's reservation.
+
+Keep each native surface valid until its endpoint is Detached. Keep the exact
+display and coordinated host reader alive and progressing until owner Closed
+after cleanup and actual off-UI join. A request result, cancellation or Drop
+does not discharge these obligations. Request methods perform no synchronous
+SDK clipboard I/O and do not wait for worker teardown.
+
+Alongside private-server coverage, a public-API native smoke passed on private
+headless Weston 15.0.1/Pixman with a fake seat and real configure/keyboard focus:
+Source Send 1 completed before attach, with Send 2 observed only after ACK.
+It returned 29 bytes of RAW UTF-8 with CRLF and a valid empty result (0 bytes),
+once each, then reached Detached/Closed with the coordinated host reader alive.
+This covers only that compositor/configuration; SDK/UI, RUNE and Hyprland
+integration remain unverified, and a complete clipboard backend remains pending.
+Primary, copy/set Selection, images, URI clipboard formats and stock-SDK backend
+wiring remain pending; existing URI-list file drops are separate. The standalone
+receiver demo remains DnD-only.
 
 ## The unsafe lifetime obligation
 
@@ -176,10 +276,15 @@ with the current target, and reject events from an older epoch, including
 a batch already returned by `poll`.
 
 The worker performs at most one guest-queue sync at a time, keeps the latest
-requested epoch, and requires a new Enter after its current barrier completes.
+requested epoch, and, for DnD, requires a new Enter after its current barrier
+completes.
 A stale callback cannot rearm a newer context. This is a cut in observed
 protocol order, not proof of when a physical gesture happened. `Ready` status
 describes startup completion; it does not bypass a pending context barrier.
+
+Selection text recovers through its own fresh clipboard fence, sealing the
+current keyboard focus, surface registration and epoch without a new DnD
+Enter. Neither `Ready` nor an armed DnD endpoint substitutes for that text seal.
 
 ## Limits and worker behavior
 

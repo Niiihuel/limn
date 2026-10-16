@@ -1,6 +1,8 @@
 use super::*;
 use crate::receive::{
+    clipboard_control::ClipboardControl,
     control::AttemptGate,
+    read_tag::ReadTag,
     worker_pool::{OwnerId, Reservation, SurfaceKey, SurfaceLease, WorkerPool},
 };
 use crate::DropDecision;
@@ -17,7 +19,8 @@ impl GuestStartup {
         wake: impl Fn() + Send + 'static,
     ) -> Result<Self, ReceiveError> {
         limits.validate()?;
-        let mut guest = Self::dormant_owner(pool, owner, control, limits, now, Box::new(wake));
+        let mut guest =
+            Self::dormant_owner(pool, owner, control, limits, now, Box::new(wake), None);
         guest.install(connection, None);
         Ok(guest)
     }
@@ -51,12 +54,31 @@ fn registry_count(fixture: &Fixture) -> usize {
 
 impl OwnerCase {
     fn new() -> Self {
-        let mut fixture = Fixture::new(Some(3), &[5]);
+        Self::with_text_policy(None).0
+    }
+
+    // Optional metadata and protocol mode for sequential real-Guest fixtures.
+    // This constructor never installs a Runtime/Generic readiness source.
+    fn with_text_policy(
+        text: Option<crate::TextClipboardLimits>,
+    ) -> (Self, Option<ClipboardControl>) {
+        let mut fixture = if text.is_some() {
+            Fixture::new_text(Some(3), &[5])
+        } else {
+            Fixture::new(Some(3), &[5])
+        };
         fixture.create_surfaces();
         let original_registries = registry_count(&fixture);
         let pool = WorkerPool::isolated();
         let lifecycle = control();
         let limits = ReceiveLimits::default();
+        let (clipboard, text_worker) = match text {
+            Some(policy) => {
+                let (control, worker) = ClipboardControl::new(lifecycle.clone(), policy).unwrap();
+                (Some(control), Some(worker))
+            }
+            None => (None, None),
+        };
         let display = fixture.host.backend().display_ptr() as usize;
         let retained = Arc::new((fixture.host.clone(), fixture.host_surfaces.clone()));
         let (owner, reservation) = pool
@@ -66,27 +88,46 @@ impl OwnerCase {
         // The fixture owns the actual display and its coordinated host reader.
         let backend =
             unsafe { Backend::from_foreign_display(fixture.host.backend().display_ptr()) };
-        let guest = GuestStartup::for_owner(
-            Connection::from_backend(backend),
-            pool.clone(),
-            owner,
-            lifecycle.clone(),
-            limits,
-            now,
-            || {},
+        let connection = Connection::from_backend(backend);
+        let guest = if let Some(worker) = text_worker {
+            limits.validate().unwrap();
+            let mut guest = GuestStartup::dormant_owner(
+                pool.clone(),
+                owner,
+                lifecycle.clone(),
+                limits,
+                now,
+                Box::new(|| {}),
+                Some(worker),
+            );
+            guest.install(connection, None);
+            guest
+        } else {
+            GuestStartup::for_owner(
+                connection,
+                pool.clone(),
+                owner,
+                lifecycle.clone(),
+                limits,
+                now,
+                || {},
+            )
+            .unwrap()
+        };
+        (
+            Self {
+                guest: Some(guest),
+                reservation: Some(reservation),
+                fixture: Some(fixture),
+                pool,
+                owner,
+                lifecycle,
+                limits,
+                now,
+                original_registries,
+            },
+            clipboard,
         )
-        .unwrap();
-        Self {
-            guest: Some(guest),
-            reservation: Some(reservation),
-            fixture: Some(fixture),
-            pool,
-            owner,
-            lifecycle,
-            limits,
-            now,
-            original_registries,
-        }
     }
 
     fn fixture(&self) -> &Fixture {
@@ -327,13 +368,13 @@ fn one_owner_drop_lease_survives_eof_and_an_undrained_terminal_without_replacing
         assert!(a_control.poll().is_empty());
     }
     let (pipe_id, pipe_fd) = case.guest().pipe_fd().expect("A still waits for real EOF");
-    assert_eq!(pipe_id, a_id);
+    assert_eq!(pipe_id, ReadTag::Drop(a_id));
     busy_b(&mut case, &b_control, 11);
     let (same_id, same_fd) = case
         .guest()
         .pipe_fd()
         .expect("Busy B cannot replace A's pipe");
-    assert_eq!(same_id, a_id);
+    assert_eq!(same_id, ReadTag::Drop(a_id));
     assert!(Arc::ptr_eq(&pipe_fd, &same_fd));
     assert_eq!(destroyed(case.fixture(), 10), 0);
     drop(pipe_fd);
@@ -442,7 +483,7 @@ fn one_owner_drop_lease_survives_eof_and_an_undrained_terminal_without_replacing
         .guest()
         .pipe_fd()
         .expect("B owns its actual transfer pipe before old A is polled");
-    assert_eq!(before_id, new_b_id);
+    assert_eq!(before_id, ReadTag::Drop(new_b_id));
     assert!(
         matches!(a_control.poll().as_slice(), [ReceiveEvent::DropEnded { id, result: Err(ReceiveError::Cancelled) }] if *id == old_a_id)
     );
@@ -455,7 +496,7 @@ fn one_owner_drop_lease_survives_eof_and_an_undrained_terminal_without_replacing
         .guest()
         .pipe_fd()
         .expect("old A's ACK cannot release B's transfer");
-    assert_eq!(after_id, new_b_id);
+    assert_eq!(after_id, ReadTag::Drop(new_b_id));
     assert!(Arc::ptr_eq(&before_fd, &after_fd));
     {
         let header = b_control.header();
@@ -483,7 +524,7 @@ fn one_owner_drop_lease_survives_eof_and_an_undrained_terminal_without_replacing
         .guest()
         .pipe_fd()
         .expect("rejected A cannot replace B after the stale ACK");
-    assert_eq!(still_id, new_b_id);
+    assert_eq!(still_id, ReadTag::Drop(new_b_id));
     assert!(Arc::ptr_eq(&before_fd, &still_fd));
     assert!(b_control.poll().is_empty());
     drop(before_fd);
@@ -809,3 +850,6 @@ fn a_reinvalidated_first_endpoint_cannot_take_the_next_arm_ahead_of_an_unserved_
         SyncPhase::Arm(a_next)
     );
 }
+
+#[path = "clipboard_read_tag_tests.rs"]
+mod read_tags;

@@ -14,12 +14,13 @@ use sctk::reexports::calloop::{
 };
 
 use super::{
+    clipboard_control::{from_receive_error, ClipboardControl, ClipboardWorker},
     control::ReceiveControl,
+    read_tag::ReadTag,
     wayland::GuestStartup,
     worker_pool::{ExitSignal, OwnerId, SurfaceKey, Wake, WorkerExit, WorkerPool},
-    OfferId,
 };
-use crate::{ReceiveError, ReceiveLimits};
+use crate::{ClipboardError, ReceiveError, ReceiveLimits, TextClipboardLimits};
 
 const GUEST_TICK: Duration = Duration::from_millis(20);
 type PanicPayload = Box<dyn Any + Send>;
@@ -49,6 +50,7 @@ pub(super) unsafe fn spawn_owned(
         target: Target::Surface(key),
         control,
         limits,
+        clipboard: None,
         wake,
         source,
         started,
@@ -72,11 +74,46 @@ pub(super) unsafe fn spawn_owner(
     limits: ReceiveLimits,
     wake: Wake,
 ) -> Result<(OwnerId, Ping), ReceiveError> {
+    unsafe { spawn_owner_common(pool, display, owner, control, limits, None, wake) }
+}
+
+/// # Safety
+/// The display owner and coordinated host reader obey `spawn_owner`'s lifetime.
+pub(super) unsafe fn spawn_owner_with_text(
+    pool: Arc<WorkerPool>,
+    display: usize,
+    owner: Arc<dyn Any + Send + Sync>,
+    control: ReceiveControl,
+    receive: ReceiveLimits,
+    text: TextClipboardLimits,
+    wake: Wake,
+) -> Result<(OwnerId, Ping, ClipboardControl), ClipboardError> {
+    receive.validate().map_err(from_receive_error)?;
+    text.validate()?;
+    if display == 0 {
+        return Err(ClipboardError::Unavailable);
+    }
+    let (clipboard, worker) = ClipboardControl::new(control.clone(), text)?;
+    let (owner, ping) =
+        unsafe { spawn_owner_common(pool, display, owner, control, receive, Some(worker), wake) }
+            .map_err(from_receive_error)?;
+    Ok((owner, ping, clipboard))
+}
+
+unsafe fn spawn_owner_common(
+    pool: Arc<WorkerPool>,
+    display: usize,
+    owner: Arc<dyn Any + Send + Sync>,
+    control: ReceiveControl,
+    limits: ReceiveLimits,
+    clipboard: Option<ClipboardWorker>,
+    wake: Wake,
+) -> Result<(OwnerId, Ping), ReceiveError> {
     limits.validate()?;
     if display == 0 {
         return Err(ReceiveError::Unavailable);
     }
-    // A failed Ping must precede admission of any owner or endpoint resources.
+    // A failed Ping precedes admission of every native resource.
     let (ping, source) = make_ping().map_err(|_| ReceiveError::Io)?;
     let started = Instant::now();
     let (owner, reservation) =
@@ -86,6 +123,7 @@ pub(super) unsafe fn spawn_owner(
         target: Target::Owner { display, owner },
         control,
         limits,
+        clipboard,
         wake,
         source,
         started,
@@ -121,6 +159,7 @@ struct Job {
     target: Target,
     control: ReceiveControl,
     limits: ReceiveLimits,
+    clipboard: Option<ClipboardWorker>,
     wake: Wake,
     source: PingSource,
     started: Instant,
@@ -143,6 +182,7 @@ impl Job {
             target,
             control,
             limits,
+            clipboard,
             wake,
             source,
             started,
@@ -161,8 +201,14 @@ impl Job {
                 limits,
                 started,
                 wake,
+                clipboard,
             ),
         };
+        #[cfg(test)]
+        guest.install_clipboard_test_hooks(
+            hooks.observed.clone(),
+            hooks.before_clipboard_seal.take(),
+        );
         let mut source = Some(source);
         let mut runtime = None;
         let work = catch_unwind(AssertUnwindSafe(|| -> Result<(), ReceiveError> {
@@ -314,8 +360,8 @@ impl Job {
 }
 
 struct Runtime {
-    events: EventLoop<'static, Option<OfferId>>,
-    pipe: Option<(OfferId, RegistrationToken)>,
+    events: EventLoop<'static, Option<ReadTag>>,
+    pipe: Option<(ReadTag, RegistrationToken)>,
     #[cfg(test)]
     observed: testing::Observations,
 }
@@ -375,7 +421,7 @@ impl Runtime {
         Ok(())
     }
 
-    fn dispatch(&mut self, wait: Duration) -> Result<Option<OfferId>, ReceiveError> {
+    fn dispatch(&mut self, wait: Duration) -> Result<Option<ReadTag>, ReceiveError> {
         let mut readable = None;
         self.events
             .dispatch(Some(wait), &mut readable)
@@ -395,11 +441,15 @@ pub(super) mod testing {
         },
     };
 
-    type WatchedPipe = (super::OfferId, std::sync::Weak<std::os::fd::OwnedFd>);
+    type WatchedPipe = (super::ReadTag, std::sync::Weak<std::os::fd::OwnedFd>);
 
     #[derive(Clone, Default)]
     pub(in crate::receive) struct Observations {
         pub(in crate::receive) watched_pipe: Arc<std::sync::Mutex<Option<WatchedPipe>>>,
+        pub(in crate::receive) clipboard_seals: Arc<AtomicUsize>,
+        pub(in crate::receive) guest_dispatches: Arc<AtomicUsize>,
+        pub(in crate::receive) clipboard_quarantine_dispatch: Arc<AtomicUsize>,
+        pub(in crate::receive) keyboard_enter_dispatch: Arc<AtomicUsize>,
         pub(in crate::receive) retirement_gate_released: Arc<AtomicBool>,
         pub(in crate::receive) pipe_callbacks: Arc<AtomicUsize>,
         pub(in crate::receive) completed_pumps: Arc<AtomicUsize>,
@@ -413,6 +463,8 @@ pub(super) mod testing {
         pub(in crate::receive) observed: Observations,
         pub(in crate::receive) before_dispatch: Option<(SyncSender<()>, Receiver<()>)>,
         pub(in crate::receive) before_retire_sync: Option<(SyncSender<()>, Receiver<()>)>,
+        pub(in crate::receive) before_clipboard_seal:
+            Option<(SyncSender<std::time::Instant>, Receiver<()>)>,
         pub(in crate::receive) panic_startup: bool,
         pub(in crate::receive) panic_cleanup: bool,
     }

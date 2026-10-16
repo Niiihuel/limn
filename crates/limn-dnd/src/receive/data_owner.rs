@@ -1,6 +1,6 @@
 //! Explicit connection ownership and independently retired receive surfaces.
 
-use std::sync::Arc;
+use std::{sync::Arc, time::Instant};
 
 use raw_window_handle::{HasDisplayHandle, HasWindowHandle};
 #[cfg(target_os = "linux")]
@@ -8,16 +8,19 @@ use raw_window_handle::{RawDisplayHandle, RawWindowHandle};
 #[cfg(target_os = "linux")]
 use sctk::reexports::calloop::ping::Ping;
 
-use super::{
-    control::ReceiveControl, worker_pool::SurfaceLease, DropDecision, OfferId, ReceiveEpoch,
-    ReceiveEvent, ReceiveStatus,
-};
 #[cfg(target_os = "linux")]
 use super::{
+    clipboard_control::ClipboardControl,
     runtime,
     worker_pool::{OwnerId, SurfaceKey, WorkerPool},
 };
-use crate::{ReceiveError, ReceiveLimits};
+use super::{
+    clipboard_control::{from_receive_error, TextRequestControl},
+    control::ReceiveControl,
+    worker_pool::SurfaceLease,
+    DropDecision, OfferId, ReceiveEpoch, ReceiveEvent, ReceiveStatus,
+};
+use crate::{ClipboardError, ReceiveError, ReceiveLimits, TextClipboardLimits};
 
 /// Lifecycle of one registered receiving surface, independent of its worker.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -38,13 +41,15 @@ pub enum EndpointStatus {
 /// One receive-only Wayland data-device owner shared by registered surfaces.
 ///
 /// An owner uses one worker and one device per compatible seat. Registered
-/// surfaces share its bounded URI receiver and one active drop lease. The
+/// surfaces share its bounded URI receiver and one incoming reservation. The
 /// process permits four workers and four registered surfaces, shared with
 /// [`crate::FileDropReceiver`] and the legacy [`crate::FileDnd`].
 ///
-/// This API discards Selection and does not bind Primary. It is not a clipboard
-/// backend. The integrator must not create another clipboard/data-device owner
-/// on this display in parallel. Dropping this owner requests closure without
+/// [`Self::attach_owned`] discards Selection. Explicitly opt into incoming text
+/// with [`Self::attach_owned_with_text_clipboard`]. Neither mode binds Primary or
+/// publishes copied text/images; this is not a complete clipboard backend. The
+/// integrator must not create another clipboard/data-device owner on this display
+/// in parallel. Dropping this owner requests closure without
 /// joining; it does not establish that the foreign display can be destroyed.
 pub struct WaylandDataOwner {
     control: ReceiveControl,
@@ -56,6 +61,8 @@ pub struct WaylandDataOwner {
     ping: Ping,
     #[cfg(target_os = "linux")]
     display: usize,
+    #[cfg(target_os = "linux")]
+    clipboard: Option<ClipboardControl>,
 }
 
 /// One receiving surface registered with an explicit [`WaylandDataOwner`].
@@ -68,6 +75,24 @@ pub struct FileDropEndpoint {
     lease: SurfaceLease,
     #[cfg(target_os = "linux")]
     ping: Ping,
+}
+
+/// One opaque, single-use reservation for incoming Selection text.
+///
+/// It retains only control metadata and a lightweight worker signal, not a
+/// native display/window, protocol proxy, callback or internal text body owner.
+/// Dropping it cancels the reservation without waiting for cleanup or joining.
+/// The owner and registered endpoint have independent native lifetime duties.
+pub struct TextPasteRequest {
+    request: TextRequestControl,
+    #[cfg(target_os = "linux")]
+    ping: Ping,
+}
+
+impl std::fmt::Debug for TextPasteRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("TextPasteRequest { .. }")
+    }
 }
 
 impl WaylandDataOwner {
@@ -127,12 +152,117 @@ impl WaylandDataOwner {
                 owner,
                 ping,
                 display,
+                clipboard: None,
             }))
         }
         #[cfg(not(target_os = "linux"))]
         {
             let _ = (display_owner, display, wake);
             Ok(None)
+        }
+    }
+
+    /// Attach the same bounded owner with incoming Selection text enabled.
+    ///
+    /// Both policies are validated before querying display handles or admitting
+    /// resources. Unsupported platforms and non-Wayland handles return `Ok(None)`;
+    /// invalid handles return [`ClipboardError::Unavailable`]. Admission failures
+    /// retain their exact category, including Busy and ResourceLimit.
+    ///
+    /// This mode uses the owner's existing worker, guest queue and one device per
+    /// seat. It retains Selection before surface registration and observes native
+    /// keyboard focus without processing keys or keymaps. File drops and text
+    /// share one incoming reservation. Primary and copy publication are absent;
+    /// installing a full clipboard backend remains the integrator's responsibility.
+    /// `wake` runs on a service thread outside control guards.
+    ///
+    /// # Safety
+    ///
+    /// The exact display and its coordinated host reader must remain valid and
+    /// make progress until this owner reaches [`ReceiveStatus::Closed`], which
+    /// requires certified cleanup and actual worker join. Retaining `Arc<W>`,
+    /// dropping requests, requesting close or detaching every endpoint does not
+    /// prove those obligations. No external reader may consume raw display-socket
+    /// bytes. Registered surfaces must additionally obey
+    /// [`Self::register_surface_owned`]'s lifetime requirements.
+    pub unsafe fn attach_owned_with_text_clipboard<W>(
+        display_owner: Arc<W>,
+        receive: ReceiveLimits,
+        text: TextClipboardLimits,
+        wake: impl Fn() + Send + 'static,
+    ) -> Result<Option<Self>, ClipboardError>
+    where
+        W: HasDisplayHandle + Send + Sync + 'static,
+    {
+        receive.validate().map_err(from_receive_error)?;
+        text.validate()?;
+        let display = display_owner
+            .display_handle()
+            .map_err(|_| ClipboardError::Unavailable)?
+            .as_raw();
+        #[cfg(target_os = "linux")]
+        {
+            let RawDisplayHandle::Wayland(display) = display else {
+                return Ok(None);
+            };
+            let display = display.display.as_ptr() as usize;
+            let pool = WorkerPool::global().clone();
+            let control = ReceiveControl::new(ReceiveEpoch(1)).map_err(from_receive_error)?;
+            // The same admission retains this exact display before foreign SDK IO.
+            let (owner, ping, clipboard) = unsafe {
+                runtime::spawn_owner_with_text(
+                    pool.clone(),
+                    display,
+                    display_owner,
+                    control.clone(),
+                    receive,
+                    text,
+                    Box::new(wake),
+                )
+            }?;
+            Ok(Some(Self {
+                control,
+                pool,
+                owner,
+                ping,
+                display,
+                clipboard: Some(clipboard),
+            }))
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = (display_owner, display, wake);
+            Ok(None)
+        }
+    }
+
+    /// Reserve the current focused Selection for this exact registered endpoint.
+    ///
+    /// Reservation performs no clipboard read, pipe creation or protocol Receive.
+    /// The caller captures its destination before acknowledging the returned
+    /// request. The owner/endpoint, current context barrier, native seat focus,
+    /// Selection and deadlines must remain valid through publication and polling.
+    /// An old or foreign endpoint cannot act on this owner's current reservation.
+    /// Text-disabled owners return [`ClipboardError::Unavailable`].
+    pub fn reserve_text_paste(
+        &self,
+        endpoint: &FileDropEndpoint,
+    ) -> Result<TextPasteRequest, ClipboardError> {
+        #[cfg(target_os = "linux")]
+        {
+            let clipboard = self.clipboard.as_ref().ok_or(ClipboardError::Unavailable)?;
+            let control = endpoint.lease.control();
+            let registration = control.registration().ok_or(ClipboardError::StaleRequest)?;
+            let request = clipboard.reserve(&control, registration, Instant::now())?;
+            Ok(TextPasteRequest {
+                request,
+                ping: self.ping.clone(),
+            })
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            let _ = endpoint;
+            Err(ClipboardError::Unavailable)
         }
     }
 
@@ -220,6 +350,54 @@ impl WaylandDataOwner {
         }
         #[cfg(not(target_os = "linux"))]
         let _ = self.control.close();
+    }
+}
+
+impl TextPasteRequest {
+    /// Queue the one read acknowledgement after the host captures its destination.
+    ///
+    /// This validates metadata and signals the worker; it does not make a
+    /// synchronous SDK call. A duplicate acknowledgement is InvalidPhase, and
+    /// cancellation/context loss may still prevent a read or successful delivery.
+    pub fn acknowledge(&self) -> Result<(), ClipboardError> {
+        let result = self.request.acknowledge(Instant::now());
+        self.wake_worker();
+        result
+    }
+
+    /// Transfer one complete, freshly validated raw UTF-8 result, or one error.
+    ///
+    /// `None` means pending or already consumed. An empty String is a successful
+    /// result. CRLF is preserved; no trimming, lossy decoding or normalization is
+    /// performed. Success is unavailable until the actual reader watcher is gone
+    /// and expires at the configured completion TTL even without UI polling.
+    /// An invalid poll returns metadata only; its internal body is retired on the
+    /// worker. A successfully returned String belongs to the caller thereafter.
+    pub fn poll(&self) -> Option<Result<String, ClipboardError>> {
+        let result = self.request.poll(Instant::now());
+        self.wake_worker();
+        result
+    }
+
+    /// Cut this exact reservation without blocking, joining or releasing it early.
+    ///
+    /// An already authorized local Receive attempt may finish, but cancellation
+    /// prevents later delivery. Native watcher/body retirement remains on worker.
+    pub fn cancel(&self) {
+        self.request.cancel();
+        self.wake_worker();
+    }
+
+    fn wake_worker(&self) {
+        // Every internal operation has returned and released its guards first.
+        #[cfg(target_os = "linux")]
+        self.ping.ping();
+    }
+}
+
+impl Drop for TextPasteRequest {
+    fn drop(&mut self) {
+        self.cancel();
     }
 }
 
