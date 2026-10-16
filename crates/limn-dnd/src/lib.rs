@@ -62,6 +62,8 @@ impl FileDnd {
     /// event is ready, typically to request a repaint.
     ///
     /// This legacy API borrows its handles and joins its worker synchronously on drop.
+    /// On Wayland it returns `None` when the process's four drop-worker slots are
+    /// taken or its non-refundable budget of 64 registries is spent.
     ///
     /// # Safety
     ///

@@ -461,7 +461,14 @@ fn pool_spawn_failures_retire_jobs_off_ui_and_registry_credit_is_not_refunded() 
         called_rx.try_recv(),
         Err(mpsc::TryRecvError::Disconnected)
     ));
-    let retry = pool.reserve_legacy(key(51)).unwrap();
+    // The reaper drops the owner before it releases the slot: wait for the release.
+    let deadline = Instant::now() + WAIT;
+    let retry = loop {
+        match pool.reserve_legacy(key(51)) {
+            Err(ReceiveError::Busy) if Instant::now() < deadline => thread::yield_now(),
+            result => break result.expect("the failed spawn releases its slot"),
+        }
+    };
 
     // Reservations and a failed spawn precede get_registry and spend no credit.
     for _ in 0..64 {

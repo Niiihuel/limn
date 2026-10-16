@@ -216,6 +216,13 @@ impl Fixture {
             .count()
     }
 
+    fn destroyed(&self, key: usize) -> bool {
+        self.server
+            .requests
+            .iter()
+            .any(|request| matches!(request, OfferRequest::Destroy(actual) if *actual == key))
+    }
+
     fn finished(&self) -> bool {
         self.server
             .requests
@@ -344,13 +351,55 @@ fn foreign_surfaces_and_non_file_mimes_reject_only_their_exact_offers() {
             .requests
             .iter()
             .any(|request| matches!(request, OfferRequest::Accept(1, None))));
-        assert!(fixture
-            .server
-            .requests
-            .iter()
-            .any(|request| matches!(request, OfferRequest::Destroy(1))));
+        // Destroying a hovered v3 offer cancels the whole drag on wlroots.
+        assert!(!fixture.destroyed(1), "a hovered offer survives until Leave");
+        fixture.server.device_resources[0].leave();
+        fixture.deliver(&mut guest, now).unwrap();
+        fixture.serve();
+        assert!(fixture.destroyed(1));
         assert_eq!(fixture.received(1), 0);
         assert!(!fixture.finished());
+    }
+}
+
+#[test]
+fn an_offer_refused_during_hover_is_destroyed_only_after_leave_or_drop() {
+    use wl_data_device_manager::DndAction;
+    for drop_it in [false, true] {
+        let (mut fixture, mut guest, control, now) = ready_fixture();
+        let (_offer, id) = copy_enter(&mut fixture, &mut guest, &control, 0, 1, now);
+        control.cancel(id).unwrap();
+        guest.pump(now).unwrap();
+        fixture.serve();
+        assert!(guest.state.coordinator.offer_phase(id).is_none());
+        let refused = fixture.server.requests.iter().position(|request| {
+            matches!(request, OfferRequest::Accept(1, None))
+        });
+        assert!(refused.is_some(), "the cancelled hover is refused in place");
+        assert!(fixture.server.requests[refused.unwrap()..].iter().any(|request| matches!(
+            request,
+            OfferRequest::Actions(1, WEnum::Value(DndAction::None), WEnum::Value(DndAction::None))
+        )));
+        assert!(!fixture.destroyed(1), "a hovered offer survives until Leave or Drop");
+        let device = fixture.server.device_resources[0].clone();
+        device.motion(11, 30.0, 40.0);
+        fixture.deliver(&mut guest, now).unwrap();
+        fixture.serve();
+        assert!(!fixture.destroyed(1));
+        if drop_it {
+            device.send_event(wl_data_device::Event::Drop {}).unwrap();
+        } else {
+            device.leave();
+        }
+        fixture.deliver(&mut guest, now).unwrap();
+        fixture.serve();
+        assert!(fixture.destroyed(1));
+        assert_eq!(fixture.received(1), 0);
+        assert!(!fixture.finished());
+        assert!(guest.state.offers.is_empty());
+        control.poll();
+        let (_, next) = copy_enter(&mut fixture, &mut guest, &control, 1, 2, now);
+        assert_ne!(id, next);
     }
 }
 
