@@ -1301,8 +1301,7 @@ fn corners(radii: limn::CornerRadii, area: EguiRect) -> CornerRadius {
 }
 
 fn corner_points(radius: f32, area: EguiRect) -> u8 {
-    // Also false for NaN.
-    if !(radius > 0.0) {
+    if radius.is_nan() || radius <= 0.0 {
         return 0;
     }
     if radius * 2.0 + 1.0 >= area.width().min(area.height()) {
