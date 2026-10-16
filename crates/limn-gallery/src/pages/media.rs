@@ -1,9 +1,10 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     Attachment, AttachmentOrientation, Avatar, Button, ButtonVariant, Component, Element, Icon, ImageViewer,
-    RadiusRole, RasterImage, RasterImageFormat, Size,
+    RadiusRole, RasterImage, RasterImageFormat, Size, SurfaceFit,
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
+use web_time::{Duration, Instant};
 
 /// The gallery ships no picture files: these are three PNGs a few pixels
 /// wide, which the renderer stretches into soft gradients. Each is its name,
@@ -34,7 +35,44 @@ fn picture(index: usize) -> RasterImage {
     RasterImage::new(sha256, RasterImageFormat::Png, size, Arc::from(data), name).expect("the constants above are a picture")
 }
 
-/// What the viewer shows: `open`, `loading`, `failed`, or nothing.
+/// The surface the host plays a short animation on: a band of light that
+/// sweeps across, as a looping GIF would.
+const ANIMATION: &str = "media-animation";
+const ANIMATION_FRAMES: usize = 12;
+const ANIMATION_STEP: Duration = Duration::from_millis(90);
+
+/// Present the animation's current frame wherever `frame` draws its surface,
+/// and say when the next one is due. Its frames are converted once and
+/// presented again, shared, every time it loops.
+pub fn present_animation(ctx: &eframe::egui::Context, frame: &limn::Frame) -> Option<Duration> {
+    static FRAMES: OnceLock<(Instant, Vec<limn_egui::SurfaceFrame>)> = OnceLock::new();
+    if !frame.commands.iter().any(|command| matches!(command, limn::DrawCommand::Surface { id, .. } if id == ANIMATION)) {
+        return None;
+    }
+    let (started, frames) = FRAMES.get_or_init(|| {
+        let (width, height) = (96, 64);
+        let frames = (0..ANIMATION_FRAMES)
+            .map(|step| {
+                let center = (step as f32 + 0.5) / ANIMATION_FRAMES as f32 * width as f32;
+                let rgba: Vec<u8> = (0..width * height)
+                    .flat_map(|at| {
+                        let (x, y) = ((at % width) as f32, (at / width) as f32);
+                        let light = (1.0 - (x - center).abs() / 24.0).max(0.0);
+                        let shade = |base: f32| (base + light * (255.0 - base)) as u8;
+                        [shade(40.0 + y), shade(70.0), shade(120.0 + y), 255]
+                    })
+                    .collect();
+                limn_egui::SurfaceFrame::from_rgba([width, height], &rgba, 1.0).expect("a small frame")
+            })
+            .collect();
+        (Instant::now(), frames)
+    });
+    let elapsed = started.elapsed().as_millis() / ANIMATION_STEP.as_millis();
+    limn_egui::present_surface(ctx, ANIMATION, frames[elapsed as usize % ANIMATION_FRAMES].clone());
+    Some(ANIMATION_STEP)
+}
+
+/// What the viewer shows: `open`, `loading`, `failed`, `animation`, or nothing.
 const VIEWER: &str = "media-viewer";
 const INDEX: &str = "media-viewer-index";
 const ZOOM: &str = "media-viewer-zoom";
@@ -91,6 +129,15 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Image viewer", vec![
             caption(cx, "Click a picture: the viewer covers the window. Left and Right move through the three, the header zooms, and Esc, the close button or a click outside closes it."),
             row((0..PICTURES.len()).map(thumbnail).collect()),
+            caption(cx, "An animation the host plays on a surface: covering its thumbnail with rounded corners, then fitted in the viewer as a picture is."),
+            row(vec![Element::clickable(
+                format!("{VIEWER}=animation&{INDEX}=0&{ZOOM}=1"),
+                Element::surface(ANIMATION, "A band of light")
+                    .surface_fit(SurfaceFit::Cover)
+                    .radius(RadiusRole::Surface.px())
+                    .size(Some(120.0), Some(84.0)),
+            )
+            .accessibility_label("Open the animation")]),
             outline("clear-image-cache", "Reload image cache"),
             caption(cx, "The native host clears cached textures and pending decodes. Visible pictures are requested again on the next paint pass."),
             caption(cx, "Without a picture the viewer waits with a spinner, or shows the error the host gives it."),
@@ -168,7 +215,8 @@ pub fn layer(cx: &Cx, base: Element) -> Element {
     // Each control has an ID of its own, also where two would set the same value.
     let step = |index: usize, control: &str| format!("{INDEX}={index}&{ZOOM}=1&media-viewer-control={control}");
     let level = |zoom: f32, control: &str| format!("{ZOOM}={zoom}&media-viewer-control={control}");
-    let viewer = ImageViewer::new(base, matches!(mode, "open" | "loading" | "failed"), PICTURES[index].0, format!("{VIEWER}=closed"), cx.palette)
+    let title = if mode == "animation" { "band.gif" } else { PICTURES[index].0 };
+    let viewer = ImageViewer::new(base, matches!(mode, "open" | "loading" | "failed" | "animation"), title, format!("{VIEWER}=closed"), cx.palette)
         .viewport(window)
         .gallery(index, PICTURES.len())
         .previous_action(step(index.saturating_sub(1), "previous"))
@@ -179,6 +227,7 @@ pub fn layer(cx: &Cx, base: Element) -> Element {
     match mode {
         "loading" => viewer,
         "failed" => viewer.error("The picture could not be decoded."),
+        "animation" => viewer.surface(ANIMATION, "A band of light"),
         _ => viewer.image(picture(index)),
     }
     .render()

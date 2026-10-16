@@ -2,7 +2,7 @@
 
 use crate::{
     Access, ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
-    Icon, IconButton, PopoverPlacement, RasterImage, Role, Size, Spinner, Tooltip,
+    Icon, IconButton, PopoverPlacement, RasterImage, Role, Size, Spinner, SurfaceFit, Tooltip,
 };
 
 /// A viewer over the whole window for one picture of a gallery: a title, a close control,
@@ -15,6 +15,7 @@ pub struct ImageViewer {
     palette: ComponentPalette,
     viewport: Size,
     image: Option<RasterImage>,
+    surface: Option<(String, String)>,
     error: Option<String>,
     index: usize,
     total: usize,
@@ -45,6 +46,7 @@ impl ImageViewer {
             palette,
             viewport: Size::new(900.0, 620.0),
             image: None,
+            surface: None,
             error: None,
             index: 0,
             total: 1,
@@ -72,8 +74,17 @@ impl ImageViewer {
         self
     }
 
+    /// Show the pixels the host presents under `id` (see [`Element::surface`]) in place
+    /// of a picture, fitted and zoomed as a picture is: an animation, a video. `label`
+    /// names it for assistive technology. It takes the place of `image` when both are
+    /// set; the host presents its first frame before it opens the viewer on it.
+    pub fn surface(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.surface = Some((id.into(), label.into()));
+        self
+    }
+
     /// A message shown in place of the spinner and the loading label while there is no
-    /// image. It is not shown once `image` is set.
+    /// image. It is not shown once `image` or `surface` is set.
     pub fn error(mut self, error: impl Into<String>) -> Self {
         self.error = Some(error.into());
         self
@@ -209,8 +220,12 @@ impl Component for ImageViewer {
             (width - 32.0 - arrows).max(0.0),
             (height - 32.0 - 36.0 - 24.0 - 24.0).max(0.0),
         );
-        let image = if let Some(image) = self.image {
-            let picture = Element::raster_image(image.full_resolution());
+        let picture = match (self.surface, self.image) {
+            (Some((id, label)), _) => Some(Element::surface(id, label).surface_fit(SurfaceFit::Contain)),
+            (None, Some(image)) => Some(Element::raster_image(image.full_resolution())),
+            (None, None) => None,
+        };
+        let image = if let Some(picture) = picture {
             if zoomed {
                 // The picture fits a box this many times its room, and the
                 // box is panned both ways, as a diagram is.
@@ -410,6 +425,40 @@ mod tests {
         // Nothing before the first, nothing after the last.
         assert!(press(0, crate::Key::ArrowLeft).is_empty());
         assert!(press(2, crate::Key::ArrowRight).is_empty());
+    }
+
+    #[test]
+    fn a_surface_is_shown_fitted_and_zoomed_as_a_picture_is() {
+        let shown = |zoom: f32, image: bool| {
+            let mut viewer = ImageViewer::new(Element::spacer(), true, "loop.gif", "close", ComponentPalette::neutral_dark())
+                .viewport(WINDOW)
+                .zoom(zoom)
+                .surface("animation:a", "A loop");
+            if image {
+                let still = RasterImage::new("a".repeat(64), RasterImageFormat::Png, 4, Arc::from("AAAA"), "A picture").unwrap();
+                viewer = viewer.image(still);
+            }
+            let mut tree = UiTree::new(viewer.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(WINDOW);
+            assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::RasterImage { .. })), "the surface takes the picture's place");
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Surface { rect, id, label, fit, .. } => Some((*rect, id.clone(), label.clone(), *fit)),
+                    _ => None,
+                })
+                .expect("the surface is drawn")
+        };
+        let (fitted, id, label, fit) = shown(1.0, true);
+        assert_eq!((id.as_str(), label.as_str(), fit), ("animation:a", "A loop", SurfaceFit::Contain));
+        // The same room a picture gets, and twice it zoomed.
+        let mut tree = UiTree::new(viewer(1.0));
+        tree.set_reduced_motion(true);
+        assert_eq!(fitted, picture(&tree.layout(WINDOW)));
+        let zoomed = shown(2.0, false).0;
+        assert_eq!((zoomed.width, zoomed.height), (fitted.width * 2.0, fitted.height * 2.0));
     }
 
     #[test]

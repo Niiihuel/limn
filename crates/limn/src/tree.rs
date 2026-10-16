@@ -546,9 +546,10 @@ pub enum DrawCommand {
         /// Corner radius the picture is rounded to.
         radius: f32,
     },
-    /// Pixels the host presents to the backend under `id`, outside the frame.
-    /// They start at the rectangle's top-left corner at their own density and
-    /// are clipped to the rectangle, never stretched to fill it.
+    /// Pixels the host presents to the backend under `id`, outside the frame,
+    /// placed in the rectangle as `fit` says and clipped to it. With
+    /// `SurfaceFit::Native` they start at the top-left corner at their own
+    /// density, never stretched to fill it.
     Surface {
         /// The area the surface shows in; its pixels are clipped to it.
         rect: Rect,
@@ -558,6 +559,10 @@ pub enum DrawCommand {
         label: String,
         /// Opacity from 0 to 1: 1 unless a transition is fading the element.
         opacity: f32,
+        /// How the pixels fill the rectangle.
+        fit: crate::SurfaceFit,
+        /// Corner radius the pixels shown are rounded to.
+        radius: f32,
     },
     /// An activity indicator that turns, sized to the shorter side of `rect`.
     Spinner {
@@ -1215,9 +1220,14 @@ fn animate_popover_command(
         DrawCommand::Surface {
             rect,
             opacity: own_opacity,
+            radius,
             ..
+        } => {
+            scale_rect(rect, scale, origin, slide_y);
+            *own_opacity *= opacity.clamp(0.0, 1.0);
+            *radius *= scale;
         }
-        | DrawCommand::EffortSlider {
+        DrawCommand::EffortSlider {
             rect,
             opacity: own_opacity,
             ..
@@ -10989,12 +10999,14 @@ impl LayoutBuilder<'_> {
                     radius: style.radius,
                 });
             }
-            ElementKind::Surface { id, label } => {
+            ElementKind::Surface { id, label, fit } => {
                 self.frame.commands.push(DrawCommand::Surface {
                     rect: content,
                     id: id.clone(),
                     label: label.clone(),
                     opacity: 1.0,
+                    fit: *fit,
+                    radius: style.radius,
                 });
             }
             ElementKind::Icon(icon) => {
