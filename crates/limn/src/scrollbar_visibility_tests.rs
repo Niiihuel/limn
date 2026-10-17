@@ -195,3 +195,25 @@ fn removing_a_scroll_surface_removes_its_pending_wakeup() {
     tree.layout_at(size, now);
     assert_eq!(tree.animation_repaint_after_at(now), None);
 }
+
+#[test]
+fn content_a_rounding_error_taller_than_its_viewport_shows_no_scrollbar() {
+    let body = |height: f32| {
+        Element::column(vec![
+            ScrollArea::new("body", Element::spacer().size(None, Some(100.0)))
+                .appearance(ScrollbarAppearance::reserved())
+                .render()
+                .size(None, Some(height)),
+            Element::spacer().flex(1.0),
+        ])
+    };
+    // What a column handing out a flexible height leaves behind.
+    let mut tree = UiTree::new(body(100.0 - 0.000_01));
+    let frame = tree.layout(Size::new(220.0, 160.0));
+    assert!(!frame.scrollbars.contains_key("body"));
+    assert_eq!(frame.scroll_extents.get("body"), Some(&0.0));
+    let mut tree = UiTree::new(body(99.0));
+    let frame = tree.layout(Size::new(220.0, 160.0));
+    assert!(frame.scrollbars.contains_key("body"));
+    assert_eq!(frame.scroll_extents.get("body"), Some(&1.0));
+}

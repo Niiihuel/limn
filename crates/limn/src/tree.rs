@@ -1730,6 +1730,18 @@ struct ScrollbarGeometry {
     placement: crate::ScrollbarPlacement,
 }
 
+/// How far a scroll element's content runs past its viewport. Layout sums
+/// leave millionths of a pixel, so content up to half a pixel taller fits:
+/// it reserves no rail and shows no bar.
+fn overflow(content: f32, viewport: f32) -> f32 {
+    let over = content - viewport;
+    if over > 0.5 {
+        over
+    } else {
+        0.0
+    }
+}
+
 impl ScrollbarGeometry {
     fn new(
         viewport: Rect,
@@ -10317,15 +10329,15 @@ impl LayoutBuilder<'_> {
                 let full_width_height = self
                     .measure(child, Size::new(content.width, f32::INFINITY))
                     .height;
-                let child_width =
-                    appearance.content_width(content.width, full_width_height > content.height);
+                let child_width = appearance
+                    .content_width(content.width, overflow(full_width_height, content.height) > 0.0);
                 let child_height = if child_width < content.width {
                     self.measure(child, Size::new(child_width, f32::INFINITY))
                         .height
                 } else {
                     full_width_height
                 };
-                let max_offset = (child_height - content.height).max(0.0);
+                let max_offset = overflow(child_height, content.height);
                 self.frame.scroll_extents.insert(id.clone(), max_offset);
                 let snap = self.scroll_to_end.remove(id).then_some(max_offset);
                 let current_offset = self.scroll_position(id, max_offset, *motion, snap);
@@ -12181,15 +12193,15 @@ impl LayoutBuilder<'_> {
                 let full_width_height = self
                     .measure(child, Size::new(content.width, f32::INFINITY))
                     .height;
-                let child_width =
-                    appearance.content_width(content.width, full_width_height > content.height);
+                let child_width = appearance
+                    .content_width(content.width, overflow(full_width_height, content.height) > 0.0);
                 let child_height = if child_width < content.width {
                     self.measure(child, Size::new(child_width, f32::INFINITY))
                         .height
                 } else {
                     full_width_height
                 };
-                let max_offset = (child_height - content.height).max(0.0);
+                let max_offset = overflow(child_height, content.height);
                 self.frame.scroll_extents.insert(id.clone(), max_offset);
                 let snap = self.scroll_to_end.remove(id).then_some(max_offset);
                 let current_offset = self.scroll_position(id, max_offset, *motion, snap);
