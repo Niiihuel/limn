@@ -174,6 +174,28 @@ covered text retains its face and metrics; new emoji use the fallback's
 own advance width, including in monospace text. There is no runtime font
 download or new runtime dependency.
 
+### A font of the person's choice
+
+`limn_egui::font_definitions_with(UiFaces { regular, medium, bold })` puts a
+host's faces, such as a family the person picked from the system's fonts,
+first in the interface's families: `regular` for regular and italic text,
+`medium` and `bold` for their weights, which fall back to `regular` when
+left out. Monospace text keeps its face, and every bundled face and fallback
+stays behind the chosen ones, so what the family lacks still draws. limn
+reads no file itself: the host loads the bytes, off its interface's
+thread, and installs the result with `Context::set_fonts`, then calls
+`attach_fonts` again so the tree measures with it.
+
+```rust
+let faces = limn_egui::UiFaces {
+    regular: egui::FontData::from_owned(regular_bytes),
+    medium: None,
+    bold: Some(egui::FontData::from_owned(bold_bytes)),
+};
+ctx.set_fonts(limn_egui::font_definitions_with(faces));
+limn_egui::attach_fonts(&mut tree, &ctx);
+```
+
 The 623-entry synthetic fixture in `limn-egui/src/emoji_samples.txt` covers
 all visible scalars from RUNE's Unicode picker at the time of this change.
 Tests inspect actual installed charmaps in all five families and exercise
