@@ -2472,6 +2472,44 @@ pub fn font_definitions() -> egui::FontDefinitions {
 const SANS_MEDIUM: &str = "limn-sans-medium";
 const SANS_BOLD: &str = "limn-sans-bold";
 
+/// Faces of the host's choice for interface text, in place of the bundled
+/// Ubuntu: a font the person picked from the system's, say. A weight left
+/// out is drawn with the regular face.
+pub struct UiFaces {
+    /// The face of [`FontFamily::Sans`] and [`FontFamily::SansItalic`].
+    pub regular: egui::FontData,
+    /// The face of [`FontFamily::SansMedium`]; `None` uses `regular`.
+    pub medium: Option<egui::FontData>,
+    /// The face of [`FontFamily::SansBold`]; `None` uses `regular`.
+    pub bold: Option<egui::FontData>,
+}
+
+/// [`font_definitions`] with `faces` first in each interface family, so the
+/// bundled faces and every fallback behind them still draw what `faces`
+/// lacks. Monospace text keeps its own face. Install the result with
+/// `Context::set_fonts`, then call [`attach_fonts`] again so the tree
+/// measures with it.
+pub fn font_definitions_with(faces: UiFaces) -> egui::FontDefinitions {
+    let mut fonts = font_definitions();
+    let regular = "limn-ui-regular".to_owned();
+    fonts.font_data.insert(regular.clone(), faces.regular.into());
+    for (face, name, family) in [
+        (faces.medium, "limn-ui-medium", SANS_MEDIUM),
+        (faces.bold, "limn-ui-bold", SANS_BOLD),
+    ] {
+        let first = match face {
+            Some(face) => {
+                fonts.font_data.insert(name.to_owned(), face.into());
+                name.to_owned()
+            }
+            None => regular.clone(),
+        };
+        fonts.families.entry(egui::FontFamily::Name(family.into())).or_default().insert(0, first);
+    }
+    fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, regular);
+    fonts
+}
+
 /// The egui family a limn family is painted and measured with. A host that
 /// set its own fonts without the weighted faces gets the regular one.
 fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
