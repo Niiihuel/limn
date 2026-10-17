@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- `Toast::icon`, `Toast::button` and `Toast::progress`: a glyph before the copy in the tone's colour, buttons under the copy at the card's right edge (the first added is the primary action) and a thin bar along the lower edge with the share of work done. A toast without them looks as before
 - `CodeEditor` view options: `show_whitespace` marks spaces with `·` and tabs with `→`; `rulers` draws up to 16 column guides; `caret_style` takes a `CaretStyle` (`Line`, `Block`, `Underline`; Vim's Normal mode keeps its block); `caret_blink(false)` keeps the caret shown; `indent_guides(false)` and `highlight_current_line(false)` turn off what was always drawn. Defaults keep today's look
 - `limn-editor::TextBuffer::trim_trailing_whitespace`: removes the spaces and tabs ending each line as one undo step, keeping line terminators and every selection's place in its line
 - Bar, column and line charts whose values are all whole numbers get whole ticks: a count of 1 no longer shows a 0.5 tick
