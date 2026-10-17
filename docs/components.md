@@ -240,10 +240,42 @@ Body text is 14 on a 22 line; headings are 22, 18 and 16 at 1.4. A heading
 has 20 above it and 8 below; list items are 4 apart and other blocks 14. A
 list indents 14 per level with a 22 marker column. A quote is a padded panel
 with the surface radius and a 2 px bar; a code block is a `CodeBlock` in
-`CodeBlockSizing::CHAT` on the palette given to `new`. With another
+`CodeBlockSizing::CHAT` on the palette given to `new`, its code colored as
+described under [Highlighted code](#highlighted-code). With another
 `font_size`, each of these numbers but the paddings, the bar and the radii is
 multiplied by `font_size / 14`, and so is the text of a code block and of a
 diagram's card.
+
+### Highlighted code
+
+A fence whose language the line lexer knows has its comments, strings,
+keywords and numbers colored; the rest of the code keeps the palette's
+`text`. The language is read from the fence's first word with
+`CodeLanguage::from_code_fence`, in any case:
+
+| Language | Fence labels |
+| --- | --- |
+| Rust | `rust`, `rs` |
+| JavaScript | `javascript`, `js`, `jsx`, `mjs`, `cjs`, `node`, `nodejs` |
+| TypeScript | `typescript`, `ts`, and `tsx` for TSX |
+| Python | `python`, `python3`, `py`, `pyi` |
+| JSON | `json`, `jsonc` |
+| TOML | `toml` |
+| CSS | `css`, `scss` |
+| HTML | `html`, `htm`, `xml`, `svg` |
+| Markdown | `md`, `markdown` and their variants |
+
+The lexer runs while the tree is built, with or without the `syntax`
+feature, so the colors are there on the first frame. On a dark palette the
+inks are the ones `CodeEditor` and `CodeDiff` give the same four kinds, with
+a lighter comment; on a light one, judged by the palette's `border` as
+`ComponentPalette::link` is, they are darker counterparts. Each is at least
+4.5:1 on dark fills up to `rgb(53, 53, 56)`, the raised fill of
+`Theme::DARK`, and on light ones down to `rgb(220, 220, 220)`. They do not follow
+`MarkdownColors`. Code stays plain text, as before, when its fence names no
+language or one not in the table, when nothing in it takes a color, and when
+it is longer than 64 KiB or 2,000 lines. The copied and announced text is the
+code as written.
 
 ### Notes
 
@@ -438,7 +470,7 @@ columns menu enters and leaves as any menu does.
 | `CodeEditor` | An editor view over a host-owned text buffer: selection, folding, diagnostics, breakpoints, optional Vim mode. |
 | `CodeDiff` | A virtualized, read-only diff. |
 | `FindBar`, `FindOptions`, `FindIds`, `FindLabels` | Find and replace for a `CodeEditor`, at most 520 wide. Controlled: the host passes the query, `.replacement`, `.replace_open`, `.options`, `.count_label`, `.has_matches`, `.has_current`, `.no_matches` and `.error`, and answers the actions of `FindIds` (derived from the bar's ID, or the host's own through `.ids`). `.labels` takes every string, `.ink` the failure color, `.replace_icons` the two replace glyphs and `.surface` a second palette for the bar under the controls. Below 480 wide, or with replace open, the options take their own row. `render()` gives the bar; `.attach(anchor)` floats it under the anchor without taking the pointer or the focus. `FindBar::height(width, replace_open, error)` is the height it lays out. |
-| `CodeLanguage` | The languages with a grammar. `from_extension`, `from_path` and `from_code_fence` choose one; `comment_markers_for(path)` gives the markers that comment out a line, falling back on the file's name (`#` for shell, YAML, Nix, Ruby, Makefile and Dockerfile) when the language has none. Needs the `syntax` feature. |
+| `CodeLanguage` | The languages with a grammar. `from_extension`, `from_path` and `from_code_fence` choose one; `comment_markers_for(path)` gives the markers that comment out a line, falling back on the file's name (`#` for shell, YAML, Nix, Ruby, Makefile and Dockerfile) when the language has none. These need the `syntax` feature; without it the enum keeps its variants and `from_code_fence`, which reads the same labels. |
 
 ## Icons
 

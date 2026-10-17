@@ -21,14 +21,14 @@ use crate::markdown_parser::{
     MAX_SOURCE_CHARS,
 };
 use crate::{
-    AlertColors, AlertTone, CodeBlock, Color, Component, ComponentPalette, Diagram, Element,
-    ElementKind, FontFamily, Icon, RadiusRole, TextRole, TextSpan,
+    AlertColors, AlertTone, CodeBlock, CodeLanguage, Color, Component, ComponentPalette, Diagram,
+    Element, ElementKind, FontFamily, Icon, RadiusRole, TextRole, TextSpan,
 };
 
 const MAX_SOURCE_ROW_CHARS: usize = 512;
 const BODY_SIZE: f32 = 14.0;
 const BODY_LINE_HEIGHT: f32 = 22.0;
-const MARKDOWN_RENDER_VERSION: u16 = 6;
+const MARKDOWN_RENDER_VERSION: u16 = 7;
 
 /// The ten colors of rendered Markdown. [`MarkdownColors::for_palette`] is
 /// the default; a host with its own inks passes them with [`Markdown::colors`].
@@ -194,7 +194,10 @@ pub struct MarkdownPreview {
 /// Markdown source as wrapped prose: headings, paragraphs, lists with
 /// checkboxes, quotes, fenced code and rules, with strong, emphasis, inline
 /// code and web links. The host owns the source and opens the links; code
-/// blocks are [`CodeBlock`]s on `palette`.
+/// blocks are [`CodeBlock`]s on `palette`. Their comments, strings, keywords
+/// and numbers are colored, in inks for a dark or a light palette, when the
+/// fence names a language [`CodeLanguage::from_code_fence`] knows and the code
+/// is within 64 KiB and 2,000 lines; other code stays plain.
 pub struct Markdown<'a> {
     source: &'a str,
     presentation: MarkdownPresentation,
@@ -566,6 +569,7 @@ fn render_inline_mode(
 
 fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation) -> Element {
     let mut block = CodeBlock::new(content, presentation.palette)
+        .language(CodeLanguage::from_code_fence(language))
         .word_wrap(presentation.code_word_wrap)
         .font_scale(presentation.scale())
         .label(if language.is_empty() {
@@ -1935,6 +1939,189 @@ mod tests {
             command,
             DrawCommand::Icon { icon: Icon::Github, .. }
         )));
+    }
+
+    /// The spans of the first code block in a tree; `None` when its code is plain text.
+    fn code_spans(element: &Element) -> Option<Vec<TextSpan>> {
+        match &element.kind {
+            ElementKind::FormattedText(spans) => Some(spans.clone()),
+            ElementKind::Column(children) | ElementKind::Row(children) => {
+                children.iter().find_map(code_spans)
+            }
+            ElementKind::Panel(child) | ElementKind::HorizontalScroll { child, .. } => {
+                code_spans(child)
+            }
+            _ => None,
+        }
+    }
+
+    fn joined(spans: &[TextSpan]) -> String {
+        spans.iter().map(|span| span.text.as_str()).collect()
+    }
+
+    #[test]
+    fn fenced_code_is_colored_by_its_language_and_keeps_its_text() {
+        let code = "// note\nfn main() { let s = \"hi\"; }";
+        let spans = code_spans(&render_markdown_at_width(
+            &format!("```rust\n{code}\n```"),
+            480.0,
+        ))
+        .expect("rust is highlighted");
+        assert_eq!(joined(&spans), code);
+        let ink = |text: &str| spans.iter().find(|span| span.text == text).unwrap().color;
+        let (comment, keyword, string) = (ink("// note"), ink("fn"), ink("\"hi\""));
+        assert_eq!(ink(" main() { "), palette().text);
+        for (a, b) in [(comment, keyword), (keyword, string), (string, comment)] {
+            assert_ne!(a, b);
+        }
+        assert!([comment, keyword, string]
+            .iter()
+            .all(|color| *color != palette().text));
+        assert!(spans
+            .iter()
+            .all(|span| span.font_family == FontFamily::Monospace
+                && span.font_size == TextRole::Caption.size()));
+        let scaled = code_spans(
+            &Markdown::new(&format!("```rust\n{code}\n```"), palette())
+                .font_size(21.0)
+                .render()
+                .element,
+        )
+        .unwrap();
+        assert!(scaled
+            .iter()
+            .all(|span| span.font_size == TextRole::Caption.size() * 1.5));
+
+        // The aliases a fence is written with, in every language the lexer knows.
+        for (fence, code) in [
+            ("rs", "let a = 1;"),
+            ("js", "const a = 1;"),
+            ("javascript", "return null;"),
+            ("ts", "let a: number = 1;"),
+            ("tsx", "export default 1;"),
+            ("py", "def f(): pass"),
+            ("python", "# note"),
+            ("json", "{\"a\": true}"),
+            ("toml", "a = 1 # note"),
+            ("css", "/* note */ a { color: red; }"),
+            ("html", "<a href=\"x\">"),
+            ("md", "```rust\nfn f() {}\n```"),
+        ] {
+            let source = format!("````{fence}\n{code}\n````");
+            let spans = code_spans(&render_markdown_at_width(&source, 480.0))
+                .unwrap_or_else(|| panic!("{fence} is highlighted"));
+            assert_eq!(joined(&spans), code, "{fence}");
+            assert!(
+                spans.iter().any(|span| span.color != palette().text),
+                "{fence}"
+            );
+        }
+    }
+
+    #[test]
+    fn unknown_or_missing_languages_and_code_with_nothing_to_color_stay_plain() {
+        for source in [
+            "```\nfn main() {}\n```",
+            "```brainfuck\nfn main() {}\n```",
+            "```text\nfn main() {}\n```",
+            "```rust\nmain()\n```",
+        ] {
+            let element = render_markdown_at_width(source, 480.0);
+            assert!(code_spans(&element).is_none(), "{source}");
+            let code = source.lines().nth(1).unwrap();
+            assert!(commands(element, 480.0).iter().any(|command| matches!(
+                command,
+                DrawCommand::Text { text, color, .. } if text == code && *color == palette().text
+            )));
+        }
+    }
+
+    #[test]
+    fn code_past_the_highlight_bounds_stays_plain() {
+        use crate::code_syntax::{MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_LINES};
+        let limits = MarkdownLimits {
+            source_chars: 4 * MAX_HIGHLIGHT_BYTES,
+            blocks: MAX_BLOCKS,
+        };
+        let spans = |code: &str| {
+            code_spans(
+                &Markdown::new(&format!("```rust\n{code}\n```"), palette())
+                    .limits(limits)
+                    .render()
+                    .element,
+            )
+        };
+        let lines = |count: usize| vec!["let x = 1;"; count].join("\n");
+        assert_eq!(
+            joined(&spans(&lines(MAX_HIGHLIGHT_LINES)).unwrap()),
+            lines(MAX_HIGHLIGHT_LINES)
+        );
+        assert!(spans(&lines(MAX_HIGHLIGHT_LINES + 1)).is_none());
+        // `let x = "` and `";` around the filler.
+        let long = |bytes: usize| format!("let x = \"{}\";", "a".repeat(bytes - 11));
+        assert_eq!(long(MAX_HIGHLIGHT_BYTES).len(), MAX_HIGHLIGHT_BYTES);
+        assert!(spans(&long(MAX_HIGHLIGHT_BYTES)).is_some());
+        assert!(spans(&long(MAX_HIGHLIGHT_BYTES + 1)).is_none());
+    }
+
+    #[test]
+    fn code_inks_read_on_dark_and_light_palettes_and_keep_the_block_height() {
+        let light = crate::Theme {
+            background: Color::rgb(255, 255, 255),
+            foreground: Color::rgb(24, 26, 31),
+            accent: Color::rgb(9, 105, 218),
+        };
+        let code = "// note\nlet s = \"hi\"; 42";
+        let mut inks = Vec::new();
+        let palettes = [
+            ComponentPalette::neutral_dark(),
+            crate::Theme::DARK.palette(),
+            light.palette(),
+            light.scheme().card(),
+        ];
+        for palette in palettes {
+            let source = format!("```rust\n{code}\n```");
+            let element = Markdown::new(&source, palette)
+                .width(480.0)
+                .render()
+                .element;
+            let colored: Vec<_> = code_spans(&element)
+                .unwrap()
+                .into_iter()
+                .filter(|span| span.color != palette.text)
+                .map(|span| span.color)
+                .collect();
+            assert_eq!(colored.len(), 4, "comment, keyword, string and number");
+            for color in &colored {
+                assert!(
+                    crate::chip::contrast(*color, palette.raised) >= 4.5,
+                    "{color:?} on {:?}",
+                    palette.raised
+                );
+            }
+            inks.push(colored);
+            // Colored code is set on the same lines as plain code.
+            let height = |element: Element| {
+                commands(element, 480.0)
+                    .into_iter()
+                    .find_map(|command| match command {
+                        DrawCommand::FillRect { rect, color, .. } if color == palette.raised => {
+                            Some(rect.height)
+                        }
+                        _ => None,
+                    })
+                    .unwrap()
+            };
+            let plain = format!("```\n{code}\n```");
+            let plain = Markdown::new(&plain, palette).width(480.0).render().element;
+            assert_eq!(height(element), height(plain));
+        }
+        assert_eq!(inks[0], inks[1]);
+        assert_eq!(inks[2], inks[3]);
+        assert!(inks[0]
+            .iter()
+            .zip(&inks[2])
+            .all(|(dark, light)| dark != light));
     }
 
     #[test]
