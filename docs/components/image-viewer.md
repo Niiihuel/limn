@@ -105,6 +105,18 @@ header, to zoom out, to fit the window and to zoom in. The host owns the
 level and answers each control by passing another `zoom`. Zoom out and fit
 are disabled at 1, and zoom in at the maximum.
 
+## Header actions
+
+```rust
+viewer.action("viewer-save", Icon::ArrowDown, "Save as…")
+```
+
+`action` adds one control of the host's own to the header, before the zoom
+controls: the icon, named and hinted with the given text, reporting its ID
+when clicked or activated by the keyboard. Each call adds one, in order; an
+empty ID adds nothing. The host answers it as it answers any other action,
+for example by saving the picture shown.
+
 ## Keyboard
 
 | Key | Does |
@@ -121,6 +133,7 @@ The close button has the focus when the viewer opens.
 | `UiAction::Clicked { id }` with the close ID | The close button, Escape, or a click on the scrim. |
 | `UiAction::Clicked { id }` with the previous or next ID | An arrow is clicked, or Left or Right is pressed. |
 | `UiAction::Clicked { id }` with a zoom ID | One of the three zoom controls is clicked. |
+| `UiAction::Clicked { id }` with a header action's ID | That control is clicked or activated. |
 
 ## Accessibility
 

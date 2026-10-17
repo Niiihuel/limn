@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- `ImageViewer::action(id, icon, name)`: controls of the host's own in the viewer's header, before the zoom controls, each reporting its ID, such as saving the picture shown. See [ImageViewer](docs/components/image-viewer.md#header-actions)
 - RUNE integration: preserve opt-in Composer file-drop targets and their floating-surface/modal checks; hosts still own validation and file access. Frame-derived files now use the indexed converter's unindexed prefix, superseding the integration's former after-input ordering without inventing native chronology.
 - `Element::shrink_height_to_fit`: opt-in height shrinking for a non-flex child of a column. Short content keeps its natural height; a bounded scroll area can yield room to a fixed footer without covering it. Marked children yield in order, minimums first and then toward zero if necessary; flexible siblings keep their minimum heights and share the rest by weight. Rows, unmarked columns and the width-only `shrink_to_fit` keep their behavior. `Style` adds public `shrink_height`, false by default; code building `Style` literally adds that field. The ScrollArea gallery shows short, tall and constrained content
 
