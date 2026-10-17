@@ -161,6 +161,7 @@ The egui backend exposes:
 | Function | Purpose |
 | --- | --- |
 | `install_fonts(&ctx)` | Installs the UI font. Once, at window creation. |
+| `font_definitions_with(UiFaces)` | The bundled fonts with the host's faces first for interface text, to install with `Context::set_fonts`. See [A font of the person's choice](theming.md#a-font-of-the-persons-choice). |
 | `attach_fonts(&mut tree, &ctx)` | Makes a tree measure with egui's fonts. Once per tree. |
 | `normalize_keyboard_input(&ctx)` | Fixes key and text events on remapped layouts. Each frame, before `events`. |
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
