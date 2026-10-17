@@ -3296,14 +3296,24 @@ impl UiTree {
     /// Move the caret without changing focus or replacing text. Autocomplete
     /// uses this after inserting a token in the middle of a multiline draft.
     pub fn set_input_cursor(&mut self, id: &str, cursor: usize) {
+        self.set_input_selection(id, cursor, cursor);
+    }
+
+    /// Select the Unicode characters `start..end` of a text input or text
+    /// area without changing focus or replacing text: the anchor at `start`
+    /// and the caret at `end`, each kept within the text. Equal ends leave
+    /// only the caret there. A composer uses this to keep words selected
+    /// after wrapping them in markers. A field not laid out yet is left alone.
+    pub fn set_input_selection(&mut self, id: &str, start: usize, end: usize) {
         if let Some(state) = self.inputs.get_mut(id) {
-            let cursor = cursor.min(state.value.chars().count());
-            if self.focused.as_deref() == Some(id)
-                && (state.cursor != cursor || state.selected_range().is_some())
-            {
+            let count = state.value.chars().count();
+            let cursor = end.min(count);
+            let anchor = Some(start.min(count)).filter(|anchor| *anchor != cursor);
+            let current = state.anchor.filter(|anchor| *anchor != state.cursor);
+            if self.focused.as_deref() == Some(id) && (state.cursor, current) != (cursor, anchor) {
                 self.caret_blink.reset();
             }
-            state.set_selection(cursor, None);
+            state.set_selection(cursor, anchor);
             state.keep_cursor_visible = true;
             state.desired_column = None;
         }
@@ -16004,6 +16014,43 @@ mod tests {
             }]
         );
         assert_eq!(tree.input_value("prompt"), Some("uno\ndos"));
+    }
+
+    #[test]
+    fn set_input_selection_selects_characters_and_typing_replaces_them() {
+        let area = || Element::text_area("prompt", "a **ñandú** b", "Ask").size(None, Some(88.0));
+        let mut tree = UiTree::new(area());
+        tree.layout(Size::new(240.0, 88.0));
+        tree.set_input_selection("prompt", 4, 9);
+        assert_eq!(tree.focused_id(), None, "selecting does not focus");
+        assert_eq!(tree.input_selection("prompt"), Some((4, 9)));
+        assert_eq!(tree.input_cursor("prompt"), Some(9));
+        // The caret stays at `end`, before the anchor here.
+        tree.set_input_selection("prompt", 9, 4);
+        assert_eq!(tree.input_selection("prompt"), Some((4, 9)));
+        assert_eq!(tree.input_cursor("prompt"), Some(4));
+        // Both ends are kept within the 13 characters.
+        tree.set_input_selection("prompt", 11, 99);
+        assert_eq!(tree.input_selection("prompt"), Some((11, 13)));
+        tree.set_input_selection("prompt", 99, 99);
+        assert_eq!(tree.input_selection("prompt"), Some((13, 13)));
+        tree.set_input_selection("prompt", 2, 2);
+        assert_eq!(tree.input_selection("prompt"), Some((2, 2)));
+        tree.set_input_selection("missing", 0, 1);
+        assert_eq!(tree.input_selection("missing"), None);
+
+        assert!(tree.focus("prompt"));
+        tree.set_input_selection("prompt", 4, 9);
+        assert_eq!(tree.focused_id(), Some("prompt"));
+        assert_eq!(tree.input_value("prompt"), Some("a **ñandú** b"));
+        assert_eq!(
+            tree.handle_event(UiEvent::Text("emú".into())),
+            vec![UiAction::InputChanged {
+                id: "prompt".into(),
+                value: "a **emú** b".into(),
+            }]
+        );
+        assert_eq!(tree.input_selection("prompt"), Some((7, 7)));
     }
 
     #[test]
