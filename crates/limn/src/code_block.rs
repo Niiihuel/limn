@@ -2,7 +2,10 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::{Component, ComponentPalette, Element, FontFamily, RadiusRole, TextRole, TextSpan};
+use crate::code_syntax::highlight_spans;
+use crate::{
+    CodeLanguage, Component, ComponentPalette, Element, FontFamily, RadiusRole, TextRole, TextSpan,
+};
 
 /// The type of a [`CodeBlock`]: the label's role and family, and the role of
 /// the code, which is always monospaced.
@@ -45,6 +48,7 @@ pub struct CodeBlock {
     font_scale: f32,
     word_wrap: bool,
     id: Option<String>,
+    language: CodeLanguage,
 }
 
 impl CodeBlock {
@@ -61,6 +65,7 @@ impl CodeBlock {
             font_scale: 1.0,
             word_wrap: true,
             id: None,
+            language: CodeLanguage::Plain,
         }
     }
 
@@ -103,6 +108,12 @@ impl CodeBlock {
 
     pub(crate) fn font_scale(mut self, scale: f32) -> Self {
         self.font_scale = scale;
+        self
+    }
+
+    /// Color the plain text with the line lexer for `language`, within its bounds.
+    pub(crate) fn language(mut self, language: CodeLanguage) -> Self {
+        self.language = language;
         self
     }
 
@@ -157,10 +168,19 @@ impl Component for CodeBlock {
                 }
                 Element::formatted_text(spans)
             },
-            None => Element::text(self.text)
+            None => {
+                let size = self
+                    .font_size
+                    .unwrap_or_else(|| self.sizing.code.size() * self.font_scale);
+                // Set like the plain text, so coloring changes no line height.
+                match highlight_spans(&self.text, self.language, self.palette, size) {
+                    Some(spans) => Element::formatted_text(spans),
+                    None => Element::text(self.text),
+                }
                 .font_family(FontFamily::Monospace)
-                .font_size(self.font_size.unwrap_or_else(|| self.sizing.code.size() * self.font_scale))
-                .foreground(self.palette.text),
+                .font_size(size)
+                .foreground(self.palette.text)
+            }
         };
         let code = if self.word_wrap { code } else {
             Element::horizontal_scroll_2d(self.id.unwrap_or_else(anonymous_code_scroll_id), code)

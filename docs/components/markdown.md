@@ -138,6 +138,21 @@ preview.
 `colors(MarkdownColors)` replaces the colors derived from the palette.
 `MarkdownColors::for_palette(palette)` is the default to start from.
 
+## Highlighted code
+
+````rust
+let source = "```rust\nfn main() {\n    println!(\"hi\"); // greet\n}\n```";
+Markdown::new(source, palette).render()
+````
+
+A fence in a language limn's line lexer knows, such as `rust`, `js`, `ts`,
+`py`, `json`, `toml`, `css`, `html` or `md`, has its comments, strings,
+keywords and numbers colored, with or without the `syntax` feature. The inks
+follow the palette, dark or light, not `MarkdownColors`. A fence with no
+language or another one stays plain, and so does code longer than 64 KiB or
+2,000 lines, so a long message is not held up. The full list of labels is in
+[Components](../components.md#highlighted-code).
+
 ## Literal text with links
 
 ```rust

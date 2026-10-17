@@ -7,6 +7,8 @@ const STREAMING: &str = "The result arrives in parts.\n\n- First item already **
 
 const SIZED: &str = "## Release notes\n\nThe **build** passes in `ci.yml`; see the [log](https://example.com/log).\n\n1. Update the lockfile\n2. Tag the release\n\n> Ship it on Friday.\n\n```sh\ncargo publish\n```";
 
+const HIGHLIGHTED: &str = "```rust\n// The fence names the language.\nfn total(items: &[u32]) -> u32 {\n    items.iter().sum::<u32>() + 1\n}\n```\n\n```py\ndef greet(name):\n    return f\"Hello, {name}\"  # a comment\n```\n\n```json\n{\"name\": \"limn\", \"stable\": false, \"version\": 0.1}\n```\n\n```sh\n# No lexer for this one: plain text\ncargo test -p limn\n```";
+
 const PLAIN: &str = "**This is not bold**: check https://github.com/rust-lang/rust and https://example.com/docs, not `src/main.rs`.";
 
 fn link(cx: &Cx, written: &str) -> Element {
@@ -37,6 +39,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(width)
                 .labels(labels)
                 .link_action_prefix("markdown-complete:")
+                .render()
+                .element,
+        ]),
+        section(cx, "Highlighted code", vec![
+            caption(cx, "Fenced code in a language the line lexer knows is colored, in either theme; any other stays plain"),
+            Markdown::new(HIGHLIGHTED, palette)
+                .width(width)
+                .link_action_prefix("markdown-code:")
                 .render()
                 .element,
         ]),
