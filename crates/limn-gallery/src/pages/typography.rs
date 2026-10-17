@@ -60,6 +60,26 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .font_size(15.0)
                 .foreground(palette.text)
         }).collect()),
+        section(cx, "Gradient ink", vec![
+            caption(cx, ".foreground_gradient(stops): a name in the colors of its role"),
+            Element::text("Two colors, left to right")
+                .font_family(limn::FontFamily::SansBold)
+                .font_size(18.0)
+                .foreground_gradient(vec![limn::Color::rgb(0xE0, 0x6C, 0x75), limn::Color::rgb(0xE5, 0xC0, 0x7B)]),
+            Element::text("Three colors, holographic")
+                .font_family(limn::FontFamily::SansBold)
+                .font_size(18.0)
+                .foreground_gradient(vec![
+                    limn::Color::rgb(0xA9, 0xC9, 0xFF),
+                    limn::Color::rgb(0xFF, 0xBB, 0xEC),
+                    limn::Color::rgb(0xFF, 0xC3, 0xA0),
+                ]),
+            caption(cx, "Cut short, the gradient spans what is painted"),
+            Element::truncated_text(long)
+                .font_size(15.0)
+                .foreground_gradient(vec![palette.muted, palette.text])
+                .size(Some(width.min(240.0)), None),
+        ]),
         section(cx, "Long text", vec![
             Element::column(vec![
                 caption(cx, "truncate() with tooltip()"),
