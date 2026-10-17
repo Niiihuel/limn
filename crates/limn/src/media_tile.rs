@@ -1,7 +1,7 @@
 //! A tile of a grid or a shelf of albums and artists: square artwork over a
 //! title and a second line, all under one hover surface.
 
-use crate::{Access, Component, ComponentPalette, Element, Icon, RadiusRole, Role, Text, TextRole};
+use crate::{Access, Component, ComponentPalette, ControlSize, Element, Icon, IconButton, RadiusRole, Role, Text, TextRole};
 
 const DEFAULT_WIDTH: f32 = 160.0;
 const MIN_WIDTH: f32 = 48.0;
@@ -12,6 +12,8 @@ const COPY_GAP: f32 = 2.0;
 const NOTE_SHARE: f32 = 0.3;
 /// The artwork and the hover fill round alike, so their top corners meet.
 const RADIUS: RadiusRole = RadiusRole::Card;
+/// How far the play button stands in from the artwork's bottom corner.
+const PLAY_INSET: f32 = 8.0;
 
 /// The host owns the artwork and the action: the tile reports a click on its
 /// ID from anywhere on it, hovering to `palette.hover` and pressing to
@@ -24,6 +26,9 @@ pub struct MediaTile {
     width: f32,
     round: bool,
     enabled: bool,
+    padding: f32,
+    play: Option<(String, String)>,
+    playing: bool,
     palette: ComponentPalette,
 }
 
@@ -38,6 +43,9 @@ impl MediaTile {
             width: DEFAULT_WIDTH,
             round: false,
             enabled: true,
+            padding: 0.0,
+            play: None,
+            playing: false,
             palette,
         }
     }
@@ -83,12 +91,37 @@ impl MediaTile {
     pub fn disabled(self) -> Self {
         self.enabled(false)
     }
+
+    /// Stand the artwork and its copy this far inside the tile, so the hover
+    /// fill frames them as a card. None by default, and never more than a
+    /// quarter of the width. Values that are not finite are ignored.
+    pub fn padding(mut self, padding: f32) -> Self {
+        if padding.is_finite() {
+            self.padding = padding.max(0.0);
+        }
+        self
+    }
+
+    /// A round play button over the artwork's bottom corner, named `label`,
+    /// that reports `id` and rises into view under the pointer. The tile's
+    /// own click is untouched.
+    pub fn play(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.play = Some((id.into(), label.into()));
+        self
+    }
+
+    /// What the tile stands for plays: its play button is a pause and stays.
+    pub fn playing(mut self, playing: bool) -> Self {
+        self.playing = playing;
+        self
+    }
 }
 
 impl Component for MediaTile {
     fn render(self) -> Element {
         let palette = self.palette;
-        let side = self.width;
+        let inset = self.padding.min(self.width / 4.0);
+        let side = self.width - 2.0 * inset;
         let round = self.round;
         let artwork = self
             .artwork
@@ -114,16 +147,34 @@ impl Component for MediaTile {
         if !self.subtitle.is_empty() {
             copy.push(line(Text::new(self.subtitle, palette).muted()));
         }
-        let content = Element::column(vec![
-            artwork,
-            Element::column(copy).gap(COPY_GAP).padding(COPY_PADDING),
-        ]);
+        let play = self.play.filter(|_| self.enabled);
+        let artwork = match &play {
+            Some((id, label)) => {
+                let icon = if self.playing { Icon::PauseFill } else { Icon::PlayFill };
+                let button = IconButton::new(id, icon, palette).size(ControlSize::Spacious).round().accessibility_label(label).render();
+                let corner = Element::column(vec![Element::spacer().flex(1.0), Element::row(vec![Element::spacer().flex(1.0), button])]).padding(PLAY_INSET);
+                let corner = if self.playing { corner } else { corner.rise_on_hover(format!("{id}:rise")) };
+                Element::stack(vec![artwork, corner])
+            }
+            None => artwork,
+        };
+        // Inset, the copy lines up with the artwork and the tile's padding frames both.
+        let copy = Element::column(copy).gap(COPY_GAP);
+        let content = if inset > 0.0 {
+            Element::column(vec![artwork, Element::spacer().size(None, Some(COPY_PADDING)), copy]).padding(inset)
+        } else {
+            Element::column(vec![artwork, copy.padding(COPY_PADDING)])
+        };
         if self.enabled {
-            palette.interactive_surface(Element::clickable(self.id, content).accessible(said))
+            let tile = Element::clickable(self.id, content).accessible(said);
+            match play {
+                Some((id, _)) => palette.interactive_surface(tile.hover_with(id)).hover_region(),
+                None => palette.interactive_surface(tile),
+            }
         } else {
             Element::panel(content).accessible(said.id(self.id).disabled(true))
         }
-        .size(Some(side), None)
+        .size(Some(self.width), None)
         .radius(RADIUS.px())
     }
 }
@@ -270,6 +321,30 @@ mod tests {
         let enabled = tree_of(tile(true)).layout(window());
         let places = |frame: &Frame| texts(frame).iter().map(|line| line.1).collect::<Vec<_>>();
         assert_eq!(places(&frame), places(&enabled));
+    }
+
+    #[test]
+    fn a_play_button_rises_over_the_inset_artwork_under_the_pointer_and_reports_its_own_id() {
+        let tile = |playing| MediaTile::new("tile", TITLE, palette()).subtitle(ARTIST).padding(12.0).play("tile:play", "Play").playing(playing);
+        let mut tree = tree_of(tile(false));
+        let frame = tree.layout(window());
+        let button = frame.regions.iter().find(|region| region.id == "tile:play").expect("the play button takes the pointer").rect;
+        let whole = frame.regions.iter().find(|region| region.id == "tile").unwrap().rect;
+        assert_eq!(whole.width, DEFAULT_WIDTH, "the padding is inside the tile");
+        let art = DEFAULT_WIDTH - 24.0;
+        assert_eq!((button.x + button.width, button.y + button.height), (12.0 + art - PLAY_INSET, 12.0 + art - PLAY_INSET));
+        let ink = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Icon { icon: Icon::PlayFill | Icon::PauseFill, tint, .. } => Some(tint.a),
+            _ => None,
+        }).unwrap_or(0);
+        assert_eq!(ink(&frame), 0, "hidden at rest");
+        let center = Point::new(button.x + button.width / 2.0, button.y + button.height / 2.0);
+        tree.handle_event(UiEvent::PointerMove(center));
+        assert!(ink(&tree.layout(window())) > 0, "shown under the pointer");
+        tree.handle_event(UiEvent::PointerDown(center));
+        assert_eq!(tree.handle_event(UiEvent::PointerUp(center)), vec![UiAction::Clicked { id: "tile:play".into() }]);
+        let playing = tree_of(tile(true)).layout(window());
+        assert!(ink(&playing) > 0, "a tile that plays keeps its pause in view");
     }
 
     #[test]
