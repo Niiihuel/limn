@@ -64,6 +64,21 @@ either way. The host clears the field after sending with
 the composer's editor, and `Element::text_area_enter_submits` for a bare
 `Element::text_area`.
 
+## Caret and selection
+
+```rust
+tree.set_input_value("message", "Make it **bold**");
+tree.set_input_selection("message", 10, 14);
+assert_eq!(tree.input_selection("message"), Some((10, 14)));
+```
+
+`set_input_selection(id, start, end)` selects the characters `start..end`:
+the anchor at `start` and the caret at `end`. `set_input_cursor(id, at)`
+moves the caret alone. Neither moves the focus or changes the text, and both
+count Unicode characters and stop at the end of the text. `input_selection`
+and `input_cursor` read them back. A composer that wraps the selection in
+`**` for Ctrl+B uses them to keep the words inside selected.
+
 ## Line endings
 
 `preserve_line_endings(true)` keeps CRLF and CR line endings through editing
