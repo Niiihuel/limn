@@ -124,6 +124,18 @@ pub enum TooltipSection {
     /// A hairline in the border color before the next block. A repeated or
     /// trailing one is ignored.
     Separator,
+    /// An optional icon, then people's faces as one group: round pictures
+    /// [`TOOLTIP_FACE`] wide that overlap by [`TOOLTIP_FACE_OVERLAP`], each
+    /// cut from the one before by a ring of the tooltip's fill, and «+N»
+    /// for `more` not shown. Without faces nothing is drawn.
+    Faces {
+        /// Drawn before the faces, [`TOOLTIP_FACE_ICON`] wide.
+        icon: Option<Icon>,
+        /// In order; the ones that do not fit the row join `more`.
+        faces: Vec<TooltipFace>,
+        /// People not among `faces`, said as «+N»; 0 says nothing.
+        more: usize,
+    },
     /// A wrapped paragraph in the muted color, slightly smaller. Blank text
     /// is left out.
     Footer(String),
@@ -164,6 +176,42 @@ impl TooltipItem {
     /// Give the item an icon.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+}
+
+/// The side of a face in a tooltip's row of faces.
+pub const TOOLTIP_FACE: f32 = 24.0;
+/// How far a face of that row overlaps the one before it.
+pub const TOOLTIP_FACE_OVERLAP: f32 = 6.0;
+/// The side of the icon that leads that row; 8 more stand before the faces.
+pub const TOOLTIP_FACE_ICON: f32 = 20.0;
+
+/// Someone in a tooltip's row of faces: their picture or, while it loads or
+/// when they have none, their initial on their color.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TooltipFace {
+    /// Who they are. Its first letter stands in for the picture.
+    pub name: String,
+    /// Their picture, drawn round. A host passes it already fitted (cover).
+    pub image: Option<RasterImage>,
+    /// The ground of their initial.
+    pub color: Color,
+}
+
+impl TooltipFace {
+    /// Someone shown by their initial on `color`.
+    pub fn new(name: impl Into<String>, color: Color) -> Self {
+        Self {
+            name: name.into(),
+            image: None,
+            color,
+        }
+    }
+
+    /// Show their picture instead of the initial.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(image);
         self
     }
 }

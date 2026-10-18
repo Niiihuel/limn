@@ -60,6 +60,31 @@ that wraps, `separator` a hairline between two sections and `footer`
 secondary information. `icon_row(label, items)` adds a row of labelled icons
 built from `TooltipItem`s. Empty text is ignored.
 
+## Faces
+
+```rust
+Tooltip::new(anchor, "server", "Rust workshop", palette)
+    .placement(TooltipPlacement::Right)
+    .faces(
+        Some(Icon::Volume),
+        people.iter().map(|person| match &person.picture {
+            Some(picture) => TooltipFace::new(&person.name, person.color).image(picture.clone()),
+            None => TooltipFace::new(&person.name, person.color),
+        }),
+        not_shown,
+    )
+    .render()
+```
+
+`faces(icon, faces, more)` adds a row for who is somewhere, such as in a
+call: the icon (`TOOLTIP_FACE_ICON`, 20 px), then round pictures
+`TOOLTIP_FACE` (24 px) wide that overlap by `TOOLTIP_FACE_OVERLAP` (6 px),
+each cut from the one before by a ring of the tooltip's fill, and «+N» in a
+pill for `more`. A face without a picture shows its initial on its color;
+pass pictures already fitted (`RasterImage::cover`). Faces that do not fit
+the hint's width join «+N». A row without faces is not added. Like the rest
+of the hint it is passive: nothing in it can be clicked.
+
 ## Placement
 
 ```rust

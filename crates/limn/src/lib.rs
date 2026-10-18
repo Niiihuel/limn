@@ -176,7 +176,7 @@ pub use element::{
     LinePlot,
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
-    SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipItem, TooltipPlacement, TooltipSection,
+    SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipFace, TooltipItem, TooltipPlacement, TooltipSection, TOOLTIP_FACE, TOOLTIP_FACE_ICON, TOOLTIP_FACE_OVERLAP,
     TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 pub use empty::Empty;
