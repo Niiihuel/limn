@@ -177,10 +177,11 @@ wrap the window's root element, since they cover the whole window.
 ## Markdown
 
 Renders a bounded subset of Markdown as an ordinary element tree: headings of
-three levels, paragraphs, bulleted, numbered and checked lists, quotes, fenced
-code and rules, with strong, emphasis, inline code and web links. Use it for
-text that arrives as Markdown, such as a message, including while it is still
-being written.
+three levels, paragraphs, bulleted, numbered and checked lists, quotes,
+subtext lines (`-# `), fenced code and rules, with strong, emphasis, bold
+italic, underline (`__x__`), strikethrough (`~~x~~`), inline code and web
+links. Use it for text that arrives as Markdown, such as a message,
+including while it is still being written.
 
 ### Example
 
@@ -195,7 +196,7 @@ let preview = Markdown::new(source, palette).width(reading_width).render();
 | --- | --- |
 | `.width(px)` | The reading column, kept between 48 and 1,200; 600 unless set or when not finite. |
 | `.font_size(px)` | The body text, 14 unless set; headings, code, list markers, line heights and the space between blocks keep their proportion to it. Kept between 8 and 96; a size that is not finite and positive is ignored. |
-| `.colors(MarkdownColors)` | The ten inks and fills: `text`, `strong`, `emphasis`, `link`, `code_ink`, `code_fill`, `muted`, `success`, `panel`, `border`. The default, `MarkdownColors::for_palette`, reads the palette and paints strong text like body text. |
+| `.colors(MarkdownColors)` | The ten inks and fills: `text`, `strong`, `emphasis`, `link`, `code_ink`, `code_fill`, `muted`, `success`, `panel`, `border`. The default, `MarkdownColors::for_palette`, reads the palette and paints strong text like body text, in the bold face. |
 | `.streaming(bool)` | The source is still growing: an unclosed delimiter at its end already styles its text, a half-written fence is held back, and a web address at the end has no action until it is delimited. |
 | `.link_action_prefix(text)` | The start of every link action; `markdown_link:` unless set. |
 | `.labels(MarkdownLabels)` | `code_fallback`, the label of a code block with no language; `truncated_note`, the muted line under a cut preview; `diagram`, the label of a drawn diagram; `show_source` and `show_diagram`, the action that switches a diagram to its source and back; and `expand`, the action that opens a diagram over the window. English unless set. |

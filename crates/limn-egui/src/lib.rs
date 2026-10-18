@@ -1838,6 +1838,10 @@ fn paint_at_impl(
                     FontFamily::SansMedium | FontFamily::SansBold => {
                         (FontId::new(*font_size, egui_family(ui.ctx(), *font_family)), false)
                     }
+                    // The bold face slanted, as SansItalic slants the regular one.
+                    FontFamily::SansBoldItalic => {
+                        (FontId::new(*font_size, egui_family(ui.ctx(), *font_family)), true)
+                    }
                     // egui slants the regular face, so advances match Sans.
                     FontFamily::SansItalic => (FontId::proportional(*font_size), true),
                 };
@@ -2480,7 +2484,8 @@ pub struct UiFaces {
     pub regular: egui::FontData,
     /// The face of [`FontFamily::SansMedium`]; `None` uses `regular`.
     pub medium: Option<egui::FontData>,
-    /// The face of [`FontFamily::SansBold`]; `None` uses `regular`.
+    /// The face of [`FontFamily::SansBold`] and [`FontFamily::SansBoldItalic`];
+    /// `None` uses `regular`.
     pub bold: Option<egui::FontData>,
 }
 
@@ -2517,7 +2522,7 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
         FontFamily::Monospace => return egui::FontFamily::Monospace,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
-        FontFamily::SansBold => SANS_BOLD,
+        FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
     };
     let named = egui::FontFamily::Name(weighted.into());
     if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {

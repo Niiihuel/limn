@@ -573,6 +573,9 @@ pub enum FontFamily {
     SansMedium,
     /// The bold face of the sans family; see [`Self::SansMedium`].
     SansBold,
+    /// [`Self::SansBold`] slanted by the host. It measures exactly as
+    /// `SansBold`.
+    SansBoldItalic,
 }
 
 /// One inline style run in a paragraph. Width is measured by the same host
@@ -600,6 +603,22 @@ pub struct TextSpan {
     /// A picture painted in place of the text, such as a custom emoji; see
     /// [`Self::image`]. `None` paints the text.
     pub image: Option<InlineImage>,
+    /// A line under the text, in its ink; see [`Self::underline`].
+    pub underline: bool,
+    /// A line through the text, in its ink; see [`Self::strikethrough`].
+    pub strikethrough: bool,
+    /// A hint shown over the run while the pointer rests on it; see
+    /// [`Self::tooltip`]. `None` shows none.
+    pub tooltip: Option<TextHint>,
+}
+
+/// The hint of a [`TextSpan`]: a title in a tooltip's colors.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TextHint {
+    /// What the hint says. It wraps when it holds a line break.
+    pub title: String,
+    /// The colors it is painted with.
+    pub colors: TooltipStyle,
 }
 
 /// A picture in a line of text, painted in place of its [`TextSpan`]'s
@@ -640,6 +659,9 @@ impl TextSpan {
             action: None,
             icon: None,
             image: None,
+            underline: false,
+            strikethrough: false,
+            tooltip: None,
         }
     }
 
@@ -681,6 +703,35 @@ impl TextSpan {
         self.image = Some(InlineImage::Surface(id.into()));
         self
     }
+
+    /// Draw a line under the text, in its ink, one pixel thick for every
+    /// 14 of `font_size`. It follows the text across wrapped lines and is
+    /// not drawn under a picture or an icon.
+    pub fn underline(mut self) -> Self {
+        self.underline = true;
+        self
+    }
+
+    /// Draw a line through the middle of the text, in its ink, as thick as
+    /// [`Self::underline`]'s.
+    pub fn strikethrough(mut self) -> Self {
+        self.strikethrough = true;
+        self
+    }
+
+    /// Show `title` in a hint over the run while the pointer rests on it, in
+    /// the colors of `palette`'s tooltips, as [`crate::Tooltip`] shows one
+    /// over a control: after the same delay, above the part of the run under
+    /// the pointer. A run with an [`Self::action`] also shows it while it has
+    /// the keyboard focus. A blank title shows none.
+    pub fn tooltip(mut self, title: impl Into<String>, palette: crate::ComponentPalette) -> Self {
+        let title = title.into();
+        self.tooltip = (!title.trim().is_empty()).then(|| TextHint {
+            title,
+            colors: palette.tooltip_style(),
+        });
+        self
+    }
 }
 
 /// Paint-only emphasis in editable text, using Unicode character offsets.
@@ -694,6 +745,10 @@ pub struct TextHighlight {
     pub color: Color,
     /// Slant the range, as for text that is not committed yet.
     pub italic: bool,
+    /// Fill behind the range, with rounded corners, such as a mention drawn
+    /// as the pill it becomes once sent. It covers the characters' advances
+    /// and the line's height. `None` paints none.
+    pub background: Option<Color>,
 }
 
 /// The color of an outline and its width in logical pixels.
@@ -1886,6 +1941,9 @@ pub struct Style {
     pub line_height: Option<f32>,
     /// Side of a standalone icon; `None` is the standard 16 px.
     pub icon_side: Option<f32>,
+    /// Most lines a formatted text shows; set by [`Element::max_lines`].
+    /// `None` shows them all.
+    pub max_lines: Option<usize>,
 }
 
 impl Default for Style {
@@ -1931,6 +1989,7 @@ impl Default for Style {
             font_family: FontFamily::Monospace,
             line_height: None,
             icon_side: None,
+            max_lines: None,
         }
     }
 }
@@ -3738,6 +3797,16 @@ impl Element {
         if height.is_finite() {
             self.style.max_height = Some(height.max(0.0));
         }
+        self
+    }
+
+    /// Show at most `lines` lines of a formatted text, at least one: what
+    /// follows is left out and the last line shown ends in «…», in the ink,
+    /// size and face of the text before it, giving up the end of that line
+    /// to make room. The «…» is not part of the text a selection copies.
+    /// Other elements ignore it.
+    pub fn max_lines(mut self, lines: usize) -> Self {
+        self.style.max_lines = Some(lines.max(1));
         self
     }
 

@@ -9,6 +9,8 @@ const SIZED: &str = "## Release notes\n\nThe **build** passes in `ci.yml`; see t
 
 const HIGHLIGHTED: &str = "```rust\n// The fence names the language.\nfn total(items: &[u32]) -> u32 {\n    items.iter().sum::<u32>() + 1\n}\n```\n\n```py\ndef greet(name):\n    return f\"Hello, {name}\"  # a comment\n```\n\n```json\n{\"name\": \"limn\", \"stable\": false, \"version\": 0.1}\n```\n\n```sh\n# No lexer for this one: plain text\ncargo test -p limn\n```";
 
+const CHAT: &str = "**Bold**, *italic*, ***both***, __underlined__, ~~struck through~~ and __**marks inside marks**__.\n-# Subtext: small and quiet, as a footnote under a message.";
+
 const PLAIN: &str = "**This is not bold**: check https://github.com/rust-lang/rust and https://example.com/docs, not `src/main.rs`.";
 
 fn link(cx: &Cx, written: &str) -> Element {
@@ -39,6 +41,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(width)
                 .labels(labels)
                 .link_action_prefix("markdown-complete:")
+                .render()
+                .element,
+        ]),
+        section(cx, "Chat marks", vec![
+            caption(cx, "__underline__, ~~strikethrough~~, ***bold italic*** and -# subtext lines, as chat clients write them"),
+            Markdown::new(CHAT, palette)
+                .width(width)
+                .link_action_prefix("markdown-chat:")
                 .render()
                 .element,
         ]),

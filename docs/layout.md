@@ -245,6 +245,27 @@ reader reads: `:party:` here. A selection takes the picture whole or not at
 all. An `action` makes the picture a target, as on text. `background` and
 `icon` are not painted on such a span.
 
+### Marks, hints and a limit of lines
+
+```rust
+Element::formatted_text(vec![
+    TextSpan::new("gone", palette.text, 14.0, FontFamily::Sans).strikethrough(),
+    TextSpan::new(" (edited)", palette.muted, 11.0, FontFamily::Sans)
+        .tooltip("Edited Tuesday at 22:15", palette),
+])
+.max_lines(2);
+```
+
+| Builder | Effect |
+| --- | --- |
+| `TextSpan::underline()` | A line under the run, in its ink, one pixel thick for every 14 of its `font_size`, on every line the run wraps onto. |
+| `TextSpan::strikethrough()` | The same line through the middle of the run. |
+| `TextSpan::tooltip(title, palette)` | A hint over the run in `palette`'s tooltip colors, after the same delay as a `Tooltip`, above the part of the run under the pointer. A run with an `action` also shows it while it has the keyboard focus; one without is a passive hover target that leaves presses to the text, so it can still be selected. A blank title shows none. |
+| `Element::max_lines(n)` | Shows at most `n` lines (at least one) of a formatted text. When more follow, the last line ends in «…» in the style of the run before it, giving up its end, and any space there, to make room. The «…» is not part of the text a selection copies. |
+
+The lines are not drawn under a picture or an icon. `FontFamily::SansBoldItalic`
+is the bold face slanted, measured as `SansBold`.
+
 ### Sticky children
 
 A child of a column inside a scroll area can stay in view while the rows
