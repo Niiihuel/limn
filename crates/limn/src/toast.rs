@@ -1,8 +1,8 @@
 //! A brief, caller-timed card announcing an event in a corner of the window.
 
 use crate::{
-    Access, AlertColors, AlertTone, ButtonSize, ButtonVariant, Component, ComponentPalette,
-    Element, FontFamily, Icon, IconButton, Point, Role,
+    Access, AlertColors, AlertTone, Button, ButtonSize, ButtonVariant, Component,
+    ComponentPalette, ControlSize, Element, FontFamily, Icon, IconButton, Point, Progress, Role,
 };
 
 const EDGE_INSET: f32 = 12.0;
@@ -18,6 +18,9 @@ pub struct Toast {
     action: Option<String>,
     dismiss: Option<String>,
     width: f32,
+    icon: Option<Icon>,
+    buttons: Vec<(String, String)>,
+    progress: Option<f32>,
 }
 
 impl Toast {
@@ -32,6 +35,9 @@ impl Toast {
             action: None,
             dismiss: None,
             width: 360.0,
+            icon: None,
+            buttons: Vec::new(),
+            progress: None,
         }
     }
 
@@ -65,6 +71,27 @@ impl Toast {
     /// Adds a close button dispatching `id`.
     pub fn dismissible(mut self, id: impl Into<String>) -> Self {
         self.dismiss = Some(id.into());
+        self
+    }
+
+    /// A glyph before the copy, in the tone's colour: what kind of notice it is.
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Adds a button under the copy, at the card's right edge, dispatching
+    /// `id`. The first one added is the primary action and the rest are
+    /// secondary, in the order added.
+    pub fn button(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.buttons.push((id.into(), label.into()));
+        self
+    }
+
+    /// A thin bar along the card's lower edge with the share of work done,
+    /// from 0 to 1, as [`Progress`] takes it.
+    pub fn progress(mut self, fraction: f32) -> Self {
+        self.progress = Some(fraction);
         self
     }
 
@@ -140,7 +167,21 @@ impl Component for Toast {
                 .interactive_surface(Element::clickable(id, copy)),
             None => copy,
         };
-        let mut cells = vec![copy.flex(1.0)];
+        let mut cells = Vec::new();
+        if let Some(icon) = self.icon {
+            // Level with the title's first line, however far the copy wraps.
+            let tint = if self.tone == AlertTone::Neutral {
+                self.palette.muted
+            } else {
+                colors.accent
+            };
+            cells.push(Element::spacer().size(Some(12.0), None));
+            cells.push(Element::column(vec![
+                Element::spacer().size(None, Some(13.0)),
+                Element::icon(icon).foreground(tint).size(Some(16.0), Some(16.0)),
+            ]));
+        }
+        cells.push(copy.flex(1.0));
         if let Some(id) = self.dismiss {
             // The row stretches its cells, so the button is held in the middle
             // of the card: its hover square stays centered on the glyph and on
@@ -156,8 +197,27 @@ impl Component for Toast {
             ]));
             cells.push(Element::spacer().size(Some(8.0), None));
         }
-        Element::row(cells)
-            .gap(2.0)
+        let mut card = vec![Element::row(cells).gap(2.0)];
+        if !self.buttons.is_empty() {
+            let mut row = vec![Element::spacer().flex(1.0)];
+            let edge = || Element::spacer().size(Some(12.0), Some(12.0));
+            for (index, (id, label)) in self.buttons.into_iter().enumerate() {
+                row.push(
+                    Button::new(id, label, self.palette)
+                        .variant(if index == 0 { ButtonVariant::Default } else { ButtonVariant::Secondary })
+                        .size(ControlSize::Dense)
+                        .render(),
+                );
+            }
+            row.push(edge());
+            card.push(Element::row(row).gap(6.0));
+            card.push(edge());
+        }
+        if let Some(fraction) = self.progress {
+            card.push(Progress::new(fraction, self.palette).height(2.0).flat().render());
+        }
+        Element::column(card)
+            .clip_children()
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
             .radius(crate::components::surface_radius())
@@ -257,6 +317,58 @@ mod tests {
                 tree.handle_event(UiEvent::PointerUp(point)),
                 [UiAction::Clicked { id: id.into() }]
             );
+        }
+    }
+
+    #[test]
+    fn buttons_sit_under_the_copy_primary_first_and_the_progress_bar_spans_the_lower_edge() {
+        let palette = ComponentPalette::neutral_dark();
+        let card = Toast::new("Actualización lista", palette)
+            .icon(Icon::InfoCircle)
+            .description("Se instala al reiniciar.")
+            .dismissible("close")
+            .button("restart", "Reiniciar")
+            .button("later", "Más tarde")
+            .progress(0.5)
+            .render();
+        let mut tree = UiTree::new(Toast::layer(base(), vec![card], 0.0));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 500.0));
+        assert_eq!(texts(&frame), ["Actualización lista", "Se instala al reiniciar.", "Reiniciar", "Más tarde"]);
+        let rect = |id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+        let (restart, later, close) = (rect("restart"), rect("later"), rect("close"));
+        assert!(restart.x + restart.width <= later.x, "the primary comes first");
+        assert!(later.x + later.width <= 800.0 - EDGE_INSET - 12.0 + 0.01, "{later:?}");
+        assert!(restart.y > close.y + close.height - 0.01, "under the copy");
+        assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::Icon { icon: Icon::InfoCircle, .. })));
+        // The filled half of the bar: as wide as half the card, on its lower edge.
+        let surface = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, radius, .. } if *radius == crate::components::surface_radius() => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        let fill = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. }
+                    if *color == palette.text && (rect.height - 2.0).abs() < 0.01 =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("progress fill");
+        assert!((fill.width - surface.width / 2.0).abs() < 1.5, "{fill:?} of {surface:?}");
+        assert!((fill.y + fill.height - (surface.y + surface.height)).abs() < 1.5, "{fill:?} of {surface:?}");
+        for id in ["restart", "later"] {
+            let target = rect(id);
+            let point = Point::new(target.x + target.width / 2.0, target.y + target.height / 2.0);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(tree.handle_event(UiEvent::PointerUp(point)), [UiAction::Clicked { id: id.into() }]);
         }
     }
 
