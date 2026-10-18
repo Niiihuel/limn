@@ -130,6 +130,24 @@ impl Tooltip {
         self
     }
 
+    /// Add a row of people's faces after an optional icon, as who is in a
+    /// call or a room: round pictures that overlap as a group, then «+N» for
+    /// `more` people not passed. Faces that do not fit the tooltip's width
+    /// are counted in «+N». Passive, as the rest of the hint; without faces
+    /// nothing is added.
+    pub fn faces(
+        mut self,
+        icon: Option<Icon>,
+        faces: impl IntoIterator<Item = crate::TooltipFace>,
+        more: usize,
+    ) -> Self {
+        let faces: Vec<_> = faces.into_iter().collect();
+        if !faces.is_empty() {
+            self.sections.push(TooltipSection::Faces { icon, faces, more });
+        }
+        self
+    }
+
     /// Divide the preceding and following tooltip sections with a hairline.
     pub fn separator(mut self) -> Self {
         if !matches!(self.sections.last(), Some(TooltipSection::Separator)) {

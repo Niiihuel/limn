@@ -1,5 +1,5 @@
 use super::{caption, row, section, Cx, Section};
-use limn::{Button, ButtonVariant, Component, Icon, IconButton, Tooltip, TooltipPlacement};
+use limn::{Button, ButtonVariant, Color, Component, Icon, IconButton, Tooltip, TooltipFace, TooltipPlacement};
 
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
@@ -29,6 +29,19 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .description("The agent proposes steps and waits for your approval before editing files.")
                 .separator()
                 .footer("Available in any conversation")
+                .render(),
+        ])]),
+        section(cx, "Faces", vec![row(vec![
+            Tooltip::new(anchor("tooltip-faces", "In a call"), "tooltip-faces", "Rust workshop", palette)
+                .placement(TooltipPlacement::Right)
+                .faces(
+                    Some(Icon::Volume),
+                    [("Ada", (226, 99, 99)), ("Bruno", (88, 148, 226)), ("Carla", (214, 160, 96)), ("Dario", (168, 112, 214)), ("Elena", (96, 190, 170))]
+                        .into_iter()
+                        .map(|(name, (r, g, b))| TooltipFace::new(name, Color::rgb(r, g, b))),
+                    4,
+                )
+                .faces(Some(Icon::Screen), [TooltipFace::new("Elena", Color::rgb(96, 190, 170))], 0)
                 .render(),
         ])]),
         section(cx, "Placement", vec![row(vec![
