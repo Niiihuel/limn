@@ -11494,7 +11494,8 @@ impl LayoutBuilder<'_> {
                     y += line.height;
                 }
                 // One hint for a run, over its part under the pointer, or
-                // its first part for the keyboard.
+                // its first part for the keyboard. Another text with a run of
+                // the same target, such as one action twice, shows none.
                 let mut shown = HashSet::new();
                 for (id, _, hint) in &hints {
                     self.observed_tooltips.insert(id.clone());
@@ -11508,11 +11509,13 @@ impl LayoutBuilder<'_> {
                         .iter()
                         .filter(|(other, ..)| other == id)
                         .map(|(_, rect, _)| *rect);
-                    let under = self
-                        .pointer
-                        .filter(|_| !keyboard)
-                        .and_then(|pointer| parts.clone().find(|rect| rect.contains(pointer)));
-                    let Some(anchor) = under.or_else(|| parts.next()) else {
+                    let pointer = self.pointer;
+                    let anchor = if keyboard {
+                        parts.next()
+                    } else {
+                        parts.find(|rect| pointer.is_some_and(|pointer| rect.contains(pointer)))
+                    };
+                    let Some(anchor) = anchor else {
                         continue;
                     };
                     self.overlays.push_back(DeferredOverlay::Tooltip {
