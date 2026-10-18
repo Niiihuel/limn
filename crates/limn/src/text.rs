@@ -317,6 +317,64 @@ mod tests {
     }
 
     #[test]
+    fn a_tooltip_row_of_faces_overlaps_them_and_counts_the_rest() {
+        let palette = ComponentPalette::neutral_dark();
+        let picture = crate::RasterImage::new("a".repeat(64), crate::RasterImageFormat::Png, 4, std::sync::Arc::from("AAAA"), "Ada").unwrap();
+        let painted = |max_width: f32| {
+            let anchor = Element::clickable("anchor", Element::text("Servidor"))
+                .size(Some(80.0), Some(20.0));
+            let faces = ["Ada", "Bruno", "Carla", "Dario", "Elena"]
+                .into_iter()
+                .map(|name| crate::TooltipFace::new(name, crate::Color::rgb(90, 120, 200)))
+                .enumerate()
+                .map(|(index, face)| if index == 0 { face.image(picture.clone()) } else { face });
+            let tooltip = crate::Tooltip::new(anchor, "anchor", "Servidor", palette)
+                .max_width(max_width)
+                .faces(Some(crate::Icon::Volume), faces, 2)
+                .faces(None, Vec::new(), 9)
+                .render();
+            let mut tree = UiTree::new(Element::column(vec![tooltip]));
+            tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 8.0);
+            let size = Size::new(600.0, 400.0);
+            tree.layout(size);
+            tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 10.0)));
+            tree.layout_at(size, Instant::now() + crate::tree::TOOLTIP_HOVER_DELAY * 2)
+        };
+        let frame = painted(320.0);
+        let side = crate::TOOLTIP_FACE;
+        let faces: Vec<f32> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::RasterImage { rect, radius, .. } if *radius == side / 2.0 => Some(rect.x),
+                DrawCommand::FillRect { rect, radius, .. }
+                    if *radius == side / 2.0 && rect.width == side =>
+                {
+                    Some(rect.x)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(faces.len(), 5, "{faces:?}");
+        assert!(faces.windows(2).all(|pair| pair[1] - pair[0] == side - crate::TOOLTIP_FACE_OVERLAP));
+        let texts: Vec<&str> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(texts.contains(&"+2") && texts.contains(&"B") && !texts.contains(&"A"), "{texts:?}");
+        assert!(!texts.contains(&"+9"), "a row without faces is not drawn");
+        // A narrow hint keeps fewer faces and counts the others.
+        let narrow = painted(120.0);
+        assert!(narrow.commands.iter().any(
+            |command| matches!(command, DrawCommand::Text { text, .. } if text.starts_with('+') && text != "+2")
+        ));
+    }
+
+    #[test]
     fn a_press_on_a_hinted_passive_child_reaches_the_control_under_it() {
         let palette = ComponentPalette::neutral_dark();
         let glyph = crate::Tooltip::new(

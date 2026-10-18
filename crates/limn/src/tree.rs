@@ -7316,9 +7316,129 @@ enum TooltipBlock<'a> {
         color: Color,
     },
     IconRow(TooltipIconRowLayout),
+    Faces {
+        icon: Option<Icon>,
+        faces: &'a [crate::TooltipFace],
+        more: usize,
+        width: f32,
+    },
+}
+
+/// The style of a tooltip's «+N» after its faces.
+fn tooltip_more_style() -> Style {
+    Style {
+        font_size: 12.0,
+        font_family: FontFamily::SansMedium,
+        ..Style::default()
+    }
 }
 
 impl LayoutBuilder<'_> {
+    /// The width of a «+N» pill: its text with 8 on each side, at least round.
+    fn tooltip_more_width(&self, more: usize) -> f32 {
+        (self.text_width(&format!("+{more}"), tooltip_more_style()) + 16.0).max(crate::TOOLTIP_FACE)
+    }
+
+    /// How a row of faces fits `available`: the faces shown, how many the
+    /// «+N» says, and the row's width.
+    fn measure_tooltip_faces(&self, icon: bool, faces: usize, more: usize, available: f32) -> (usize, usize, f32) {
+        let lead = if icon { crate::TOOLTIP_FACE_ICON + 8.0 } else { 0.0 };
+        let step = crate::TOOLTIP_FACE - crate::TOOLTIP_FACE_OVERLAP;
+        let width = |shown: usize, more: usize| {
+            lead + shown as f32 * step
+                + crate::TOOLTIP_FACE_OVERLAP
+                + if more > 0 { self.tooltip_more_width(more) - crate::TOOLTIP_FACE_OVERLAP } else { 0.0 }
+        };
+        let (mut shown, mut more) = (faces, more);
+        while shown > 1 && width(shown, more) > available {
+            shown -= 1;
+            more += 1;
+        }
+        (shown, more, width(shown, more))
+    }
+
+    /// Paint a row of faces at `x`, `y`: each cut from the one before by a
+    /// ring of the tooltip's fill, then «+N».
+    fn paint_tooltip_faces(&mut self, x: f32, y: f32, icon: Option<Icon>, faces: &[crate::TooltipFace], more: usize, colors: TooltipStyle) {
+        let side = crate::TOOLTIP_FACE;
+        let mut x = x;
+        if let Some(icon) = icon {
+            let icon_side = crate::TOOLTIP_FACE_ICON;
+            self.frame.commands.push(DrawCommand::Icon {
+                rect: Rect::new(x, y + (side - icon_side) / 2.0, icon_side, icon_side),
+                icon,
+                tint: colors.text,
+            });
+            x += icon_side + 8.0;
+        }
+        let ring = |commands: &mut Vec<DrawCommand>, rect: Rect| {
+            commands.push(DrawCommand::FillRect {
+                rect: Rect::new(rect.x - 2.0, rect.y - 2.0, rect.width + 4.0, rect.height + 4.0),
+                color: colors.background,
+                radius: side / 2.0 + 2.0,
+            });
+        };
+        let initial_style = Style {
+            font_size: 11.0,
+            font_family: FontFamily::SansMedium,
+            ..Style::default()
+        };
+        for (index, face) in faces.iter().enumerate() {
+            let rect = Rect::new(x, y, side, side);
+            if index > 0 {
+                ring(&mut self.frame.commands, rect);
+            }
+            match &face.image {
+                Some(image) => self.frame.commands.push(DrawCommand::RasterImage {
+                    rect,
+                    image: image.clone(),
+                    opacity: 1.0,
+                    radius: side / 2.0,
+                }),
+                None => {
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect,
+                        color: face.color,
+                        radius: side / 2.0,
+                    });
+                    let initial: String = face.name.chars().next().into_iter().flat_map(char::to_uppercase).collect();
+                    let width = self.text_width(&initial, initial_style);
+                    let height = self.metrics_for(initial_style).line_height;
+                    self.frame.commands.push(DrawCommand::Text {
+                        position: Point::new(x + (side - width) / 2.0, y + (side - height) / 2.0),
+                        text: initial,
+                        color: Color::rgb(255, 255, 255),
+                        font_size: initial_style.font_size,
+                        font_family: initial_style.font_family,
+                    });
+                }
+            }
+            x += side - crate::TOOLTIP_FACE_OVERLAP;
+        }
+        if more > 0 {
+            let label = format!("+{more}");
+            let rect = Rect::new(x, y, self.tooltip_more_width(more), side);
+            if !faces.is_empty() {
+                ring(&mut self.frame.commands, rect);
+            }
+            self.frame.commands.push(DrawCommand::FillRect {
+                rect,
+                color: colors.keycap,
+                radius: side / 2.0,
+            });
+            let style = tooltip_more_style();
+            let width = self.text_width(&label, style);
+            let height = self.metrics_for(style).line_height;
+            self.frame.commands.push(DrawCommand::Text {
+                position: Point::new(rect.x + (rect.width - width) / 2.0, y + (side - height) / 2.0),
+                text: label,
+                color: colors.text,
+                font_size: style.font_size,
+                font_family: style.font_family,
+            });
+        }
+    }
+
     /// Give what was painted since command `start` the shared entrance and,
     /// if it `leaves`, keep its paint to fade out once it stops being painted.
     /// Used by everything that is not a popover: tooltips, context menus and
@@ -7692,6 +7812,19 @@ impl LayoutBuilder<'_> {
                     }
                     TooltipBlock::IconRow(row)
                 }
+                TooltipSection::Faces { icon, faces, more } => {
+                    if faces.is_empty() {
+                        continue;
+                    }
+                    let (shown, more, width) =
+                        self.measure_tooltip_faces(icon.is_some(), faces.len(), *more, content_max);
+                    TooltipBlock::Faces {
+                        icon: *icon,
+                        faces: &faces[..shown],
+                        more,
+                        width,
+                    }
+                }
             };
             if separator_pending {
                 content_height += 15.0;
@@ -7709,6 +7842,7 @@ impl LayoutBuilder<'_> {
                     lines.len() as f32 * self.metrics_for(*style).line_height,
                 ),
                 TooltipBlock::IconRow(row) => row.size,
+                TooltipBlock::Faces { width, .. } => Size::new(*width, crate::TOOLTIP_FACE),
                 TooltipBlock::Separator => unreachable!(),
             };
             content_width = content_width.max(size.width);
@@ -7926,6 +8060,10 @@ impl LayoutBuilder<'_> {
                         });
                     }
                     text_y += row.size.height;
+                }
+                TooltipBlock::Faces { icon, faces, more, .. } => {
+                    self.paint_tooltip_faces(content.x, text_y, icon, faces, more, colors);
+                    text_y += crate::TOOLTIP_FACE;
                 }
                 TooltipBlock::Separator => unreachable!(),
             }
