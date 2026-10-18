@@ -59,7 +59,9 @@ Tables, images, HTML and nested quotes stay text.
 
 Marks nest: `__**this**__` and `**__this__**` are both bold and
 underlined, and `~~*this*~~` is struck italic. A mark closes at the first
-copy of its delimiter, so it never holds itself. `\~` writes a tilde, as
+copy of its delimiter, so it never holds itself, and neither opens nor
+closes inside a `<…>` without spaces, such as an autolink or a chat
+client's `<:emoji_name:id>`. `\~` writes a tilde, as
 `\*` and `\_` write theirs. A web address stops before a `|` at its end,
 which closes a table cell or a `||spoiler||` around it.
 

@@ -518,6 +518,31 @@ pub(crate) fn parse_inline_with_tail(
     parse_runs(source, incomplete, url_tail_complete)
 }
 
+/// The length of a `<…>` token at the start of `value`: angle brackets
+/// around a run without spaces or backticks, such as an autolink or a chat
+/// client's `<@mention>` and `<:emoji_name:id>`. Marks neither open nor
+/// close inside one, as autolinks and raw HTML bind more tightly than
+/// emphasis in CommonMark.
+fn angle_token_len(value: &str) -> Option<usize> {
+    let body = value.strip_prefix('<')?;
+    let end = body.find(|ch: char| ch.is_whitespace() || matches!(ch, '<' | '>' | '`'))?;
+    (end > 0 && body[end..].starts_with('>')).then_some(end + 2)
+}
+
+/// Where `delimiter` first appears in `lookahead` outside a `<…>` token.
+fn closing_delimiter(lookahead: &str, delimiter: &str) -> Option<usize> {
+    let mut index = 0;
+    while let Some(found) = lookahead[index..].find(['<', delimiter.as_bytes()[0] as char]) {
+        let at = index + found;
+        let rest = &lookahead[at..];
+        if rest.starts_with(delimiter) {
+            return Some(at);
+        }
+        index = at + angle_token_len(rest).unwrap_or(1);
+    }
+    None
+}
+
 fn parse_runs(source: &str, incomplete: bool, url_tail_complete: bool) -> Vec<InlineRun> {
     let mut runs = Vec::new();
     let mut plain = String::new();
@@ -532,6 +557,12 @@ fn parse_runs(source: &str, incomplete: bool, url_tail_complete: bool) -> Vec<In
                 index += 1 + character.len_utf8();
                 continue;
             }
+        }
+        // A `<…>` token is text, unless it holds a web address, read next.
+        if let Some(length) = angle_token_len(rest).filter(|_| !begins_web_url(&rest[1..])) {
+            plain.push_str(&rest[..length]);
+            index += length;
+            continue;
         }
         let delimiter = if rest.starts_with('`') {
             let count = rest.bytes().take_while(|byte| *byte == b'`').count();
@@ -552,7 +583,7 @@ fn parse_runs(source: &str, incomplete: bool, url_tail_complete: bool) -> Vec<In
         if let Some((delimiter, mark)) = delimiter {
             let body = &rest[delimiter.len()..];
             let lookahead = bounded_lookahead(body);
-            if let Some(end) = lookahead.find(delimiter).filter(|end| *end > 0) {
+            if let Some(end) = closing_delimiter(lookahead, delimiter).filter(|end| *end > 0) {
                 flush_plain(&mut runs, &mut plain);
                 push_marked(&mut runs, mark, &body[..end], false, true);
                 index += end + 2 * delimiter.len();
