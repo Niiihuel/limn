@@ -86,7 +86,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 caption(cx, "TextSpan::image(picture) and .surface(id): a square 1.375 times the text's size, painted in place of its text, which is what a selection copies and a screen reader reads"),
                 Element::formatted_text(vec![
                     span("A custom emoji ", 16.0),
-                    span(":dusk:", 16.0).image(super::media::picture(0)),
+                    span(":dusk:", 16.0).image(super::media::picture(0).cover()),
                     span(" in a line, one that moves ", 16.0),
                     span(":tide:", 16.0).surface(super::media::ANIMATION),
                     span(" on the host's surface, and the line wraps around them whole.", 16.0),
@@ -94,9 +94,9 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .size(Some(width), None),
                 caption(cx, "Alone, larger: a message that is only emoji, at 48 px"),
                 Element::formatted_text(vec![
-                    span(":forest:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(1)),
+                    span(":forest:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(1).cover()),
                     span(" ", 48.0 / limn::INLINE_IMAGE_SCALE),
-                    span(":dusk:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(0)),
+                    span(":dusk:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(0).cover()),
                 ]),
             ]
         }),
