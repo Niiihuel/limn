@@ -1217,6 +1217,39 @@ mod tests {
     }
 
     #[test]
+    fn marks_neither_open_nor_close_inside_an_angle_token() {
+        let marks = |source: &str| -> Vec<(String, bool)> {
+            parse_inline(source)
+                .into_iter()
+                .map(|run| (run.text, run.underline))
+                .collect()
+        };
+        let run = |text: &str, underline| (text.to_owned(), underline);
+        // A chat client's emoji keeps its name whole, and the mark after it
+        // still underlines.
+        assert_eq!(
+            marks("<:pepe__love:1> es __esto__"),
+            [run("<:pepe__love:1> es ", false), run("esto", true)]
+        );
+        assert_eq!(
+            marks("<:a__b:1> <:c__d:2>"),
+            [run("<:a__b:1> <:c__d:2>", false)]
+        );
+        // Around one, a mark holds it whole.
+        assert_eq!(marks("__a <:b__c:1>__"), [run("a <:b__c:1>", true)]);
+        // Spaces, or no closing bracket, make no token.
+        assert_eq!(
+            marks("<a __b__ c>"),
+            [run("<a ", false), run("b", true), run(" c>", false)]
+        );
+        assert_eq!(marks("<x__y__"), [run("<x", false), run("y", true)]);
+        // An autolink is still a link.
+        let runs = parse_inline("<https://example.com/a__b>");
+        let link = runs.iter().find(|run| run.kind == InlineKind::Link).unwrap();
+        assert_eq!(link.destination.as_deref(), Some("https://example.com/a__b"));
+    }
+
+    #[test]
     fn subtext_lines_are_small_quiet_blocks() {
         let (blocks, _) = parse("Hola\n-# al pie, **fuerte**\n> cita");
         assert_eq!(

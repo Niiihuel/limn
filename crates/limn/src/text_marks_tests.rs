@@ -114,6 +114,40 @@ fn a_run_with_a_hint_shows_it_once_the_pointer_rests_on_it() {
 }
 
 #[test]
+fn two_texts_with_the_same_hint_show_it_only_over_the_one_under_the_pointer() {
+    let palette = ComponentPalette::neutral_dark();
+    let size = Size::new(300.0, 200.0);
+    let edited = || {
+        Element::formatted_text(vec![
+            span("hola "),
+            span("(editado)").tooltip("Editado el martes", palette),
+        ])
+    };
+    let root = Element::column(vec![
+        edited(),
+        Element::spacer().size(None, Some(60.0)),
+        edited(),
+    ]);
+    let (mut tree, frame) = tree(root, size);
+    let targets: Vec<&str> = frame
+        .regions
+        .iter()
+        .filter(|region| region.kind == HitKind::Hover)
+        .map(|region| region.id.as_str())
+        .collect();
+    assert_eq!(targets.len(), 2);
+    assert_ne!(targets[0], targets[1]);
+    tree.handle_event(UiEvent::PointerMove(Point::new(60.0, 5.0)));
+    let started = tree.tooltip_hover_since.as_ref().unwrap().1;
+    let late = tree.layout_at(size, started + TOOLTIP_HOVER_DELAY);
+    let shown = painted(&late)
+        .into_iter()
+        .filter(|text| *text == "Editado el martes")
+        .count();
+    assert_eq!(shown, 1);
+}
+
+#[test]
 fn a_hinted_link_wrapped_over_two_lines_shows_one_hint_for_the_keyboard() {
     let palette = ComponentPalette::neutral_dark();
     let size = Size::new(300.0, 200.0);

@@ -92,7 +92,7 @@ const TOOLTIP_HEIGHT: f32 = 24.0;
 const TOOLTIP_PADDING: f32 = 8.0;
 pub(crate) const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
 /// The start of the hover target of a text run's hint that has no action;
-/// its title follows.
+/// the index of its text in the frame and the hint's title follow.
 const TEXT_HINT_PREFIX: &str = "__text_hint:";
 /// Where a text run's underline and strikethrough sit, as fractions of its
 /// natural line height from the top of its glyphs.
@@ -10866,9 +10866,10 @@ impl LayoutBuilder<'_> {
                         }
                         if let Some(hint) = &fragment.tooltip {
                             // A run without an action is a passive target
-                            // named after its hint.
+                            // named after its text and its hint, so another
+                            // text with the same hint is another target.
                             let id = fragment.action.clone().unwrap_or_else(|| {
-                                let id = format!("{TEXT_HINT_PREFIX}{}", hint.title);
+                                let id = format!("{TEXT_HINT_PREFIX}{block_index}:{}", hint.title);
                                 self.add_region(&id, fragment_rect, HitKind::Hover, clip);
                                 id
                             });
