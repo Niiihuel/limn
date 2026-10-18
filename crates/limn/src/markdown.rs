@@ -28,7 +28,9 @@ use crate::{
 const MAX_SOURCE_ROW_CHARS: usize = 512;
 const BODY_SIZE: f32 = 14.0;
 const BODY_LINE_HEIGHT: f32 = 22.0;
-const MARKDOWN_RENDER_VERSION: u16 = 6;
+const MARKDOWN_RENDER_VERSION: u16 = 7;
+/// Subtext against the body, as chat clients size `-# ` lines.
+const SUBTEXT_SCALE: f32 = 0.8125;
 
 /// The ten colors of rendered Markdown. [`MarkdownColors::for_palette`] is
 /// the default; a host with its own inks passes them with [`Markdown::colors`].
@@ -505,26 +507,20 @@ fn render_plain(source: &str, presentation: &MarkdownPresentation, line_height: 
 }
 
 fn span_element(run: &InlineRun, size: f32, colors: MarkdownColors) -> TextSpan {
-    let color = match run.kind {
-        InlineKind::Normal => colors.text,
-        InlineKind::Strong => colors.strong,
-        InlineKind::Link => colors.link,
-        InlineKind::Emphasis => colors.emphasis,
-        InlineKind::Code => colors.code_ink,
+    let (color, family) = match run.kind {
+        InlineKind::Normal => (colors.text, FontFamily::Sans),
+        InlineKind::Strong => (colors.strong, FontFamily::SansBold),
+        InlineKind::StrongEmphasis => (colors.strong, FontFamily::SansBoldItalic),
+        InlineKind::Link => (colors.link, FontFamily::Sans),
+        InlineKind::Emphasis => (colors.emphasis, FontFamily::SansItalic),
+        InlineKind::Code => (colors.code_ink, FontFamily::Monospace),
     };
-    let mut span = TextSpan::new(
-        &run.text,
-        color,
-        size,
-        if run.kind == InlineKind::Code {
-            FontFamily::Monospace
-        } else {
-            FontFamily::Sans
-        },
-    );
+    let mut span = TextSpan::new(&run.text, color, size, family);
     if run.kind == InlineKind::Code {
         span = span.background(colors.code_fill);
     }
+    span.underline = run.underline;
+    span.strikethrough = run.strikethrough;
     span
 }
 
@@ -985,6 +981,25 @@ fn render_markdown_blocks(
                 ])
                 .gap(3.0)
             }
+            Block::Subtext(text) => {
+                let quiet = MarkdownPresentation {
+                    colors: MarkdownColors {
+                        text: colors.muted,
+                        strong: colors.muted,
+                        emphasis: colors.muted,
+                        ..colors
+                    },
+                    ..*presentation
+                };
+                render_inline_mode(
+                    text,
+                    width,
+                    body * SUBTEXT_SCALE,
+                    incomplete,
+                    url_tail_complete,
+                    &quiet,
+                )
+            }
             Block::Quote(text) => Element::panel(
                 Element::row(vec![
                     Element::spacer()
@@ -1144,6 +1159,117 @@ mod tests {
             .any(|run| run.kind == InlineKind::Code && run.text == "src/main.rs"));
         let visible: String = runs.iter().map(|run| run.text.as_str()).collect();
         assert_eq!(visible, "Listo: revisa src/main.rs y docs.");
+    }
+
+    #[test]
+    fn chat_marks_underline_strike_and_nest() {
+        let marks = |source: &str| -> Vec<(InlineKind, String, bool, bool)> {
+            parse_inline(source)
+                .into_iter()
+                .map(|run| (run.kind, run.text, run.underline, run.strikethrough))
+                .collect()
+        };
+        use InlineKind::{Normal, Strong, StrongEmphasis};
+        let run = |kind, text: &str, underline, strikethrough| {
+            (kind, text.to_owned(), underline, strikethrough)
+        };
+        assert_eq!(
+            marks("__sub__ ~~fuera~~ ***ambas***"),
+            [
+                run(Normal, "sub", true, false),
+                run(Normal, " ", false, false),
+                run(Normal, "fuera", false, true),
+                run(Normal, " ", false, false),
+                run(StrongEmphasis, "ambas", false, false),
+            ]
+        );
+        // Either way around, a mark inside another takes both.
+        assert_eq!(marks("__**uno**__"), [run(Strong, "uno", true, false)]);
+        assert_eq!(marks("**__dos__**"), [run(Strong, "dos", true, false)]);
+        assert_eq!(
+            marks("~~**a** *b*~~"),
+            [
+                run(Strong, "a", false, true),
+                run(Normal, " ", false, true),
+                run(InlineKind::Emphasis, "b", false, true),
+            ]
+        );
+        assert_eq!(
+            marks("**a *b* c**"),
+            [
+                run(Strong, "a ", false, false),
+                run(StrongEmphasis, "b", false, false),
+                run(Strong, " c", false, false),
+            ]
+        );
+        // Escaped, unclosed or empty, a mark is text.
+        for literal in ["\\~~no~~", "__abierto", "~~ ~", "____"] {
+            let text: String = marks(literal).into_iter().map(|run| run.1).collect();
+            assert_eq!(text, literal.replace('\\', ""), "{literal}");
+        }
+        // Each mark once, all around one word.
+        assert_eq!(marks("**__~~*x*~~__**"), [run(StrongEmphasis, "x", true, true)]);
+        // While written, an open mark already styles its text.
+        assert_eq!(
+            parse_inline_mode("hola __mun_", true).last().map(|run| (run.underline, run.text.as_str())),
+            Some((true, "mun"))
+        );
+    }
+
+    #[test]
+    fn subtext_lines_are_small_quiet_blocks() {
+        let (blocks, _) = parse("Hola\n-# al pie, **fuerte**\n> cita");
+        assert_eq!(
+            blocks,
+            [
+                Block::Paragraph("Hola".into()),
+                Block::Subtext("al pie, **fuerte**".into()),
+                Block::Quote("cita".into()),
+            ]
+        );
+        assert_eq!(parse("-#sin espacio").0, [Block::Paragraph("-#sin espacio".into())]);
+        let element = render_markdown_at_width("-# al pie, **fuerte**", 640.0);
+        let mut spans = Vec::new();
+        collect_spans(&element, &mut spans);
+        let colors = MarkdownColors::for_palette(palette());
+        assert!(spans
+            .iter()
+            .all(|span| span.color == colors.muted && span.font_size == BODY_SIZE * SUBTEXT_SCALE));
+        assert_eq!(spans.last().unwrap().font_family, FontFamily::SansBold);
+    }
+
+    #[test]
+    fn marks_choose_faces_and_lines() {
+        let element = render_markdown_at_width("**b** *i* ***bi*** __u__ ~~s~~ `c`", 640.0);
+        let mut spans = Vec::new();
+        collect_spans(&element, &mut spans);
+        let span = |text: &str| spans.iter().find(|span| span.text == text).unwrap();
+        assert_eq!(span("b").font_family, FontFamily::SansBold);
+        assert_eq!(span("i").font_family, FontFamily::SansItalic);
+        assert_eq!(span("bi").font_family, FontFamily::SansBoldItalic);
+        assert!(span("u").underline && !span("u").strikethrough);
+        assert!(span("s").strikethrough && !span("s").underline);
+        assert_eq!(span("c").font_family, FontFamily::Monospace);
+    }
+
+    #[test]
+    fn a_web_address_stops_before_the_pipes_that_close_a_spoiler() {
+        let runs = parse_inline("||https://example.com/a||");
+        let link = runs.iter().find(|run| run.kind == InlineKind::Link).unwrap();
+        assert_eq!(link.destination.as_deref(), Some("https://example.com/a"));
+        let text: String = runs.iter().map(|run| run.text.as_str()).collect();
+        assert_eq!(text, "||https://example.com/a||");
+    }
+
+    fn collect_spans(element: &Element, out: &mut Vec<TextSpan>) {
+        match &element.kind {
+            ElementKind::FormattedText(spans) => out.extend(spans.iter().cloned()),
+            ElementKind::Column(children) | ElementKind::Row(children) => {
+                children.iter().for_each(|child| collect_spans(child, out))
+            }
+            ElementKind::Panel(child) => collect_spans(child, out),
+            _ => {}
+        }
     }
 
     #[test]
@@ -1556,11 +1682,7 @@ mod tests {
             let live = parse_inline_mode(source, true);
             assert_eq!(
                 live,
-                vec![InlineRun {
-                    kind,
-                    text: expected.into(),
-                    destination: None,
-                }],
+                vec![InlineRun::new(kind, expected)],
                 "{source}"
             );
             let final_text: String = parse_inline(source)
@@ -1587,11 +1709,7 @@ mod tests {
         }
         assert_eq!(
             parse_inline_mode("\\*literal", true),
-            vec![InlineRun {
-                kind: InlineKind::Normal,
-                text: "*literal".into(),
-                destination: None,
-            }]
+            vec![InlineRun::new(InlineKind::Normal, "*literal")]
         );
         assert_eq!(parse_inline_mode("2 * 3", true), parse_inline("2 * 3"));
         assert_eq!(
@@ -1710,11 +1828,7 @@ mod tests {
         let source = format!("Texto {} fin", "`".repeat(MAX_SOURCE_CHARS - 20));
         assert_eq!(
             parse_inline(&source),
-            vec![InlineRun {
-                kind: InlineKind::Normal,
-                text: source.clone(),
-                destination: None,
-            }]
+            vec![InlineRun::new(InlineKind::Normal, source.clone())]
         );
         assert_eq!(parse_inline_mode(&source, true), parse_inline(&source));
     }

@@ -1784,10 +1784,15 @@ fn paint_at_impl(
                     FontFamily::SansMedium | FontFamily::SansBold => {
                         FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
                     }
-                    FontFamily::SansItalic => {
-                        // egui slants the regular face, so advances match Sans.
+                    FontFamily::SansItalic | FontFamily::SansBoldItalic => {
+                        // egui slants the regular face, or the bold one, so
+                        // advances match Sans or SansBold.
                         let format = egui::TextFormat {
-                            font_id: FontId::proportional(*font_size),
+                            font_id: if *font_family == FontFamily::SansItalic {
+                                FontId::proportional(*font_size)
+                            } else {
+                                FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
+                            },
                             color: color(*ink),
                             italics: true,
                             ..Default::default()
@@ -2416,7 +2421,7 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
         FontFamily::Monospace => return egui::FontFamily::Monospace,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
-        FontFamily::SansBold => SANS_BOLD,
+        FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
     };
     let named = egui::FontFamily::Name(weighted.into());
     if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {

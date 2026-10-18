@@ -288,6 +288,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .radius(RadiusRole::Surface)
                 .disabled()
                 .render(),
+            caption(cx, ".text_area_highlights: a mention in the accent over a fill, as the pill it becomes once sent"),
+            {
+                let value = state.choice("input-notes-mentions", "Ask @ada about #general before Friday");
+                Element::text_area("input-notes-mentions", value, "Message")
+                    .text_area_highlights(mentions(value, palette.link()))
+                    .font_family(limn::FontFamily::Sans)
+                    .foreground(palette.text)
+                    .padding(10.0)
+                    .background(palette.raised)
+                    .radius(RadiusRole::Surface.px())
+                    .size(Some(width), Some(44.0))
+            },
         ]),
         section(cx, "Switch", vec![
             row(vec![
@@ -379,4 +391,28 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, "Disabled, every label is muted."),
         ]),
     ]
+}
+
+/// Each `@name` and `#name` of `value`, inked and filled in `accent`, by
+/// character offsets.
+fn mentions(value: &str, accent: Color) -> Vec<limn::TextHighlight> {
+    let mut found = Vec::new();
+    let mut start = None;
+    for (index, character) in value.chars().chain([' ']).enumerate() {
+        match (start, character) {
+            (None, '@' | '#') => start = Some(index),
+            (Some(from), character) if !character.is_alphanumeric() && index > from + 1 => {
+                found.push(limn::TextHighlight {
+                    range: from..index,
+                    color: accent,
+                    italic: false,
+                    background: Some(Color::rgba(accent.r, accent.g, accent.b, 40)),
+                });
+                start = None;
+            }
+            (Some(_), character) if !character.is_alphanumeric() => start = None,
+            _ => {}
+        }
+    }
+    found
 }

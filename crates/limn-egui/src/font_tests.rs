@@ -48,6 +48,7 @@ fn mathematical_names_have_real_glyphs_in_every_limn_family() {
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
@@ -103,6 +104,7 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
@@ -159,6 +161,7 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let names = &definitions.families[&egui_family(&ctx, family)];
@@ -222,6 +225,7 @@ fn emoji_fallback_preserves_existing_text_metrics() {
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
@@ -276,6 +280,7 @@ fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let font = egui::FontId::new(24.0, egui_family(&ctx, family));
