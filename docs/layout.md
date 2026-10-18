@@ -219,6 +219,32 @@ role. It paints the line in narrow clipped bands, so it changes neither its
 size nor where it wraps or is cut; the foreground's alpha scales the stops,
 and one stop is plain ink.
 
+### Pictures in a line of text
+
+A span of `Element::formatted_text` can be a picture, such as a custom
+emoji in a message:
+
+```rust
+Element::formatted_text(vec![
+    TextSpan::new("Nice ", palette.text, 14.0, FontFamily::Sans),
+    TextSpan::new(":party:", palette.text, 14.0, FontFamily::Sans).image(picture),
+]);
+```
+
+| Builder | Paints |
+| --- | --- |
+| `TextSpan::image(raster)` | The picture, as `DrawCommand::RasterImage`. |
+| `TextSpan::surface(id)` | The host's surface `id`, fitted inside (`SurfaceFit::Contain`), as `DrawCommand::Surface`: an animation whose frames the host presents there. |
+
+The picture is a square `INLINE_IMAGE_SCALE` (1.375) times the span's
+`font_size` on a side, centered on its line, and it moves to the next line
+whole. Its line is at least that tall. For a larger picture, such as a
+message that is only emoji, give the span a larger `font_size`. The span's
+text is not painted, but it is what a selection copies and what a screen
+reader reads: `:party:` here. A selection takes the picture whole or not at
+all. An `action` makes the picture a target, as on text. `background` and
+`icon` are not painted on such a span.
+
 ### Sticky children
 
 A child of a column inside a scroll area can stay in view while the rows

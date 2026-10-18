@@ -37,7 +37,7 @@ pub(super) fn picture(index: usize) -> RasterImage {
 
 /// The surface the host plays a short animation on: a band of light that
 /// sweeps across, as a looping GIF would.
-const ANIMATION: &str = "media-animation";
+pub(super) const ANIMATION: &str = "media-animation";
 const ANIMATION_FRAMES: usize = 12;
 const ANIMATION_STEP: Duration = Duration::from_millis(90);
 
