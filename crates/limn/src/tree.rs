@@ -3872,7 +3872,8 @@ impl UiTree {
                 dragging_scrollbar: self.scroll_drag.as_ref().map(|drag| drag.id.as_str()),
                 dragging_horizontal: self.horizontal_pan.as_ref().map(|(id, _)| id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
-                pointer: self.pointer,
+                // An open menu is modal: the page under it does not answer the pointer.
+                pointer: self.pointer.filter(|_| context_menu_paint.is_none()),
                 region_hovered: false,
                 access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
