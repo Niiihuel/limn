@@ -148,6 +148,31 @@ fn two_texts_with_the_same_hint_show_it_only_over_the_one_under_the_pointer() {
 }
 
 #[test]
+fn one_action_with_a_hint_in_two_texts_shows_it_once() {
+    let palette = ComponentPalette::neutral_dark();
+    let size = Size::new(300.0, 200.0);
+    let moment = || {
+        Element::formatted_text(vec![span("en 2 días")
+            .action("moment:1")
+            .tooltip("martes 14", palette)])
+    };
+    let root = Element::column(vec![
+        moment(),
+        Element::spacer().size(None, Some(60.0)),
+        moment(),
+    ]);
+    let (mut tree, _) = tree(root, size);
+    tree.handle_event(UiEvent::PointerMove(Point::new(20.0, 5.0)));
+    let started = tree.tooltip_hover_since.as_ref().unwrap().1;
+    let late = tree.layout_at(size, started + TOOLTIP_HOVER_DELAY);
+    let shown = painted(&late)
+        .into_iter()
+        .filter(|text| *text == "martes 14")
+        .count();
+    assert_eq!(shown, 1);
+}
+
+#[test]
 fn a_hinted_link_wrapped_over_two_lines_shows_one_hint_for_the_keyboard() {
     let palette = ComponentPalette::neutral_dark();
     let size = Size::new(300.0, 200.0);
