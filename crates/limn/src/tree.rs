@@ -3070,6 +3070,8 @@ pub struct UiTree {
     pending_reveal: Option<(String, f32, bool)>,
     pending_center: Option<String>,
     hovered: Option<String>,
+    /// The named `hover_region` under the pointer as of the last layout.
+    hovered_region: Option<String>,
     pointer: Option<Point>,
     tooltip_hover_since: Option<(String, Instant)>,
     keyboard_focus: bool,
@@ -3153,6 +3155,7 @@ impl UiTree {
             pending_reveal: None,
             pending_center: None,
             hovered: None,
+            hovered_region: None,
             pointer: None,
             tooltip_hover_since: None,
             keyboard_focus: false,
@@ -3397,6 +3400,14 @@ impl UiTree {
     /// The ID of the control under the pointer.
     pub fn hovered_id(&self) -> Option<&str> {
         self.hovered.as_deref()
+    }
+
+    /// The ID of the innermost [`Element::hover_region_id`] under the
+    /// pointer as of the last layout, such as the row of a message while the
+    /// pointer is over its text, which is no control. A popover, a dialog's
+    /// backdrop or a context menu over it takes the pointer from it.
+    pub fn hovered_region(&self) -> Option<&str> {
+        self.hovered_region.as_deref()
     }
 
     /// The shape the pointer should have: that of the element being dragged,
@@ -3872,6 +3883,7 @@ impl UiTree {
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 pointer: self.pointer,
                 region_hovered: false,
+                hovered_regions: Vec::new(),
                 access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
                 slider_motion: &mut self.slider_motion,
@@ -3919,6 +3931,7 @@ impl UiTree {
             };
             builder.place(&self.root, viewport_rect, None);
             let overlay_start = builder.frame.commands.len();
+            let base_regions = builder.frame.regions.len();
             // Deferred painting gives popovers one stable top layer even when
             // their anchor lives inside a clipped scroll container. Nested
             // overlays are appended and painted above their parent overlay.
@@ -4327,6 +4340,7 @@ impl UiTree {
                 builder.keyboard_focus = old_keyboard;
             }
             ghost_range = builder.drag_ghost.take();
+            self.hovered_region = builder.hovered_region(base_regions);
             (builder.frame, overlay_start)
         };
         // The dragged element follows the pointer above every layer. It
@@ -6866,6 +6880,9 @@ struct LayoutBuilder<'a> {
     pointer: Option<Point>,
     /// The pointer is over the `hover_region` being placed.
     region_hovered: bool,
+    /// The named hover regions the pointer is over, outermost and earliest
+    /// first, each with the count of hit regions once its own were laid out.
+    hovered_regions: Vec<(String, usize)>,
     /// What a wrapper said of the control inside it, until that control takes it.
     access_above: Option<crate::Access>,
     slider_drag: Option<&'a SliderDrag>,
@@ -7370,6 +7387,19 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// The innermost named hover region under the pointer that nothing laid
+    /// over it takes the pointer from: a popover, a dialog's backdrop or a
+    /// context menu, placed after the base tree's `base_regions` hit regions.
+    fn hovered_region(&mut self, base_regions: usize) -> Option<String> {
+        let point = self.pointer?;
+        let regions = &self.frame.regions;
+        let index = self.hovered_regions.iter().rposition(|(_, end)| {
+            let above = (*end).max(base_regions).min(regions.len());
+            !regions[above..].iter().any(|region| region.rect.contains(point))
+        })?;
+        Some(std::mem::take(&mut self.hovered_regions[index].0))
+    }
+
     /// Paint only: fade what was painted since command `start` in or out
     /// with the hover of the region around it. Layout, hit regions and the
     /// focus order are the same either way.
@@ -7379,7 +7409,8 @@ impl LayoutBuilder<'_> {
         } else {
             self.region_hovered || holds_reveal(element, self.keyboard_focus, self.focused)
         };
-        let target = if shown { 1.0 } else { 0.0 };
+        let hidden = element.kept.as_ref().and_then(|kept| kept.dim).unwrap_or(0.0);
+        let target = if shown { 1.0 } else { hidden };
         let now = self.now;
         self.observed_popovers.insert(id.to_owned());
         // First seen at rest: a page does not open with its rows fading.
@@ -9525,6 +9556,15 @@ impl LayoutBuilder<'_> {
                 .zip(visible)
                 .is_some_and(|(point, visible)| visible.contains(point));
         }
+        let named = element
+            .kept
+            .as_ref()
+            .and_then(|kept| kept.hover_name.clone())
+            .filter(|_| reveal == HoverReveal::Region && self.region_hovered)
+            .map(|name| {
+                self.hovered_regions.push((name, usize::MAX));
+                self.hovered_regions.len() - 1
+            });
         // A wrapper that is not itself a control speaks for the control inside
         // it: a field in its frame, a switch in its row.
         let hands_down = element.access.as_deref().filter(|said| said.id.is_none() && focusable_id(element).is_none());
@@ -9541,6 +9581,9 @@ impl LayoutBuilder<'_> {
         match (&element.presence, element.animate_height) {
             (Some((id, _)), Some(_)) => self.place_flow_height(element, id, rect, clip),
             _ => self.place_inner(element, rect, clip),
+        }
+        if let Some(index) = named {
+            self.hovered_regions[index].1 = self.frame.regions.len();
         }
         // Whoever was inside took it, or nobody was: either way it goes no further.
         let taken = self.access_above.is_none();

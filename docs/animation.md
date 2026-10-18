@@ -33,6 +33,7 @@ own content, and how to switch movement off.
 | Body of a `Collapsible` | Opens from zero height under its header and fades in. | Closes in place while its last paint fades; what follows moves with it. | a spring, one and a half `move_ms` |
 | An element with `reveal_on_hover`, such as a `MessageActions` row | Fades in where it already is. | Fades out. Its place in the layout is kept. | `enter_ms`, `exit_ms` |
 | An element with `conceal_on_hover` | Fades in when the pointer leaves the region. | Fades out when it comes over it. | `enter_ms`, `exit_ms` |
+| An element with `dim_on_hover` | Fades back in when the pointer leaves the region. | Fades down to its opacity when it comes over it. | `enter_ms`, `exit_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `NavigationBar` | The workspace capsule springs to the selected workspace; control fills cross-fade and tooltips fade. | | `move_ms`, `hover_ms`, tooltip tokens |
@@ -244,6 +245,33 @@ let cover = Element::stack(vec![
     pause_icon.reveal_on_hover("row-7-pause"),
 ]);
 ```
+
+`dim_on_hover(id, opacity)` conceals only part of the way: under the
+pointer the element fades down to `opacity` (clamped to 0–1) rather than
+away, so what it lies over reads through it, such as a decoration over a
+profile card that gives way to its text:
+
+```rust
+let card = Element::overlay(content, decoration.dim_on_hover("card-7-effect", 0.35))
+    .hover_region();
+```
+
+### Which row the pointer is on
+
+```rust
+let row = Element::stack(vec![hover_fill, message]).hover_region_id("message-7");
+// After the layout:
+let message = tree.hovered_region();
+```
+
+`hover_region_id(id)` is a `hover_region` with a name, and
+`UiTree::hovered_region()` reports the name of the innermost one under the
+pointer as of the last layout: the host learns which message the pointer is
+on while it is over the message's text, which is no control and so never
+`hovered_id`. A popover, a dialog's backdrop or a context menu over the row
+takes the pointer from it, as it takes it from the controls beneath; a
+region inside the popover is reported instead. Like the region it names,
+it adds no target, focus stop or paint.
 
 ### A control's fill
 
