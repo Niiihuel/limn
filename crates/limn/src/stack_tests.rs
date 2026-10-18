@@ -55,3 +55,71 @@ fn under_the_pointer_a_concealed_layer_gives_way_to_a_revealed_one() {
     tree.handle_event(UiEvent::PointerMove(Point::new(150.0, 20.0)));
     assert_eq!(shown(&tree.layout(size)), [UNDER]);
 }
+
+#[test]
+fn under_the_pointer_a_dimmed_layer_fades_only_to_its_opacity() {
+    // How opaque the top layer is: away, under the pointer, then away again.
+    let alphas = |opacity: f32| {
+        let stack = Element::stack(vec![swatch(UNDER, 40.0, 40.0), swatch(OVER, 40.0, 40.0).dim_on_hover("dimmed", opacity)])
+            .hover_region();
+        let mut tree = UiTree::new(Element::row(vec![stack, Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let size = Size::new(200.0, 40.0);
+        let alpha = |tree: &mut UiTree| {
+            fills(&tree.layout(size)).into_iter().find(|(_, color)| (color.r, color.b) == (OVER.r, OVER.b)).map_or(0, |(_, color)| color.a)
+        };
+        let away = alpha(&mut tree);
+        tree.handle_event(UiEvent::PointerMove(Point::new(20.0, 20.0)));
+        let under = alpha(&mut tree);
+        tree.handle_event(UiEvent::PointerMove(Point::new(150.0, 20.0)));
+        (away, under, alpha(&mut tree))
+    };
+    assert_eq!(alphas(0.35), (255, 89, 255), "35 % under the pointer, whole away from it");
+    assert_eq!(alphas(2.0), (255, 255, 255), "clamped to 1");
+    assert_eq!(alphas(-1.0).1, 0, "clamped to 0");
+    assert_eq!(alphas(f32::NAN), (255, 255, 255), "not finite: left as it was");
+}
+
+#[test]
+fn the_innermost_named_region_under_the_pointer_is_reported() {
+    let row = |id: &str| Element::panel(Element::spacer()).size(None, Some(40.0)).hover_region_id(id);
+    let list = Element::column(vec![row("row:1"), row("row:2"), Element::spacer().size(None, Some(40.0))]).hover_region_id("list");
+    let mut tree = UiTree::new(list);
+    let size = Size::new(200.0, 120.0);
+    tree.layout(size);
+    assert_eq!(tree.hovered_region(), None, "no pointer yet");
+    for (y, expected) in [(20.0, "row:1"), (60.0, "row:2"), (100.0, "list")] {
+        tree.handle_event(UiEvent::PointerMove(Point::new(20.0, y)));
+        tree.layout(size);
+        assert_eq!(tree.hovered_region(), Some(expected), "at {y}");
+    }
+    tree.handle_event(UiEvent::PointerLeave);
+    tree.layout(size);
+    assert_eq!(tree.hovered_region(), None, "the pointer left");
+}
+
+#[test]
+fn a_popover_over_a_named_region_takes_the_pointer_from_it() {
+    let base = |open: bool| {
+        let row = Element::panel(Element::spacer()).size(Some(200.0), Some(200.0)).hover_region_id("row");
+        let trigger = Element::button("open", "Open").size(Some(60.0), Some(24.0));
+        let trigger = if open {
+            let inside = Element::panel(Element::spacer()).size(Some(120.0), Some(60.0)).hover_region_id("inside");
+            Element::popover(trigger, inside, "dismiss", PopoverPlacement::BottomStart)
+        } else {
+            trigger
+        };
+        Element::column(vec![trigger, row])
+    };
+    let size = Size::new(300.0, 300.0);
+    let mut tree = UiTree::new(base(false));
+    tree.handle_event(UiEvent::PointerMove(Point::new(40.0, 50.0)));
+    tree.layout(size);
+    assert_eq!(tree.hovered_region(), Some("row"));
+    tree.set_root(base(true));
+    tree.layout(size);
+    assert_eq!(tree.hovered_region(), Some("inside"), "the popover's own region");
+    tree.handle_event(UiEvent::PointerMove(Point::new(250.0, 250.0)));
+    tree.layout(size);
+    assert_eq!(tree.hovered_region(), None, "under its backdrop");
+}

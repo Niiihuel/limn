@@ -108,11 +108,24 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         .subtitle("The mark makes way on hover")
         .leading(stacked)
         .render()
-        .hover_region();
+        .hover_region_id("lists-stack-row");
+    // A layer over the row's text that only dims under the pointer, so the text reads through it.
+    let veil = Element::panel(Element::spacer()).background(limn::Color::rgba(120, 90, 220, 160)).radius(limn::tokens().radius.control);
+    let dimmed_row = Element::overlay(
+        ListRow::new("lists-dim-row", "A row under a decoration", palette).subtitle("It dims to 35 % on hover").render(),
+        veil.dim_on_hover("lists-dim-veil", 0.35),
+    )
+    .hover_region_id("lists-dim-row");
+    let under = match cx.state.text("hovered-region") {
+        "" => "Under the pointer: no named row".to_owned(),
+        region => format!("Under the pointer: {region}"),
+    };
     vec![
         section(cx, "Layers in the same space", vec![
-            card(cx, width, vec![stacked_row]),
+            card(cx, width, vec![stacked_row, dimmed_row]),
             caption(cx, "Element::stack with conceal_on_hover and reveal_on_hover: the mark at rest, the click action on hover."),
+            caption(cx, "dim_on_hover fades a layer to an opacity instead of away; each row is a hover_region_id, read back with UiTree::hovered_region."),
+            caption(cx, &under),
         ]),
         section(cx, "Compact", vec![card(cx, width, vec![
             ListRow::new("list-branch", "ui-separation", on_card)

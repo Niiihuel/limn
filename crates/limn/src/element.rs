@@ -925,6 +925,12 @@ pub(crate) struct Kept {
     pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
     pub(crate) translation: Option<Point>,
     pub(crate) pointer_blocker: Option<String>,
+    /// Set by [`Element::dim_on_hover`]: the opacity a concealed element
+    /// fades to instead of away.
+    pub(crate) dim: Option<f32>,
+    /// Set by [`Element::hover_region_id`]: the name
+    /// [`UiTree::hovered_region`](crate::UiTree::hovered_region) reports.
+    pub(crate) hover_name: Option<String>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2457,6 +2463,19 @@ impl Element {
         self
     }
 
+    /// A [`hover_region`](Self::hover_region) with a name: while the pointer
+    /// is over it, and over nothing floating above it,
+    /// [`UiTree::hovered_region`](crate::UiTree::hovered_region) reports `id`,
+    /// so the host can tell which row the pointer is on (a message, whose
+    /// text is no control) without asking where its rows are. Regions inside
+    /// it with names of their own take precedence. `id` must be unique in the
+    /// window.
+    pub fn hover_region_id(mut self, id: impl Into<String>) -> Self {
+        self.hover_reveal = HoverReveal::Region;
+        self.kept.get_or_insert_default().hover_name = Some(id.into());
+        self
+    }
+
     /// Paint this element only while the pointer is over the
     /// [`hover_region`](Self::hover_region) around it, while one of its
     /// controls has keyboard focus, or while a popover inside it is open.
@@ -2480,6 +2499,21 @@ impl Element {
         self.presence = Some((id.into(), false));
         self.hover_reveal = HoverReveal::Concealed;
         self
+    }
+
+    /// Like [`conceal_on_hover`](Self::conceal_on_hover), but fading only
+    /// down to `opacity` while the pointer is over the
+    /// [`hover_region`](Self::hover_region) around it, so what it lies over
+    /// reads through it, such as a decoration over a card. `opacity` is
+    /// clamped to `0.0..=1.0`; a value that is not finite leaves the element
+    /// as it was. `id` must be unique in the window.
+    pub fn dim_on_hover(self, id: impl Into<String>, opacity: f32) -> Self {
+        if !opacity.is_finite() {
+            return self;
+        }
+        let mut dimmed = self.conceal_on_hover(id);
+        dimmed.kept.get_or_insert_default().dim = Some(opacity.clamp(0.0, 1.0));
+        dimmed
     }
 
     /// Accept drops. Applies to buttons, clickables and scroll surfaces
