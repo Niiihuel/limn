@@ -64,6 +64,26 @@ either way. The host clears the field after sending with
 the composer's editor, and `Element::text_area_enter_submits` for a bare
 `Element::text_area`.
 
+## Highlights
+
+```rust
+Element::text_area("message", &state.message, "Message").text_area_highlights(vec![TextHighlight {
+    range: 5..9,
+    color: palette.link(),
+    italic: false,
+    background: Some(Color::rgba(88, 101, 242, 40)),
+}])
+```
+
+`text_area_highlights` repaints ranges of a bare `Element::text_area`, by
+Unicode character offsets, and `Composer::editor_highlights` those of the
+composer's editor: `color` inks the range, `italic` slants it and
+`background` fills behind it with rounded corners, under the selection and
+the text, such as a mention drawn as the pill it becomes once sent. The fill
+covers the characters' advances and the line's height, so the caret, the
+wrapping and the stored text are those of the plain text. Highlights follow
+the host's text; while an edit has not reached the host yet, the line paints
+plain.
 ## Line endings
 
 `preserve_line_endings(true)` keeps CRLF and CR line endings through editing

@@ -113,6 +113,7 @@ fn editable_url_color_preserves_unicode_geometry_selection_copy_and_stale_edits(
                     range: start..start + "https://github.com/a/b".len(),
                     color: blue,
                     italic: false,
+                    background: None,
                 }]
             } else {
                 vec![]
@@ -199,6 +200,7 @@ fn a_slanted_highlight_replaces_the_upright_ink_under_it() {
                 range: 5..12,
                 color: dim,
                 italic: true,
+                background: None,
             }])
             .font_family(FontFamily::Sans)
             .foreground(Color::WHITE)

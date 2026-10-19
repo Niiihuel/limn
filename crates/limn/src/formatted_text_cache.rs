@@ -14,6 +14,7 @@ struct Entry {
     spans: Box<[TextSpan]>,
     width: u32,
     line_height: u32,
+    max_lines: Option<usize>,
     lines: Arc<[FormattedLine]>,
     bytes: usize,
 }
@@ -26,10 +27,11 @@ pub(super) struct FormattedTextCache {
 }
 
 impl FormattedTextCache {
-    fn key(spans: &[TextSpan], width: f32, line_height: f32) -> u64 {
+    fn key(spans: &[TextSpan], width: f32, line_height: f32, max_lines: Option<usize>) -> u64 {
         let mut hash = DefaultHasher::new();
         width.to_bits().hash(&mut hash);
         line_height.to_bits().hash(&mut hash);
+        max_lines.hash(&mut hash);
         spans.len().hash(&mut hash);
         for span in spans {
             span.text.hash(&mut hash);
@@ -61,12 +63,16 @@ impl FormattedTextCache {
         spans: &[TextSpan],
         width: f32,
         line_height: f32,
+        max_lines: Option<usize>,
     ) -> Option<Arc<[FormattedLine]>> {
-        let entry = self.entries.get(&Self::key(spans, width, line_height))?;
+        let entry = self
+            .entries
+            .get(&Self::key(spans, width, line_height, max_lines))?;
         // The hash is only an index. Exact source/style equality prevents a
         // collision from displaying content belonging to another paragraph.
         (entry.width == width.to_bits()
             && entry.line_height == line_height.to_bits()
+            && entry.max_lines == max_lines
             && entry.spans.as_ref() == spans)
             .then(|| entry.lines.clone())
     }
@@ -76,6 +82,7 @@ impl FormattedTextCache {
         spans: &[TextSpan],
         width: f32,
         line_height: f32,
+        max_lines: Option<usize>,
         lines: Arc<[FormattedLine]>,
     ) {
         let bytes = std::mem::size_of::<Entry>()
@@ -110,7 +117,7 @@ impl FormattedTextCache {
         if bytes > MAX_ENTRY_BYTES {
             return;
         }
-        let key = Self::key(spans, width, line_height);
+        let key = Self::key(spans, width, line_height, max_lines);
         if let Some(previous) = self.entries.remove(&key) {
             self.bytes -= previous.bytes;
             self.order.retain(|candidate| *candidate != key);
@@ -129,6 +136,7 @@ impl FormattedTextCache {
                 spans: spans.to_vec().into_boxed_slice(),
                 width: width.to_bits(),
                 line_height: line_height.to_bits(),
+                max_lines,
                 lines,
                 bytes,
             },
@@ -163,28 +171,29 @@ mod tests {
         let mut cache = FormattedTextCache::default();
         let source = spans("Árbol 👩🏽‍💻 completo");
         let lines: Arc<[FormattedLine]> = vec![FormattedLine::new(18.0)].into();
-        cache.insert(&source, 300.0, 18.0, lines.clone());
+        cache.insert(&source, 300.0, 18.0, None, lines.clone());
         assert!(Arc::ptr_eq(
-            &cache.get(&source, 300.0, 18.0).unwrap(),
+            &cache.get(&source, 300.0, 18.0, None).unwrap(),
             &lines
         ));
-        assert!(cache.get(&source, 301.0, 18.0).is_none());
-        assert!(cache.get(&source, 300.0, 20.0).is_none());
+        assert!(cache.get(&source, 301.0, 18.0, None).is_none());
+        assert!(cache.get(&source, 300.0, 20.0, None).is_none());
+        assert!(cache.get(&source, 300.0, 18.0, Some(1)).is_none(), "a limit of lines is another layout");
         let mut changed = source.clone();
         changed[0].text.push('!');
-        assert!(cache.get(&changed, 300.0, 18.0).is_none());
+        assert!(cache.get(&changed, 300.0, 18.0, None).is_none());
         changed = source.clone();
         changed[0].color = Color::rgb(10, 20, 30);
-        assert!(cache.get(&changed, 300.0, 18.0).is_none());
+        assert!(cache.get(&changed, 300.0, 18.0, None).is_none());
         // Simulate a colliding index: equality must still reject the entry.
         cache
             .entries
-            .get_mut(&FormattedTextCache::key(&source, 300.0, 18.0))
+            .get_mut(&FormattedTextCache::key(&source, 300.0, 18.0, None))
             .unwrap()
             .spans[0]
             .text
             .push('?');
-        assert!(cache.get(&source, 300.0, 18.0).is_none());
+        assert!(cache.get(&source, 300.0, 18.0, None).is_none());
     }
 
     #[test]
@@ -203,18 +212,18 @@ mod tests {
         let base = TextSpan::new(":wave:", Color::WHITE, 14.0, FontFamily::Sans);
         let mut cache = FormattedTextCache::default();
         let still = with(base.clone().image(picture('a')));
-        cache.insert(&still, 300.0, 18.0, vec![FormattedLine::new(18.0)].into());
-        assert!(cache.get(&still, 300.0, 18.0).is_some());
+        cache.insert(&still, 300.0, 18.0, None, vec![FormattedLine::new(18.0)].into());
+        assert!(cache.get(&still, 300.0, 18.0, None).is_some());
         for other in [
             with(base.clone()),
             with(base.clone().image(picture('c'))),
             with(base.clone().surface("animation:a")),
         ] {
             assert_ne!(
-                FormattedTextCache::key(&other, 300.0, 18.0),
-                FormattedTextCache::key(&still, 300.0, 18.0)
+                FormattedTextCache::key(&other, 300.0, 18.0, None),
+                FormattedTextCache::key(&still, 300.0, 18.0, None)
             );
-            assert!(cache.get(&other, 300.0, 18.0).is_none());
+            assert!(cache.get(&other, 300.0, 18.0, None).is_none());
         }
     }
 
@@ -226,6 +235,7 @@ mod tests {
                 &spans(&format!("{index}: {}", "contenido ".repeat(200))),
                 300.0,
                 18.0,
+                None,
                 vec![FormattedLine::new(18.0)].into(),
             );
             assert!(cache.bytes <= MAX_BYTES);
@@ -237,6 +247,7 @@ mod tests {
             &spans(&"x".repeat(MAX_ENTRY_BYTES)),
             300.0,
             18.0,
+            None,
             vec![FormattedLine::new(18.0)].into(),
         );
         assert_eq!(cache.bytes, previous);

@@ -54,12 +54,60 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ("Regular", limn::FontFamily::Sans),
             ("Medium", limn::FontFamily::SansMedium),
             ("Bold", limn::FontFamily::SansBold),
+            ("Bold italic", limn::FontFamily::SansBoldItalic),
         ].into_iter().map(|(name, family)| {
             Element::text(format!("{name} · 175.6K of 200K tokens"))
                 .font_family(family)
                 .font_size(15.0)
                 .foreground(palette.text)
         }).collect()),
+        section(cx, "Marks and hints", {
+            let span = |text: &str| limn::TextSpan::new(text, palette.text, 15.0, limn::FontFamily::Sans);
+            vec![
+                caption(cx, "TextSpan::underline() and .strikethrough(): lines in the run's ink that follow it across lines"),
+                Element::formatted_text(vec![
+                    span("Plain, "),
+                    span("underlined").underline(),
+                    span(", "),
+                    span("struck through").strikethrough(),
+                    span(" and "),
+                    span("both, over a wrap").underline().strikethrough(),
+                    span(" in one paragraph."),
+                ])
+                .size(Some(width.min(280.0)), None),
+                caption(cx, ".tooltip(title, palette): a hint over a run, after the hover delay; a run with an action shows it on keyboard focus too"),
+                Element::formatted_text(vec![
+                    span("Sent "),
+                    span("in 2 days").background(palette.raised).tooltip("Tuesday, November 14, 2023 at 22:13", palette),
+                    span(", "),
+                    limn::TextSpan::new("edited", palette.muted, 12.0, limn::FontFamily::Sans).tooltip("Edited Tuesday at 22:15", palette),
+                    span(", with a "),
+                    limn::TextSpan::new("link", palette.link(), 15.0, limn::FontFamily::Sans)
+                        .action("typography-hinted-link")
+                        .tooltip("Opens example.com", palette),
+                    span("."),
+                ])
+                .size(Some(width), None),
+            ]
+        }),
+        section(cx, "A limit of lines", {
+            let paragraph = || {
+                Element::formatted_text(vec![
+                    limn::TextSpan::new("A channel's topic, ", palette.muted, 14.0, limn::FontFamily::Sans),
+                    limn::TextSpan::new("with marks", palette.text, 14.0, limn::FontFamily::SansBold),
+                    limn::TextSpan::new(", long enough to run past the lines it is given in a narrow column.", palette.muted, 14.0, limn::FontFamily::Sans),
+                ])
+                .size(Some(width.min(240.0)), None)
+            };
+            vec![
+                caption(cx, ".max_lines(1): what follows is left out and the line ends in «…»"),
+                paragraph().max_lines(1),
+                caption(cx, ".max_lines(2)"),
+                paragraph().max_lines(2),
+                caption(cx, "No limit"),
+                paragraph(),
+            ]
+        }),
         section(cx, "Inline pictures", {
             let span = |text: &str, size: f32| limn::TextSpan::new(text, palette.text, size, limn::FontFamily::Sans);
             vec![

@@ -7,6 +7,8 @@ const STREAMING: &str = "The result arrives in parts.\n\n- First item already **
 
 const SIZED: &str = "## Release notes\n\nThe **build** passes in `ci.yml`; see the [log](https://example.com/log).\n\n1. Update the lockfile\n2. Tag the release\n\n> Ship it on Friday.\n\n```sh\ncargo publish\n```";
 
+const CHAT: &str = "**Bold**, *italic*, ***both***, __underlined__, ~~struck through~~ and __**marks inside marks**__.\n-# Subtext: small and quiet, as a footnote under a message.";
+
 const PLAIN: &str = "**This is not bold**: check https://github.com/rust-lang/rust and https://example.com/docs, not `src/main.rs`.";
 
 fn link(cx: &Cx, written: &str) -> Element {
@@ -37,6 +39,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(width)
                 .labels(labels)
                 .link_action_prefix("markdown-complete:")
+                .render()
+                .element,
+        ]),
+        section(cx, "Chat marks", vec![
+            caption(cx, "__underline__, ~~strikethrough~~, ***bold italic*** and -# subtext lines, as chat clients write them"),
+            Markdown::new(CHAT, palette)
+                .width(width)
+                .link_action_prefix("markdown-chat:")
                 .render()
                 .element,
         ]),

@@ -157,6 +157,10 @@ fn weights_have_faces_of_their_own_and_italic_is_slanted() {
     let italic = runs(&TextLayout::new("Slant", TextStyle::new(14.0, FontFamily::SansItalic)));
     assert_eq!(&italic[0].font, bundled.face_of(FontFamily::Sans).unwrap());
     assert!(italic[0].skew.is_some_and(|degrees| degrees > 0.0), "{:?}", italic[0].skew);
+    // Bold italic, without a face of its own, is the bold face slanted.
+    let both = runs(&TextLayout::new("Both", TextStyle::new(14.0, FontFamily::SansBoldItalic)));
+    assert_eq!(&both[0].font, bold_face);
+    assert!(!both[0].embolden && both[0].skew.is_some());
 }
 
 #[test]

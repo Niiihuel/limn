@@ -24,6 +24,8 @@ pub(crate) enum Block {
     Paragraph(String),
     ListItem(usize, ListMarker, String),
     Quote(String),
+    /// A `-# ` line: small, quiet text under what it qualifies.
+    Subtext(String),
     Code(String, String),
     /// A fence the source has not closed: its content can still grow.
     OpenCode(String, String),
@@ -33,7 +35,10 @@ pub(crate) enum Block {
 impl Block {
     pub(crate) fn heap_bytes(&self) -> usize {
         match self {
-            Self::Heading(_, text) | Self::Paragraph(text) | Self::Quote(text) => text.capacity(),
+            Self::Heading(_, text)
+            | Self::Paragraph(text)
+            | Self::Quote(text)
+            | Self::Subtext(text) => text.capacity(),
             Self::ListItem(_, marker, text) => {
                 text.capacity()
                     + match marker {
@@ -54,8 +59,23 @@ pub(crate) enum InlineKind {
     Normal,
     Strong,
     Emphasis,
+    /// `***both***`.
+    StrongEmphasis,
     Code,
     Link,
+}
+
+impl InlineKind {
+    /// What a run of this kind becomes inside a `**`, `*` or `***` run of
+    /// `outer`: code and links keep their own.
+    fn within(self, outer: Self) -> Self {
+        match (outer, self) {
+            (_, Self::Code | Self::Link) | (Self::Normal | Self::Code | Self::Link, _) => self,
+            (Self::Strong, Self::Normal | Self::Strong) => Self::Strong,
+            (Self::Emphasis, Self::Normal | Self::Emphasis) => Self::Emphasis,
+            _ => Self::StrongEmphasis,
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -63,23 +83,75 @@ pub(crate) struct InlineRun {
     pub(crate) kind: InlineKind,
     pub(crate) text: String,
     pub(crate) destination: Option<String>,
+    /// Inside `__underline__`.
+    pub(crate) underline: bool,
+    /// Inside `~~strikethrough~~`.
+    pub(crate) strikethrough: bool,
+}
+
+impl InlineRun {
+    pub(crate) fn new(kind: InlineKind, text: impl Into<String>) -> Self {
+        Self {
+            kind,
+            text: text.into(),
+            destination: None,
+            underline: false,
+            strikethrough: false,
+        }
+    }
 }
 
 pub(crate) fn push_run(runs: &mut Vec<InlineRun>, kind: InlineKind, text: &str) {
-    if text.is_empty() {
+    push_styled(runs, InlineRun::new(kind, text));
+}
+
+/// Add `run`, joined to the one before when they look the same.
+fn push_styled(runs: &mut Vec<InlineRun>, run: InlineRun) {
+    if run.text.is_empty() {
         return;
     }
-    if let Some(last) = runs
-        .last_mut()
-        .filter(|last| last.kind == kind && last.destination.is_none())
-    {
-        last.text.push_str(text);
+    if let Some(last) = runs.last_mut().filter(|last| {
+        last.kind == run.kind
+            && last.destination.is_none()
+            && run.destination.is_none()
+            && last.underline == run.underline
+            && last.strikethrough == run.strikethrough
+    }) {
+        last.text.push_str(&run.text);
     } else {
-        runs.push(InlineRun {
-            kind,
-            text: text.to_owned(),
-            destination: None,
-        });
+        runs.push(run);
+    }
+}
+
+/// What a pair of delimiters does to the text between them.
+#[derive(Clone, Copy, Eq, PartialEq)]
+enum Mark {
+    Kind(InlineKind),
+    Underline,
+    Strikethrough,
+}
+
+/// The runs of `body`, between the delimiters of `mark`: parsed again for
+/// the marks inside it, then given `mark`. Code is literal. A body never
+/// holds its own delimiter, so marks nest at most five deep.
+fn push_marked(
+    runs: &mut Vec<InlineRun>,
+    mark: Mark,
+    body: &str,
+    incomplete: bool,
+    url_tail_complete: bool,
+) {
+    if mark == Mark::Kind(InlineKind::Code) {
+        push_run(runs, InlineKind::Code, body);
+        return;
+    }
+    for mut run in parse_runs(body, incomplete, url_tail_complete) {
+        match mark {
+            Mark::Kind(kind) => run.kind = run.kind.within(kind),
+            Mark::Underline => run.underline = true,
+            Mark::Strikethrough => run.strikethrough = true,
+        }
+        push_styled(runs, run);
     }
 }
 
@@ -252,6 +324,9 @@ pub(crate) fn parse_bounded_mode(
             flush_paragraph(&mut blocks, &mut paragraph);
             blocks.push(Block::ListItem(depth, marker, text.to_owned()));
             in_item = true;
+        } else if let Some(text) = trimmed.trim_start().strip_prefix("-# ") {
+            flush_paragraph(&mut blocks, &mut paragraph);
+            blocks.push(Block::Subtext(text.to_owned()));
         } else if let Some(text) = trimmed.trim_start().strip_prefix("> ") {
             flush_paragraph(&mut blocks, &mut paragraph);
             blocks.push(Block::Quote(text.to_owned()));
@@ -347,7 +422,8 @@ pub(crate) fn url_token_len(value: &str) -> usize {
             '}' => Some(2),
             _ => None,
         };
-        if matches!(last, '.' | ',' | ';' | ':' | '!' | '?')
+        // A pipe at the end closes a table cell or a `||spoiler||`.
+        if matches!(last, '.' | ',' | ';' | ':' | '!' | '?' | '|')
             || closing.is_some_and(|index| balance[index] < 0)
         {
             if let Some(index) = closing {
@@ -448,6 +524,35 @@ pub(crate) fn parse_inline_with_tail(
 ) -> Vec<InlineRun> {
     #[cfg(test)]
     INLINE_PARSE_COUNT.with(|count| count.set(count.get() + 1));
+    parse_runs(source, incomplete, url_tail_complete)
+}
+
+/// The length of a `<…>` token at the start of `value`: angle brackets
+/// around a run without spaces or backticks, such as an autolink or a chat
+/// client's `<@mention>` and `<:emoji_name:id>`. Marks neither open nor
+/// close inside one, as autolinks and raw HTML bind more tightly than
+/// emphasis in CommonMark.
+fn angle_token_len(value: &str) -> Option<usize> {
+    let body = value.strip_prefix('<')?;
+    let end = body.find(|ch: char| ch.is_whitespace() || matches!(ch, '<' | '>' | '`'))?;
+    (end > 0 && body[end..].starts_with('>')).then_some(end + 2)
+}
+
+/// Where `delimiter` first appears in `lookahead` outside a `<…>` token.
+fn closing_delimiter(lookahead: &str, delimiter: &str) -> Option<usize> {
+    let mut index = 0;
+    while let Some(found) = lookahead[index..].find(['<', delimiter.as_bytes()[0] as char]) {
+        let at = index + found;
+        let rest = &lookahead[at..];
+        if rest.starts_with(delimiter) {
+            return Some(at);
+        }
+        index = at + angle_token_len(rest).unwrap_or(1);
+    }
+    None
+}
+
+fn parse_runs(source: &str, incomplete: bool, url_tail_complete: bool) -> Vec<InlineRun> {
     let mut runs = Vec::new();
     let mut plain = String::new();
     let mut index = 0;
@@ -455,29 +560,41 @@ pub(crate) fn parse_inline_with_tail(
         let rest = &source[index..];
         if let Some(escaped) = rest.strip_prefix('\\') {
             if let Some(character) = escaped.chars().next().filter(|character| {
-                matches!(character, '*' | '_' | '`' | '[' | ']' | '(' | ')' | '\\')
+                matches!(character, '*' | '_' | '~' | '`' | '[' | ']' | '(' | ')' | '\\')
             }) {
                 plain.push(character);
                 index += 1 + character.len_utf8();
                 continue;
             }
         }
+        // A `<…>` token is text, unless it holds a web address, read next.
+        if let Some(length) = angle_token_len(rest).filter(|_| !begins_web_url(&rest[1..])) {
+            plain.push_str(&rest[..length]);
+            index += length;
+            continue;
+        }
         let delimiter = if rest.starts_with('`') {
             let count = rest.bytes().take_while(|byte| *byte == b'`').count();
-            Some((&rest[..count], InlineKind::Code))
+            Some((&rest[..count], Mark::Kind(InlineKind::Code)))
+        } else if rest.starts_with("***") {
+            Some(("***", Mark::Kind(InlineKind::StrongEmphasis)))
         } else if rest.starts_with("**") {
-            Some(("**", InlineKind::Strong))
+            Some(("**", Mark::Kind(InlineKind::Strong)))
         } else if rest.starts_with('*') {
-            Some(("*", InlineKind::Emphasis))
+            Some(("*", Mark::Kind(InlineKind::Emphasis)))
+        } else if rest.starts_with("__") {
+            Some(("__", Mark::Underline))
+        } else if rest.starts_with("~~") {
+            Some(("~~", Mark::Strikethrough))
         } else {
             None
         };
-        if let Some((delimiter, kind)) = delimiter {
+        if let Some((delimiter, mark)) = delimiter {
             let body = &rest[delimiter.len()..];
             let lookahead = bounded_lookahead(body);
-            if let Some(end) = lookahead.find(delimiter).filter(|end| *end > 0) {
+            if let Some(end) = closing_delimiter(lookahead, delimiter).filter(|end| *end > 0) {
                 flush_plain(&mut runs, &mut plain);
-                push_run(&mut runs, kind, &body[..end]);
+                push_marked(&mut runs, mark, &body[..end], false, true);
                 index += end + 2 * delimiter.len();
                 continue;
             }
@@ -486,16 +603,20 @@ pub(crate) fn parse_inline_with_tail(
                 && (body.is_empty() || !body.starts_with(char::is_whitespace))
             {
                 flush_plain(&mut runs, &mut plain);
-                // A single star can be the first half of a closing ** pair.
-                let body = if delimiter == "**" {
-                    body.strip_suffix('*').unwrap_or(body)
-                } else {
+                // The start of a closing delimiter, such as one star of a
+                // closing ** pair, is not text.
+                let body = if mark == Mark::Kind(InlineKind::Code) {
                     body
+                } else {
+                    (1..delimiter.len())
+                        .rev()
+                        .find_map(|length| body.strip_suffix(&delimiter[..length]))
+                        .unwrap_or(body)
                 };
-                push_run(&mut runs, kind, body);
+                push_marked(&mut runs, mark, body, true, url_tail_complete);
                 break;
             }
-            if kind == InlineKind::Code {
+            if mark == Mark::Kind(InlineKind::Code) {
                 // Treat an unmatched delimiter run atomically. Rechecking a
                 // 20,000-backtick run at each following byte is quadratic.
                 plain.push_str(delimiter);
@@ -511,9 +632,8 @@ pub(crate) fn parse_inline_with_tail(
                     if !body[..label_end].is_empty() && safe_url(url) {
                         flush_plain(&mut runs, &mut plain);
                         runs.push(InlineRun {
-                            kind: InlineKind::Link,
-                            text: body[..label_end].to_owned(),
                             destination: Some(url.to_owned()),
+                            ..InlineRun::new(InlineKind::Link, &body[..label_end])
                         });
                         index += label_end + url_end + 4;
                         continue;
@@ -538,9 +658,8 @@ pub(crate) fn parse_inline_with_tail(
                         ch.is_whitespace() || matches!(ch, '<' | '>' | '"' | '\'' | '`')
                     });
                 runs.push(InlineRun {
-                    kind: InlineKind::Link,
-                    text: destination.to_owned(),
                     destination: complete.then(|| destination.to_owned()),
+                    ..InlineRun::new(InlineKind::Link, destination)
                 });
                 index += length;
                 continue;
