@@ -64,6 +64,7 @@ mod media_card;
 mod media_tile;
 mod menu;
 mod menu_bar;
+mod window_controls;
 mod menu_header;
 mod modal;
 mod navigation_bar;
@@ -200,6 +201,7 @@ pub use media_card::MediaCard;
 pub use media_tile::MediaTile;
 pub use menu::{MenuItem, MenuSeparator};
 pub use menu_bar::{MenuBar, MenuBarMenu};
+pub use window_controls::WindowControls;
 pub use menu_header::MenuHeader;
 pub use modal::{DismissButton, Modal};
 pub use motion::{
