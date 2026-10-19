@@ -225,3 +225,20 @@ fn leading_below_sets_the_glyphs_at_the_top_of_a_tall_line() {
     let natural = sans("limn").size().height;
     assert!((even - below - (40.0 - natural) / 2.0).abs() < 1.0, "{even} {below} {natural}");
 }
+
+#[test]
+fn a_word_longer_than_the_width_is_broken_between_graphemes() {
+    let word = "Pneumonoultramicroscopicsilicovolcanoconiosisandmorelettersstill";
+    let wrapped = sans(word).wrapped(80.0);
+    let lines: Vec<_> = wrapped.lines().collect();
+    assert!(lines.len() > 3, "{lines:?}");
+    assert!(lines.iter().all(|line| line.rect.width <= 80.0 + 0.01), "{lines:?}");
+    let shown: String = lines.iter().map(|line| &word[line.range.clone()]).collect();
+    assert_eq!(shown, word);
+    // Words that fit still break between words, not inside them.
+    let prose = sans("short words only here").wrapped(80.0);
+    for line in prose.lines() {
+        let text = &"short words only here"[line.range.clone()];
+        assert!(text.trim_end().split(' ').all(|word| ["short", "words", "only", "here"].contains(&word)), "{text:?}");
+    }
+}
