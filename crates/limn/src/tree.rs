@@ -81,7 +81,7 @@ mod captured_paste;
 pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, Point, PopoverPlacement,
+    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextSpan, TooltipItem,
     TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -155,6 +155,8 @@ struct FormattedFragment {
     background: Option<Color>,
     action: Option<String>,
     icon: Option<Icon>,
+    /// A picture painted in place of `text`, `width` on a side.
+    image: Option<InlineImage>,
     width: f32,
     line_height: f32,
 }
@@ -178,6 +180,7 @@ impl FormattedLine {
 
 fn same_span_style(fragment: &FormattedFragment, span: &TextSpan) -> bool {
     fragment.icon.is_none()
+        && fragment.image.is_none()
         && fragment.color == span.color
         && fragment.font_size == span.font_size
         && fragment.font_family == span.font_family
@@ -235,6 +238,7 @@ fn push_formatted_fragment(
         background: span.background,
         action: span.action.clone(),
         icon: None,
+        image: None,
         width,
         line_height: height,
     });
@@ -261,6 +265,32 @@ fn layout_formatted(
     let mut lines = Vec::new();
     let mut current = FormattedLine::new(default_line_height);
     for span in spans {
+        // A picture is one square that moves to the next line whole.
+        if let Some(image) = span.image.as_ref().filter(|_| !span.text.is_empty()) {
+            let side = span.font_size * crate::INLINE_IMAGE_SCALE;
+            if current.width + side > limit && !current.fragments.is_empty() {
+                lines.push(std::mem::replace(
+                    &mut current,
+                    FormattedLine::new(default_line_height),
+                ));
+            }
+            let height = line_height(span).max(side);
+            current.fragments.push(FormattedFragment {
+                text: span.text.clone(),
+                color: span.color,
+                font_size: span.font_size,
+                font_family: span.font_family,
+                background: None,
+                action: span.action.clone(),
+                icon: None,
+                image: Some(image.clone()),
+                width: side,
+                line_height: height,
+            });
+            current.width += side;
+            current.height = current.height.max(height);
+            continue;
+        }
         if let Some(icon) = span.icon.filter(|_| !span.text.is_empty()) {
             let width = ICON_SIZE + 4.0;
             let first = span.text.split_word_bounds().next().unwrap_or_default();
@@ -280,6 +310,7 @@ fn layout_formatted(
                 background: None,
                 action: span.action.clone(),
                 icon: Some(icon),
+                image: None,
                 width,
                 line_height: height,
             });
@@ -1630,6 +1661,8 @@ struct SelectableTextRun {
     visible: Option<Rect>,
     font_size: f32,
     font_family: FontFamily,
+    /// An inline picture: its text is selected whole or not at all.
+    atomic: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1701,6 +1734,9 @@ impl SelectableTextBlock {
         .at_size(run.font_size)
         .char_width;
         let x = (point.x - run.rect.x).max(0.0);
+        if run.atomic {
+            return if x * 2.0 < run.rect.width { run.start } else { run.end };
+        }
         let offset = run.start
             + nearest_grapheme(&run.text, x, |text| {
                 measured_width(measure, text, run.font_size, run.font_family, char_width)
@@ -8164,6 +8200,7 @@ impl LayoutBuilder<'_> {
                 visible: clip.and_then(|area| rect.intersection(area)).or_else(|| clip.is_none().then_some(rect)),
                 font_size: style.font_size,
                 font_family: style.font_family,
+                atomic: false,
             });
             start += held.chars().count();
         }
@@ -8215,8 +8252,14 @@ impl LayoutBuilder<'_> {
                         font_family: run.font_family,
                         ..Style::default()
                     };
-                    let left = self.text_width(char_range(&run.text, 0, start - run.start), style);
-                    let right = self.text_width(char_range(&run.text, 0, end - run.start), style);
+                    let (left, right) = if run.atomic {
+                        (0.0, run.rect.width)
+                    } else {
+                        (
+                            self.text_width(char_range(&run.text, 0, start - run.start), style),
+                            self.text_width(char_range(&run.text, 0, end - run.start), style),
+                        )
+                    };
                     self.frame.commands.push(DrawCommand::FillRect {
                         rect: Rect::new(
                             run.rect.x + left,
@@ -8230,13 +8273,15 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
-        self.frame.commands.push(DrawCommand::Text {
-            position,
-            text: run.text.clone(),
-            color,
-            font_size: run.font_size,
-            font_family: run.font_family,
-        });
+        if !run.atomic {
+            self.frame.commands.push(DrawCommand::Text {
+                position,
+                text: run.text.clone(),
+                color,
+                font_size: run.font_size,
+                font_family: run.font_family,
+            });
+        }
         self.frame.text_blocks[block_index].runs.push(run);
     }
 
@@ -10847,6 +10892,7 @@ impl LayoutBuilder<'_> {
                             visible: None,
                             font_size: style.font_size,
                             font_family: style.font_family,
+                            atomic: false,
                         },
                         Point::new(x, y),
                         style.foreground,
@@ -10906,6 +10952,59 @@ impl LayoutBuilder<'_> {
                             self.record_inline_focus_target(id, fragment_rect);
                             self.add_region(id, fragment_rect, HitKind::Button, clip);
                         }
+                        if let Some(image) = &fragment.image {
+                            let side = fragment.width;
+                            let picture = Rect::new(x, y + (line.height - side) / 2.0, side, side);
+                            if let Some(visible) = clip
+                                .and_then(|clip| clip.intersection(picture))
+                                .or_else(|| clip.is_none().then_some(picture))
+                            {
+                                self.frame.commands.push(DrawCommand::PushClip(visible));
+                                self.frame.commands.push(match image {
+                                    InlineImage::Raster(image) => DrawCommand::RasterImage {
+                                        rect: picture,
+                                        image: image.clone(),
+                                        opacity: 1.0,
+                                        radius: 0.0,
+                                    },
+                                    InlineImage::Surface(id) => DrawCommand::Surface {
+                                        rect: picture,
+                                        id: id.clone(),
+                                        label: fragment.text.clone(),
+                                        opacity: 1.0,
+                                    },
+                                });
+                                self.frame.commands.push(DrawCommand::PopClip);
+                            }
+                            // The text, unpainted, is what a selection takes.
+                            let count = fragment.text.chars().count();
+                            self.paint_static_run(
+                                block_index,
+                                &source,
+                                SelectableTextRun {
+                                    start: source_char,
+                                    end: source_char + count,
+                                    text: fragment.text.clone(),
+                                    rect: fragment_rect,
+                                    visible: None,
+                                    font_size: fragment.font_size,
+                                    font_family: fragment.font_family,
+                                    atomic: true,
+                                },
+                                Point::new(x, y),
+                                fragment.color,
+                                clip,
+                            );
+                            if let Some(id) = &fragment.action {
+                                if self.keyboard_focus && self.focused == Some(id.as_str()) {
+                                    self.draw_focus_ring(fragment_rect, style);
+                                }
+                            }
+                            source_byte += fragment.text.len();
+                            source_char += count;
+                            x += fragment.width;
+                            continue;
+                        }
                         if let Some(icon) = fragment.icon {
                             if let Some(visible) = clip
                                 .and_then(|clip| clip.intersection(fragment_rect))
@@ -10963,6 +11062,7 @@ impl LayoutBuilder<'_> {
                                 visible: None,
                                 font_size: fragment.font_size,
                                 font_family: fragment.font_family,
+                                atomic: false,
                             },
                             Point::new(x, y + line.height - fragment.line_height - leading / 2.0),
                             fragment.color,
@@ -15326,6 +15426,125 @@ mod tests {
             w_y > 0.0,
             "narrow layout should wrap the measured wide glyph"
         );
+    }
+
+    fn inline_picture() -> RasterImage {
+        RasterImage::new(
+            "b".repeat(64),
+            crate::RasterImageFormat::Png,
+            4,
+            Arc::from("AAAA"),
+            "wave",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn inline_pictures_are_unsplit_squares_painted_in_place_of_their_text() {
+        let spans = vec![
+            TextSpan::new("hi ", Color::WHITE, 16.0, FontFamily::Sans),
+            TextSpan::new(":wave:", Color::WHITE, 16.0, FontFamily::Sans).image(inline_picture()),
+            TextSpan::new(" ok", Color::WHITE, 16.0, FontFamily::Sans),
+        ];
+        let mut tree = UiTree::new(Element::formatted_text(spans.clone()));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let pictures: Vec<Rect> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::RasterImage { rect, image, .. } if image.sha256() == "b".repeat(64) => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pictures.len(), 1);
+        // 1.375 times the 16 px text, after the 12 px of "hi ".
+        assert_eq!((pictures[0].x, pictures[0].width, pictures[0].height), (12.0, 22.0, 22.0));
+        let painted: String = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(painted, "hi  ok", "the alternative text is not painted");
+        let block = &frame.text_layouts()[0];
+        assert_eq!(block.source, "hi :wave: ok");
+        let after = block.runs.iter().find(|run| run.text == " ok").unwrap();
+        assert_eq!(after.rect.x, 34.0, "the text goes on after the square");
+
+        // Too narrow for the square beside "hi ": it moves down whole.
+        tree.set_root(Element::formatted_text(spans).size(Some(30.0), None));
+        let frame = tree.layout(Size::new(30.0, 100.0));
+        let picture = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!((picture.x, picture.width), (0.0, 22.0));
+        assert!(picture.y > 0.0);
+    }
+
+    #[test]
+    fn an_inline_picture_is_selected_and_copied_whole_as_its_text() {
+        let mut tree = UiTree::new(Element::formatted_text(vec![
+            TextSpan::new("ab", Color::WHITE, 16.0, FontFamily::Sans),
+            TextSpan::new(":wave:", Color::WHITE, 16.0, FontFamily::Sans).image(inline_picture()),
+            TextSpan::new("cd", Color::WHITE, 16.0, FontFamily::Sans),
+        ]));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        tree.layout(Size::new(200.0, 100.0));
+        // From the start of the text to a third into the 22 px square, at 8.
+        tree.handle_event(UiEvent::PointerDown(Point::new(0.0, 4.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(15.0, 4.0)));
+        assert_eq!(tree.selected_text(), Some("ab"));
+        tree.handle_event(UiEvent::PointerMove(Point::new(21.0, 4.0)));
+        assert_eq!(tree.selected_text(), Some("ab:wave:"));
+        tree.handle_event(UiEvent::PointerUp(Point::new(21.0, 4.0)));
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let highlight = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, color, .. }
+                if *color == Color::rgba(180, 180, 180, 84) && rect.x == 8.0 =>
+            {
+                Some(*rect)
+            }
+            _ => None,
+        });
+        assert_eq!(highlight.map(|rect| rect.width), Some(22.0), "the whole square is selected");
+    }
+
+    #[test]
+    fn an_inline_surface_paints_the_hosts_pixels_in_the_square() {
+        let mut tree = UiTree::new(Element::formatted_text(vec![TextSpan::new(
+            ":dance:",
+            Color::WHITE,
+            14.0,
+            FontFamily::Sans,
+        )
+        .surface("animation:dance")
+        .action("emoji:dance")]));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let surface = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Surface { rect, id, label, .. } => {
+                Some((*rect, id.clone(), label.clone()))
+            }
+            _ => None,
+        });
+        let (rect, id, label) = surface.unwrap();
+        assert_eq!((rect.width, rect.height), (19.25, 19.25));
+        assert_eq!((id.as_str(), label.as_str()), ("animation:dance", ":dance:"));
+        assert_eq!(
+            frame.hit_test(Point::new(rect.x + 5.0, rect.y + 5.0)),
+            Some("emoji:dance")
+        );
+        assert_eq!(frame.text_layouts()[0].source, ":dance:");
     }
 
     #[test]
