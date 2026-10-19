@@ -1,7 +1,7 @@
 //! Exact, bounded paragraph layouts retained across measurement and paint.
 //! A streamed append invalidates its paragraph, not every completed message.
 
-use super::{FormattedLine, TextSpan};
+use super::{FormattedLine, InlineImage, TextSpan};
 use std::collections::{hash_map::DefaultHasher, HashMap, VecDeque};
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
@@ -43,6 +43,17 @@ impl FormattedTextCache {
                 .hash(&mut hash);
             span.action.hash(&mut hash);
             span.icon.hash(&mut hash);
+            match &span.image {
+                None => 0_u8.hash(&mut hash),
+                Some(InlineImage::Raster(image)) => {
+                    1_u8.hash(&mut hash);
+                    image.sha256().hash(&mut hash);
+                }
+                Some(InlineImage::Surface(id)) => {
+                    2_u8.hash(&mut hash);
+                    id.hash(&mut hash);
+                }
+            }
         }
         hash.finish()
     }
@@ -78,7 +89,15 @@ impl FormattedTextCache {
             + std::mem::size_of_val(spans)
             + spans
                 .iter()
-                .map(|span| span.text.len() + span.action.as_ref().map_or(0, String::len))
+                .map(|span| {
+                    // A picture's bytes stay alive while its entry does.
+                    let image = match &span.image {
+                        Some(InlineImage::Raster(image)) => image.data_base64().len(),
+                        Some(InlineImage::Surface(id)) => id.len(),
+                        None => 0,
+                    };
+                    span.text.len() + span.action.as_ref().map_or(0, String::len) + image
+                })
                 .sum::<usize>()
             + std::mem::size_of_val(lines.as_ref())
             + lines
@@ -175,6 +194,37 @@ mod tests {
             .text
             .push('?');
         assert!(cache.get(&source, 300.0, 18.0, None).is_none());
+    }
+
+    #[test]
+    fn paragraph_cache_tells_inline_pictures_apart() {
+        let picture = |digest: char| {
+            crate::RasterImage::new(
+                digest.to_string().repeat(64),
+                crate::RasterImageFormat::Png,
+                4,
+                Arc::from("AAAA"),
+                "wave",
+            )
+            .unwrap()
+        };
+        let with = |span: TextSpan| vec![span];
+        let base = TextSpan::new(":wave:", Color::WHITE, 14.0, FontFamily::Sans);
+        let mut cache = FormattedTextCache::default();
+        let still = with(base.clone().image(picture('a')));
+        cache.insert(&still, 300.0, 18.0, None, vec![FormattedLine::new(18.0)].into());
+        assert!(cache.get(&still, 300.0, 18.0, None).is_some());
+        for other in [
+            with(base.clone()),
+            with(base.clone().image(picture('c'))),
+            with(base.clone().surface("animation:a")),
+        ] {
+            assert_ne!(
+                FormattedTextCache::key(&other, 300.0, 18.0, None),
+                FormattedTextCache::key(&still, 300.0, 18.0, None)
+            );
+            assert!(cache.get(&other, 300.0, 18.0, None).is_none());
+        }
     }
 
     #[test]

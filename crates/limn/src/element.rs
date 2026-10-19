@@ -1,4 +1,4 @@
-use crate::{Color, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, DrawCommand, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -553,6 +553,9 @@ pub struct TextSpan {
     /// A hint shown over the run while the pointer rests on it; see
     /// [`Self::tooltip`]. `None` shows none.
     pub tooltip: Option<TextHint>,
+    /// A picture painted in place of the text, such as a custom emoji; see
+    /// [`Self::image`]. `None` paints the text.
+    pub image: Option<InlineImage>,
 }
 
 /// The hint of a [`TextSpan`]: a title in a tooltip's colors.
@@ -563,6 +566,22 @@ pub struct TextHint {
     /// The colors it is painted with.
     pub colors: TooltipStyle,
 }
+
+/// A picture in a line of text, painted in place of its [`TextSpan`]'s
+/// text. The text stays what is copied, selected and read aloud.
+#[derive(Clone, Debug, PartialEq)]
+pub enum InlineImage {
+    /// A still picture, painted with [`DrawCommand::RasterImage`](crate::DrawCommand::RasterImage).
+    Raster(RasterImage),
+    /// A surface the host feeds by this ID, such as the current frame of an
+    /// animation, painted with [`DrawCommand::Surface`](crate::DrawCommand::Surface)
+    /// in its square; the host presents frames of the square's size.
+    Surface(String),
+}
+
+/// The side of an inline picture, as a multiple of its span's text size:
+/// the size chat clients give custom emoji in a line of text.
+pub const INLINE_IMAGE_SCALE: f32 = 1.375;
 
 impl TextSpan {
     /// A run with no background, action or icon. A `font_size` that is not
@@ -588,6 +607,7 @@ impl TextSpan {
             underline: false,
             strikethrough: false,
             tooltip: None,
+            image: None,
         }
     }
 
@@ -637,6 +657,25 @@ impl TextSpan {
             title,
             colors: palette.tooltip_style(),
         });
+        self
+    }
+
+    /// Paint `image` in place of the text: a square [`INLINE_IMAGE_SCALE`]
+    /// times `font_size` on a side, centered on its line and never split
+    /// across lines. The text, such as `:name:` for an emoji, is still what
+    /// a selection copies and what accessibility reads; it is not painted.
+    /// `background` and `icon` are not painted on such a run. A span with
+    /// no text shows nothing.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Paint the host-fed surface `id` in place of the text, as
+    /// [`Self::image`] paints a picture: for an animation the host presents
+    /// on that surface, at the square's size.
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.image = Some(InlineImage::Surface(id.into()));
         self
     }
 }
@@ -1244,6 +1283,23 @@ pub struct RadarPlot {
     pub tooltip: TooltipStyle,
 }
 
+/// What [`Element::drawing`] keeps: the application's own drawing, made again
+/// at the size the element is laid out at.
+#[derive(Clone)]
+pub struct Drawing(Arc<dyn Fn(Size) -> Vec<DrawCommand> + Send + Sync>);
+
+impl Drawing {
+    pub(crate) fn draw(&self, size: Size) -> Vec<DrawCommand> {
+        (self.0)(size)
+    }
+}
+
+impl std::fmt::Debug for Drawing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Drawing")
+    }
+}
+
 /// A column of short marks, one for each part of a long view, such as the
 /// turns of a conversation. The mark under the pointer or the keyboard focus
 /// grows to `peak` and its neighbours step down to `rest` over `reach` marks,
@@ -1697,6 +1753,8 @@ pub enum ElementKind {
     HeatPlot(Box<HeatPlot>),
     /// A column of marks that rise around the pointer; see [`MarkRail`].
     MarkRail(MarkRail),
+    /// The application's own drawing; see [`Element::drawing`].
+    Drawing(Drawing),
     /// Nothing of its own to draw and no natural size; see
     /// [`Element::spacer`].
     Spacer,
@@ -3147,6 +3205,18 @@ impl Element {
     /// see [`MarkRail`].
     pub fn mark_rail(rail: MarkRail) -> Self {
         Self::new(ElementKind::MarkRail(rail))
+    }
+
+    /// A drawing the application makes itself, in the frame's own commands.
+    /// `draw` is given the size the element is laid out at, inside its
+    /// padding, and returns commands placed from that box's top-left corner;
+    /// the tree moves them into place and clips them to the box. Clips the
+    /// drawing pushes and does not pop are popped at its end, and pops it has
+    /// no push for are left out. Give it a size: alone it takes no height,
+    /// and only the width a column stretches it to. A drawing is passive;
+    /// wrap it in [`Element::clickable`] to press it.
+    pub fn drawing(draw: impl Fn(Size) -> Vec<DrawCommand> + Send + Sync + 'static) -> Self {
+        Self::new(ElementKind::Drawing(Drawing(Arc::new(draw))))
     }
 
     /// A non-interactive loading surface with paint-only motion.

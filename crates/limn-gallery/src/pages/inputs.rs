@@ -34,6 +34,8 @@ pub fn fields(state: &State) -> Vec<(&'static str, String)> {
 }
 
 const SHELLS: [(&str, &str); 4] = [("bash", "Bash"), ("zsh", "Zsh"), ("fish", "Fish"), ("nu", "Nushell")];
+// Each band's gain as a share of its slider: 0.5 is 0 dB.
+const EQUALISER: [(&str, f32); 5] = [("60", 0.68), ("250", 0.58), ("1k", 0.5), ("4k", 0.38), ("12k", 0.72)];
 
 /// A slider's value as the gallery keeps it, or `initial` before it is moved.
 fn fraction(cx: &Cx, id: &str, initial: f32) -> f32 {
@@ -389,6 +391,19 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(280.0)
                 .render(),
             caption(cx, "Disabled, every label is muted."),
+            row(EQUALISER
+                .iter()
+                .map(|(band, gain)| {
+                    let id = format!("input-slider-eq-{band}");
+                    Slider::new(&id, fraction(cx, &id, *gain), palette)
+                        .vertical()
+                        .origin(0.5)
+                        .accessibility_label(format!("{band} Hz"))
+                        .width(120.0)
+                        .render()
+                })
+                .collect()),
+            caption(cx, ".vertical().origin(0.5): an equaliser's bands. Each stands up, 120 px tall, and fills from its middle, the 0 dB of a gain."),
         ]),
     ]
 }

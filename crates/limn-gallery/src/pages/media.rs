@@ -29,7 +29,7 @@ const PICTURES: [(&str, &str, u32, &str); 3] = [
     ),
 ];
 
-fn picture(index: usize) -> RasterImage {
+pub(super) fn picture(index: usize) -> RasterImage {
     let (name, sha256, size, data) = PICTURES[index];
     RasterImage::new(sha256, RasterImageFormat::Png, size, Arc::from(data), name).expect("the constants above are a picture")
 }

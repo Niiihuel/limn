@@ -64,6 +64,7 @@ use crate::motion::{
 use crate::shortcut;
 use crate::scroll_area::ScrollbarState;
 use crate::text_width_cache::TextWidthCache;
+use crate::text_layout_cache::TextLayoutCache;
 #[path = "formatted_text_cache.rs"]
 mod formatted_text_cache;
 use formatted_text_cache::FormattedTextCache;
@@ -83,7 +84,7 @@ mod captured_paste;
 pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, Point, PopoverPlacement,
+    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
     TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -170,6 +171,8 @@ struct FormattedFragment {
     /// The «…» that ends a text cut to its `max_lines`: painted, but not
     /// part of the source.
     ellipsis: bool,
+    /// A picture painted in place of `text`, `width` on a side.
+    image: Option<InlineImage>,
     width: f32,
     line_height: f32,
 }
@@ -193,6 +196,7 @@ impl FormattedLine {
 
 fn same_span_style(fragment: &FormattedFragment, span: &TextSpan) -> bool {
     fragment.icon.is_none()
+        && fragment.image.is_none()
         && fragment.color == span.color
         && fragment.font_size == span.font_size
         && fragment.font_family == span.font_family
@@ -257,6 +261,7 @@ fn push_formatted_fragment(
         strikethrough: span.strikethrough,
         tooltip: span.tooltip.clone(),
         ellipsis: false,
+        image: None,
         width,
         line_height: height,
     });
@@ -283,6 +288,37 @@ fn layout_formatted(
     let mut lines = Vec::new();
     let mut current = FormattedLine::new(default_line_height);
     for span in spans {
+        // A picture is one square that moves to the next line whole.
+        if let Some(image) = span.image.as_ref().filter(|_| !span.text.is_empty()) {
+            let side = span.font_size * crate::INLINE_IMAGE_SCALE;
+            if current.width + side > limit && !current.fragments.is_empty() {
+                lines.push(std::mem::replace(
+                    &mut current,
+                    FormattedLine::new(default_line_height),
+                ));
+            }
+            let height = line_height(span).max(side);
+            current.fragments.push(FormattedFragment {
+                text: span.text.clone(),
+                color: span.color,
+                font_size: span.font_size,
+                font_family: span.font_family,
+                background: None,
+                action: span.action.clone(),
+                icon: None,
+                // Lines are not drawn under a picture, as under an icon.
+                underline: false,
+                strikethrough: false,
+                tooltip: span.tooltip.clone(),
+                ellipsis: false,
+                image: Some(image.clone()),
+                width: side,
+                line_height: height,
+            });
+            current.width += side;
+            current.height = current.height.max(height);
+            continue;
+        }
         if let Some(icon) = span.icon.filter(|_| !span.text.is_empty()) {
             let width = ICON_SIZE + 4.0;
             let first = span.text.split_word_bounds().next().unwrap_or_default();
@@ -306,6 +342,7 @@ fn layout_formatted(
                 strikethrough: false,
                 tooltip: span.tooltip.clone(),
                 ellipsis: false,
+                image: None,
                 width,
                 line_height: height,
             });
@@ -392,7 +429,7 @@ fn layout_formatted(
 
 /// Keep the first `max` of `lines`. When more follow, the last one kept
 /// ends in «…» in the style of its last fragment, giving up graphemes, then
-/// whole icons, from its end until it fits `max_width`, and
+/// whole icons and pictures, from its end until it fits `max_width`, and
 /// the spaces left before the «…».
 fn clamp_formatted(
     mut lines: Vec<FormattedLine>,
@@ -432,7 +469,8 @@ fn clamp_formatted(
         if !over && !blank {
             break;
         }
-        if last.icon.is_some() {
+        // An icon or a picture goes whole.
+        if last.icon.is_some() || last.image.is_some() {
             line.width -= last.width;
             line.fragments.pop();
             continue;
@@ -466,6 +504,7 @@ fn clamp_formatted(
         strikethrough: false,
         tooltip: None,
         ellipsis: true,
+        image: None,
         width: ellipsis_width,
         line_height: height,
     });
@@ -616,6 +655,9 @@ pub enum DrawCommand {
         /// pixel gaps.
         dashed: bool,
     },
+    /// Glyphs limn has shaped and placed; see [`crate::GlyphRun`]. A backend
+    /// draws each glyph where the run says, and lays nothing out again.
+    Glyphs(crate::GlyphRun),
     /// A run of text the tree has already measured and wrapped. A backend
     /// paints it from `position` without wrapping it again.
     Text {
@@ -846,6 +888,10 @@ impl DrawCommand {
             } => {
                 *position = Point::new(position.x + dx, position.y + dy);
                 fade(color);
+            }
+            Self::Glyphs(run) => {
+                run.origin = Point::new(run.origin.x + dx, run.origin.y + dy);
+                fade(&mut run.color);
             }
             Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
@@ -1279,6 +1325,15 @@ fn animate_popover_command(
             scale_point(position, scale, origin, slide_y);
             *font_size *= scale;
             fade(color, opacity);
+        }
+        DrawCommand::Glyphs(run) => {
+            scale_point(&mut run.origin, scale, origin, slide_y);
+            run.size *= scale;
+            // Placed from the run's origin, the glyphs scale about it.
+            if scale != 1.0 {
+                run.glyphs = run.glyphs.iter().map(|glyph| crate::Glyph { x: glyph.x * scale, y: glyph.y * scale, ..*glyph }).collect();
+            }
+            fade(&mut run.color, opacity);
         }
         DrawCommand::Icon { rect, tint, .. } => {
             scale_rect(rect, scale, origin, slide_y);
@@ -1724,6 +1779,8 @@ struct SelectableTextRun {
     visible: Option<Rect>,
     font_size: f32,
     font_family: FontFamily,
+    /// An inline picture: its text is selected whole or not at all.
+    atomic: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1731,6 +1788,24 @@ struct SelectableTextBlock {
     source: String,
     runs: Vec<SelectableTextRun>,
     region_layer: usize,
+    /// Text laid out in a `TextLayout`, which a pointer is read back from.
+    layout: Option<PlacedText>,
+}
+
+/// A text layout and where it was drawn.
+#[derive(Clone, Debug)]
+struct PlacedText {
+    layout: crate::TextLayout,
+    origin: Point,
+}
+
+impl PartialEq for PlacedText {
+    fn eq(&self, other: &Self) -> bool {
+        self.origin == other.origin
+            && self.layout.text() == other.layout.text()
+            && self.layout.style() == other.layout.style()
+            && self.layout.size() == other.layout.size()
+    }
 }
 
 impl SelectableTextBlock {
@@ -1747,6 +1822,12 @@ impl SelectableTextBlock {
         metrics: FontMetrics,
         sans_metrics: FontMetrics,
     ) -> usize {
+        if let Some(placed) = &self.layout {
+            let at = Point::new(point.x - placed.origin.x, point.y - placed.origin.y);
+            let byte = placed.layout.index_at(at);
+            let offset = self.source.get(..byte).map_or(0, |before| before.chars().count());
+            return nearest_source_grapheme_boundary(&self.source, offset);
+        }
         let Some(row) = self.runs.iter().min_by(|left, right| {
             vertical_distance(left.rect, point.y).total_cmp(&vertical_distance(right.rect, point.y))
         }) else {
@@ -1772,6 +1853,9 @@ impl SelectableTextBlock {
         .at_size(run.font_size)
         .char_width;
         let x = (point.x - run.rect.x).max(0.0);
+        if run.atomic {
+            return if x * 2.0 < run.rect.width { run.start } else { run.end };
+        }
         let offset = run.start
             + nearest_grapheme(&run.text, x, |text| {
                 measured_width(measure, text, run.font_size, run.font_family, char_width)
@@ -2544,8 +2628,9 @@ pub enum UiEvent {
     /// The primary button was released at this position. A release on the
     /// control that was pressed reports `UiAction::Clicked`.
     PointerUp(Point),
-    /// A wheel step, converted to logical pixels by the host. The scrolling
-    /// area under the pointer eases to its new offset.
+    /// A wheel step, converted to logical pixels by the host (`limn-egui`
+    /// moves a notch 120 px, as a browser does). The scrolling area under the
+    /// pointer eases to its new offset.
     Scroll {
         /// Where the pointer is; what scrolls is under it.
         position: Point,
@@ -3149,6 +3234,10 @@ pub struct UiTree {
     text_height_measurer: Option<Arc<TextHeightMeasurer>>,
     width_cache: RefCell<TextWidthCache>,
     formatted_cache: RefCell<FormattedTextCache>,
+    layout_cache: RefCell<TextLayoutCache>,
+    /// Whether `Element::text` is laid out in a `TextLayout`; see
+    /// [`UiTree::set_text_layout`].
+    text_layout: bool,
     measurement_cache: RefCell<MeasurementCache>,
     horizontal_scrolls: HashMap<String, HorizontalScrollState>,
     frame: Frame,
@@ -3236,6 +3325,8 @@ impl UiTree {
             text_height_measurer: None,
             width_cache: RefCell::new(TextWidthCache::default()),
             formatted_cache: RefCell::new(FormattedTextCache::default()),
+            layout_cache: RefCell::new(TextLayoutCache::default()),
+            text_layout: false,
             measurement_cache: RefCell::new(MeasurementCache::default()),
             horizontal_scrolls: HashMap::new(),
             frame: Frame::default(),
@@ -3347,6 +3438,16 @@ impl UiTree {
         self.text_measurer = Some(Arc::new(measure));
         self.width_cache.get_mut().clear();
         self.formatted_cache.get_mut().clear();
+    }
+
+    /// Lay `Element::text` out in limn's own [`crate::TextLayout`] and draw it
+    /// as glyph runs, instead of measuring it through the text measurer and
+    /// leaving the backend to lay it out again. Its caret, its selection and
+    /// its glyphs then come from one layout. `limn_egui::attach_fonts` turns
+    /// it on. Off by default while limn's components move to it one by one;
+    /// once they all have, it is always on and this goes away.
+    pub fn set_text_layout(&mut self, enabled: bool) {
+        self.text_layout = enabled;
     }
 
     /// Remove the host's text width function, so widths come from the font
@@ -3894,6 +3995,7 @@ impl UiTree {
         refresh_hover_paint: bool,
     ) -> Frame {
         self.begin_paste_layout();
+        self.layout_cache.get_mut().begin_pass();
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
         for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
@@ -3960,6 +4062,8 @@ impl UiTree {
                 text_height_measurer: self.text_height_measurer.clone(),
                 width_cache: &self.width_cache,
                 formatted_cache: &self.formatted_cache,
+                layout_cache: &self.layout_cache,
+                text_layout: self.text_layout,
                 measurement_cache: &self.measurement_cache,
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
@@ -6664,6 +6768,7 @@ fn collect_focus_order(
         | ElementKind::RasterImage(_)
         | ElementKind::Surface { .. }
         | ElementKind::Icon(_)
+        | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -6741,6 +6846,7 @@ fn collect_action_metadata(
         | ElementKind::RadarPlot(_)
         | ElementKind::HeatPlot(_)
         | ElementKind::MarkRail(_)
+        | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -6953,6 +7059,8 @@ struct LayoutBuilder<'a> {
     text_height_measurer: Option<Arc<TextHeightMeasurer>>,
     width_cache: &'a RefCell<TextWidthCache>,
     formatted_cache: &'a RefCell<FormattedTextCache>,
+    layout_cache: &'a RefCell<TextLayoutCache>,
+    text_layout: bool,
     measurement_cache: &'a RefCell<MeasurementCache>,
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
@@ -8179,6 +8287,65 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// `value` in `style`, as laid out for this tree, broken at `width` when
+    /// it is finite.
+    fn laid_out_text(&self, value: &str, style: Style, width: f32, centered: bool) -> crate::TextLayout {
+        // The line height and placement the measured path gives, so the
+        // switch moves nothing.
+        let text_style = crate::TextStyle::new(style.font_size, style.font_family)
+            .line_height(self.metrics_for(style).line_height)
+            .leading(crate::Leading::Below);
+        self.layout_cache.borrow_mut().get(value, text_style, width, centered)
+    }
+
+    /// Paint text laid out in a `TextLayout`: its selection, its glyphs, and
+    /// the selectable block a pointer reads it back from.
+    fn paint_laid_out_text(&mut self, value: &str, content: Rect, style: Style, clip: Option<Rect>) {
+        let layout = self.laid_out_text(value, style, content.width, style.center_content);
+        let origin = Point::new(content.x, content.y);
+        let block_index = self.frame.text_blocks.len();
+        let mut runs = Vec::new();
+        let mut start = 0;
+        for line in layout.lines() {
+            let held = &value[line.range.clone()];
+            // A line's own text; the break that ends it is the source's.
+            let shown = held.strip_suffix('\n').map_or(held, |line| line.strip_suffix('\r').unwrap_or(line));
+            let rect = Rect::new(origin.x + line.rect.x, origin.y + line.rect.y, line.rect.width, line.rect.height);
+            runs.push(SelectableTextRun {
+                start,
+                end: start + shown.chars().count(),
+                text: shown.to_owned(),
+                rect,
+                visible: clip.and_then(|area| rect.intersection(area)).or_else(|| clip.is_none().then_some(rect)),
+                font_size: style.font_size,
+                font_family: style.font_family,
+                atomic: false,
+            });
+            start += held.chars().count();
+        }
+        if let Some((from, to)) = self
+            .selection
+            .filter(|selection| selection.block == block_index && selection.source == value)
+            .and_then(|selection| selection.range())
+        {
+            let byte = |offset: usize| value.char_indices().nth(offset).map_or(value.len(), |(byte, _)| byte);
+            for rect in layout.selection(byte(from)..byte(to)) {
+                self.frame.commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(origin.x + rect.x, origin.y + rect.y, rect.width, rect.height),
+                    color: Color::rgba(180, 180, 180, 84),
+                    radius: 0.0,
+                });
+            }
+        }
+        self.frame.commands.extend(layout.draw(origin, style.foreground));
+        self.frame.text_blocks.push(SelectableTextBlock {
+            source: value.to_owned(),
+            runs,
+            region_layer: self.frame.regions.len(),
+            layout: Some(PlacedText { layout, origin }),
+        });
+    }
+
     fn paint_static_run(
         &mut self,
         block_index: usize,
@@ -8204,8 +8371,14 @@ impl LayoutBuilder<'_> {
                         font_family: run.font_family,
                         ..Style::default()
                     };
-                    let left = self.text_width(char_range(&run.text, 0, start - run.start), style);
-                    let right = self.text_width(char_range(&run.text, 0, end - run.start), style);
+                    let (left, right) = if run.atomic {
+                        (0.0, run.rect.width)
+                    } else {
+                        (
+                            self.text_width(char_range(&run.text, 0, start - run.start), style),
+                            self.text_width(char_range(&run.text, 0, end - run.start), style),
+                        )
+                    };
                     self.frame.commands.push(DrawCommand::FillRect {
                         rect: Rect::new(
                             run.rect.x + left,
@@ -8219,13 +8392,15 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
-        self.frame.commands.push(DrawCommand::Text {
-            position,
-            text: run.text.clone(),
-            color,
-            font_size: run.font_size,
-            font_family: run.font_family,
-        });
+        if !run.atomic {
+            self.frame.commands.push(DrawCommand::Text {
+                position,
+                text: run.text.clone(),
+                color,
+                font_size: run.font_size,
+                font_family: run.font_family,
+            });
+        }
         self.frame.text_blocks[block_index].runs.push(run);
     }
 
@@ -8241,9 +8416,10 @@ impl LayoutBuilder<'_> {
         .at_size(style.font_size)
     }
 
-    /// Underline the text painted since command `first`, kept inside `bounds`.
-    /// A faded label paints its line several times; each is underlined once.
-    fn underline_text(&mut self, first: usize, bounds: Rect, style: Style) {
+    /// Underline the text painted since command `first` and text block
+    /// `first_block`, kept inside `bounds`. A faded label paints its line
+    /// several times; each is underlined once.
+    fn underline_text(&mut self, first: usize, first_block: usize, bounds: Rect, style: Style) {
         let mut lines: Vec<(Point, f32, f32, Color)> = Vec::new();
         for command in &self.frame.commands[first..] {
             let DrawCommand::Text {
@@ -8270,6 +8446,21 @@ impl LayoutBuilder<'_> {
                     self.metrics_for(run).line_height,
                     *color,
                 )),
+            }
+        }
+        // Text laid out in a `TextLayout`: under each of its lines, in its ink.
+        let ink = self.frame.commands[first..]
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Glyphs(run) => Some(run.color),
+                _ => None,
+            })
+            .max_by_key(|color| color.a);
+        if let Some(ink) = ink {
+            for block in self.frame.text_blocks[first_block..].iter().filter(|block| block.layout.is_some()) {
+                for run in &block.runs {
+                    lines.push((Point::new(run.rect.x, run.rect.y), run.rect.width, run.rect.height, ink));
+                }
             }
         }
         for (position, width, line_height, color) in lines {
@@ -9110,9 +9301,13 @@ impl LayoutBuilder<'_> {
         }
         let sharp: Vec<DrawCommand> = self.frame.commands.drain(start..).collect();
         for command in sharp {
-            let DrawCommand::Text { color, .. } = &command else {
-                self.frame.commands.push(command);
-                continue;
+            let color = match &command {
+                DrawCommand::Text { color, .. } => color,
+                DrawCommand::Glyphs(run) => &run.color,
+                _ => {
+                    self.frame.commands.push(command);
+                    continue;
+                }
             };
             // Where every copy overlaps, the ink is nearly what it was.
             let ink = f32::from(color.a) / 255.0;
@@ -9225,6 +9420,10 @@ impl LayoutBuilder<'_> {
         let wrap_width = inner.width.min(style.max_width
             .map_or(f32::INFINITY, |max| (max - padding).max(0.0)));
         let natural = match &element.kind {
+            ElementKind::Text(value) if self.text_layout => {
+                let size = self.laid_out_text(value, style, wrap_width, false).size();
+                Size::new(size.width + padding, size.height + padding)
+            }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
                 text: value,
@@ -9393,6 +9592,8 @@ impl LayoutBuilder<'_> {
             }
             // The caller sizes it; left alone it is one dot.
             ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
+            // The caller sizes it.
+            ElementKind::Drawing(_) => Size::new(padding, padding),
             // The caller sizes it; left alone it takes the width it is offered.
             ElementKind::HeatPlot(plot) => {
                 let rows = plot.columns.iter().map(Vec::len).max().unwrap_or(0) as f32;
@@ -10219,12 +10420,13 @@ impl LayoutBuilder<'_> {
                     );
                 }
                 let first = self.frame.commands.len();
+                let first_block = self.frame.text_blocks.len();
                 self.place(child, content, clip);
                 if style.underline_on_hover
                     && (self.hovered == Some(id.as_str())
                         || self.keyboard_focus && self.focused == Some(id.as_str()))
                 {
-                    self.underline_text(first, content, style);
+                    self.underline_text(first, first_block, content, style);
                 }
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
                     self.draw_focus_ring(rect, style);
@@ -10741,6 +10943,9 @@ impl LayoutBuilder<'_> {
                     }
                 }
             }
+            ElementKind::Text(value) if self.text_layout => {
+                self.paint_laid_out_text(value, content, style, clip);
+            }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
                 text: value,
@@ -10767,6 +10972,7 @@ impl LayoutBuilder<'_> {
                     source: value.clone(),
                     runs: Vec::new(),
                     region_layer: self.frame.regions.len(),
+                    layout: None,
                 });
                 let mut source_byte = 0;
                 let mut source_char = 0;
@@ -10804,6 +11010,7 @@ impl LayoutBuilder<'_> {
                             visible: None,
                             font_size: style.font_size,
                             font_family: style.font_family,
+                            atomic: false,
                         },
                         Point::new(x, y),
                         style.foreground,
@@ -10836,6 +11043,7 @@ impl LayoutBuilder<'_> {
                     source: source.clone(),
                     runs: Vec::new(),
                     region_layer: self.frame.regions.len(),
+                    layout: None,
                 });
                 let mut source_byte = 0;
                 let mut source_char = 0;
@@ -10886,6 +11094,59 @@ impl LayoutBuilder<'_> {
                                 font_size: fragment.font_size,
                                 font_family: fragment.font_family,
                             });
+                            x += fragment.width;
+                            continue;
+                        }
+                        if let Some(image) = &fragment.image {
+                            let side = fragment.width;
+                            let picture = Rect::new(x, y + (line.height - side) / 2.0, side, side);
+                            if let Some(visible) = clip
+                                .and_then(|clip| clip.intersection(picture))
+                                .or_else(|| clip.is_none().then_some(picture))
+                            {
+                                self.frame.commands.push(DrawCommand::PushClip(visible));
+                                self.frame.commands.push(match image {
+                                    InlineImage::Raster(image) => DrawCommand::RasterImage {
+                                        rect: picture,
+                                        image: image.clone(),
+                                        opacity: 1.0,
+                                        radius: 0.0,
+                                    },
+                                    InlineImage::Surface(id) => DrawCommand::Surface {
+                                        rect: picture,
+                                        id: id.clone(),
+                                        label: fragment.text.clone(),
+                                        opacity: 1.0,
+                                    },
+                                });
+                                self.frame.commands.push(DrawCommand::PopClip);
+                            }
+                            // The text, unpainted, is what a selection takes.
+                            let count = fragment.text.chars().count();
+                            self.paint_static_run(
+                                block_index,
+                                &source,
+                                SelectableTextRun {
+                                    start: source_char,
+                                    end: source_char + count,
+                                    text: fragment.text.clone(),
+                                    rect: fragment_rect,
+                                    visible: None,
+                                    font_size: fragment.font_size,
+                                    font_family: fragment.font_family,
+                                    atomic: true,
+                                },
+                                Point::new(x, y),
+                                fragment.color,
+                                clip,
+                            );
+                            if let Some(id) = &fragment.action {
+                                if self.keyboard_focus && self.focused == Some(id.as_str()) {
+                                    self.draw_focus_ring(fragment_rect, style);
+                                }
+                            }
+                            source_byte += fragment.text.len();
+                            source_char += count;
                             x += fragment.width;
                             continue;
                         }
@@ -10946,6 +11207,7 @@ impl LayoutBuilder<'_> {
                                 visible: None,
                                 font_size: fragment.font_size,
                                 font_family: fragment.font_family,
+                                atomic: false,
                             },
                             Point::new(x, y + line.height - fragment.line_height - leading / 2.0),
                             fragment.color,
@@ -11964,6 +12226,21 @@ impl LayoutBuilder<'_> {
             ElementKind::PiePlot(plot) => self.paint_pie_plot(plot, content, clip),
             ElementKind::RadarPlot(plot) => self.paint_radar_plot(plot, content, clip),
             ElementKind::HeatPlot(plot) => self.paint_heat_plot(plot, content, clip),
+            ElementKind::Drawing(drawing) => {
+                self.frame.commands.push(DrawCommand::PushClip(content));
+                // The drawing's own clips stay balanced, so none outlives it.
+                let mut open = 0;
+                for command in drawing.draw(Size::new(content.width, content.height)) {
+                    match command {
+                        DrawCommand::PushClip(_) => open += 1,
+                        DrawCommand::PopClip if open == 0 => continue,
+                        DrawCommand::PopClip => open -= 1,
+                        _ => {}
+                    }
+                    self.frame.commands.push(command.moved(content.x, content.y, 1.0));
+                }
+                self.frame.commands.extend(std::iter::repeat_n(DrawCommand::PopClip, open + 1));
+            }
             ElementKind::LevelBars(bars) => {
                 let pitch = bars.bar + bars.gap;
                 let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };
@@ -15390,6 +15667,125 @@ mod tests {
             w_y > 0.0,
             "narrow layout should wrap the measured wide glyph"
         );
+    }
+
+    fn inline_picture() -> RasterImage {
+        RasterImage::new(
+            "b".repeat(64),
+            crate::RasterImageFormat::Png,
+            4,
+            Arc::from("AAAA"),
+            "wave",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn inline_pictures_are_unsplit_squares_painted_in_place_of_their_text() {
+        let spans = vec![
+            TextSpan::new("hi ", Color::WHITE, 16.0, FontFamily::Sans),
+            TextSpan::new(":wave:", Color::WHITE, 16.0, FontFamily::Sans).image(inline_picture()),
+            TextSpan::new(" ok", Color::WHITE, 16.0, FontFamily::Sans),
+        ];
+        let mut tree = UiTree::new(Element::formatted_text(spans.clone()));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let pictures: Vec<Rect> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::RasterImage { rect, image, .. } if image.sha256() == "b".repeat(64) => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pictures.len(), 1);
+        // 1.375 times the 16 px text, after the 12 px of "hi ".
+        assert_eq!((pictures[0].x, pictures[0].width, pictures[0].height), (12.0, 22.0, 22.0));
+        let painted: String = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(painted, "hi  ok", "the alternative text is not painted");
+        let block = &frame.text_layouts()[0];
+        assert_eq!(block.source, "hi :wave: ok");
+        let after = block.runs.iter().find(|run| run.text == " ok").unwrap();
+        assert_eq!(after.rect.x, 34.0, "the text goes on after the square");
+
+        // Too narrow for the square beside "hi ": it moves down whole.
+        tree.set_root(Element::formatted_text(spans).size(Some(30.0), None));
+        let frame = tree.layout(Size::new(30.0, 100.0));
+        let picture = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!((picture.x, picture.width), (0.0, 22.0));
+        assert!(picture.y > 0.0);
+    }
+
+    #[test]
+    fn an_inline_picture_is_selected_and_copied_whole_as_its_text() {
+        let mut tree = UiTree::new(Element::formatted_text(vec![
+            TextSpan::new("ab", Color::WHITE, 16.0, FontFamily::Sans),
+            TextSpan::new(":wave:", Color::WHITE, 16.0, FontFamily::Sans).image(inline_picture()),
+            TextSpan::new("cd", Color::WHITE, 16.0, FontFamily::Sans),
+        ]));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        tree.layout(Size::new(200.0, 100.0));
+        // From the start of the text to a third into the 22 px square, at 8.
+        tree.handle_event(UiEvent::PointerDown(Point::new(0.0, 4.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(15.0, 4.0)));
+        assert_eq!(tree.selected_text(), Some("ab"));
+        tree.handle_event(UiEvent::PointerMove(Point::new(21.0, 4.0)));
+        assert_eq!(tree.selected_text(), Some("ab:wave:"));
+        tree.handle_event(UiEvent::PointerUp(Point::new(21.0, 4.0)));
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let highlight = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, color, .. }
+                if *color == Color::rgba(180, 180, 180, 84) && rect.x == 8.0 =>
+            {
+                Some(*rect)
+            }
+            _ => None,
+        });
+        assert_eq!(highlight.map(|rect| rect.width), Some(22.0), "the whole square is selected");
+    }
+
+    #[test]
+    fn an_inline_surface_paints_the_hosts_pixels_in_the_square() {
+        let mut tree = UiTree::new(Element::formatted_text(vec![TextSpan::new(
+            ":dance:",
+            Color::WHITE,
+            14.0,
+            FontFamily::Sans,
+        )
+        .surface("animation:dance")
+        .action("emoji:dance")]));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let surface = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Surface { rect, id, label, .. } => {
+                Some((*rect, id.clone(), label.clone()))
+            }
+            _ => None,
+        });
+        let (rect, id, label) = surface.unwrap();
+        assert_eq!((rect.width, rect.height), (19.25, 19.25));
+        assert_eq!((id.as_str(), label.as_str()), ("animation:dance", ":dance:"));
+        assert_eq!(
+            frame.hit_test(Point::new(rect.x + 5.0, rect.y + 5.0)),
+            Some("emoji:dance")
+        );
+        assert_eq!(frame.text_layouts()[0].source, ":dance:");
     }
 
     #[test]
