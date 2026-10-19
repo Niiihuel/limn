@@ -360,6 +360,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     (Icon::Lightbulb, "Lightbulb"),
                     (Icon::Heart, "Heart"),
                     (Icon::Flag, "Flag"),
+                    (Icon::Forward, "Forward"),
                 ]
                 .into_iter()
                 .flat_map(|(icon, name)| [

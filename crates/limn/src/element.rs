@@ -556,6 +556,8 @@ pub enum Icon {
     Lightbulb,
     /// A flag on its pole: flags, or marking something.
     Flag,
+    /// An arrow going on: forwarding a message or a picture to someone else.
+    Forward,
 }
 
 impl Icon {

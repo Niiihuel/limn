@@ -519,7 +519,7 @@ impl Component for ImageViewer {
         let initial = self.initial_focus.clone().unwrap_or_else(|| self.close_id.clone());
         let mut popover = Element::popover(self.base, viewer, &self.close_id, PopoverPlacement::Center)
             // The window's content stays faintly there behind the picture.
-            .popover_scrim(Color::rgba(0, 0, 0, 222))
+            .popover_scrim(Color::rgba(0, 0, 0, 242))
             .popover_animation_ms(crate::tokens().motion.enter_ms)
             // The picture grows out of its thumbnail; the rest fades in.
             .popover_open_scale(1.0)
