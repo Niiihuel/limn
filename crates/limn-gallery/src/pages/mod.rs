@@ -115,7 +115,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "scheme", group: "System", title: "Scheme", source: "scheme", view: scheme::view, sections: &[], since: "0.1.39" },
     Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Inline pictures", "Long text", "Soft focus", "Unicode fallback", "Monochrome emoji"], since: "0.1.39" },
     Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"], since: "0.1.39" },
-    Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings"], since: "0.1.39" },
+    Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings", "Categories and small icons"], since: "0.1.39" },
     Page { id: "drawing", group: "System", title: "Drawing", source: "drawing", view: drawing::view, sections: &[], since: "0.1.44" },
     Page { id: "text-layout", group: "System", title: "TextLayout", source: "text_layout", view: text_layout::view, sections: &[], since: "0.1.44" },
     Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },

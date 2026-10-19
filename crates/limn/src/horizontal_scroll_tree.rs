@@ -273,7 +273,7 @@ impl LayoutBuilder<'_> {
                 }
             }
             if let Some(color) = pan_bar.filter(|_| width > content.width + 0.5) {
-                let opacity = self.scrollbar_opacity(id, offset, self.dragging_horizontal == Some(id), visibility);
+                let opacity = self.scrollbar_opacity(id, offset, self.dragging_horizontal == Some(id), visibility, content);
                 if opacity > 0.0 {
                     let scale = content.width / width;
                     self.frame.commands.push(DrawCommand::FillRect {

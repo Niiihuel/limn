@@ -75,6 +75,23 @@ Slider::new("seek", state.position, palette).ink(accent).render()
 `ink` colors the filled part, the thumb and the default stop's label, in place
 of the palette's text.
 
+## A level on the track
+
+```rust
+let over = state.level >= state.threshold;
+Slider::new("sensitivity", state.threshold, palette)
+    .ink(accent)
+    .level(state.level, if over { green } else { yellow })
+    .accessibility_label("Input sensitivity")
+    .render()
+```
+
+`level(level, color)` draws a value that moves on its own along the track,
+from the start to `level`, in `color`, in place of the fill: a meter whose
+threshold is the slider's value, such as a microphone's input under the
+sensitivity the thumb sets. The host passes the new level on every rebuild,
+and asks for a repaint while it moves. The platform is told only the value.
+Disabled, the level is muted.
 ## Vertical and from a middle
 
 ```rust

@@ -338,5 +338,46 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ),
             caption(cx, "A private channel, a permission left as inherited, an open menu, an invitation, leaving a server and a handle to drag a row by."),
         ]),
+        section(cx, "Categories and small icons", vec![
+            row(
+                [
+                    (Icon::Emoji, "Emoji"),
+                    (Icon::Tree, "Tree"),
+                    (Icon::FriedEgg, "FriedEgg"),
+                    (Icon::Gamepad, "Gamepad"),
+                    (Icon::Car, "Car"),
+                    (Icon::Lightbulb, "Lightbulb"),
+                    (Icon::Heart, "Heart"),
+                    (Icon::Flag, "Flag"),
+                ]
+                .into_iter()
+                .flat_map(|(icon, name)| [
+                    Element::icon(icon).large_icon(20.0).foreground(palette.text),
+                    caption(cx, name),
+                    Element::spacer().size(Some(8.0), None),
+                ])
+                .collect(),
+            ),
+            row(vec![
+                // A padlock over the corner of a channel's glyph.
+                Element::stack(vec![
+                    Element::icon(Icon::Hash).large_icon(20.0).foreground(palette.text),
+                    Element::column(vec![
+                        Element::row(vec![
+                            Element::spacer().flex(1.0),
+                            Element::icon(Icon::Lock).small_icon(10.0).foreground(palette.text),
+                        ]),
+                        Element::spacer().flex(1.0),
+                    ]),
+                ])
+                .size(Some(20.0), Some(20.0)),
+                caption(cx, "small_icon(10)"),
+                Element::icon(Icon::Volume).small_icon(12.0).foreground(palette.text),
+                caption(cx, "small_icon(12)"),
+                Element::icon(Icon::Volume).small_icon(8.0).foreground(palette.text),
+                caption(cx, "small_icon(8)"),
+            ]),
+            caption(cx, "The categories of an emoji picker at 20 px, and icons under 16 px: a padlock over a channel's glyph, a speaker in a small mark."),
+        ]),
     ]
 }
