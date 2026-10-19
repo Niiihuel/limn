@@ -5,9 +5,22 @@ use crate::components::{
 };
 use crate::menu::{DetailRow, MenuCheck, action_style};
 use crate::{
-    Access, Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, Point, PopoverPlacement, Role,
+    Access, Color, Element, FontFamily, ICON_SIZE, Icon, InlineImage, MenuMotion, Point, PopoverPlacement, RasterImage, Role,
     ScrollArea, ScrollbarAppearance, SelectorSizing, Separator, Skeleton, TooltipSpec,
 };
+
+/// An item's icon slot, `side` wide: its picture, fitted inside and named
+/// by `label`, else its icon in `ink`, else nothing.
+pub(crate) fn leading(picture: Option<&InlineImage>, icon: Option<Icon>, label: &str, side: f32, ink: Color) -> Element {
+    match (picture, icon) {
+        (Some(picture), _) => {
+            let fitted = side.min(ICON_SIZE);
+            picture.element(label).size(Some(fitted), Some(fitted)).centered()
+        }
+        (None, Some(icon)) => Element::icon(icon).foreground(ink),
+        (None, None) => Element::spacer(),
+    }
+}
 
 // The height of the viewport that holds an error too long for one row.
 const ERROR_HEIGHT: f32 = 104.0;
@@ -51,6 +64,7 @@ pub struct DropdownMenuItem {
     tooltip: Option<TooltipSpec>,
     truncate: bool,
     check: Option<MenuCheck>,
+    picture: Option<InlineImage>,
 }
 
 impl DropdownMenuItem {
@@ -75,12 +89,29 @@ impl DropdownMenuItem {
             tooltip: None,
             truncate: false,
             check: None,
+            picture: None,
         }
     }
 
     /// A leading icon, drawn in the item's ink, or muted while the item is disabled.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// A picture in the icon's slot, in place of any icon, such as a custom
+    /// emoji: [`ICON_SIZE`] on a side at most, fitted at its own proportions
+    /// and in its own colors, so a disabled item does not tint it.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.picture = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// The host-fed surface `id` in the icon's slot, as [`Self::image`]
+    /// puts a picture: for an animation the host presents on that surface,
+    /// fitted inside the slot and named by the item's label.
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.picture = Some(InlineImage::Surface(id.into()));
         self
     }
 
@@ -684,7 +715,7 @@ impl Component for DropdownMenu {
         let reserve_icon = self
             .entries
             .iter()
-            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some()));
+            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some() || item.picture.is_some()));
         let choices = self
             .entries
             .iter()
@@ -820,6 +851,7 @@ impl Component for DropdownMenu {
                         label: item.label,
                         description: item.description.unwrap_or_default(),
                         icon: item.icon,
+                        picture: item.picture,
                         mono: item.detail_mono,
                         status: item.status,
                         status_width: item.status_width,
@@ -905,15 +937,13 @@ impl Component for DropdownMenu {
                     let mut children = Vec::with_capacity(5);
                     if reserve_icon {
                         children.push(
-                            if let Some(icon) = item.icon {
-                                Element::icon(icon).foreground(if enabled {
-                                    ink
-                                } else {
-                                    palette.muted
-                                })
-                            } else {
-                                Element::spacer()
-                            }
+                            leading(
+                                item.picture.as_ref(),
+                                item.icon,
+                                &item.label,
+                                icon_size,
+                                if enabled { ink } else { palette.muted },
+                            )
                             .size(
                                 Some(icon_size),
                                 if contextual {

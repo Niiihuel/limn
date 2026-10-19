@@ -563,6 +563,17 @@ pub enum InlineImage {
     Surface(String),
 }
 
+impl InlineImage {
+    /// The picture as an element of its own, fitted inside its box: a
+    /// button's or a menu row's leading picture. `label` names a surface.
+    pub(crate) fn element(&self, label: &str) -> Element {
+        match self {
+            Self::Raster(image) => Element::raster_image(image.clone()),
+            Self::Surface(id) => Element::surface(id.clone(), label).surface_fit(SurfaceFit::Contain),
+        }
+    }
+}
+
 /// The side of an inline picture, as a multiple of its span's text size:
 /// the size chat clients give custom emoji in a line of text.
 pub const INLINE_IMAGE_SCALE: f32 = 1.375;
@@ -809,7 +820,7 @@ pub(crate) struct Kept {
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
     /// A picture an icon button draws in its icon's place.
-    pub(crate) leading_image: Option<crate::RasterImage>,
+    pub(crate) leading_image: Option<InlineImage>,
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
@@ -1544,6 +1555,9 @@ pub enum ElementKind {
         label: String,
         /// How the pixels fill the rectangle; see [`Element::surface_fit`].
         fit: SurfaceFit,
+        /// The pixels are shown flipped left to right; see
+        /// [`Element::surface_mirrored`].
+        mirrored: bool,
     },
     /// An icon centered in the element's box, [`ICON_SIZE`] on a side unless
     /// [`Style::icon_side`] says otherwise.
@@ -2882,7 +2896,19 @@ impl Element {
             id: id.into(),
             label: label.into(),
             fit: SurfaceFit::Native,
+            mirrored: false,
         })
+    }
+
+    /// Show a surface's pixels flipped left to right, as a camera's preview
+    /// is shown to the person in front of it, who sees themselves as in a
+    /// mirror. Only the painting changes: the host presents its pixels as
+    /// they are. Has no effect on an element that is not a surface.
+    pub fn surface_mirrored(mut self, mirrored: bool) -> Self {
+        if let ElementKind::Surface { mirrored: own, .. } = &mut self.kind {
+            *own = mirrored;
+        }
+        self
     }
 
     /// How a surface's pixels fill its rectangle: [`SurfaceFit::Contain`]
@@ -3007,7 +3033,7 @@ impl Element {
 
     /// Draw `image` in an icon button's icon slot, [`ICON_SIZE`] on a side,
     /// in place of its icon. Other elements ignore it.
-    pub(crate) fn leading_image(mut self, image: crate::RasterImage) -> Self {
+    pub(crate) fn leading_image(mut self, image: InlineImage) -> Self {
         if matches!(self.kind, ElementKind::IconButton { .. }) {
             self.kept.get_or_insert_default().leading_image = Some(image);
         }
@@ -3901,5 +3927,21 @@ mod surface_tests {
         let covered = Element::surface("a", "A").surface_fit(SurfaceFit::Cover).radius(8.0);
         assert_eq!(shown(covered), Some((SurfaceFit::Cover, 8.0)));
         assert!(shown(Element::spacer().surface_fit(SurfaceFit::Cover)).is_none());
+    }
+
+    #[test]
+    fn a_surface_is_mirrored_only_when_asked_and_other_elements_ignore_it() {
+        let mirrored = |element: Element| {
+            let frame = UiTree::new(element).layout(Size::new(120.0, 80.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Surface { mirrored, .. } => Some(*mirrored),
+                _ => None,
+            })
+        };
+        assert_eq!(mirrored(Element::surface("camera", "Camera")), Some(false));
+        let shown = Element::surface("camera", "Camera").surface_fit(SurfaceFit::Cover).surface_mirrored(true);
+        assert_eq!(mirrored(shown), Some(true));
+        assert_eq!(mirrored(Element::surface("camera", "Camera").surface_mirrored(true).surface_mirrored(false)), Some(false));
+        assert!(mirrored(Element::spacer().surface_mirrored(true)).is_none());
     }
 }

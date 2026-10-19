@@ -205,6 +205,7 @@ fn indexed_input_uses_post_normalization_indices_and_keeps_native_key_metadata()
             // Alt+Down: the translation carries Alt; repeat stays native.
             (Some(2), UiEvent::Key { key: Key::ArrowDown, ctrl: false, shift: false, alt: true }),
             (Some(3), UiEvent::Key { key: Key::ArrowDown, ctrl: false, shift: false, alt: true }),
+            (Some(4), UiEvent::KeyReleased { key: Key::ArrowDown }),
         ]
     );
     for (index, expected_repeat) in [(2, false), (3, true)] {

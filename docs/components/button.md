@@ -84,6 +84,19 @@ keeps its own colors, so ink, hover and disabled do not tint it. With an empty
 label it is square and called by the picture's text alternative unless it has
 a hint or an `accessibility_label`. `loading` still shows the spinner.
 
+```rust
+Button::new("join", "Join", palette)
+    .surface("emoji:party")
+    .render()
+```
+
+`surface(id)` puts the host-fed surface `id` in the same slot, fitted inside
+it: an animation the host presents there, such as an animated custom emoji
+(see [Host-fed surfaces](../backend.md#host-fed-surfaces)). The surface is
+named by the label; a button of a surface alone needs an
+`accessibility_label`. A host that respects reduced motion gives the still
+picture to `image` instead.
+
 ## Loading and disabled
 
 ```rust

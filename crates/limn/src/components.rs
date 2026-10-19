@@ -4,7 +4,7 @@
 //! these controls are rebuilt on every frame.
 
 use crate::{
-    Access, Color, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement, RasterImage, TooltipItem,
+    Access, Color, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement, RasterImage, TooltipItem,
     RadiusRole, TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
 };
 use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion, Role};
@@ -611,7 +611,7 @@ impl ControlSize {
 pub struct Button {
     action_id: String,
     content: ButtonContent,
-    image: Option<RasterImage>,
+    image: Option<InlineImage>,
     trailing_icon: Option<Icon>,
     variant: ButtonVariant,
     size: ControlSize,
@@ -695,7 +695,10 @@ impl Button {
             .accessibility_label
             .clone()
             .or_else(|| if label.is_empty() { title.clone() } else { None })
-            .or_else(|| self.image.as_ref().filter(|_| label.is_empty()).map(|image| image.alt().to_owned()));
+            .or_else(|| match &self.image {
+                Some(InlineImage::Raster(image)) if label.is_empty() => Some(image.alt().to_owned()),
+                _ => None,
+            });
         let spoken = name.clone().unwrap_or(label);
         let mut access = Access::default();
         if let Some(name) = name {
@@ -725,7 +728,17 @@ impl Button {
     /// state do not tint it. With an empty label the button shows the picture
     /// alone and is as wide as it is high. `loading` still shows the spinner.
     pub fn image(mut self, image: RasterImage) -> Self {
-        self.image = Some(image);
+        self.image = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Put the host-fed surface `id` before the label, as [`Self::image`]
+    /// puts a picture: for an animation the host presents on that surface,
+    /// such as an animated custom emoji, fitted inside the slot. The
+    /// surface is named by the button's label; a button of a surface alone
+    /// needs an [`accessibility_label`](Self::accessibility_label).
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.image = Some(InlineImage::Surface(id.into()));
         self
     }
 
@@ -1068,10 +1081,9 @@ impl Component for Button {
                         .decorative()
                         .render(),
                 ))
-            } else if let Some(image) = image {
-                Some(center_icon(
-                    Element::raster_image(image).size(Some(ICON_SIZE), Some(ICON_SIZE)).centered_x(),
-                ))
+            } else if let Some(image) = &image {
+                let name = self.accessibility_label.as_deref().unwrap_or(&label);
+                Some(center_icon(image.element(name).size(Some(ICON_SIZE), Some(ICON_SIZE)).centered_x()))
             } else {
                 icon.map(|icon| {
                     center_icon(
@@ -2912,6 +2924,9 @@ pub struct DropdownOption {
     pub selected: bool,
     /// Whether it can be chosen. A disabled option stays in the list.
     pub state: ControlState,
+    /// A picture in the icon's place, such as a custom emoji. `None` by
+    /// default.
+    pub picture: Option<InlineImage>,
 }
 
 impl DropdownOption {
@@ -2923,6 +2938,7 @@ impl DropdownOption {
             icon: None,
             selected: false,
             state: ControlState::Enabled,
+            picture: None,
         }
     }
 
@@ -2930,6 +2946,34 @@ impl DropdownOption {
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
+    }
+
+    /// Show a picture in the icon's place; see [`DropdownMenuItem::image`].
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.picture = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Show the host-fed surface `id` in the icon's place, for an
+    /// animation; see [`DropdownMenuItem::surface`].
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.picture = Some(InlineImage::Surface(id.into()));
+        self
+    }
+
+    /// The menu item that shows the option.
+    pub(crate) fn item(self) -> DropdownMenuItem {
+        let mut item = DropdownMenuItem::new(self.action_id, self.label)
+            .selected(self.selected)
+            .enabled(self.state != ControlState::Disabled);
+        if let Some(icon) = self.icon {
+            item = item.icon(icon);
+        }
+        match self.picture {
+            Some(InlineImage::Raster(image)) => item.image(image),
+            Some(InlineImage::Surface(id)) => item.surface(id),
+            None => item,
+        }
     }
 
     /// Mark the option as the current choice.
@@ -3040,17 +3084,7 @@ impl Component for DropdownList {
         let entries = self
             .options
             .into_iter()
-            .map(|option| {
-                let mut item =
-                    DropdownMenuItem::new(option.action_id, option.label).selected(option.selected);
-                if let Some(icon) = option.icon {
-                    item = item.icon(icon);
-                }
-                if option.state == ControlState::Disabled {
-                    item = item.disabled();
-                }
-                DropdownMenuEntry::Item(item)
-            })
+            .map(|option| DropdownMenuEntry::Item(option.item()))
             .collect();
         let mut menu = DropdownMenu::new(
             self.anchor,
@@ -5139,6 +5173,46 @@ mod tests {
         let (square, slot) = (alone.regions[0].rect, pictured(&alone));
         assert_eq!((square.width, square.height), (32.0, 32.0));
         assert_eq!((slot.x - square.x, slot.y - square.y), (8.0, 8.0));
+    }
+
+    #[test]
+    fn a_surface_takes_the_picture_slot_enabled_or_not_fitted_and_named_by_the_label() {
+        let palette = ComponentPalette::neutral_dark();
+        let surfaced = |frame: &crate::Frame| {
+            let found: Vec<_> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Surface { rect, id, label, fit, .. } => Some((*rect, id.clone(), label.clone(), *fit)),
+                    _ => None,
+                })
+                .collect();
+            assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Icon { .. })), "no glyph");
+            assert_eq!(found.len(), 1, "one surface");
+            found[0].clone()
+        };
+        let button = || Button::new("join", "Join", palette).surface("animation:party").variant(ButtonVariant::Raised);
+        for enabled in [true, false] {
+            let mut tree = UiTree::new(Element::row(vec![button().enabled(enabled).render()]));
+            let frame = tree.layout(Size::new(300.0, 32.0));
+            let (rect, id, label, fit) = surfaced(&frame);
+            assert_eq!((rect.width, rect.height), (ICON_SIZE, ICON_SIZE));
+            assert_eq!((id.as_str(), label.as_str(), fit), ("animation:party", "Join", crate::SurfaceFit::Contain));
+            if enabled {
+                tree.handle_event(UiEvent::PointerDown(Point::new(rect.x + 1.0, rect.y + 1.0)));
+                assert_eq!(
+                    tree.handle_event(UiEvent::PointerUp(Point::new(rect.x + 1.0, rect.y + 1.0))),
+                    vec![UiAction::Clicked { id: "join".into() }]
+                );
+            }
+        }
+        // A surface alone is as square as a picture alone and is called
+        // what the host says.
+        let alone = || Button::new("party", "", palette).surface("animation:party").accessibility_label("Party");
+        assert_eq!(access_node(alone().render(), "party").name, "Party");
+        let frame = UiTree::new(Element::row(vec![alone().render()])).layout(Size::new(100.0, 32.0));
+        assert_eq!((frame.regions[0].rect.width, frame.regions[0].rect.height), (32.0, 32.0));
+        assert_eq!(surfaced(&frame).0.width, ICON_SIZE);
     }
 
     #[test]

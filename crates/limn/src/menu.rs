@@ -120,6 +120,8 @@ pub(crate) struct DetailRow {
     pub(crate) label: String,
     pub(crate) description: String,
     pub(crate) icon: Option<Icon>,
+    /// A picture in the icon's place.
+    pub(crate) picture: Option<crate::InlineImage>,
     /// Keep the icon's slot without an icon, as the menu's other rows do.
     pub(crate) icon_slot: bool,
     pub(crate) mono: bool,
@@ -192,7 +194,15 @@ impl DetailRow {
         };
         let slot = |element: Element| element.size(Some(sizing.icon_size), Some(body_height));
         let mut children = Vec::with_capacity(4);
-        if let Some(icon) = self.icon {
+        if let Some(picture) = &self.picture {
+            children.push(slot(crate::dropdown_menu::leading(
+                Some(picture),
+                None,
+                &self.label,
+                sizing.icon_size,
+                ink,
+            )));
+        } else if let Some(icon) = self.icon {
             children.push(slot(
                 Element::icon(icon)
                     // A row that only leads somewhere keeps its icon as quiet
@@ -461,6 +471,7 @@ impl Component for MenuItem {
                     label: self.label,
                     description,
                     icon: self.icon,
+                    picture: None,
                     mono: self.detail_mono,
                     status: self.status,
                     status_width: self.status_width,
