@@ -8,12 +8,44 @@ enum Target {
     Input { id: String },
 }
 
+/// Where an input method's window belongs, from [`UiTree::ime_area`].
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ImeArea {
+    /// The visible part of the focused text.
+    pub area: Rect,
+    /// Its caret: where what is being composed is shown.
+    pub caret: Rect,
+    /// A password: the platform should compose and predict nothing in it.
+    pub secret: bool,
+}
+
 pub(super) struct ImeOwner {
     target: Target,
     cancelled: bool,
 }
 
 impl UiTree {
+    /// Where an input method belongs for the text that has the focus: a
+    /// code editor's, or a text field's or text area's in a tree that lays
+    /// its text out (`UiTree::set_text_layout`). A host tells the platform
+    /// once a frame, after the layout, as `limn_egui::report_ime` does.
+    /// `None` when the window is not focused, a context menu is open, or
+    /// nothing that takes text has the focus; for a code editor, also while
+    /// a popover is open over it.
+    pub fn ime_area(&self) -> Option<ImeArea> {
+        match self.current_ime_target()? {
+            Target::Editor { .. } => {
+                let (area, caret) = self.editor_ime_rects()?;
+                Some(ImeArea { area, caret, secret: false })
+            }
+            Target::Input { id } => {
+                let input = self.inputs.get(&id)?;
+                let (area, caret) = input.ime?;
+                Some(ImeArea { area, caret, secret: input.password })
+            }
+        }
+    }
+
     pub(super) fn ime_composing(&self) -> bool {
         self.ime_owner
             .as_ref()
