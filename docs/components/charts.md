@@ -120,6 +120,19 @@ down to nothing at the zero line; it is `LineChart::area(true)`.
 | `area(bool)` | off | Fills under each line |
 | `dots(bool)` | off | A dot at every point |
 | `grid(bool)`, `value_axis(bool)` | on | The dashed lines and the ticks |
+| `point_axis(bool)` | on | The names of the points under the plot, and the room they take; the tooltip says them either way |
+| `range(low, high)` | fitted to the values | A fixed value axis with ticks at both ends and at zero between them; a positive tick of an axis that runs below zero is written with its sign, as a gain is. Values past it are drawn past it |
+| `dashed_zero(bool)` | off | Dashes the zero line |
+| `mark(usize)` | none | A dot on every line at this point, counted from 0, as the pointer marks the one it reads |
+
+```rust
+LineChart::new("response", ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"], gain, palette)
+    .range(-12.0, 12.0)
+    .dashed_zero(true)
+    .point_axis(false)
+    .mark(state.band)
+    .render()
+```
 
 ## PieChart
 
