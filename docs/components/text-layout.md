@@ -8,8 +8,10 @@ In a tree told to with `UiTree::set_text_layout(true)`, which
 `limn_egui::attach_fonts` does, every `Element::text` and
 `Element::formatted_text` is laid out in a `TextLayout`, and selected,
 underlined and pressed from it: so are `Markdown` and every component made of
-them. Text fields, text areas and the code editor still measure their text
-through the backend; they move to it one at a time.
+them. So are text fields and text areas: their caret, selection, wrapping and
+scrolling, where a click puts the caret and where Up and Down take it, all
+come from one layout of their value. The code editor still measures its text
+through the backend.
 An application also draws text with it in an [`Element::drawing`](drawing.md).
 
 ## Import
@@ -146,7 +148,7 @@ rasterized as egui rasterizes its own text, so both look alike.
 
 ## Limits
 
-- Only `Element::text` and `Element::formatted_text` are laid out with it
+- Only text, formatted text, text fields and text areas are laid out with it
   yet, and only in a tree told to.
 - No pointer position reaches a drawing, so selecting with the pointer inside
   one is the host's.

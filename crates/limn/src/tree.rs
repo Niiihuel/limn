@@ -2804,6 +2804,19 @@ struct PointerDrag {
     ghost: Vec<DrawCommand>,
 }
 
+/// A field's value as limn lays it out, in a tree told to
+/// (`UiTree::set_text_layout`), and where it was last painted.
+#[derive(Clone)]
+struct FieldLayout {
+    style: crate::TextStyle,
+    /// The width a text area breaks its lines at; a single line breaks none.
+    width: Option<f32>,
+    /// The value as shown, a password masked: never the placeholder.
+    layout: crate::TextLayout,
+    /// Its top-left corner in the tree, scrolled.
+    origin: Point,
+}
+
 struct InputState {
     paste_epoch: Arc<()>,
     paste_kind: Option<HitKind>,
@@ -2827,6 +2840,11 @@ struct InputState {
     scrolled_at: Option<Instant>,
     keep_cursor_visible: bool,
     desired_column: Option<usize>,
+    /// Laid out by limn: what it painted, and where Up and Down aim.
+    laid_out: Option<FieldLayout>,
+    desired_x: Option<f32>,
+    /// How far a single line laid out by limn is scrolled to show the caret.
+    scroll_x: f32,
     preserve_line_endings: bool,
     /// Enter submits and Shift+Enter breaks the line.
     enter_submits: bool,
@@ -2857,6 +2875,9 @@ impl InputState {
             scrolled_at: None,
             keep_cursor_visible: true,
             desired_column: None,
+            laid_out: None,
+            desired_x: None,
+            scroll_x: 0.0,
             preserve_line_endings: false,
             enter_submits: false,
             password: false,
@@ -2901,6 +2922,35 @@ impl InputState {
         )
     }
 
+    /// The value as it is shown: a password as one dot a character.
+    fn shown(&self) -> Cow<'_, str> {
+        if self.password {
+            Cow::Owned("•".repeat(self.value.chars().count()))
+        } else {
+            Cow::Borrowed(&self.value)
+        }
+    }
+
+    /// The value laid out as last painted, laid out again when an edit has
+    /// changed it since, and where it was painted. `None` while the tree
+    /// measures text through the host.
+    fn layout(&self) -> Option<(crate::TextLayout, Point)> {
+        let field = self.laid_out.as_ref()?;
+        let shown = self.shown();
+        if field.layout.text() == shown {
+            return Some((field.layout.clone(), field.origin));
+        }
+        let layout = crate::TextLayout::new(shown.into_owned(), field.style);
+        Some((field.width.map_or_else(|| layout.clone(), |width| layout.wrapped(width)), field.origin))
+    }
+
+    /// The line of `layout` the caret is on, and the caret.
+    fn caret_line(&self, layout: &crate::TextLayout) -> (usize, Rect) {
+        let caret = layout.caret(byte_index(&self.shown(), self.cursor));
+        let row = layout.lines().take_while(|line| line.rect.y <= caret.y + caret.height / 2.0).count();
+        (row.saturating_sub(1), caret)
+    }
+
     fn visual_lines(&self) -> Vec<VisualLine> {
         visual_lines_measured_endings(
             &self.value,
@@ -2914,10 +2964,27 @@ impl InputState {
         let anchor = shift.then_some(self.anchor.unwrap_or(self.cursor));
         self.set_selection(next.min(self.value.chars().count()), anchor);
         self.desired_column = None;
+        self.desired_x = None;
         self.keep_cursor_visible = true;
     }
 
+    /// The character before the byte at `index` of the value as shown.
+    fn character_at(&self, index: usize) -> usize {
+        let shown = self.shown();
+        shown[..index.min(shown.len())].chars().count()
+    }
+
     fn move_vertical(&mut self, direction: i32, shift: bool) {
+        if let Some((layout, _)) = self.layout() {
+            let (row, caret) = self.caret_line(&layout);
+            let goal = self.desired_x.unwrap_or(caret.x);
+            let lines: Vec<_> = layout.lines().collect();
+            let line = &lines[(row as i64 + i64::from(direction)).clamp(0, lines.len() as i64 - 1) as usize];
+            let index = layout.index_at(Point::new(goal, line.rect.y + line.rect.height / 2.0));
+            self.move_cursor(self.character_at(index), shift);
+            self.desired_x = Some(goal);
+            return;
+        }
         let lines = self.visual_lines();
         let (row, column) = visual_cursor(&lines, self.cursor);
         let desired = self.desired_column.unwrap_or(column);
@@ -2929,6 +2996,29 @@ impl InputState {
     }
 
     fn move_line_edge(&mut self, end: bool, shift: bool) {
+        if let Some((layout, _)) = self.layout() {
+            let (row, _) = self.caret_line(&layout);
+            let lines: Vec<_> = layout.lines().collect();
+            let line = &lines[row];
+            let index = if end {
+                let shown = self.shown();
+                let text = &shown[line.range.clone()];
+                let kept = text.trim_end_matches(['\n', '\r']);
+                if kept.len() < text.len() {
+                    // Before the break that ends the line.
+                    line.range.start + kept.len()
+                } else if row + 1 < lines.len() {
+                    // Before the spaces a wrapped line hangs past its end.
+                    line.range.start + kept.trim_end().len()
+                } else {
+                    line.range.end
+                }
+            } else {
+                line.range.start
+            };
+            self.move_cursor(self.character_at(index), shift);
+            return;
+        }
         let lines = self.visual_lines();
         let (row, _) = visual_cursor(&lines, self.cursor);
         let next = if end {
@@ -2940,6 +3030,11 @@ impl InputState {
     }
 
     fn place_cursor_at(&mut self, point: Point) {
+        if let Some((layout, origin)) = self.layout() {
+            let index = layout.index_at(Point::new(point.x - origin.x, point.y - origin.y));
+            self.move_cursor(self.character_at(index), false);
+            return;
+        }
         let lines = self.visual_lines();
         let row = ((point.y - self.content_y).max(0.0) / self.line_height).floor() as usize;
         let row = (self.scroll_line + row).min(lines.len() - 1);
@@ -2956,7 +3051,8 @@ impl InputState {
         if delta_y == 0.0 {
             return;
         }
-        let maximum = self.visual_lines().len().saturating_sub(self.visible_lines);
+        let lines = self.layout().map_or_else(|| self.visual_lines().len(), |(layout, _)| layout.lines().count());
+        let maximum = lines.saturating_sub(self.visible_lines);
         let steps = (delta_y.abs() / self.line_height).ceil().max(1.0) as usize;
         self.scroll_line = if delta_y > 0.0 {
             self.scroll_line.saturating_sub(steps)
@@ -3002,6 +3098,7 @@ impl InputState {
         self.cursor += sanitized.chars().count();
         self.keep_cursor_visible = true;
         self.desired_column = None;
+        self.desired_x = None;
         true
     }
 
@@ -3019,6 +3116,7 @@ impl InputState {
         self.cursor -= 1;
         self.keep_cursor_visible = true;
         self.desired_column = None;
+        self.desired_x = None;
         true
     }
 
@@ -3035,8 +3133,32 @@ impl InputState {
         self.paste_epoch = Arc::new(());
         self.keep_cursor_visible = true;
         self.desired_column = None;
+        self.desired_x = None;
         true
     }
+}
+
+/// The fill under selected text in a field.
+const INPUT_SELECTION: Color = Color::rgba(75, 130, 210, 130);
+
+/// A text area's value as spans in its highlights' inks and slants. Where
+/// highlights overlap, the later one wins, as it painted over the earlier.
+fn highlighted_spans(value: &str, highlights: &[crate::TextHighlight], style: Style) -> Vec<TextSpan> {
+    let count = value.chars().count();
+    let mut cuts: Vec<usize> = highlights
+        .iter()
+        .flat_map(|highlight| [highlight.range.start.min(count), highlight.range.end.min(count)])
+        .chain([0, count])
+        .collect();
+    cuts.sort_unstable();
+    cuts.dedup();
+    cuts.windows(2)
+        .map(|cut| {
+            let mark = highlights.iter().rev().find(|highlight| highlight.range.start <= cut[0] && cut[1] <= highlight.range.end);
+            let family = if mark.is_some_and(|highlight| highlight.italic) { FontFamily::SansItalic } else { style.font_family };
+            TextSpan::new(char_range(value, cut[0], cut[1]), mark.map_or(style.foreground, |highlight| highlight.color), style.font_size, family)
+        })
+        .collect()
 }
 
 fn byte_index(value: &str, char_index: usize) -> usize {
@@ -3515,6 +3637,7 @@ impl UiTree {
             state.set_selection(cursor, None);
             state.keep_cursor_visible = true;
             state.desired_column = None;
+            state.desired_x = None;
         }
     }
 
@@ -3547,9 +3670,11 @@ impl UiTree {
         }
         state.set_selection(cursor, None);
         state.view_start = 0;
+        state.scroll_x = 0.0;
         state.scroll_line = 0;
         state.keep_cursor_visible = true;
         state.desired_column = None;
+        state.desired_x = None;
     }
 
     /// Where an input method belongs for the focused code editor: the visible
@@ -5927,7 +6052,7 @@ impl UiTree {
                     .filter(|region| matches!(region.kind, HitKind::TextInput | HitKind::TextArea))
                 {
                     if let Some(input) = self.inputs.get_mut(&region.id) {
-                        if region.kind == HitKind::TextArea {
+                        if region.kind == HitKind::TextArea || input.laid_out.is_some() {
                             input.place_cursor_at(point);
                         } else {
                             let x = (point.x - input.content_x).max(0.0);
@@ -8324,12 +8449,203 @@ impl LayoutBuilder<'_> {
     /// `value` in `style`, as laid out for this tree, broken at `width` when
     /// it is finite.
     fn laid_out_text(&self, value: &str, style: Style, width: f32, centered: bool) -> crate::TextLayout {
-        // The line height and placement the measured path gives, so the
-        // switch moves nothing.
-        let text_style = crate::TextStyle::new(style.font_size, style.font_family)
+        self.layout_cache.borrow_mut().get(value, self.text_style(style), width, centered)
+    }
+
+    /// How text in `style` is laid out: in the line height and placement the
+    /// measured path gives, so the switch moves nothing.
+    fn text_style(&self, style: Style) -> crate::TextStyle {
+        crate::TextStyle::new(style.font_size, style.font_family)
             .line_height(self.metrics_for(style).line_height)
-            .leading(crate::Leading::Below);
-        self.layout_cache.borrow_mut().get(value, text_style, width, centered)
+            .leading(crate::Leading::Below)
+    }
+
+    /// Paint a single-line field laid out by limn: its text or placeholder,
+    /// scrolled no further than keeps the caret in view, its selection and
+    /// its caret.
+    fn paint_laid_out_input(
+        &mut self,
+        id: &str,
+        content: Rect,
+        style: Style,
+        clip: Option<Rect>,
+        placeholder: &str,
+        persistent_placeholder: bool,
+    ) {
+        let text_style = self.text_style(style);
+        let focused = self.focused == Some(id);
+        let Some(state) = self.inputs.get(id) else {
+            return;
+        };
+        let is_placeholder = state.value.is_empty() && (!focused || persistent_placeholder);
+        let shown = state.shown().into_owned();
+        let layout = self.layout_cache.borrow_mut().get(&shown, text_style, f32::INFINITY, false);
+        let painted = if is_placeholder {
+            self.layout_cache.borrow_mut().get(placeholder, text_style, f32::INFINITY, false)
+        } else {
+            layout.clone()
+        };
+        let state = self.inputs.get_mut(id).expect("looked up above");
+        let caret = layout.caret(byte_index(&shown, state.cursor));
+        let width = painted.size().width;
+        let room = (content.width - 2.0).max(0.0);
+        let (text_x, scroll) = if width <= room {
+            let x = if style.center_content { content.x + ((content.width - width) / 2.0).max(0.0) } else { content.x };
+            (x, 0.0)
+        } else {
+            let scroll = state.scroll_x.min(caret.x).max(caret.x - room).min(width - room).max(0.0);
+            (content.x, scroll)
+        };
+        let origin = Point::new(text_x - scroll, content.y);
+        state.scroll_x = scroll;
+        state.content_x = text_x;
+        state.laid_out = Some(FieldLayout { style: text_style, width: None, layout: layout.clone(), origin });
+        let selection = state
+            .selected_range()
+            .filter(|_| !is_placeholder)
+            .map(|(start, end)| layout.selection(byte_index(&shown, start)..byte_index(&shown, end)));
+        let location = crate::caret_blink::CaretLocation { document: 0, revision: state.value.len() as u64, offset: state.cursor };
+        let Some(input_clip) = clip.and_then(|outer| outer.intersection(content)).or_else(|| clip.is_none().then_some(content)) else {
+            return;
+        };
+        let at = |area: Rect| Rect::new(origin.x + area.x, origin.y + area.y, area.width, area.height);
+        self.frame.commands.push(DrawCommand::PushClip(input_clip));
+        for bounds in selection.iter().flatten() {
+            self.frame.commands.push(DrawCommand::FillRect { rect: at(*bounds), color: INPUT_SELECTION, radius: 0.0 });
+        }
+        let ink = if is_placeholder { Color { a: 110, ..style.foreground } } else { style.foreground };
+        self.frame.commands.extend(painted.draw(origin, ink));
+        let caret = Rect { width: 1.5, ..at(caret) };
+        if focused
+            && selection.is_none()
+            && caret.intersection(input_clip).is_some()
+            && self.caret_blink.observe(id, location, self.now, self.reduced_motion)
+        {
+            self.frame.commands.push(DrawCommand::FillRect { rect: caret, color: style.foreground, radius: 0.0 });
+        }
+        self.frame.commands.push(DrawCommand::PopClip);
+    }
+
+    /// Paint a text area laid out by limn: its lines from the one scrolled
+    /// to, in its highlights' inks and fills, its selection, its caret and,
+    /// while it scrolls or is under the pointer, its scrollbar.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_laid_out_area(
+        &mut self,
+        id: &str,
+        rect: Rect,
+        content: Rect,
+        style: Style,
+        clip: Option<Rect>,
+        placeholder: &str,
+        initial_value: &str,
+        highlights: &[crate::TextHighlight],
+    ) {
+        let text_style = self.text_style(style);
+        let focused = self.focused == Some(id);
+        let Some(state) = self.inputs.get(id) else {
+            return;
+        };
+        let is_placeholder = state.value.is_empty() && !focused;
+        // Highlights follow the host's text; a stale edit is laid out plain
+        // until the host catches up.
+        let marked = !highlights.is_empty() && state.value == initial_value;
+        let layout = if marked {
+            let spans = highlighted_spans(&state.value, highlights, style);
+            self.layout_cache.borrow_mut().formatted(&spans, text_style, content.width, None)
+        } else {
+            self.layout_cache.borrow_mut().get(&state.value, text_style, content.width, false)
+        };
+        let painted = if is_placeholder {
+            self.layout_cache.borrow_mut().get(placeholder, text_style, content.width, false)
+        } else {
+            layout.clone()
+        };
+        let state = self.inputs.get_mut(id).expect("looked up above");
+        let lines: Vec<crate::TextLine> = layout.lines().collect();
+        let (cursor_row, caret) = state.caret_line(&layout);
+        let max_scroll = lines.len().saturating_sub(state.visible_lines);
+        state.scroll_line = state.scroll_line.min(max_scroll);
+        if state.keep_cursor_visible {
+            if cursor_row < state.scroll_line {
+                state.scroll_line = cursor_row;
+            } else if cursor_row >= state.scroll_line + state.visible_lines {
+                state.scroll_line = cursor_row + 1 - state.visible_lines;
+            }
+            state.keep_cursor_visible = false;
+        }
+        let top = if is_placeholder { 0.0 } else { lines.get(state.scroll_line).map_or(0.0, |line| line.rect.y) };
+        let origin = Point::new(content.x, content.y - top);
+        state.laid_out = Some(FieldLayout { style: text_style, width: Some(content.width), layout: layout.clone(), origin });
+        let selection = state.selected_range().filter(|_| !is_placeholder).map(|(start, end)| {
+            layout.selection(byte_index(&state.value, start)..byte_index(&state.value, end))
+        });
+        let fills: Vec<(Rect, Color)> = highlights
+            .iter()
+            .filter(|_| marked)
+            .filter_map(|highlight| {
+                let color = highlight.background?;
+                let range = byte_index(&state.value, highlight.range.start)..byte_index(&state.value, highlight.range.end);
+                Some(layout.selection(range).into_iter().map(move |bounds| (bounds, color)))
+            })
+            .flatten()
+            .collect();
+        let caret_shown = focused
+            && selection.is_none()
+            && (state.scroll_line..state.scroll_line + state.visible_lines).contains(&cursor_row);
+        let location = crate::caret_blink::CaretLocation { document: 0, revision: state.value.len() as u64, offset: state.cursor };
+        if state.scroll_line != state.painted_scroll_line {
+            state.painted_scroll_line = state.scroll_line;
+            state.scrolled_at = Some(self.now);
+        }
+        let scrolled = state.scrolled_at.is_some_and(|at| self.now.saturating_duration_since(at) < TEXT_AREA_BAR_HOLD);
+        let (scroll_line, visible_lines) = (state.scroll_line, state.visible_lines);
+        let at = |area: Rect| Rect::new(origin.x + area.x, origin.y + area.y, area.width, area.height);
+        if let Some(input_clip) = clip.and_then(|outer| outer.intersection(content)).or_else(|| clip.is_none().then_some(content)) {
+            self.frame.commands.push(DrawCommand::PushClip(input_clip));
+            // Highlight fills go under the selection.
+            for (bounds, color) in fills {
+                self.frame.commands.push(DrawCommand::FillRect { rect: at(bounds), color, radius: 3.0 });
+            }
+            for bounds in selection.iter().flatten() {
+                self.frame.commands.push(DrawCommand::FillRect { rect: at(*bounds), color: INPUT_SELECTION, radius: 0.0 });
+            }
+            let ink = if is_placeholder { Color { a: 110, ..style.foreground } } else { style.foreground };
+            // Only the lines in view: a long draft is not drawn whole each frame.
+            let (above, below) = (input_clip.y - text_style.line_height.unwrap_or(0.0), input_clip.y + input_clip.height);
+            self.frame.commands.extend(painted.draw(origin, ink).into_iter().filter(|command| match command {
+                DrawCommand::Glyphs(run) => run.glyphs.first().is_none_or(|glyph| (above..=below + run.size).contains(&(run.origin.y + glyph.y))),
+                _ => true,
+            }));
+            let caret = Rect { width: 1.5, ..at(caret) };
+            if caret_shown
+                && caret.intersection(input_clip).is_some()
+                && self.caret_blink.observe(id, location, self.now, self.reduced_motion)
+            {
+                self.frame.commands.push(DrawCommand::FillRect { rect: caret, color: style.foreground, radius: 0.0 });
+            }
+            self.frame.commands.push(DrawCommand::PopClip);
+        }
+        if max_scroll > 0 && !is_placeholder && (scrolled || self.pointer.is_some_and(|point| rect.contains(point))) {
+            // shortcut: the thumb shows the position but is not a pointer
+            // target; give it the scroll area's drag when a text area grows
+            // past a few dozen lines.
+            let track = rect.inset(3.0);
+            let height = (track.height * visible_lines as f32 / lines.len() as f32).max(16.0).min(track.height);
+            let thumb = Rect::new(
+                track.x + track.width - 4.0,
+                track.y + (track.height - height) * scroll_line as f32 / max_scroll as f32,
+                4.0,
+                height,
+            );
+            if clip.is_none_or(|clip| clip.intersection(thumb).is_some()) {
+                self.frame.commands.push(DrawCommand::FillRect {
+                    rect: thumb,
+                    color: crate::ScrollbarAppearance::default().thumb_color(style.foreground, false, false),
+                    radius: 2.0,
+                });
+            }
+        }
     }
 
     /// Paint text laid out in a `TextLayout`: its selection, its glyphs, and
@@ -9757,15 +10073,20 @@ impl LayoutBuilder<'_> {
                         .inputs
                         .get(id)
                         .map_or(initial_value.as_str(), |input| input.value.as_str());
-                    let lines = visual_lines_measured_endings(
-                        value,
-                        inner.width,
-                        *preserve_line_endings,
-                        |part| self.text_width(part, style),
-                    );
+                    let lines = if self.text_layout {
+                        self.laid_out_text(value, style, inner.width, false).lines().count()
+                    } else {
+                        visual_lines_measured_endings(
+                            value,
+                            inner.width,
+                            *preserve_line_endings,
+                            |part| self.text_width(part, style),
+                        )
+                        .len()
+                    };
                     let max_lines =
                         ((maximum - padding) / metrics.line_height).floor().max(1.0) as usize;
-                    (lines.len().min(max_lines) as f32 * metrics.line_height + padding)
+                    (lines.min(max_lines) as f32 * metrics.line_height + padding)
                         .clamp(style.min_height, *maximum)
                 } else {
                     metrics.line_height * 4.0 + padding
@@ -11865,121 +12186,126 @@ impl LayoutBuilder<'_> {
                 state.font_size = style.font_size;
                 state.font_family = style.font_family;
                 state.measurer = self.text_measurer.clone();
-                let center_text = style.center_content && state.width(&state.value) <= content.width - 2.0;
-                if center_text {
-                    state.view_start = 0;
-                }
-                if state.cursor < state.view_start {
-                    state.view_start = state.cursor;
-                }
-                if state.width(char_range(&state.value, state.view_start, state.cursor))
-                    > content.width - 2.0
-                {
-                    let mut lo = state.view_start;
-                    let mut hi = state.cursor;
-                    while lo < hi {
-                        let mid = lo + (hi - lo) / 2;
-                        if state.width(char_range(&state.value, mid, state.cursor))
-                            <= content.width - 2.0
-                        {
-                            hi = mid;
-                        } else {
-                            lo = mid + 1;
-                        }
-                    }
-                    state.view_start = lo;
-                }
-                let remaining =
-                    char_range(&state.value, state.view_start, state.value.chars().count());
-                let visible_chars =
-                    fitting_chars(remaining, content.width, |part| state.width(part));
-                let visible_end = state.view_start + visible_chars;
-                let is_placeholder =
-                    state.value.is_empty() && (!is_focused || *persistent_placeholder);
-                let shown = if is_placeholder {
-                    placeholder.clone()
+                if self.text_layout {
+                    self.paint_laid_out_input(id, content, style, clip, placeholder, *persistent_placeholder);
                 } else {
-                    if *password {
-                        "•".repeat(visible_end.saturating_sub(state.view_start))
+                    state.laid_out = None;
+                    let center_text = style.center_content && state.width(&state.value) <= content.width - 2.0;
+                    if center_text {
+                        state.view_start = 0;
+                    }
+                    if state.cursor < state.view_start {
+                        state.view_start = state.cursor;
+                    }
+                    if state.width(char_range(&state.value, state.view_start, state.cursor))
+                        > content.width - 2.0
+                    {
+                        let mut lo = state.view_start;
+                        let mut hi = state.cursor;
+                        while lo < hi {
+                            let mid = lo + (hi - lo) / 2;
+                            if state.width(char_range(&state.value, mid, state.cursor))
+                                <= content.width - 2.0
+                            {
+                                hi = mid;
+                            } else {
+                                lo = mid + 1;
+                            }
+                        }
+                        state.view_start = lo;
+                    }
+                    let remaining =
+                        char_range(&state.value, state.view_start, state.value.chars().count());
+                    let visible_chars =
+                        fitting_chars(remaining, content.width, |part| state.width(part));
+                    let visible_end = state.view_start + visible_chars;
+                    let is_placeholder =
+                        state.value.is_empty() && (!is_focused || *persistent_placeholder);
+                    let shown = if is_placeholder {
+                        placeholder.clone()
                     } else {
-                        char_range(&state.value, state.view_start, visible_end).to_owned()
-                    }
-                };
-                let text_x = if center_text {
-                    let text_width = measured_width(
-                        state.measurer.as_deref(), &shown, style.font_size, style.font_family, metrics.char_width,
-                    );
-                    content.x + ((content.width - text_width) / 2.0).max(0.0)
-                } else {
-                    content.x
-                };
-                state.content_x = text_x;
-                let input_clip = clip
-                    .and_then(|outer| outer.intersection(content))
-                    .or_else(|| clip.is_none().then_some(content));
-                if let Some(input_clip) = input_clip {
-                    self.frame.commands.push(DrawCommand::PushClip(input_clip));
-                    if let Some((selection_start, selection_end)) = state.selected_range() {
-                        let start = selection_start.clamp(state.view_start, visible_end);
-                        let end = selection_end.clamp(state.view_start, visible_end);
-                        if end > start {
-                            let left =
-                                state.width(char_range(&state.value, state.view_start, start));
-                            let right =
-                                state.width(char_range(&state.value, state.view_start, end));
-                            self.frame.commands.push(DrawCommand::FillRect {
-                                rect: Rect::new(
-                                    text_x + left,
-                                    content.y,
-                                    right - left,
-                                    metrics.line_height,
-                                ),
-                                color: Color::rgba(75, 130, 210, 130),
-                                radius: 0.0,
-                            });
-                        }
-                    }
-                    self.frame.commands.push(DrawCommand::Text {
-                        position: Point::new(text_x, content.y),
-                        text: shown,
-                        color: if is_placeholder {
-                            Color::rgba(
-                                style.foreground.r,
-                                style.foreground.g,
-                                style.foreground.b,
-                                110,
-                            )
+                        if *password {
+                            "•".repeat(visible_end.saturating_sub(state.view_start))
                         } else {
-                            style.foreground
-                        },
-                        font_size: style.font_size,
-                        font_family: style.font_family,
-                    });
-                    if is_focused && state.selected_range().is_none() {
-                        let cursor_x =
-                            state.width(char_range(&state.value, state.view_start, state.cursor));
-                        let caret_rect =
-                            Rect::new(text_x + cursor_x, content.y, 1.5, metrics.line_height);
-                        if caret_rect.intersection(input_clip).is_some()
-                            && self.caret_blink.observe(
-                                id,
-                                crate::caret_blink::CaretLocation {
-                                    document: 0,
-                                    revision: state.value.len() as u64,
-                                    offset: state.cursor,
-                                },
-                                self.now,
-                                self.reduced_motion,
-                            )
-                        {
-                            self.frame.commands.push(DrawCommand::FillRect {
-                                rect: caret_rect,
-                                color: style.foreground,
-                                radius: 0.0,
-                            });
+                            char_range(&state.value, state.view_start, visible_end).to_owned()
                         }
+                    };
+                    let text_x = if center_text {
+                        let text_width = measured_width(
+                            state.measurer.as_deref(), &shown, style.font_size, style.font_family, metrics.char_width,
+                        );
+                        content.x + ((content.width - text_width) / 2.0).max(0.0)
+                    } else {
+                        content.x
+                    };
+                    state.content_x = text_x;
+                    let input_clip = clip
+                        .and_then(|outer| outer.intersection(content))
+                        .or_else(|| clip.is_none().then_some(content));
+                    if let Some(input_clip) = input_clip {
+                        self.frame.commands.push(DrawCommand::PushClip(input_clip));
+                        if let Some((selection_start, selection_end)) = state.selected_range() {
+                            let start = selection_start.clamp(state.view_start, visible_end);
+                            let end = selection_end.clamp(state.view_start, visible_end);
+                            if end > start {
+                                let left =
+                                    state.width(char_range(&state.value, state.view_start, start));
+                                let right =
+                                    state.width(char_range(&state.value, state.view_start, end));
+                                self.frame.commands.push(DrawCommand::FillRect {
+                                    rect: Rect::new(
+                                        text_x + left,
+                                        content.y,
+                                        right - left,
+                                        metrics.line_height,
+                                    ),
+                                    color: Color::rgba(75, 130, 210, 130),
+                                    radius: 0.0,
+                                });
+                            }
+                        }
+                        self.frame.commands.push(DrawCommand::Text {
+                            position: Point::new(text_x, content.y),
+                            text: shown,
+                            color: if is_placeholder {
+                                Color::rgba(
+                                    style.foreground.r,
+                                    style.foreground.g,
+                                    style.foreground.b,
+                                    110,
+                                )
+                            } else {
+                                style.foreground
+                            },
+                            font_size: style.font_size,
+                            font_family: style.font_family,
+                        });
+                        if is_focused && state.selected_range().is_none() {
+                            let cursor_x =
+                                state.width(char_range(&state.value, state.view_start, state.cursor));
+                            let caret_rect =
+                                Rect::new(text_x + cursor_x, content.y, 1.5, metrics.line_height);
+                            if caret_rect.intersection(input_clip).is_some()
+                                && self.caret_blink.observe(
+                                    id,
+                                    crate::caret_blink::CaretLocation {
+                                        document: 0,
+                                        revision: state.value.len() as u64,
+                                        offset: state.cursor,
+                                    },
+                                    self.now,
+                                    self.reduced_motion,
+                                )
+                            {
+                                self.frame.commands.push(DrawCommand::FillRect {
+                                    rect: caret_rect,
+                                    color: style.foreground,
+                                    radius: 0.0,
+                                });
+                            }
+                        }
+                        self.frame.commands.push(DrawCommand::PopClip);
                     }
-                    self.frame.commands.push(DrawCommand::PopClip);
                 }
             }
             ElementKind::CodeEditor(editor) => {
@@ -12133,259 +12459,264 @@ impl LayoutBuilder<'_> {
                 state.visible_lines = (content.height / metrics.line_height + 0.0001)
                     .floor()
                     .max(1.0) as usize;
-                let lines = state.visual_lines();
-                let (cursor_row, cursor_column) = visual_cursor(&lines, state.cursor);
-                let max_scroll = lines.len().saturating_sub(state.visible_lines);
-                state.scroll_line = state.scroll_line.min(max_scroll);
-                if state.keep_cursor_visible {
-                    if cursor_row < state.scroll_line {
-                        state.scroll_line = cursor_row;
-                    } else if cursor_row >= state.scroll_line + state.visible_lines {
-                        state.scroll_line = cursor_row + 1 - state.visible_lines;
-                    }
-                    state.keep_cursor_visible = false;
-                }
-
-                let is_focused = self.focused == Some(id.as_str());
-                let is_placeholder = state.value.is_empty() && !is_focused;
-                let placeholder_lines;
-                let shown_lines = if is_placeholder {
-                    placeholder_lines =
-                        visual_lines_measured(placeholder, content.width, |part| state.width(part));
-                    &placeholder_lines
+                if self.text_layout {
+                    self.paint_laid_out_area(id, rect, content, style, clip, placeholder, initial_value, highlights);
                 } else {
-                    &lines
-                };
-                let shown_start = if is_placeholder { 0 } else { state.scroll_line };
-                let input_clip = clip
-                    .and_then(|outer| outer.intersection(content))
-                    .or_else(|| clip.is_none().then_some(content));
-                if let Some(input_clip) = input_clip {
-                    self.frame.commands.push(DrawCommand::PushClip(input_clip));
-                    for (visible_row, line) in shown_lines
-                        .iter()
-                        .skip(shown_start)
-                        .take(state.visible_lines)
-                        .enumerate()
-                    {
-                        let y = content.y + visible_row as f32 * metrics.line_height;
-                        // Highlight fills go under the selection, painted next.
-                        let fills_at = self.frame.commands.len();
-                        if !is_placeholder {
-                            if let Some((selection_start, selection_end)) = state.selected_range() {
-                                let first = selection_start.max(line.start).min(line.end);
-                                let last = selection_end.min(line.end).max(first);
-                                if last > first {
-                                    let left =
-                                        state.width(char_range(&line.text, 0, first - line.start));
-                                    let right =
-                                        state.width(char_range(&line.text, 0, last - line.start));
-                                    self.frame.commands.push(DrawCommand::FillRect {
+                    state.laid_out = None;
+                    let lines = state.visual_lines();
+                    let (cursor_row, cursor_column) = visual_cursor(&lines, state.cursor);
+                    let max_scroll = lines.len().saturating_sub(state.visible_lines);
+                    state.scroll_line = state.scroll_line.min(max_scroll);
+                    if state.keep_cursor_visible {
+                        if cursor_row < state.scroll_line {
+                            state.scroll_line = cursor_row;
+                        } else if cursor_row >= state.scroll_line + state.visible_lines {
+                            state.scroll_line = cursor_row + 1 - state.visible_lines;
+                        }
+                        state.keep_cursor_visible = false;
+                    }
+
+                    let is_focused = self.focused == Some(id.as_str());
+                    let is_placeholder = state.value.is_empty() && !is_focused;
+                    let placeholder_lines;
+                    let shown_lines = if is_placeholder {
+                        placeholder_lines =
+                            visual_lines_measured(placeholder, content.width, |part| state.width(part));
+                        &placeholder_lines
+                    } else {
+                        &lines
+                    };
+                    let shown_start = if is_placeholder { 0 } else { state.scroll_line };
+                    let input_clip = clip
+                        .and_then(|outer| outer.intersection(content))
+                        .or_else(|| clip.is_none().then_some(content));
+                    if let Some(input_clip) = input_clip {
+                        self.frame.commands.push(DrawCommand::PushClip(input_clip));
+                        for (visible_row, line) in shown_lines
+                            .iter()
+                            .skip(shown_start)
+                            .take(state.visible_lines)
+                            .enumerate()
+                        {
+                            let y = content.y + visible_row as f32 * metrics.line_height;
+                            // Highlight fills go under the selection, painted next.
+                            let fills_at = self.frame.commands.len();
+                            if !is_placeholder {
+                                if let Some((selection_start, selection_end)) = state.selected_range() {
+                                    let first = selection_start.max(line.start).min(line.end);
+                                    let last = selection_end.min(line.end).max(first);
+                                    if last > first {
+                                        let left =
+                                            state.width(char_range(&line.text, 0, first - line.start));
+                                        let right =
+                                            state.width(char_range(&line.text, 0, last - line.start));
+                                        self.frame.commands.push(DrawCommand::FillRect {
+                                            rect: Rect::new(
+                                                content.x + left,
+                                                y,
+                                                right - left,
+                                                metrics.line_height,
+                                            ),
+                                            color: Color::rgba(75, 130, 210, 130),
+                                            radius: 0.0,
+                                        });
+                                    }
+                                }
+                            }
+                            let ink = if is_placeholder {
+                                Color::rgba(
+                                    style.foreground.r,
+                                    style.foreground.g,
+                                    style.foreground.b,
+                                    110,
+                                )
+                            } else {
+                                style.foreground
+                            };
+                            // Highlights follow the host's text; a stale edit
+                            // paints plain until the host catches up.
+                            let spans: Vec<(f32, f32, &crate::TextHighlight)> =
+                                if !is_placeholder && state.value == *initial_value {
+                                    highlights
+                                        .iter()
+                                        .filter_map(|highlight| {
+                                            let first =
+                                                highlight.range.start.max(line.start).min(line.end);
+                                            let last = highlight.range.end.min(line.end).max(first);
+                                            (first < last).then(|| {
+                                                (
+                                                    state.width(char_range(
+                                                        &line.text,
+                                                        0,
+                                                        first - line.start,
+                                                    )),
+                                                    state.width(char_range(
+                                                        &line.text,
+                                                        0,
+                                                        last - line.start,
+                                                    )),
+                                                    highlight,
+                                                )
+                                            })
+                                        })
+                                        .collect()
+                                } else {
+                                    Vec::new()
+                                };
+                            let fills: Vec<DrawCommand> = spans
+                                .iter()
+                                .filter_map(|(left, right, highlight)| {
+                                    Some(DrawCommand::FillRect {
                                         rect: Rect::new(
                                             content.x + left,
                                             y,
                                             right - left,
                                             metrics.line_height,
                                         ),
-                                        color: Color::rgba(75, 130, 210, 130),
+                                        color: highlight.background?,
+                                        radius: 3.0,
+                                    })
+                                })
+                                .collect();
+                            self.frame.commands.splice(fills_at..fills_at, fills);
+                            let plain = |commands: &mut Vec<DrawCommand>| {
+                                commands.push(DrawCommand::Text {
+                                    position: Point::new(content.x, y),
+                                    text: line.text.clone(),
+                                    color: ink,
+                                    font_size: style.font_size,
+                                    font_family: style.font_family,
+                                });
+                            };
+                            // Upright ink must not show under a slanted range, so
+                            // the line is painted around those ranges.
+                            let mut slanted: Vec<(f32, f32)> = spans
+                                .iter()
+                                .filter(|(_, _, highlight)| highlight.italic)
+                                .map(|(left, right, _)| (*left, *right))
+                                .collect();
+                            if slanted.is_empty() {
+                                plain(&mut self.frame.commands);
+                            } else {
+                                slanted.sort_by(|a, b| a.0.total_cmp(&b.0));
+                                slanted.push((content.width.max(0.0), f32::INFINITY));
+                                let mut from = 0.0_f32;
+                                for (left, right) in slanted {
+                                    if left > from {
+                                        self.frame.commands.push(DrawCommand::PushClip(Rect::new(
+                                            content.x + from,
+                                            y,
+                                            left - from,
+                                            metrics.line_height,
+                                        )));
+                                        plain(&mut self.frame.commands);
+                                        self.frame.commands.push(DrawCommand::PopClip);
+                                    }
+                                    from = from.max(right);
+                                }
+                            }
+                            // Repaint the exact line through a colored clip. This
+                            // keeps shaping, wrapping and caret advances identical
+                            // to an unstyled editable buffer, including ligatures.
+                            for (left, right, highlight) in spans {
+                                // A slanted last glyph leans past its advance.
+                                let lean = if highlight.italic { 3.0 } else { 0.0 };
+                                self.frame.commands.push(DrawCommand::PushClip(Rect::new(
+                                    content.x + left,
+                                    y,
+                                    right - left + lean,
+                                    metrics.line_height,
+                                )));
+                                self.frame.commands.push(DrawCommand::Text {
+                                    position: Point::new(content.x, y),
+                                    text: line.text.clone(),
+                                    color: highlight.color,
+                                    font_size: style.font_size,
+                                    font_family: if highlight.italic {
+                                        FontFamily::SansItalic
+                                    } else {
+                                        style.font_family
+                                    },
+                                });
+                                self.frame.commands.push(DrawCommand::PopClip);
+                            }
+                        }
+                        if is_focused
+                            && state.selected_range().is_none()
+                            && cursor_row >= state.scroll_line
+                        {
+                            let visible_row = cursor_row - state.scroll_line;
+                            if visible_row < state.visible_lines {
+                                let caret_rect = Rect::new(
+                                    content.x
+                                        + state.width(char_range(
+                                            &lines[cursor_row].text,
+                                            0,
+                                            cursor_column,
+                                        )),
+                                    content.y + visible_row as f32 * metrics.line_height,
+                                    1.5,
+                                    metrics.line_height,
+                                );
+                                if caret_rect.intersection(input_clip).is_some()
+                                    && self.caret_blink.observe(
+                                        id,
+                                        crate::caret_blink::CaretLocation {
+                                            document: 0,
+                                            revision: state.value.len() as u64,
+                                            offset: state.cursor,
+                                        },
+                                        self.now,
+                                        self.reduced_motion,
+                                    )
+                                {
+                                    self.frame.commands.push(DrawCommand::FillRect {
+                                        rect: caret_rect,
+                                        color: style.foreground,
                                         radius: 0.0,
                                     });
                                 }
                             }
                         }
-                        let ink = if is_placeholder {
-                            Color::rgba(
-                                style.foreground.r,
-                                style.foreground.g,
-                                style.foreground.b,
-                                110,
-                            )
-                        } else {
-                            style.foreground
-                        };
-                        // Highlights follow the host's text; a stale edit
-                        // paints plain until the host catches up.
-                        let spans: Vec<(f32, f32, &crate::TextHighlight)> =
-                            if !is_placeholder && state.value == *initial_value {
-                                highlights
-                                    .iter()
-                                    .filter_map(|highlight| {
-                                        let first =
-                                            highlight.range.start.max(line.start).min(line.end);
-                                        let last = highlight.range.end.min(line.end).max(first);
-                                        (first < last).then(|| {
-                                            (
-                                                state.width(char_range(
-                                                    &line.text,
-                                                    0,
-                                                    first - line.start,
-                                                )),
-                                                state.width(char_range(
-                                                    &line.text,
-                                                    0,
-                                                    last - line.start,
-                                                )),
-                                                highlight,
-                                            )
-                                        })
-                                    })
-                                    .collect()
-                            } else {
-                                Vec::new()
-                            };
-                        let fills: Vec<DrawCommand> = spans
-                            .iter()
-                            .filter_map(|(left, right, highlight)| {
-                                Some(DrawCommand::FillRect {
-                                    rect: Rect::new(
-                                        content.x + left,
-                                        y,
-                                        right - left,
-                                        metrics.line_height,
-                                    ),
-                                    color: highlight.background?,
-                                    radius: 3.0,
-                                })
-                            })
-                            .collect();
-                        self.frame.commands.splice(fills_at..fills_at, fills);
-                        let plain = |commands: &mut Vec<DrawCommand>| {
-                            commands.push(DrawCommand::Text {
-                                position: Point::new(content.x, y),
-                                text: line.text.clone(),
-                                color: ink,
-                                font_size: style.font_size,
-                                font_family: style.font_family,
-                            });
-                        };
-                        // Upright ink must not show under a slanted range, so
-                        // the line is painted around those ranges.
-                        let mut slanted: Vec<(f32, f32)> = spans
-                            .iter()
-                            .filter(|(_, _, highlight)| highlight.italic)
-                            .map(|(left, right, _)| (*left, *right))
-                            .collect();
-                        if slanted.is_empty() {
-                            plain(&mut self.frame.commands);
-                        } else {
-                            slanted.sort_by(|a, b| a.0.total_cmp(&b.0));
-                            slanted.push((content.width.max(0.0), f32::INFINITY));
-                            let mut from = 0.0_f32;
-                            for (left, right) in slanted {
-                                if left > from {
-                                    self.frame.commands.push(DrawCommand::PushClip(Rect::new(
-                                        content.x + from,
-                                        y,
-                                        left - from,
-                                        metrics.line_height,
-                                    )));
-                                    plain(&mut self.frame.commands);
-                                    self.frame.commands.push(DrawCommand::PopClip);
-                                }
-                                from = from.max(right);
-                            }
-                        }
-                        // Repaint the exact line through a colored clip. This
-                        // keeps shaping, wrapping and caret advances identical
-                        // to an unstyled editable buffer, including ligatures.
-                        for (left, right, highlight) in spans {
-                            // A slanted last glyph leans past its advance.
-                            let lean = if highlight.italic { 3.0 } else { 0.0 };
-                            self.frame.commands.push(DrawCommand::PushClip(Rect::new(
-                                content.x + left,
-                                y,
-                                right - left + lean,
-                                metrics.line_height,
-                            )));
-                            self.frame.commands.push(DrawCommand::Text {
-                                position: Point::new(content.x, y),
-                                text: line.text.clone(),
-                                color: highlight.color,
-                                font_size: style.font_size,
-                                font_family: if highlight.italic {
-                                    FontFamily::SansItalic
-                                } else {
-                                    style.font_family
-                                },
-                            });
-                            self.frame.commands.push(DrawCommand::PopClip);
-                        }
+                        self.frame.commands.push(DrawCommand::PopClip);
                     }
-                    if is_focused
-                        && state.selected_range().is_none()
-                        && cursor_row >= state.scroll_line
+                    if state.scroll_line != state.painted_scroll_line {
+                        state.painted_scroll_line = state.scroll_line;
+                        state.scrolled_at = Some(self.now);
+                    }
+                    let scrolled = state
+                        .scrolled_at
+                        .is_some_and(|at| self.now.saturating_duration_since(at) < TEXT_AREA_BAR_HOLD);
+                    if max_scroll > 0
+                        && !is_placeholder
+                        && (scrolled || self.pointer.is_some_and(|point| rect.contains(point)))
                     {
-                        let visible_row = cursor_row - state.scroll_line;
-                        if visible_row < state.visible_lines {
-                            let caret_rect = Rect::new(
-                                content.x
-                                    + state.width(char_range(
-                                        &lines[cursor_row].text,
-                                        0,
-                                        cursor_column,
-                                    )),
-                                content.y + visible_row as f32 * metrics.line_height,
-                                1.5,
-                                metrics.line_height,
-                            );
-                            if caret_rect.intersection(input_clip).is_some()
-                                && self.caret_blink.observe(
-                                    id,
-                                    crate::caret_blink::CaretLocation {
-                                        document: 0,
-                                        revision: state.value.len() as u64,
-                                        offset: state.cursor,
-                                    },
-                                    self.now,
-                                    self.reduced_motion,
-                                )
-                            {
-                                self.frame.commands.push(DrawCommand::FillRect {
-                                    rect: caret_rect,
-                                    color: style.foreground,
-                                    radius: 0.0,
-                                });
-                            }
+                        // shortcut: the thumb shows the position but is not a
+                        // pointer target; give it the scroll area's drag when a
+                        // text area grows past a few dozen lines.
+                        let track = rect.inset(3.0);
+                        let height = (track.height * state.visible_lines as f32 / lines.len() as f32)
+                            .max(16.0)
+                            .min(track.height);
+                        let thumb = Rect::new(
+                            track.x + track.width - 4.0,
+                            track.y
+                                + (track.height - height) * state.scroll_line as f32
+                                    / max_scroll as f32,
+                            4.0,
+                            height,
+                        );
+                        if clip.is_none_or(|clip| clip.intersection(thumb).is_some()) {
+                            self.frame.commands.push(DrawCommand::FillRect {
+                                rect: thumb,
+                                color: crate::ScrollbarAppearance::default().thumb_color(
+                                    style.foreground,
+                                    false,
+                                    false,
+                                ),
+                                radius: 2.0,
+                            });
                         }
-                    }
-                    self.frame.commands.push(DrawCommand::PopClip);
-                }
-                if state.scroll_line != state.painted_scroll_line {
-                    state.painted_scroll_line = state.scroll_line;
-                    state.scrolled_at = Some(self.now);
-                }
-                let scrolled = state
-                    .scrolled_at
-                    .is_some_and(|at| self.now.saturating_duration_since(at) < TEXT_AREA_BAR_HOLD);
-                if max_scroll > 0
-                    && !is_placeholder
-                    && (scrolled || self.pointer.is_some_and(|point| rect.contains(point)))
-                {
-                    // shortcut: the thumb shows the position but is not a
-                    // pointer target; give it the scroll area's drag when a
-                    // text area grows past a few dozen lines.
-                    let track = rect.inset(3.0);
-                    let height = (track.height * state.visible_lines as f32 / lines.len() as f32)
-                        .max(16.0)
-                        .min(track.height);
-                    let thumb = Rect::new(
-                        track.x + track.width - 4.0,
-                        track.y
-                            + (track.height - height) * state.scroll_line as f32
-                                / max_scroll as f32,
-                        4.0,
-                        height,
-                    );
-                    if clip.is_none_or(|clip| clip.intersection(thumb).is_some()) {
-                        self.frame.commands.push(DrawCommand::FillRect {
-                            rect: thumb,
-                            color: crate::ScrollbarAppearance::default().thumb_color(
-                                style.foreground,
-                                false,
-                                false,
-                            ),
-                            radius: 2.0,
-                        });
                     }
                 }
             }
