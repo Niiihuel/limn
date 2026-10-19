@@ -125,7 +125,7 @@ impl Component for PeekPanel {
             .clip_children()
             .size(Some(self.width), None)
             .hover_region()
-            .extend_on_hover(format!("{}:reach", self.id), Point::new(reach, 0.0))
+            .push_on_hover(format!("{}:reach", self.id), Point::new(reach, 0.0))
             .accessible(said)
     }
 }

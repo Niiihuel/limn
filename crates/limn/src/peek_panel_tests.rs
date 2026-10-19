@@ -212,3 +212,20 @@ fn widths_that_are_not_numbers_are_ignored_and_negative_ones_are_zero() {
     assert_eq!(laid(strip().width(56.0).content_width(280.0)), (56.0, Some(280.0)));
     assert_eq!(laid(strip().width(-4.0).content_width(-1.0)).0, 0.0);
 }
+
+#[test]
+fn reaching_out_it_takes_the_room_and_the_main_area_beside_it_gives_way() {
+    let main = Element::clickable("main", Element::spacer()).flex(1.0);
+    let mut tree = UiTree::new(Element::row(vec![main, strip().render()]));
+    let start = Instant::now();
+    let rect = |frame: &Frame, id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+    let rest = tree.layout_at(WINDOW, start);
+    assert_eq!(rect(&rest, "main").width, STRIP.x, "at rest the main area runs to the strip");
+    tree.handle_event(UiEvent::PointerMove(middle(STRIP)));
+    // The frame the pointer arrives in sets the reach off; it has settled by 900 ms.
+    tree.layout_at(WINDOW, start);
+    let settled = tree.layout_at(WINDOW, start + Duration::from_millis(900));
+    let (main, reached) = (rect(&settled, "main"), rect(&settled, "peek"));
+    assert_eq!((reached.x, reached.width), (STRIP.x - 12.0, 52.0), "the strip reaches 12 px into the row, against the edge");
+    assert_eq!(main.x + main.width, reached.x, "the main area gives way instead of being covered");
+}

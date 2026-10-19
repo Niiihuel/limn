@@ -924,6 +924,8 @@ pub(crate) struct Kept {
     /// Set by [`Element::extend_on_hover`]: the ID its spring is kept under,
     /// and how far each edge reaches out under the pointer.
     pub(crate) extend: Option<(String, Point)>,
+    /// Set by [`Element::push_on_hover`]: the reach takes room in the layout.
+    pub(crate) extend_pushes: bool,
     /// Painted only: no pointer target, focus stop or node inside it.
     pub(crate) inert: bool,
 }
@@ -2519,7 +2521,24 @@ impl Element {
     /// An offset that is not finite is ignored.
     pub fn extend_on_hover(mut self, id: impl Into<String>, by: Point) -> Self {
         if by.x.is_finite() && by.y.is_finite() {
-            self.kept.get_or_insert_default().extend = Some((id.into(), by));
+            let kept = self.kept.get_or_insert_default();
+            kept.extend = Some((id.into(), by));
+            kept.extend_pushes = false;
+        }
+        self
+    }
+
+    /// As [`extend_on_hover`](Self::extend_on_hover), and the element takes
+    /// the room it reaches into: its size in the layout grows with the edge,
+    /// so what flows beside it gives way, as a closed panel's strip at the
+    /// window's edge pushes the page beside it instead of covering it. A
+    /// flexible neighbour narrows; a fixed one moves. The edge, the spring and
+    /// what holds it out are the same.
+    pub fn push_on_hover(mut self, id: impl Into<String>, by: Point) -> Self {
+        if by.x.is_finite() && by.y.is_finite() {
+            let kept = self.kept.get_or_insert_default();
+            kept.extend = Some((id.into(), by));
+            kept.extend_pushes = true;
         }
         self
     }
