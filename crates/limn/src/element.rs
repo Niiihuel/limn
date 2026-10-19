@@ -457,6 +457,8 @@ pub enum Icon {
     Playlist,
     /// A house: home.
     Home,
+    /// The solid form of [`Self::Home`].
+    HomeFill,
     /// A stack of frames: a collection.
     Library,
     /// Three faders: an equalizer, or any set of fine adjustments.
@@ -531,6 +533,7 @@ impl Icon {
             Self::Bolt => Self::BoltFill,
             Self::Archive => Self::ArchiveFill,
             Self::ChartBar => Self::ChartBarFill,
+            Self::Home => Self::HomeFill,
             other => other,
         }
     }
@@ -846,6 +849,11 @@ pub(crate) struct Kept {
     pub(crate) wrap: bool,
     /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
     pub(crate) line_gap: Option<f32>,
+    /// Set by [`Element::center_middle`].
+    pub(crate) center_middle: bool,
+    /// Set by [`Element::sticky_top_background_fade_in`]: the scroll past
+    /// its pin line at which the background starts to show and is whole.
+    pub(crate) sticky_background: Option<(f32, f32)>,
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
     /// Evenly spaced colors painted across the element, and whether they run
@@ -2377,6 +2385,24 @@ impl Element {
         self
     }
 
+    /// A [`sticky_top`](Self::sticky_top) child whose `background` fades in
+    /// as the page scrolls under it: none of it until the child has scrolled
+    /// `from` logical pixels past the line it pins at, all of it by `to`, as
+    /// the bar over a music app's page (10 and 80, or 10 and 350 under a tall
+    /// banner). For the first child of the page that distance is the scroll
+    /// offset. Only the background fades; the child's content is painted as
+    /// it is, and it takes clicks where it is drawn as any sticky child does.
+    /// The tree follows the offset on every layout, so the host passes the
+    /// same element each frame. A value that is negative or not finite
+    /// leaves the element as it was; `to` is kept at least 1 past `from`.
+    pub fn sticky_top_background_fade_in(mut self, from: f32, to: f32) -> Self {
+        if from.is_finite() && to.is_finite() && from >= 0.0 && to >= 0.0 {
+            self.sticky_top.get_or_insert(StickyTop::default());
+            self.kept.get_or_insert_default().sticky_background = Some((from, to.max(from + 1.0)));
+        }
+        self
+    }
+
     /// Make this element the area whose hover reveals the
     /// [`reveal_on_hover`](Self::reveal_on_hover) elements inside it: a
     /// message around its row of actions. It is passive: it adds no pointer
@@ -3300,6 +3326,22 @@ impl Element {
     pub fn wrap(mut self) -> Self {
         self.kept.get_or_insert_default().wrap = true;
         self
+    }
+
+    /// Lay out a row of three children as a window's top bar: the first at
+    /// the start and the last at the end, at their natural widths, and the
+    /// middle one centered in the row, or `gap` after the first when centered
+    /// it would meet either of them, and no wider than the room left.
+    pub(crate) fn center_middle(mut self) -> Self {
+        self.kept.get_or_insert_default().center_middle = true;
+        self
+    }
+
+    /// Whether this is a row of three laid out by [`Self::center_middle`].
+    pub(crate) fn centers_middle(&self, children: usize) -> bool {
+        children == 3
+            && matches!(self.kind, ElementKind::Row(_))
+            && self.kept.as_deref().is_some_and(|kept| kept.center_middle)
     }
 
     /// Space between the lines of a [`wrap`](Self::wrap)ping row, in logical
