@@ -152,6 +152,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .into_iter()
                 .map(|name| Avatar::new(name, palette).render())
                 .collect()),
+            caption(cx, "With color(fill): each person's own color behind the initial, in place of the palette's."),
+            row([("Ada", (226, 99, 99)), ("Bruno", (88, 148, 226)), ("Carla", (214, 160, 96)), ("Dario", (168, 112, 214))]
+                .into_iter()
+                .map(|(name, (r, g, b))| Avatar::new(name, palette).color(limn::Color::rgb(r, g, b)).render())
+                .collect()),
         ]),
     ]
 }

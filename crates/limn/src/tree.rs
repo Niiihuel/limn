@@ -1655,6 +1655,7 @@ impl SelectableTextBlock {
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
+            | FontFamily::SansSemibold
             | FontFamily::SansBold => sans_metrics,
         }
         .at_size(run.font_size)
@@ -7605,7 +7606,7 @@ impl LayoutBuilder<'_> {
         }
         let title_style = Style {
             font_size: 12.0,
-            font_family: FontFamily::Sans,
+            font_family: colors.title_family,
             ..Style::default()
         };
         let content_max = max_width - TOOLTIP_PADDING * 2.0;
@@ -8123,6 +8124,7 @@ impl LayoutBuilder<'_> {
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
+            | FontFamily::SansSemibold
             | FontFamily::SansBold => self.sans_metrics,
         }
         .at_size(style.font_size)

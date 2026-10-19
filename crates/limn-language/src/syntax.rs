@@ -38,6 +38,39 @@ pub enum Language {
     /// `.md`, `.markdown` and their variants. Analyzed with a Markdown parser rather than a
     /// tree-sitter grammar; its fenced code is highlighted in the fence's language.
     Markdown,
+    /// `.go`. This language and the ones after it have no grammar here: [`Self::is_parsed`]
+    /// is false, and limn colors them a line at a time.
+    Go,
+    /// `.java`.
+    Java,
+    /// `.kt` and `.kts`.
+    Kotlin,
+    /// `.swift`.
+    Swift,
+    /// `.c` and `.h`.
+    C,
+    /// `.cpp`, `.cc`, `.cxx`, `.hpp`, `.hh` and `.hxx`.
+    Cpp,
+    /// `.cs`.
+    CSharp,
+    /// `.php`.
+    Php,
+    /// `.rb`.
+    Ruby,
+    /// `.lua`.
+    Lua,
+    /// `.sh`, `.bash`, `.zsh` and `.fish`.
+    Shell,
+    /// `.yaml` and `.yml`.
+    Yaml,
+    /// `.sql`.
+    Sql,
+    /// `.diff` and `.patch`: a unified diff.
+    Diff,
+    /// `.dart`.
+    Dart,
+    /// `.zig`.
+    Zig,
 }
 impl Language {
     /// The language for a file extension, with or without its leading dot and in any letter case.
@@ -58,8 +91,41 @@ impl Language {
             "css" | "scss" => Self::Css,
             "html" | "htm" | "xml" | "svg" => Self::Html,
             "md" | "markdown" | "mdown" | "mkd" | "mkdn" | "mdwn" => Self::Markdown,
+            "go" => Self::Go,
+            "java" => Self::Java,
+            "kt" | "kts" => Self::Kotlin,
+            "swift" => Self::Swift,
+            "c" | "h" => Self::C,
+            "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" => Self::Cpp,
+            "cs" => Self::CSharp,
+            "php" => Self::Php,
+            "rb" => Self::Ruby,
+            "lua" => Self::Lua,
+            "sh" | "bash" | "zsh" | "fish" => Self::Shell,
+            "yaml" | "yml" => Self::Yaml,
+            "sql" => Self::Sql,
+            "diff" | "patch" => Self::Diff,
+            "dart" => Self::Dart,
+            "zig" => Self::Zig,
             _ => Self::Plain,
         }
+    }
+    /// Whether [`ParserEngine::analyze`] analyzes the language: with a tree-sitter grammar,
+    /// or Markdown's parser. It reports no highlights, symbols or folds for the others.
+    pub fn is_parsed(self) -> bool {
+        matches!(
+            self,
+            Self::Rust
+                | Self::Json
+                | Self::JavaScript
+                | Self::TypeScript
+                | Self::Tsx
+                | Self::Python
+                | Self::Toml
+                | Self::Css
+                | Self::Html
+                | Self::Markdown
+        )
     }
     /// The language of a file, read from the extension of `path`.
     pub fn from_path(path: &str) -> Self {
@@ -95,9 +161,21 @@ impl Language {
             Self::Rust | Self::Json | Self::JavaScript | Self::TypeScript | Self::Tsx => {
                 Some(("//", ""))
             }
-            Self::Python | Self::Toml => Some(("#", "")),
+            Self::Python | Self::Toml | Self::Ruby | Self::Shell | Self::Yaml => Some(("#", "")),
             Self::Css => Some(("/*", "*/")),
             Self::Html | Self::Markdown => Some(("<!--", "-->")),
+            Self::Go
+            | Self::Java
+            | Self::Kotlin
+            | Self::Swift
+            | Self::C
+            | Self::Cpp
+            | Self::CSharp
+            | Self::Php
+            | Self::Dart
+            | Self::Zig => Some(("//", "")),
+            Self::Lua | Self::Sql => Some(("--", "")),
+            Self::Diff => None,
         }
     }
     /// The LSP `languageId` sent when a document of this language is opened.
@@ -114,6 +192,22 @@ impl Language {
             Self::Css => "css",
             Self::Html => "html",
             Self::Markdown => "markdown",
+            Self::Go => "go",
+            Self::Java => "java",
+            Self::Kotlin => "kotlin",
+            Self::Swift => "swift",
+            Self::C => "c",
+            Self::Cpp => "cpp",
+            Self::CSharp => "csharp",
+            Self::Php => "php",
+            Self::Ruby => "ruby",
+            Self::Lua => "lua",
+            Self::Shell => "shellscript",
+            Self::Yaml => "yaml",
+            Self::Sql => "sql",
+            Self::Diff => "diff",
+            Self::Dart => "dart",
+            Self::Zig => "zig",
         }
     }
     /// Common fenced-code aliases; an unknown label stays plain and never runs a tool.
@@ -130,6 +224,13 @@ impl Language {
             "javascript" | "node" | "nodejs" => Self::JavaScript,
             "typescript" => Self::TypeScript,
             "python" | "python3" => Self::Python,
+            "golang" => Self::Go,
+            "kotlin" => Self::Kotlin,
+            "c++" => Self::Cpp,
+            "csharp" | "c#" => Self::CSharp,
+            "ruby" => Self::Ruby,
+            "shell" | "console" | "shellsession" => Self::Shell,
+            "mysql" | "postgres" | "postgresql" | "psql" | "sqlite" => Self::Sql,
             "text" | "plaintext" | "plain" => Self::Plain,
             _ => Self::from_extension(&label),
         }
@@ -137,6 +238,22 @@ impl Language {
     fn grammar(self) -> Option<(tree_sitter::Language, String)> {
         Some(match self {
             Self::Plain | Self::Markdown => return None,
+            Self::Go
+            | Self::Java
+            | Self::Kotlin
+            | Self::Swift
+            | Self::C
+            | Self::Cpp
+            | Self::CSharp
+            | Self::Php
+            | Self::Ruby
+            | Self::Lua
+            | Self::Shell
+            | Self::Yaml
+            | Self::Sql
+            | Self::Diff
+            | Self::Dart
+            | Self::Zig => return None,
             Self::Rust => (
                 tree_sitter_rust::LANGUAGE.into(),
                 tree_sitter_rust::HIGHLIGHTS_QUERY.into(),
@@ -395,7 +512,7 @@ impl ParserEngine {
         cancellation: &Cancellation,
     ) -> Result<AnalysisSnapshot, String> {
         let mut result = AnalysisSnapshot::empty(snapshot, language, false);
-        if language == Language::Plain {
+        if !language.is_parsed() {
             return Ok(result);
         }
         if snapshot.byte_count() > self.limits.max_bytes || cancellation.is_cancelled() {

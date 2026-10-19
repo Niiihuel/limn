@@ -59,6 +59,8 @@ DropdownOption::new("language=cobol", "COBOL").disabled()
 
 `icon` puts a glyph before the label, `selected` marks the current option and
 `disabled` leaves the option out of the pointer's and the keyboard's reach.
+`tooltip(text)` gives the option a hint of its own, for what its label cannot
+say.
 
 ## Width and placement
 

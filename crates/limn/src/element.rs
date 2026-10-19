@@ -168,7 +168,7 @@ impl TooltipItem {
     }
 }
 
-/// The colors a tooltip is painted with.
+/// The colors a tooltip is painted with, and the face of its title.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TooltipStyle {
     /// Fill of the body and of its pointer.
@@ -184,6 +184,10 @@ pub struct TooltipStyle {
     pub muted: Color,
     /// Color of the shadow under the body.
     pub shadow: Color,
+    /// Face of the title, measured and painted in it. [`FontFamily::Sans`]
+    /// unless [`Tooltip::title_family`](crate::Tooltip::title_family) says
+    /// otherwise.
+    pub title_family: FontFamily,
 }
 
 /// Semantic icon names. A host chooses the concrete artwork for each name.
@@ -517,6 +521,10 @@ pub enum FontFamily {
     /// The medium and bold faces of the sans family: real faces the host
     /// provides, each measured as itself. A host without one paints Sans.
     SansMedium,
+    /// The semibold face of the sans family, between medium and bold: for a
+    /// title that should stand out from medium text without the weight of
+    /// bold. See [`Self::SansMedium`].
+    SansSemibold,
     /// The bold face of the sans family; see [`Self::SansMedium`].
     SansBold,
 }

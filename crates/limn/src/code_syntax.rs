@@ -35,6 +35,39 @@ pub enum CodeLanguage {
     Html,
     /// Markdown.
     Markdown,
+    /// Go. This language and the ones after it are colored by the line lexer
+    /// in either build.
+    Go,
+    /// Java.
+    Java,
+    /// Kotlin.
+    Kotlin,
+    /// Swift.
+    Swift,
+    /// C.
+    C,
+    /// C++.
+    Cpp,
+    /// C#.
+    CSharp,
+    /// PHP.
+    Php,
+    /// Ruby.
+    Ruby,
+    /// Lua.
+    Lua,
+    /// A shell script: sh, Bash, Zsh or fish.
+    Shell,
+    /// YAML.
+    Yaml,
+    /// SQL.
+    Sql,
+    /// A unified diff or patch.
+    Diff,
+    /// Dart.
+    Dart,
+    /// Zig.
+    Zig,
 }
 
 #[cfg(not(feature = "syntax"))]
@@ -274,8 +307,9 @@ fn work(jobs: &Mutex<mpsc::Receiver<Job>>, wait: bool) {
             if current.load(Ordering::Acquire) != job.generation {
                 continue;
             }
+            // A language without a parser is lexed a line at a time below, as without grammars.
             #[cfg(feature = "syntax")]
-            if let Source::Buffer(snapshot) = &job.source {
+            if let (Source::Buffer(snapshot), true) = (&job.source, job.language.is_parsed()) {
                 let cancel = limn_language::Cancellation::for_generation(
                     job.current.clone(),
                     job.generation,
@@ -437,6 +471,97 @@ fn syntax_pool() -> &'static Pool {
     })
 }
 
+/// What the line lexer knows of a language: how its comments and strings are
+/// written, and its keywords.
+struct Lexicon {
+    /// Markers that comment out the rest of a line.
+    line: &'static [&'static str],
+    /// The markers that open and close a comment of several lines.
+    block: Option<(&'static str, &'static str)>,
+    /// Whether a block comment opened inside another one nests.
+    nested: bool,
+    /// Whether three quotes open a string that ends at three more.
+    triple: bool,
+    /// Whether `#` and `'` mean something only at the start of a word, as in
+    /// a shell script or YAML: `don't` and `a#b` are plain text.
+    word_marks: bool,
+    /// Whether `#` and a word are a directive, colored as a keyword: `#include`.
+    directives: bool,
+    /// Whether keywords are matched in any letter case.
+    any_case: bool,
+    keywords: &'static str,
+}
+
+const C_KEYWORDS: &str = "auto bool break case char const continue default do double else enum extern false float for goto if inline int long register restrict return short signed sizeof static struct switch true typedef union unsigned void volatile while NULL";
+
+fn lexicon(language: CodeLanguage) -> Lexicon {
+    use CodeLanguage as L;
+    let slashes = Lexicon {
+        line: &["//"],
+        block: Some(("/*", "*/")),
+        nested: false,
+        triple: false,
+        word_marks: false,
+        directives: false,
+        any_case: false,
+        keywords: "",
+    };
+    let hashes = Lexicon { line: &["#"], block: None, ..slashes };
+    match language {
+        L::Plain | L::Markdown | L::Diff => Lexicon { line: &[], block: None, ..slashes },
+        L::Rust => Lexicon { nested: true, keywords: "as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while", ..slashes },
+        L::Json => Lexicon { block: None, keywords: "true false null", ..slashes },
+        L::JavaScript | L::TypeScript | L::Tsx => Lexicon { keywords: "async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof interface let new null of private protected public return static super switch this throw true try type typeof undefined var void while yield", ..slashes },
+        L::Python => Lexicon { triple: true, keywords: "and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield", ..hashes },
+        L::Toml => Lexicon { triple: true, keywords: "true false", ..hashes },
+        L::Css => Lexicon { line: &[], ..slashes },
+        L::Html => Lexicon { line: &[], block: None, ..slashes },
+        L::Go => Lexicon { keywords: "break case chan const continue default defer else fallthrough false for func go goto if import interface iota map nil package range return select struct switch true type var", ..slashes },
+        L::Java => Lexicon { triple: true, keywords: "abstract assert boolean break byte case catch char class const continue default do double else enum extends false final finally float for goto if implements import instanceof int interface long native new null package private protected public record return short static strictfp super switch synchronized this throw throws transient true try var void volatile while yield", ..slashes },
+        L::Kotlin => Lexicon { nested: true, triple: true, keywords: "abstract as break by catch class companion constructor continue data do else enum false final for fun if import in init inline interface internal is lateinit null object open override package private protected public return sealed super suspend this throw true try typealias val var when while", ..slashes },
+        L::Swift => Lexicon { nested: true, triple: true, keywords: "actor any as associatedtype async await break case catch class continue default defer deinit do else enum extension fallthrough false fileprivate for func guard if import in init inout internal is let nil open operator private protocol public repeat rethrows return self Self some static struct subscript super switch throw throws true try typealias var where while", ..slashes },
+        L::C => Lexicon { directives: true, keywords: C_KEYWORDS, ..slashes },
+        L::Cpp => Lexicon { directives: true, keywords: "alignas alignof auto bool break case catch char char8_t char16_t char32_t class concept const consteval constexpr constinit const_cast continue co_await co_return co_yield decltype default delete do double dynamic_cast else enum explicit export extern false final float for friend goto if inline int long mutable namespace new noexcept nullptr operator override private protected public register reinterpret_cast requires return short signed sizeof static static_assert static_cast struct switch template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile wchar_t while", ..slashes },
+        L::CSharp => Lexicon { triple: true, directives: true, keywords: "abstract as async await base bool break byte case catch char checked class const continue decimal default delegate do double else enum event explicit extern false finally fixed float for foreach get goto if implicit in init int interface internal is lock long namespace new null object operator out override params private protected public readonly record ref return sbyte sealed set short sizeof stackalloc static string struct switch this throw true try typeof uint ulong unchecked unsafe ushort using var virtual void volatile where while yield", ..slashes },
+        L::Php => Lexicon { line: &["//", "#"], any_case: true, keywords: "abstract and array as break callable case catch class clone const continue declare default do echo else elseif empty enum extends false final finally fn for foreach function global goto if implements include include_once instanceof insteadof interface isset list match namespace new null or print private protected public readonly require require_once return static switch throw trait true try unset use var while xor yield", ..slashes },
+        L::Ruby => Lexicon { keywords: "BEGIN END alias and begin break case class def defined do else elsif end ensure false for if in module next nil not or redo rescue retry return self super then true undef unless until when while yield", ..hashes },
+        L::Lua => Lexicon { line: &["--"], block: Some(("--[[", "]]")), keywords: "and break do else elseif end false for function goto if in local nil not or repeat return then true until while", ..slashes },
+        L::Shell => Lexicon { word_marks: true, keywords: "alias break case continue declare do done elif else esac eval exec exit export fi for function if in local readonly return select set shift source then time trap unset until while", ..hashes },
+        L::Yaml => Lexicon { word_marks: true, keywords: "true false null yes no", ..hashes },
+        L::Sql => Lexicon { line: &["--"], any_case: true, keywords: "add all alter and as asc begin between by case check commit constraint create cross database default delete desc distinct drop else end exists false foreign from full group having if in index inner insert into is join key left like limit not null offset on or order outer primary references returning right rollback select set table then transaction true union unique update values view when where with", ..slashes },
+        L::Dart => Lexicon { nested: true, triple: true, keywords: "abstract as assert async await base break case catch class const continue covariant default deferred do dynamic else enum export extends extension external factory false final finally for Function get hide if implements import in interface is late library mixin new null on operator part required rethrow return sealed set show static super switch sync this throw true try typedef var void when while with yield", ..slashes },
+        L::Zig => Lexicon { block: None, keywords: "addrspace align allowzero and anyframe anytype asm async await break callconv catch comptime const continue defer else enum errdefer error export extern false fn for if inline linksection noalias noinline nosuspend null opaque or orelse packed pub resume return struct suspend switch test threadlocal true try undefined union unreachable usingnamespace var volatile while", ..slashes },
+    }
+}
+
+/// Whether `marker` starts at `index` of `chars`.
+fn starts_with(chars: &[char], index: usize, marker: &str) -> bool {
+    let mut at = index;
+    marker.chars().all(|wanted| {
+        let found = chars.get(at) == Some(&wanted);
+        at += 1;
+        found
+    })
+}
+
+/// A line of a unified diff, colored whole: a hunk header as a keyword, the
+/// file headers as comments, an added line as a number and a removed one as
+/// a string, which read as green and red.
+fn highlight_diff_line(text: &str, start: usize) -> Vec<CodeHighlight> {
+    let color = if text.starts_with("@@") {
+        KEYWORD
+    } else if ["+++ ", "--- ", "diff ", "index "].iter().any(|header| text.starts_with(header)) {
+        COMMENT
+    } else if text.starts_with('+') {
+        NUMBER
+    } else if text.starts_with('-') {
+        STRING
+    } else {
+        return Vec::new();
+    };
+    vec![CodeHighlight { range: start..start + text.chars().count(), color }]
+}
+
 fn highlight_line(
     text: &str,
     start: usize,
@@ -455,23 +580,27 @@ fn highlight_line(
     if language == CodeLanguage::Markdown {
         return highlight_markdown_line(text, start, state);
     }
+    if language == CodeLanguage::Diff {
+        return highlight_diff_line(text, start);
+    }
+    let lexicon = lexicon(language);
     let chars: Vec<char> = text.chars().collect();
+    // Where a word starts: `#` and `'` begin something there in a shell script.
+    let word_start = |index: usize| index == 0 || chars[index - 1].is_whitespace();
     let mut spans = Vec::new();
     let mut index = 0usize;
     while index < chars.len() {
         let begin = index;
         let color;
         if state.block_depth > 0 {
+            let (open, close) = lexicon.block.unwrap_or(("/*", "*/"));
             while index < chars.len() {
-                if chars.get(index) == Some(&'/')
-                    && chars.get(index + 1) == Some(&'*')
-                    && language == CodeLanguage::Rust
-                {
+                if lexicon.nested && starts_with(&chars, index, open) {
                     state.block_depth = state.block_depth.saturating_add(1);
-                    index += 2;
-                } else if chars.get(index) == Some(&'*') && chars.get(index + 1) == Some(&'/') {
+                    index += open.chars().count();
+                } else if starts_with(&chars, index, close) {
                     state.block_depth -= 1;
-                    index += 2;
+                    index += close.chars().count();
                     if state.block_depth == 0 {
                         break;
                     }
@@ -511,19 +640,9 @@ fn highlight_line(
                 index += 1;
             }
             color = STRING;
-        } else if chars.get(index) == Some(&'/')
-            && chars.get(index + 1) == Some(&'*')
-            && matches!(
-                language,
-                CodeLanguage::Rust
-                    | CodeLanguage::JavaScript
-                    | CodeLanguage::TypeScript
-                    | CodeLanguage::Tsx
-                    | CodeLanguage::Css
-            )
-        {
+        } else if let Some((open, _)) = lexicon.block.filter(|(open, _)| starts_with(&chars, index, open)) {
             state.block_depth = 1;
-            index += 2;
+            index += open.chars().count();
             if spans.len() < 262_144 {
                 spans.push(CodeHighlight {
                     range: start + begin..start + index,
@@ -531,21 +650,20 @@ fn highlight_line(
                 });
             }
             continue;
-        } else if (chars.get(index) == Some(&'/')
-            && chars.get(index + 1) == Some(&'/')
-            && matches!(
-                language,
-                CodeLanguage::Rust
-                    | CodeLanguage::JavaScript
-                    | CodeLanguage::TypeScript
-                    | CodeLanguage::Tsx
-                    | CodeLanguage::Json
-            ))
-            || (chars[index] == '#'
-                && matches!(language, CodeLanguage::Python | CodeLanguage::Toml))
-        {
+        } else if lexicon.line.iter().any(|marker| {
+            starts_with(&chars, index, marker) && (*marker != "#" || !lexicon.word_marks || word_start(index))
+        }) {
             index = chars.len();
             color = COMMENT;
+        } else if lexicon.directives
+            && chars[index] == '#'
+            && chars.get(index + 1).is_some_and(|character| character.is_alphabetic())
+        {
+            index += 1;
+            while chars.get(index).is_some_and(|character| character.is_alphanumeric() || *character == '_') {
+                index += 1;
+            }
+            color = KEYWORD;
         } else if chars[index] == 'r'
             && language == CodeLanguage::Rust
             && (chars.get(index + 1) == Some(&'"') || chars.get(index + 1) == Some(&'#'))
@@ -581,8 +699,13 @@ fn highlight_line(
                 index += 1;
                 continue;
             }
+            // An apostrophe inside a word, in a shell script or YAML.
+            if lexicon.word_marks && quote == '\'' && !word_start(index) && chars[index - 1].is_alphanumeric() {
+                index += 1;
+                continue;
+            }
             state.quote = Some(quote);
-            state.triple = matches!(language, CodeLanguage::Python | CodeLanguage::Toml)
+            state.triple = lexicon.triple
                 && chars.get(index + 1) == Some(&quote)
                 && chars.get(index + 2) == Some(&quote);
             index += if state.triple { 3 } else { 1 };
@@ -601,6 +724,16 @@ fn highlight_line(
                 index += 1;
             }
             color = NUMBER;
+        } else if chars[index] == '$' {
+            // A variable, in a shell script, PHP or a template: its name is no keyword.
+            index += 1;
+            while chars
+                .get(index)
+                .is_some_and(|character| character.is_alphanumeric() || *character == '_')
+            {
+                index += 1;
+            }
+            continue;
         } else if chars[index].is_alphabetic() || chars[index] == '_' {
             index += 1;
             while chars
@@ -610,7 +743,7 @@ fn highlight_line(
                 index += 1;
             }
             let word: String = chars[begin..index].iter().collect();
-            if !is_keyword(&word, language) {
+            if !is_keyword(&word, &lexicon) {
                 continue;
             }
             color = KEYWORD;
@@ -703,15 +836,139 @@ fn highlight_markdown_line(text: &str, start: usize, state: &mut LexState) -> Ve
     }
 }
 
-fn is_keyword(word: &str, language: CodeLanguage) -> bool {
-    let words=match language {
-        CodeLanguage::Rust=>"as async await break const continue crate dyn else enum extern false fn for if impl in let loop match mod move mut pub ref return self Self static struct super trait true type unsafe use where while",
-        CodeLanguage::Json=>"true false null",
-        CodeLanguage::Python=>"and as assert async await break class continue def del elif else except False finally for from global if import in is lambda None nonlocal not or pass raise return True try while with yield",
-        CodeLanguage::JavaScript|CodeLanguage::TypeScript|CodeLanguage::Tsx=>"async await break case catch class const continue debugger default delete do else export extends false finally for from function if import in instanceof interface let new null of private protected public return static super switch this throw true try type typeof undefined var void while yield",
-        CodeLanguage::Toml=>"true false", _=>"",
-    };
-    words.split_whitespace().any(|candidate| candidate == word)
+fn is_keyword(word: &str, lexicon: &Lexicon) -> bool {
+    lexicon
+        .keywords
+        .split_whitespace()
+        .any(|candidate| candidate == word || (lexicon.any_case && candidate.eq_ignore_ascii_case(word)))
+}
+
+// The line lexer, in builds with grammars and without.
+#[cfg(test)]
+mod lexicon_tests {
+    use super::*;
+
+    /// The text of each colored range of `lines`, lexed in order, and its
+    /// color; touching ranges of one color are one, as a string's quote and body.
+    fn colored(language: CodeLanguage, lines: &[&str]) -> Vec<(String, Color)> {
+        let mut state = LexState::default();
+        let mut found: Vec<(String, Color)> = Vec::new();
+        for line in lines {
+            let chars: Vec<char> = line.chars().collect();
+            let mut end = None;
+            for span in highlight_line(line, 0, language, &mut state) {
+                let text: String = chars[span.range.clone()].iter().collect();
+                match found.last_mut() {
+                    Some((last, color)) if end == Some(span.range.start) && *color == span.color => last.push_str(&text),
+                    _ => found.push((text, span.color)),
+                }
+                end = Some(span.range.end);
+            }
+        }
+        found
+    }
+
+    fn has(language: CodeLanguage, line: &str, text: &str, color: Color) -> bool {
+        colored(language, &[line]).iter().any(|(found, ink)| found == text && *ink == color)
+    }
+
+    #[test]
+    fn each_added_language_colors_its_comments_strings_and_keywords() {
+        use CodeLanguage as L;
+        for (fence, language, line, comment, string, keyword) in [
+            ("go", L::Go, "func main() { s := \"hi\" } // done", "// done", "\"hi\"", "func"),
+            ("java", L::Java, "public class A { String s = \"x\"; } // c", "// c", "\"x\"", "class"),
+            ("kotlin", L::Kotlin, "val s = \"x\" // c", "// c", "\"x\"", "val"),
+            ("swift", L::Swift, "let s = \"x\" // c", "// c", "\"x\"", "let"),
+            ("c", L::C, "int n = 'a'; // c", "// c", "'a'", "int"),
+            ("c++", L::Cpp, "auto s = \"x\"; // c", "// c", "\"x\"", "auto"),
+            ("c#", L::CSharp, "var s = \"x\"; // c", "// c", "\"x\"", "var"),
+            ("php", L::Php, "function f() { return 'x'; } # c", "# c", "'x'", "function"),
+            ("ruby", L::Ruby, "def f = 'x' # c", "# c", "'x'", "def"),
+            ("lua", L::Lua, "local s = 'x' -- c", "-- c", "'x'", "local"),
+            ("bash", L::Shell, "if [ -n \"$x\" ]; then echo 'y'; fi # c", "# c", "'y'", "then"),
+            ("yaml", L::Yaml, "enabled: true # 'c'", "# 'c'", "", "true"),
+            ("sql", L::Sql, "SELECT name FROM t WHERE x = 'a' -- c", "-- c", "'a'", "SELECT"),
+            ("dart", L::Dart, "final s = 'x'; // c", "// c", "'x'", "final"),
+            ("zig", L::Zig, "const s = \"x\"; // c", "// c", "\"x\"", "const"),
+        ] {
+            // Without grammars, every fence is plain text.
+            #[cfg(feature = "syntax")]
+            assert_eq!(CodeLanguage::from_code_fence(fence), language);
+            assert!(has(language, line, comment, COMMENT), "{fence}: {:?}", colored(language, &[line]));
+            assert!(string.is_empty() || has(language, line, string, STRING), "{fence}: {:?}", colored(language, &[line]));
+            assert!(has(language, line, keyword, KEYWORD), "{fence}: {:?}", colored(language, &[line]));
+        }
+    }
+
+    #[test]
+    fn a_shell_script_and_yaml_read_marks_inside_words_as_text() {
+        for language in [CodeLanguage::Shell, CodeLanguage::Yaml] {
+            let line = "say don't a#b ${#n} # rest";
+            assert_eq!(
+                colored(language, &[line]).into_iter().filter(|(_, ink)| *ink != KEYWORD).collect::<Vec<_>>(),
+                [("# rest".to_owned(), COMMENT)],
+                "{language:?}"
+            );
+        }
+        // A variable is no keyword, in a script or in PHP.
+        assert!(!has(CodeLanguage::Shell, "echo $if", "if", KEYWORD));
+        assert!(!has(CodeLanguage::Php, "$class = 1;", "class", KEYWORD));
+        assert!(has(CodeLanguage::Php, "$a = new B;", "new", KEYWORD));
+    }
+
+    #[test]
+    fn directives_block_comments_and_any_case_keywords_follow_their_language() {
+        assert!(has(CodeLanguage::C, "#include <stdio.h>", "#include", KEYWORD));
+        assert!(has(CodeLanguage::CSharp, "#region Tools", "#region", KEYWORD));
+        // Lua's long comment spans lines and ends at its own marker.
+        let lua = colored(CodeLanguage::Lua, &["--[[ start", "end ]] local x = 1"]);
+        assert_eq!(lua[0], ("--[[ start".to_owned(), COMMENT));
+        assert!(lua.contains(&("end ]]".to_owned(), COMMENT)), "{lua:?}");
+        assert!(lua.contains(&("local".to_owned(), KEYWORD)), "{lua:?}");
+        // Kotlin's block comments nest; C's do not.
+        let nested = "/* a /* b */ still */ val x";
+        assert!(colored(CodeLanguage::Kotlin, &[nested]).contains(&("val".to_owned(), KEYWORD)));
+        assert!(!colored(CodeLanguage::C, &[nested]).iter().any(|(text, _)| text == "val"));
+        for word in ["select", "SELECT", "Select"] {
+            assert!(has(CodeLanguage::Sql, &format!("{word} 1"), word, KEYWORD), "{word}");
+        }
+        assert!(has(CodeLanguage::Php, "ECHO 'x';", "ECHO", KEYWORD));
+        assert!(!has(CodeLanguage::Go, "FUNC x", "FUNC", KEYWORD), "Go's keywords keep their case");
+        // Kotlin, Swift, Java, C# and Dart strings of three quotes span lines.
+        let text = colored(CodeLanguage::Kotlin, &["val s = \"\"\"one", "two\"\"\" + x"]);
+        assert!(text.contains(&("two\"\"\"".to_owned(), STRING)), "{text:?}");
+    }
+
+    #[test]
+    fn a_diff_colors_whole_lines_by_what_they_are() {
+        let lines = ["diff --git a/x b/x", "--- a/x", "+++ b/x", "@@ -1 +1 @@", "-old", "+new", " same"];
+        assert_eq!(
+            colored(CodeLanguage::Diff, &lines),
+            [
+                ("diff --git a/x b/x".to_owned(), COMMENT),
+                ("--- a/x".to_owned(), COMMENT),
+                ("+++ b/x".to_owned(), COMMENT),
+                ("@@ -1 +1 @@".to_owned(), KEYWORD),
+                ("-old".to_owned(), STRING),
+                ("+new".to_owned(), NUMBER),
+            ]
+        );
+        #[cfg(feature = "syntax")]
+        for fence in ["diff", "patch"] {
+            assert_eq!(CodeLanguage::from_code_fence(fence), CodeLanguage::Diff);
+        }
+    }
+
+    #[cfg(feature = "syntax")]
+    #[test]
+    fn a_markdown_fence_in_an_added_language_is_lexed_in_it() {
+        let mut state = LexState::default();
+        highlight_line("```golang", 0, CodeLanguage::Markdown, &mut state);
+        let inside = highlight_line("return nil", 0, CodeLanguage::Markdown, &mut state);
+        assert_eq!(inside.len(), 2, "{inside:?}");
+        assert!(inside.iter().all(|span| span.color == KEYWORD));
+    }
 }
 
 #[cfg(all(test, feature = "syntax"))]

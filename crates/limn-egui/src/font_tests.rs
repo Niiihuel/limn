@@ -47,6 +47,7 @@ fn mathematical_names_have_real_glyphs_in_every_limn_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::Monospace,
     ] {
@@ -76,6 +77,7 @@ fn installing_fallback_keeps_existing_ui_faces_and_monospace_metrics() {
         for (family, first) in [
             (egui::FontFamily::Proportional, "Ubuntu-Regular"),
             (egui::FontFamily::Name(SANS_MEDIUM.into()), "Ubuntu-Medium"),
+            (egui::FontFamily::Name(SANS_SEMIBOLD.into()), "UbuntuSans-SemiBold"),
             (egui::FontFamily::Name(SANS_BOLD.into()), "Ubuntu-Bold"),
         ] {
             assert_eq!(families[&family].first().map(String::as_str), Some(first));
@@ -102,6 +104,7 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::Monospace,
     ] {
@@ -158,6 +161,7 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::Monospace,
     ] {
@@ -221,6 +225,7 @@ fn emoji_fallback_preserves_existing_text_metrics() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::Monospace,
     ] {
@@ -275,6 +280,7 @@ fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::Monospace,
     ] {

@@ -82,10 +82,13 @@ shorter than 28. A height that is not finite is ignored.
 ```rust
 DropdownOption::new("shell:fish", "Fish").icon(Icon::Terminal).selected(true)
 DropdownOption::new("shell:nu", "Nushell").disabled()
+DropdownOption::new("mic:usb", "USB Audio Device (…").tooltip(whole_name)
 ```
 
 `selected(true)` puts a check on the option. A disabled option is passive: it
-cannot be chosen or focused.
+cannot be chosen or focused. `tooltip` gives the option a hint of its own,
+shown while the pointer rests on it, such as the whole of a name its label
+shortens; a blank one is ignored.
 
 ## Width
 

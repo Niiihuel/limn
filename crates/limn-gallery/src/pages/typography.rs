@@ -53,6 +53,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Weights", [
             ("Regular", limn::FontFamily::Sans),
             ("Medium", limn::FontFamily::SansMedium),
+            ("Semibold", limn::FontFamily::SansSemibold),
             ("Bold", limn::FontFamily::SansBold),
         ].into_iter().map(|(name, family)| {
             Element::text(format!("{name} · 175.6K of 200K tokens"))

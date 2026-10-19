@@ -31,6 +31,15 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .footer("Available in any conversation")
                 .render(),
         ])]),
+        section(cx, "Title face", vec![row(vec![
+            Tooltip::new(anchor("tooltip-sans", "Sans"), "tooltip-sans", "Rust workshop", palette)
+                .placement(TooltipPlacement::Right)
+                .render(),
+            Tooltip::new(anchor("tooltip-semibold", "Semibold"), "tooltip-semibold", "Rust workshop", palette)
+                .placement(TooltipPlacement::Right)
+                .title_family(limn::FontFamily::SansSemibold)
+                .render(),
+        ])]),
         section(cx, "Placement", vec![row(vec![
             Tooltip::new(anchor("tooltip-above", "Above"), "tooltip-above", "Above", palette)
                 .placement(TooltipPlacement::Above)

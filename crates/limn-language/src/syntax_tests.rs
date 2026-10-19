@@ -372,3 +372,53 @@ fn a_path_gives_its_language_and_its_comment_markers() {
     assert_eq!(Language::Toml.comment_markers_for("notes"), ("#", ""));
     assert_eq!(Language::Css.comment_markers_for("a.rs"), ("/*", "*/"));
 }
+
+#[test]
+fn languages_without_a_grammar_are_named_by_extension_and_fence_and_analyzed_as_nothing() {
+    for (label, language) in [
+        ("go", Language::Go),
+        ("golang", Language::Go),
+        ("java", Language::Java),
+        ("kt", Language::Kotlin),
+        ("kotlin", Language::Kotlin),
+        ("swift", Language::Swift),
+        ("c", Language::C),
+        ("h", Language::C),
+        ("cpp", Language::Cpp),
+        ("c++", Language::Cpp),
+        ("hpp", Language::Cpp),
+        ("cs", Language::CSharp),
+        ("c#", Language::CSharp),
+        ("csharp", Language::CSharp),
+        ("php", Language::Php),
+        ("rb", Language::Ruby),
+        ("ruby", Language::Ruby),
+        ("lua", Language::Lua),
+        ("sh", Language::Shell),
+        ("bash", Language::Shell),
+        ("shell", Language::Shell),
+        ("console", Language::Shell),
+        ("yaml", Language::Yaml),
+        ("yml", Language::Yaml),
+        ("sql", Language::Sql),
+        ("postgresql", Language::Sql),
+        ("diff", Language::Diff),
+        ("patch", Language::Diff),
+        ("dart", Language::Dart),
+        ("zig", Language::Zig),
+    ] {
+        assert_eq!(Language::from_code_fence(label), language, "{label}");
+        assert!(!language.is_parsed(), "{language:?}");
+    }
+    assert_eq!(Language::from_path("cmd/main.go"), Language::Go);
+    assert_eq!(Language::from_path("deploy.YAML"), Language::Yaml);
+    assert_eq!(Language::Lua.comment_markers_for("init.lua"), ("--", ""));
+    assert_eq!(Language::Diff.comment_markers_for("fix.patch"), ("//", ""), "a diff has no comments");
+    assert_eq!(Language::Shell.lsp_id(), "shellscript");
+    let snapshot = TextBuffer::new("package main\n").unwrap().snapshot();
+    let analysis = ParserEngine::default()
+        .analyze(&snapshot, Language::Go, &Cancellation::default())
+        .expect("no grammar is not an error");
+    assert!(analysis.highlights.is_empty() && analysis.symbols.is_empty() && !analysis.truncated);
+    assert!(Language::Rust.is_parsed() && Language::Markdown.is_parsed() && !Language::Plain.is_parsed());
+}
