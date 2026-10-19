@@ -322,8 +322,13 @@ impl fmt::Debug for TextLayout {
     }
 }
 
+/// How far past its width a line may run. A box sized to its text and handed
+/// that width back by sums can come out a rounding error short of it; its
+/// last letter would go to a line of its own.
+const SLACK: f32 = 0.01;
+
 fn place(layout: &mut parley::Layout<()>, width: Option<f32>, alignment: Alignment) {
-    layout.break_all_lines(width);
+    layout.break_all_lines(width.map(|width| width + SLACK));
     layout.align(alignment, AlignmentOptions::default());
 }
 
