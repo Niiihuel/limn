@@ -136,6 +136,12 @@ every value.
 
 ## Fonts
 
+The faces limn lays text out in are `limn::fonts()`, one set for the whole
+process; `limn::set_fonts` replaces them, and a backend draws glyphs from the
+same bytes. See [TextLayout](components/text-layout.md#fonts). The rest of
+this section is about the faces egui lays its own text out in, which limn's
+components still use.
+
 `limn_egui::install_fonts(&ctx)` installs Ubuntu Regular as the UI font.
 Call it once when the window is created. Without it egui's default
 proportional face, Ubuntu Light, is used, whose thin strokes look washed out
@@ -150,7 +156,7 @@ inside monospace text. `attach_fonts` measures the same fallback that paints.
 
 The bundled font adds about 1 MiB and uses SIL OFL-1.1; its unchanged license,
 version, pinned source and hashes are in
-[`crates/limn-egui/assets/fonts/NOTICE.md`](../crates/limn-egui/assets/fonts/NOTICE.md).
+[`crates/limn/assets/fonts/NOTICE.md`](../crates/limn/assets/fonts/NOTICE.md).
 This is additional mathematical coverage, not general Unicode shaping,
 CJK coverage or color emoji. No fonts are read from the host's system or
 downloaded at runtime.

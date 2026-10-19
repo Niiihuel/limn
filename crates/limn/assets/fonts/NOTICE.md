@@ -1,3 +1,10 @@
+These are the faces `limn::Fonts::bundled()` lays text out in, behind the
+`bundled-fonts` feature: Ubuntu for `FontFamily::Sans` in three weights, Hack
+for `FontFamily::Monospace`, and Noto Sans Math, Noto Sans Symbols 2 and Noto
+Emoji behind both for the characters those lack. limn-egui gives egui the same
+bytes. Hosts distributing them must keep each font's copyright and license,
+independently of limn's code license.
+
 # Ubuntu Regular, Medium and Bold
 
 Ubuntu-Regular.ttf, Ubuntu-Medium.ttf and Ubuntu-Bold.ttf are distributed
@@ -12,8 +19,8 @@ SHA-256:
 - Ubuntu-Medium.ttf `3cd952b8b52581e48a8fa95b31c8829c2baa41b635042a69587d57f98092961e`
 - Ubuntu-Bold.ttf `679b5c1e09cab3156bb8ef529735f9382bf31ca7ac737382ab959297f8d82ad4`
 
-limn-egui uses the Regular face for proportional UI text instead of egui's
-default Ubuntu Light face, and the Medium and Bold faces for
+limn uses the Regular face for `FontFamily::Sans` (in egui, in place of
+egui's default Ubuntu Light face), and the Medium and Bold faces for
 `FontFamily::SansMedium` and `FontFamily::SansBold`: real faces, never a
 synthesised weight. Font hinting, antialiasing and display scaling continue
 to use egui's defaults.
@@ -37,7 +44,8 @@ The bundled font is 1,015,396 bytes. SHA-256:
 
 The license text is preserved; trailing whitespace is trimmed.
 
-limn-egui appends this face after egui's existing fallbacks in proportional,
+limn puts this face after the UI faces, and limn-egui after egui's existing
+fallbacks, in proportional,
 weighted and monospace families. It covers mathematical alphabets that the
 UI faces lack; it does not replace their existing glyphs or add color emoji
 or general CJK coverage. Hosts distributing the embedded font must retain
@@ -96,3 +104,22 @@ missing monochrome emoji while preserving existing glyphs and widths.
 Regional flags, keycaps and some joined sequences can still use an earlier
 face selected by their first character; scalar coverage does not guarantee
 composition of an entire sequence. This font does not add color emoji.
+
+# Hack
+
+Hack-Regular.ttf is the face egui bundles for its monospace family, copied
+unmodified from `epaint_default_fonts` 0.36.2 so that limn lays code out in
+the face egui paints it with. Copyright 2018 Source Foundry Authors, under the
+MIT License; Bitstream Vera Sans Mono Copyright 2003 Bitstream Inc., under the
+Bitstream Vera License; DejaVu changes are in the public domain. The full
+notice is in Hack-Regular.txt.
+
+Upstream project: https://github.com/source-foundry/Hack
+
+SHA-256:
+
+- Hack-Regular.ttf `15f55cc0c85a2988d2b4b3a8cdb5d77fdfbaf319e1bb5309d725db9818fb7125`
+- Hack-Regular.txt `47c0cccbeec7e8614548cc485588b28149e7874188df5f41b36efebcee285c87`
+
+limn uses it for `FontFamily::Monospace`, and behind the UI faces for the box
+drawing characters they lack.

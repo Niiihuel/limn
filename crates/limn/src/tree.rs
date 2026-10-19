@@ -505,6 +505,9 @@ pub enum DrawCommand {
         /// pixel gaps.
         dashed: bool,
     },
+    /// Glyphs limn has shaped and placed; see [`crate::GlyphRun`]. A backend
+    /// draws each glyph where the run says, and lays nothing out again.
+    Glyphs(crate::GlyphRun),
     /// A run of text the tree has already measured and wrapped. A backend
     /// paints it from `position` without wrapping it again.
     Text {
@@ -735,6 +738,10 @@ impl DrawCommand {
             } => {
                 *position = Point::new(position.x + dx, position.y + dy);
                 fade(color);
+            }
+            Self::Glyphs(run) => {
+                run.origin = Point::new(run.origin.x + dx, run.origin.y + dy);
+                fade(&mut run.color);
             }
             Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
@@ -1168,6 +1175,15 @@ fn animate_popover_command(
             scale_point(position, scale, origin, slide_y);
             *font_size *= scale;
             fade(color, opacity);
+        }
+        DrawCommand::Glyphs(run) => {
+            scale_point(&mut run.origin, scale, origin, slide_y);
+            run.size *= scale;
+            // Placed from the run's origin, the glyphs scale about it.
+            if scale != 1.0 {
+                run.glyphs = run.glyphs.iter().map(|glyph| crate::Glyph { x: glyph.x * scale, y: glyph.y * scale, ..*glyph }).collect();
+            }
+            fade(&mut run.color, opacity);
         }
         DrawCommand::Icon { rect, tint, .. } => {
             scale_rect(rect, scale, origin, slide_y);

@@ -5,6 +5,9 @@ in any release.
 
 ## Unreleased
 
+- `TextLayout`: text limn shapes, breaks into lines and places itself, with parley inside and none of it in limn's API. `TextStyle`, `wrapped(width)` without shaping again, `size`, `lines`, `caret`, `index_at`, `selection`, and `draw(origin, color)` for `DrawCommand::Glyphs(GlyphRun)`, which a backend draws without laying anything out. Kerning, ligatures, bidi and a fallback face per character. Components do not use it yet. See [TextLayout](docs/components/text-layout.md)
+- `Fonts`, `Font`, `FontError`, `limn::fonts()` and `limn::set_fonts`: the faces text is laid out in, one set for the process. `Fonts::bundled()` behind the new default `bundled-fonts` feature; the font files moved from limn-egui to limn, with Hack added for `Monospace`
+- limn-egui draws `DrawCommand::Glyphs` from an atlas of its own, rasterized as egui rasterizes its text, and gives egui the same font bytes limn lays text out in, without copying them
 - `Element::drawing`: what the application draws itself, in the frame's own `DrawCommand`s, given the size it is laid out at. The tree places the commands, clips them to the element and keeps their clips balanced. See [Drawing](docs/components/drawing.md)
 - `CodeEditor` view options: `show_whitespace` marks spaces with `·` and tabs with `→`; `rulers` draws up to 16 column guides; `caret_style` takes a `CaretStyle` (`Line`, `Block`, `Underline`; Vim's Normal mode keeps its block); `caret_blink(false)` keeps the caret shown; `indent_guides(false)` and `highlight_current_line(false)` turn off what was always drawn. Defaults keep today's look
 - `limn-editor::TextBuffer::trim_trailing_whitespace`: removes the spaces and tabs ending each line as one undo step, keeping line terminators and every selection's place in its line
