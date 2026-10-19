@@ -4,9 +4,11 @@ Text that limn shapes, breaks into lines and places itself. Where the caret
 goes, what a selection covers and the glyphs a backend draws all come from
 one layout, so they always agree: no backend lays the text out again.
 
-limn's components still lay their text out the older way, measuring widths
-through the backend; they move to `TextLayout` one at a time. Today it is
-what an application draws text with in an [`Element::drawing`](drawing.md).
+In a tree told to with `UiTree::set_text_layout(true)`, which
+`limn_egui::attach_fonts` does, every `Element::text` is laid out in a
+`TextLayout`, and selected and underlined from it. limn's other components
+still measure their text through the backend; they move to it one at a time.
+An application also draws text with it in an [`Element::drawing`](drawing.md).
 
 ## Import
 
@@ -29,7 +31,9 @@ It keeps one line for each line the text has. `size()` is as wide as its
 widest line and as tall as its lines; empty text is one line tall.
 
 `draw(origin, color)` returns one `DrawCommand::Glyphs` for each run of one
-font, placed from `origin`. A monochrome glyph is drawn in `color`.
+font, placed from `origin`. A monochrome glyph is drawn in `color`. A layout
+and its clones give the same glyphs every time, so a backend can keep what it
+drew for them while they stay in place.
 
 ## Style
 
@@ -38,6 +42,13 @@ font, placed from `origin`. A monochrome glyph is drawn in `color`.
 every line that far apart; without it the font's own ascent, descent and line
 gap decide. A size that is not finite is 14 and one below zero is zero; a
 line height that is not finite or below zero is ignored.
+
+`.leading(Leading)` says where the glyphs stand in a line taller than they
+are: `Leading::Even`, the default, sets half the spare room above them, as
+CSS does; `Leading::Below` sets them at the top of the line, the room under
+them, as limn's own text is set. A tree lays `Element::text` out with
+`Below` and the line height of its metrics, so text sits where it did when
+the backend laid it out.
 
 ## Wrapping
 
@@ -49,6 +60,9 @@ let paragraph = TextLayout::new(text, style).wrapped(360.0);
 the language allows a break, without shaping it again: a layout made once can
 follow its container's width. A word longer than `width` keeps a line of its
 own. A width that is not finite does not wrap.
+
+`centered(width)` breaks it as `wrapped` does and centers each line across
+`width`.
 
 `lines()` gives each line's box, its baseline and the bytes it holds. A line's
 box leaves out the spaces that hang past its end where it wraps.
@@ -100,7 +114,7 @@ rasterized as egui rasterizes its own text, so both look alike.
 
 ## Limits
 
-- Text in a component is not laid out with it yet.
+- Only `Element::text` is laid out with it yet, and only in a tree told to.
 - No pointer position reaches a drawing, so selecting with the pointer inside
   one is the host's.
 - The bundled faces have no Arabic, Hebrew or CJK glyphs: such text is laid

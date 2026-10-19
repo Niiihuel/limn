@@ -18,6 +18,12 @@ back.
 
 ## Text measurement
 
+Call `tree.set_text_layout(true)` once the backend draws `DrawCommand::Glyphs`:
+every `Element::text` is then laid out by limn itself, in the faces of
+`limn::fonts()`, and drawn as glyph runs, so it needs no measuring. Other text
+is still measured as below until it moves too. `limn_egui::attach_fonts` turns
+it on.
+
 Layout depends on text widths, so the tree must measure with the same fonts
 the backend paints with. Register them once, and again if the fonts change:
 

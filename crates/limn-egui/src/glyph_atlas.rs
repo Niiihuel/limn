@@ -5,6 +5,7 @@
 
 use std::cell::RefCell;
 use std::collections::hash_map::Entry;
+use std::sync::Arc;
 
 use ahash::HashMap;
 
@@ -12,7 +13,7 @@ use eframe::egui;
 use egui::epaint::text::HintingTarget;
 use egui::epaint::FontColorTransferFunction;
 use egui::{Color32, ColorImage, Pos2, TextureHandle, TextureOptions};
-use limn::GlyphRun;
+use limn::{Glyph, GlyphRun};
 use skrifa::instance::{LocationRef, NormalizedCoord, Size};
 use skrifa::outline::{DrawSettings, HintingInstance, OutlinePen};
 use skrifa::{GlyphId, MetadataProvider as _};
@@ -56,6 +57,22 @@ struct Page {
     shelf: [usize; 3],
 }
 
+/// A run drawn before: the same glyphs at the same place in pixels.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct MeshKey {
+    glyphs: usize,
+    x: u32,
+    y: u32,
+    pixels_per_point: u32,
+    ink: [u8; 4],
+}
+
+struct DrawnRun {
+    /// Held, so no other run takes this one's address while it is kept.
+    _glyphs: Arc<[Glyph]>,
+    meshes: Vec<Arc<egui::Mesh>>,
+}
+
 #[derive(Default)]
 struct Atlas {
     context: Option<egui::Context>,
@@ -65,6 +82,13 @@ struct Atlas {
     /// `None` for a glyph with nothing to draw, such as a space.
     glyphs: HashMap<GlyphKey, Option<Placed>>,
     hinting: HashMap<(u64, u32, u32, u64), HintingInstance>,
+    /// Runs drawn this frame and the one before, reused while they stay put,
+    /// as egui reuses a galley.
+    drawn: HashMap<MeshKey, DrawnRun>,
+    drawn_before: HashMap<MeshKey, DrawnRun>,
+    frame: u64,
+    /// How many times the pages were started again.
+    restarts: u64,
 }
 
 thread_local! {
@@ -104,6 +128,33 @@ pub(crate) fn paint(painter: &egui::Painter, run: &GlyphRun, origin: Pos2, displ
     ATLAS.with(|atlas| {
         let mut atlas = atlas.borrow_mut();
         atlas.attach(painter.ctx(), (options.color_transfer_function, options.font_hinting));
+        let frame = painter.ctx().cumulative_frame_nr();
+        if frame != atlas.frame {
+            atlas.drawn_before = std::mem::take(&mut atlas.drawn);
+            atlas.frame = frame;
+        }
+        let place = MeshKey {
+            glyphs: Arc::as_ptr(&run.glyphs).cast::<()>() as usize,
+            x: ((origin.x + run.origin.x) * pixels_per_point).to_bits(),
+            y: ((origin.y + run.origin.y) * pixels_per_point).to_bits(),
+            pixels_per_point: pixels_per_point.to_bits(),
+            ink: ink.to_array(),
+        };
+        let kept = match atlas.drawn.get(&place) {
+            Some(kept) => Some(kept.meshes.clone()),
+            None => atlas.drawn_before.remove(&place).map(|kept| {
+                let meshes = kept.meshes.clone();
+                atlas.drawn.insert(place, kept);
+                meshes
+            }),
+        };
+        if let Some(meshes) = kept {
+            for mesh in meshes {
+                painter.add(egui::Shape::Mesh(mesh));
+            }
+            return;
+        }
+        let restarts = atlas.restarts;
         // Read only when a glyph is not in the atlas yet.
         let mut source: Option<(skrifa::FontRef<'_>, Vec<NormalizedCoord>)> = None;
         let mut meshes: Vec<egui::Mesh> = Vec::new();
@@ -156,8 +207,13 @@ pub(crate) fn paint(painter: &egui::Painter, run: &GlyphRun, origin: Pos2, displ
             };
             mesh.add_rect_with_uv(rect, uv, ink);
         }
-        for mesh in meshes {
-            painter.add(egui::Shape::mesh(mesh));
+        let meshes: Vec<Arc<egui::Mesh>> = meshes.into_iter().map(Arc::new).collect();
+        for mesh in &meshes {
+            painter.add(egui::Shape::Mesh(mesh.clone()));
+        }
+        // A run whose glyphs started the pages again holds some of the old ones.
+        if atlas.restarts == restarts {
+            atlas.drawn.insert(place, DrawnRun { _glyphs: run.glyphs.clone(), meshes });
         }
     });
 }
@@ -260,6 +316,9 @@ impl Atlas {
                 self.pages.clear();
                 self.glyphs.clear();
                 self.hinting.clear();
+                self.drawn.clear();
+                self.drawn_before.clear();
+                self.restarts += 1;
             }
             let ctx = self.context.clone()?;
             let blank = ColorImage::filled([PAGE, PAGE], Color32::TRANSPARENT);
@@ -402,5 +461,42 @@ mod tests {
         assert_eq!(atlas.pages.len(), 1);
         assert!(atlas.glyphs.is_empty(), "every glyph is drawn again into the new pages");
         assert!(atlas.allocate(glyph(PAGE, 8), egui::Vec2::ZERO).is_none());
+    }
+}
+
+#[cfg(test)]
+mod reuse_tests {
+    use super::*;
+
+    fn shapes(ctx: &egui::Context, commands: &[limn::DrawCommand], at: Pos2) -> Vec<Arc<egui::Mesh>> {
+        let mut output = ctx.run_ui(egui::RawInput::default(), |ui| {
+            for command in commands {
+                if let limn::DrawCommand::Glyphs(run) = command {
+                    paint(ui.painter(), run, at, Display::of(ui.ctx()));
+                }
+            }
+        });
+        output.textures_delta.clear();
+        output
+            .shapes
+            .into_iter()
+            .filter_map(|clipped| match clipped.shape {
+                egui::Shape::Mesh(mesh) => Some(mesh),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_run_that_stays_put_reuses_its_mesh_and_one_that_moves_is_drawn_again() {
+        let ctx = egui::Context::default();
+        let layout = limn::TextLayout::new("limn", limn::TextStyle::new(14.0, limn::FontFamily::Sans));
+        let commands = layout.draw(limn::Point::new(0.0, 0.0), limn::Color::WHITE);
+        let first = shapes(&ctx, &commands, Pos2::new(10.0, 20.0));
+        let again = shapes(&ctx, &layout.draw(limn::Point::new(0.0, 0.0), limn::Color::WHITE), Pos2::new(10.0, 20.0));
+        assert!(Arc::ptr_eq(&first[0], &again[0]), "the same glyphs in the same place");
+        let moved = shapes(&ctx, &commands, Pos2::new(11.0, 20.0));
+        assert!(!Arc::ptr_eq(&first[0], &moved[0]));
+        assert_eq!(moved[0].vertices[0].pos.x, first[0].vertices[0].pos.x + 1.0);
     }
 }

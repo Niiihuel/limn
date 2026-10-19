@@ -186,3 +186,38 @@ fn a_right_to_left_run_is_placed_right_to_left_and_a_tab_is_a_space() {
     assert!(layout.caret(bet).x > layout.caret(text.len()).x);
     assert_eq!(sans("a\tb").size().width, sans("a b").size().width);
 }
+
+#[test]
+fn centered_lines_stand_in_the_middle_of_the_width_with_their_glyphs() {
+    let width = sans("limn").size().width;
+    let centered = sans("limn").centered(200.0);
+    let line = centered.lines().next().unwrap();
+    assert!((line.rect.x - (200.0 - width) / 2.0).abs() < 0.01, "{line:?}");
+    assert!((runs(&centered)[0].glyphs[0].x - line.rect.x).abs() < 1.0);
+    assert!((centered.caret(0).x - line.rect.x).abs() < 0.01);
+}
+
+#[test]
+fn a_layout_and_its_clones_draw_the_same_glyphs_every_time() {
+    let layout = sans("limn");
+    let (first, again) = (runs(&layout), runs(&layout.clone()));
+    assert!(std::sync::Arc::ptr_eq(&first[0].glyphs, &again[0].glyphs));
+    // Rewrapped, it is another layout with glyphs of its own.
+    assert!(!std::sync::Arc::ptr_eq(&first[0].glyphs, &runs(&layout.wrapped(10.0))[0].glyphs));
+}
+
+#[test]
+fn leading_below_sets_the_glyphs_at_the_top_of_a_tall_line() {
+    let tall = |leading| {
+        let layout = TextLayout::new("limn", TextStyle::new(14.0, FontFamily::Sans).line_height(40.0).leading(leading));
+        let line = layout.lines().next().unwrap();
+        (line.baseline, runs(&layout)[0].glyphs[0].y, line.rect)
+    };
+    let (even, even_glyph, even_line) = tall(limn::Leading::Even);
+    let (below, below_glyph, below_line) = tall(limn::Leading::Below);
+    assert_eq!(even_line, below_line, "the line takes the same room either way");
+    assert_eq!((even_glyph, below_glyph), (even, below), "the glyphs stand on the baseline told");
+    // Half of the 40 - 16 spare pixels moves from above the glyphs to below them.
+    let natural = sans("limn").size().height;
+    assert!((even - below - (40.0 - natural) / 2.0).abs() < 1.0, "{even} {below} {natural}");
+}
