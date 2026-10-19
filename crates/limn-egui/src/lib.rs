@@ -1781,7 +1781,7 @@ fn paint_at_impl(
                 let font = match font_family {
                     FontFamily::Monospace => FontId::monospace(*font_size),
                     FontFamily::Sans => FontId::proportional(*font_size),
-                    FontFamily::SansMedium | FontFamily::SansBold => {
+                    FontFamily::SansMedium | FontFamily::SansSemibold | FontFamily::SansBold => {
                         FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
                     }
                     FontFamily::SansItalic => {
@@ -2389,6 +2389,8 @@ pub fn font_definitions() -> egui::FontDefinitions {
         .unwrap_or_default();
     for (family, face, bytes) in [
         (SANS_MEDIUM, "Ubuntu-Medium", &include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")[..]),
+        // Ubuntu has no semibold: Ubuntu Sans, its successor under the same licence, does.
+        (SANS_SEMIBOLD, "UbuntuSans-SemiBold", &include_bytes!("../assets/fonts/UbuntuSans-SemiBold.ttf")[..]),
         (SANS_BOLD, "Ubuntu-Bold", &include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")[..]),
     ] {
         fonts
@@ -2407,6 +2409,7 @@ pub fn font_definitions() -> egui::FontDefinitions {
 }
 
 const SANS_MEDIUM: &str = "limn-sans-medium";
+const SANS_SEMIBOLD: &str = "limn-sans-semibold";
 const SANS_BOLD: &str = "limn-sans-bold";
 
 /// The egui family a limn family is painted and measured with. A host that
@@ -2416,6 +2419,7 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
         FontFamily::Monospace => return egui::FontFamily::Monospace,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
+        FontFamily::SansSemibold => SANS_SEMIBOLD,
         FontFamily::SansBold => SANS_BOLD,
     };
     let named = egui::FontFamily::Name(weighted.into());

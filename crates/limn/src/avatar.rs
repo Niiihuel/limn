@@ -1,13 +1,15 @@
 //! Account photos, with the initial of the name where there is no photo.
 
-use crate::{Component, ComponentPalette, Element, FontFamily, RasterImage};
+use crate::{Color, Component, ComponentPalette, Element, FontFamily, RasterImage};
 
 /// A round account picture. Without an image it shows the first character of the trimmed
-/// name, in upper case, on the palette's selected fill; a blank name shows "?".
+/// name, in upper case, in the palette's text on its selected fill, or on [`Avatar::color`];
+/// a blank name shows "?".
 pub struct Avatar {
     name: String,
     image: Option<RasterImage>,
     size: f32,
+    color: Option<Color>,
     palette: ComponentPalette,
 }
 
@@ -18,6 +20,7 @@ impl Avatar {
             name: name.into(),
             image: None,
             size: 32.0,
+            color: None,
             palette,
         }
     }
@@ -25,6 +28,14 @@ impl Avatar {
     /// Provide a square photo, decoded or cropped by the host's image worker.
     pub fn image(mut self, image: RasterImage) -> Self {
         self.image = Some(image);
+        self
+    }
+
+    /// The fill behind the initial, such as the color an application gives
+    /// each person, in place of the palette's selected fill. A photo covers
+    /// it.
+    pub fn color(mut self, fill: Color) -> Self {
+        self.color = Some(fill);
         self
     }
 
@@ -65,7 +76,7 @@ impl Component for Avatar {
             Element::spacer().flex(1.0),
         ]))
         .size(Some(self.size), Some(self.size))
-        .background(self.palette.selected)
+        .background(self.color.unwrap_or(self.palette.selected))
         .radius(self.size / 2.0)
     }
 }

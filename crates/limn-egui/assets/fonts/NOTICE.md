@@ -18,6 +18,32 @@ default Ubuntu Light face, and the Medium and Bold faces for
 synthesised weight. Font hinting, antialiasing and display scaling continue
 to use egui's defaults.
 
+# Ubuntu Sans SemiBold
+
+UbuntuSans-SemiBold.ttf is the unmodified static face from the Ubuntu Sans
+fonts 1.006 release, distributed under the same Ubuntu Font Licence 1.0 as the
+faces above (UFL.txt; the release's LICENCE.txt is identical byte for byte).
+Copyright 2010, 2011 Canonical Ltd.
+
+Pinned release:
+https://github.com/canonical/Ubuntu-Sans-fonts/releases/tag/v1.006
+
+Archive:
+https://github.com/canonical/Ubuntu-Sans-fonts/releases/download/v1.006/UbuntuSans-fonts-1.006.zip
+
+The archive member is `UbuntuSans-fonts-1.006/ttf/UbuntuSans-SemiBold.ttf`.
+The font's name table reports `Version 1.006; ttfautohint (v1.8.4.7-5d5b)`.
+It adds 487,284 bytes, with no subsetting or conversion. SHA-256:
+
+- Release archive `20aa7af47beaa6d64327782f7bf60df375edeedbdee2fe407e0bf9721890fb83`
+- UbuntuSans-SemiBold.ttf `b0930ffaa33588438a2f45fae3fdf779ec2c0ffd1b71ac4e9b80baf36734e13e`
+
+The Ubuntu family has no semibold weight; Ubuntu Sans, its successor from the
+same project, does. limn-egui uses it for `FontFamily::SansSemibold`, a real
+face with the same fallbacks behind it as the other weights. Its letterforms
+are close to Ubuntu's but not identical, so it is used where a semibold is
+asked for, not in place of Medium or Bold.
+
 # Noto Sans Math
 
 NotoSansMath-Regular.ttf is distributed unmodified under the SIL Open Font
