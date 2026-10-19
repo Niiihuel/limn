@@ -8200,6 +8200,7 @@ impl LayoutBuilder<'_> {
                 visible: clip.and_then(|area| rect.intersection(area)).or_else(|| clip.is_none().then_some(rect)),
                 font_size: style.font_size,
                 font_family: style.font_family,
+                atomic: false,
             });
             start += held.chars().count();
         }
