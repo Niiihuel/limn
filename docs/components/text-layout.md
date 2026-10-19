@@ -92,13 +92,14 @@ limn::set_fonts(limn::Fonts::bundled().face(FontFamily::Sans, ui));
 ```
 
 `Fonts::bundled()`, with the default `bundled-fonts` feature, is limn's own:
-Ubuntu for `Sans` in regular, medium and bold, Hack for `Monospace`, and Noto
-Sans Math, Noto Sans Symbols 2 and Noto Emoji behind both. `.face(family,
+Ubuntu for `Sans` in regular, medium and bold, Hack for `Monospace`, Noto Sans
+Math and Noto Sans Symbols 2 behind both, and Noto Emoji for emoji. `.face(family,
 font)` replaces a family's face; `.fallback(font)` adds a face tried, in
-order, for characters the families lack. A family without a face of its own
-takes `Sans`: `SansItalic` slanted and `SansBold` thickened. Behind `Sans`
-come the fallbacks, then `Monospace`; behind `Monospace` come `Sans`, then the
-fallbacks. Only the faces given are used, never the system's, so text is laid
+order, for characters the families lack; `.emoji(font)` sets the face tried
+last, so it never takes a symbol a text face has. A family without a face of
+its own takes `Sans`: `SansItalic` slanted and `SansBold` thickened. Behind
+`Sans` come the fallbacks, then `Monospace`, then the emoji face; behind
+`Monospace` come `Sans`, the fallbacks, then the emoji face. Only the faces given are used, never the system's, so text is laid
 out alike on every machine and in a browser.
 
 `Font::new(bytes)` refuses bytes that hold no face; `Font::from_static` keeps a

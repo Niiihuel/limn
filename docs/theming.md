@@ -142,15 +142,17 @@ same bytes. See [TextLayout](components/text-layout.md#fonts). The rest of
 this section is about the faces egui lays its own text out in, which limn's
 components still use.
 
-`limn_egui::install_fonts(&ctx)` installs Ubuntu Regular as the UI font.
-Call it once when the window is created. Without it egui's default
-proportional face, Ubuntu Light, is used, whose thin strokes look washed out
-at small sizes.
+`limn_egui::install_fonts(&ctx)` gives egui limn's own faces, the same bytes
+limn lays text out in and in the same order: Ubuntu Regular, Medium and Bold
+for the UI, Hack for code, then Noto Sans Math, Noto Sans Symbols 2 and, last,
+Noto Emoji. Call it once when the window is created, before the first frame:
+limn-egui no longer turns on eframe's `default_fonts`, so without it egui has
+no faces at all. A host that turns `default_fonts` on itself carries egui's
+own faces as well, unused once these are installed; leave it off to keep one
+copy of each font.
 
-The installer also keeps egui's fallback faces and appends Noto Sans Math
-3.000 for mathematical alphabets, including names such as `𝖗𝖚𝖓𝖊` and
-`𝓡𝓤𝓝𝓔`. The fallback is shared by regular, italic, medium, bold and
-monospace text. Existing glyphs still come from their original faces;
+Noto Sans Math 3.000 covers mathematical alphabets, including names such as
+`𝖗𝖚𝖓𝖊` and `𝓡𝓤𝓝𝓔`, for regular, italic, medium, bold and monospace text;
 missing mathematical glyphs use Noto's own shapes and widths, including
 inside monospace text. `attach_fonts` measures the same fallback that paints.
 
@@ -167,13 +169,13 @@ unhinted OpenType face adds 404,576 bytes under OFL-1.1, with its release
 source, hashes and full license alongside the Math notices. The Text
 gallery uses synthetic labels to demonstrate the fallback. Neither this
 font nor those tests imply that every user-supplied name is covered.
-The proportional families also reuse egui's already embedded monospace
-fallbacks at the end of their chain, supplying box drawing such as
-`├─│╭╰║` without another font asset. Missing glyphs keep their fallback
-face's advance width.
+The proportional families put Hack after the symbols, supplying box drawing
+such as `├─│╭╰║` without another font asset. Missing glyphs keep their
+fallback face's advance width.
 
-Noto Emoji 3.002 is appended last in all five families for missing
-monochrome emoji, including `🙂`, `🤣`, `🦀` and `🫡`. It adds 1,982,596
+Noto Emoji 3.002 is last in all five families, so it never takes a symbol a
+text face has, and draws every monochrome emoji, including `🙂`, `🤣`, `🦀`
+and `🫡`; egui's own emoji faces are no longer installed. It adds 1,982,596
 bytes under OFL-1.1. The original variable font, full license and pinned
 source hashes are bundled alongside the other font notices. Previously
 covered text retains its face and metrics; new emoji use the fallback's

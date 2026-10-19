@@ -103,16 +103,20 @@ impl fmt::Display for FontError {
 impl std::error::Error for FontError {}
 
 /// The faces text is laid out in: a face for each [`FontFamily`] that has
-/// one, and fallbacks tried in order for the characters it lacks.
+/// one, fallbacks tried in order for the characters it lacks, and a face for
+/// emoji, tried last.
 ///
 /// A family without a face of its own takes the one it is a style of:
 /// `SansItalic`, `SansMedium` and `SansBold` take `Sans`, slanted or
-/// emboldened. Behind `Sans` comes every fallback, then `Monospace`;
-/// behind `Monospace` comes `Sans`, then every fallback.
+/// emboldened. Behind `Sans` comes every fallback, then `Monospace`, then
+/// the emoji face; behind `Monospace` comes `Sans`, every fallback, then the
+/// emoji face. The emoji face is last so it never takes a symbol a text face
+/// has.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Fonts {
     faces: Vec<(FontFamily, Font)>,
     fallbacks: Vec<Font>,
+    emoji: Option<Font>,
 }
 
 impl Fonts {
@@ -123,9 +127,9 @@ impl Fonts {
     }
 
     /// limn's own faces: Ubuntu for `Sans` in regular, medium and bold, Hack
-    /// for `Monospace`, and Noto Sans Math, Noto Sans Symbols 2 and Noto Emoji
-    /// behind both. `SansItalic` is `Sans` slanted. Their licenses are in
-    /// `assets/fonts/NOTICE.md`.
+    /// for `Monospace`, Noto Sans Math and Noto Sans Symbols 2 behind both,
+    /// and Noto Emoji for emoji. `SansItalic` is `Sans` slanted. Their
+    /// licenses are in `assets/fonts/NOTICE.md`.
     #[cfg(feature = "bundled-fonts")]
     pub fn bundled() -> Self {
         let font = |bytes: &'static [u8]| Font::from_static(bytes).expect("a bundled face is a font");
@@ -136,7 +140,7 @@ impl Fonts {
             .face(FontFamily::Monospace, font(include_bytes!("../assets/fonts/Hack-Regular.ttf")))
             .fallback(font(include_bytes!("../assets/fonts/NotoSansMath-Regular.ttf")))
             .fallback(font(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf")))
-            .fallback(font(include_bytes!("../assets/fonts/NotoEmoji.ttf")))
+            .emoji(font(include_bytes!("../assets/fonts/NotoEmoji.ttf")))
     }
 
     /// Lay `family` out in `font`, in place of the face it had.
@@ -153,6 +157,13 @@ impl Fonts {
         self
     }
 
+    /// Lay emoji out in `font`, tried after every other face, in place of the
+    /// emoji face there was.
+    pub fn emoji(mut self, font: Font) -> Self {
+        self.emoji = Some(font);
+        self
+    }
+
     /// The face `family` has of its own, if any.
     pub fn face_of(&self, family: FontFamily) -> Option<&Font> {
         self.faces.iter().find(|(given, _)| *given == family).map(|(_, font)| font)
@@ -163,9 +174,14 @@ impl Fonts {
         &self.fallbacks
     }
 
+    /// The face for emoji, if any.
+    pub fn emoji_face(&self) -> Option<&Font> {
+        self.emoji.as_ref()
+    }
+
     /// The given face a layout's run names by its data.
     pub(crate) fn find(&self, data: &FontData) -> Font {
-        let mut all = self.faces.iter().map(|(_, font)| font).chain(&self.fallbacks);
+        let mut all = self.faces.iter().map(|(_, font)| font).chain(&self.fallbacks).chain(&self.emoji);
         all.find(|font| font.id() == data.data.id() && font.index() == data.index)
             .cloned()
             .unwrap_or_else(|| Font { data: data.clone(), compiled: None })
@@ -226,7 +242,8 @@ mod tests {
         let replaced = bundled.clone().face(FontFamily::Sans, hack.clone());
         assert_eq!(replaced.face_of(FontFamily::Sans), Some(&hack));
         assert_eq!(replaced.faces.len(), bundled.faces.len());
-        assert_eq!(bundled.fallbacks().len(), 3);
+        assert_eq!(bundled.fallbacks().len(), 2);
+        assert!(bundled.emoji_face().is_some());
         assert_eq!(bundled.face_of(FontFamily::SansItalic), None);
         // Clones share the bytes, so a backend keys one face once.
         assert_eq!(hack.id(), bundled.face_of(FontFamily::Monospace).unwrap().id());

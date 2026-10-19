@@ -2360,53 +2360,36 @@ pub fn font_definitions() -> egui::FontDefinitions {
         .into()
     };
     let face = |family| bundled.face_of(family).expect("limn bundles a face for it");
-    let [math_face, symbols_face, emoji_face] = bundled.fallbacks() else {
-        unreachable!("limn bundles three fallbacks: math, symbols and emoji");
+    let [math, symbols] = bundled.fallbacks() else {
+        unreachable!("limn bundles two fallbacks: math and symbols");
     };
-    let mut fonts = egui::FontDefinitions::default();
-    let name = "Ubuntu-Regular".to_owned();
-    fonts.font_data.insert(name.clone(), data(face(FontFamily::Sans)));
-    let math = "NotoSansMath-Regular".to_owned();
-    fonts.font_data.insert(math.clone(), data(math_face));
-    let symbols = "NotoSansSymbols2-Regular".to_owned();
-    fonts.font_data.insert(symbols.clone(), data(symbols_face));
-    let emoji = "NotoEmoji".to_owned();
-    fonts.font_data.insert(emoji.clone(), data(emoji_face));
-    // The bundled monospace faces supply box drawing missing from the UI
-    // faces. Reuse their bytes, after the symbols, without replacing UI text.
-    let monospace = fonts.families[&egui::FontFamily::Monospace].clone();
-    // Append before sharing proportional fallbacks with the weighted families.
-    // Existing glyphs retain their faces, including ordinary monospace text.
-    for family in fonts.families.values_mut() {
-        family.push(math.clone());
-        family.push(symbols.clone());
-        for face in &monospace {
-            if !family.contains(face) {
-                family.push(face.clone());
-            }
-        }
-        family.push(emoji.clone());
-    }
-    // The weights are faces of their own, with the same fallbacks behind them.
-    let fallbacks = fonts
-        .families
-        .get(&egui::FontFamily::Proportional)
-        .cloned()
-        .unwrap_or_default();
-    for (family, face_name, weight) in [
-        (SANS_MEDIUM, "Ubuntu-Medium", FontFamily::SansMedium),
-        (SANS_BOLD, "Ubuntu-Bold", FontFamily::SansBold),
+    let emoji = bundled.emoji_face().expect("limn bundles an emoji face");
+    // Only limn's faces, so egui's own are never needed and not carried twice.
+    let mut fonts = egui::FontDefinitions::empty();
+    for (name, font) in [
+        ("Ubuntu-Regular", face(FontFamily::Sans)),
+        ("Ubuntu-Medium", face(FontFamily::SansMedium)),
+        ("Ubuntu-Bold", face(FontFamily::SansBold)),
+        ("Hack", face(FontFamily::Monospace)),
+        ("NotoSansMath-Regular", math),
+        ("NotoSansSymbols2-Regular", symbols),
+        ("NotoEmoji", emoji),
     ] {
-        fonts.font_data.insert(face_name.to_owned(), data(face(weight)));
-        let mut faces = vec![face_name.to_owned()];
-        faces.extend(fallbacks.iter().cloned());
-        fonts.families.insert(egui::FontFamily::Name(family.into()), faces);
+        fonts.font_data.insert(name.to_owned(), data(font));
     }
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, name);
+    // The faces in the order limn tries them: behind the UI face the
+    // fallbacks, then the code face for the box drawing the UI face lacks;
+    // behind the code face the UI face, then the fallbacks; emoji last.
+    let chain = |first: &[&str], rest: &[&str]| first.iter().chain(rest).map(|name| (*name).to_owned()).collect();
+    let behind_sans = ["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "Hack", "NotoEmoji"];
+    fonts.families.insert(egui::FontFamily::Proportional, chain(&["Ubuntu-Regular"], &behind_sans));
+    fonts.families.insert(
+        egui::FontFamily::Monospace,
+        chain(&["Hack", "Ubuntu-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
+    );
+    for (family, face_name) in [(SANS_MEDIUM, "Ubuntu-Medium"), (SANS_BOLD, "Ubuntu-Bold")] {
+        fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Ubuntu-Regular"], &behind_sans));
+    }
     fonts
 }
 
