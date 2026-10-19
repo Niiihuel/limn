@@ -88,6 +88,8 @@ use crate::{
 
 const TOOLTIP_HEIGHT: f32 = 24.0;
 const TOOLTIP_PADDING: f32 = 8.0;
+/// How far a [`Element::rise_on_hover`] element travels up as it appears.
+const REVEAL_RISE: f32 = 8.0;
 pub(crate) const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
 const SLIDER_THUMB_INSET: f32 = 17.0;
 /// One arrow press on a slider without stops.
@@ -3984,7 +3986,8 @@ impl UiTree {
                     .filter(|pan| pan.claimed)
                     .map(|pan| pan.id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
-                pointer: self.pointer,
+                // An open menu is modal: the page under it does not answer the pointer.
+                pointer: self.pointer.filter(|_| context_menu_paint.is_none()),
                 region_hovered: false,
                 access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
@@ -7505,7 +7508,8 @@ impl LayoutBuilder<'_> {
     /// Paint only: fade what was painted since command `start` in or out
     /// with the hover of the region around it. Layout, hit regions and the
     /// focus order are the same either way.
-    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize, concealed: bool) {
+    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize, reveal: HoverReveal) {
+        let concealed = reveal == HoverReveal::Concealed;
         let shown = if concealed {
             !self.region_hovered
         } else {
@@ -7527,9 +7531,10 @@ impl LayoutBuilder<'_> {
             transition.retarget(target, now, Duration::from_millis(u64::from(ms)));
         }
         let opacity = transition.value(now);
+        let rise = if reveal == HoverReveal::Rising { REVEAL_RISE * (1.0 - opacity) } else { 0.0 };
         if opacity < 1.0 {
             for command in &mut self.frame.commands[start..] {
-                animate_popover_command(command, opacity, 0.0, 1.0, Point::new(0.0, 0.0));
+                animate_popover_command(command, opacity, rise, 1.0, Point::new(0.0, 0.0));
             }
         }
     }
@@ -9832,8 +9837,8 @@ impl LayoutBuilder<'_> {
             }
         }
         match &element.presence {
-            Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed) => {
-                self.reveal_on_hover(element, id, start, reveal == HoverReveal::Concealed)
+            Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed | HoverReveal::Rising) => {
+                self.reveal_on_hover(element, id, start, reveal)
             }
             Some((id, leaves)) if element.animate_height.is_none() => {
                 self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);

@@ -35,6 +35,7 @@ pub struct Slider {
     default_stop: Option<usize>,
     vertical: bool,
     origin: f32,
+    thumb_on_hover: bool,
     level: Option<(f32, Color)>,
 }
 
@@ -55,8 +56,17 @@ impl Slider {
             default_stop: None,
             vertical: false,
             origin: 0.0,
+            thumb_on_hover: false,
             level: None,
         }
+    }
+
+    /// Show the thumb only while the pointer is over the slider: a seek bar
+    /// that stays a quiet line until it is reached for. The thumb fades in and
+    /// out; the fill keeps showing the value meanwhile.
+    pub fn thumb_on_hover(mut self) -> Self {
+        self.thumb_on_hover = true;
+        self
     }
 
     /// Stand the slider up: 0 at the bottom and 1 at the top, so dragging up
@@ -230,7 +240,8 @@ impl Component for Slider {
             if self.fraction < 1.0 {
                 thumb.push(Element::spacer().flex(1.0 - self.fraction));
             }
-            layers.push(line(thumb));
+            let thumb = line(thumb);
+            layers.push(if self.thumb_on_hover { thumb.reveal_on_hover(format!("{}:thumb", self.id)) } else { thumb });
         }
         // The pointer takes the whole of it: the thumb's height across a
         // slider, and the width it is given across a vertical one.
@@ -279,6 +290,7 @@ impl Component for Slider {
         }
         .size(width, height)
         .accessible(access);
+        let slider = if self.thumb_on_hover { slider.hover_region() } else { slider };
         if vertical {
             labels.clear();
         }
@@ -368,6 +380,29 @@ mod tests {
                 "fraction {fraction}: thumb at {center}"
             );
         }
+    }
+
+    #[test]
+    fn a_thumb_on_hover_shows_only_under_the_pointer_and_the_slider_still_drags() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = tree(Slider::new("s", 0.5, palette).width(WIDTH).thumb_on_hover());
+        tree.set_reduced_motion(true);
+        let thumb = |tree: &mut UiTree| {
+            tree.layout(Size::new(400.0, HEIGHT)).commands.iter().find_map(|command| match command {
+                DrawCommand::FillCornerRect { rect, color, .. } | DrawCommand::FillRect { rect, color, .. }
+                    if (rect.width - THUMB).abs() < 0.01 && (rect.height - THUMB).abs() < 0.01 => Some(color.a),
+                _ => None,
+            }).unwrap_or(0)
+        };
+        assert_eq!(thumb(&mut tree), 0, "a quiet line at rest");
+        let middle = Point::new(WIDTH / 2.0, HEIGHT / 2.0);
+        tree.handle_event(UiEvent::PointerMove(middle));
+        assert_eq!(thumb(&mut tree), palette.text.a, "reached for, it shows its thumb");
+        let (fraction, _) = changed(&tree.handle_event(UiEvent::PointerDown(middle)));
+        assert!((fraction - 0.5).abs() < 0.01);
+        tree.handle_event(UiEvent::PointerUp(middle));
+        tree.handle_event(UiEvent::PointerMove(Point::new(390.0, HEIGHT / 2.0)));
+        assert_eq!(thumb(&mut tree), 0, "the thumb goes with the pointer");
     }
 
     #[test]

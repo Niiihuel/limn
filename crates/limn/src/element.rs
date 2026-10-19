@@ -832,6 +832,8 @@ pub(crate) enum HoverReveal {
     Revealed,
     /// Painted except while the region is hovered; `presence` holds its ID.
     Concealed,
+    /// As `Revealed`, rising into place as it fades in.
+    Rising,
 }
 
 /// Rare paint effects, a row's wrapping, and the IDs under which the tree
@@ -2432,6 +2434,15 @@ impl Element {
     pub fn reveal_on_hover(mut self, id: impl Into<String>) -> Self {
         self.presence = Some((id.into(), false));
         self.hover_reveal = HoverReveal::Revealed;
+        self
+    }
+
+    /// As [`reveal_on_hover`](Self::reveal_on_hover), rising a few pixels
+    /// into place as it fades in and sinking as it fades out, as a play
+    /// button comes up over a card. With reduced motion it switches at once.
+    pub fn rise_on_hover(mut self, id: impl Into<String>) -> Self {
+        self.presence = Some((id.into(), false));
+        self.hover_reveal = HoverReveal::Rising;
         self
     }
 

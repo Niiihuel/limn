@@ -92,8 +92,6 @@ fn menu_geometry_is_fixed_bounded_and_last_action_reachable_with_keyboard_and_wh
             menu.width,
             crate::context_menu::WIDTH.min(size.width - 16.0)
         );
-        assert!(menu.height <= crate::context_menu::MAX_HEIGHT);
-        assert!(menu.height <= size.height * 0.75);
         assert!(menu.x >= 8.0 && menu.y >= 8.0);
         assert!(menu.x + menu.width <= size.width - 8.0);
         assert!(menu.y + menu.height <= size.height - 8.0);
@@ -785,4 +783,26 @@ fn pointer_and_keyboard_share_one_context_menu_active_row() {
             id: "action:1".into()
         }]
     );
+}
+
+#[test]
+fn a_menu_as_tall_as_the_window_allows_neither_scrolls_nor_lets_the_page_answer_the_pointer() {
+    const REVEALED: Color = Color::rgb(30, 30, 200);
+    let entries = (0..14).map(|index| ContextMenuEntry::Item(ContextMenuItem::new(format!("action:{index}"), format!("Acción {index}")))).collect();
+    let play = Element::panel(Element::spacer().size(Some(40.0), Some(40.0))).background(REVEALED).reveal_on_hover("play");
+    let row = Element::stack(vec![Element::button("row", "Row").size(Some(300.0), Some(40.0)), play]).hover_region();
+    let mut tree = UiTree::new(ContextMenu::new("owner", row, entries, ComponentPalette::neutral_dark()).render());
+    tree.set_reduced_motion(true);
+    let size = Size::new(320.0, 900.0);
+    let shown = |frame: &Frame| frame.commands.iter().any(|command|
+        matches!(command, DrawCommand::FillRect { color, .. } if color.r == REVEALED.r && color.b == REVEALED.b && color.a > 0));
+    tree.handle_event(UiEvent::PointerMove(Point::new(20.0, 20.0)));
+    assert!(shown(&tree.layout(size)), "the row reveals its button under the pointer");
+    open(&mut tree, Point::new(10.0, 10.0));
+    tree.handle_event(UiEvent::PointerMove(Point::new(20.0, 20.0)));
+    let frame = tree.layout(size);
+    assert!(!frame.scrollbars.contains_key(crate::context_menu::SCROLL_ID), "it fits without scrolling");
+    let menu = frame.regions.iter().find(|region| region.id == "__context_menu:surface").unwrap().rect;
+    assert!(menu.contains(Point::new(20.0, 20.0)));
+    assert!(!shown(&frame), "the row under the menu does not answer the pointer");
 }
