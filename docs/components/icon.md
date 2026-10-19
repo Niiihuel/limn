@@ -46,6 +46,22 @@ Element::icon(Icon::Folder).large_icon(48.0)
 `large_icon(px)` draws a standalone icon larger than 16 px, up to 128, for
 thumbnails and empty states. Icons inside controls keep 16 px.
 
+## Smaller
+
+```rust
+Element::icon(Icon::Lock).small_icon(10.0)
+```
+
+`small_icon(px)` draws a standalone icon smaller than 16 px, down to
+`SMALL_ICON_SIZE` (8), such as a padlock over a corner of another icon or a
+speaker inside a small badge. The element measures the side it is drawn at.
+
+## Categories
+
+`Icon::Tree`, `FriedEgg`, `Gamepad`, `Car`, `Lightbulb` and `Flag`, with
+`Emoji` and `Heart`, name the usual categories of an emoji picker: nature,
+food, activities, travel, objects and flags, people and symbols.
+
 ## File types
 
 ```rust

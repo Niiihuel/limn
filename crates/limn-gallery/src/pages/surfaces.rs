@@ -1,7 +1,7 @@
 use super::{caption, section, Cx, Section};
 use limn::{
     guides_for_depths, AlertColors, AlertTone, Button, ButtonSize, ButtonVariant, Component, ControlSize, Element,
-    FontFamily, FramedCard, Icon, IconButton, ListRow, RadiusRole, ScrollArea, ScrollMotion, ScrollbarAppearance,
+    FontFamily, FramedCard, Icon, IconButton, ListRow, RadiusRole, ScrollArea, ScrollMotion, ScrollbarAppearance, ScrollbarVisibility,
     Separator, TreeGuides, TreeRow,
 };
 
@@ -294,6 +294,14 @@ fn scroll_areas(cx: &Cx, width: f32) -> Vec<Element> {
                 .buttons(false)
                 .tint(AlertColors::for_tone(AlertTone::Info, palette).accent)
                 .motion(ScrollMotion { duration_ms: 0, ..ScrollMotion::default() })
+                .render()
+                .size(None, Some(150.0)),
+        ),
+        caption(cx, "ScrollbarVisibility::AutoHideUnlessHovered: hidden until the pointer is over the area, or it scrolls; 600 ms after the pointer leaves it fades."),
+        card(
+            ScrollArea::new("surfaces-scroll-hover", rows("surfaces-scroll-hover", 24))
+                .appearance(ScrollbarAppearance::overlay().buttons(false))
+                .visibility(ScrollbarVisibility::AutoHideUnlessHovered { hold_ms: 600, fade_ms: 200 })
                 .render()
                 .size(None, Some(150.0)),
         ),

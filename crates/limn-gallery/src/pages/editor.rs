@@ -1,6 +1,6 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Collapsible, Color, Component, Composer,
+    Breadcrumb, BreadcrumbItem, Button, ButtonVariant, Collapsible, Color, Component, Composer, CornerRadii,
     ComponentPalette, ControlSize, DictationButton, DictationState, DictationWaveform, Element, FindBar, FindIds,
     FindLabels, FindOptions, Icon, IconButton, Marker,
 };
@@ -120,6 +120,29 @@ fn composer(cx: &Cx, width: f32) -> Element {
         .render()
 }
 
+/// A chat's composer: the editor grows between «+» and the emoji, which stay
+/// beside its first line; disabled, its reason wraps.
+fn chat_composer(cx: &Cx, width: f32, enabled: bool) -> Element {
+    let palette = cx.palette;
+    let control = |id: &str, icon| IconButton::new(id, icon, palette).variant(ButtonVariant::Ghost).enabled(enabled).render();
+    let id = if enabled { "editor-chat" } else { "editor-chat-off" };
+    let placeholder = if enabled {
+        "Message #general"
+    } else {
+        "You are timed out until tomorrow at 10:30 · 19 h 5 min left, and cannot write here"
+    };
+    Composer::new(id, cx.state.text(id), placeholder, width, palette)
+        .pill_controls(control(&format!("{id}-add"), Icon::Add), control(&format!("{id}-emoji"), Icon::Emoji))
+        .inline_controls(true)
+        .auto_grow(32.0, 160.0)
+        .editor_padding(6.0)
+        .editor_font_size(15.0)
+        .enter_submits(true)
+        .card_corner_radii(CornerRadii::bottom(8.0))
+        .enabled(enabled)
+        .render()
+}
+
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
@@ -165,6 +188,16 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 linked("editor-path-symbol", false)
                     .item(BreadcrumbItem::new("render").action("editor-path-symbol-render"))
                     .render(),
+            ],
+        ),
+        section(
+            cx,
+            "Composer with controls beside the editor",
+            vec![
+                caption(cx, "inline_controls with auto_grow: write several lines and the actions stay beside the first; square top corners for a strip of the host's above."),
+                row(vec![chat_composer(cx, cx.width.min(480.0), true)]),
+                caption(cx, "Disabled at 280 px: a long reason wraps instead of being cut."),
+                row(vec![chat_composer(cx, cx.width.min(280.0), false)]),
             ],
         ),
         section(

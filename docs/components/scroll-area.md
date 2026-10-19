@@ -161,6 +161,11 @@ deadline and fade; reduced motion keeps the hold and hides without fading.
 works on uniform and measured lists, and on low-level scroll elements through
 `Element::scrollbar_visibility`.
 
+`ScrollbarVisibility::AutoHideUnlessHovered { hold_ms, fade_ms }` also shows
+the bar while the pointer is over the scroll surface, as a chat's history
+shows its bar under the pointer, and starts the hold when the pointer
+leaves. The surface's visible box decides, whatever lies over it.
+
 The same policy applies to the thin indicator enabled by `drag_to_pan()` on
 `Element::horizontal_scroll` and `horizontal_scroll_2d`:
 
