@@ -1363,6 +1363,26 @@ pub fn paint(ui: &egui::Ui, frame: &Frame) {
     paint_at(ui, frame, ui.max_rect().min);
 }
 
+/// Tell the platform where an input method belongs: by the caret of the
+/// text that has the focus, in a tree painted at `origin`. Call it once a
+/// frame, after the layout. Without it egui turns input methods off, so
+/// nothing can be composed in limn's fields; a password asks for no
+/// composition or prediction.
+pub fn report_ime(ctx: &egui::Context, tree: &limn::UiTree, origin: Pos2) {
+    let Some(ime) = tree.ime_area() else {
+        return;
+    };
+    let at = |area: limn::Rect| EguiRect::from_min_size(origin + egui::vec2(area.x, area.y), egui::vec2(area.width, area.height));
+    ctx.output_mut(|output| {
+        output.ime = Some(egui::output::IMEOutput {
+            purpose: if ime.secret { egui::IMEPurpose::Password } else { egui::IMEPurpose::Normal },
+            rect: at(ime.area),
+            cursor_rect: at(ime.caret),
+            should_interrupt_composition: false,
+        });
+    });
+}
+
 /// Give the pointer the shape the tree asks for: `set_cursor(ctx, tree.cursor())`
 /// once a frame, after the layout. egui goes back to its own shape every
 /// frame, so `None` needs nothing done.
@@ -3325,6 +3345,30 @@ mod tests {
                 assert_eq!(ime.should_interrupt_composition, step == 0, "{id}, frame {step}");
                 assert_eq!(context.memory(|memory| memory.focused()), Some(access_id(id)), "{id}, frame {step}");
             }
+        }
+    }
+
+    #[test]
+    fn report_ime_puts_the_input_method_by_the_focused_fields_caret() {
+        use limn::{Element, FontFamily, Size, UiTree};
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let size = Size::new(300.0, 120.0);
+        for (password, purpose) in [(false, egui::IMEPurpose::Normal), (true, egui::IMEPurpose::Password)] {
+            let field = Element::text_input("field", "ab", "").password(password).font_family(FontFamily::Sans);
+            let mut tree = UiTree::new(Element::column(vec![field]));
+            attach_fonts(&mut tree, &ctx);
+            tree.layout(size);
+            assert!(tree.focus("field"));
+            tree.layout(size);
+            let caret = tree.ime_area().expect("the focused field's area").caret;
+            let origin = egui::pos2(10.0, 20.0);
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| report_ime(ui.ctx(), &tree, origin));
+            output.textures_delta.clear();
+            let ime = output.platform_output.ime.expect("reported");
+            assert_eq!(ime.purpose, purpose);
+            assert_eq!(ime.cursor_rect.min, origin + egui::vec2(caret.x, caret.y));
         }
     }
 

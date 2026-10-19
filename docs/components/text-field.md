@@ -96,11 +96,35 @@ TextField::new("owner", &state.owner, "", palette).enabled(state.can_edit).rende
 A disabled field shows its value in the muted ink, or its placeholder when
 the value is empty, and is not an input: it reports nothing.
 
+## Input methods
+
+In a tree that lays its text out (`UiTree::set_text_layout`, as
+`limn_egui::attach_fonts` does), what an input method is composing shows at
+the caret, underlined, in place of any selection. It becomes part of the
+value, and reports `InputChanged`, only when the input method commits it;
+a cancelled composition leaves the value and the selection as they were.
+`limn_egui::report_ime` tells the platform where the caret is, once a
+frame, so the candidate window opens beside it.
+
+A password composes nothing: the platform is asked for no composition or
+prediction in it.
+
+## Pointer
+
+A press puts the caret nearest it, and dragging selects from there.
+Shift and a press extend the selection of a field that has the focus. A
+double press selects the word under the pointer, or the run of spaces or
+the mark; a triple press selects the whole value. A password has no words:
+Ctrl and an arrow go to its ends, and a double press selects it whole.
+
 ## Keyboard
 
 | Key | Effect |
 | --- | --- |
 | Enter | Reports `Submitted` with the value |
+| Left, Right | Move the caret a character, an emoji with its modifiers whole; a selection collapses to the edge the arrow points at. With Shift, extend the selection |
+| Ctrl+Left, Ctrl+Right | Move the caret to the start of the word before it or the end of the word after it |
+| Backspace, Delete | Delete the selection, or the character before or after the caret; with Ctrl, the word |
 | Home, End | Move the caret to either end |
 | Ctrl+A | Selects everything |
 

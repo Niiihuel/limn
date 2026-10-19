@@ -92,7 +92,7 @@ fn raw_textarea_visual_rows_pointer_and_selection_use_original_crlf_offsets() {
     tree.layout(Size::new(320.0, 140.0));
     key(&mut tree, Key::Home, false, true);
     key(&mut tree, Key::ArrowRight, false, false);
-    key(&mut tree, Key::ArrowRight, true, false);
+    // CR and LF are one grapheme: one step selects the whole break.
     key(&mut tree, Key::ArrowRight, true, false);
     assert_eq!(
         key(&mut tree, Key::C, false, true),
@@ -146,9 +146,9 @@ fn raw_textarea_element_builder_and_auto_grow_count_crlf_and_cr_as_visual_breaks
     assert_eq!(region.rect.height, 76.0);
     assert_eq!(tree.input_value("raw"), Some(raw));
     assert!(tree.focus("raw"));
-    key(&mut tree, Key::Home, false, true);
-    key(&mut tree, Key::ArrowRight, false, false);
-    key(&mut tree, Key::ArrowRight, false, false);
+    // The arrows step over CR and LF together, as one grapheme; the host
+    // can still put the cursor between them.
+    tree.set_input_cursor("raw", 2);
     // The cursor lies between CR and LF. Painting uses the preceding line's
     // end without indexing past its displayed text; deleting edits the CR.
     tree.layout(Size::new(320.0, 200.0));

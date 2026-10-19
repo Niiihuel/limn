@@ -79,6 +79,7 @@ mod context_menu_tree;
 use context_menu_tree::{ContextMenuRegion, ContextMenuState};
 #[path = "ime_tree.rs"]
 mod ime_tree;
+pub use ime_tree::ImeArea;
 #[path = "captured_paste.rs"]
 mod captured_paste;
 pub use captured_paste::PasteTarget;
@@ -2540,16 +2541,17 @@ pub enum UiEvent {
         text: String,
     },
     /// The text an input method is composing, replacing what it sent before.
-    /// Only a code editor shows it.
+    /// A code editor shows it, and so does a text field or text area in a
+    /// tree that lays its text out, in place of its selection, underlined.
     ImePreedit(String),
     /// An input method committed this text. A code editor ends its composition
     /// with it; other text fields take it as `Text`.
     ImeCommit(String),
-    /// The composition ended without a commit: a code editor drops what was
-    /// being composed.
+    /// The composition ended without a commit: what was being composed is
+    /// dropped.
     ImeCancelled,
-    /// An input method asks the focused code editor to delete text around the
-    /// caret.
+    /// An input method asks the focused code editor or text field to delete
+    /// text around the caret.
     ImeDeleteSurrounding {
         /// Characters to delete before the caret.
         before_chars: usize,
@@ -2843,6 +2845,12 @@ struct InputState {
     /// Laid out by limn: what it painted, and where Up and Down aim.
     laid_out: Option<FieldLayout>,
     desired_x: Option<f32>,
+    /// What an input method is composing at the caret, shown in place of
+    /// the selection until it commits: not yet part of the value.
+    preedit: Option<String>,
+    /// Where it was last painted with the focus, for an input method: its
+    /// visible part and its caret.
+    ime: Option<(Rect, Rect)>,
     /// How far a single line laid out by limn is scrolled to show the caret.
     scroll_x: f32,
     preserve_line_endings: bool,
@@ -2877,6 +2885,8 @@ impl InputState {
             desired_column: None,
             laid_out: None,
             desired_x: None,
+            preedit: None,
+            ime: None,
             scroll_x: 0.0,
             preserve_line_endings: false,
             enter_submits: false,
@@ -2942,6 +2952,36 @@ impl InputState {
         }
         let layout = crate::TextLayout::new(shown.into_owned(), field.style);
         Some((field.width.map_or_else(|| layout.clone(), |width| layout.wrapped(width)), field.origin))
+    }
+
+    /// The value with what an input method composes in place of the
+    /// selection, and the composition's bytes in it, the caret at their end.
+    /// `None` while nothing is composed, and in a password.
+    fn composed(&self) -> Option<(String, std::ops::Range<usize>)> {
+        let preedit = self.preedit.as_deref().filter(|_| !self.password)?;
+        let (start, end) = self.selected_range().unwrap_or((self.cursor, self.cursor));
+        let (start, end) = (byte_index(&self.value, start), byte_index(&self.value, end));
+        let text = [&self.value[..start], preedit, &self.value[end..]].concat();
+        Some((text, start..start + preedit.len()))
+    }
+
+    /// Delete what an input method asks around the caret: `before`
+    /// characters before it and `after` after it.
+    fn delete_around(&mut self, before: usize, after: usize) -> bool {
+        let start = self.cursor.saturating_sub(before);
+        let end = (self.cursor + after).min(self.value.chars().count());
+        if start == end {
+            return false;
+        }
+        let bytes = byte_index(&self.value, start)..byte_index(&self.value, end);
+        self.value.replace_range(bytes, "");
+        self.paste_epoch = Arc::new(());
+        self.cursor = start;
+        self.anchor = None;
+        self.keep_cursor_visible = true;
+        self.desired_column = None;
+        self.desired_x = None;
+        true
     }
 
     /// The line of `layout` the caret is on, and the caret.
@@ -3029,11 +3069,15 @@ impl InputState {
         self.move_cursor(next, shift);
     }
 
-    fn place_cursor_at(&mut self, point: Point) {
+    /// The caret position nearest `point`, in characters.
+    fn character_at_point(&self, point: Point, multiline: bool) -> usize {
         if let Some((layout, origin)) = self.layout() {
-            let index = layout.index_at(Point::new(point.x - origin.x, point.y - origin.y));
-            self.move_cursor(self.character_at(index), false);
-            return;
+            return self.character_at(layout.index_at(Point::new(point.x - origin.x, point.y - origin.y)));
+        }
+        if !multiline {
+            let x = (point.x - self.content_x).max(0.0);
+            let shown = self.value.chars().skip(self.view_start).collect::<String>();
+            return self.view_start + nearest_char(&shown, x, |part| self.width(part));
         }
         let lines = self.visual_lines();
         let row = ((point.y - self.content_y).max(0.0) / self.line_height).floor() as usize;
@@ -3043,8 +3087,67 @@ impl InputState {
             (point.x - self.content_x).max(0.0),
             |value| self.width(value),
         );
-        let next = lines[row].start + column.min(lines[row].end - lines[row].start);
-        self.move_cursor(next, false);
+        lines[row].start + column.min(lines[row].end - lines[row].start)
+    }
+
+    /// Put the caret nearest `point`; with `extend`, keep the selection's
+    /// other end where it was.
+    fn place_cursor_at(&mut self, point: Point, multiline: bool, extend: bool) {
+        let next = self.character_at_point(point, multiline);
+        self.move_cursor(next, extend);
+    }
+
+    /// Where an arrow takes the caret: a grapheme on, or with `by_word` to
+    /// the start of the word before it or the end of the word after it. A
+    /// password has no words to show, so a word step goes to its end.
+    fn step_target(&self, forward: bool, by_word: bool) -> usize {
+        match (by_word, self.password, forward) {
+            (true, true, true) => self.value.chars().count(),
+            (true, true, false) => 0,
+            (true, false, _) => word_step(&self.value, self.cursor, forward),
+            (false, ..) => grapheme_step(&self.value, self.cursor, forward),
+        }
+    }
+
+    /// Left or Right: a selection collapses to the edge the arrow points
+    /// at, unless Shift extends it.
+    fn step(&mut self, forward: bool, by_word: bool, shift: bool) {
+        if let Some((start, end)) = self.selected_range().filter(|_| !shift) {
+            self.move_cursor(if forward { end } else { start }, false);
+            return;
+        }
+        self.move_cursor(self.step_target(forward, by_word), shift);
+    }
+
+    /// Select the word, run of spaces or mark at the caret; a password whole.
+    fn select_word(&mut self) {
+        let (start, end) = if self.password {
+            (0, self.value.chars().count())
+        } else {
+            word_around(&self.value, self.cursor)
+        };
+        self.select(start, end);
+    }
+
+    /// Select the caret's line, up to its break; a single line whole.
+    fn select_line(&mut self, multiline: bool) {
+        let count = self.value.chars().count();
+        let (start, end) = if multiline {
+            let chars: Vec<char> = self.value.chars().collect();
+            let start = chars[..self.cursor.min(count)].iter().rposition(|c| *c == '\n').map_or(0, |at| at + 1);
+            let end = chars[self.cursor.min(count)..].iter().position(|c| matches!(c, '\n' | '\r')).map_or(count, |at| self.cursor + at);
+            (start, end)
+        } else {
+            (0, count)
+        };
+        self.select(start, end);
+    }
+
+    fn select(&mut self, start: usize, end: usize) {
+        self.set_selection(end, Some(start));
+        self.desired_column = None;
+        self.desired_x = None;
+        self.keep_cursor_visible = true;
     }
 
     fn scroll_lines(&mut self, delta_y: f32) {
@@ -3102,40 +3205,83 @@ impl InputState {
         true
     }
 
-    fn backspace(&mut self) -> bool {
+    /// Delete the selection, or the grapheme (with `by_word`, the word) the
+    /// caret is before or after.
+    fn delete_step(&mut self, forward: bool, by_word: bool) -> bool {
         if self.delete_selection() {
             return true;
         }
-        if self.cursor == 0 {
+        let to = self.step_target(forward, by_word);
+        if to == self.cursor {
             return false;
         }
-        let end = byte_index(&self.value, self.cursor);
-        let start = byte_index(&self.value, self.cursor - 1);
-        self.value.replace_range(start..end, "");
+        let (start, end) = (self.cursor.min(to), self.cursor.max(to));
+        self.value.replace_range(byte_index(&self.value, start)..byte_index(&self.value, end), "");
         self.paste_epoch = Arc::new(());
-        self.cursor -= 1;
+        self.cursor = start;
+        self.anchor = None;
         self.keep_cursor_visible = true;
         self.desired_column = None;
         self.desired_x = None;
         true
     }
+}
 
-    fn delete_forward(&mut self) -> bool {
-        if self.delete_selection() {
-            return true;
-        }
-        if self.cursor >= self.value.chars().count() {
-            return false;
-        }
-        let start = byte_index(&self.value, self.cursor);
-        let end = byte_index(&self.value, self.cursor + 1);
-        self.value.replace_range(start..end, "");
-        self.paste_epoch = Arc::new(());
-        self.keep_cursor_visible = true;
-        self.desired_column = None;
-        self.desired_x = None;
-        true
+/// The line under what an input method composes in a field, a pixel high
+/// at the bottom of each of its lines.
+fn composition_underline(
+    layout: &crate::TextLayout,
+    range: std::ops::Range<usize>,
+    origin: Point,
+    ink: Color,
+) -> impl Iterator<Item = DrawCommand> {
+    layout.selection(range).into_iter().map(move |bounds| DrawCommand::FillRect {
+        rect: Rect::new(origin.x + bounds.x, origin.y + bounds.y + bounds.height - 1.0, bounds.width, 1.0),
+        color: ink,
+        radius: 0.0,
+    })
+}
+
+/// The grapheme boundary before (`forward` false) or after the character
+/// offset `at`, in characters: an emoji with its modifiers is one step.
+fn grapheme_step(value: &str, at: usize, forward: bool) -> usize {
+    let byte = byte_index(value, at);
+    let next = if forward {
+        value[byte..].grapheme_indices(true).nth(1).map_or(value.len(), |(index, _)| byte + index)
+    } else {
+        value[..byte].grapheme_indices(true).next_back().map_or(0, |(index, _)| index)
+    };
+    value[..next].chars().count()
+}
+
+/// Where Ctrl and an arrow take the caret from `at`: to the start of the
+/// word before it, or to the end of the word after it, in characters.
+fn word_step(value: &str, at: usize, forward: bool) -> usize {
+    let byte = byte_index(value, at);
+    let next = if forward {
+        value.unicode_word_indices().map(|(index, word)| index + word.len()).find(|end| *end > byte).unwrap_or(value.len())
+    } else {
+        value.unicode_word_indices().map(|(index, _)| index).take_while(|start| *start < byte).last().unwrap_or(0)
+    };
+    value[..next].chars().count()
+}
+
+/// What a double click at the caret offset `at` selects, in characters: the
+/// word, run of spaces or mark there, or the word just before it when the
+/// caret stands at that word's end.
+fn word_around(value: &str, at: usize) -> (usize, usize) {
+    let byte = byte_index(value, at);
+    let segments: Vec<(usize, &str)> = value.split_word_bound_indices().collect();
+    let containing = |byte: usize| segments.iter().position(|(index, segment)| *index <= byte && byte < index + segment.len());
+    let is_word = |segment: &str| segment.chars().next().is_some_and(char::is_alphanumeric);
+    let Some(mut found) = containing(byte).or(segments.len().checked_sub(1)) else {
+        return (0, 0);
+    };
+    if !is_word(segments[found].1) && found > 0 && segments[found].0 == byte && is_word(segments[found - 1].1) {
+        found -= 1;
     }
+    let (index, segment) = segments[found];
+    (value[..index].chars().count(), value[..index + segment.len()].chars().count())
 }
 
 /// The fill under selected text in a field.
@@ -3425,6 +3571,9 @@ pub struct UiTree {
     context_menu_palette: crate::ComponentPalette,
     context_menu_swallow_release: bool,
     ime_owner: Option<ime_tree::ImeOwner>,
+    /// The field a held press extends the selection of, and whether it is
+    /// a text area.
+    field_drag: Option<(String, bool)>,
     ime_window_focused: bool,
 }
 
@@ -3507,6 +3656,7 @@ impl UiTree {
             context_menu_palette: crate::ComponentPalette::neutral_dark(),
             context_menu_swallow_release: false,
             ime_owner: None,
+            field_drag: None,
             ime_window_focused: true,
         }
     }
@@ -3675,6 +3825,28 @@ impl UiTree {
         state.keep_cursor_visible = true;
         state.desired_column = None;
         state.desired_x = None;
+    }
+
+    /// Show what an input method composes in the focused field, or end it.
+    fn compose_in_field(&mut self, text: Option<String>) {
+        if let Some(input) = self.focused.as_ref().and_then(|id| self.inputs.get_mut(id)) {
+            input.preedit = text.filter(|text| !text.is_empty());
+            input.keep_cursor_visible = true;
+        }
+    }
+
+    /// Delete what an input method asks around the focused field's caret.
+    fn delete_around_caret(&mut self, before: usize, after: usize) -> Vec<UiAction> {
+        let Some(id) = self.focused.clone() else {
+            return Vec::new();
+        };
+        let Some(input) = self.inputs.get_mut(&id) else {
+            return Vec::new();
+        };
+        if !input.delete_around(before, after) {
+            return Vec::new();
+        }
+        vec![UiAction::InputChanged { value: input.value.clone(), id }]
     }
 
     /// Where an input method belongs for the focused code editor: the visible
@@ -5757,11 +5929,29 @@ impl UiTree {
         if self.handle_horizontal_scroll(&event) {
             return Vec::new();
         }
+        // A field reads Shift and the click count of a press that ordinary
+        // controls take as a plain click.
+        let (extend, clicks) = match &event {
+            UiEvent::PointerDownModified { shift, .. } => (*shift, 1),
+            UiEvent::PointerDownEditor { shift, click_count, .. } => (*shift, *click_count),
+            _ => (false, 1),
+        };
         let event = match event {
-            UiEvent::ImeCommit(text) => UiEvent::Text(text),
-            UiEvent::ImePreedit(_)
-            | UiEvent::ImeCancelled
-            | UiEvent::ImeDeleteSurrounding { .. } => return Vec::new(),
+            UiEvent::ImeCommit(text) => {
+                self.compose_in_field(None);
+                UiEvent::Text(text)
+            }
+            UiEvent::ImePreedit(text) => {
+                self.compose_in_field(Some(text));
+                return Vec::new();
+            }
+            UiEvent::ImeCancelled => {
+                self.compose_in_field(None);
+                return Vec::new();
+            }
+            UiEvent::ImeDeleteSurrounding { before_chars, after_chars } => {
+                return self.delete_around_caret(before_chars, after_chars);
+            }
             UiEvent::PointerDownModified { position, .. }
             | UiEvent::PointerDownEditor { position, .. } => UiEvent::PointerDown(position),
             UiEvent::Scroll2D {
@@ -5875,8 +6065,14 @@ impl UiTree {
                         }
                     }
                 }
+                if let Some((id, multiline)) = &self.field_drag {
+                    if let Some(input) = self.inputs.get_mut(id) {
+                        input.place_cursor_at(point, *multiline, true);
+                    }
+                }
             }
             UiEvent::PointerLeave => {
+                self.field_drag = None;
                 for editor in self.code_editors.values_mut() {
                     editor.viewport.cancel_pointer();
                 }
@@ -5915,6 +6111,8 @@ impl UiTree {
                 }
             }
             UiEvent::PointerDown(point) => {
+                let focused_before = self.focused.clone();
+                self.field_drag = None;
                 self.scroll_button_hold = None;
                 self.scroll_drag = None;
                 self.horizontal_pan = None;
@@ -6074,23 +6272,21 @@ impl UiTree {
                 if let Some(region) = hit
                     .filter(|region| matches!(region.kind, HitKind::TextInput | HitKind::TextArea))
                 {
+                    let multiline = region.kind == HitKind::TextArea;
                     if let Some(input) = self.inputs.get_mut(&region.id) {
-                        if region.kind == HitKind::TextArea || input.laid_out.is_some() {
-                            input.place_cursor_at(point);
-                        } else {
-                            let x = (point.x - input.content_x).max(0.0);
-                            let shown = input
-                                .value
-                                .chars()
-                                .skip(input.view_start)
-                                .collect::<String>();
-                            let character = nearest_char(&shown, x, |part| input.width(part));
-                            input.move_cursor(input.view_start + character, false);
+                        // Shift extends the selection of a field that already had the focus.
+                        let extend = extend && focused_before.as_deref() == Some(region.id.as_str());
+                        input.place_cursor_at(point, multiline, extend);
+                        match clicks {
+                            2 => input.select_word(),
+                            3.. => input.select_line(multiline),
+                            _ => self.field_drag = Some((region.id.clone(), multiline)),
                         }
                     }
                 }
             }
             UiEvent::PointerUp(point) => {
+                self.field_drag = None;
                 self.pointer = Some(point);
                 self.set_hovered(self.frame.hit_test(point).map(str::to_owned), now);
                 self.tooltip_hover_since = self.hovered.as_ref().map(|id| (id.clone(), now));
@@ -6307,11 +6503,11 @@ impl UiTree {
                         let changed = match key {
                             Key::Escape | Key::Tab | Key::Space => false,
                             Key::ArrowLeft => {
-                                input.move_cursor(input.cursor.saturating_sub(1), shift);
+                                input.step(false, ctrl, shift);
                                 false
                             }
                             Key::ArrowRight => {
-                                input.move_cursor(input.cursor.saturating_add(1), shift);
+                                input.step(true, ctrl, shift);
                                 false
                             }
                             Key::ArrowUp => {
@@ -6342,8 +6538,8 @@ impl UiTree {
                                 }
                                 false
                             }
-                            Key::Backspace => input.backspace(),
-                            Key::Delete => input.delete_forward(),
+                            Key::Backspace => input.delete_step(false, ctrl),
+                            Key::Delete => input.delete_step(true, ctrl),
                             Key::A if ctrl => {
                                 input.set_selection(input.value.chars().count(), Some(0));
                                 input.keep_cursor_visible = true;
@@ -8512,8 +8708,9 @@ impl LayoutBuilder<'_> {
         let Some(state) = self.inputs.get(id) else {
             return;
         };
-        let is_placeholder = state.value.is_empty() && (!focused || persistent_placeholder);
-        let shown = state.shown().into_owned();
+        let composed = state.composed().filter(|_| focused);
+        let is_placeholder = state.value.is_empty() && composed.is_none() && (!focused || persistent_placeholder);
+        let shown = composed.as_ref().map_or_else(|| state.shown().into_owned(), |(text, _)| text.clone());
         let layout = self.layout_cache.borrow_mut().get(&shown, text_style, f32::INFINITY, false);
         let painted = if is_placeholder {
             self.layout_cache.borrow_mut().get(placeholder, text_style, f32::INFINITY, false)
@@ -8521,7 +8718,7 @@ impl LayoutBuilder<'_> {
             layout.clone()
         };
         let state = self.inputs.get_mut(id).expect("looked up above");
-        let caret = layout.caret(byte_index(&shown, state.cursor));
+        let caret = layout.caret(composed.as_ref().map_or_else(|| byte_index(&shown, state.cursor), |(_, range)| range.end));
         let width = painted.size().width;
         let room = (content.width - 2.0).max(0.0);
         let (text_x, scroll) = if width <= room {
@@ -8537,20 +8734,25 @@ impl LayoutBuilder<'_> {
         state.laid_out = Some(FieldLayout { style: text_style, width: None, layout: layout.clone(), origin });
         let selection = state
             .selected_range()
-            .filter(|_| !is_placeholder)
+            .filter(|_| !is_placeholder && composed.is_none())
             .map(|(start, end)| layout.selection(byte_index(&shown, start)..byte_index(&shown, end)));
         let location = crate::caret_blink::CaretLocation { document: 0, revision: state.value.len() as u64, offset: state.cursor };
-        let Some(input_clip) = clip.and_then(|outer| outer.intersection(content)).or_else(|| clip.is_none().then_some(content)) else {
+        let at = |area: Rect| Rect::new(origin.x + area.x, origin.y + area.y, area.width, area.height);
+        let caret = Rect { width: 1.5, ..at(caret) };
+        let input_clip = clip.and_then(|outer| outer.intersection(content)).or_else(|| clip.is_none().then_some(content));
+        state.ime = input_clip.filter(|_| focused).map(|area| (area, caret));
+        let Some(input_clip) = input_clip else {
             return;
         };
-        let at = |area: Rect| Rect::new(origin.x + area.x, origin.y + area.y, area.width, area.height);
         self.frame.commands.push(DrawCommand::PushClip(input_clip));
         for bounds in selection.iter().flatten() {
             self.frame.commands.push(DrawCommand::FillRect { rect: at(*bounds), color: INPUT_SELECTION, radius: 0.0 });
         }
         let ink = if is_placeholder { Color { a: 110, ..style.foreground } } else { style.foreground };
         self.frame.commands.extend(painted.draw(origin, ink));
-        let caret = Rect { width: 1.5, ..at(caret) };
+        if let Some((_, range)) = composed {
+            self.frame.commands.extend(composition_underline(&layout, range, origin, ink));
+        }
         if focused
             && selection.is_none()
             && caret.intersection(input_clip).is_some()
@@ -8581,15 +8783,17 @@ impl LayoutBuilder<'_> {
         let Some(state) = self.inputs.get(id) else {
             return;
         };
+        let composed = state.composed().filter(|_| focused);
         let is_placeholder = state.value.is_empty() && !focused;
-        // Highlights follow the host's text; a stale edit is laid out plain
-        // until the host catches up.
-        let marked = !highlights.is_empty() && state.value == initial_value;
+        // Highlights follow the host's text; a stale edit, or one being
+        // composed, is laid out plain until the host catches up.
+        let marked = !highlights.is_empty() && state.value == initial_value && composed.is_none();
         let layout = if marked {
             let spans = highlighted_spans(&state.value, highlights, style);
             self.layout_cache.borrow_mut().formatted(&spans, text_style, content.width, None)
         } else {
-            self.layout_cache.borrow_mut().get(&state.value, text_style, content.width, false)
+            let shown = composed.as_ref().map_or(state.value.as_str(), |(text, _)| text.as_str());
+            self.layout_cache.borrow_mut().get(shown, text_style, content.width, false)
         };
         let painted = if is_placeholder {
             self.layout_cache.borrow_mut().get(placeholder, text_style, content.width, false)
@@ -8598,7 +8802,14 @@ impl LayoutBuilder<'_> {
         };
         let state = self.inputs.get_mut(id).expect("looked up above");
         let lines: Vec<crate::TextLine> = layout.lines().collect();
-        let (cursor_row, caret) = state.caret_line(&layout);
+        let (cursor_row, caret) = match &composed {
+            // The caret stands at the end of what is composed.
+            Some((_, range)) => {
+                let caret = layout.caret(range.end);
+                (lines.iter().take_while(|line| line.rect.y <= caret.y + caret.height / 2.0).count().saturating_sub(1), caret)
+            }
+            None => state.caret_line(&layout),
+        };
         let max_scroll = lines.len().saturating_sub(state.visible_lines);
         state.scroll_line = state.scroll_line.min(max_scroll);
         if state.keep_cursor_visible {
@@ -8612,7 +8823,7 @@ impl LayoutBuilder<'_> {
         let top = if is_placeholder { 0.0 } else { lines.get(state.scroll_line).map_or(0.0, |line| line.rect.y) };
         let origin = Point::new(content.x, content.y - top);
         state.laid_out = Some(FieldLayout { style: text_style, width: Some(content.width), layout: layout.clone(), origin });
-        let selection = state.selected_range().filter(|_| !is_placeholder).map(|(start, end)| {
+        let selection = state.selected_range().filter(|_| !is_placeholder && composed.is_none()).map(|(start, end)| {
             layout.selection(byte_index(&state.value, start)..byte_index(&state.value, end))
         });
         let fills: Vec<(Rect, Color)> = highlights
@@ -8636,7 +8847,9 @@ impl LayoutBuilder<'_> {
         let scrolled = state.scrolled_at.is_some_and(|at| self.now.saturating_duration_since(at) < TEXT_AREA_BAR_HOLD);
         let (scroll_line, visible_lines) = (state.scroll_line, state.visible_lines);
         let at = |area: Rect| Rect::new(origin.x + area.x, origin.y + area.y, area.width, area.height);
-        if let Some(input_clip) = clip.and_then(|outer| outer.intersection(content)).or_else(|| clip.is_none().then_some(content)) {
+        let input_clip = clip.and_then(|outer| outer.intersection(content)).or_else(|| clip.is_none().then_some(content));
+        state.ime = input_clip.filter(|_| focused).map(|area| (area, Rect { width: 1.5, ..at(caret) }));
+        if let Some(input_clip) = input_clip {
             self.frame.commands.push(DrawCommand::PushClip(input_clip));
             // Highlight fills go under the selection.
             for (bounds, color) in fills {
@@ -8652,6 +8865,9 @@ impl LayoutBuilder<'_> {
                 DrawCommand::Glyphs(run) => run.glyphs.first().is_none_or(|glyph| (above..=below + run.size).contains(&(run.origin.y + glyph.y))),
                 _ => true,
             }));
+            if let Some((_, range)) = composed {
+                self.frame.commands.extend(composition_underline(&layout, range, origin, ink));
+            }
             let caret = Rect { width: 1.5, ..at(caret) };
             if caret_shown
                 && caret.intersection(input_clip).is_some()
@@ -12225,6 +12441,7 @@ impl LayoutBuilder<'_> {
                     self.paint_laid_out_input(id, content, style, clip, placeholder, *persistent_placeholder);
                 } else {
                     state.laid_out = None;
+                    state.ime = None;
                     let center_text = style.center_content && state.width(&state.value) <= content.width - 2.0;
                     if center_text {
                         state.view_start = 0;
@@ -12498,6 +12715,7 @@ impl LayoutBuilder<'_> {
                     self.paint_laid_out_area(id, rect, content, style, clip, placeholder, initial_value, highlights);
                 } else {
                     state.laid_out = None;
+                    state.ime = None;
                     let lines = state.visual_lines();
                     let (cursor_row, cursor_column) = visual_cursor(&lines, state.cursor);
                     let max_scroll = lines.len().saturating_sub(state.visible_lines);
