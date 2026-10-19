@@ -126,9 +126,8 @@ impl UiTree {
     ) -> Option<(Element, Rect, Option<String>, Option<String>)> {
         let menu = self.context_menu.as_ref()?;
         let width = context_menu::WIDTH.min((viewport.width - 16.0).max(0.0));
-        let max_height = context_menu::MAX_HEIGHT
-            .min(viewport.height * 0.75)
-            .min((viewport.height - 16.0).max(0.0));
+        // As a native menu, it takes the window's height before it scrolls.
+        let max_height = (viewport.height - 16.0).max(0.0);
         let measure = |text: &str, size: f32| {
             measured_width(
                 self.text_measurer.as_deref(),

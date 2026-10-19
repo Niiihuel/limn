@@ -1146,6 +1146,16 @@ mod tests {
     }
 
     #[test]
+    fn a_list_item_wrapped_by_hand_stays_one_item_until_a_blank_line() {
+        let (blocks, _) = parse("- On the desktop, cards with a play button\n  that rises.\n- Another\nlazy too\n\nAfter.");
+        assert_eq!(blocks, [
+            Block::ListItem(0, ListMarker::Bullet, "On the desktop, cards with a play button that rises.".into()),
+            Block::ListItem(0, ListMarker::Bullet, "Another lazy too".into()),
+            Block::Paragraph("After.".into()),
+        ]);
+    }
+
+    #[test]
     fn inline_emphasis_code_and_https_links_are_readable() {
         let runs =
             parse_inline("**Listo**: *revisa* `src/main.rs` y [docs](https://example.com/a).");

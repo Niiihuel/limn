@@ -263,6 +263,9 @@ pub(crate) fn parse_bounded_mode(
     let mut code = Vec::new();
     let mut language = String::new();
     let mut fence: Option<CodeFence> = None;
+    // A line of text right under a list item goes on with it, as CommonMark's lazy
+    // continuation: a long item wrapped by hand stays one item.
+    let mut in_item = false;
     let mut lines = source.lines().peekable();
     while let Some(line) = lines.next() {
         if blocks.len() >= max_blocks {
@@ -311,6 +314,7 @@ pub(crate) fn parse_bounded_mode(
         {
             continue;
         }
+        let continues = std::mem::take(&mut in_item);
         if trimmed.trim().is_empty() {
             flush_paragraph(&mut blocks, &mut paragraph);
         } else if let Some((level, text)) = heading(trimmed) {
@@ -319,6 +323,7 @@ pub(crate) fn parse_bounded_mode(
         } else if let Some((depth, marker, text)) = list_item(trimmed) {
             flush_paragraph(&mut blocks, &mut paragraph);
             blocks.push(Block::ListItem(depth, marker, text.to_owned()));
+            in_item = true;
         } else if let Some(text) = trimmed.trim_start().strip_prefix("-# ") {
             flush_paragraph(&mut blocks, &mut paragraph);
             blocks.push(Block::Subtext(text.to_owned()));
@@ -328,6 +333,10 @@ pub(crate) fn parse_bounded_mode(
         } else if matches!(trimmed.trim(), "---" | "***" | "___") {
             flush_paragraph(&mut blocks, &mut paragraph);
             blocks.push(Block::Rule);
+        } else if let (true, Some(Block::ListItem(_, _, item))) = (continues, blocks.last_mut()) {
+            item.push(' ');
+            item.push_str(trimmed.trim());
+            in_item = true;
         } else {
             let hard_break = line.ends_with("  ") || line.ends_with('\\');
             let mut value = trimmed.trim().to_owned();

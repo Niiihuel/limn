@@ -112,7 +112,7 @@ impl Component for ContextMenu {
     }
 }
 
-pub(crate) use action_style::{INSET, LABEL_FONT_SIZE, MAX_HEIGHT, ROW_HEIGHT, WIDTH};
+pub(crate) use action_style::{INSET, LABEL_FONT_SIZE, ROW_HEIGHT, WIDTH};
 pub(crate) const SCROLL_ID: &str = "__context_menu:scroll";
 
 struct RowLayout {
