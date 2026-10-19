@@ -22,6 +22,9 @@ mod sticky_tests;
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
 #[cfg(test)]
+#[path = "text_gradient_tests.rs"]
+mod text_gradient_tests;
+#[cfg(test)]
 #[path = "scrollbar_visibility_tests.rs"]
 mod scrollbar_visibility_tests;
 #[cfg(test)]
@@ -8391,6 +8394,53 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// `text` in `rect`, inked with `stops` from its left edge to its right:
+    /// bands clipped side by side, each in the color at its middle, as the
+    /// shimmer paints its sweep.
+    fn paint_gradient_line(
+        &mut self,
+        text: &str,
+        rect: Rect,
+        style: Style,
+        stops: &[Color],
+        clip: Option<Rect>,
+    ) {
+        const BANDS: usize = 24;
+        let last = (stops.len() - 1) as f32;
+        let opacity = f32::from(style.foreground.a) / 255.0;
+        for band in 0..BANDS {
+            let left = rect.x + rect.width * band as f32 / BANDS as f32;
+            let right = rect.x + rect.width * (band + 1) as f32 / BANDS as f32;
+            let area = Rect::new(left, rect.y, right - left, rect.height);
+            let visible = clip.map_or(Some(area), |outer| area.intersection(outer));
+            let Some(area) = visible.filter(|area| area.width > 0.0 && area.height > 0.0) else {
+                continue;
+            };
+            let at = (band as f32 + 0.5) / BANDS as f32 * last;
+            let from = stops[at.floor() as usize];
+            let to = stops[(at.ceil() as usize).min(stops.len() - 1)];
+            let mix = at.fract();
+            let blend = |a: u8, b: u8| {
+                (f32::from(a) + (f32::from(b) - f32::from(a)) * mix).round() as u8
+            };
+            let color = Color::rgba(
+                blend(from.r, to.r),
+                blend(from.g, to.g),
+                blend(from.b, to.b),
+                (f32::from(blend(from.a, to.a)) * opacity).round() as u8,
+            );
+            self.frame.commands.push(DrawCommand::PushClip(area));
+            self.frame.commands.push(DrawCommand::Text {
+                position: Point::new(rect.x, rect.y),
+                text: text.to_owned(),
+                color,
+                font_size: style.font_size,
+                font_family: style.font_family,
+            });
+            self.frame.commands.push(DrawCommand::PopClip);
+        }
+    }
+
     fn formatted_lines(
         &self,
         spans: &[TextSpan],
@@ -10730,6 +10780,10 @@ impl LayoutBuilder<'_> {
                     }
                     _ => None,
                 };
+                let ink = element
+                    .kept
+                    .as_ref()
+                    .and_then(|kept| kept.ink_gradient.clone());
                 if let Some((id, highlight)) = shimmer {
                     self.observed_shimmers.insert(id.clone());
                     let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
@@ -10743,6 +10797,15 @@ impl LayoutBuilder<'_> {
                             self.now.saturating_duration_since(started).as_secs_f32(),
                             width,
                         ),
+                        clip,
+                    );
+                } else if let Some(stops) = ink.filter(|_| !shown.is_empty()) {
+                    let width = self.text_width(&shown, style);
+                    self.paint_gradient_line(
+                        &shown,
+                        Rect::new(x, y, width, metrics.line_height),
+                        style,
+                        &stops,
                         clip,
                     );
                 } else {
@@ -10862,6 +10925,21 @@ impl LayoutBuilder<'_> {
                             Rect::new(x, y, line_width.max(0.0), metrics.line_height),
                             style,
                             (highlight, elapsed, sweep_width),
+                            clip,
+                        );
+                    } else if let Some(stops) = element
+                        .kept
+                        .as_ref()
+                        .and_then(|kept| kept.ink_gradient.clone())
+                        .filter(|_| !line.is_empty())
+                    {
+                        // As the sweep: the same run, painted in bands.
+                        self.frame.commands.pop();
+                        self.paint_gradient_line(
+                            line,
+                            Rect::new(x, y, line_width.max(0.0), metrics.line_height),
+                            style,
+                            &stops,
                             clip,
                         );
                     }

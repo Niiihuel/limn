@@ -213,6 +213,12 @@ its bottom, blending from each to the next, behind its children and over its
 background, its corners rounded by its `radius`: the bar of hues of a
 `ColorPicker`, or a fade of the host's own. One stop is a plain fill.
 
+`.foreground_gradient(stops)` inks a text, plain or truncated, the same way:
+from the left of each painted line to its right, a name in the colors of a
+role. It paints the line in narrow clipped bands, so it changes neither its
+size nor where it wraps or is cut; the foreground's alpha scales the stops,
+and one stop is plain ink.
+
 ### Sticky children
 
 A child of a column inside a scroll area can stay in view while the rows

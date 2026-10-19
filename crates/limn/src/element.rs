@@ -769,6 +769,9 @@ pub(crate) struct Kept {
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
+    /// Set by [`Element::foreground_gradient`]: colors a text's ink runs
+    /// through from the left of each line to its right.
+    pub(crate) ink_gradient: Option<Arc<[Color]>>,
     pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
     pub(crate) translation: Option<Point>,
     pub(crate) pointer_blocker: Option<String>,
@@ -3402,6 +3405,18 @@ impl Element {
     /// Color of the element's text and icons. The default is white.
     pub fn foreground(mut self, color: Color) -> Self {
         self.style.foreground = color;
+        self
+    }
+
+    /// Ink a text with `stops` spread evenly from the left of each painted
+    /// line to its right, blending from each to the next: a name in the
+    /// colors of a role. For [`Element::text`] and
+    /// [`Element::truncated_text`]; the alpha of the foreground scales each
+    /// stop's. Fewer than two stops paint the plain foreground. Measuring,
+    /// wrapping, truncation and selection are those of the plain text.
+    pub fn foreground_gradient(mut self, stops: impl Into<Arc<[Color]>>) -> Self {
+        let stops = stops.into();
+        self.kept.get_or_insert_default().ink_gradient = (stops.len() > 1).then_some(stops);
         self
     }
 
