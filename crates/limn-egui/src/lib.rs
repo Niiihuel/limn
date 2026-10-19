@@ -216,9 +216,11 @@ thread_local! {
         const { std::cell::Cell::new(IMAGE_THUMBNAIL_SIDE) };
 }
 
-/// How many decoded images stay on the GPU at once. The default suits a
-/// conversation with a few attachments; a host showing a grid of thumbnails
-/// raises it so scrolling does not decode the same images again and again.
+/// How many decoded images stay on the GPU at once, besides those drawn in
+/// the current or the previous paint pass, which always stay. The default
+/// suits a conversation with a few attachments; a host showing a grid of
+/// thumbnails raises it so scrolling does not decode the same images again
+/// and again.
 pub fn set_image_cache_entries(entries: usize) {
     IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 1024)));
 }
@@ -275,7 +277,11 @@ enum RasterTexture {
 struct RasterCache {
     context: Option<egui::Context>,
     entries: HashMap<RasterKey, RasterCacheEntry>,
-    order: VecDeque<RasterKey>,
+    /// The paint pass each entry was last drawn in. The limit evicts the
+    /// least recently drawn first and never one drawn in this pass or the
+    /// one before: a screen with more pictures than the limit would evict
+    /// what it is drawing, decode it again and flicker without end.
+    used: HashMap<RasterKey, u64>,
     generation: std::sync::Arc<()>,
     #[cfg(not(target_arch = "wasm32"))]
     workers: Option<image_workers::ImageWorkers>,
@@ -285,7 +291,7 @@ impl RasterCache {
     fn clear(&mut self) {
         self.generation = std::sync::Arc::new(());
         self.entries.clear();
-        self.order.clear();
+        self.used.clear();
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(workers) = &self.workers {
             workers.clear();
@@ -383,6 +389,11 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
             cache.context = Some(ui.ctx().clone());
         }
         let key = raster_cache_key(image, side);
+        // One count for every viewport: each viewport has its own.
+        let pass = ui.ctx().cumulative_pass_nr_for(egui::ViewportId::ROOT);
+        if let Some(used) = cache.used.get_mut(&key) {
+            *used = pass;
+        }
         // Another size of the same picture, shown while this one decodes.
         let other_size = |cache: &RasterCache| {
             cache.entries.iter().find_map(|(other, entry)| match entry {
@@ -446,18 +457,26 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
         cache
             .entries
             .insert(key.clone(), RasterCacheEntry::Decoding(decoded));
-        cache.order.push_back(key.clone());
+        cache.used.insert(key.clone(), pass);
         let full = image.is_full_resolution();
         let limit = if full {
             FULL_IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         } else {
             IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         };
-        while cache.order.iter().filter(|key| key.2 == full).count() > limit {
-            if let Some(index) = cache.order.iter().position(|key| key.2 == full) {
-                let oldest = cache.order.remove(index).expect("cache entry index");
-                cache.entries.remove(&oldest);
-            }
+        while cache.used.keys().filter(|key| key.2 == full).count() > limit {
+            // What is on screen stays past the limit until it leaves.
+            let Some(oldest) = cache
+                .used
+                .iter()
+                .filter(|(key, used)| key.2 == full && **used + 1 < pass)
+                .min_by_key(|(_, used)| **used)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            cache.used.remove(&oldest);
+            cache.entries.remove(&oldest);
         }
         other_size(&cache).unwrap_or(RasterTexture::Decoding)
     })
@@ -3179,10 +3198,51 @@ mod tests {
         RASTER_CACHE.with(|cache| {
             let cache = cache.borrow();
             assert!(cache.entries.is_empty());
-            assert!(cache.order.is_empty());
+            assert!(cache.used.is_empty());
         });
         assert_eq!(paint(&image), RasterTexture::Decoding, "cleared textures are not reused");
         assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+    }
+
+    #[test]
+    fn more_pictures_on_screen_than_the_limit_settle_and_leave_once_off_screen() {
+        set_image_cache_entries(2);
+        let ctx = egui::Context::default();
+        let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(40.0, 40.0));
+        let paint = |images: &[RasterImage]| {
+            let mut textures = Vec::new();
+            ctx.run_ui(Default::default(), |ui| {
+                textures = images.iter().map(|image| raster_texture(ui, image, area)).collect();
+            })
+            .textures_delta
+            .clear();
+            textures
+        };
+        let ready = |textures: &[RasterTexture]| textures.iter().all(|texture| matches!(texture, RasterTexture::Ready(..)));
+        // Five pictures drawn on every pass, against a limit of two.
+        let screen: Vec<_> = (1..=5).map(|width| raster(test_png(width, 1), RasterImageFormat::Png)).collect();
+        let mut settled = false;
+        for _ in 0..400 {
+            if ready(&paint(&screen)) {
+                settled = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(settled, "the pictures on screen evict each other and decode again");
+        for _ in 0..3 {
+            assert!(ready(&paint(&screen)), "a settled screen decodes nothing again");
+        }
+        // Off screen, they go as the next pictures come, down to the limit.
+        let others: Vec<_> = (6..=7).map(|width| raster(test_png(width, 1), RasterImageFormat::Png)).collect();
+        paint(&others[..1]);
+        paint(&others);
+        RASTER_CACHE.with(|cache| {
+            let cache = cache.borrow();
+            assert_eq!(cache.entries.len(), 2);
+            assert_eq!(cache.used.len(), 2);
+        });
+        set_image_cache_entries(IMAGE_TEXTURE_CACHE_ENTRIES);
     }
 
     #[test]
