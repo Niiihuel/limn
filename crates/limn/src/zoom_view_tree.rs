@@ -59,10 +59,13 @@ impl LayoutBuilder<'_> {
         let upscale = if view.content.is_some() { view.upscale } else { 1.0 };
         let size = Size::new(room.width, room.height);
         let (now, reduced) = (self.now, self.reduced_motion);
-        // The control it was opened from is laid out beneath it by now.
+        // The control it was opened from is laid out beneath it by now. Only
+        // a view that opens grows out of it: one that takes another's place,
+        // as the next picture of a gallery does, finds that one still kept.
         let opener = view
             .opened_from
             .as_ref()
+            .filter(|_| self.zoom_views.is_empty())
             .and_then(|id| self.frame.regions.iter().find(|region| &region.id == id))
             .map(|region| region.rect);
         let state = match self.zoom_views.entry(view.id.clone()) {

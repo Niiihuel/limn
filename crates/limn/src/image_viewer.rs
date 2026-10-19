@@ -776,6 +776,37 @@ mod tests {
     }
 
     #[test]
+    fn the_picture_grows_out_of_its_thumbnail_only_when_the_viewer_opens() {
+        let base = Element::column(vec![
+            Element::clickable("thumb", Element::spacer()).size(Some(40.0), Some(30.0)),
+            Element::spacer().flex(1.0),
+        ]);
+        let viewer = |index: usize| {
+            ImageViewer::new(base.clone(), true, "picture.png", "close", ComponentPalette::neutral_dark())
+                .viewport(WINDOW)
+                .image(still())
+                .picture_size(Size::new(2400.0, 1600.0))
+                .gallery(index, 2)
+                .return_focus("thumb")
+                .render()
+        };
+        let start = web_time::Instant::now();
+        let mut tree = UiTree::new(viewer(0));
+        let opening = picture(&tree.layout_at(WINDOW, start));
+        assert!(opening.width < 40.5 && opening.x < 40.0 && opening.y < 30.0, "at its thumbnail: {opening:?}");
+        let later = start + web_time::Duration::from_secs(1);
+        let settled = picture(&tree.layout_at(WINDOW, later));
+        assert!(settled.width > 400.0);
+        // The next picture of the gallery is at its fit at once.
+        tree.set_root(viewer(1));
+        assert_eq!(picture(&tree.layout_at(WINDOW, later)), settled);
+        // Under reduced motion it opens fitted.
+        let mut still_tree = UiTree::new(viewer(0));
+        still_tree.set_reduced_motion(true);
+        assert_eq!(picture(&still_tree.layout_at(WINDOW, start)), settled);
+    }
+
+    #[test]
     fn the_arrow_keys_do_what_the_hints_say_and_stop_at_the_ends() {
         let gallery = |index: usize| {
             ImageViewer::new(Element::spacer(), true, "picture.png", "close", ComponentPalette::neutral_dark())
