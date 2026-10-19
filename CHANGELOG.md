@@ -5,6 +5,13 @@ in any release.
 
 ## Unreleased
 
+- `SideRail` and `SideRailItem`: a sidebar's library folded into a 72 px column of 48 px pictures, each a button named by its title with a hint to its right that opens at once with the title over a muted second line; a 40 px head button that reports `{id}:expand`, an optional create button (`{id}:create`), `current(id)` and `playing(id)` marks, and items that scroll under the head. On the gallery's SideRail page. See [SideRail](docs/components/side-rail.md)
+- `PeekPanel` and `Side`: a closed side panel as a 40 px strip at the window's edge, rounded where it faces the window, showing the panel's content at its open width behind a veil of 0.9. Under the pointer or the focus it reaches 12 px out on a spring that overshoots, the veil lifts and a chevron lights up; a click, Enter or Space reports its ID. Its content is only painted: its controls take no pointer, focus or reader there. On the gallery's PeekPanel page. See [PeekPanel](docs/components/peek-panel.md)
+- `Element::extend_on_hover(id, by)`: under the pointer or the keyboard focus, an element's edge reaches out by `by` on a spring that overshoots a little and settles in three `move_ms`; its pointer target grows with it and its slot in the layout does not. See [Animation](docs/animation.md#an-edge-that-reaches-out-under-the-pointer)
+- `Tooltip::delay_ms` (350 unless set; 0 opens at once, and the tree waits for each hint's own delay), kept as the new `TooltipOptions` on `ElementKind::Tooltip`. **Breaking** for `ElementKind::Tooltip` patterns and literals without `..`. See [Tooltip](docs/components/tooltip.md#delay)
+- `Icon::ChevronLeft`, drawn with Bootstrap Icons 1.13.2 `chevron-left`. **Breaking** for exhaustive matches on `Icon`
+- A `hover_region` that is itself a control counts as hovered while it has keyboard focus, so what it reveals shows for the keyboard too
+
 - `CodeEditor` view options: `show_whitespace` marks spaces with `·` and tabs with `→`; `rulers` draws up to 16 column guides; `caret_style` takes a `CaretStyle` (`Line`, `Block`, `Underline`; Vim's Normal mode keeps its block); `caret_blink(false)` keeps the caret shown; `indent_guides(false)` and `highlight_current_line(false)` turn off what was always drawn. Defaults keep today's look
 - `limn-editor::TextBuffer::trim_trailing_whitespace`: removes the spaces and tabs ending each line as one undo step, keeping line terminators and every selection's place in its line
 - Bar, column and line charts whose values are all whole numbers get whole ticks: a count of 1 no longer shows a 0.5 tick

@@ -5,7 +5,7 @@
 
 use crate::{
     Access, Color, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement, TooltipItem,
-    RadiusRole, TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
+    RadiusRole, TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
 };
 use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion, Role};
 
@@ -43,6 +43,7 @@ pub struct Tooltip {
     placement: TooltipPlacement,
     palette: ComponentPalette,
     described: bool,
+    options: TooltipOptions,
 }
 
 impl Tooltip {
@@ -65,6 +66,7 @@ impl Tooltip {
             placement: TooltipPlacement::Above,
             palette,
             described: true,
+            options: TooltipOptions::default(),
         }
     }
 
@@ -160,6 +162,15 @@ impl Tooltip {
         self.placement = placement;
         self
     }
+
+    /// How long the pointer rests on the anchor before the hint shows, in
+    /// milliseconds: 350 unless set, and 0 shows it as soon as the pointer
+    /// is over it, for a strip of items read by moving along it. Keyboard
+    /// focus shows it at once either way.
+    pub fn delay_ms(mut self, delay: u16) -> Self {
+        self.options.delay_ms = delay;
+        self
+    }
 }
 
 impl Component for Tooltip {
@@ -182,11 +193,13 @@ impl Component for Tooltip {
         if let ElementKind::Tooltip {
             sections,
             max_width,
+            options,
             ..
         } = &mut element.kind
         {
             *sections = self.sections;
             *max_width = self.max_width;
+            *options = self.options;
         }
         element
     }

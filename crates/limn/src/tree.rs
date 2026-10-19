@@ -1575,6 +1575,16 @@ fn slot_spring(value: f32, now: Instant) -> ScalarSpring {
     ScalarSpring::new(value, now).motion(slot_motion())
 }
 
+/// The spring an [`Element::extend_on_hover`] edge travels on: it overshoots
+/// by a tenth, as something let go does, and is within a thousandth of its
+/// way after three `move_ms`.
+fn bounce_motion() -> crate::SpringMotion {
+    const DAMPING: f32 = 0.6;
+    let seconds = (f32::from(crate::tokens().motion.move_ms) * 3.0 / 1000.0).max(0.001);
+    let omega = 1000_f32.ln() / (DAMPING * seconds);
+    crate::SpringMotion { damping_ratio: DAMPING, stiffness: omega * omega }
+}
+
 fn slot_motion() -> crate::SpringMotion {
     crate::SpringMotion::settling_in(slot_settle())
 }
@@ -3075,7 +3085,8 @@ pub struct UiTree {
     keyboard_focus: bool,
     keyboard_tooltip_focus: bool,
     closed_submenu_triggers: HashSet<String>,
-    tooltip_triggers: HashSet<String>,
+    /// The anchors of the last layout's hints, with how long each waits.
+    tooltip_triggers: HashMap<String, Duration>,
     pressed: Option<String>,
     pressed_dispatch: Option<String>,
     pointer_drag: Option<PointerDrag>,
@@ -3158,7 +3169,7 @@ impl UiTree {
             keyboard_focus: false,
             keyboard_tooltip_focus: false,
             closed_submenu_triggers: HashSet::new(),
-            tooltip_triggers: HashSet::new(),
+            tooltip_triggers: HashMap::new(),
             pressed: None,
             pressed_dispatch: None,
             pointer_drag: None,
@@ -3620,10 +3631,8 @@ impl UiTree {
                 .any(|state| state.x.is_active(now) || state.width.is_active(now));
         let hover_wait = self.tooltip_hover_since.as_ref().and_then(|(id, since)| {
             let elapsed = now.saturating_duration_since(*since);
-            (self.tooltip_triggers.contains(id)
-                && self.pressed.as_deref() != Some(id)
-                && elapsed < TOOLTIP_HOVER_DELAY)
-                .then(|| TOOLTIP_HOVER_DELAY - elapsed)
+            let delay = *self.tooltip_triggers.get(id)?;
+            (self.pressed.as_deref() != Some(id) && elapsed < delay).then(|| delay - elapsed)
         });
         if transition {
             Some(Duration::ZERO)
@@ -3812,7 +3821,7 @@ impl UiTree {
         let mut observed_replacements = HashSet::new();
         let mut current_popover_snapshots = HashMap::new();
         let mut observed_tabs = HashSet::new();
-        let mut observed_tooltips = HashSet::new();
+        let mut observed_tooltips = HashMap::new();
         let mut observed_skeletons = HashSet::new();
         let mut observed_shimmers = HashSet::new();
         let mut observed_spinners = HashSet::new();
@@ -6441,6 +6450,9 @@ fn collect_focus_order(
     order: &mut Vec<(String, HitKind)>,
     seen: &mut HashSet<String>,
 ) {
+    if element.kept.as_ref().is_some_and(|kept| kept.inert) {
+        return;
+    }
     match &element.kind {
         ElementKind::Column(children)
         | ElementKind::Row(children)
@@ -6902,7 +6914,7 @@ struct LayoutBuilder<'a> {
     observed_popovers: &'a mut HashSet<String>,
     popover_snapshots: &'a mut HashMap<String, PopoverSnapshot>,
     observed_tabs: &'a mut HashSet<String>,
-    observed_tooltips: &'a mut HashSet<String>,
+    observed_tooltips: &'a mut HashMap<String, Duration>,
     observed_skeletons: &'a mut HashSet<String>,
     observed_shimmers: &'a mut HashSet<String>,
     observed_spinners: &'a mut HashSet<String>,
@@ -9033,6 +9045,23 @@ impl LayoutBuilder<'_> {
         state.value.value(self.now)
     }
 
+    /// As `spring`, on `motion`: from rest it starts at standstill, and
+    /// redirected it turns from where it is at the speed it has.
+    fn spring_on(&self, key: &str, target: f32, motion: crate::SpringMotion) -> f32 {
+        let mut springs = self.springs.borrow_mut();
+        let state = springs.entry(key.to_owned()).or_insert_with(|| AnimatedSpring {
+            value: ScalarSpring::new(target, self.now).motion(motion),
+            seen: self.now,
+        });
+        state.seen = self.now;
+        if self.reduced_motion {
+            state.value = ScalarSpring::new(target, self.now).motion(motion);
+        } else {
+            state.value.retarget(target, self.now);
+        }
+        state.value.value(self.now)
+    }
+
     /// The slot a child of a `keep_leaving` column answers to, if it has one.
     fn slot_id(child: &Element) -> Option<&str> {
         child
@@ -9511,19 +9540,30 @@ impl LayoutBuilder<'_> {
     }
 
     fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        let rect = self.extended(element, rect, clip);
         let dragged = element.draggable
             && !element.drag_in_place
             && self.drag_source.is_some()
             && focusable_id(element) == self.drag_source;
         let start = self.frame.commands.len();
+        let inert = element.kept.as_ref().is_some_and(|kept| kept.inert).then_some((
+            self.frame.regions.len(),
+            self.frame.access.len(),
+            self.frame.tab_focus.len(),
+            self.frame.inline_menu_focus.len(),
+            self.frame.context_menu_regions.len(),
+            self.frame.text_blocks.len(),
+        ));
         let reveal = element.hover_reveal;
         let around = self.region_hovered;
         if reveal == HoverReveal::Region {
             let visible = clip.map_or(Some(rect), |clip| rect.intersection(clip));
-            self.region_hovered = self
-                .pointer
-                .zip(visible)
-                .is_some_and(|(point, visible)| visible.contains(point));
+            let focused = self.keyboard_focus && focusable_id(element).is_some_and(|id| self.focused == Some(id));
+            self.region_hovered = focused
+                || self
+                    .pointer
+                    .zip(visible)
+                    .is_some_and(|(point, visible)| visible.contains(point));
         }
         // A wrapper that is not itself a control speaks for the control inside
         // it: a field in its frame, a switch in its row.
@@ -9574,6 +9614,42 @@ impl LayoutBuilder<'_> {
             self.drag_ghost = Some(start..self.frame.commands.len());
         }
         self.note_access(element, rect, clip, for_this);
+        if let Some((regions, access, tabs, menus, context, text)) = inert {
+            // Only its paint stays: nothing in it takes the pointer, the focus or a reader.
+            self.frame.regions.truncate(regions);
+            self.frame.access.truncate(access);
+            self.frame.tab_focus.truncate(tabs);
+            self.frame.inline_menu_focus.truncate(menus);
+            self.frame.context_menu_regions.truncate(context);
+            self.frame.text_blocks.truncate(text);
+        }
+    }
+
+    /// The box an [`Element::extend_on_hover`] element is placed in: `rect`
+    /// reaching out as far as its spring has got. Whether the pointer is
+    /// over it is asked of the box it is heading for, so the pointer over
+    /// what it shows keeps it out.
+    fn extended(&self, element: &Element, rect: Rect, clip: Option<Rect>) -> Rect {
+        let Some((id, by)) = element.kept.as_ref().and_then(|kept| kept.extend.as_ref()) else {
+            return rect;
+        };
+        let length = by.x.abs().max(by.y.abs());
+        if length == 0.0 {
+            return rect;
+        }
+        let reach = |out: f32| {
+            let (x, y) = (by.x * out / length, by.y * out / length);
+            // An edge that springs back past where it rests draws the box in.
+            let (left, width) = if by.x < 0.0 { (rect.x + x, rect.width - x) } else { (rect.x, rect.width + x) };
+            let (top, height) = if by.y < 0.0 { (rect.y + y, rect.height - y) } else { (rect.y, rect.height + y) };
+            Rect::new(left, top, width.max(0.0), height.max(0.0))
+        };
+        let key = format!("extend/{id}");
+        let heading = self.springs.borrow().get(&key).map_or(0.0, |state| state.value.target());
+        let visible = clip.map_or(Some(reach(heading)), |clip| reach(heading).intersection(clip));
+        let held = self.pointer.zip(visible).is_some_and(|(point, visible)| visible.contains(point))
+            || holds_reveal(element, self.keyboard_focus, self.focused);
+        reach(self.spring_on(&key, if held { length } else { 0.0 }, bounce_motion()))
     }
 
     /// Record what the platform should know of `element`: what it says of
@@ -10237,6 +10313,7 @@ impl LayoutBuilder<'_> {
                 max_width,
                 placement,
                 colors,
+                options,
             } => {
                 let region_start = self.frame.regions.len();
                 self.place(anchor, content, clip);
@@ -10251,7 +10328,8 @@ impl LayoutBuilder<'_> {
                         self.frame.regions[region_start..].rotate_right(1);
                     }
                 }
-                self.observed_tooltips.insert(anchor_id.clone());
+                let delay = Duration::from_millis(u64::from(options.delay_ms));
+                self.observed_tooltips.insert(anchor_id.clone(), delay);
                 let keyboard_focused =
                     self.keyboard_tooltip_focus && self.focused == Some(anchor_id);
                 let hovered_long_enough = !self.keyboard_tooltip_focus
@@ -10259,7 +10337,7 @@ impl LayoutBuilder<'_> {
                     && self.pressed != Some(anchor_id)
                     && self.tooltip_hover_since.is_some_and(|(id, since)| {
                         id == anchor_id
-                            && self.now.saturating_duration_since(*since) >= TOOLTIP_HOVER_DELAY
+                            && self.now.saturating_duration_since(*since) >= delay
                     });
                 if keyboard_focused || hovered_long_enough {
                     // The hint points at the control it describes. Inside a

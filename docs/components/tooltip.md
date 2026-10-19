@@ -60,6 +60,21 @@ that wraps, `separator` a hairline between two sections and `footer`
 secondary information. `icon_row(label, items)` adds a row of labelled icons
 built from `TooltipItem`s. Empty text is ignored.
 
+## Delay
+
+```rust
+Tooltip::new(anchor, "liked", "Liked Songs", palette)
+    .placement(TooltipPlacement::Right)
+    .delay_ms(0)
+    .render()
+```
+
+`delay_ms` is how long the pointer rests on the anchor before the hint
+shows: 350 unless set, and 0 shows it as soon as the pointer is over it, for
+a strip of items read by moving along it. Keyboard focus shows it at once
+either way. It is kept as `TooltipOptions` on the rendered
+`ElementKind::Tooltip`.
+
 ## Placement
 
 ```rust
