@@ -161,6 +161,7 @@ wrap the window's root element, since they cover the whole window.
 | --- | --- |
 | `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text, wrapped. `Text::eyebrow` is the small monospaced label above a group. `.font_size(px)` is for a step the host's design has between two roles, such as 10.5; prefer a role. |
 | `Markdown` | Markdown source as wrapped prose with links, lists, quotes and code blocks; see [Markdown](#markdown). |
+| `TextLayout` | Text limn shapes, breaks into lines and places itself: `TextLayout::new(text, TextStyle::new(size, family))`, `.wrapped(width)` to break it again without shaping, `.size()`, `.lines()`, `.caret(index)`, `.index_at(point)`, `.selection(range)`, and `.draw(origin, color)` for the `DrawCommand::Glyphs` a backend paints. The faces come from `limn::set_fonts(Fonts)`, `Fonts::bundled()` by default. Components still lay their text out the older way. |
 
 `TextRole` is the scale, in logical pixels:
 

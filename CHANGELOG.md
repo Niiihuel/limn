@@ -5,6 +5,9 @@ in any release.
 
 ## Unreleased
 
+- `TextLayout`: text limn shapes, breaks into lines and places itself, with parley inside and none of it in limn's API. `TextStyle`, `wrapped(width)` without shaping again, `size`, `lines`, `caret`, `index_at`, `selection`, and `draw(origin, color)` for `DrawCommand::Glyphs(GlyphRun)`, which a backend draws without laying anything out. Kerning, ligatures, bidi and a fallback face per character. Components do not use it yet. See [TextLayout](docs/components/text-layout.md)
+- `Fonts`, `Font`, `FontError`, `limn::fonts()` and `limn::set_fonts`: the faces text is laid out in, one set for the process. `Fonts::bundled()` behind the new default `bundled-fonts` feature; the font files moved from limn-egui to limn, with Hack added for `Monospace`
+- limn-egui draws `DrawCommand::Glyphs` from an atlas of its own, rasterized as egui rasterizes its text, and gives egui the same font bytes limn lays text out in, without copying them
 - `Element::drawing`: what the application draws itself, in the frame's own `DrawCommand`s, given the size it is laid out at. The tree places the commands, clips them to the element and keeps their clips balanced. See [Drawing](docs/components/drawing.md)
 - Text widths are cached apart for every face: a label in `SansMedium`, `SansBold` or `SansItalic` could be given the width the same text had measured in `Monospace`, and so wrap or truncate at the wrong place
 - `WindowControls`: the minimize, maximize (restore while maximized) and close buttons at the end of a title bar the app draws, as Windows places them, brought from Surco's own frame. `Labels` gains `minimize`, `maximize` and `restore`. See [WindowControls](docs/components/window-controls.md)

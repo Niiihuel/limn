@@ -44,6 +44,7 @@ mod radio;
 mod scheme;
 mod surfaces;
 mod table;
+mod text_layout;
 mod toggle;
 mod tokens;
 mod toolbar;
@@ -116,6 +117,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"], since: "0.1.39" },
     Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings"], since: "0.1.39" },
     Page { id: "drawing", group: "System", title: "Drawing", source: "drawing", view: drawing::view, sections: &[], since: "0.1.44" },
+    Page { id: "text-layout", group: "System", title: "TextLayout", source: "text_layout", view: text_layout::view, sections: &[], since: "0.1.44" },
     Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
     Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"], since: "0.1.39" },
     Page { id: "toolbar", group: "Actions", title: "Toolbar", source: "toolbar", view: toolbar::view, sections: &[], since: "0.1.41" },

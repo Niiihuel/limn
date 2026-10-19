@@ -17,6 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
 mod glass;
+mod glyph_atlas;
 mod touch_context;
 pub use glass::GlassRenderer;
 
@@ -1516,6 +1517,7 @@ fn paint_at_impl(
     backdrop_surface: Option<BackdropSurface<'_>>,
 ) {
     publish_access(ui, frame, origin);
+    let display = glyph_atlas::Display::of(ui.ctx());
     let mut clips = vec![ui.clip_rect()];
     // The rounded shape of each clip in force, from a `RoundClip`.
     let mut rounds: Vec<RoundedClip> = vec![None];
@@ -1804,6 +1806,9 @@ fn paint_at_impl(
                     font,
                     color(*ink),
                 );
+            }
+            DrawCommand::Glyphs(run) => {
+                glyph_atlas::paint(&ui.painter().with_clip_rect(*clips.last().unwrap()), run, origin, display);
             }
             DrawCommand::Icon {
                 rect: area,
@@ -2338,7 +2343,7 @@ pub fn events_with_touch(ctx: &egui::Context, origin: Pos2, frame: &Frame) -> Ve
 /// and Noto Sans Symbols 2 follow them for mathematical alphabets and
 /// decorative symbols in all families. Noto Emoji supplies missing
 /// monochrome emoji after all existing faces, without reading
-/// system fonts. See `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
+/// system fonts. See limn's `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
 pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(font_definitions());
 }
@@ -2346,27 +2351,28 @@ pub fn install_fonts(ctx: &egui::Context) {
 /// The bundled font families and their Unicode fallbacks. Hosts can prepend
 /// system faces before installing these definitions with `Context::set_fonts`.
 pub fn font_definitions() -> egui::FontDefinitions {
+    let bundled = limn::Fonts::bundled();
+    // The same bytes limn lays text out in, kept where they are compiled.
+    let data = |font: &limn::Font| -> std::sync::Arc<egui::FontData> {
+        match font.static_bytes() {
+            Some(bytes) => egui::FontData::from_static(bytes),
+            None => egui::FontData::from_owned(font.bytes().to_vec()),
+        }
+        .into()
+    };
+    let face = |family| bundled.face_of(family).expect("limn bundles a face for it");
+    let [math_face, symbols_face, emoji_face] = bundled.fallbacks() else {
+        unreachable!("limn bundles three fallbacks: math, symbols and emoji");
+    };
     let mut fonts = egui::FontDefinitions::default();
     let name = "Ubuntu-Regular".to_owned();
-    fonts.font_data.insert(
-        name.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
-    );
+    fonts.font_data.insert(name.clone(), data(face(FontFamily::Sans)));
     let math = "NotoSansMath-Regular".to_owned();
-    fonts.font_data.insert(
-        math.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansMath-Regular.ttf")).into(),
-    );
+    fonts.font_data.insert(math.clone(), data(math_face));
     let symbols = "NotoSansSymbols2-Regular".to_owned();
-    fonts.font_data.insert(
-        symbols.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf")).into(),
-    );
+    fonts.font_data.insert(symbols.clone(), data(symbols_face));
     let emoji = "NotoEmoji".to_owned();
-    fonts.font_data.insert(
-        emoji.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf")).into(),
-    );
+    fonts.font_data.insert(emoji.clone(), data(emoji_face));
     // The bundled monospace faces supply box drawing missing from the UI
     // faces. Reuse their bytes, after the symbols, without replacing UI text.
     let monospace = fonts.families[&egui::FontFamily::Monospace].clone();
@@ -2388,14 +2394,12 @@ pub fn font_definitions() -> egui::FontDefinitions {
         .get(&egui::FontFamily::Proportional)
         .cloned()
         .unwrap_or_default();
-    for (family, face, bytes) in [
-        (SANS_MEDIUM, "Ubuntu-Medium", &include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")[..]),
-        (SANS_BOLD, "Ubuntu-Bold", &include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")[..]),
+    for (family, face_name, weight) in [
+        (SANS_MEDIUM, "Ubuntu-Medium", FontFamily::SansMedium),
+        (SANS_BOLD, "Ubuntu-Bold", FontFamily::SansBold),
     ] {
-        fonts
-            .font_data
-            .insert(face.to_owned(), egui::FontData::from_static(bytes).into());
-        let mut faces = vec![face.to_owned()];
+        fonts.font_data.insert(face_name.to_owned(), data(face(weight)));
+        let mut faces = vec![face_name.to_owned()];
         faces.extend(fallbacks.iter().cloned());
         fonts.families.insert(egui::FontFamily::Name(family.into()), faces);
     }

@@ -97,7 +97,7 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
     let ctx = context(true);
     let sample = "◆◇●○■□▪▫▸▹▾▿⌜⌟├─│╭╰═║⟡✦✧❖➜→←⇢➤⤷⎯⏤⠿⣿";
     let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
-    assert!(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf").len() <= 400 * 1024);
+    assert!(limn::Fonts::bundled().fallbacks()[1].bytes().len() <= 400 * 1024);
     for family in [
         FontFamily::Sans,
         FontFamily::SansItalic,
@@ -153,7 +153,7 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
     let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
     let samples = include_str!("emoji_samples.txt");
     assert_eq!(samples.lines().count(), 623);
-    assert!(include_bytes!("../assets/fonts/NotoEmoji.ttf").len() <= 2 * 1024 * 1024);
+    assert!(limn::Fonts::bundled().fallbacks()[2].bytes().len() <= 2 * 1024 * 1024);
     for family in [
         FontFamily::Sans,
         FontFamily::SansItalic,
