@@ -115,7 +115,6 @@ stamps, single-use semantics and the limits of tree observation.
 | Command | Paints |
 | --- | --- |
 | `FillRect { rect, color, radius }` | A filled rectangle with uniformly rounded corners. |
-| `Glass { rect, radius, material, opacity }` | A rounded surface sampling an explicit host backdrop. Paint its blur, refractive edge and tint before foreground controls. A backend without a backdrop uses an opaque tint, multiplied by the command's animation opacity. |
 | `FillCornerRect { rect, color, radii }` | A filled rectangle with a radius per corner. |
 | `StrokeRect { rect, color, width, radius }` | An outline drawn inside the rectangle. |
 | `StrokeCornerRect { .. }` | An outline with a radius per corner. |
@@ -173,8 +172,6 @@ The egui backend exposes:
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
 | `events_indexed(&ctx, origin)` | Unreleased indexed-input contract: input with its source index for an ordered host loop. See below. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
-| `GlassRenderer::new(&render_state)` | Creates the native wgpu optical renderer. Supply the backdrop using `set_backdrop_rgba` or `set_backdrop_texture`, then call its `paint_at`. |
-| `GlassRenderer::paint_at_surface(ui, &frame, origin, backdrop_rect, surface_id)` | Displays the shared backdrop texture at a named surface's paint depth and renders the glass above it. This opt-in path stretches the texture to the explicit backdrop rectangle; ordinary host-fed surfaces retain their pixel mapping. See [Native glass navigation](liquid-glass.md). |
 | `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
 | `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
 

@@ -16,10 +16,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
-mod glass;
 mod glyph_atlas;
 mod touch_context;
-pub use glass::GlassRenderer;
 
 #[cfg(test)]
 mod indexed_input_tests;
@@ -1377,11 +1375,6 @@ pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
     }
 }
 
-/// Paint a tree laid out in its own coordinate space at a window position.
-pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
-    paint_at_impl(ui, frame, origin, None, None);
-}
-
 /// The ID a limn control has in the platform's accessibility tree.
 fn access_id(id: &str) -> egui::Id {
     egui::Id::new(("limn-access", id))
@@ -1510,20 +1503,8 @@ pub fn apply_access_requests(ctx: &egui::Context, tree: &mut limn::UiTree) -> Ve
     actions
 }
 
-#[derive(Clone, Copy)]
-struct BackdropSurface<'a> {
-    id: &'a str,
-    texture: egui::TextureId,
-    rect: EguiRect,
-}
-
-fn paint_at_impl(
-    ui: &egui::Ui,
-    frame: &Frame,
-    origin: Pos2,
-    glass: Option<(&GlassRenderer, EguiRect)>,
-    backdrop_surface: Option<BackdropSurface<'_>>,
-) {
+/// Paint a tree laid out in its own coordinate space at a window position.
+pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
     publish_access(ui, frame, origin);
     let display = glyph_atlas::Display::of(ui.ctx());
     let mut clips = vec![ui.clip_rect()];
@@ -1532,31 +1513,6 @@ fn paint_at_impl(
     for command in &frame.commands {
         let round = *rounds.last().unwrap();
         match command {
-            DrawCommand::Glass {
-                rect: area,
-                radius,
-                material,
-                opacity,
-            } => {
-                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let area = rect(origin, *area);
-                let painted = glass.is_some_and(|(renderer, backdrop)| {
-                    renderer.paint_glass(ui, &painter, area, *radius, *material, *opacity, backdrop)
-                });
-                if !painted {
-                    let tint = material.tint;
-                    painter.rect_filled(
-                        area,
-                        corner(*radius, area),
-                        Color32::from_rgba_unmultiplied(
-                            tint.r,
-                            tint.g,
-                            tint.b,
-                            (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
-                        ),
-                    );
-                }
-            }
             DrawCommand::PushClip(area) => {
                 let next = clips
                     .last()
@@ -1920,14 +1876,7 @@ fn paint_at_impl(
                 let painter = ui
                     .painter()
                     .with_clip_rect(clips.last().unwrap().intersect(area));
-                if let Some(backdrop) = backdrop_surface.filter(|backdrop| backdrop.id == id) {
-                    painter.image(
-                        backdrop.texture,
-                        backdrop.rect,
-                        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                        Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
-                    );
-                } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
+                if let Some((texture, pixels, density)) = surface_texture(ui, id) {
                     painter.image(
                         texture,
                         surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),

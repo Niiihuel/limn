@@ -26,7 +26,6 @@ mod editor;
 mod empty;
 mod feedback;
 mod file_drop;
-pub mod glass;
 mod inputs;
 mod lists;
 mod loading;
@@ -35,6 +34,7 @@ mod media;
 mod menus;
 mod messages;
 mod navigation;
+mod navigation_bar;
 mod number;
 mod overlays;
 mod page;
@@ -157,7 +157,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "menu-bar", group: "Navigation", title: "MenuBar", source: "chrome", view: chrome::view, sections: &["Menu bar"], since: "0.1.39" },
     Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"], since: "0.1.39" },
     Page { id: "window-controls", group: "Navigation", title: "WindowControls", source: "chrome", view: chrome::view, sections: &["Window controls"], since: "0.1.44" },
-    Page { id: "glass", group: "Navigation", title: "NavigationBar", source: "glass", view: glass::view, sections: &[], since: "0.1.39" },
+    Page { id: "navigation-bar", group: "Navigation", title: "NavigationBar", source: "navigation_bar", view: navigation_bar::view, sections: &[], since: "0.1.39" },
     Page { id: "top-bar", group: "Navigation", title: "TopBar", source: "top_bar", view: top_bar::view, sections: &[], since: "0.1.43" },
     Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[], since: "0.1.39" },
     Page { id: "tree-row", group: "Data", title: "TreeRow", source: "surfaces", view: surfaces::view, sections: &["Tree rows"], since: "0.1.39" },

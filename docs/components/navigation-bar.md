@@ -1,13 +1,12 @@
 # NavigationBar
 
 A pill-shaped desktop bar of workspace dots, a two-line clock and status
-actions. Its surface is opaque, or a `GlassMaterial` that samples the scene
-behind it.
+actions, on the palette's surface.
 
 ## Import
 
 ```rust
-use limn::{Component, GlassMaterial, Icon, NavigationAction, NavigationBar, NavigationWorkspace};
+use limn::{Component, Icon, NavigationAction, NavigationBar, NavigationWorkspace};
 ```
 
 ## Usage
@@ -100,21 +99,6 @@ Pass the available width with `width` on resize. A bar narrower than its
 content becomes compact: it omits the date and the actions' values, which stay
 in their tooltips, and scrolls horizontally, so every control is kept. Without
 `width` the bar takes its natural width.
-
-## Glass
-
-```rust
-NavigationBar::new("desktop", palette)
-    .glass(GlassMaterial::dark().blur(8.0).refraction(32.0).dispersion(0.5))
-```
-
-`glass` replaces the opaque palette surface and its border with a backdrop
-material. `GlassMaterial::new(tint)` takes the veil blended over the sampled
-scene; `dark()` and `light()` are two presets. `blur` (0 to 64), `refraction`
-(0 to 32) and `dispersion` (0 to 4) are in logical pixels, clamped to those
-ranges. A host must supply the scene to refract: see
-[Liquid glass](../liquid-glass.md) for the material and the backdrop. Omit
-`glass` for the opaque bar.
 
 ## Keyboard
 

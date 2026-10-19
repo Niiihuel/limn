@@ -1,7 +1,7 @@
 //! A floating desktop bar with workspaces, a clock and status actions.
 
 use crate::{
-    Access, Color, Component, ComponentPalette, Element, FontFamily, GlassMaterial, Icon, Point,
+    Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Point,
     Role, TooltipPlacement, TooltipSpec,
 };
 
@@ -193,7 +193,6 @@ pub struct NavigationBar {
     clock_action: Option<String>,
     actions: Vec<NavigationAction>,
     width: Option<f32>,
-    glass: Option<GlassMaterial>,
     accent: Color,
 }
 
@@ -211,7 +210,6 @@ impl NavigationBar {
             clock_action: None,
             actions: Vec::new(),
             width: None,
-            glass: None,
             accent: palette.text,
         }
     }
@@ -245,12 +243,6 @@ impl NavigationBar {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
         }
-        self
-    }
-
-    /// Replace the opaque palette surface with a backdrop material.
-    pub fn glass(mut self, material: GlassMaterial) -> Self {
-        self.glass = Some(material.normalized());
         self
     }
 
@@ -419,32 +411,16 @@ impl Component for NavigationBar {
             .drag_to_pan()
             .foreground(self.palette.muted)
             .size(None, Some(CONTROL));
-        let bar = Element::panel(content)
+        Element::panel(content)
             .padding(PADDING)
             .radius(Self::HEIGHT / 2.0)
             .shadow(self.palette.shadow, Point::new(0.0, 4.0), 16.0, 0.0)
             .size(
                 Some(self.width.unwrap_or(natural_width)),
                 Some(Self::HEIGHT),
-            );
-        match self.glass {
-            // Apple's glass shadow: `0 10px 40px`, black at 20% under dark
-            // glass and 10% under light glass.
-            Some(material) => {
-                let tint = material.tint;
-                let dark = u16::from(tint.r) + u16::from(tint.g) + u16::from(tint.b) < 383;
-                bar.glass(material).shadow(
-                    Color::rgba(0, 0, 0, if dark { 51 } else { 26 }),
-                    Point::new(0.0, 10.0),
-                    40.0,
-                    0.0,
-                )
-            }
-            // Glass draws its own inner stroke; only the opaque bar is outlined.
-            None => bar
-                .background(self.palette.surface)
-                .border(self.palette.border, 1.0),
-        }
+            )
+            .background(self.palette.surface)
+            .border(self.palette.border, 1.0)
     }
 }
 
@@ -666,19 +642,14 @@ mod tests {
     }
 
     #[test]
-    fn glass_replaces_opaque_surface_and_tooltips_stay_available() {
+    fn the_bar_is_an_opaque_surface_whose_controls_keep_their_hints() {
         let palette = ComponentPalette::neutral_dark();
-        let mut tree = UiTree::new(root(
-            bar(0, 800.0).glass(GlassMaterial::new(palette.surface)),
-        ));
+        let mut tree = UiTree::new(root(bar(0, 800.0)));
         tree.set_reduced_motion(true);
         let size = Size::new(800.0, 200.0);
         let now = Instant::now();
         let frame = tree.layout_at(size, now);
-        assert!(frame.commands.iter().any(
-            |c| matches!(c, DrawCommand::Glass { rect, .. } if rect.height == NavigationBar::HEIGHT)
-        ));
-        assert!(!frame.commands.iter().any(|c| matches!(c, DrawCommand::FillRect { rect, color, .. } if rect.height == NavigationBar::HEIGHT && *color == palette.surface)));
+        assert!(frame.commands.iter().any(|c| matches!(c, DrawCommand::FillRect { rect, color, .. } if rect.height == NavigationBar::HEIGHT && *color == palette.surface)));
         let rect = button(&frame, "action:settings");
         tree.handle_event(UiEvent::PointerMove(Point::new(
             rect.x + 10.0,
