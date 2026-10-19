@@ -1,8 +1,8 @@
 These are the faces `limn::Fonts::bundled()` lays text out in, behind the
 `bundled-fonts` feature: Ubuntu for `FontFamily::Sans` in three weights, Hack
-for `FontFamily::Monospace`, and Noto Sans Math, Noto Sans Symbols 2 and Noto
-Emoji behind both for the characters those lack. limn-egui gives egui the same
-bytes. Hosts distributing them must keep each font's copyright and license,
+for `FontFamily::Monospace`, Noto Sans Math and Noto Sans Symbols 2 behind
+both for the characters those lack, and Noto Emoji, tried last. limn-egui
+gives egui the same bytes, and only these. Hosts distributing them must keep each font's copyright and license,
 independently of limn's code license.
 
 # Ubuntu Regular, Medium and Bold

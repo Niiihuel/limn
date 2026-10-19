@@ -393,6 +393,9 @@ impl System {
         for (font, name) in given.fallbacks().iter().zip(&fallbacks) {
             register(font, name, None, None);
         }
+        if let Some(font) = given.emoji_face() {
+            register(font, "limn-emoji", None, None);
+        }
         let named = |name: &str| FontFamilyName::Named(Cow::Owned(name.to_owned()));
         let stack = |family: FontFamily| {
             let own = FAMILIES[slot(family)].1;
@@ -410,6 +413,8 @@ impl System {
                     names.push(named("limn-mono"));
                 }
             }
+            // Last, so it never takes a symbol a text face has.
+            names.push(named("limn-emoji"));
             names
         };
         Self {
