@@ -87,6 +87,16 @@ DropdownOption::new("shell:nu", "Nushell").disabled()
 `selected(true)` puts a check on the option. A disabled option is passive: it
 cannot be chosen or focused.
 
+```rust
+DropdownOption::new("color:red", ":red:").image(emoji)
+DropdownOption::new("color:party", ":party:").surface("emoji:party")
+```
+
+`image` draws a picture in the icon's place, such as a custom emoji, at most
+16 px on a side and in its own colors; `surface(id)` draws a host-fed surface
+there instead, such as the same emoji animated. The other options keep the
+slot, so their labels line up.
+
 ## Width
 
 ```rust

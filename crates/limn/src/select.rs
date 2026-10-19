@@ -2,8 +2,8 @@
 
 use crate::components::{control_radius, input_surface, lighter};
 use crate::{
-    Access, Button, ButtonVariant, Component, ComponentPalette, ControlSize, ControlState,
-    DropdownMenu, DropdownMenuItem, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,
+    Access, Button, ButtonVariant, Component, ComponentPalette, ControlSize,
+    DropdownMenu, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,
     Role, SelectorSizing, ICON_SIZE,
 };
 
@@ -220,15 +220,7 @@ impl Component for Select {
         let entries = self
             .options
             .into_iter()
-            .map(|option| {
-                let mut item = DropdownMenuItem::new(option.action_id, option.label)
-                    .selected(option.selected)
-                    .enabled(option.state != ControlState::Disabled);
-                if let Some(icon) = option.icon {
-                    item = item.icon(icon);
-                }
-                item.into()
-            })
+            .map(|option| option.item().into())
             .collect();
         let menu_width = self
             .menu_width
@@ -408,7 +400,7 @@ mod tests {
 
     #[test]
     fn the_keyboard_moves_through_enabled_options_chooses_and_dismisses() {
-        let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+        let key = |key| UiEvent::Key { key, shift: false, ctrl: false, alt: false };
         let mut tree = tree(select(true));
         tree.layout(VIEWPORT);
         assert!(tree.focus("toggle"));
@@ -751,6 +743,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert_eq!(
             tree.handle_event(key(Key::Escape)),
@@ -770,5 +763,67 @@ mod tests {
                 id: "shell:zsh".into()
             }]
         );
+    }
+
+    #[test]
+    fn an_option_shows_a_picture_or_a_surface_in_its_icon_slot() {
+        let picture = crate::RasterImage::new(
+            "a".repeat(64),
+            crate::RasterImageFormat::Png,
+            4,
+            std::sync::Arc::from("AAAA"),
+            "red",
+        )
+        .unwrap();
+        let select = Select::new(
+            "color",
+            "Red",
+            vec![
+                DropdownOption::new("color:red", "Red").image(picture).selected(true),
+                DropdownOption::new("color:party", "Party").surface("animation:party"),
+                DropdownOption::new("color:plain", "Plain"),
+            ],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        );
+        let frame = tree(select).layout(VIEWPORT);
+        let row = |id: &str| rect(&frame, id).expect("a row");
+        let image = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                crate::DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("the picture");
+        let (surface, label, fit) = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                crate::DrawCommand::Surface { rect, id, label, fit, .. } if id == "animation:party" => {
+                    Some((*rect, label.clone(), *fit))
+                }
+                _ => None,
+            })
+            .expect("the surface");
+        assert_eq!((label.as_str(), fit), ("Party", crate::SurfaceFit::Contain));
+        for (slot, id) in [(image, "color:red"), (surface, "color:party")] {
+            let row = row(id);
+            assert!(slot.width <= ICON_SIZE && slot.height <= ICON_SIZE, "{id}: {slot:?}");
+            assert!(slot.y >= row.y && slot.y + slot.height <= row.y + row.height, "{id} in its row");
+            assert!(slot.x < row.x + 40.0, "{id} at the row's start");
+        }
+        // Every label starts after the slot, with a picture or without.
+        let text_x = |said: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                crate::DrawCommand::Text { text, position, .. } if text == said && position.y > row("color:red").y - 1.0 => {
+                    Some(position.x)
+                }
+                _ => None,
+            })
+        };
+        assert_eq!(text_x("Party"), text_x("Plain"));
+        assert!(text_x("Plain").unwrap() > surface.x + surface.width);
     }
 }

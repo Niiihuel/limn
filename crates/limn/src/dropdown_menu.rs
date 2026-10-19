@@ -5,9 +5,22 @@ use crate::components::{
 };
 use crate::menu::{DetailRow, MenuCheck, action_style};
 use crate::{
-    Access, Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, Point, PopoverPlacement, Role,
+    Access, Color, Element, FontFamily, ICON_SIZE, Icon, InlineImage, MenuMotion, Point, PopoverPlacement, RasterImage, Role,
     ScrollArea, ScrollbarAppearance, SelectorSizing, Separator, Skeleton, TooltipSpec,
 };
+
+/// An item's icon slot, `side` wide: its picture, fitted inside and named
+/// by `label`, else its icon in `ink`, else nothing.
+pub(crate) fn leading(picture: Option<&InlineImage>, icon: Option<Icon>, label: &str, side: f32, ink: Color) -> Element {
+    match (picture, icon) {
+        (Some(picture), _) => {
+            let fitted = side.min(ICON_SIZE);
+            picture.element(label).size(Some(fitted), Some(fitted)).centered()
+        }
+        (None, Some(icon)) => Element::icon(icon).foreground(ink),
+        (None, None) => Element::spacer(),
+    }
+}
 
 // The height of the viewport that holds an error too long for one row.
 const ERROR_HEIGHT: f32 = 104.0;
@@ -51,6 +64,7 @@ pub struct DropdownMenuItem {
     tooltip: Option<TooltipSpec>,
     truncate: bool,
     check: Option<MenuCheck>,
+    picture: Option<InlineImage>,
 }
 
 impl DropdownMenuItem {
@@ -75,12 +89,29 @@ impl DropdownMenuItem {
             tooltip: None,
             truncate: false,
             check: None,
+            picture: None,
         }
     }
 
     /// A leading icon, drawn in the item's ink, or muted while the item is disabled.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// A picture in the icon's slot, in place of any icon, such as a custom
+    /// emoji: [`ICON_SIZE`] on a side at most, fitted at its own proportions
+    /// and in its own colors, so a disabled item does not tint it.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.picture = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// The host-fed surface `id` in the icon's slot, as [`Self::image`]
+    /// puts a picture: for an animation the host presents on that surface,
+    /// fitted inside the slot and named by the item's label.
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.picture = Some(InlineImage::Surface(id.into()));
         self
     }
 
@@ -684,7 +715,7 @@ impl Component for DropdownMenu {
         let reserve_icon = self
             .entries
             .iter()
-            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some()));
+            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some() || item.picture.is_some()));
         let choices = self
             .entries
             .iter()
@@ -820,6 +851,7 @@ impl Component for DropdownMenu {
                         label: item.label,
                         description: item.description.unwrap_or_default(),
                         icon: item.icon,
+                        picture: item.picture,
                         mono: item.detail_mono,
                         status: item.status,
                         status_width: item.status_width,
@@ -905,15 +937,13 @@ impl Component for DropdownMenu {
                     let mut children = Vec::with_capacity(5);
                     if reserve_icon {
                         children.push(
-                            if let Some(icon) = item.icon {
-                                Element::icon(icon).foreground(if enabled {
-                                    ink
-                                } else {
-                                    palette.muted
-                                })
-                            } else {
-                                Element::spacer()
-                            }
+                            leading(
+                                item.picture.as_ref(),
+                                item.icon,
+                                &item.label,
+                                icon_size,
+                                if enabled { ink } else { palette.muted },
+                            )
                             .size(
                                 Some(icon_size),
                                 if contextual {
@@ -1792,7 +1822,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "replace".into()
@@ -2122,6 +2153,7 @@ mod tests {
                         key: Key::End,
                         ctrl: false,
                         shift: false,
+                        alt: false,
                     });
                     let frame = tree.layout(viewport);
                     let last = frame
@@ -2141,7 +2173,8 @@ mod tests {
                         tree.handle_event(UiEvent::Key {
                             key: Key::Enter,
                             ctrl: false,
-                            shift: false
+                            shift: false,
+                            alt: false
                         }),
                         vec![UiAction::Clicked {
                             id: "wrapped:11".into()
@@ -2206,6 +2239,7 @@ mod tests {
                 key: Key::End,
                 ctrl: false,
                 shift: false,
+                alt: false,
             });
             let frame = tree.layout(viewport);
             let last = frame
@@ -2219,7 +2253,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     ctrl: false,
-                    shift: false
+                    shift: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "action:13".into()
@@ -2273,6 +2308,7 @@ mod tests {
             key: Key::ArrowRight,
             ctrl: false,
             shift: false,
+            alt: false,
         });
         tree.layout(viewport);
         assert_eq!(tree.focused_id(), Some("child"));
@@ -2280,7 +2316,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::ArrowLeft,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             })
             .is_empty()
         );
@@ -2289,7 +2326,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Escape,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -2316,7 +2354,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Escape,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             })
             .is_empty()
         );
@@ -2334,7 +2373,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Escape,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -2463,6 +2503,7 @@ mod tests {
             key: Key::ArrowRight,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             tree.focused_id(),
@@ -2616,6 +2657,7 @@ mod tests {
             key: Key::End,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let end = tree.layout(viewport);
         assert_eq!(tree.focused_id(), Some("tail:1"));
@@ -2625,7 +2667,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "tail:1".into()
@@ -2699,6 +2742,7 @@ mod tests {
                 key: Key::End,
                 shift: false,
                 ctrl: false,
+                alt: false,
             });
             let end = tree.layout(viewport);
             assert_eq!(tree.focused_id(), Some("model:11"));
@@ -2722,7 +2766,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "model:11".into()
@@ -2732,7 +2777,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Escape,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "dismiss".into()
@@ -2778,12 +2824,14 @@ mod tests {
             key: Key::ArrowDown,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("open"));
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowDown,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("settings"));
         let option = frame
@@ -2800,6 +2848,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -2928,12 +2977,14 @@ mod tests {
             key: Key::ArrowRight,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("account"));
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowLeft,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("settings"));
     }
@@ -3114,7 +3165,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Escape,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -3363,6 +3415,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         })
     }
 

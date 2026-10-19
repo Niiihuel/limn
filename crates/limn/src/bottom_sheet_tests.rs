@@ -35,6 +35,7 @@ fn key(key: Key) -> UiEvent {
         key,
         shift: false,
         ctrl: false,
+        alt: false,
     }
 }
 

@@ -560,7 +560,8 @@ impl App {
                 UiEvent::Key {
                     key: limn::Key::ArrowDown,
                     ctrl: false,
-                    shift: false
+                    shift: false,
+                    ..
                 }
             );
         let translated = format!(

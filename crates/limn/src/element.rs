@@ -459,6 +459,9 @@ pub enum Icon {
     Leave,
     /// Two columns of dots: a handle to drag an item by.
     DragHandle,
+    /// An empty ring: an option not chosen, as an unselected radio or check
+    /// mark in a menu, beside [`Self::CheckCircle`] for the chosen one.
+    Circle,
 }
 
 impl Icon {
@@ -543,7 +546,37 @@ pub struct TextSpan {
     pub action: Option<String>,
     /// Decorative leading glyph. It contributes width, never copyable text.
     pub icon: Option<Icon>,
+    /// A picture painted in place of the text, such as a custom emoji; see
+    /// [`Self::image`]. `None` paints the text.
+    pub image: Option<InlineImage>,
 }
+
+/// A picture in a line of text, painted in place of its [`TextSpan`]'s
+/// text. The text stays what is copied, selected and read aloud.
+#[derive(Clone, Debug, PartialEq)]
+pub enum InlineImage {
+    /// A still picture, painted with [`DrawCommand::RasterImage`](crate::DrawCommand::RasterImage).
+    Raster(RasterImage),
+    /// A surface the host feeds by this ID, such as the current frame of an
+    /// animation, painted with [`DrawCommand::Surface`](crate::DrawCommand::Surface)
+    /// in its square; the host presents frames of the square's size.
+    Surface(String),
+}
+
+impl InlineImage {
+    /// The picture as an element of its own, fitted inside its box: a
+    /// button's or a menu row's leading picture. `label` names a surface.
+    pub(crate) fn element(&self, label: &str) -> Element {
+        match self {
+            Self::Raster(image) => Element::raster_image(image.clone()),
+            Self::Surface(id) => Element::surface(id.clone(), label).surface_fit(SurfaceFit::Contain),
+        }
+    }
+}
+
+/// The side of an inline picture, as a multiple of its span's text size:
+/// the size chat clients give custom emoji in a line of text.
+pub const INLINE_IMAGE_SCALE: f32 = 1.375;
 
 impl TextSpan {
     /// A run with no background, action or icon. A `font_size` that is not
@@ -566,6 +599,7 @@ impl TextSpan {
             background: None,
             action: None,
             icon: None,
+            image: None,
         }
     }
 
@@ -586,6 +620,25 @@ impl TextSpan {
     /// not part of the text that can be copied.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Paint `image` in place of the text: a square [`INLINE_IMAGE_SCALE`]
+    /// times `font_size` on a side, centered on its line and never split
+    /// across lines. The text, such as `:name:` for an emoji, is still what
+    /// a selection copies and what accessibility reads; it is not painted.
+    /// `background` and `icon` are not painted on such a run. A span with
+    /// no text shows nothing.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Paint the host-fed surface `id` in place of the text, as
+    /// [`Self::image`] paints a picture: for an animation the host presents
+    /// on that surface, at the square's size.
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.image = Some(InlineImage::Surface(id.into()));
         self
     }
 }
@@ -766,6 +819,8 @@ pub(crate) struct Kept {
     pub(crate) line_gap: Option<f32>,
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
+    /// A picture an icon button draws in its icon's place.
+    pub(crate) leading_image: Option<InlineImage>,
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
@@ -1253,6 +1308,21 @@ impl MarkRail {
     }
 }
 
+/// How a surface's pixels fill the rectangle laid out for it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SurfaceFit {
+    /// At the density they were rendered for, from the top-left corner,
+    /// clipped to the rectangle and never scaled: a remote screen, a page.
+    #[default]
+    Native,
+    /// Scaled up or down to fit inside the rectangle, centered, keeping its
+    /// proportions: as large as a picture is shown in the same rectangle.
+    Contain,
+    /// Filling the rectangle, cropped around the center, as a cover picture
+    /// ([`RasterImage::cover`](crate::RasterImage::cover)) is.
+    Cover,
+}
+
 /// What an element is: a container, a control or passive content. The
 /// constructors of [`Element`] build each kind.
 #[derive(Clone, Debug)]
@@ -1483,6 +1553,11 @@ pub enum ElementKind {
         id: String,
         /// Names the surface for assistive technology.
         label: String,
+        /// How the pixels fill the rectangle; see [`Element::surface_fit`].
+        fit: SurfaceFit,
+        /// The pixels are shown flipped left to right; see
+        /// [`Element::surface_mirrored`].
+        mirrored: bool,
     },
     /// An icon centered in the element's box, [`ICON_SIZE`] on a side unless
     /// [`Style::icon_side`] says otherwise.
@@ -2820,7 +2895,32 @@ impl Element {
         Self::new(ElementKind::Surface {
             id: id.into(),
             label: label.into(),
+            fit: SurfaceFit::Native,
+            mirrored: false,
         })
+    }
+
+    /// Show a surface's pixels flipped left to right, as a camera's preview
+    /// is shown to the person in front of it, who sees themselves as in a
+    /// mirror. Only the painting changes: the host presents its pixels as
+    /// they are. Has no effect on an element that is not a surface.
+    pub fn surface_mirrored(mut self, mirrored: bool) -> Self {
+        if let ElementKind::Surface { mirrored: own, .. } = &mut self.kind {
+            *own = mirrored;
+        }
+        self
+    }
+
+    /// How a surface's pixels fill its rectangle: [`SurfaceFit::Contain`]
+    /// and [`SurfaceFit::Cover`] scale them as a raster image is scaled, so
+    /// an animation can take the place of its still first frame. Its
+    /// [`radius`](Self::radius) rounds the corners of the pixels shown. Has
+    /// no effect on an element that is not a surface.
+    pub fn surface_fit(mut self, fit: SurfaceFit) -> Self {
+        if let ElementKind::Surface { fit: own, .. } = &mut self.kind {
+            *own = fit;
+        }
+        self
     }
 
     /// An icon on its own, [`ICON_SIZE`] on a side unless `large_icon` says
@@ -2927,6 +3027,15 @@ impl Element {
         } = &mut self.kind
         {
             *leading_icon_tint = Some(color);
+        }
+        self
+    }
+
+    /// Draw `image` in an icon button's icon slot, [`ICON_SIZE`] on a side,
+    /// in place of its icon. Other elements ignore it.
+    pub(crate) fn leading_image(mut self, image: InlineImage) -> Self {
+        if matches!(self.kind, ElementKind::IconButton { .. }) {
+            self.kept.get_or_insert_default().leading_image = Some(image);
         }
         self
     }
@@ -3796,12 +3905,43 @@ mod surface_tests {
             .commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::Surface { rect, id, label, opacity } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
+                DrawCommand::Surface { rect, id, label, opacity, .. } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
                 _ => None,
             })
             .collect();
         // The frame carries the name only: new pixels never rebuild the tree.
         assert_eq!(surfaces, [(Rect::new(0.0, 20.0, 300.0, 200.0), "page-pixels", "Página", 1.0)]);
         assert!(frame.regions.iter().any(|region| region.id == "page" && region.rect == surfaces[0].0));
+    }
+
+    #[test]
+    fn a_surface_carries_its_fit_and_radius_and_other_elements_ignore_the_fit() {
+        let shown = |element: Element| {
+            let frame = UiTree::new(element).layout(Size::new(120.0, 80.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Surface { fit, radius, .. } => Some((*fit, *radius)),
+                _ => None,
+            })
+        };
+        assert_eq!(shown(Element::surface("a", "A")), Some((SurfaceFit::Native, 0.0)));
+        let covered = Element::surface("a", "A").surface_fit(SurfaceFit::Cover).radius(8.0);
+        assert_eq!(shown(covered), Some((SurfaceFit::Cover, 8.0)));
+        assert!(shown(Element::spacer().surface_fit(SurfaceFit::Cover)).is_none());
+    }
+
+    #[test]
+    fn a_surface_is_mirrored_only_when_asked_and_other_elements_ignore_it() {
+        let mirrored = |element: Element| {
+            let frame = UiTree::new(element).layout(Size::new(120.0, 80.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Surface { mirrored, .. } => Some(*mirrored),
+                _ => None,
+            })
+        };
+        assert_eq!(mirrored(Element::surface("camera", "Camera")), Some(false));
+        let shown = Element::surface("camera", "Camera").surface_fit(SurfaceFit::Cover).surface_mirrored(true);
+        assert_eq!(mirrored(shown), Some(true));
+        assert_eq!(mirrored(Element::surface("camera", "Camera").surface_mirrored(true).surface_mirrored(false)), Some(false));
+        assert!(mirrored(Element::spacer().surface_mirrored(true)).is_none());
     }
 }

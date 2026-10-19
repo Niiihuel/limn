@@ -2,7 +2,7 @@
 
 use crate::{
     Access, ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, FontFamily,
-    Icon, IconButton, PopoverPlacement, RasterImage, Role, Size, Spinner, Tooltip,
+    Icon, IconButton, PopoverPlacement, RasterImage, Role, Size, Spinner, SurfaceFit, Tooltip,
 };
 
 /// A viewer over the whole window for one picture of a gallery: a title, a close control,
@@ -15,11 +15,13 @@ pub struct ImageViewer {
     palette: ComponentPalette,
     viewport: Size,
     image: Option<RasterImage>,
+    surface: Option<(String, String)>,
     error: Option<String>,
     index: usize,
     total: usize,
     previous_action: Option<String>,
     next_action: Option<String>,
+    navigation_labels: Option<[String; 2]>,
     return_focus: Option<String>,
     zoom: f32,
     zoom_actions: Option<[String; 3]>,
@@ -45,11 +47,13 @@ impl ImageViewer {
             palette,
             viewport: Size::new(900.0, 620.0),
             image: None,
+            surface: None,
             error: None,
             index: 0,
             total: 1,
             previous_action: None,
             next_action: None,
+            navigation_labels: None,
             return_focus: None,
             zoom: 1.0,
             zoom_actions: None,
@@ -72,8 +76,17 @@ impl ImageViewer {
         self
     }
 
+    /// Show the pixels the host presents under `id` (see [`Element::surface`]) in place
+    /// of a picture, fitted and zoomed as a picture is: an animation, a video. `label`
+    /// names it for assistive technology. It takes the place of `image` when both are
+    /// set; the host presents its first frame before it opens the viewer on it.
+    pub fn surface(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.surface = Some((id.into(), label.into()));
+        self
+    }
+
     /// A message shown in place of the spinner and the loading label while there is no
-    /// image. It is not shown once `image` is set.
+    /// image. It is not shown once `image` or `surface` is set.
     pub fn error(mut self, error: impl Into<String>) -> Self {
         self.error = Some(error.into());
         self
@@ -99,6 +112,14 @@ impl ImageViewer {
     /// picture.
     pub fn next_action(mut self, id: impl Into<String>) -> Self {
         self.next_action = Some(id.into());
+        self
+    }
+
+    /// What the arrows are called, for a gallery of something other than images, such
+    /// as the pages of a document: the names a screen reader says and the hints show,
+    /// in place of `Labels::previous_image` and `Labels::next_image`.
+    pub fn navigation_labels(mut self, previous: impl Into<String>, next: impl Into<String>) -> Self {
+        self.navigation_labels = Some([previous.into(), next.into()]);
         self
     }
 
@@ -209,8 +230,12 @@ impl Component for ImageViewer {
             (width - 32.0 - arrows).max(0.0),
             (height - 32.0 - 36.0 - 24.0 - 24.0).max(0.0),
         );
-        let image = if let Some(image) = self.image {
-            let picture = Element::raster_image(image.full_resolution());
+        let picture = match (self.surface, self.image) {
+            (Some((id, label)), _) => Some(Element::surface(id, label).surface_fit(SurfaceFit::Contain)),
+            (None, Some(image)) => Some(Element::raster_image(image.full_resolution())),
+            (None, None) => None,
+        };
+        let image = if let Some(picture) = picture {
             if zoomed {
                 // The picture fits a box this many times its room, and the
                 // box is panned both ways, as a diagram is.
@@ -250,6 +275,9 @@ impl Component for ImageViewer {
             Element::column(content).gap(12.0)
         }
         .flex(1.0);
+        let [previous_label, next_label] = self
+            .navigation_labels
+            .unwrap_or_else(|| [crate::labels().previous_image.into(), crate::labels().next_image.into()]);
         let mut body = Vec::new();
         if self.total > 1 {
             if let Some(id) = &self.previous_action {
@@ -259,8 +287,8 @@ impl Component for ImageViewer {
                         control(
                             id,
                             Icon::ArrowLeft,
-                            crate::labels().previous_image,
-                            &format!("{} · ←", crate::labels().previous_image),
+                            &previous_label,
+                            &format!("{previous_label} · ←"),
                             self.index > 0,
                             controls,
                         ),
@@ -279,8 +307,8 @@ impl Component for ImageViewer {
                         control(
                             id,
                             Icon::ArrowRight,
-                            crate::labels().next_image,
-                            &format!("{} · →", crate::labels().next_image),
+                            &next_label,
+                            &format!("{next_label} · →"),
                             self.index + 1 < self.total,
                             controls,
                         ),
@@ -402,7 +430,7 @@ mod tests {
             let mut tree = UiTree::new(gallery(index));
             tree.set_reduced_motion(true);
             tree.layout(WINDOW);
-            tree.handle_event(crate::UiEvent::Key { key, shift: false, ctrl: false })
+            tree.handle_event(crate::UiEvent::Key { key, shift: false, ctrl: false, alt: false })
         };
         let clicked = |id: &str| vec![UiAction::Clicked { id: id.into() }];
         assert_eq!(press(1, crate::Key::ArrowLeft), clicked("before"));
@@ -410,6 +438,62 @@ mod tests {
         // Nothing before the first, nothing after the last.
         assert!(press(0, crate::Key::ArrowLeft).is_empty());
         assert!(press(2, crate::Key::ArrowRight).is_empty());
+    }
+
+    #[test]
+    fn a_surface_is_shown_fitted_and_zoomed_as_a_picture_is() {
+        let shown = |zoom: f32, image: bool| {
+            let mut viewer = ImageViewer::new(Element::spacer(), true, "loop.gif", "close", ComponentPalette::neutral_dark())
+                .viewport(WINDOW)
+                .zoom(zoom)
+                .surface("animation:a", "A loop");
+            if image {
+                let still = RasterImage::new("a".repeat(64), RasterImageFormat::Png, 4, Arc::from("AAAA"), "A picture").unwrap();
+                viewer = viewer.image(still);
+            }
+            let mut tree = UiTree::new(viewer.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(WINDOW);
+            assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::RasterImage { .. })), "the surface takes the picture's place");
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Surface { rect, id, label, fit, .. } => Some((*rect, id.clone(), label.clone(), *fit)),
+                    _ => None,
+                })
+                .expect("the surface is drawn")
+        };
+        let (fitted, id, label, fit) = shown(1.0, true);
+        assert_eq!((id.as_str(), label.as_str(), fit), ("animation:a", "A loop", SurfaceFit::Contain));
+        // The same room a picture gets, and twice it zoomed.
+        let mut tree = UiTree::new(viewer(1.0));
+        tree.set_reduced_motion(true);
+        assert_eq!(fitted, picture(&tree.layout(WINDOW)));
+        let zoomed = shown(2.0, false).0;
+        assert_eq!((zoomed.width, zoomed.height), (fitted.width * 2.0, fitted.height * 2.0));
+    }
+
+    #[test]
+    fn the_arrows_are_named_for_images_unless_the_host_names_them() {
+        let names = |labels: Option<[&str; 2]>| {
+            let mut viewer = ImageViewer::new(Element::spacer(), true, "report.pdf", "close", ComponentPalette::neutral_dark())
+                .viewport(WINDOW)
+                .gallery(1, 3)
+                .previous_action("before")
+                .next_action("after");
+            if let Some([previous, next]) = labels {
+                viewer = viewer.navigation_labels(previous, next);
+            }
+            let mut tree = UiTree::new(viewer.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(WINDOW);
+            let name = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap().name.clone();
+            [name("before"), name("after")]
+        };
+        let labels = crate::labels();
+        assert_eq!(names(None), [labels.previous_image, labels.next_image]);
+        assert_eq!(names(Some(["Previous page", "Next page"])), ["Previous page", "Next page"]);
     }
 
     #[test]

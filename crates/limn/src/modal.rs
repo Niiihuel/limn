@@ -456,7 +456,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -495,7 +496,7 @@ mod tests {
         for id in ["close", "dismiss"] {
             assert!(!tree.focus(id));
         }
-        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false };
         assert!(tree.handle_event(enter).is_empty());
         assert_eq!(icon(&disabled), icon(&enabled));
         assert_eq!(icon(&disabled).unwrap().1, palette.muted);
@@ -651,6 +652,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_ne!(tree.focused_id(), Some("behind"));
         assert_eq!(
@@ -658,6 +660,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -687,6 +690,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("later"));
         let frame = tree.layout(Size::new(640.0, 480.0));

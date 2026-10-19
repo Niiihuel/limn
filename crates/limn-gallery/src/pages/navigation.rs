@@ -336,7 +336,17 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 ])
                 .collect(),
             ),
-            caption(cx, "A private channel, a permission left as inherited, an open menu, an invitation, leaving a server and a handle to drag a row by."),
+            row(
+                [(Icon::Circle, "Circle"), (Icon::CheckCircle, "CheckCircle")]
+                    .into_iter()
+                    .flat_map(|(icon, name)| [
+                        Element::icon(icon).foreground(palette.text),
+                        caption(cx, name),
+                        Element::spacer().size(Some(8.0), None),
+                    ])
+                    .collect(),
+            ),
+            caption(cx, "A private channel, a permission left as inherited, an open menu, an invitation, leaving a server, a handle to drag a row by, and an option not chosen beside a chosen one."),
         ]),
     ]
 }

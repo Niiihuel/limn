@@ -45,7 +45,10 @@ the tree's origin.
 | `ContextMenu { position }`, `ContextMenuKeyboard` | Secondary button, or the keyboard shortcut that opens a context menu. |
 | `Scroll { position, delta_y }`, `ScrollDirect { .. }`, `Scroll2D { .. }` | Wheel, precise touchpad, and two-axis scrolling. |
 | `Text(string)` | Typed text. |
-| `Key { key, shift, ctrl }` | A non-text key: arrows, Tab, Enter, Escape, and so on. |
+| `Key { key, shift, ctrl, alt }` | A key was pressed, or repeats while held: letters, digits, punctuation, arrows, Tab, Enter, Escape, F1 to F35, and so on. Text still arrives as `Text`. The tree reads `alt` only for context menu shortcuts; the host reads it for its own, such as Alt+Left. |
+| `KeyReleased { key }` | A key was released. The tree only stops counting it as held. |
+| `ModifiersChanged(modifiers)` | The modifiers held changed with no key of their own, such as Shift pressed alone. The tree only keeps them. |
+| `PointerBack(point)`, `PointerForward(point)` | The pointer's side buttons (mouse buttons 4 and 5). The tree ignores them; a host reads them to move through its own history. |
 | `Paste(string)`, `PasteTo { id, text }` | Clipboard text, to the focused control or a named one. |
 | `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
 | `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
@@ -64,6 +67,23 @@ containing new files when their product requires preparation before sending.
 `handle_event` returns the `UiAction`s the event produced. Call
 `UiTree::layout` before delivering pointer events: they are resolved against
 the regions of the last layout.
+
+### Keys held
+
+The tree keeps which keys are down and which modifiers are held, from the
+events above, for a host that acts while a key is held, such as push to talk,
+or that shows more while Shift is held:
+
+| Call | Answers |
+| --- | --- |
+| `UiTree::key_held(key)` | From the key's `Key` until its `KeyReleased`. Asked before a press is handled, false tells a first press from a repeat. |
+| `UiTree::modifiers()` | Shift, Ctrl and Alt as the latest `Key` or `ModifiersChanged` said. |
+| `UiTree::observe_keys(&event)` | Notes an event the host answers before the tree, which then never sees it. Noting one twice changes nothing. |
+
+`set_window_focused(false)` lets go of every key and modifier, since the
+window may never see their release. `Key::name()` gives a key's English name,
+as a host writes it in a shortcut it keeps (`"Ctrl+"` before it is the host's
+own), and `Key::from_name` reads it back, or the character the key types.
 
 ### Captured paste replies (unreleased)
 
@@ -177,7 +197,7 @@ decoded again. There is no filesystem or network I/O in the decoder. Limits
 on source dimensions and decoder allocations are unchanged. Browsers retain
 the existing synchronous decode path because that backend has no native
 workers; clearing still releases its raster cache.
-| `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
+| `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. A clone shares the converted pixels: keep an animation's frames and present clones as it loops. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
 | `forget_surface(id)` | Frees a surface's texture. |
@@ -196,8 +216,9 @@ Translations retain source order, and several may share one index.
 
 An ordered host traverses **every source event in that snapshot**, including unknown events
 that produce no `UiEvent`. At each index, process its associated translations
-in order. Read physical_key, pressed, repeat and modifiers (including Alt)
-from that source Key event, rather than a whole-frame key prepass. Apply earlier
+in order. A translated `UiEvent::Key` carries Shift, Ctrl and Alt; read
+physical_key, pressed, repeat and any other modifier from that source Key
+event, rather than a whole-frame key prepass. Apply earlier
 host actions, pending focus and layout before capturing a later paste target.
 Draining only translated events, or processing all markers at the end, loses
 their place among navigation and clicks.
@@ -245,6 +266,22 @@ snapped to the pixel grid; a frame a pixel larger or smaller than the
 rectangle is clipped or leaves a gap, and is not resampled. At another scale
 it keeps its logical size. Each side is at most 8192 pixels and a frame at
 most 16 megapixels. A surface holds its last frame until `forget_surface`.
+
+`Element::surface(..).surface_fit(fit)` places the pixels as a raster image
+places its own: `SurfaceFit::Contain` scales them up or down to fit the
+rectangle, centered, and `SurfaceFit::Cover` fills it and crops around the
+center. Either ignores the frame's scale, so an animation can stand where its
+still first frame stood, at the same size. `.radius(r)` rounds the corners of
+the pixels shown in any fit. `SurfaceFit::Native`, the default, is the
+one-to-one placement above.
+
+`.surface_mirrored(true)` paints the pixels flipped left to right, in any fit,
+as a camera's preview is shown to the person in front of it. Only the painting
+changes: the host presents the frames as they are, and sends them on unflipped.
+
+An animation converts each frame once, into a `SurfaceFrame` it keeps, and
+presents a clone of the one that is due: a clone shares the pixels, so
+looping copies nothing more on the host side.
 
 A source that knows what changed sends only that: `frame.within(size, at)`
 turns the pixels of one rectangle into a part of the frame of `size` pixels

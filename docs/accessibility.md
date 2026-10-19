@@ -82,6 +82,24 @@ answers the pointer.
 limn_egui::name_window(&ctx, "Notes");
 ```
 
+**Mark the window's regions.** A sidebar, a list of messages, a composer:
+give each part of the window a landmark, with an ID and a name.
+
+```rust
+sidebar.accessible(Access::new(Role::Region).id("channels").name("Channels"))
+```
+
+The platform is told what each region is called, and F6 and Shift+F6 move
+the focus to the first control of the next or previous region, as they do
+in a browser. A region with nothing to focus is passed over, a region
+inside another comes after it, and an open popover keeps the focus. For a
+host that moves the focus itself:
+
+| Call | What it does |
+| --- | --- |
+| `tree.focus_next_region(reverse)` | What F6 does. Returns the ID of the region reached, so the host can land on another of its controls, such as the chosen row. |
+| `tree.focusables_within(id)` | The region's controls in focus order, as of the last layout. |
+
 ## Testing it
 
 `Frame::access` is plain data, so a test reads it like any other part of a

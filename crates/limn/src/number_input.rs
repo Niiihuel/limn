@@ -526,6 +526,7 @@ mod tests {
                     key: Key::Tab,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 });
                 assert_eq!(tree.focused_id(), Some(*id));
                 if *id != "n" {
@@ -534,7 +535,8 @@ mod tests {
                             tree.handle_event(UiEvent::Key {
                                 key,
                                 shift: false,
-                                ctrl: false
+                                ctrl: false,
+                                alt: false
                             }),
                             vec![UiAction::Clicked { id: (*id).into() }]
                         );
@@ -598,6 +600,7 @@ mod tests {
             key: Key::ArrowRight,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.input_selection("n"), Some((1, 2)));
         let selection = tree
@@ -708,7 +711,7 @@ mod tests {
             assert_eq!(tree.handle_event(UiEvent::PointerUp(point)), clicked, "{id}");
             assert!(tree.focus(id));
             for key in [Key::Enter, Key::Space] {
-                assert_eq!(tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false }), clicked, "{id} {key:?}");
+                assert_eq!(tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false, alt: false }), clicked, "{id} {key:?}");
             }
         }
     }
@@ -756,7 +759,7 @@ mod tests {
             assert!(tree.handle_event(UiEvent::PointerDown(center(rect))).is_empty());
             assert!(tree.handle_event(UiEvent::PointerUp(center(rect))).is_empty());
         }
-        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false }).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false }).is_empty());
         assert!(tree.handle_event(UiEvent::Text("7".into())).is_empty());
         // The number and the two glyphs, all in muted ink.
         let inks: Vec<_> = frame

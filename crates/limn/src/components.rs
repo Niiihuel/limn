@@ -4,7 +4,7 @@
 //! these controls are rebuilt on every frame.
 
 use crate::{
-    Access, Color, Element, ElementKind, FontFamily, Icon, Point, PopoverPlacement, TooltipItem,
+    Access, Color, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement, RasterImage, TooltipItem,
     RadiusRole, TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
 };
 use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion, Role};
@@ -611,6 +611,7 @@ impl ControlSize {
 pub struct Button {
     action_id: String,
     content: ButtonContent,
+    image: Option<InlineImage>,
     trailing_icon: Option<Icon>,
     variant: ButtonVariant,
     size: ControlSize,
@@ -653,6 +654,7 @@ impl Button {
         Self {
             action_id: action_id.into(),
             content,
+            image: None,
             trailing_icon: None,
             variant: ButtonVariant::default(),
             size: ControlSize::Regular,
@@ -677,7 +679,8 @@ impl Button {
     }
 
     /// What the button is called to the platform, in place of its label. A
-    /// button of an icon alone is called by its hint's title without one.
+    /// button of an icon alone is called by its hint's title without one, and
+    /// one of a picture alone by the picture's text alternative.
     pub fn accessibility_label(mut self, name: impl Into<String>) -> Self {
         self.accessibility_label = Some(name.into());
         self
@@ -691,7 +694,11 @@ impl Button {
         let name = self
             .accessibility_label
             .clone()
-            .or_else(|| if label.is_empty() { title.clone() } else { None });
+            .or_else(|| if label.is_empty() { title.clone() } else { None })
+            .or_else(|| match &self.image {
+                Some(InlineImage::Raster(image)) if label.is_empty() => Some(image.alt().to_owned()),
+                _ => None,
+            });
         let spoken = name.clone().unwrap_or(label);
         let mut access = Access::default();
         if let Some(name) = name {
@@ -712,6 +719,26 @@ impl Button {
         } else {
             ButtonContent::IconAndLabel(icon, label)
         };
+        self
+    }
+
+    /// Put a picture before the label, such as a custom emoji, in place of
+    /// any icon: it takes the icon's slot, [`ICON_SIZE`] on a side, fitted at
+    /// its own proportions and in its own colors, so ink, hover and a disabled
+    /// state do not tint it. With an empty label the button shows the picture
+    /// alone and is as wide as it is high. `loading` still shows the spinner.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Put the host-fed surface `id` before the label, as [`Self::image`]
+    /// puts a picture: for an animation the host presents on that surface,
+    /// such as an animated custom emoji, fitted inside the slot. The
+    /// surface is named by the button's label; a button of a surface alone
+    /// needs an [`accessibility_label`](Self::accessibility_label).
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.image = Some(InlineImage::Surface(id.into()));
         self
     }
 
@@ -1004,7 +1031,8 @@ impl Component for Button {
         let padding = sizing.horizontal_padding;
         let spacing = self.gap.unwrap_or(sizing.inner_spacing);
         let (icon, label) = self.content.parts();
-        let icon_only = (icon.is_some() || self.loading) && label.is_empty();
+        let image = self.image;
+        let icon_only = (icon.is_some() || image.is_some() || self.loading) && label.is_empty();
         let width = self.width.or(icon_only.then_some(sizing.height));
         // A square icon button keeps room for its glyph at every size.
         let padding = if icon_only {
@@ -1025,7 +1053,7 @@ impl Component for Button {
             // Passive content has no name of its own: the label is said.
             let access = Access::new(Role::Button).id(self.action_id.clone()).disabled(true).over(access);
             let access = if has_label { access.over(Access::named(label.clone())) } else { access };
-            let icon_space = if icon.is_some() || self.loading {
+            let icon_space = if icon.is_some() || image.is_some() || self.loading {
                 sizing.icon_size + spacing
             } else {
                 0.0
@@ -1053,6 +1081,9 @@ impl Component for Button {
                         .decorative()
                         .render(),
                 ))
+            } else if let Some(image) = &image {
+                let name = self.accessibility_label.as_deref().unwrap_or(&label);
+                Some(center_icon(image.element(name).size(Some(ICON_SIZE), Some(ICON_SIZE)).centered_x()))
             } else {
                 icon.map(|icon| {
                     center_icon(
@@ -1110,7 +1141,10 @@ impl Component for Button {
             return self.tooltip.wrap(element.accessible(access), self.action_id, self.palette);
         }
 
-        let mut element = if let Some(icon) = icon {
+        let mut element = if let Some(image) = image {
+            // The icon is never drawn: the picture takes its slot.
+            Element::icon_button(self.action_id.clone(), icon.unwrap_or(Icon::Add), label).leading_image(image)
+        } else if let Some(icon) = icon {
             Element::icon_button(self.action_id.clone(), icon, label)
         } else {
             Element::button(self.action_id.clone(), label)
@@ -2890,6 +2924,9 @@ pub struct DropdownOption {
     pub selected: bool,
     /// Whether it can be chosen. A disabled option stays in the list.
     pub state: ControlState,
+    /// A picture in the icon's place, such as a custom emoji. `None` by
+    /// default.
+    pub picture: Option<InlineImage>,
 }
 
 impl DropdownOption {
@@ -2901,6 +2938,7 @@ impl DropdownOption {
             icon: None,
             selected: false,
             state: ControlState::Enabled,
+            picture: None,
         }
     }
 
@@ -2908,6 +2946,34 @@ impl DropdownOption {
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
         self
+    }
+
+    /// Show a picture in the icon's place; see [`DropdownMenuItem::image`].
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.picture = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Show the host-fed surface `id` in the icon's place, for an
+    /// animation; see [`DropdownMenuItem::surface`].
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.picture = Some(InlineImage::Surface(id.into()));
+        self
+    }
+
+    /// The menu item that shows the option.
+    pub(crate) fn item(self) -> DropdownMenuItem {
+        let mut item = DropdownMenuItem::new(self.action_id, self.label)
+            .selected(self.selected)
+            .enabled(self.state != ControlState::Disabled);
+        if let Some(icon) = self.icon {
+            item = item.icon(icon);
+        }
+        match self.picture {
+            Some(InlineImage::Raster(image)) => item.image(image),
+            Some(InlineImage::Surface(id)) => item.surface(id),
+            None => item,
+        }
     }
 
     /// Mark the option as the current choice.
@@ -3018,17 +3084,7 @@ impl Component for DropdownList {
         let entries = self
             .options
             .into_iter()
-            .map(|option| {
-                let mut item =
-                    DropdownMenuItem::new(option.action_id, option.label).selected(option.selected);
-                if let Some(icon) = option.icon {
-                    item = item.icon(icon);
-                }
-                if option.state == ControlState::Disabled {
-                    item = item.disabled();
-                }
-                DropdownMenuEntry::Item(item)
-            })
+            .map(|option| DropdownMenuEntry::Item(option.item()))
             .collect();
         let mut menu = DropdownMenu::new(
             self.anchor,
@@ -5057,6 +5113,109 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_takes_the_icon_slot_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let picture = || {
+            RasterImage::new("a".repeat(64), crate::RasterImageFormat::Png, 4, std::sync::Arc::from("AAAA"), "party")
+                .unwrap()
+        };
+        let pictured = |frame: &crate::Frame| {
+            let rects: Vec<_> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect();
+            assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Icon { .. })), "no glyph");
+            assert_eq!(rects.len(), 1, "one picture");
+            rects[0]
+        };
+        let button = || Button::new("join", "Join", palette).image(picture()).variant(ButtonVariant::Raised);
+        let mut tree = UiTree::new(Element::row(vec![button().render()]));
+        let frame = tree.layout(Size::new(300.0, 32.0));
+        let region = frame.regions[0].rect;
+        let slot = pictured(&frame);
+        assert_eq!((slot.width, slot.height), (ICON_SIZE, ICON_SIZE));
+        assert_eq!(slot.y - region.y, (region.height - ICON_SIZE) / 2.0);
+        // The plain button is narrower by the slot and its gap.
+        let plain = UiTree::new(Element::row(vec![Button::new("join", "Join", palette).variant(ButtonVariant::Raised).render()]))
+            .layout(Size::new(300.0, 32.0));
+        let gap = ControlSize::Regular.button_sizing().inner_spacing;
+        assert_eq!(region.width, plain.regions[0].rect.width + ICON_SIZE + gap);
+        tree.handle_event(UiEvent::PointerDown(Point::new(slot.x + 1.0, slot.y + 1.0)));
+        assert_eq!(
+            tree.handle_event(UiEvent::PointerUp(Point::new(slot.x + 1.0, slot.y + 1.0))),
+            vec![UiAction::Clicked { id: "join".into() }]
+        );
+
+        let disabled = UiTree::new(Element::row(vec![button().disabled().render()])).layout(Size::new(300.0, 32.0));
+        assert!(disabled.regions.is_empty());
+        let still = pictured(&disabled);
+        assert_eq!((still.width, still.height), (ICON_SIZE, ICON_SIZE));
+        assert!(disabled.commands.iter().any(|command| matches!(
+            command,
+            DrawCommand::FillRect { rect, color, .. } if rect.width == region.width && *color == palette.raised
+        )));
+        assert!(disabled.commands.iter().any(|command| matches!(
+            command,
+            DrawCommand::Text { color, .. } if *color == palette.muted
+        )));
+
+        // A picture alone: square, and called by its text alternative.
+        for enabled in [true, false] {
+            let alone = Button::new("party", "", palette).image(picture()).enabled(enabled);
+            assert_eq!(access_node(alone.render(), "party").name, "party");
+        }
+        let alone = UiTree::new(Element::row(vec![Button::new("party", "", palette).image(picture()).render()]))
+            .layout(Size::new(100.0, 32.0));
+        let (square, slot) = (alone.regions[0].rect, pictured(&alone));
+        assert_eq!((square.width, square.height), (32.0, 32.0));
+        assert_eq!((slot.x - square.x, slot.y - square.y), (8.0, 8.0));
+    }
+
+    #[test]
+    fn a_surface_takes_the_picture_slot_enabled_or_not_fitted_and_named_by_the_label() {
+        let palette = ComponentPalette::neutral_dark();
+        let surfaced = |frame: &crate::Frame| {
+            let found: Vec<_> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Surface { rect, id, label, fit, .. } => Some((*rect, id.clone(), label.clone(), *fit)),
+                    _ => None,
+                })
+                .collect();
+            assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Icon { .. })), "no glyph");
+            assert_eq!(found.len(), 1, "one surface");
+            found[0].clone()
+        };
+        let button = || Button::new("join", "Join", palette).surface("animation:party").variant(ButtonVariant::Raised);
+        for enabled in [true, false] {
+            let mut tree = UiTree::new(Element::row(vec![button().enabled(enabled).render()]));
+            let frame = tree.layout(Size::new(300.0, 32.0));
+            let (rect, id, label, fit) = surfaced(&frame);
+            assert_eq!((rect.width, rect.height), (ICON_SIZE, ICON_SIZE));
+            assert_eq!((id.as_str(), label.as_str(), fit), ("animation:party", "Join", crate::SurfaceFit::Contain));
+            if enabled {
+                tree.handle_event(UiEvent::PointerDown(Point::new(rect.x + 1.0, rect.y + 1.0)));
+                assert_eq!(
+                    tree.handle_event(UiEvent::PointerUp(Point::new(rect.x + 1.0, rect.y + 1.0))),
+                    vec![UiAction::Clicked { id: "join".into() }]
+                );
+            }
+        }
+        // A surface alone is as square as a picture alone and is called
+        // what the host says.
+        let alone = || Button::new("party", "", palette).surface("animation:party").accessibility_label("Party");
+        assert_eq!(access_node(alone().render(), "party").name, "Party");
+        let frame = UiTree::new(Element::row(vec![alone().render()])).layout(Size::new(100.0, 32.0));
+        assert_eq!((frame.regions[0].rect.width, frame.regions[0].rect.height), (32.0, 32.0));
+        assert_eq!(surfaced(&frame).0.width, ICON_SIZE);
+    }
+
+    #[test]
     fn disabled_button_keeps_its_box_but_has_no_action() {
         let palette = ComponentPalette::neutral_dark();
         let enabled = IconButton::new("new", Icon::Add, palette)
@@ -5244,7 +5403,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: crate::Key::ArrowRight,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "project".into()
@@ -5437,6 +5597,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert_eq!(
             tree.handle_event(key(crate::Key::Enter)),
@@ -5554,6 +5715,7 @@ mod tests {
                 key: crate::Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "keep_awake".into()
@@ -5680,6 +5842,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert!(tree.focus("sessions"));
         assert!(tree
@@ -5687,6 +5850,7 @@ mod tests {
                 key: crate::Key::ArrowRight,
                 shift: true,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("sessions"));
@@ -5752,6 +5916,7 @@ mod tests {
                 key: crate::Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -5806,6 +5971,7 @@ mod tests {
             key: crate::Key::End,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let final_frame = tree.layout(Size::new(360.0, 280.0));
         assert_eq!(tree.focused_id(), Some("choice:4"));
@@ -5819,6 +5985,7 @@ mod tests {
                 key: crate::Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "choice:4".into()
@@ -6009,6 +6176,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert_eq!(
             tree.handle_event(key(crate::Key::ArrowRight)),
@@ -6292,6 +6460,7 @@ mod tests {
             key,
             shift,
             ctrl: false,
+            alt: false,
         };
         let mut tree = UiTree::new(make_dropdown());
         tree.layout(Size::new(400.0, 300.0));
@@ -6364,6 +6533,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         for _ in 0..9 {
             tree.handle_event(key(crate::Key::ArrowDown));
@@ -6388,6 +6558,7 @@ mod tests {
             key: crate::Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("option:11"));
         let wrapped = tree.layout(viewport);
@@ -6486,7 +6657,7 @@ mod tests {
         assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
         assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
         assert!(!tree.focus("docs"));
-        let enter = UiEvent::Key { key: crate::Key::Enter, shift: false, ctrl: false };
+        let enter = UiEvent::Key { key: crate::Key::Enter, shift: false, ctrl: false, alt: false };
         assert!(tree.handle_event(enter).is_empty());
         // Hovered, it is still the same muted line with no underline.
         assert_eq!(tree.layout(size).commands, disabled.commands);

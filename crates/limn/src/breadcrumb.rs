@@ -551,8 +551,8 @@ mod tests {
         assert!(shown.iter().any(|text| text == "Ctrl") && shown.iter().any(|text| text == "K"), "{shown:?}");
         assert!(!shown.iter().any(|text| text == "F"), "{shown:?}");
         assert_eq!(hint.regions, initial.regions, "the shortcut is only a hint");
-        assert!(tree.handle_event(UiEvent::Key { key: Key::K, ctrl: true, shift: false }).is_empty());
-        assert_eq!(tree.handle_event(UiEvent::Key { key: Key::Enter, ctrl: false, shift: false }),
+        assert!(tree.handle_event(UiEvent::Key { key: Key::K, ctrl: true, shift: false, alt: false }).is_empty());
+        assert_eq!(tree.handle_event(UiEvent::Key { key: Key::Enter, ctrl: false, shift: false, alt: false }),
             [UiAction::Clicked { id: "find".into() }]);
 
         tree.set_root(render(""));
@@ -797,7 +797,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "copy_current".into()
@@ -858,7 +859,8 @@ mod tests {
             .handle_event(UiEvent::Key {
                 key: Key::Enter,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             })
             .iter()
             .any(|a| matches!(a, UiAction::Clicked { id } if id == "open_nested")));
@@ -866,7 +868,8 @@ mod tests {
             .handle_event(UiEvent::Key {
                 key: Key::Escape,
                 ctrl: false,
-                shift: false
+                shift: false,
+                alt: false
             })
             .iter()
             .any(|a| matches!(a, UiAction::Clicked { id } if id == "path:overflow_dismiss")));
@@ -1093,7 +1096,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked { id: "home".into() }]
             );

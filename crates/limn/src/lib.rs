@@ -172,11 +172,11 @@ pub use dropdown_menu::{
 };
 pub use element::{
     Cursor,
-    Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Element, ElementKind, FontFamily, HeatCell, HeatPlot, Icon, LevelBars,
+    Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Element, ElementKind, SurfaceFit, FontFamily, HeatCell, HeatPlot, Icon, LevelBars,
     LinePlot,
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
-    SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
+    SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipItem, TooltipPlacement, TooltipSection,
     TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 pub use empty::Empty;
@@ -256,7 +256,7 @@ pub use labels::{labels, set_labels, Labels};
 pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
 pub use theme::Theme;
 pub use tree::{
-    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, PasteTarget, TextLayoutBlock,
+    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, Modifiers, PasteTarget, TextLayoutBlock,
     TextLayoutRun, UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
 };
 pub use tree_view::{guides_for_depths, TreeGuides, TreeRow};

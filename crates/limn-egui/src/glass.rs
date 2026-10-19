@@ -793,12 +793,18 @@ mod tests {
                 id: "gpu-backdrop".into(),
                 label: "Backdrop".into(),
                 opacity: 0.5,
+                fit: limn::SurfaceFit::Native,
+                radius: 0.0,
+                mirrored: false,
             },
             limn::DrawCommand::Surface {
                 rect: limn::Rect::new(10.0, 55.0, 20.0, 10.0),
                 id: "ordinary".into(),
                 label: "Other".into(),
                 opacity: 1.0,
+                fit: limn::SurfaceFit::Native,
+                radius: 0.0,
+                mirrored: false,
             },
             limn::DrawCommand::PopClip,
             limn::DrawCommand::FillRect {

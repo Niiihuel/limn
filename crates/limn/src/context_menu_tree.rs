@@ -469,6 +469,7 @@ impl UiTree {
                         key,
                         shift: false,
                         ctrl: true,
+                        alt: false,
                     },
                     now,
                 )
@@ -589,8 +590,8 @@ impl UiTree {
                 if matches!(menu.target, Target::Custom { .. }) {
                     let index = menu.entries.iter().position(|entry| matches!(entry,
                         ContextMenuEntry::Item(item) if item.enabled && item.shortcut.as_deref().is_some_and(|shortcut|
-                            shortcut_matches(shortcut, Key::V, false, true)
-                                || shortcut_matches(shortcut, Key::V, true, true))));
+                            shortcut_matches(shortcut, Key::V, false, true, false)
+                                || shortcut_matches(shortcut, Key::V, true, true, false))));
                     if let Some(index) = index {
                         // Custom owners receive their existing scoped action.
                         // They decide whether/how to request clipboard text;
@@ -783,9 +784,9 @@ impl UiTree {
                     return Some(self.activate_context_menu(index, now));
                 }
             }
-            UiEvent::Key { key, ctrl, shift } => {
+            UiEvent::Key { key, ctrl, shift, alt } => {
                 let index = self.context_menu.as_ref().and_then(|menu| menu.entries.iter().position(|entry| matches!(entry,
-                    ContextMenuEntry::Item(item) if item.enabled && item.shortcut.as_deref().is_some_and(|shortcut| shortcut_matches(shortcut, *key, *shift, *ctrl)))));
+                    ContextMenuEntry::Item(item) if item.enabled && item.shortcut.as_deref().is_some_and(|shortcut| shortcut_matches(shortcut, *key, *shift, *ctrl, *alt)))));
                 if let Some(index) = index {
                     return Some(self.activate_context_menu(index, now));
                 }
@@ -800,22 +801,25 @@ fn row_index(id: &str) -> Option<usize> {
     id.strip_prefix("__context_menu:item:")?.parse().ok()
 }
 
-fn shortcut_matches(shortcut: &str, key: Key, shift: bool, ctrl: bool) -> bool {
+fn shortcut_matches(shortcut: &str, key: Key, shift: bool, ctrl: bool, alt: bool) -> bool {
     let mut shortcut_ctrl = false;
     let mut shortcut_shift = false;
+    let mut shortcut_alt = false;
     let mut shortcut_key = None;
     for part in shortcut.split('+').map(str::trim) {
         match part.to_ascii_lowercase().as_str() {
             "ctrl" | "control" | "cmd" | "command" | "⌘" => shortcut_ctrl = true,
             "shift" => shortcut_shift = true,
-            "alt" | "option" | "" => return false,
+            "alt" | "option" | "⌥" => shortcut_alt = true,
+            "" => return false,
             _ if shortcut_key.is_some() => return false,
             _ => shortcut_key = Some(part),
         }
     }
     shortcut_ctrl == ctrl
         && shortcut_shift == shift
-        && shortcut_key.is_some_and(|part| part.eq_ignore_ascii_case(&format!("{key:?}")))
+        && shortcut_alt == alt
+        && shortcut_key.is_some_and(|part| Key::from_name(part) == Some(key))
 }
 
 fn text_entries(copy: bool, cut: bool, paste: bool, select_all: bool) -> Vec<ContextMenuEntry> {

@@ -10,7 +10,7 @@ use limn::{
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
     MessageAction, MessageActions, NavigationAction, NavigationBar, NavigationWorkspace, Pager, PanelHeader,
-    Point, Rect, Role, SearchField, SectionHeader, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
+    Point, RasterImage, RasterImageFormat, Rect, Role, SearchField, SectionHeader, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
     TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TreeGuides, TreeRow, UiAction, UiEvent,
     UiTree,
 };
@@ -84,6 +84,10 @@ fn swatches() -> SwatchPicker {
     SwatchPicker::new("accent", swatches, Some("other"), palette())
 }
 
+fn picture() -> RasterImage {
+    RasterImage::new("a".repeat(64), RasterImageFormat::Png, 4, std::sync::Arc::from("AAAA"), "A picture").unwrap()
+}
+
 fn hint(title: &str) -> TooltipSpec {
     TooltipSpec::new(title)
 }
@@ -95,6 +99,12 @@ fn controls() -> Vec<Control> {
             "it",
             || Button::new("it", "Save", palette()).render(),
             || Button::new("it", "Save", palette()).disabled().render(),
+        ),
+        control(
+            "Button with a picture",
+            "it",
+            || Button::new("it", "Join", palette()).image(picture()).render(),
+            || Button::new("it", "Join", palette()).image(picture()).disabled().render(),
         ),
         control(
             "IconButton",
@@ -673,7 +683,7 @@ fn stage(element: Element) -> UiTree {
 }
 
 fn key(key: Key) -> UiEvent {
-    UiEvent::Key { key, shift: false, ctrl: false }
+    UiEvent::Key { key, shift: false, ctrl: false, alt: false }
 }
 
 fn region(frame: &Frame, id: &str) -> Option<Rect> {

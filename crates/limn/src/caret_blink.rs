@@ -154,6 +154,7 @@ mod tests {
                 key,
                 ctrl,
                 shift: false,
+                alt: false,
             },
             now,
         );
