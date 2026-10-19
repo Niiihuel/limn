@@ -211,7 +211,7 @@ mod tests {
         use web_time::{Duration, Instant};
         let now = Instant::now();
         let mut tree = UiTree::new(Element::spacer());
-        tree.tooltip_triggers.insert("hint".into());
+        tree.tooltip_triggers.insert("hint".into(), TOOLTIP_HOVER_DELAY);
         tree.tooltip_hover_since = Some(("hint".into(), now));
         assert_eq!(
             tree.animation_repaint_after_at(now),

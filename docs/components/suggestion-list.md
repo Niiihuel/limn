@@ -67,6 +67,20 @@ An item is a label over a description, after an optional icon. `section`
 starts a section at that item, with a heading on a row of its own above it:
 set it on the first item of each group.
 
+```rust
+SuggestionItem::new("mention=@ada", "Ada Lovelace")
+    .leading(avatar)
+    .ink(role_color)
+    .detail("ada")
+```
+
+`leading` puts an element of the host's in the icon's place, such as a
+person's avatar 24 across, centered at its own size. `ink` colors the label,
+such as in a role's color; a disabled item stays muted. `detail` adds a
+quiet text at the end of the label's line, such as a handle, and the label is
+cut before it. An item without a description shows its line in the middle
+of the row. The platform hears the detail after the description.
+
 ## Title, hints and note
 
 ```rust

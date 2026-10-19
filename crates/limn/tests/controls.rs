@@ -11,7 +11,7 @@ use limn::{
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
     MessageAction, MessageActions, NavigationAction, NavigationBar, NavigationWorkspace, Pager, PanelHeader,
     Point, Rect, Role, SearchField, SectionHeader, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
-    TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TreeGuides, TreeRow, UiAction, UiEvent,
+    TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TopBar, TreeGuides, TreeRow, UiAction, UiEvent,
     UiTree,
 };
 
@@ -146,6 +146,18 @@ fn controls() -> Vec<Control> {
             "it",
             || Toolbar::new("bar", palette()).group(vec![ToolbarItem::button("it", "Save")]).render(),
             || Toolbar::new("bar", palette()).group(vec![ToolbarItem::button("it", "Save").disabled()]).render(),
+        ),
+        control(
+            "TopBar home",
+            "bar:home",
+            || TopBar::new("bar", "", "Search", palette()).width(WINDOW.width).render(),
+            || TopBar::new("bar", "", "Search", palette()).width(WINDOW.width).disabled().render(),
+        ),
+        control(
+            "TopBar search, round in a narrow window",
+            "bar:search",
+            || TopBar::new("bar", "", "Search", palette()).width(WINDOW.width).render(),
+            || TopBar::new("bar", "", "Search", palette()).width(WINDOW.width).disabled().render(),
         ),
         control(
             "Checkbox",

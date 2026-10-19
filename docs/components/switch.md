@@ -42,6 +42,16 @@ Switch::new("notifications", state.notifications, palette).size(ControlSize::Spa
 
 The thumb is always 3 pixels inside the track.
 
+```rust
+Switch::new("notifications", state.notifications, palette).track_size(50.0, 26.0)
+```
+
+`track_size(width, height)` takes a track of the host's own size in place of
+a control size's, such as a settings page's 50 × 26: the thumb is the height
+less 6. The height is at least 12, and the width at least twice the height
+less 6, so the thumb has room to travel. Whichever of `size` and
+`track_size` comes last decides.
+
 ## Variant
 
 ```rust
