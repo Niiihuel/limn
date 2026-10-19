@@ -1,4 +1,4 @@
-use crate::{Color, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, DrawCommand, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -6,6 +6,8 @@ pub const DEFAULT_FONT_SIZE: f32 = 14.0;
 /// Canonical visual size of every chrome icon, in logical pixels.
 /// The host rasterizes this size at the current display scale.
 pub const ICON_SIZE: f32 = 16.0;
+/// The least side [`Element::small_icon`] draws an icon at, in logical pixels.
+pub const SMALL_ICON_SIZE: f32 = 8.0;
 
 /// Preferred side of an anchored floating surface. The layout engine flips
 /// vertically when the preferred side would leave the viewport.
@@ -186,19 +188,32 @@ pub struct TooltipStyle {
     pub shadow: Color,
 }
 
-/// When a tooltip opens. The default is every hint's: after the pointer has
-/// rested on its anchor for 350 ms.
+/// When a tooltip opens and how its title and pointer are drawn. The
+/// default is every hint's: 350 ms, a 12 px title in the regular face, and
+/// a pointer.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TooltipOptions {
     /// How long the pointer rests on the anchor before the hint shows, in
     /// milliseconds; 0 shows it as soon as the pointer is over it. Keyboard
     /// focus shows it at once either way.
     pub delay_ms: u16,
+    /// The title's text size in logical pixels. A one-line hint grows by
+    /// what a title taller than the default adds.
+    pub title_font_size: f32,
+    /// The title's face.
+    pub title_font_family: FontFamily,
+    /// Whether a small pointer joins the hint to its anchor.
+    pub arrow: bool,
 }
 
 impl Default for TooltipOptions {
     fn default() -> Self {
-        Self { delay_ms: 350 }
+        Self {
+            delay_ms: 350,
+            title_font_size: 12.0,
+            title_font_family: FontFamily::Sans,
+            arrow: true,
+        }
     }
 }
 
@@ -444,6 +459,8 @@ pub enum Icon {
     Playlist,
     /// A house: home.
     Home,
+    /// The solid form of [`Self::Home`].
+    HomeFill,
     /// A stack of frames: a collection.
     Library,
     /// Three faders: an equalizer, or any set of fine adjustments.
@@ -477,6 +494,18 @@ pub enum Icon {
     Leave,
     /// Two columns of dots: a handle to drag an item by.
     DragHandle,
+    /// A tree: nature, such as a category of emoji.
+    Tree,
+    /// A fried egg: food and drink.
+    FriedEgg,
+    /// A game controller: games and activities.
+    Gamepad,
+    /// A car from the front: travel and places.
+    Car,
+    /// A light bulb: objects, or an idea.
+    Lightbulb,
+    /// A flag on its pole: flags, or marking something.
+    Flag,
 }
 
 impl Icon {
@@ -506,6 +535,7 @@ impl Icon {
             Self::Bolt => Self::BoltFill,
             Self::Archive => Self::ArchiveFill,
             Self::ChartBar => Self::ChartBarFill,
+            Self::Home => Self::HomeFill,
             other => other,
         }
     }
@@ -561,7 +591,26 @@ pub struct TextSpan {
     pub action: Option<String>,
     /// Decorative leading glyph. It contributes width, never copyable text.
     pub icon: Option<Icon>,
+    /// A picture painted in place of the text, such as a custom emoji; see
+    /// [`Self::image`]. `None` paints the text.
+    pub image: Option<InlineImage>,
 }
+
+/// A picture in a line of text, painted in place of its [`TextSpan`]'s
+/// text. The text stays what is copied, selected and read aloud.
+#[derive(Clone, Debug, PartialEq)]
+pub enum InlineImage {
+    /// A still picture, painted with [`DrawCommand::RasterImage`](crate::DrawCommand::RasterImage).
+    Raster(RasterImage),
+    /// A surface the host feeds by this ID, such as the current frame of an
+    /// animation, painted with [`DrawCommand::Surface`](crate::DrawCommand::Surface)
+    /// in its square; the host presents frames of the square's size.
+    Surface(String),
+}
+
+/// The side of an inline picture, as a multiple of its span's text size:
+/// the size chat clients give custom emoji in a line of text.
+pub const INLINE_IMAGE_SCALE: f32 = 1.375;
 
 impl TextSpan {
     /// A run with no background, action or icon. A `font_size` that is not
@@ -584,6 +633,7 @@ impl TextSpan {
             background: None,
             action: None,
             icon: None,
+            image: None,
         }
     }
 
@@ -604,6 +654,25 @@ impl TextSpan {
     /// not part of the text that can be copied.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Paint `image` in place of the text: a square [`INLINE_IMAGE_SCALE`]
+    /// times `font_size` on a side, centered on its line and never split
+    /// across lines. The text, such as `:name:` for an emoji, is still what
+    /// a selection copies and what accessibility reads; it is not painted.
+    /// `background` and `icon` are not painted on such a run. A span with
+    /// no text shows nothing.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Paint the host-fed surface `id` in place of the text, as
+    /// [`Self::image`] paints a picture: for an animation the host presents
+    /// on that surface, at the square's size.
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.image = Some(InlineImage::Surface(id.into()));
         self
     }
 }
@@ -782,6 +851,11 @@ pub(crate) struct Kept {
     pub(crate) wrap: bool,
     /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
     pub(crate) line_gap: Option<f32>,
+    /// Set by [`Element::center_middle`].
+    pub(crate) center_middle: bool,
+    /// Set by [`Element::sticky_top_background_fade_in`]: the scroll past
+    /// its pin line at which the background starts to show and is whole.
+    pub(crate) sticky_background: Option<(f32, f32)>,
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
     /// Evenly spaced colors painted across the element, and whether they run
@@ -1212,6 +1286,23 @@ pub struct RadarPlot {
     pub tooltip: TooltipStyle,
 }
 
+/// What [`Element::drawing`] keeps: the application's own drawing, made again
+/// at the size the element is laid out at.
+#[derive(Clone)]
+pub struct Drawing(Arc<dyn Fn(Size) -> Vec<DrawCommand> + Send + Sync>);
+
+impl Drawing {
+    pub(crate) fn draw(&self, size: Size) -> Vec<DrawCommand> {
+        (self.0)(size)
+    }
+}
+
+impl std::fmt::Debug for Drawing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Drawing")
+    }
+}
+
 /// A column of short marks, one for each part of a long view, such as the
 /// turns of a conversation. The mark under the pointer or the keyboard focus
 /// grows to `peak` and its neighbours step down to `rest` over `reach` marks,
@@ -1405,7 +1496,7 @@ pub enum ElementKind {
         placement: TooltipPlacement,
         /// The colors it is painted with.
         colors: TooltipStyle,
-        /// When it opens.
+        /// When it opens and how its title and pointer are drawn.
         options: TooltipOptions,
     },
     /// A vertical scrolling viewport over one child; see [`Element::scroll`].
@@ -1667,6 +1758,8 @@ pub enum ElementKind {
     HeatPlot(Box<HeatPlot>),
     /// A column of marks that rise around the pointer; see [`MarkRail`].
     MarkRail(MarkRail),
+    /// The application's own drawing; see [`Element::drawing`].
+    Drawing(Drawing),
     /// Nothing of its own to draw and no natural size; see
     /// [`Element::spacer`].
     Spacer,
@@ -2295,6 +2388,24 @@ impl Element {
     pub fn sticky_top_fade(mut self, height: f32) -> Self {
         if height.is_finite() && height >= 1.0 {
             self.sticky_top.get_or_insert(StickyTop::default()).fade = height.round() as u8;
+        }
+        self
+    }
+
+    /// A [`sticky_top`](Self::sticky_top) child whose `background` fades in
+    /// as the page scrolls under it: none of it until the child has scrolled
+    /// `from` logical pixels past the line it pins at, all of it by `to`, as
+    /// the bar over a music app's page (10 and 80, or 10 and 350 under a tall
+    /// banner). For the first child of the page that distance is the scroll
+    /// offset. Only the background fades; the child's content is painted as
+    /// it is, and it takes clicks where it is drawn as any sticky child does.
+    /// The tree follows the offset on every layout, so the host passes the
+    /// same element each frame. A value that is negative or not finite
+    /// leaves the element as it was; `to` is kept at least 1 past `from`.
+    pub fn sticky_top_background_fade_in(mut self, from: f32, to: f32) -> Self {
+        if from.is_finite() && to.is_finite() && from >= 0.0 && to >= 0.0 {
+            self.sticky_top.get_or_insert(StickyTop::default());
+            self.kept.get_or_insert_default().sticky_background = Some((from, to.max(from + 1.0)));
         }
         self
     }
@@ -3145,6 +3256,18 @@ impl Element {
         Self::new(ElementKind::MarkRail(rail))
     }
 
+    /// A drawing the application makes itself, in the frame's own commands.
+    /// `draw` is given the size the element is laid out at, inside its
+    /// padding, and returns commands placed from that box's top-left corner;
+    /// the tree moves them into place and clips them to the box. Clips the
+    /// drawing pushes and does not pop are popped at its end, and pops it has
+    /// no push for are left out. Give it a size: alone it takes no height,
+    /// and only the width a column stretches it to. A drawing is passive;
+    /// wrap it in [`Element::clickable`] to press it.
+    pub fn drawing(draw: impl Fn(Size) -> Vec<DrawCommand> + Send + Sync + 'static) -> Self {
+        Self::new(ElementKind::Drawing(Drawing(Arc::new(draw))))
+    }
+
     /// A non-interactive loading surface with paint-only motion.
     pub fn skeleton(id: impl Into<String>, base: Color, highlight: Color) -> Self {
         Self::new(ElementKind::Skeleton {
@@ -3239,6 +3362,22 @@ impl Element {
     pub fn wrap(mut self) -> Self {
         self.kept.get_or_insert_default().wrap = true;
         self
+    }
+
+    /// Lay out a row of three children as a window's top bar: the first at
+    /// the start and the last at the end, at their natural widths, and the
+    /// middle one centered in the row, or `gap` after the first when centered
+    /// it would meet either of them, and no wider than the room left.
+    pub(crate) fn center_middle(mut self) -> Self {
+        self.kept.get_or_insert_default().center_middle = true;
+        self
+    }
+
+    /// Whether this is a row of three laid out by [`Self::center_middle`].
+    pub(crate) fn centers_middle(&self, children: usize) -> bool {
+        children == 3
+            && matches!(self.kind, ElementKind::Row(_))
+            && self.kept.as_deref().is_some_and(|kept| kept.center_middle)
     }
 
     /// Space between the lines of a [`wrap`](Self::wrap)ping row, in logical
@@ -3356,9 +3495,12 @@ impl Element {
 
     /// Let the pointer drag a horizontal viewport's content sideways, and
     /// show a thin bar where it sits while there is more than fits. The bar
-    /// takes the viewport's foreground; pressing a control inside still
-    /// presses that control. [`Element::scrollbar_visibility`] can make the
-    /// indicator transient without disabling drag input.
+    /// takes the viewport's foreground. A press on a button inside still
+    /// clicks it unless the pointer travels 4 px sideways first: then it
+    /// pans, and the button is not clicked. Let go with speed, the content
+    /// glides on and slows to rest, unless motion is reduced; a press catches
+    /// it. [`Element::scrollbar_visibility`] can make the indicator transient
+    /// without disabling drag input.
     pub fn drag_to_pan(mut self) -> Self {
         if let ElementKind::HorizontalScroll { drag_pan, .. } = &mut self.kind {
             *drag_pan = true;
@@ -3563,6 +3705,17 @@ impl Element {
     /// Kept for source compatibility while callers migrate to [`ICON_SIZE`].
     /// Icons inside controls use one size; this request is ignored.
     pub fn icon_size(self, _size: f32) -> Self {
+        self
+    }
+
+    /// Draw a standalone [`Element::icon`] smaller than the control size,
+    /// such as a mark over a corner of another icon or a glyph inside a
+    /// small badge: `side` is clamped to 8 to 16 logical pixels. A value
+    /// that is not finite is ignored. Controls keep the standard 16 px.
+    pub fn small_icon(mut self, side: f32) -> Self {
+        if side.is_finite() {
+            self.style.icon_side = Some(side.clamp(SMALL_ICON_SIZE, ICON_SIZE));
+        }
         self
     }
 

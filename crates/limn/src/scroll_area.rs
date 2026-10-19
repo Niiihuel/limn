@@ -23,6 +23,15 @@ pub enum ScrollbarVisibility {
         /// How long it fades after the hold, skipped under reduced motion.
         fade_ms: u16,
     },
+    /// As [`Self::AutoHide`], and also shown while the pointer is over the
+    /// scroll surface, as a chat's history shows its bar under the pointer:
+    /// the hold and the fade start when the pointer leaves it.
+    AutoHideUnlessHovered {
+        /// How long the bar stays fully visible after the last activity.
+        hold_ms: u16,
+        /// How long it fades after the hold, skipped under reduced motion.
+        fade_ms: u16,
+    },
 }
 
 pub(crate) struct ScrollbarState {

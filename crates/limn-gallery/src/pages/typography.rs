@@ -60,6 +60,26 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .font_size(15.0)
                 .foreground(palette.text)
         }).collect()),
+        section(cx, "Inline pictures", {
+            let span = |text: &str, size: f32| limn::TextSpan::new(text, palette.text, size, limn::FontFamily::Sans);
+            vec![
+                caption(cx, "TextSpan::image(picture): a square 1.375 times the text's size, painted in place of its text, which is what a selection copies and a screen reader reads"),
+                Element::formatted_text(vec![
+                    span("A custom emoji ", 16.0),
+                    span(":dusk:", 16.0).image(super::media::picture(0).cover()),
+                    span(" in a line, and another ", 16.0),
+                    span(":tide:", 16.0).image(super::media::picture(2).cover()),
+                    span(": the line wraps around them whole.", 16.0),
+                ])
+                .size(Some(width), None),
+                caption(cx, "Alone, larger: a message that is only emoji, at 48 px"),
+                Element::formatted_text(vec![
+                    span(":forest:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(1).cover()),
+                    span(" ", 48.0 / limn::INLINE_IMAGE_SCALE),
+                    span(":dusk:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(0).cover()),
+                ]),
+            ]
+        }),
         section(cx, "Long text", vec![
             Element::column(vec![
                 caption(cx, "truncate() with tooltip()"),

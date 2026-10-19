@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use crate::{
-    Access, Component, ComponentPalette, Element, FontFamily, Icon, Popover, PopoverPlacement,
+    Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Popover, PopoverPlacement,
     Role, ScrollArea, ScrollbarAppearance, SelectorSizing, Separator, TextSpan,
 };
 
@@ -23,6 +23,9 @@ pub struct SuggestionItem {
     label: String,
     description: String,
     icon: Option<Icon>,
+    leading: Option<Element>,
+    ink: Option<Color>,
+    detail: String,
     section: Option<String>,
     enabled: bool,
 }
@@ -35,6 +38,9 @@ impl SuggestionItem {
             label: label.into(),
             description: String::new(),
             icon: None,
+            leading: None,
+            ink: None,
+            detail: String::new(),
             section: None,
             enabled: true,
         }
@@ -49,6 +55,28 @@ impl SuggestionItem {
     /// The quiet second line.
     pub fn description(mut self, text: impl Into<String>) -> Self {
         self.description = text.into();
+        self
+    }
+
+    /// An element of the host's in the icon's place, such as a person's
+    /// avatar 24 across, centered at its own size. It takes the place of
+    /// `icon`.
+    pub fn leading(mut self, element: Element) -> Self {
+        self.leading = Some(element);
+        self
+    }
+
+    /// The label's color, in place of the palette's text, such as a
+    /// person's role color. A disabled item stays muted.
+    pub fn ink(mut self, color: Color) -> Self {
+        self.ink = Some(color);
+        self
+    }
+
+    /// A quiet text at the end of the label's line, such as a handle or what
+    /// the completion inserts. The label is cut short before it.
+    pub fn detail(mut self, text: impl Into<String>) -> Self {
+        self.detail = text.into();
         self
     }
 
@@ -255,32 +283,57 @@ impl Component for SuggestionList {
                             let item = &items[index];
                             let ink = if item.enabled { palette.text } else { palette.muted };
                             let mut row = Vec::with_capacity(2);
-                            if let Some(icon) = item.icon {
+                            if let Some(leading) = &item.leading {
+                                row.push(leading.clone().centered_y());
+                            } else if let Some(icon) = item.icon {
                                 row.push(
                                     Element::icon(icon)
                                         .foreground(ink)
                                         .size(Some(sizing.icon_size), Some(30.0)),
                                 );
                             }
-                            row.push(
-                                Element::column(vec![
-                                    Element::truncated_text(&item.label)
+                            let label = Element::truncated_text(&item.label)
+                                .font_family(FontFamily::Sans)
+                                .font_size(sizing.label_size)
+                                .foreground(if item.enabled { item.ink.unwrap_or(ink) } else { ink })
+                                .size(None, Some(16.0));
+                            let label = if item.detail.is_empty() {
+                                label
+                            } else {
+                                // The detail keeps its width; the label is cut before it.
+                                Element::row(vec![
+                                    label.flex(1.0),
+                                    Element::text(&item.detail)
                                         .font_family(FontFamily::Sans)
-                                        .font_size(sizing.label_size)
-                                        .foreground(ink)
-                                        .size(None, Some(16.0)),
+                                        .font_size(sizing.detail_size)
+                                        .foreground(palette.muted)
+                                        .centered_y(),
+                                ])
+                                .gap(sizing.gap)
+                                .size(None, Some(16.0))
+                            };
+                            row.push(if item.description.is_empty() {
+                                // One line stands in the middle of the row.
+                                label.centered_y().flex(1.0)
+                            } else {
+                                Element::column(vec![
+                                    label,
                                     Element::truncated_text(&item.description)
                                         .font_family(FontFamily::Sans)
                                         .font_size(sizing.detail_size)
                                         .foreground(palette.muted)
                                         .size(None, Some(14.0)),
                                 ])
-                                .flex(1.0),
-                            );
+                                .flex(1.0)
+                            });
                             let row = Element::row(row).gap(sizing.gap).padding(sizing.padding);
                             let mut access = Access::new(Role::ListItem).name(&item.label);
-                            if !item.description.is_empty() {
-                                access = access.description(&item.description);
+                            let said: Vec<&str> = [item.description.as_str(), item.detail.as_str()]
+                                .into_iter()
+                                .filter(|text| !text.is_empty())
+                                .collect();
+                            if !said.is_empty() {
+                                access = access.description(said.join(", "));
                             }
                             if !item.enabled {
                                 return Element::panel(row)
@@ -429,6 +482,49 @@ mod tests {
         assert!(chosen.actionable && !chosen.disabled);
         assert_eq!((off.role, off.name.as_str(), off.selected), (Role::ListItem, "/command-2", None));
         assert!(off.disabled && !off.actionable);
+    }
+
+    #[test]
+    fn a_suggestion_takes_a_leading_element_its_own_ink_and_a_detail_at_its_end() {
+        const ROLE: Color = Color::rgb(46, 204, 113);
+        let face = Element::panel(Element::spacer()).background(Color::rgb(1, 2, 3)).radius(12.0).size(Some(24.0), Some(24.0));
+        let items = vec![
+            SuggestionItem::new("pick:ada", "Ada Lovelace")
+                .icon(Icon::At)
+                .leading(face)
+                .ink(ROLE)
+                .detail("ada"),
+            SuggestionItem::new("pick:off", "Bruno").ink(ROLE).detail("bruno").disabled(),
+        ];
+        let frame = list(items, 0, 600.0).layout(Size::new(600.0, 400.0));
+        let ada = row(&frame, "pick:ada").unwrap();
+        // The host's element in the icon's place, centered on the row.
+        let picture = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, color, .. } if *color == Color::rgb(1, 2, 3) => Some(*rect),
+            _ => None,
+        });
+        let picture = picture.expect("the leading element");
+        assert_eq!((picture.width, picture.height), (24.0, 24.0));
+        assert!((picture.y + 12.0 - (ada.y + ada.height / 2.0)).abs() < 0.5, "{picture:?} in {ada:?}");
+        assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Icon { icon: Icon::At, .. })));
+        // The label in its ink, on the middle line without a description; the detail at the end, muted.
+        let text = |label: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, color, position, .. } if text == label => Some((*color, *position)),
+                _ => None,
+            })
+        };
+        let (ink, at) = text("Ada Lovelace").unwrap();
+        assert_eq!(ink, ROLE);
+        assert!(at.y > ada.y + 8.0, "one line stands in the middle: {at:?} in {ada:?}");
+        let (muted, end) = text("ada").unwrap();
+        assert_eq!(muted, palette().muted);
+        assert!(end.x > at.x + 100.0 && end.x < ada.x + ada.width);
+        // A disabled one stays muted, whatever its ink.
+        assert_eq!(text("Bruno").unwrap().0, palette().muted);
+        // The platform hears the detail.
+        let said = frame.access.iter().find(|node| node.id == "pick:ada").unwrap();
+        assert_eq!(said.description.as_deref(), Some("ada"));
     }
 
     #[test]

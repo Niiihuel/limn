@@ -17,6 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
 mod glass;
+mod glyph_atlas;
 mod touch_context;
 pub use glass::GlassRenderer;
 
@@ -750,6 +751,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::MusicNote => include_str!("../assets/bootstrap/music-note-beamed.svg"),
         Icon::Playlist => include_str!("../assets/bootstrap/music-note-list.svg"),
         Icon::Home => include_str!("../assets/bootstrap/house.svg"),
+        Icon::HomeFill => include_str!("../assets/bootstrap/house-fill.svg"),
         Icon::Library => include_str!("../assets/bootstrap/collection.svg"),
         Icon::Sliders => include_str!("../assets/bootstrap/sliders.svg"),
         Icon::MicrophoneMuted => include_str!("../assets/bootstrap/mic-mute.svg"),
@@ -766,6 +768,12 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Invite => include_str!("../assets/bootstrap/person-plus.svg"),
         Icon::Leave => include_str!("../assets/bootstrap/box-arrow-left.svg"),
         Icon::DragHandle => include_str!("../assets/bootstrap/grip-vertical.svg"),
+        Icon::Tree => include_str!("../assets/bootstrap/tree.svg"),
+        Icon::FriedEgg => include_str!("../assets/bootstrap/egg-fried.svg"),
+        Icon::Gamepad => include_str!("../assets/bootstrap/controller.svg"),
+        Icon::Car => include_str!("../assets/bootstrap/car-front.svg"),
+        Icon::Lightbulb => include_str!("../assets/bootstrap/lightbulb.svg"),
+        Icon::Flag => include_str!("../assets/bootstrap/flag.svg"),
         Icon::FolderFill => include_str!("../assets/bootstrap/folder-fill.svg"),
         Icon::PlayFill => include_str!("../assets/bootstrap/play-fill.svg"),
         Icon::GridFill => include_str!("../assets/bootstrap/grid-fill.svg"),
@@ -1517,6 +1525,7 @@ fn paint_at_impl(
     backdrop_surface: Option<BackdropSurface<'_>>,
 ) {
     publish_access(ui, frame, origin);
+    let display = glyph_atlas::Display::of(ui.ctx());
     let mut clips = vec![ui.clip_rect()];
     // The rounded shape of each clip in force, from a `RoundClip`.
     let mut rounds: Vec<RoundedClip> = vec![None];
@@ -1805,6 +1814,9 @@ fn paint_at_impl(
                     font,
                     color(*ink),
                 );
+            }
+            DrawCommand::Glyphs(run) => {
+                glyph_atlas::paint(&ui.painter().with_clip_rect(*clips.last().unwrap()), run, origin, display);
             }
             DrawCommand::Icon {
                 rect: area,
@@ -2173,7 +2185,8 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                     if let Some(pos) = pointer {
                         let scale = match unit {
                             egui::MouseWheelUnit::Point => 1.0,
-                            egui::MouseWheelUnit::Line => 30.0,
+                            // A notch travels as far as in a browser: Chrome and Firefox move 120 px.
+                            egui::MouseWheelUnit::Line => 120.0,
                             egui::MouseWheelUnit::Page => 500.0,
                         };
                         let position = relative(origin, pos);
@@ -2338,7 +2351,7 @@ pub fn events_with_touch(ctx: &egui::Context, origin: Pos2, frame: &Frame) -> Ve
 /// and Noto Sans Symbols 2 follow them for mathematical alphabets and
 /// decorative symbols in all families. Noto Emoji supplies missing
 /// monochrome emoji after all existing faces, without reading
-/// system fonts. See `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
+/// system fonts. See limn's `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
 pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(font_definitions());
 }
@@ -2346,64 +2359,46 @@ pub fn install_fonts(ctx: &egui::Context) {
 /// The bundled font families and their Unicode fallbacks. Hosts can prepend
 /// system faces before installing these definitions with `Context::set_fonts`.
 pub fn font_definitions() -> egui::FontDefinitions {
-    let mut fonts = egui::FontDefinitions::default();
-    let name = "Ubuntu-Regular".to_owned();
-    fonts.font_data.insert(
-        name.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
-    );
-    let math = "NotoSansMath-Regular".to_owned();
-    fonts.font_data.insert(
-        math.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansMath-Regular.ttf")).into(),
-    );
-    let symbols = "NotoSansSymbols2-Regular".to_owned();
-    fonts.font_data.insert(
-        symbols.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf")).into(),
-    );
-    let emoji = "NotoEmoji".to_owned();
-    fonts.font_data.insert(
-        emoji.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf")).into(),
-    );
-    // The bundled monospace faces supply box drawing missing from the UI
-    // faces. Reuse their bytes, after the symbols, without replacing UI text.
-    let monospace = fonts.families[&egui::FontFamily::Monospace].clone();
-    // Append before sharing proportional fallbacks with the weighted families.
-    // Existing glyphs retain their faces, including ordinary monospace text.
-    for family in fonts.families.values_mut() {
-        family.push(math.clone());
-        family.push(symbols.clone());
-        for face in &monospace {
-            if !family.contains(face) {
-                family.push(face.clone());
-            }
+    let bundled = limn::Fonts::bundled();
+    // The same bytes limn lays text out in, kept where they are compiled.
+    let data = |font: &limn::Font| -> std::sync::Arc<egui::FontData> {
+        match font.static_bytes() {
+            Some(bytes) => egui::FontData::from_static(bytes),
+            None => egui::FontData::from_owned(font.bytes().to_vec()),
         }
-        family.push(emoji.clone());
-    }
-    // The weights are faces of their own, with the same fallbacks behind them.
-    let fallbacks = fonts
-        .families
-        .get(&egui::FontFamily::Proportional)
-        .cloned()
-        .unwrap_or_default();
-    for (family, face, bytes) in [
-        (SANS_MEDIUM, "Ubuntu-Medium", &include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")[..]),
-        (SANS_BOLD, "Ubuntu-Bold", &include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")[..]),
+        .into()
+    };
+    let face = |family| bundled.face_of(family).expect("limn bundles a face for it");
+    let [math, symbols] = bundled.fallbacks() else {
+        unreachable!("limn bundles two fallbacks: math and symbols");
+    };
+    let emoji = bundled.emoji_face().expect("limn bundles an emoji face");
+    // Only limn's faces, so egui's own are never needed and not carried twice.
+    let mut fonts = egui::FontDefinitions::empty();
+    for (name, font) in [
+        ("Ubuntu-Regular", face(FontFamily::Sans)),
+        ("Ubuntu-Medium", face(FontFamily::SansMedium)),
+        ("Ubuntu-Bold", face(FontFamily::SansBold)),
+        ("Hack", face(FontFamily::Monospace)),
+        ("NotoSansMath-Regular", math),
+        ("NotoSansSymbols2-Regular", symbols),
+        ("NotoEmoji", emoji),
     ] {
-        fonts
-            .font_data
-            .insert(face.to_owned(), egui::FontData::from_static(bytes).into());
-        let mut faces = vec![face.to_owned()];
-        faces.extend(fallbacks.iter().cloned());
-        fonts.families.insert(egui::FontFamily::Name(family.into()), faces);
+        fonts.font_data.insert(name.to_owned(), data(font));
     }
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, name);
+    // The faces in the order limn tries them: behind the UI face the
+    // fallbacks, then the code face for the box drawing the UI face lacks;
+    // behind the code face the UI face, then the fallbacks; emoji last.
+    let chain = |first: &[&str], rest: &[&str]| first.iter().chain(rest).map(|name| (*name).to_owned()).collect();
+    let behind_sans = ["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "Hack", "NotoEmoji"];
+    fonts.families.insert(egui::FontFamily::Proportional, chain(&["Ubuntu-Regular"], &behind_sans));
+    fonts.families.insert(
+        egui::FontFamily::Monospace,
+        chain(&["Hack", "Ubuntu-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
+    );
+    for (family, face_name) in [(SANS_MEDIUM, "Ubuntu-Medium"), (SANS_BOLD, "Ubuntu-Bold")] {
+        fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Ubuntu-Regular"], &behind_sans));
+    }
     fonts
 }
 
@@ -2427,9 +2422,12 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
     }
 }
 
-/// Make a tree measure text with the fonts egui paints with. Call once per
-/// tree, and again after changing the context's fonts.
+/// Make a tree measure text with the fonts egui paints with, and lay
+/// `Element::text` out in limn's own text layout, drawn from this backend's
+/// glyph atlas (see `UiTree::set_text_layout`). Call once per tree, and again
+/// after changing the context's fonts.
 pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
+    tree.set_text_layout(true);
     let mono = egui::FontId::monospace(14.0);
     let sans = egui::FontId::proportional(14.0);
     let (metrics, sans_metrics) = ctx.fonts_mut(|fonts| {
@@ -2783,7 +2781,7 @@ mod tests {
                 if *position == Point::new(40.0, 30.0) && *delta_y == -2.5)));
         assert!(forwarded.iter().any(|event| matches!(event,
             UiEvent::Scroll { position, delta_y }
-                if *position == Point::new(40.0, 30.0) && *delta_y == -60.0)));
+                if *position == Point::new(40.0, 30.0) && *delta_y == -240.0)));
         assert!(forwarded.iter().any(|event| matches!(event,
             UiEvent::Scroll { delta_y, .. } if *delta_y == 500.0)));
     }
@@ -3241,6 +3239,7 @@ mod tests {
             Icon::MusicNote,
             Icon::Playlist,
             Icon::Home,
+            Icon::HomeFill,
             Icon::Library,
             Icon::Sliders,
             Icon::MicrophoneMuted,
@@ -3257,6 +3256,12 @@ mod tests {
             Icon::Invite,
             Icon::Leave,
             Icon::DragHandle,
+            Icon::Tree,
+            Icon::FriedEgg,
+            Icon::Gamepad,
+            Icon::Car,
+            Icon::Lightbulb,
+            Icon::Flag,
             Icon::FolderFill,
             Icon::PlayFill,
             Icon::GridFill,

@@ -161,6 +161,11 @@ deadline and fade; reduced motion keeps the hold and hides without fading.
 works on uniform and measured lists, and on low-level scroll elements through
 `Element::scrollbar_visibility`.
 
+`ScrollbarVisibility::AutoHideUnlessHovered { hold_ms, fade_ms }` also shows
+the bar while the pointer is over the scroll surface, as a chat's history
+shows its bar under the pointer, and starts the hold when the pointer
+leaves. The surface's visible box decides, whatever lies over it.
+
 The same policy applies to the thin indicator enabled by `drag_to_pan()` on
 `Element::horizontal_scroll` and `horizontal_scroll_2d`:
 
@@ -169,6 +174,12 @@ Element::horizontal_scroll_2d("shelf", cards)
     .drag_to_pan()
     .scrollbar_visibility(ScrollbarVisibility::AutoHide { hold_ms: 600, fade_ms: 200 })
 ```
+
+A press anywhere on the viewport pans it, on a button inside too once the
+pointer travels 4 px sideways, and the button is then not clicked; a press
+that does not travel still clicks it. A drag let go with speed glides on and
+slows to rest, unless motion is reduced. [Carousel](carousel.md) is a shelf
+built on it.
 
 Horizontal position changes show it, and an active pointer pan keeps it visible
 until release. Only the indicator's paint hides: the viewport still scrolls,

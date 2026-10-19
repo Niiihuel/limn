@@ -7,7 +7,7 @@ passive: the element under it works exactly as it does without the mark.
 ## Import
 
 ```rust
-use limn::{Badge, Component};
+use limn::{Badge, BadgePlacement, Component};
 ```
 
 ## Usage
@@ -73,14 +73,37 @@ Badge::new(bell, palette)
 ```
 
 `color` sets the fill of the mark. The count and the outline stay in the
-surface color, so pass a color the surface reads on.
+surface color, so pass a color the surface reads on, or set them too.
+
+## Corner and size
+
+```rust
+Badge::new(server_icon, palette)
+    .count(mentions)
+    .placement(BadgePlacement::BottomRight)
+    .height(23.0)
+    .outline(rail_color, 3.0)
+    .color(red)
+    .ink(Color::rgb(255, 255, 255))
+    .font_size(12.0)
+    .font_family(FontFamily::SansBold)
+    .render()
+```
+
+| Option | Default | What it changes |
+| --- | --- | --- |
+| `placement` | `TopRight` | The corner of the child's box the mark sits in: `TopRight`, `BottomRight`, `BottomLeft` or `TopLeft`. |
+| `height` | 16 | The count's height, its outline included, at least 8. A dot keeps the proportion, 10 to 16. |
+| `outline(color, width)` | surface, 1 | The ring that parts the mark from what is under it, drawn inside the mark; 0 draws none. A count keeps 3 px clear of it. |
+| `ink` | surface | The count's color. |
+| `font_size`, `font_family` | 11, `Sans` | The count's text. |
 
 ## Layout
 
 The badge takes the place of its child and no more: the same size, the same
 fixed size and the same `flex`, so a row of buttons does not move when one
-gains or loses its mark. The mark lies inside the top right corner of the
-child's box. A count wider than the child, such as `999+` on a 32 px button,
+gains or loses its mark. The mark lies inside a corner of the child's box,
+the top right unless `placement` says otherwise. A count wider than the child, such as `999+` on a 32 px button,
 runs past the child's left edge, over what is beside it.
 
 ## Badge or Chip
@@ -129,7 +152,6 @@ Badge::new(photo, palette).dot().description("Online").render()
 
 ## Limits
 
-- The mark does not hang outside the child's box, and its corner is fixed at
-  the top right.
+- The mark does not hang outside the child's box.
 - It appears and leaves at once, without a transition.
-- It shows a count or a dot, not an icon, and has one size.
+- It shows a count or a dot, not an icon.

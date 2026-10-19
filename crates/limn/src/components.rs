@@ -44,6 +44,7 @@ pub struct Tooltip {
     palette: ComponentPalette,
     described: bool,
     options: TooltipOptions,
+    background: Option<Color>,
 }
 
 impl Tooltip {
@@ -67,6 +68,7 @@ impl Tooltip {
             palette,
             described: true,
             options: TooltipOptions::default(),
+            background: None,
         }
     }
 
@@ -165,10 +167,39 @@ impl Tooltip {
 
     /// How long the pointer rests on the anchor before the hint shows, in
     /// milliseconds: 350 unless set, and 0 shows it as soon as the pointer
-    /// is over it, for a strip of items read by moving along it. Keyboard
+    /// is over it, for a strip of marks read by moving along it. Keyboard
     /// focus shows it at once either way.
     pub fn delay_ms(mut self, delay: u16) -> Self {
         self.options.delay_ms = delay;
+        self
+    }
+
+    /// The title's text size in logical pixels, 12 unless set. A one-line
+    /// hint grows by what a larger title adds. A size that is not finite or
+    /// not above zero is ignored.
+    pub fn title_font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.options.title_font_size = size;
+        }
+        self
+    }
+
+    /// The title's face, the regular one unless set.
+    pub fn title_font_family(mut self, family: FontFamily) -> Self {
+        self.options.title_font_family = family;
+        self
+    }
+
+    /// Whether a small pointer joins the hint to its anchor. On unless set.
+    pub fn arrow(mut self, arrow: bool) -> Self {
+        self.options.arrow = arrow;
+        self
+    }
+
+    /// Fill the hint and its pointer with this color instead of the
+    /// palette's, such as a darker one than the menus have.
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = Some(color);
         self
     }
 }
@@ -182,13 +213,17 @@ impl Component for Tooltip {
         } else {
             self.anchor
         };
+        let mut colors = self.palette.tooltip_style();
+        if let Some(background) = self.background {
+            colors.background = background;
+        }
         let mut element = Element::tooltip(
             anchor,
             self.anchor_id,
             self.title,
             self.shortcut,
             self.placement,
-            self.palette.tooltip_style(),
+            colors,
         );
         if let ElementKind::Tooltip {
             sections,
@@ -1871,7 +1906,7 @@ impl Component for TextArea {
 }
 
 // What a field drawn disabled still says: the node its input would have been.
-fn disabled_field(
+pub(crate) fn disabled_field(
     role: Role,
     id: String,
     name: Option<String>,
@@ -2134,13 +2169,13 @@ pub enum SwitchVariant {
 }
 
 /// Side of a search field's clear button: its glyph and 4 around it.
-const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
+pub(crate) const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
 /// From the clear button to the field's end, so that its glyph is as far
 /// from that end as the magnifier is from the start.
 const CLEAR_INSET: f32 = 8.0 - (CLEAR_SIDE - ICON_SIZE) / 2.0;
 
 // A circled cross that empties a search field; drawn disabled it is passive.
-fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element {
+pub(crate) fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element {
     // An icon alone: it is named for what it does.
     let said = Access::new(Role::Button).name(crate::labels().clear_search);
     if enabled {
@@ -2175,6 +2210,7 @@ pub struct Switch {
     palette: ComponentPalette,
     accessibility_label: Option<String>,
     size: ControlSize,
+    track: Option<(f32, f32)>,
     variant: SwitchVariant,
     ink: Option<Color>,
 }
@@ -2190,6 +2226,7 @@ impl Switch {
             palette,
             accessibility_label: None,
             size: ControlSize::Regular,
+            track: None,
             variant: SwitchVariant::Default,
             ink: None,
         }
@@ -2201,6 +2238,20 @@ impl Switch {
     /// `Spacious`. The thumb is always 3 pixels inside the track.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self.track = None;
+        self
+    }
+
+    /// A track of the host's own size, in logical pixels, in place of a
+    /// [`ControlSize`]'s, such as a settings page's 50 by 26: the thumb is
+    /// as tall as the track less 6, 3 pixels inside it. The height is at
+    /// least 12 and the width leaves room for the thumb to travel, at least
+    /// twice the height less 6. Values that are not finite are ignored.
+    pub fn track_size(mut self, width: f32, height: f32) -> Self {
+        if width.is_finite() && height.is_finite() {
+            let height = height.max(12.0);
+            self.track = Some((width.max(height * 2.0 - 6.0), height));
+        }
         self
     }
 
@@ -2246,11 +2297,12 @@ impl Switch {
 impl Component for Switch {
     fn render(self) -> Element {
         const INSET: f32 = 3.0;
-        let (track_width, track_height, thumb) = match self.size {
-            ControlSize::Dense => (28.0, 16.0, 10.0),
-            ControlSize::Compact => (32.0, 18.0, 12.0),
-            ControlSize::Regular => (36.0, 20.0, 14.0),
-            ControlSize::Spacious => (44.0, 24.0, 18.0),
+        let (track_width, track_height, thumb) = match (self.track, self.size) {
+            (Some((width, height)), _) => (width, height, height - INSET * 2.0),
+            (None, ControlSize::Dense) => (28.0, 16.0, 10.0),
+            (None, ControlSize::Compact) => (32.0, 18.0, 12.0),
+            (None, ControlSize::Regular) => (36.0, 20.0, 14.0),
+            (None, ControlSize::Spacious) => (44.0, 24.0, 18.0),
         };
         let palette = self.palette;
         let (thumb_color, track_color) = match (self.variant, self.checked) {
@@ -5622,6 +5674,28 @@ mod tests {
         }
         // Without a size it is the regular one.
         assert_eq!(switch_paint(Switch::new("s", true, palette)).0 .0.width, 36.0);
+    }
+
+    #[test]
+    fn a_track_of_its_own_size_keeps_the_thumb_three_pixels_inside_it() {
+        let palette = ComponentPalette::neutral_dark();
+        for (asked, (width, height)) in [((50.0, 26.0), (50.0, 26.0)), ((10.0, 26.0), (46.0, 26.0)), ((30.0, 4.0), (30.0, 12.0))] {
+            for checked in [false, true] {
+                let switch = Switch::new("s", checked, palette)
+                    .size(ControlSize::Dense)
+                    .track_size(asked.0, asked.1)
+                    .track_size(f32::NAN, 40.0);
+                let ((track, _), (thumb, _)) = switch_paint(switch);
+                let side = height - 6.0;
+                assert_eq!((track.width, track.height), (width, height), "{asked:?}");
+                assert_eq!((thumb.width, thumb.height), (side, side), "{asked:?}");
+                let x = if checked { width - 3.0 - side } else { 3.0 };
+                assert_eq!((thumb.x - track.x, thumb.y - track.y), (x, 3.0), "{asked:?}, checked {checked}");
+            }
+        }
+        // A size set after it takes its place again.
+        let ((track, _), _) = switch_paint(Switch::new("s", true, palette).track_size(50.0, 26.0).size(ControlSize::Compact));
+        assert_eq!((track.width, track.height), (32.0, 18.0));
     }
 
     #[test]
