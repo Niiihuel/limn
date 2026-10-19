@@ -22,6 +22,9 @@ mod sticky_tests;
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
 #[cfg(test)]
+#[path = "text_marks_tests.rs"]
+mod text_marks_tests;
+#[cfg(test)]
 #[path = "scrollbar_visibility_tests.rs"]
 mod scrollbar_visibility_tests;
 #[cfg(test)]
@@ -82,7 +85,7 @@ pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
     BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, InlineImage, Point, PopoverPlacement,
-    RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextSpan, TooltipItem,
+    RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 
@@ -91,6 +94,13 @@ const TOOLTIP_PADDING: f32 = 8.0;
 /// How far a [`Element::rise_on_hover`] element travels up as it appears.
 const REVEAL_RISE: f32 = 8.0;
 pub(crate) const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
+/// The start of the hover target of a text run's hint that has no action;
+/// the index of its text in the frame and the hint's title follow.
+const TEXT_HINT_PREFIX: &str = "__text_hint:";
+/// Where a text run's underline and strikethrough sit, as fractions of its
+/// natural line height from the top of its glyphs.
+const TEXT_UNDERLINE_AT: f32 = 0.86;
+const TEXT_STRIKETHROUGH_AT: f32 = 0.55;
 const SLIDER_THUMB_INSET: f32 = 17.0;
 /// One arrow press on a slider without stops.
 const CONTINUOUS_SLIDER_KEY_STEP: f32 = 0.05;
@@ -157,6 +167,12 @@ struct FormattedFragment {
     background: Option<Color>,
     action: Option<String>,
     icon: Option<Icon>,
+    underline: bool,
+    strikethrough: bool,
+    tooltip: Option<TextHint>,
+    /// The «…» that ends a text cut to its `max_lines`: painted, but not
+    /// part of the source.
+    ellipsis: bool,
     /// A picture painted in place of `text`, `width` on a side.
     image: Option<InlineImage>,
     width: f32,
@@ -188,6 +204,9 @@ fn same_span_style(fragment: &FormattedFragment, span: &TextSpan) -> bool {
         && fragment.font_family == span.font_family
         && fragment.background == span.background
         && fragment.action == span.action
+        && fragment.underline == span.underline
+        && fragment.strikethrough == span.strikethrough
+        && fragment.tooltip == span.tooltip
 }
 
 fn formatted_advance(
@@ -240,6 +259,10 @@ fn push_formatted_fragment(
         background: span.background,
         action: span.action.clone(),
         icon: None,
+        underline: span.underline,
+        strikethrough: span.strikethrough,
+        tooltip: span.tooltip.clone(),
+        ellipsis: false,
         image: None,
         width,
         line_height: height,
@@ -285,6 +308,11 @@ fn layout_formatted(
                 background: None,
                 action: span.action.clone(),
                 icon: None,
+                // Lines are not drawn under a picture, as under an icon.
+                underline: false,
+                strikethrough: false,
+                tooltip: span.tooltip.clone(),
+                ellipsis: false,
                 image: Some(image.clone()),
                 width: side,
                 line_height: height,
@@ -312,6 +340,10 @@ fn layout_formatted(
                 background: None,
                 action: span.action.clone(),
                 icon: Some(icon),
+                underline: false,
+                strikethrough: false,
+                tooltip: span.tooltip.clone(),
+                ellipsis: false,
                 image: None,
                 width,
                 line_height: height,
@@ -394,6 +426,92 @@ fn layout_formatted(
         }
     }
     lines.push(current);
+    lines
+}
+
+/// Keep the first `max` of `lines`. When more follow, the last one kept
+/// ends in «…» in the style of its last fragment, giving up graphemes, then
+/// whole icons and pictures, from its end until it fits `max_width`, and
+/// the spaces left before the «…».
+fn clamp_formatted(
+    mut lines: Vec<FormattedLine>,
+    max: usize,
+    max_width: f32,
+    mut measure: impl FnMut(&str, &TextSpan) -> f32,
+    mut line_height: impl FnMut(&TextSpan) -> f32,
+) -> Vec<FormattedLine> {
+    if lines.len() <= max {
+        return lines;
+    }
+    lines.truncate(max.max(1));
+    let Some(style) = lines
+        .iter()
+        .rev()
+        .find_map(|line| line.fragments.last())
+        .map(|last| TextSpan::new("…", last.color, last.font_size, last.font_family))
+    else {
+        return lines;
+    };
+    let limit = if max_width.is_finite() {
+        max_width.max(0.0)
+    } else {
+        f32::INFINITY
+    };
+    let ellipsis_width = measure("…", &style);
+    let line = lines.last_mut().expect("at least one line is kept");
+    let as_span = |fragment: &FormattedFragment| {
+        TextSpan::new("", fragment.color, fragment.font_size, fragment.font_family)
+    };
+    loop {
+        let over = line.width + ellipsis_width > limit;
+        let Some(last) = line.fragments.last_mut() else {
+            break;
+        };
+        let blank = last.text.ends_with(char::is_whitespace);
+        if !over && !blank {
+            break;
+        }
+        // An icon or a picture goes whole.
+        if last.icon.is_some() || last.image.is_some() {
+            line.width -= last.width;
+            line.fragments.pop();
+            continue;
+        }
+        let cut = last
+            .text
+            .grapheme_indices(true)
+            .next_back()
+            .map_or(0, |(at, _)| at);
+        last.text.truncate(cut);
+        if last.text.is_empty() {
+            line.width -= last.width;
+            line.fragments.pop();
+            continue;
+        }
+        let inset = if last.background.is_some() { 6.0 } else { 0.0 };
+        let width = measure(&last.text, &as_span(last)) + inset;
+        line.width += width - last.width;
+        last.width = width;
+    }
+    let height = line_height(&style);
+    line.fragments.push(FormattedFragment {
+        text: style.text,
+        color: style.color,
+        font_size: style.font_size,
+        font_family: style.font_family,
+        background: None,
+        action: None,
+        icon: None,
+        underline: false,
+        strikethrough: false,
+        tooltip: None,
+        ellipsis: true,
+        image: None,
+        width: ellipsis_width,
+        line_height: height,
+    });
+    line.width += ellipsis_width;
+    line.height = line.height.max(height);
     lines
 }
 
@@ -1744,7 +1862,8 @@ impl SelectableTextBlock {
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
-            | FontFamily::SansBold => sans_metrics,
+            | FontFamily::SansBold
+            | FontFamily::SansBoldItalic => sans_metrics,
         }
         .at_size(run.font_size)
         .char_width;
@@ -8348,7 +8467,8 @@ impl LayoutBuilder<'_> {
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
-            | FontFamily::SansBold => self.sans_metrics,
+            | FontFamily::SansBold
+            | FontFamily::SansBoldItalic => self.sans_metrics,
         }
         .at_size(style.font_size)
     }
@@ -8503,36 +8623,43 @@ impl LayoutBuilder<'_> {
             .metrics_for(style)
             .line_height
             .max(style.line_height.unwrap_or(0.0));
-        if let Some(lines) = self.formatted_cache.borrow().get(spans, width, line_height) {
+        if let Some(lines) =
+            self.formatted_cache
+                .borrow()
+                .get(spans, width, line_height, style.max_lines)
+        {
             return lines;
         }
-        let lines: Arc<[FormattedLine]> = layout_formatted(
-            spans,
-            width,
-            line_height,
-            |text, span| {
-                self.text_width(
-                    text,
-                    Style {
-                        font_size: span.font_size,
-                        font_family: span.font_family,
-                        ..style
-                    },
-                )
-            },
-            |span| {
-                self.metrics_for(Style {
+        let measure = |text: &str, span: &TextSpan| {
+            self.text_width(
+                text,
+                Style {
                     font_size: span.font_size,
                     font_family: span.font_family,
                     ..style
-                })
-                .line_height
-            },
-        )
-        .into();
-        self.formatted_cache
-            .borrow_mut()
-            .insert(spans, width, line_height, lines.clone());
+                },
+            )
+        };
+        let natural_height = |span: &TextSpan| {
+            self.metrics_for(Style {
+                font_size: span.font_size,
+                font_family: span.font_family,
+                ..style
+            })
+            .line_height
+        };
+        let mut lines = layout_formatted(spans, width, line_height, measure, natural_height);
+        if let Some(max) = style.max_lines {
+            lines = clamp_formatted(lines, max, width, measure, natural_height);
+        }
+        let lines: Arc<[FormattedLine]> = lines.into();
+        self.formatted_cache.borrow_mut().insert(
+            spans,
+            width,
+            line_height,
+            style.max_lines,
+            lines.clone(),
+        );
         lines
     }
 
@@ -10600,16 +10727,7 @@ impl LayoutBuilder<'_> {
                 }
                 let delay = Duration::from_millis(u64::from(options.delay_ms));
                 self.observed_tooltips.insert(anchor_id.clone(), delay);
-                let keyboard_focused =
-                    self.keyboard_tooltip_focus && self.focused == Some(anchor_id);
-                let hovered_long_enough = !self.keyboard_tooltip_focus
-                    && self.hovered == Some(anchor_id)
-                    && self.pressed != Some(anchor_id)
-                    && self.tooltip_hover_since.is_some_and(|(id, since)| {
-                        id == anchor_id
-                            && self.now.saturating_duration_since(*since) >= delay
-                    });
-                if keyboard_focused || hovered_long_enough {
+                if let Some(keyboard_focused) = self.hint_due(anchor_id, delay) {
                     // The hint points at the control it describes. Inside a
                     // larger anchor, such as a link in a paragraph, that is
                     // the control's own bounds, and the part of them under
@@ -11084,6 +11202,8 @@ impl LayoutBuilder<'_> {
                 let mut source_byte = 0;
                 let mut source_char = 0;
                 let mut y = content.y;
+                // The hint of each run, by its target, and its parts' bounds.
+                let mut hints: Vec<(String, Rect, TextHint)> = Vec::new();
                 for (line_index, line) in self
                     .formatted_lines(spans, content.width, style)
                     .iter()
@@ -11105,6 +11225,31 @@ impl LayoutBuilder<'_> {
                         if let Some(id) = &fragment.action {
                             self.record_inline_focus_target(id, fragment_rect);
                             self.add_region(id, fragment_rect, HitKind::Button, clip);
+                        }
+                        if let Some(hint) = &fragment.tooltip {
+                            // A run without an action is a passive target
+                            // named after its text and its hint, so another
+                            // text with the same hint is another target.
+                            let id = fragment.action.clone().unwrap_or_else(|| {
+                                let id = format!("{TEXT_HINT_PREFIX}{block_index}:{}", hint.title);
+                                self.add_region(&id, fragment_rect, HitKind::Hover, clip);
+                                id
+                            });
+                            hints.push((id, fragment_rect, hint.clone()));
+                        }
+                        if fragment.ellipsis {
+                            self.frame.commands.push(DrawCommand::Text {
+                                position: Point::new(
+                                    x,
+                                    y + line.height - fragment.line_height - leading / 2.0,
+                                ),
+                                text: fragment.text.clone(),
+                                color: fragment.color,
+                                font_size: fragment.font_size,
+                                font_family: fragment.font_family,
+                            });
+                            x += fragment.width;
+                            continue;
                         }
                         if let Some(image) = &fragment.image {
                             let side = fragment.width;
@@ -11222,6 +11367,33 @@ impl LayoutBuilder<'_> {
                             fragment.color,
                             clip,
                         );
+                        if fragment.underline || fragment.strikethrough {
+                            let top = y + line.height - fragment.line_height - leading / 2.0;
+                            let thickness = (fragment.font_size / 14.0).max(1.0);
+                            let width = fragment.width
+                                - if fragment.background.is_some() {
+                                    6.0
+                                } else {
+                                    0.0
+                                };
+                            for (drawn, at) in [
+                                (fragment.underline, TEXT_UNDERLINE_AT),
+                                (fragment.strikethrough, TEXT_STRIKETHROUGH_AT),
+                            ] {
+                                if drawn {
+                                    self.frame.commands.push(DrawCommand::FillRect {
+                                        rect: Rect::new(
+                                            x,
+                                            top + fragment.line_height * at - thickness / 2.0,
+                                            width,
+                                            thickness,
+                                        ),
+                                        color: fragment.color,
+                                        radius: 0.0,
+                                    });
+                                }
+                            }
+                        }
                         if let Some(id) = &fragment.action {
                             if self.keyboard_focus && self.focused == Some(id.as_str()) {
                                 self.draw_focus_ring(fragment_rect, style);
@@ -11249,6 +11421,43 @@ impl LayoutBuilder<'_> {
                             };
                     }
                     y += line.height;
+                }
+                // One hint for a run, over its part under the pointer, or
+                // its first part for the keyboard. Another text with a run of
+                // the same target, such as one action twice, shows none.
+                let mut shown = HashSet::new();
+                for (id, _, hint) in &hints {
+                    // A run's hint waits as long as a `Tooltip` waits by default.
+                    self.observed_tooltips.insert(id.clone(), TOOLTIP_HOVER_DELAY);
+                    let Some(keyboard) = self.hint_due(id, TOOLTIP_HOVER_DELAY) else {
+                        continue;
+                    };
+                    if !shown.insert(id.as_str()) {
+                        continue;
+                    }
+                    let mut parts = hints
+                        .iter()
+                        .filter(|(other, ..)| other == id)
+                        .map(|(_, rect, _)| *rect);
+                    let pointer = self.pointer;
+                    let anchor = if keyboard {
+                        parts.next()
+                    } else {
+                        parts.find(|rect| pointer.is_some_and(|pointer| rect.contains(pointer)))
+                    };
+                    let Some(anchor) = anchor else {
+                        continue;
+                    };
+                    self.overlays.push_back(DeferredOverlay::Tooltip {
+                        anchor,
+                        title: hint.title.clone(),
+                        shortcut: None,
+                        sections: Vec::new(),
+                        max_width: 360.0,
+                        placement: TooltipPlacement::Above,
+                        colors: hint.colors,
+                        options: TooltipOptions::default(),
+                    });
                 }
             }
             ElementKind::RasterImage(image) => {
@@ -11889,6 +12098,8 @@ impl LayoutBuilder<'_> {
                         .enumerate()
                     {
                         let y = content.y + visible_row as f32 * metrics.line_height;
+                        // Highlight fills go under the selection, painted next.
+                        let fills_at = self.frame.commands.len();
                         if !is_placeholder {
                             if let Some((selection_start, selection_end)) = state.selected_range() {
                                 let first = selection_start.max(line.start).min(line.end);
@@ -11951,6 +12162,22 @@ impl LayoutBuilder<'_> {
                             } else {
                                 Vec::new()
                             };
+                        let fills: Vec<DrawCommand> = spans
+                            .iter()
+                            .filter_map(|(left, right, highlight)| {
+                                Some(DrawCommand::FillRect {
+                                    rect: Rect::new(
+                                        content.x + left,
+                                        y,
+                                        right - left,
+                                        metrics.line_height,
+                                    ),
+                                    color: highlight.background?,
+                                    radius: 3.0,
+                                })
+                            })
+                            .collect();
+                        self.frame.commands.splice(fills_at..fills_at, fills);
                         let plain = |commands: &mut Vec<DrawCommand>| {
                             commands.push(DrawCommand::Text {
                                 position: Point::new(content.x, y),
@@ -13134,6 +13361,22 @@ impl LayoutBuilder<'_> {
             offset += main + gap;
         }
         rects
+    }
+
+    /// Whether the hint of `anchor_id` shows now: `Some(true)` while it has
+    /// the keyboard focus, `Some(false)` once the pointer has rested on it
+    /// for `delay` without pressing it.
+    fn hint_due(&self, anchor_id: &str, delay: Duration) -> Option<bool> {
+        if self.keyboard_tooltip_focus {
+            return (self.focused == Some(anchor_id)).then_some(true);
+        }
+        (self.hovered == Some(anchor_id)
+            && self.pressed != Some(anchor_id)
+            && self.tooltip_hover_since.is_some_and(|(id, since)| {
+                id == anchor_id
+                    && self.now.saturating_duration_since(*since) >= delay
+            }))
+        .then_some(false)
     }
 
     fn add_region(&mut self, id: &str, rect: Rect, kind: HitKind, clip: Option<Rect>) {
