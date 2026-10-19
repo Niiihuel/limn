@@ -1,8 +1,8 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    Button, ButtonVariant, Component, DropdownMenuEntry, DropdownMenuItem, Element, Icon, MenuBar,
+    Button, ButtonVariant, Component, DropdownMenuEntry, DropdownMenuItem, Element, FontFamily, Icon, MenuBar,
     MenuBarMenu, RadiusRole, StatusBar, StatusBarItem, StatusBarItemSizing, TooltipPlacement,
-    TooltipSpec,
+    TooltipSpec, WindowControls,
 };
 
 const WIDTHS: [&str; 4] = ["200", "260", "340", "420"];
@@ -153,6 +153,15 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         .centered()
         .sizing(StatusBarItemSizing::COUNTS)
         .tooltip_with(TooltipSpec::new("3 new notifications"));
+    // The middle button flips its own flag in the gallery, as a host would maximize the window.
+    let maximized = cx.state.flag(&WindowControls::maximize_id("chrome-window"));
+    let title_bar = Element::row(vec![
+        Element::spacer().size(Some(12.0), None),
+        Element::text("Notes").font_family(FontFamily::Sans).font_size(13.0).foreground(palette.text).centered_y(),
+        Element::spacer().flex(1.0),
+        WindowControls::new("chrome-window", palette).maximized(maximized).render(),
+    ])
+    .size(None, Some(32.0));
 
     vec![
         section(
@@ -176,6 +185,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 status(cx, "chrome-ruled", width).top_hairline(true).render(),
                 caption(cx, "Centered cell with custom glyph ink."),
                 row(vec![bell.render()]),
+            ],
+        ),
+        section(
+            cx,
+            "Window controls",
+            vec![
+                caption(cx, "The end of a title bar the app draws: minimize, maximize and close, 46 wide and as tall as the bar. Maximize turns into restore; close turns red under the pointer."),
+                framed(cx, width, title_bar),
             ],
         ),
     ]

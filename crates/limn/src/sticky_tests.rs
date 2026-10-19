@@ -400,3 +400,51 @@ fn an_anchor_already_in_view_still_goes_to_the_start_when_asked_to() {
     tree.layout(SIZE);
     assert_eq!(tree.scroll_offset("list"), 240.0);
 }
+
+/// A page whose 20 px header fades its background in from 10 to 80 px of
+/// scroll, over thirty 20 px rows.
+fn page_under(header: Element) -> Element {
+    let mut children = vec![header];
+    children.extend((0..30).map(|row| Element::button(format!("r{row}"), "Row").size(None, Some(20.0))));
+    Element::scroll("page", Element::column(children))
+}
+
+#[test]
+fn a_background_that_fades_in_follows_the_scroll_past_the_pin_line() {
+    let color = Color::rgb(80, 20, 40);
+    let header = Element::text("Header")
+        .size(None, Some(20.0))
+        .background(color)
+        .sticky_top_background_fade_in(10.0, 80.0);
+    let fill = |frame: &Frame| {
+        frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, color: fill, .. }
+                if (fill.r, fill.g, fill.b) == (color.r, color.g, color.b) => Some((rect.y, fill.a)),
+            _ => None,
+        })
+    };
+    let said = |frame: &Frame| {
+        frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { text, .. } if text == "Header"))
+    };
+    for (offset, alpha) in [(0.0, 0), (10.0, 0), (45.0, 128), (80.0, 255), (300.0, 255)] {
+        let frame = scrolled(page_under(header.clone()), offset);
+        assert_eq!(fill(&frame).map(|(_, a)| a).unwrap_or(0), alpha, "at {offset}");
+        assert!(said(&frame), "the content is painted as it is at {offset}");
+        if offset > 0.0 {
+            assert_eq!(fill(&frame).map_or(0.0, |(y, _)| y), 0.0, "pinned at the top at {offset}");
+        }
+    }
+    // Only the background: the same header without the option is opaque at rest.
+    let opaque = scrolled(page_under(Element::text("Header").size(None, Some(20.0)).background(color).sticky_top()), 0.0);
+    assert_eq!(fill(&opaque).map(|(_, a)| a), Some(255));
+}
+
+#[test]
+fn a_fade_in_range_that_is_not_a_number_is_ignored() {
+    for (from, to) in [(f32::NAN, 80.0), (10.0, f32::INFINITY), (-1.0, 80.0), (10.0, -5.0)] {
+        let element = Element::spacer().sticky_top_background_fade_in(from, to);
+        assert!(element.sticky_top.is_none() && element.kept.is_none(), "{from}, {to}");
+    }
+    let backwards = Element::spacer().sticky_top_background_fade_in(50.0, 10.0);
+    assert_eq!(backwards.kept.and_then(|kept| kept.sticky_background), Some((50.0, 51.0)));
+}

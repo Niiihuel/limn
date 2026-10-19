@@ -195,3 +195,49 @@ fn removing_a_scroll_surface_removes_its_pending_wakeup() {
     tree.layout_at(size, now);
     assert_eq!(tree.animation_repaint_after_at(now), None);
 }
+
+#[test]
+fn a_bar_that_hides_unless_hovered_wakes_under_the_pointer_and_fades_after_it_leaves() {
+    let now = Instant::now();
+    let size = Size::new(220.0, 160.0);
+    let visibility = ScrollbarVisibility::AutoHideUnlessHovered {
+        hold_ms: 600,
+        fade_ms: 200,
+    };
+    // Outside the surface: hidden, with no target, as AutoHide.
+    let mut tree = UiTree::new(Element::column(vec![
+        root(visibility).size(None, Some(160.0)),
+        Element::spacer().flex(1.0),
+    ]));
+    let size = Size::new(size.width, 240.0);
+    tree.layout_at(size, now);
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(20.0, 200.0)), now);
+    let frame = tree.layout_at(size, now);
+    assert_eq!(thumb_alpha(&frame), None);
+    assert!(!frame.regions.iter().any(|region| region.kind == HitKind::Scrollbar));
+    // Over it, without scrolling: shown, and held as long as the pointer stays.
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(20.0, 60.0)), now);
+    assert_eq!(thumb_alpha(&tree.layout_at(size, now)), Some(72));
+    let later = now + Duration::from_millis(5_000);
+    assert_eq!(thumb_alpha(&tree.layout_at(size, later)), Some(72));
+    assert_eq!(tree.animation_repaint_after_at(later), None);
+    // Gone: the hold, then the fade.
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(20.0, 200.0)), later);
+    assert_eq!(thumb_alpha(&tree.layout_at(size, later)), Some(72));
+    assert_eq!(
+        tree.animation_repaint_after_at(later),
+        Some(Duration::from_millis(600))
+    );
+    assert_eq!(
+        thumb_alpha(&tree.layout_at(size, later + Duration::from_millis(800))),
+        None
+    );
+    // Plain AutoHide ignores the pointer over its surface.
+    let mut plain = UiTree::new(root(ScrollbarVisibility::AutoHide {
+        hold_ms: 600,
+        fade_ms: 200,
+    }));
+    plain.layout_at(Size::new(220.0, 160.0), now);
+    plain.handle_event_at(UiEvent::PointerMove(Point::new(20.0, 60.0)), now);
+    assert_eq!(thumb_alpha(&plain.layout_at(Size::new(220.0, 160.0), now)), None);
+}

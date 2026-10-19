@@ -13,6 +13,22 @@ const OUTLINE: f32 = 1.0;
 /// The size of a chip's label.
 const FONT_SIZE: f32 = 11.0;
 const DEFAULT_MAX: u32 = 99;
+/// The least height a count's mark takes, its outline included.
+const MIN_HEIGHT: f32 = 8.0;
+
+/// The corner of the marked element's box a [`Badge`] holds its mark in.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum BadgePlacement {
+    /// The top right corner, where a count of what is new usually sits.
+    #[default]
+    TopRight,
+    /// The bottom right corner, such as the mentions on a server's icon.
+    BottomRight,
+    /// The bottom left corner.
+    BottomLeft,
+    /// The top left corner.
+    TopLeft,
+}
 
 /// The host owns the element that is marked and the count. The badge reports
 /// nothing and takes no pointer or focus: the element under it keeps its hit
@@ -26,6 +42,12 @@ pub struct Badge {
     dot: bool,
     color: Option<Color>,
     description: Option<String>,
+    placement: BadgePlacement,
+    height: f32,
+    outline: (Option<Color>, f32),
+    ink: Option<Color>,
+    font_size: f32,
+    font_family: FontFamily,
 }
 
 impl Badge {
@@ -40,7 +62,62 @@ impl Badge {
             dot: false,
             color: None,
             description: None,
+            placement: BadgePlacement::TopRight,
+            height: COUNT_HEIGHT,
+            outline: (None, OUTLINE),
+            ink: None,
+            font_size: FONT_SIZE,
+            font_family: FontFamily::Sans,
         }
+    }
+
+    /// The corner of the child's box the mark sits in, inside it: the top
+    /// right unless set.
+    pub fn placement(mut self, placement: BadgePlacement) -> Self {
+        self.placement = placement;
+        self
+    }
+
+    /// The height of a count's mark in logical pixels, its outline
+    /// included: 16 unless set, and at least 8. A dot keeps the same
+    /// proportion, 10 to 16. A value that is not finite is ignored.
+    pub fn height(mut self, height: f32) -> Self {
+        if height.is_finite() {
+            self.height = height.max(MIN_HEIGHT);
+        }
+        self
+    }
+
+    /// The ring that parts the mark from what is under it: its color, the
+    /// palette's surface unless set, and its width in logical pixels, 1
+    /// unless set and 0 for none. The ring is drawn inside the mark, whose
+    /// count keeps clear of it. A width that is not finite is ignored.
+    pub fn outline(mut self, color: Color, width: f32) -> Self {
+        if width.is_finite() {
+            self.outline = (Some(color), width.max(0.0));
+        }
+        self
+    }
+
+    /// The color of the count, in place of the palette's surface.
+    pub fn ink(mut self, color: Color) -> Self {
+        self.ink = Some(color);
+        self
+    }
+
+    /// The count's text size in logical pixels, 11 unless set. A size that
+    /// is not finite or not above zero is ignored.
+    pub fn font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.font_size = size;
+        }
+        self
+    }
+
+    /// The count's face, the regular one unless set.
+    pub fn font_family(mut self, family: FontFamily) -> Self {
+        self.font_family = family;
+        self
     }
 
     /// Show this number. Zero shows no mark unless `show_zero` is set.
@@ -103,42 +180,59 @@ impl Component for Badge {
             return self.child;
         };
         let palette = self.palette;
-        let height = if self.dot { DOT_SIZE } else { COUNT_HEIGHT };
+        let height = if self.dot {
+            self.height * DOT_SIZE / COUNT_HEIGHT
+        } else {
+            self.height
+        };
+        let (ring, outline) = (self.outline.0.unwrap_or(palette.surface), self.outline.1);
         // One character stands in a circle, as in a chip; more widen the pill.
         let round = label.chars().count() <= 1;
         let content = if self.dot {
             Element::spacer()
         } else {
             let count = Element::text(label)
-                .font_family(FontFamily::Sans)
-                .font_size(FONT_SIZE)
-                .foreground(palette.surface)
+                .font_family(self.font_family)
+                .font_size(self.font_size)
+                .foreground(self.ink.unwrap_or(palette.surface))
                 .center_content()
                 .centered_y();
             if round {
                 count
             } else {
-                // The count keeps its measured width, as a chip's label does.
+                // The count keeps its measured width, as a chip's label does,
+                // clear of the ring.
+                let inset = COUNT_INSET + (outline - OUTLINE).max(0.0);
                 Element::row(vec![
-                    Element::spacer().min_size(COUNT_INSET, 0.0).flex(1.0),
+                    Element::spacer().min_size(inset, 0.0).flex(1.0),
                     count,
-                    Element::spacer().min_size(COUNT_INSET, 0.0).flex(1.0),
+                    Element::spacer().min_size(inset, 0.0).flex(1.0),
                 ])
             }
         };
         let mark = Element::panel(content)
             .background(self.color.unwrap_or(palette.text))
-            .border(palette.surface, OUTLINE)
             .radius(height / 2.0)
             .min_size(height, height)
             .size(round.then_some(height), Some(height));
-        // The mark is held in the top right corner of the child's box. Its
-        // holder measures as nothing, so the stack is as large as the child alone.
-        let corner = Element::column(vec![
-            Element::row(vec![Element::spacer().flex(1.0), mark]),
-            Element::spacer().flex(1.0),
-        ])
-        .size(Some(0.0), Some(0.0));
+        let mark = if outline > 0.0 { mark.border(ring, outline) } else { mark };
+        // The mark is held in a corner of the child's box. Its holder
+        // measures as nothing, so the stack is as large as the child alone.
+        let (top, left) = match self.placement {
+            BadgePlacement::TopRight => (true, false),
+            BadgePlacement::BottomRight => (false, false),
+            BadgePlacement::BottomLeft => (false, true),
+            BadgePlacement::TopLeft => (true, true),
+        };
+        let mut across = vec![Element::spacer().flex(1.0), mark];
+        if left {
+            across.reverse();
+        }
+        let mut down = vec![Element::row(across), Element::spacer().flex(1.0)];
+        if !top {
+            down.reverse();
+        }
+        let corner = Element::column(down).size(Some(0.0), Some(0.0));
         // The stack stands in its parent as the child would alone: the same
         // fixed size and flex, so a taller row does not stretch what is marked.
         let layout = self.child.style;
@@ -257,6 +351,72 @@ mod tests {
             assert_eq!((rect.x + rect.width, rect.y), (child.x + child.width, child.y));
             assert!(texts(&frame).is_empty());
         }
+    }
+
+    #[test]
+    fn a_mark_takes_any_corner_its_own_height_ring_ink_and_face() {
+        const RING: Color = Color::rgb(30, 31, 34);
+        const INK: Color = Color::rgb(255, 255, 255);
+        let corners = [
+            (BadgePlacement::TopRight, false, true),
+            (BadgePlacement::BottomRight, false, false),
+            (BadgePlacement::BottomLeft, true, false),
+            (BadgePlacement::TopLeft, true, true),
+        ];
+        for (placement, left, top) in corners {
+            for count in [3, 42] {
+                let frame = tree_of(|child| {
+                    Badge::new(child, palette())
+                        .count(count)
+                        .color(FILL)
+                        .placement(placement)
+                        .height(23.0)
+                        .height(f32::NAN)
+                        .outline(RING, 3.0)
+                        .outline(FILL, f32::INFINITY)
+                        .ink(INK)
+                        .font_size(12.0)
+                        .font_size(0.0)
+                        .font_family(FontFamily::SansBold)
+                        .render()
+                })
+                .layout(window());
+                let child = region(&frame, "bell");
+                let (rect, radius) = mark(&frame, FILL).expect("a mark");
+                assert_eq!((rect.height, radius), (23.0, 11.5), "{placement:?}");
+                let x = if left { child.x } else { child.x + child.width - rect.width };
+                let y = if top { child.y } else { child.y + child.height - rect.height };
+                assert_eq!((rect.x, rect.y), (x, y), "{placement:?}");
+                assert!(frame.commands.iter().any(|command| matches!(
+                    command,
+                    DrawCommand::StrokeRect { rect: stroke, color, width, .. }
+                        if *color == RING && *width == 3.0 && *stroke == rect
+                )));
+                let label = count.to_string();
+                assert!(frame.commands.iter().any(|command| matches!(
+                    command,
+                    DrawCommand::Text { text, color, font_size, font_family, .. }
+                        if *text == label && *color == INK && *font_size == 12.0 && *font_family == FontFamily::SansBold
+                )));
+                // Two digits stay clear of the ring: as wide as the text and both insets.
+                if count >= 10 {
+                    let blocks = frame.text_layouts();
+                    let text = &blocks.iter().find(|block| block.source == label).unwrap().runs[0];
+                    assert!(text.rect.x >= rect.x + COUNT_INSET + 2.0, "{placement:?}");
+                }
+            }
+        }
+        // A dot keeps its proportion, and a ring of nothing is not drawn.
+        let frame = tree_of(|child| {
+            Badge::new(child, palette()).dot().color(FILL).height(32.0).outline(RING, 0.0).render()
+        })
+        .layout(window());
+        let (rect, _) = mark(&frame, FILL).expect("a dot");
+        assert_eq!((rect.width, rect.height), (20.0, 20.0));
+        assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::StrokeRect { .. })));
+        // Never shorter than 8.
+        let frame = tree_of(|child| Badge::new(child, palette()).count(1).color(FILL).height(2.0).render()).layout(window());
+        assert_eq!(mark(&frame, FILL).unwrap().0.height, MIN_HEIGHT);
     }
 
     #[test]

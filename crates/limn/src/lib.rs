@@ -20,6 +20,7 @@ mod breadcrumb;
 mod button_group;
 mod bottom_sheet;
 mod card;
+mod carousel;
 mod caret_blink;
 mod charts;
 mod chat_minimap;
@@ -64,6 +65,10 @@ mod media_card;
 mod media_tile;
 mod menu;
 mod menu_bar;
+mod fonts;
+mod text_layout;
+mod text_layout_cache;
+mod window_controls;
 mod menu_header;
 mod modal;
 mod navigation_bar;
@@ -77,6 +82,7 @@ mod message_actions;
 mod pager;
 mod pagination;
 mod panel_header;
+mod peek_panel;
 mod popover_panel;
 mod preferences;
 mod progress;
@@ -91,6 +97,7 @@ mod resize_handle;
 mod separator;
 mod sequence;
 mod shortcut;
+mod side_rail;
 mod skeleton;
 mod slider;
 mod spinner;
@@ -108,6 +115,7 @@ mod time_picker;
 mod toast;
 mod toggle;
 mod toolbar;
+mod top_bar;
 mod access;
 pub mod hot;
 mod labels;
@@ -133,10 +141,11 @@ pub use coach_mark::{CoachMark, Tour, TourStep};
 pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
 pub use avatar_group::AvatarGroup;
-pub use badge::Badge;
+pub use badge::{Badge, BadgePlacement};
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 pub use button_group::{ButtonGroup, ButtonGroupSizing};
 pub use card::{Card, CardDensity};
+pub use carousel::Carousel;
 pub use charts::{
     AreaChart, BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, ColumnChart, HeatmapCell, HeatmapChart,
     HeatmapScale, LineChart, PieChart, RadarChart,
@@ -145,7 +154,7 @@ pub use checkbox::Checkbox;
 pub use chip::Chip;
 pub use code_block::{CodeBlock, CodeBlockSizing};
 pub use code_diff::{CodeDiff, CodeDiffLine, CodeDiffLineKind};
-pub use code_editor::{CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
+pub use code_editor::{CaretStyle, CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
 pub use code_syntax::CodeLanguage;
 pub use collapse::Collapse;
 pub use collapsible::{collapse_footer, Collapsible};
@@ -172,12 +181,12 @@ pub use dropdown_menu::{
 };
 pub use element::{
     Cursor,
-    Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Element, ElementKind, FontFamily, HeatCell, HeatPlot, Icon, LevelBars,
+    Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Drawing, Element, ElementKind, FontFamily, HeatCell, HeatPlot, Icon, LevelBars,
     LinePlot,
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
-    SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
-    TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,
+    SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipItem, TooltipPlacement, TooltipSection,
+    TooltipOptions, TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE, SMALL_ICON_SIZE,
 };
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};
@@ -200,6 +209,9 @@ pub use media_card::MediaCard;
 pub use media_tile::MediaTile;
 pub use menu::{MenuItem, MenuSeparator};
 pub use menu_bar::{MenuBar, MenuBarMenu};
+pub use fonts::{fonts, set_fonts, Font, FontError, Fonts};
+pub use text_layout::{Glyph, GlyphRun, Leading, TextLayout, TextLine, TextStyle};
+pub use window_controls::WindowControls;
 pub use menu_header::MenuHeader;
 pub use modal::{DismissButton, Modal};
 pub use motion::{
@@ -216,6 +228,7 @@ pub use message_actions::{
 pub use pager::{Pager, PagerSizing};
 pub use pagination::Pagination;
 pub use panel_header::{PanelHeaderSizing, PanelHeader, SidebarPanel};
+pub use peek_panel::{PeekPanel, Side};
 pub use popover_panel::{PopoverPanel, PopoverPanelSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
@@ -228,6 +241,7 @@ pub use select::{Select, SelectVariant};
 pub use selector_sizing::SelectorSizing;
 pub use resize_handle::ResizeHandle;
 pub use separator::Separator;
+pub use side_rail::{SideRail, SideRailItem};
 pub use sequence::{
     SequenceArrow, SequenceBlockKind, SequenceBlockLayout, SequenceDiagram, SequenceEvent, SequenceGraph,
     SequenceLayout, SequenceMessage, SequenceMessageLayout, SequenceNoteLayout, SequenceNotePlace,
@@ -251,6 +265,7 @@ pub use time_picker::TimePicker;
 pub use toast::Toast;
 pub use toggle::{Toggle, ToggleGroup, ToggleItem, ToggleVariant};
 pub use toolbar::{Toolbar, ToolbarItem};
+pub use top_bar::TopBar;
 pub use access::{Access, AccessNode, Role};
 pub use labels::{labels, set_labels, Labels};
 pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};

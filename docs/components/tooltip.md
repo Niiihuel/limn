@@ -60,6 +60,28 @@ that wraps, `separator` a hairline between two sections and `footer`
 secondary information. `icon_row(label, items)` adds a row of labelled icons
 built from `TooltipItem`s. Empty text is ignored.
 
+## Delay, title, pointer and fill
+
+```rust
+Tooltip::new(anchor, "server", "Rust workshop", palette)
+    .placement(TooltipPlacement::Right)
+    .delay_ms(0)
+    .title_font_size(16.0)
+    .title_font_family(FontFamily::SansMedium)
+    .background(Color::rgb(10, 10, 12))
+    .render()
+```
+
+| Option | Default | What it changes |
+| --- | --- | --- |
+| `delay_ms` | 350 | How long the pointer rests before the hint shows; 0 shows it at once, for a strip of marks read by moving along it. Keyboard focus shows it at once either way. |
+| `title_font_size` | 12 | The title's size. A one-line hint grows by what a larger title adds. |
+| `title_font_family` | `Sans` | The title's face. |
+| `arrow` | `true` | The small pointer that joins the hint to its anchor. |
+| `background` | the palette's | The fill of the hint and its pointer. |
+
+They are kept as `TooltipOptions` on the rendered `ElementKind::Tooltip`.
+
 ## Placement
 
 ```rust

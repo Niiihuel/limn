@@ -1,6 +1,6 @@
 #[path = "horizontal_scroll_tree.rs"]
 mod horizontal_scroll_tree;
-use horizontal_scroll_tree::HorizontalScrollState;
+use horizontal_scroll_tree::{HorizontalPan, HorizontalScrollState};
 #[path = "corner_mask_tree.rs"]
 mod corner_mask_tree;
 #[path = "plot_tree.rs"]
@@ -61,6 +61,7 @@ use crate::motion::{
 use crate::shortcut;
 use crate::scroll_area::ScrollbarState;
 use crate::text_width_cache::TextWidthCache;
+use crate::text_layout_cache::TextLayoutCache;
 #[path = "formatted_text_cache.rs"]
 mod formatted_text_cache;
 use formatted_text_cache::FormattedTextCache;
@@ -80,9 +81,9 @@ mod captured_paste;
 pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, Point, PopoverPlacement,
+    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextSpan, TooltipItem,
-    TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
+    TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 
 const TOOLTIP_HEIGHT: f32 = 24.0;
@@ -156,6 +157,8 @@ struct FormattedFragment {
     background: Option<Color>,
     action: Option<String>,
     icon: Option<Icon>,
+    /// A picture painted in place of `text`, `width` on a side.
+    image: Option<InlineImage>,
     width: f32,
     line_height: f32,
 }
@@ -179,6 +182,7 @@ impl FormattedLine {
 
 fn same_span_style(fragment: &FormattedFragment, span: &TextSpan) -> bool {
     fragment.icon.is_none()
+        && fragment.image.is_none()
         && fragment.color == span.color
         && fragment.font_size == span.font_size
         && fragment.font_family == span.font_family
@@ -236,6 +240,7 @@ fn push_formatted_fragment(
         background: span.background,
         action: span.action.clone(),
         icon: None,
+        image: None,
         width,
         line_height: height,
     });
@@ -262,6 +267,32 @@ fn layout_formatted(
     let mut lines = Vec::new();
     let mut current = FormattedLine::new(default_line_height);
     for span in spans {
+        // A picture is one square that moves to the next line whole.
+        if let Some(image) = span.image.as_ref().filter(|_| !span.text.is_empty()) {
+            let side = span.font_size * crate::INLINE_IMAGE_SCALE;
+            if current.width + side > limit && !current.fragments.is_empty() {
+                lines.push(std::mem::replace(
+                    &mut current,
+                    FormattedLine::new(default_line_height),
+                ));
+            }
+            let height = line_height(span).max(side);
+            current.fragments.push(FormattedFragment {
+                text: span.text.clone(),
+                color: span.color,
+                font_size: span.font_size,
+                font_family: span.font_family,
+                background: None,
+                action: span.action.clone(),
+                icon: None,
+                image: Some(image.clone()),
+                width: side,
+                line_height: height,
+            });
+            current.width += side;
+            current.height = current.height.max(height);
+            continue;
+        }
         if let Some(icon) = span.icon.filter(|_| !span.text.is_empty()) {
             let width = ICON_SIZE + 4.0;
             let first = span.text.split_word_bounds().next().unwrap_or_default();
@@ -281,6 +312,7 @@ fn layout_formatted(
                 background: None,
                 action: span.action.clone(),
                 icon: Some(icon),
+                image: None,
                 width,
                 line_height: height,
             });
@@ -507,6 +539,9 @@ pub enum DrawCommand {
         /// pixel gaps.
         dashed: bool,
     },
+    /// Glyphs limn has shaped and placed; see [`crate::GlyphRun`]. A backend
+    /// draws each glyph where the run says, and lays nothing out again.
+    Glyphs(crate::GlyphRun),
     /// A run of text the tree has already measured and wrapped. A backend
     /// paints it from `position` without wrapping it again.
     Text {
@@ -737,6 +772,10 @@ impl DrawCommand {
             } => {
                 *position = Point::new(position.x + dx, position.y + dy);
                 fade(color);
+            }
+            Self::Glyphs(run) => {
+                run.origin = Point::new(run.origin.x + dx, run.origin.y + dy);
+                fade(&mut run.color);
             }
             Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
@@ -1171,6 +1210,15 @@ fn animate_popover_command(
             *font_size *= scale;
             fade(color, opacity);
         }
+        DrawCommand::Glyphs(run) => {
+            scale_point(&mut run.origin, scale, origin, slide_y);
+            run.size *= scale;
+            // Placed from the run's origin, the glyphs scale about it.
+            if scale != 1.0 {
+                run.glyphs = run.glyphs.iter().map(|glyph| crate::Glyph { x: glyph.x * scale, y: glyph.y * scale, ..*glyph }).collect();
+            }
+            fade(&mut run.color, opacity);
+        }
         DrawCommand::Icon { rect, tint, .. } => {
             scale_rect(rect, scale, origin, slide_y);
             fade(tint, opacity);
@@ -1327,6 +1375,9 @@ pub struct Frame {
     sliders: HashMap<String, SliderGeometry>,
     scroll_extents: HashMap<String, f32>,
     horizontal_viewports: HashMap<String, Rect>,
+    /// Each button inside a `drag_to_pan` viewport, with the viewport a drag
+    /// that starts on it pans.
+    pan_items: HashMap<String, String>,
     scrollbars: HashMap<String, ScrollbarGeometry>,
     scroll_motion: HashMap<String, ScrollMotion>,
     scroll_focus_targets: HashMap<String, ScrollFocusTarget>,
@@ -1577,6 +1628,16 @@ fn slot_spring(value: f32, now: Instant) -> ScalarSpring {
     ScalarSpring::new(value, now).motion(slot_motion())
 }
 
+/// The spring an [`Element::extend_on_hover`] edge travels on: it overshoots
+/// by a tenth, as something let go does, and is within a thousandth of its
+/// way after three `move_ms`.
+fn bounce_motion() -> crate::SpringMotion {
+    const DAMPING: f32 = 0.6;
+    let seconds = (f32::from(crate::tokens().motion.move_ms) * 3.0 / 1000.0).max(0.001);
+    let omega = 1000_f32.ln() / (DAMPING * seconds);
+    crate::SpringMotion { damping_ratio: DAMPING, stiffness: omega * omega }
+}
+
 fn slot_motion() -> crate::SpringMotion {
     crate::SpringMotion::settling_in(slot_settle())
 }
@@ -1615,6 +1676,8 @@ struct SelectableTextRun {
     visible: Option<Rect>,
     font_size: f32,
     font_family: FontFamily,
+    /// An inline picture: its text is selected whole or not at all.
+    atomic: bool,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1622,6 +1685,24 @@ struct SelectableTextBlock {
     source: String,
     runs: Vec<SelectableTextRun>,
     region_layer: usize,
+    /// Text laid out in a `TextLayout`, which a pointer is read back from.
+    layout: Option<PlacedText>,
+}
+
+/// A text layout and where it was drawn.
+#[derive(Clone, Debug)]
+struct PlacedText {
+    layout: crate::TextLayout,
+    origin: Point,
+}
+
+impl PartialEq for PlacedText {
+    fn eq(&self, other: &Self) -> bool {
+        self.origin == other.origin
+            && self.layout.text() == other.layout.text()
+            && self.layout.style() == other.layout.style()
+            && self.layout.size() == other.layout.size()
+    }
 }
 
 impl SelectableTextBlock {
@@ -1638,6 +1719,12 @@ impl SelectableTextBlock {
         metrics: FontMetrics,
         sans_metrics: FontMetrics,
     ) -> usize {
+        if let Some(placed) = &self.layout {
+            let at = Point::new(point.x - placed.origin.x, point.y - placed.origin.y);
+            let byte = placed.layout.index_at(at);
+            let offset = self.source.get(..byte).map_or(0, |before| before.chars().count());
+            return nearest_source_grapheme_boundary(&self.source, offset);
+        }
         let Some(row) = self.runs.iter().min_by(|left, right| {
             vertical_distance(left.rect, point.y).total_cmp(&vertical_distance(right.rect, point.y))
         }) else {
@@ -1662,6 +1749,9 @@ impl SelectableTextBlock {
         .at_size(run.font_size)
         .char_width;
         let x = (point.x - run.rect.x).max(0.0);
+        if run.atomic {
+            return if x * 2.0 < run.rect.width { run.start } else { run.end };
+        }
         let offset = run.start
             + nearest_grapheme(&run.text, x, |text| {
                 measured_width(measure, text, run.font_size, run.font_family, char_width)
@@ -2434,8 +2524,9 @@ pub enum UiEvent {
     /// The primary button was released at this position. A release on the
     /// control that was pressed reports `UiAction::Clicked`.
     PointerUp(Point),
-    /// A wheel step, converted to logical pixels by the host. The scrolling
-    /// area under the pointer eases to its new offset.
+    /// A wheel step, converted to logical pixels by the host (`limn-egui`
+    /// moves a notch 120 px, as a browser does). The scrolling area under the
+    /// pointer eases to its new offset.
     Scroll {
         /// Where the pointer is; what scrolls is under it.
         position: Point,
@@ -3039,6 +3130,10 @@ pub struct UiTree {
     text_height_measurer: Option<Arc<TextHeightMeasurer>>,
     width_cache: RefCell<TextWidthCache>,
     formatted_cache: RefCell<FormattedTextCache>,
+    layout_cache: RefCell<TextLayoutCache>,
+    /// Whether `Element::text` is laid out in a `TextLayout`; see
+    /// [`UiTree::set_text_layout`].
+    text_layout: bool,
     measurement_cache: RefCell<MeasurementCache>,
     horizontal_scrolls: HashMap<String, HorizontalScrollState>,
     frame: Frame,
@@ -3055,8 +3150,8 @@ pub struct UiTree {
     /// What each measured list keeps between layouts, by its ID.
     measured_lists: HashMap<String, MeasuredListState>,
     scroll_drag: Option<ScrollDrag>,
-    // The viewport being dragged sideways, and the pointer x plus offset it was grabbed at.
-    horizontal_pan: Option<(String, f32)>,
+    /// The press in a `drag_to_pan` viewport, until the pointer is let go.
+    horizontal_pan: Option<HorizontalPan>,
     scroll_button_hold: Option<ScrollButtonHold>,
     slider_drag: Option<SliderDrag>,
     slider_motion: HashMap<String, SliderMotion>,
@@ -3077,7 +3172,8 @@ pub struct UiTree {
     keyboard_focus: bool,
     keyboard_tooltip_focus: bool,
     closed_submenu_triggers: HashSet<String>,
-    tooltip_triggers: HashSet<String>,
+    /// The anchors of the last layout's hints, with how long each waits.
+    tooltip_triggers: HashMap<String, Duration>,
     pressed: Option<String>,
     pressed_dispatch: Option<String>,
     pointer_drag: Option<PointerDrag>,
@@ -3126,6 +3222,8 @@ impl UiTree {
             text_height_measurer: None,
             width_cache: RefCell::new(TextWidthCache::default()),
             formatted_cache: RefCell::new(FormattedTextCache::default()),
+            layout_cache: RefCell::new(TextLayoutCache::default()),
+            text_layout: false,
             measurement_cache: RefCell::new(MeasurementCache::default()),
             horizontal_scrolls: HashMap::new(),
             frame: Frame::default(),
@@ -3160,7 +3258,7 @@ impl UiTree {
             keyboard_focus: false,
             keyboard_tooltip_focus: false,
             closed_submenu_triggers: HashSet::new(),
-            tooltip_triggers: HashSet::new(),
+            tooltip_triggers: HashMap::new(),
             pressed: None,
             pressed_dispatch: None,
             pointer_drag: None,
@@ -3237,6 +3335,16 @@ impl UiTree {
         self.text_measurer = Some(Arc::new(measure));
         self.width_cache.get_mut().clear();
         self.formatted_cache.get_mut().clear();
+    }
+
+    /// Lay `Element::text` out in limn's own [`crate::TextLayout`] and draw it
+    /// as glyph runs, instead of measuring it through the text measurer and
+    /// leaving the backend to lay it out again. Its caret, its selection and
+    /// its glyphs then come from one layout. `limn_egui::attach_fonts` turns
+    /// it on. Off by default while limn's components move to it one by one;
+    /// once they all have, it is always on and this goes away.
+    pub fn set_text_layout(&mut self, enabled: bool) {
+        self.text_layout = enabled;
     }
 
     /// Remove the host's text width function, so widths come from the font
@@ -3619,13 +3727,12 @@ impl UiTree {
             || self
                 .tab_indicators
                 .values()
-                .any(|state| state.x.is_active(now) || state.width.is_active(now));
+                .any(|state| state.x.is_active(now) || state.width.is_active(now))
+            || self.horizontal_scrolls.values().any(|state| state.is_gliding(now));
         let hover_wait = self.tooltip_hover_since.as_ref().and_then(|(id, since)| {
             let elapsed = now.saturating_duration_since(*since);
-            (self.tooltip_triggers.contains(id)
-                && self.pressed.as_deref() != Some(id)
-                && elapsed < TOOLTIP_HOVER_DELAY)
-                .then(|| TOOLTIP_HOVER_DELAY - elapsed)
+            let delay = *self.tooltip_triggers.get(id)?;
+            (self.pressed.as_deref() != Some(id) && elapsed < delay).then(|| delay - elapsed)
         });
         if transition {
             Some(Duration::ZERO)
@@ -3784,6 +3891,7 @@ impl UiTree {
         refresh_hover_paint: bool,
     ) -> Frame {
         self.begin_paste_layout();
+        self.layout_cache.get_mut().begin_pass();
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
         for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
@@ -3814,7 +3922,7 @@ impl UiTree {
         let mut observed_replacements = HashSet::new();
         let mut current_popover_snapshots = HashMap::new();
         let mut observed_tabs = HashSet::new();
-        let mut observed_tooltips = HashSet::new();
+        let mut observed_tooltips = HashMap::new();
         let mut observed_skeletons = HashSet::new();
         let mut observed_shimmers = HashSet::new();
         let mut observed_spinners = HashSet::new();
@@ -3850,6 +3958,8 @@ impl UiTree {
                 text_height_measurer: self.text_height_measurer.clone(),
                 width_cache: &self.width_cache,
                 formatted_cache: &self.formatted_cache,
+                layout_cache: &self.layout_cache,
+                text_layout: self.text_layout,
                 measurement_cache: &self.measurement_cache,
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
@@ -3870,7 +3980,11 @@ impl UiTree {
                 scroll_to_index: &mut self.scroll_to_index,
                 hovered_scrollbar: self.hovered_scrollbar.as_deref(),
                 dragging_scrollbar: self.scroll_drag.as_ref().map(|drag| drag.id.as_str()),
-                dragging_horizontal: self.horizontal_pan.as_ref().map(|(id, _)| id.as_str()),
+                dragging_horizontal: self
+                    .horizontal_pan
+                    .as_ref()
+                    .filter(|pan| pan.claimed)
+                    .map(|pan| pan.id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 // An open menu is modal: the page under it does not answer the pointer.
                 pointer: self.pointer.filter(|_| context_menu_paint.is_none()),
@@ -4281,6 +4395,7 @@ impl UiTree {
                         max_width,
                         placement,
                         colors,
+                        options,
                     } => {
                         let start = builder.frame.commands.len();
                         builder.paint_tooltip(
@@ -4291,6 +4406,7 @@ impl UiTree {
                             max_width,
                             placement,
                             colors,
+                            options,
                             viewport_rect,
                         );
                         // One hint shows at a time, so they share one fade:
@@ -5479,7 +5595,7 @@ impl UiTree {
                     .hit_region(point)
                     .filter(|region| region.kind == HitKind::Scrollbar)
                     .map(|region| region.id.clone());
-                self.drag_horizontal_pan(point);
+                self.drag_horizontal_pan(point, now);
                 if let Some(drag) = self.scroll_drag.as_ref() {
                     if let Some(geometry) = self.frame.scrollbars.get(&drag.id) {
                         self.scroll_transitions.remove(&drag.id);
@@ -5550,6 +5666,7 @@ impl UiTree {
             UiEvent::PointerDown(point) => {
                 self.scroll_button_hold = None;
                 self.scroll_drag = None;
+                self.horizontal_pan = None;
                 self.pointer = Some(point);
                 self.set_hovered(self.frame.hit_test(point).map(str::to_owned), now);
                 self.keyboard_focus = false;
@@ -5607,9 +5724,12 @@ impl UiTree {
                     actions.push(slider_action(id, fraction, y, false));
                     return actions;
                 }
-                if let Some(pan) = self.horizontal_pan_at(point) {
+                if let Some(pan) = Self::horizontal_pan_at(&self.frame, &mut self.horizontal_scrolls, point, now) {
+                    let claimed = pan.claimed;
                     self.horizontal_pan = Some(pan);
-                    return actions;
+                    if claimed {
+                        return actions;
+                    }
                 }
                 if let Some(region) = hit
                     .as_ref()
@@ -5758,7 +5878,11 @@ impl UiTree {
                     }
                     selection.dragging = false;
                 }
-                if self.scroll_drag.take().is_some() || self.horizontal_pan.take().is_some() {
+                if self.scroll_drag.take().is_some() {
+                    return actions;
+                }
+                if let Some(pan) = self.horizontal_pan.take().filter(|pan| pan.claimed) {
+                    self.release_horizontal_pan(pan, now);
                     return actions;
                 }
                 if self.scroll_button_hold.take().is_some() {
@@ -6444,6 +6568,9 @@ fn collect_focus_order(
     order: &mut Vec<(String, HitKind)>,
     seen: &mut HashSet<String>,
 ) {
+    if element.kept.as_ref().is_some_and(|kept| kept.inert) {
+        return;
+    }
     match &element.kind {
         ElementKind::Column(children)
         | ElementKind::Row(children)
@@ -6555,6 +6682,7 @@ fn collect_focus_order(
         | ElementKind::RasterImage(_)
         | ElementKind::Surface { .. }
         | ElementKind::Icon(_)
+        | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -6632,6 +6760,7 @@ fn collect_action_metadata(
         | ElementKind::RadarPlot(_)
         | ElementKind::HeatPlot(_)
         | ElementKind::MarkRail(_)
+        | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -6844,6 +6973,8 @@ struct LayoutBuilder<'a> {
     text_height_measurer: Option<Arc<TextHeightMeasurer>>,
     width_cache: &'a RefCell<TextWidthCache>,
     formatted_cache: &'a RefCell<FormattedTextCache>,
+    layout_cache: &'a RefCell<TextLayoutCache>,
+    text_layout: bool,
     measurement_cache: &'a RefCell<MeasurementCache>,
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
@@ -6905,7 +7036,7 @@ struct LayoutBuilder<'a> {
     observed_popovers: &'a mut HashSet<String>,
     popover_snapshots: &'a mut HashMap<String, PopoverSnapshot>,
     observed_tabs: &'a mut HashSet<String>,
-    observed_tooltips: &'a mut HashSet<String>,
+    observed_tooltips: &'a mut HashMap<String, Duration>,
     observed_skeletons: &'a mut HashSet<String>,
     observed_shimmers: &'a mut HashSet<String>,
     observed_spinners: &'a mut HashSet<String>,
@@ -6953,6 +7084,7 @@ enum DeferredOverlay {
         max_width: f32,
         placement: TooltipPlacement,
         colors: TooltipStyle,
+        options: TooltipOptions,
     },
 }
 
@@ -7567,6 +7699,7 @@ impl LayoutBuilder<'_> {
         preferred_width: f32,
         preferred: TooltipPlacement,
         colors: TooltipStyle,
+        options: TooltipOptions,
         viewport: Rect,
     ) {
         // A hint for a menu row must sit outside the entire menu, including
@@ -7609,10 +7742,20 @@ impl LayoutBuilder<'_> {
             return;
         }
         let title_style = Style {
-            font_size: 12.0,
-            font_family: FontFamily::Sans,
+            font_size: options.title_font_size,
+            font_family: options.title_font_family,
             ..Style::default()
         };
+        // What a title taller than the default adds to a one-line hint.
+        let title_growth = (self.metrics_for(title_style).line_height
+            - self
+                .metrics_for(Style {
+                    font_size: TooltipOptions::default().title_font_size,
+                    font_family: TooltipOptions::default().title_font_family,
+                    ..Style::default()
+                })
+                .line_height)
+            .max(0.0);
         let content_max = max_width - TOOLTIP_PADDING * 2.0;
         let shortcut = shortcut
             .map(shortcut::label)
@@ -7726,7 +7869,7 @@ impl LayoutBuilder<'_> {
         let body_height = if rich {
             (content_height + 12.0).max(TOOLTIP_HEIGHT)
         } else {
-            TOOLTIP_HEIGHT
+            TOOLTIP_HEIGHT + title_growth
         };
         let (body, placement) = place_tooltip(
             anchor,
@@ -7798,14 +7941,16 @@ impl LayoutBuilder<'_> {
         });
         // Painted last so its fill covers the body border at the join; the
         // nested triangles leave a one-pixel outline.
-        self.frame.commands.push(DrawCommand::FillTriangle {
-            points: outline,
-            color: colors.border,
-        });
-        self.frame.commands.push(DrawCommand::FillTriangle {
-            points: fill,
-            color: colors.background,
-        });
+        if options.arrow {
+            self.frame.commands.push(DrawCommand::FillTriangle {
+                points: outline,
+                color: colors.border,
+            });
+            self.frame.commands.push(DrawCommand::FillTriangle {
+                points: fill,
+                color: colors.background,
+            });
+        }
         let content = Rect::new(
             body.x + TOOLTIP_PADDING,
             body.y + if rich { 6.0 } else { 1.0 },
@@ -8072,6 +8217,65 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// `value` in `style`, as laid out for this tree, broken at `width` when
+    /// it is finite.
+    fn laid_out_text(&self, value: &str, style: Style, width: f32, centered: bool) -> crate::TextLayout {
+        // The line height and placement the measured path gives, so the
+        // switch moves nothing.
+        let text_style = crate::TextStyle::new(style.font_size, style.font_family)
+            .line_height(self.metrics_for(style).line_height)
+            .leading(crate::Leading::Below);
+        self.layout_cache.borrow_mut().get(value, text_style, width, centered)
+    }
+
+    /// Paint text laid out in a `TextLayout`: its selection, its glyphs, and
+    /// the selectable block a pointer reads it back from.
+    fn paint_laid_out_text(&mut self, value: &str, content: Rect, style: Style, clip: Option<Rect>) {
+        let layout = self.laid_out_text(value, style, content.width, style.center_content);
+        let origin = Point::new(content.x, content.y);
+        let block_index = self.frame.text_blocks.len();
+        let mut runs = Vec::new();
+        let mut start = 0;
+        for line in layout.lines() {
+            let held = &value[line.range.clone()];
+            // A line's own text; the break that ends it is the source's.
+            let shown = held.strip_suffix('\n').map_or(held, |line| line.strip_suffix('\r').unwrap_or(line));
+            let rect = Rect::new(origin.x + line.rect.x, origin.y + line.rect.y, line.rect.width, line.rect.height);
+            runs.push(SelectableTextRun {
+                start,
+                end: start + shown.chars().count(),
+                text: shown.to_owned(),
+                rect,
+                visible: clip.and_then(|area| rect.intersection(area)).or_else(|| clip.is_none().then_some(rect)),
+                font_size: style.font_size,
+                font_family: style.font_family,
+                atomic: false,
+            });
+            start += held.chars().count();
+        }
+        if let Some((from, to)) = self
+            .selection
+            .filter(|selection| selection.block == block_index && selection.source == value)
+            .and_then(|selection| selection.range())
+        {
+            let byte = |offset: usize| value.char_indices().nth(offset).map_or(value.len(), |(byte, _)| byte);
+            for rect in layout.selection(byte(from)..byte(to)) {
+                self.frame.commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(origin.x + rect.x, origin.y + rect.y, rect.width, rect.height),
+                    color: Color::rgba(180, 180, 180, 84),
+                    radius: 0.0,
+                });
+            }
+        }
+        self.frame.commands.extend(layout.draw(origin, style.foreground));
+        self.frame.text_blocks.push(SelectableTextBlock {
+            source: value.to_owned(),
+            runs,
+            region_layer: self.frame.regions.len(),
+            layout: Some(PlacedText { layout, origin }),
+        });
+    }
+
     fn paint_static_run(
         &mut self,
         block_index: usize,
@@ -8097,8 +8301,14 @@ impl LayoutBuilder<'_> {
                         font_family: run.font_family,
                         ..Style::default()
                     };
-                    let left = self.text_width(char_range(&run.text, 0, start - run.start), style);
-                    let right = self.text_width(char_range(&run.text, 0, end - run.start), style);
+                    let (left, right) = if run.atomic {
+                        (0.0, run.rect.width)
+                    } else {
+                        (
+                            self.text_width(char_range(&run.text, 0, start - run.start), style),
+                            self.text_width(char_range(&run.text, 0, end - run.start), style),
+                        )
+                    };
                     self.frame.commands.push(DrawCommand::FillRect {
                         rect: Rect::new(
                             run.rect.x + left,
@@ -8112,13 +8322,15 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
-        self.frame.commands.push(DrawCommand::Text {
-            position,
-            text: run.text.clone(),
-            color,
-            font_size: run.font_size,
-            font_family: run.font_family,
-        });
+        if !run.atomic {
+            self.frame.commands.push(DrawCommand::Text {
+                position,
+                text: run.text.clone(),
+                color,
+                font_size: run.font_size,
+                font_family: run.font_family,
+            });
+        }
         self.frame.text_blocks[block_index].runs.push(run);
     }
 
@@ -8133,9 +8345,10 @@ impl LayoutBuilder<'_> {
         .at_size(style.font_size)
     }
 
-    /// Underline the text painted since command `first`, kept inside `bounds`.
-    /// A faded label paints its line several times; each is underlined once.
-    fn underline_text(&mut self, first: usize, bounds: Rect, style: Style) {
+    /// Underline the text painted since command `first` and text block
+    /// `first_block`, kept inside `bounds`. A faded label paints its line
+    /// several times; each is underlined once.
+    fn underline_text(&mut self, first: usize, first_block: usize, bounds: Rect, style: Style) {
         let mut lines: Vec<(Point, f32, f32, Color)> = Vec::new();
         for command in &self.frame.commands[first..] {
             let DrawCommand::Text {
@@ -8162,6 +8375,21 @@ impl LayoutBuilder<'_> {
                     self.metrics_for(run).line_height,
                     *color,
                 )),
+            }
+        }
+        // Text laid out in a `TextLayout`: under each of its lines, in its ink.
+        let ink = self.frame.commands[first..]
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Glyphs(run) => Some(run.color),
+                _ => None,
+            })
+            .max_by_key(|color| color.a);
+        if let Some(ink) = ink {
+            for block in self.frame.text_blocks[first_block..].iter().filter(|block| block.layout.is_some()) {
+                for run in &block.runs {
+                    lines.push((Point::new(run.rect.x, run.rect.y), run.rect.width, run.rect.height, ink));
+                }
             }
         }
         for (position, width, line_height, color) in lines {
@@ -8579,24 +8807,31 @@ impl LayoutBuilder<'_> {
         self.measured_lists.insert(list.id.clone(), state);
     }
 
+    /// How visible the bar of scroll surface `id` is, from 0 to 1. `area` is
+    /// the surface's visible box: under the pointer it wakes a bar that
+    /// hides unless hovered.
     fn scrollbar_opacity(
         &mut self,
         id: &str,
         offset: f32,
         interacting: bool,
         visibility: crate::ScrollbarVisibility,
+        area: Rect,
     ) -> f32 {
-        match visibility {
+        let (hold_ms, fade_ms, hovered) = match visibility {
             crate::ScrollbarVisibility::Always => {
                 self.scrollbar_states.remove(id);
-                1.0
+                return 1.0;
             }
-            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => {
-                self.scrollbar_states.entry(id.to_owned())
-                    .or_insert_with(|| ScrollbarState::new(offset, self.now))
-                    .observe(offset, interacting, hold_ms, fade_ms, self.reduced_motion, self.now)
+            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => (hold_ms, fade_ms, false),
+            crate::ScrollbarVisibility::AutoHideUnlessHovered { hold_ms, fade_ms } => {
+                (hold_ms, fade_ms, self.pointer.is_some_and(|point| area.contains(point)))
             }
-        }
+        };
+        self.scrollbar_states
+            .entry(id.to_owned())
+            .or_insert_with(|| ScrollbarState::new(offset, self.now))
+            .observe(offset, interacting || hovered, hold_ms, fade_ms, self.reduced_motion, self.now)
     }
 
     fn paint_scrollbar(
@@ -8619,7 +8854,7 @@ impl LayoutBuilder<'_> {
         let hovered = self.hovered_scrollbar == Some(id);
         let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
         let interacting = active || hovered || self.scroll_button_hold.is_some_and(|hold| hold.id == id);
-        let opacity = self.scrollbar_opacity(id, offset, interacting, visibility);
+        let opacity = self.scrollbar_opacity(id, offset, interacting, visibility, visible);
         if opacity <= 0.0 { return; }
         let ink = appearance.tint.unwrap_or(ink);
         let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
@@ -8995,9 +9230,13 @@ impl LayoutBuilder<'_> {
         }
         let sharp: Vec<DrawCommand> = self.frame.commands.drain(start..).collect();
         for command in sharp {
-            let DrawCommand::Text { color, .. } = &command else {
-                self.frame.commands.push(command);
-                continue;
+            let color = match &command {
+                DrawCommand::Text { color, .. } => color,
+                DrawCommand::Glyphs(run) => &run.color,
+                _ => {
+                    self.frame.commands.push(command);
+                    continue;
+                }
             };
             // Where every copy overlaps, the ink is nearly what it was.
             let ink = f32::from(color.a) / 255.0;
@@ -9034,6 +9273,23 @@ impl LayoutBuilder<'_> {
             let pace = paced(if target > state.value.target() { rise_ms } else { fall_ms });
             // It turns from where it is, at the speed it has, and takes its new pace from there.
             state.value.launch(target, pace, self.now);
+        }
+        state.value.value(self.now)
+    }
+
+    /// As `spring`, on `motion`: from rest it starts at standstill, and
+    /// redirected it turns from where it is at the speed it has.
+    fn spring_on(&self, key: &str, target: f32, motion: crate::SpringMotion) -> f32 {
+        let mut springs = self.springs.borrow_mut();
+        let state = springs.entry(key.to_owned()).or_insert_with(|| AnimatedSpring {
+            value: ScalarSpring::new(target, self.now).motion(motion),
+            seen: self.now,
+        });
+        state.seen = self.now;
+        if self.reduced_motion {
+            state.value = ScalarSpring::new(target, self.now).motion(motion);
+        } else {
+            state.value.retarget(target, self.now);
         }
         state.value.value(self.now)
     }
@@ -9110,6 +9366,10 @@ impl LayoutBuilder<'_> {
         let wrap_width = inner.width.min(style.max_width
             .map_or(f32::INFINITY, |max| (max - padding).max(0.0)));
         let natural = match &element.kind {
+            ElementKind::Text(value) if self.text_layout => {
+                let size = self.laid_out_text(value, style, wrap_width, false).size();
+                Size::new(size.width + padding, size.height + padding)
+            }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
                 text: value,
@@ -9278,6 +9538,8 @@ impl LayoutBuilder<'_> {
             }
             // The caller sizes it; left alone it is one dot.
             ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
+            // The caller sizes it.
+            ElementKind::Drawing(_) => Size::new(padding, padding),
             // The caller sizes it; left alone it takes the width it is offered.
             ElementKind::HeatPlot(plot) => {
                 let rows = plot.columns.iter().map(Vec::len).max().unwrap_or(0) as f32;
@@ -9516,19 +9778,30 @@ impl LayoutBuilder<'_> {
     }
 
     fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        let rect = self.extended(element, rect, clip);
         let dragged = element.draggable
             && !element.drag_in_place
             && self.drag_source.is_some()
             && focusable_id(element) == self.drag_source;
         let start = self.frame.commands.len();
+        let inert = element.kept.as_ref().is_some_and(|kept| kept.inert).then_some((
+            self.frame.regions.len(),
+            self.frame.access.len(),
+            self.frame.tab_focus.len(),
+            self.frame.inline_menu_focus.len(),
+            self.frame.context_menu_regions.len(),
+            self.frame.text_blocks.len(),
+        ));
         let reveal = element.hover_reveal;
         let around = self.region_hovered;
         if reveal == HoverReveal::Region {
             let visible = clip.map_or(Some(rect), |clip| rect.intersection(clip));
-            self.region_hovered = self
-                .pointer
-                .zip(visible)
-                .is_some_and(|(point, visible)| visible.contains(point));
+            let focused = self.keyboard_focus && focusable_id(element).is_some_and(|id| self.focused == Some(id));
+            self.region_hovered = focused
+                || self
+                    .pointer
+                    .zip(visible)
+                    .is_some_and(|(point, visible)| visible.contains(point));
         }
         // A wrapper that is not itself a control speaks for the control inside
         // it: a field in its frame, a switch in its row.
@@ -9579,6 +9852,42 @@ impl LayoutBuilder<'_> {
             self.drag_ghost = Some(start..self.frame.commands.len());
         }
         self.note_access(element, rect, clip, for_this);
+        if let Some((regions, access, tabs, menus, context, text)) = inert {
+            // Only its paint stays: nothing in it takes the pointer, the focus or a reader.
+            self.frame.regions.truncate(regions);
+            self.frame.access.truncate(access);
+            self.frame.tab_focus.truncate(tabs);
+            self.frame.inline_menu_focus.truncate(menus);
+            self.frame.context_menu_regions.truncate(context);
+            self.frame.text_blocks.truncate(text);
+        }
+    }
+
+    /// The box an [`Element::extend_on_hover`] element is placed in: `rect`
+    /// reaching out as far as its spring has got. Whether the pointer is
+    /// over it is asked of the box it is heading for, so the pointer over
+    /// what it shows keeps it out.
+    fn extended(&self, element: &Element, rect: Rect, clip: Option<Rect>) -> Rect {
+        let Some((id, by)) = element.kept.as_ref().and_then(|kept| kept.extend.as_ref()) else {
+            return rect;
+        };
+        let length = by.x.abs().max(by.y.abs());
+        if length == 0.0 {
+            return rect;
+        }
+        let reach = |out: f32| {
+            let (x, y) = (by.x * out / length, by.y * out / length);
+            // An edge that springs back past where it rests draws the box in.
+            let (left, width) = if by.x < 0.0 { (rect.x + x, rect.width - x) } else { (rect.x, rect.width + x) };
+            let (top, height) = if by.y < 0.0 { (rect.y + y, rect.height - y) } else { (rect.y, rect.height + y) };
+            Rect::new(left, top, width.max(0.0), height.max(0.0))
+        };
+        let key = format!("extend/{id}");
+        let heading = self.springs.borrow().get(&key).map_or(0.0, |state| state.value.target());
+        let visible = clip.map_or(Some(reach(heading)), |clip| reach(heading).intersection(clip));
+        let held = self.pointer.zip(visible).is_some_and(|(point, visible)| visible.contains(point))
+            || holds_reveal(element, self.keyboard_focus, self.focused);
+        reach(self.spring_on(&key, if held { length } else { 0.0 }, bounce_motion()))
     }
 
     /// Record what the platform should know of `element`: what it says of
@@ -10104,12 +10413,13 @@ impl LayoutBuilder<'_> {
                     );
                 }
                 let first = self.frame.commands.len();
+                let first_block = self.frame.text_blocks.len();
                 self.place(child, content, clip);
                 if style.underline_on_hover
                     && (self.hovered == Some(id.as_str())
                         || self.keyboard_focus && self.focused == Some(id.as_str()))
                 {
-                    self.underline_text(first, content, style);
+                    self.underline_text(first, first_block, content, style);
                 }
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
                     self.draw_focus_ring(rect, style);
@@ -10242,6 +10552,7 @@ impl LayoutBuilder<'_> {
                 max_width,
                 placement,
                 colors,
+                options,
             } => {
                 let region_start = self.frame.regions.len();
                 self.place(anchor, content, clip);
@@ -10256,7 +10567,8 @@ impl LayoutBuilder<'_> {
                         self.frame.regions[region_start..].rotate_right(1);
                     }
                 }
-                self.observed_tooltips.insert(anchor_id.clone());
+                let delay = Duration::from_millis(u64::from(options.delay_ms));
+                self.observed_tooltips.insert(anchor_id.clone(), delay);
                 let keyboard_focused =
                     self.keyboard_tooltip_focus && self.focused == Some(anchor_id);
                 let hovered_long_enough = !self.keyboard_tooltip_focus
@@ -10264,7 +10576,7 @@ impl LayoutBuilder<'_> {
                     && self.pressed != Some(anchor_id)
                     && self.tooltip_hover_since.is_some_and(|(id, since)| {
                         id == anchor_id
-                            && self.now.saturating_duration_since(*since) >= TOOLTIP_HOVER_DELAY
+                            && self.now.saturating_duration_since(*since) >= delay
                     });
                 if keyboard_focused || hovered_long_enough {
                     // The hint points at the control it describes. Inside a
@@ -10290,6 +10602,7 @@ impl LayoutBuilder<'_> {
                         max_width: *max_width,
                         placement: *placement,
                         colors: *colors,
+                        options: *options,
                     });
                 }
             }
@@ -10635,6 +10948,9 @@ impl LayoutBuilder<'_> {
                     }
                 }
             }
+            ElementKind::Text(value) if self.text_layout => {
+                self.paint_laid_out_text(value, content, style, clip);
+            }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
                 text: value,
@@ -10661,6 +10977,7 @@ impl LayoutBuilder<'_> {
                     source: value.clone(),
                     runs: Vec::new(),
                     region_layer: self.frame.regions.len(),
+                    layout: None,
                 });
                 let mut source_byte = 0;
                 let mut source_char = 0;
@@ -10698,6 +11015,7 @@ impl LayoutBuilder<'_> {
                             visible: None,
                             font_size: style.font_size,
                             font_family: style.font_family,
+                            atomic: false,
                         },
                         Point::new(x, y),
                         style.foreground,
@@ -10730,6 +11048,7 @@ impl LayoutBuilder<'_> {
                     source: source.clone(),
                     runs: Vec::new(),
                     region_layer: self.frame.regions.len(),
+                    layout: None,
                 });
                 let mut source_byte = 0;
                 let mut source_char = 0;
@@ -10755,6 +11074,59 @@ impl LayoutBuilder<'_> {
                         if let Some(id) = &fragment.action {
                             self.record_inline_focus_target(id, fragment_rect);
                             self.add_region(id, fragment_rect, HitKind::Button, clip);
+                        }
+                        if let Some(image) = &fragment.image {
+                            let side = fragment.width;
+                            let picture = Rect::new(x, y + (line.height - side) / 2.0, side, side);
+                            if let Some(visible) = clip
+                                .and_then(|clip| clip.intersection(picture))
+                                .or_else(|| clip.is_none().then_some(picture))
+                            {
+                                self.frame.commands.push(DrawCommand::PushClip(visible));
+                                self.frame.commands.push(match image {
+                                    InlineImage::Raster(image) => DrawCommand::RasterImage {
+                                        rect: picture,
+                                        image: image.clone(),
+                                        opacity: 1.0,
+                                        radius: 0.0,
+                                    },
+                                    InlineImage::Surface(id) => DrawCommand::Surface {
+                                        rect: picture,
+                                        id: id.clone(),
+                                        label: fragment.text.clone(),
+                                        opacity: 1.0,
+                                    },
+                                });
+                                self.frame.commands.push(DrawCommand::PopClip);
+                            }
+                            // The text, unpainted, is what a selection takes.
+                            let count = fragment.text.chars().count();
+                            self.paint_static_run(
+                                block_index,
+                                &source,
+                                SelectableTextRun {
+                                    start: source_char,
+                                    end: source_char + count,
+                                    text: fragment.text.clone(),
+                                    rect: fragment_rect,
+                                    visible: None,
+                                    font_size: fragment.font_size,
+                                    font_family: fragment.font_family,
+                                    atomic: true,
+                                },
+                                Point::new(x, y),
+                                fragment.color,
+                                clip,
+                            );
+                            if let Some(id) = &fragment.action {
+                                if self.keyboard_focus && self.focused == Some(id.as_str()) {
+                                    self.draw_focus_ring(fragment_rect, style);
+                                }
+                            }
+                            source_byte += fragment.text.len();
+                            source_char += count;
+                            x += fragment.width;
+                            continue;
                         }
                         if let Some(icon) = fragment.icon {
                             if let Some(visible) = clip
@@ -10813,6 +11185,7 @@ impl LayoutBuilder<'_> {
                                 visible: None,
                                 font_size: fragment.font_size,
                                 font_family: fragment.font_family,
+                                atomic: false,
                             },
                             Point::new(x, y + line.height - fragment.line_height - leading / 2.0),
                             fragment.color,
@@ -11355,6 +11728,7 @@ impl LayoutBuilder<'_> {
                             max_width: 420.0,
                             placement: TooltipPlacement::Above,
                             colors: editor.palette.tooltip_style(),
+                            options: TooltipOptions::default(),
                         });
                     }
                     for control in controls {
@@ -11751,6 +12125,21 @@ impl LayoutBuilder<'_> {
             ElementKind::PiePlot(plot) => self.paint_pie_plot(plot, content, clip),
             ElementKind::RadarPlot(plot) => self.paint_radar_plot(plot, content, clip),
             ElementKind::HeatPlot(plot) => self.paint_heat_plot(plot, content, clip),
+            ElementKind::Drawing(drawing) => {
+                self.frame.commands.push(DrawCommand::PushClip(content));
+                // The drawing's own clips stay balanced, so none outlives it.
+                let mut open = 0;
+                for command in drawing.draw(Size::new(content.width, content.height)) {
+                    match command {
+                        DrawCommand::PushClip(_) => open += 1,
+                        DrawCommand::PopClip if open == 0 => continue,
+                        DrawCommand::PopClip => open -= 1,
+                        _ => {}
+                    }
+                    self.frame.commands.push(command.moved(content.x, content.y, 1.0));
+                }
+                self.frame.commands.extend(std::iter::repeat_n(DrawCommand::PopClip, open + 1));
+            }
             ElementKind::LevelBars(bars) => {
                 let pitch = bars.bar + bars.gap;
                 let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };
@@ -11834,6 +12223,7 @@ impl LayoutBuilder<'_> {
                         max_width: 320.0,
                         placement: TooltipPlacement::Right,
                         colors: rail.tooltip,
+                        options: TooltipOptions::default(),
                     });
                 }
                 self.frame.tab_focus.push(TabFocusScope {
@@ -12265,14 +12655,31 @@ impl LayoutBuilder<'_> {
             .iter()
             .zip(&rects)
             .rposition(|(child, rect)| top(child).is_some_and(|top| rect.y < top));
+        // A background that fades in follows how far its child has scrolled
+        // past the line it pins at.
+        let faded = |child: &Element, rect: &Rect| {
+            let (from, to) = child.kept.as_deref()?.sticky_background?;
+            let color = child.style.background?;
+            let share = ((top(child)? - rect.y - from) / (to - from)).clamp(0.0, 1.0);
+            (share < 1.0).then(|| Color { a: (f32::from(color.a) * share).round() as u8, ..color })
+        };
         for (index, (child, rect)) in children.iter().zip(&rects).enumerate() {
-            if Some(index) != pinned {
-                self.place(child, *rect, clip);
+            if Some(index) == pinned {
+                continue;
+            }
+            match faded(child, rect) {
+                Some(color) => {
+                    let mut child = child.clone();
+                    child.style.background = Some(color);
+                    self.place(&child, *rect, clip);
+                }
+                None => self.place(child, *rect, clip),
             }
         }
         let Some(index) = pinned else { return };
         let (child, mut rect) = (&children[index], rects[index]);
         let (Some(sticky), Some(top)) = (child.sticky_top, top(child)) else { return };
+        let background = faded(child, &rect).or(child.style.background);
         // The next sticky child pushes this one out; without one it leaves
         // with the end of its column.
         let limit = children[index + 1..]
@@ -12290,6 +12697,7 @@ impl LayoutBuilder<'_> {
         rect.height = (rect.y + natural - top).clamp(cap, natural);
         rect.y = top.min(limit - rect.height).max(rect.y);
         let mut element = child.clone();
+        element.style.background = background;
         // An anchor stays where the column has it, so revealing it scrolls
         // back to the start of what it pins over.
         if let Some(anchor) = element.anchor.take() {
@@ -12515,11 +12923,39 @@ impl LayoutBuilder<'_> {
                 let lines = Rect::new(content.x, content.y, content.width.min(max), content.height);
                 self.wrap_rects(children, lines, element.style.gap, line_gap)
             }
+            None if element.centers_middle(children.len()) => {
+                self.center_middle_rects(children, content, element.style.gap)
+            }
             None => {
                 let row = !matches!(element.kind, ElementKind::Column(_));
                 self.flex_rects(children, content, element.style.gap, row)
             }
         }
+    }
+
+    /// The three children of a [`Element::center_middle`] row: the ends at
+    /// their natural widths against the row's edges, the middle centered in
+    /// the row unless it would meet one of them, then `gap` after the first
+    /// and no wider than the room it has there.
+    fn center_middle_rects(&self, children: &[Element], content: Rect, gap: f32) -> Vec<Rect> {
+        let width = |child: &Element| self.measure(child, Size::new(f32::INFINITY, content.height)).width;
+        let (start, mut middle, end) = (width(&children[0]), width(&children[1]), width(&children[2]));
+        let after_start = content.x + start + gap;
+        let before_end = content.x + content.width - end - gap;
+        let centered = content.x + (content.width - middle) / 2.0;
+        let fits = centered >= after_start && centered + middle <= before_end;
+        if !fits {
+            middle = middle.min((before_end - after_start).max(0.0));
+        }
+        let x = [content.x, if fits { centered } else { after_start }, content.x + content.width - end];
+        children
+            .iter()
+            .zip(x.into_iter().zip([start, middle, end]))
+            .map(|(child, (x, width))| {
+                let height = child.style.height.unwrap_or(content.height).min(content.height);
+                Rect::new(x, content.y, width, height.max(0.0))
+            })
+            .collect()
     }
 
     /// Where a wrapping row puts its children in `content`: at their natural
@@ -14518,6 +14954,87 @@ mod tests {
     }
 
     #[test]
+    fn a_hint_takes_its_own_delay_title_pointer_and_fill() {
+        let palette = ComponentPalette::neutral_dark();
+        let fill = Color::rgb(10, 10, 12);
+        let hint = |tooltip: Tooltip| {
+            let mut tree = UiTree::new(tooltip.render());
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(240.0, 120.0));
+            tree.handle_event(UiEvent::PointerMove(Point::new(16.0, 16.0)));
+            let started = tree.tooltip_hover_since.as_ref().unwrap().1;
+            (tree, started)
+        };
+        let anchor = || Element::icon_button("mark", Icon::PanelLeft, "").size(Some(32.0), Some(32.0));
+        let body = |frame: &Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if rect.x > 32.0 => Some((*rect, *color)),
+                _ => None,
+            })
+        };
+        // The default waits, is 24 tall, has a pointer and the palette's fill.
+        let (mut plain, started) = hint(Tooltip::new(anchor(), "mark", "Server", palette).placement(TooltipPlacement::Right));
+        assert!(body(&plain.layout_at(Size::new(240.0, 120.0), started)).is_none());
+        assert_eq!(plain.animation_repaint_after_at(started), Some(TOOLTIP_HOVER_DELAY));
+        let shown = plain.layout_at(Size::new(240.0, 120.0), started + TOOLTIP_HOVER_DELAY);
+        let (rect, color) = body(&shown).unwrap();
+        assert_eq!((rect.height, color), (TOOLTIP_HEIGHT, palette.tooltip_style().background));
+        assert_eq!(shown.commands.iter().filter(|command| matches!(command, DrawCommand::FillTriangle { .. })).count(), 2);
+        // No wait, a larger medium title, no pointer and a fill of its own.
+        let (mut quick, started) = hint(
+            Tooltip::new(anchor(), "mark", "Server", palette)
+                .placement(TooltipPlacement::Right)
+                .delay_ms(0)
+                .title_font_size(16.0)
+                .title_font_size(f32::NAN)
+                .title_font_size(-1.0)
+                .title_font_family(FontFamily::SansMedium)
+                .arrow(false)
+                .background(fill),
+        );
+        assert_eq!(quick.animation_repaint_after_at(started), None);
+        let shown = quick.layout_at(Size::new(240.0, 120.0), started);
+        let (rect, color) = body(&shown).unwrap();
+        let grown = FontMetrics::default().at_size(16.0).line_height - FontMetrics::default().at_size(12.0).line_height;
+        assert!((rect.height - (TOOLTIP_HEIGHT + grown)).abs() < 0.01, "{rect:?}");
+        assert_eq!(color, fill);
+        assert!(!shown.commands.iter().any(|command| matches!(command, DrawCommand::FillTriangle { .. })));
+        assert!(shown.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, font_size, font_family, .. }
+                if text == "Server" && *font_size == 16.0 && *font_family == FontFamily::SansMedium
+        )));
+        // A delay of its own is what the tree waits for.
+        let (mut slow, started) = hint(Tooltip::new(anchor(), "mark", "Server", palette).placement(TooltipPlacement::Right).delay_ms(800));
+        assert_eq!(slow.animation_repaint_after_at(started), Some(Duration::from_millis(800)));
+        assert!(body(&slow.layout_at(Size::new(240.0, 120.0), started + TOOLTIP_HOVER_DELAY)).is_none());
+    }
+
+    #[test]
+    fn a_small_icon_is_drawn_and_measured_at_its_side_between_8_and_16() {
+        for (asked, side) in [(12.0, 12.0), (4.0, crate::SMALL_ICON_SIZE), (30.0, ICON_SIZE), (f32::NAN, ICON_SIZE)] {
+            let icon = Element::icon(Icon::Volume).small_icon(asked);
+            // Natural size in a row, centered in a larger box in a column.
+            let frame = UiTree::new(Element::column(vec![
+                Element::row(vec![icon.clone(), Element::spacer().flex(1.0)]),
+                Element::panel(icon).size(Some(20.0), Some(20.0)),
+                Element::spacer().flex(1.0),
+            ]))
+            .layout(Size::new(100.0, 100.0));
+            let rects: Vec<Rect> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Icon { rect, icon: Icon::Volume, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(rects.len(), 2, "{asked}");
+            assert_eq!(rects[0], Rect::new(0.0, 0.0, side, side), "{asked}");
+            assert_eq!(rects[1], Rect::new((20.0 - side) / 2.0, side + (20.0 - side) / 2.0, side, side), "{asked}");
+        }
+    }
+
+    #[test]
     fn a_hint_for_a_control_inside_its_anchor_points_at_that_control() {
         let palette = ComponentPalette::neutral_dark();
         // A link at the start of a wide line, hinted on the whole line.
@@ -15161,6 +15678,125 @@ mod tests {
             w_y > 0.0,
             "narrow layout should wrap the measured wide glyph"
         );
+    }
+
+    fn inline_picture() -> RasterImage {
+        RasterImage::new(
+            "b".repeat(64),
+            crate::RasterImageFormat::Png,
+            4,
+            Arc::from("AAAA"),
+            "wave",
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn inline_pictures_are_unsplit_squares_painted_in_place_of_their_text() {
+        let spans = vec![
+            TextSpan::new("hi ", Color::WHITE, 16.0, FontFamily::Sans),
+            TextSpan::new(":wave:", Color::WHITE, 16.0, FontFamily::Sans).image(inline_picture()),
+            TextSpan::new(" ok", Color::WHITE, 16.0, FontFamily::Sans),
+        ];
+        let mut tree = UiTree::new(Element::formatted_text(spans.clone()));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let pictures: Vec<Rect> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::RasterImage { rect, image, .. } if image.sha256() == "b".repeat(64) => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pictures.len(), 1);
+        // 1.375 times the 16 px text, after the 12 px of "hi ".
+        assert_eq!((pictures[0].x, pictures[0].width, pictures[0].height), (12.0, 22.0, 22.0));
+        let painted: String = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(painted, "hi  ok", "the alternative text is not painted");
+        let block = &frame.text_layouts()[0];
+        assert_eq!(block.source, "hi :wave: ok");
+        let after = block.runs.iter().find(|run| run.text == " ok").unwrap();
+        assert_eq!(after.rect.x, 34.0, "the text goes on after the square");
+
+        // Too narrow for the square beside "hi ": it moves down whole.
+        tree.set_root(Element::formatted_text(spans).size(Some(30.0), None));
+        let frame = tree.layout(Size::new(30.0, 100.0));
+        let picture = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!((picture.x, picture.width), (0.0, 22.0));
+        assert!(picture.y > 0.0);
+    }
+
+    #[test]
+    fn an_inline_picture_is_selected_and_copied_whole_as_its_text() {
+        let mut tree = UiTree::new(Element::formatted_text(vec![
+            TextSpan::new("ab", Color::WHITE, 16.0, FontFamily::Sans),
+            TextSpan::new(":wave:", Color::WHITE, 16.0, FontFamily::Sans).image(inline_picture()),
+            TextSpan::new("cd", Color::WHITE, 16.0, FontFamily::Sans),
+        ]));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        tree.layout(Size::new(200.0, 100.0));
+        // From the start of the text to a third into the 22 px square, at 8.
+        tree.handle_event(UiEvent::PointerDown(Point::new(0.0, 4.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(15.0, 4.0)));
+        assert_eq!(tree.selected_text(), Some("ab"));
+        tree.handle_event(UiEvent::PointerMove(Point::new(21.0, 4.0)));
+        assert_eq!(tree.selected_text(), Some("ab:wave:"));
+        tree.handle_event(UiEvent::PointerUp(Point::new(21.0, 4.0)));
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let highlight = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, color, .. }
+                if *color == Color::rgba(180, 180, 180, 84) && rect.x == 8.0 =>
+            {
+                Some(*rect)
+            }
+            _ => None,
+        });
+        assert_eq!(highlight.map(|rect| rect.width), Some(22.0), "the whole square is selected");
+    }
+
+    #[test]
+    fn an_inline_surface_paints_the_hosts_pixels_in_the_square() {
+        let mut tree = UiTree::new(Element::formatted_text(vec![TextSpan::new(
+            ":dance:",
+            Color::WHITE,
+            14.0,
+            FontFamily::Sans,
+        )
+        .surface("animation:dance")
+        .action("emoji:dance")]));
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
+        let frame = tree.layout(Size::new(200.0, 100.0));
+        let surface = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Surface { rect, id, label, .. } => {
+                Some((*rect, id.clone(), label.clone()))
+            }
+            _ => None,
+        });
+        let (rect, id, label) = surface.unwrap();
+        assert_eq!((rect.width, rect.height), (19.25, 19.25));
+        assert_eq!((id.as_str(), label.as_str()), ("animation:dance", ":dance:"));
+        assert_eq!(
+            frame.hit_test(Point::new(rect.x + 5.0, rect.y + 5.0)),
+            Some("emoji:dance")
+        );
+        assert_eq!(frame.text_layouts()[0].source, ":dance:");
     }
 
     #[test]

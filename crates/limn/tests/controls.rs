@@ -10,8 +10,8 @@ use limn::{
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
     MessageAction, MessageActions, NavigationAction, NavigationBar, NavigationWorkspace, Pager, PanelHeader,
-    Point, Rect, Role, SearchField, SectionHeader, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
-    TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TreeGuides, TreeRow, UiAction, UiEvent,
+    PeekPanel, Point, Rect, Role, SearchField, Side, SideRail, SideRailItem, SectionHeader, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
+    TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TopBar, TreeGuides, TreeRow, UiAction, UiEvent,
     UiTree,
 };
 
@@ -146,6 +146,18 @@ fn controls() -> Vec<Control> {
             "it",
             || Toolbar::new("bar", palette()).group(vec![ToolbarItem::button("it", "Save")]).render(),
             || Toolbar::new("bar", palette()).group(vec![ToolbarItem::button("it", "Save").disabled()]).render(),
+        ),
+        control(
+            "TopBar home",
+            "bar:home",
+            || TopBar::new("bar", "", "Search", palette()).width(WINDOW.width).render(),
+            || TopBar::new("bar", "", "Search", palette()).width(WINDOW.width).disabled().render(),
+        ),
+        control(
+            "TopBar search, round in a narrow window",
+            "bar:search",
+            || TopBar::new("bar", "", "Search", palette()).width(WINDOW.width).render(),
+            || TopBar::new("bar", "", "Search", palette()).width(WINDOW.width).disabled().render(),
         ),
         control(
             "Checkbox",
@@ -621,6 +633,21 @@ fn controls() -> Vec<Control> {
         always("Alert close button", "it", || Alert::new("Offline", "Changes are kept here.", palette()).dismiss("it").render()),
         always("Empty action", "it", || {
             Empty::new("No files", "Nothing has been added.", palette()).action("it", "Add a file", ButtonVariant::Default).render()
+        }),
+        always("SideRail item", "it", || {
+            SideRail::new("rail", vec![SideRailItem::new("it", "Liked Songs").subtitle("Playlist")], palette()).render()
+        }),
+        always("SideRail unfold button", "rail:expand", || {
+            SideRail::new("rail", Vec::new(), palette()).expand("Open Your Library").render()
+        }),
+        always("SideRail create button", "rail:create", || {
+            SideRail::new("rail", Vec::new(), palette()).create("Create a playlist").render()
+        }),
+        always("PeekPanel", "it", || {
+            PeekPanel::new("it", Element::text("Queue"), palette()).accessibility_label("Show the queue").render()
+        }),
+        always("PeekPanel on the left", "it", || {
+            PeekPanel::new("it", Element::text("Library"), palette()).side(Side::Left).accessibility_label("Show the library").render()
         }),
         always("PanelHeader back arrow", "it", || PanelHeader::new("Files", palette()).back("it", "Back").render()),
         always("PanelHeader close button", "it", || PanelHeader::new("Files", palette()).dismiss("it", "Close").render()),
