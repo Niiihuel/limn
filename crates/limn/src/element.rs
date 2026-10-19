@@ -338,6 +338,8 @@ pub enum Icon {
     ChevronUp,
     /// A chevron pointing right.
     ChevronRight,
+    /// A chevron pointing left: a panel that opens towards the left.
+    ChevronLeft,
     /// A magnifying glass: search.
     Search,
     /// An outlined square: stop.
@@ -862,6 +864,11 @@ pub(crate) struct Kept {
     pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
     pub(crate) translation: Option<Point>,
     pub(crate) pointer_blocker: Option<String>,
+    /// Set by [`Element::extend_on_hover`]: the ID its spring is kept under,
+    /// and how far each edge reaches out under the pointer.
+    pub(crate) extend: Option<(String, Point)>,
+    /// Painted only: no pointer target, focus stop or node inside it.
+    pub(crate) inert: bool,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2406,7 +2413,9 @@ impl Element {
     /// Make this element the area whose hover reveals the
     /// [`reveal_on_hover`](Self::reveal_on_hover) elements inside it: a
     /// message around its row of actions. It is passive: it adds no pointer
-    /// target, no focus stop and no paint, and the host mirrors nothing.
+    /// target, no focus stop and no paint, and the host mirrors nothing. A
+    /// region that is itself a control counts as hovered while it has
+    /// keyboard focus too.
     pub fn hover_region(mut self) -> Self {
         self.hover_reveal = HoverReveal::Region;
         self
@@ -2423,6 +2432,33 @@ impl Element {
     pub fn reveal_on_hover(mut self, id: impl Into<String>) -> Self {
         self.presence = Some((id.into(), false));
         self.hover_reveal = HoverReveal::Revealed;
+        self
+    }
+
+    /// Reach out by `by` while the pointer is over this element, or it or a
+    /// control inside it has keyboard focus: a negative `x` moves its left
+    /// edge that far left and a positive one its right edge right, and `y`
+    /// does the same for the top and bottom. What it holds is laid out in
+    /// the longer box, so what is set against the edge that moves goes with
+    /// it, and its own pointer target grows with it: the pointer over what it
+    /// shows is over it. The edge travels on a spring that overshoots a
+    /// little and settles in three `move_ms`, and comes back the same way;
+    /// with reduced motion it jumps. Its slot in the layout does not change,
+    /// so it reaches over what is beside it, which must be painted before it
+    /// to be covered. `id` keeps the spring and must be unique in the window.
+    /// An offset that is not finite is ignored.
+    pub fn extend_on_hover(mut self, id: impl Into<String>, by: Point) -> Self {
+        if by.x.is_finite() && by.y.is_finite() {
+            self.kept.get_or_insert_default().extend = Some((id.into(), by));
+        }
+        self
+    }
+
+    /// Paint this element and what it holds, and nothing more: no pointer
+    /// target, focus stop or accessibility node is made inside it, as for a
+    /// glimpse of a panel that is not open.
+    pub(crate) fn inert(mut self) -> Self {
+        self.kept.get_or_insert_default().inert = true;
         self
     }
 
