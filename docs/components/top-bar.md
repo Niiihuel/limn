@@ -62,6 +62,23 @@ reports as a [SearchField](search-field.md) with the ID `{id}:search` would:
 field keeps the text typed in it, so after clearing the query give it the
 new text with `UiTree::set_input_value`.
 
+## A panel under the search
+
+```rust
+let bar = TopBar::new("nav", &state.query, "Search", palette);
+let bar = if state.recent_open {
+    bar.search_popover("recent:dismiss", recent_searches(state, palette))
+} else {
+    bar
+};
+```
+
+`search_popover(dismiss_id, panel)` floats `panel` under the search from its
+start edge, without taking the keyboard from the field, for the searches made
+lately while it is focused and empty, or suggestions while it is typed in.
+Pass it only while it should show. A press outside it or Escape reports
+`Clicked` with `dismiss_id`. The round search of a narrow bar floats nothing.
+
 ## Width
 
 ```rust

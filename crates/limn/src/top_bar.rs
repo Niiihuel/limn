@@ -4,7 +4,7 @@
 use crate::components::{clear_button, disabled_field, hover_ms, lighter, CLEAR_SIDE};
 use crate::{
     Access, ButtonSizing, ButtonVariant, Component, ComponentPalette, ControlSize, Element,
-    FontFamily, Icon, IconButton, Role, Separator, TooltipPlacement, ICON_SIZE,
+    FontFamily, Icon, IconButton, PopoverPlacement, Role, Separator, TooltipPlacement, ICON_SIZE,
 };
 
 /// Height of the bar, in logical pixels.
@@ -54,6 +54,7 @@ pub struct TopBar {
     home_label: String,
     browse_label: String,
     enabled: bool,
+    search_popover: Option<(String, Element)>,
 }
 
 impl TopBar {
@@ -79,7 +80,18 @@ impl TopBar {
             home_label: "Home".into(),
             browse_label: "Browse".into(),
             enabled: true,
+            search_popover: None,
         }
+    }
+
+    /// Float `panel` under the search, from its start edge, without taking
+    /// the keyboard from the field: the searches made lately while it is
+    /// focused and empty, or suggestions while it is typed in. Pass it only
+    /// while it should show. A press outside it or Escape reports `Clicked`
+    /// with `dismiss_id`. The round search of a narrow bar floats nothing.
+    pub fn search_popover(mut self, dismiss_id: impl Into<String>, panel: Element) -> Self {
+        self.search_popover = Some((dismiss_id.into(), panel));
+        self
     }
 
     /// The width the bar is laid out at, the window's, in logical pixels.
@@ -272,10 +284,15 @@ impl Component for TopBar {
         let home = self.round(format!("{}:home", self.id), home_icon, self.home_active, &self.home_label);
         let search = format!("{}:search", self.id);
         let width = self.width.map_or(SEARCH_MAX, |width| (width / 2.0).clamp(SEARCH_MIN, SEARCH_MAX));
+        let popover = self.search_popover.take();
         let search = if width <= SEARCH_COLLAPSE {
             self.round(search, Icon::Search, false, crate::labels().search)
         } else {
-            self.search(search, width)
+            let field = self.search(search, width);
+            match popover {
+                Some((dismiss, panel)) => Element::popover(field, panel, dismiss, PopoverPlacement::BottomStart).popover_non_modal(),
+                None => field,
+            }
         };
         Element::row(vec![leading, Element::row(vec![home, search]).gap(SPACE), trailing])
             .gap(SPACE)
@@ -344,6 +361,25 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn a_panel_floats_under_the_search_from_its_start_and_a_narrow_bar_floats_none() {
+        let panel = || Element::button("recent:0", "Soda Stereo").size(Some(300.0), Some(40.0));
+        let layout = |window: f32| {
+            let bar = bar(window).search_popover("recent:dismiss", panel());
+            let mut tree = UiTree::new(Element::column(vec![bar.render(), Element::spacer().flex(1.0)]));
+            tree.set_reduced_motion(true);
+            tree.set_text_measurer(|text, _size, _family| text.chars().count() as f32 * 8.0);
+            let frame = tree.layout(Size::new(window, 400.0));
+            (tree, frame)
+        };
+        let (mut tree, frame) = layout(1200.0);
+        let (field, row) = (rect(&frame, "bar:search"), rect(&frame, "recent:0"));
+        assert!(row.y >= field.y + field.height, "under the search: {row:?} {field:?}");
+        assert!((row.x - field.x).abs() <= 16.0, "from its start: {row:?} {field:?}");
+        assert_eq!(click(&mut tree, &frame, "recent:0"), vec![UiAction::Clicked { id: "recent:0".into() }]);
+        assert!(!has(&layout(700.0).1, "recent:0"), "the round search floats nothing");
     }
 
     #[test]
