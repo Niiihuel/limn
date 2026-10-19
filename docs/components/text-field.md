@@ -109,11 +109,22 @@ frame, so the candidate window opens beside it.
 A password composes nothing: the platform is asked for no composition or
 prediction in it.
 
+## Pointer
+
+A press puts the caret nearest it, and dragging selects from there.
+Shift and a press extend the selection of a field that has the focus. A
+double press selects the word under the pointer, or the run of spaces or
+the mark; a triple press selects the whole value. A password has no words:
+Ctrl and an arrow go to its ends, and a double press selects it whole.
+
 ## Keyboard
 
 | Key | Effect |
 | --- | --- |
 | Enter | Reports `Submitted` with the value |
+| Left, Right | Move the caret a character, an emoji with its modifiers whole; a selection collapses to the edge the arrow points at. With Shift, extend the selection |
+| Ctrl+Left, Ctrl+Right | Move the caret to the start of the word before it or the end of the word after it |
+| Backspace, Delete | Delete the selection, or the character before or after the caret; with Ctrl, the word |
 | Home, End | Move the caret to either end |
 | Ctrl+A | Selects everything |
 

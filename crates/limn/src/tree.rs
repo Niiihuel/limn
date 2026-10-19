@@ -3069,11 +3069,15 @@ impl InputState {
         self.move_cursor(next, shift);
     }
 
-    fn place_cursor_at(&mut self, point: Point) {
+    /// The caret position nearest `point`, in characters.
+    fn character_at_point(&self, point: Point, multiline: bool) -> usize {
         if let Some((layout, origin)) = self.layout() {
-            let index = layout.index_at(Point::new(point.x - origin.x, point.y - origin.y));
-            self.move_cursor(self.character_at(index), false);
-            return;
+            return self.character_at(layout.index_at(Point::new(point.x - origin.x, point.y - origin.y)));
+        }
+        if !multiline {
+            let x = (point.x - self.content_x).max(0.0);
+            let shown = self.value.chars().skip(self.view_start).collect::<String>();
+            return self.view_start + nearest_char(&shown, x, |part| self.width(part));
         }
         let lines = self.visual_lines();
         let row = ((point.y - self.content_y).max(0.0) / self.line_height).floor() as usize;
@@ -3083,8 +3087,67 @@ impl InputState {
             (point.x - self.content_x).max(0.0),
             |value| self.width(value),
         );
-        let next = lines[row].start + column.min(lines[row].end - lines[row].start);
-        self.move_cursor(next, false);
+        lines[row].start + column.min(lines[row].end - lines[row].start)
+    }
+
+    /// Put the caret nearest `point`; with `extend`, keep the selection's
+    /// other end where it was.
+    fn place_cursor_at(&mut self, point: Point, multiline: bool, extend: bool) {
+        let next = self.character_at_point(point, multiline);
+        self.move_cursor(next, extend);
+    }
+
+    /// Where an arrow takes the caret: a grapheme on, or with `by_word` to
+    /// the start of the word before it or the end of the word after it. A
+    /// password has no words to show, so a word step goes to its end.
+    fn step_target(&self, forward: bool, by_word: bool) -> usize {
+        match (by_word, self.password, forward) {
+            (true, true, true) => self.value.chars().count(),
+            (true, true, false) => 0,
+            (true, false, _) => word_step(&self.value, self.cursor, forward),
+            (false, ..) => grapheme_step(&self.value, self.cursor, forward),
+        }
+    }
+
+    /// Left or Right: a selection collapses to the edge the arrow points
+    /// at, unless Shift extends it.
+    fn step(&mut self, forward: bool, by_word: bool, shift: bool) {
+        if let Some((start, end)) = self.selected_range().filter(|_| !shift) {
+            self.move_cursor(if forward { end } else { start }, false);
+            return;
+        }
+        self.move_cursor(self.step_target(forward, by_word), shift);
+    }
+
+    /// Select the word, run of spaces or mark at the caret; a password whole.
+    fn select_word(&mut self) {
+        let (start, end) = if self.password {
+            (0, self.value.chars().count())
+        } else {
+            word_around(&self.value, self.cursor)
+        };
+        self.select(start, end);
+    }
+
+    /// Select the caret's line, up to its break; a single line whole.
+    fn select_line(&mut self, multiline: bool) {
+        let count = self.value.chars().count();
+        let (start, end) = if multiline {
+            let chars: Vec<char> = self.value.chars().collect();
+            let start = chars[..self.cursor.min(count)].iter().rposition(|c| *c == '\n').map_or(0, |at| at + 1);
+            let end = chars[self.cursor.min(count)..].iter().position(|c| matches!(c, '\n' | '\r')).map_or(count, |at| self.cursor + at);
+            (start, end)
+        } else {
+            (0, count)
+        };
+        self.select(start, end);
+    }
+
+    fn select(&mut self, start: usize, end: usize) {
+        self.set_selection(end, Some(start));
+        self.desired_column = None;
+        self.desired_x = None;
+        self.keep_cursor_visible = true;
     }
 
     fn scroll_lines(&mut self, delta_y: f32) {
@@ -3142,35 +3205,21 @@ impl InputState {
         true
     }
 
-    fn backspace(&mut self) -> bool {
+    /// Delete the selection, or the grapheme (with `by_word`, the word) the
+    /// caret is before or after.
+    fn delete_step(&mut self, forward: bool, by_word: bool) -> bool {
         if self.delete_selection() {
             return true;
         }
-        if self.cursor == 0 {
+        let to = self.step_target(forward, by_word);
+        if to == self.cursor {
             return false;
         }
-        let end = byte_index(&self.value, self.cursor);
-        let start = byte_index(&self.value, self.cursor - 1);
-        self.value.replace_range(start..end, "");
+        let (start, end) = (self.cursor.min(to), self.cursor.max(to));
+        self.value.replace_range(byte_index(&self.value, start)..byte_index(&self.value, end), "");
         self.paste_epoch = Arc::new(());
-        self.cursor -= 1;
-        self.keep_cursor_visible = true;
-        self.desired_column = None;
-        self.desired_x = None;
-        true
-    }
-
-    fn delete_forward(&mut self) -> bool {
-        if self.delete_selection() {
-            return true;
-        }
-        if self.cursor >= self.value.chars().count() {
-            return false;
-        }
-        let start = byte_index(&self.value, self.cursor);
-        let end = byte_index(&self.value, self.cursor + 1);
-        self.value.replace_range(start..end, "");
-        self.paste_epoch = Arc::new(());
+        self.cursor = start;
+        self.anchor = None;
         self.keep_cursor_visible = true;
         self.desired_column = None;
         self.desired_x = None;
@@ -3191,6 +3240,48 @@ fn composition_underline(
         color: ink,
         radius: 0.0,
     })
+}
+
+/// The grapheme boundary before (`forward` false) or after the character
+/// offset `at`, in characters: an emoji with its modifiers is one step.
+fn grapheme_step(value: &str, at: usize, forward: bool) -> usize {
+    let byte = byte_index(value, at);
+    let next = if forward {
+        value[byte..].grapheme_indices(true).nth(1).map_or(value.len(), |(index, _)| byte + index)
+    } else {
+        value[..byte].grapheme_indices(true).next_back().map_or(0, |(index, _)| index)
+    };
+    value[..next].chars().count()
+}
+
+/// Where Ctrl and an arrow take the caret from `at`: to the start of the
+/// word before it, or to the end of the word after it, in characters.
+fn word_step(value: &str, at: usize, forward: bool) -> usize {
+    let byte = byte_index(value, at);
+    let next = if forward {
+        value.unicode_word_indices().map(|(index, word)| index + word.len()).find(|end| *end > byte).unwrap_or(value.len())
+    } else {
+        value.unicode_word_indices().map(|(index, _)| index).take_while(|start| *start < byte).last().unwrap_or(0)
+    };
+    value[..next].chars().count()
+}
+
+/// What a double click at the caret offset `at` selects, in characters: the
+/// word, run of spaces or mark there, or the word just before it when the
+/// caret stands at that word's end.
+fn word_around(value: &str, at: usize) -> (usize, usize) {
+    let byte = byte_index(value, at);
+    let segments: Vec<(usize, &str)> = value.split_word_bound_indices().collect();
+    let containing = |byte: usize| segments.iter().position(|(index, segment)| *index <= byte && byte < index + segment.len());
+    let is_word = |segment: &str| segment.chars().next().is_some_and(char::is_alphanumeric);
+    let Some(mut found) = containing(byte).or(segments.len().checked_sub(1)) else {
+        return (0, 0);
+    };
+    if !is_word(segments[found].1) && found > 0 && segments[found].0 == byte && is_word(segments[found - 1].1) {
+        found -= 1;
+    }
+    let (index, segment) = segments[found];
+    (value[..index].chars().count(), value[..index + segment.len()].chars().count())
 }
 
 /// The fill under selected text in a field.
@@ -3480,6 +3571,9 @@ pub struct UiTree {
     context_menu_palette: crate::ComponentPalette,
     context_menu_swallow_release: bool,
     ime_owner: Option<ime_tree::ImeOwner>,
+    /// The field a held press extends the selection of, and whether it is
+    /// a text area.
+    field_drag: Option<(String, bool)>,
     ime_window_focused: bool,
 }
 
@@ -3562,6 +3656,7 @@ impl UiTree {
             context_menu_palette: crate::ComponentPalette::neutral_dark(),
             context_menu_swallow_release: false,
             ime_owner: None,
+            field_drag: None,
             ime_window_focused: true,
         }
     }
@@ -5811,6 +5906,13 @@ impl UiTree {
         if self.handle_horizontal_scroll(&event) {
             return Vec::new();
         }
+        // A field reads Shift and the click count of a press that ordinary
+        // controls take as a plain click.
+        let (extend, clicks) = match &event {
+            UiEvent::PointerDownModified { shift, .. } => (*shift, 1),
+            UiEvent::PointerDownEditor { shift, click_count, .. } => (*shift, *click_count),
+            _ => (false, 1),
+        };
         let event = match event {
             UiEvent::ImeCommit(text) => {
                 self.compose_in_field(None);
@@ -5940,8 +6042,14 @@ impl UiTree {
                         }
                     }
                 }
+                if let Some((id, multiline)) = &self.field_drag {
+                    if let Some(input) = self.inputs.get_mut(id) {
+                        input.place_cursor_at(point, *multiline, true);
+                    }
+                }
             }
             UiEvent::PointerLeave => {
+                self.field_drag = None;
                 for editor in self.code_editors.values_mut() {
                     editor.viewport.cancel_pointer();
                 }
@@ -5980,6 +6088,8 @@ impl UiTree {
                 }
             }
             UiEvent::PointerDown(point) => {
+                let focused_before = self.focused.clone();
+                self.field_drag = None;
                 self.scroll_button_hold = None;
                 self.scroll_drag = None;
                 self.horizontal_pan = None;
@@ -6139,23 +6249,21 @@ impl UiTree {
                 if let Some(region) = hit
                     .filter(|region| matches!(region.kind, HitKind::TextInput | HitKind::TextArea))
                 {
+                    let multiline = region.kind == HitKind::TextArea;
                     if let Some(input) = self.inputs.get_mut(&region.id) {
-                        if region.kind == HitKind::TextArea || input.laid_out.is_some() {
-                            input.place_cursor_at(point);
-                        } else {
-                            let x = (point.x - input.content_x).max(0.0);
-                            let shown = input
-                                .value
-                                .chars()
-                                .skip(input.view_start)
-                                .collect::<String>();
-                            let character = nearest_char(&shown, x, |part| input.width(part));
-                            input.move_cursor(input.view_start + character, false);
+                        // Shift extends the selection of a field that already had the focus.
+                        let extend = extend && focused_before.as_deref() == Some(region.id.as_str());
+                        input.place_cursor_at(point, multiline, extend);
+                        match clicks {
+                            2 => input.select_word(),
+                            3.. => input.select_line(multiline),
+                            _ => self.field_drag = Some((region.id.clone(), multiline)),
                         }
                     }
                 }
             }
             UiEvent::PointerUp(point) => {
+                self.field_drag = None;
                 self.pointer = Some(point);
                 self.set_hovered(self.frame.hit_test(point).map(str::to_owned), now);
                 self.tooltip_hover_since = self.hovered.as_ref().map(|id| (id.clone(), now));
@@ -6372,11 +6480,11 @@ impl UiTree {
                         let changed = match key {
                             Key::Escape | Key::Tab | Key::Space => false,
                             Key::ArrowLeft => {
-                                input.move_cursor(input.cursor.saturating_sub(1), shift);
+                                input.step(false, ctrl, shift);
                                 false
                             }
                             Key::ArrowRight => {
-                                input.move_cursor(input.cursor.saturating_add(1), shift);
+                                input.step(true, ctrl, shift);
                                 false
                             }
                             Key::ArrowUp => {
@@ -6407,8 +6515,8 @@ impl UiTree {
                                 }
                                 false
                             }
-                            Key::Backspace => input.backspace(),
-                            Key::Delete => input.delete_forward(),
+                            Key::Backspace => input.delete_step(false, ctrl),
+                            Key::Delete => input.delete_step(true, ctrl),
                             Key::A if ctrl => {
                                 input.set_selection(input.value.chars().count(), Some(0));
                                 input.keep_cursor_visible = true;
