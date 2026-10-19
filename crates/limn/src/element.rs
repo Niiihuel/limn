@@ -586,7 +586,26 @@ pub struct TextSpan {
     pub action: Option<String>,
     /// Decorative leading glyph. It contributes width, never copyable text.
     pub icon: Option<Icon>,
+    /// A picture painted in place of the text, such as a custom emoji; see
+    /// [`Self::image`]. `None` paints the text.
+    pub image: Option<InlineImage>,
 }
+
+/// A picture in a line of text, painted in place of its [`TextSpan`]'s
+/// text. The text stays what is copied, selected and read aloud.
+#[derive(Clone, Debug, PartialEq)]
+pub enum InlineImage {
+    /// A still picture, painted with [`DrawCommand::RasterImage`](crate::DrawCommand::RasterImage).
+    Raster(RasterImage),
+    /// A surface the host feeds by this ID, such as the current frame of an
+    /// animation, painted with [`DrawCommand::Surface`](crate::DrawCommand::Surface)
+    /// in its square; the host presents frames of the square's size.
+    Surface(String),
+}
+
+/// The side of an inline picture, as a multiple of its span's text size:
+/// the size chat clients give custom emoji in a line of text.
+pub const INLINE_IMAGE_SCALE: f32 = 1.375;
 
 impl TextSpan {
     /// A run with no background, action or icon. A `font_size` that is not
@@ -609,6 +628,7 @@ impl TextSpan {
             background: None,
             action: None,
             icon: None,
+            image: None,
         }
     }
 
@@ -629,6 +649,25 @@ impl TextSpan {
     /// not part of the text that can be copied.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// Paint `image` in place of the text: a square [`INLINE_IMAGE_SCALE`]
+    /// times `font_size` on a side, centered on its line and never split
+    /// across lines. The text, such as `:name:` for an emoji, is still what
+    /// a selection copies and what accessibility reads; it is not painted.
+    /// `background` and `icon` are not painted on such a run. A span with
+    /// no text shows nothing.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Paint the host-fed surface `id` in place of the text, as
+    /// [`Self::image`] paints a picture: for an animation the host presents
+    /// on that surface, at the square's size.
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.image = Some(InlineImage::Surface(id.into()));
         self
     }
 }

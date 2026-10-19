@@ -180,7 +180,7 @@ pub use element::{
     LinePlot,
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
-    SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, TooltipItem, TooltipPlacement, TooltipSection,
+    SpinnerVariant, Style, TabSelection, TextHighlight, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipItem, TooltipPlacement, TooltipSection,
     TooltipOptions, TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE, SMALL_ICON_SIZE,
 };
 pub use empty::Empty;
