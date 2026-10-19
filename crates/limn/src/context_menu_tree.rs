@@ -720,6 +720,14 @@ impl UiTree {
             {
                 self.scroll_regular_regions(*position, *delta_y, false, now);
             }
+            // Outside the menu it closes, as a press there does, and the
+            // wheel goes on to what is under it.
+            UiEvent::Scroll { .. } | UiEvent::ScrollDirect { .. } | UiEvent::Scroll2D { .. }
+                if scroll_at(event).is_some() =>
+            {
+                self.close_context_menu(now);
+                return None;
+            }
             UiEvent::Key {
                 key: Key::Escape | Key::Tab,
                 ..

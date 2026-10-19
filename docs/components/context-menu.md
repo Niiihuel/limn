@@ -80,7 +80,8 @@ The menu fades in and settles, and fades out; see
 | `UiAction::Clicked { id }` with an item's ID | The item is activated by pointer, Enter or its shortcut. |
 
 A click outside the menu closes it and reports nothing: it does not reach the
-control under the pointer.
+control under the pointer. A wheel or trackpad scroll outside it closes it
+too, and scrolls what is under the pointer.
 
 ## Accessibility
 

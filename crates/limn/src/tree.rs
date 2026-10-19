@@ -5630,7 +5630,11 @@ impl UiTree {
             .then(|| self.pointer_drag.take())
             .flatten()
             .filter(|drag| drag.active);
+        let dismissed = self.dismiss_by_scroll(&event);
         let mut actions = self.handle_event_inner(event, now);
+        if let Some(dismissed) = dismissed {
+            actions.insert(0, dismissed);
+        }
         if let Some(drag) = cancelled {
             actions.push(UiAction::DragCancelled { id: drag.id });
         }
@@ -5648,6 +5652,25 @@ impl UiTree {
         }
         self.validate_ime_owner(now);
         actions
+    }
+
+    /// A wheel or a trackpad outside an open menu or popover closes it, as a
+    /// press on its backdrop does, and still scrolls what is under it. A
+    /// modal stays open.
+    fn dismiss_by_scroll(&mut self, event: &UiEvent) -> Option<UiAction> {
+        let position = scroll_at(event)?;
+        let backdrop = self.frame.press_region(position).filter(|region| region.kind == HitKind::Button)?;
+        let scope = self.frame.popover_focus.iter().find(|scope| scope.dismiss_id == backdrop.id && !scope.modal)?;
+        // A control of the surface may report the same ID as its backdrop.
+        let surface = format!("popover_surface:{}", scope.dismiss_id);
+        if self.frame.regions.iter().any(|region| region.id == surface && region.rect.contains(position)) {
+            return None;
+        }
+        let id = self.dispatch_id(&backdrop.id);
+        let next_focus = scope.trigger_id.clone();
+        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+        self.keyboard_focus = false;
+        Some(UiAction::Clicked { id })
     }
 
     /// Owns the pointer while a drag is active so the source never clicks and
@@ -7103,6 +7126,18 @@ fn holds_reveal(element: &Element, keyboard_focus: bool, focused: Option<&str>) 
         | ElementKind::Tooltip { anchor: child, .. } => holds(child),
         ElementKind::Overlay { base, floating } => holds(base) || holds(floating),
         _ => false,
+    }
+}
+
+/// Where a wheel or a trackpad scroll that moves something is.
+fn scroll_at(event: &UiEvent) -> Option<Point> {
+    let moves = |delta: f32| delta.is_finite() && delta != 0.0;
+    match *event {
+        UiEvent::Scroll { position, delta_y } | UiEvent::ScrollDirect { position, delta_y } => {
+            moves(delta_y).then_some(position)
+        }
+        UiEvent::Scroll2D { position, delta_x, delta_y, .. } => (moves(delta_x) || moves(delta_y)).then_some(position),
+        _ => None,
     }
 }
 
@@ -18754,6 +18789,8 @@ mod tests {
             .width(240.0)
             .height(180.0)
             .body(Element::spacer().size(None, Some(600.0)))
+            // A press on the backdrop closes it; a wheel there never does.
+            .backdrop_dismiss(true)
             .render(),
         );
         tree.set_reduced_motion(true);
@@ -18783,11 +18820,13 @@ mod tests {
                 delta_y: -40.0,
             },
         ] {
-            tree.handle_event(event);
+            assert!(tree.handle_event(event).is_empty(), "a wheel never closes a modal");
             tree.layout(viewport);
             assert_eq!(tree.scroll_offset("background"), 0.0);
             assert_eq!(tree.scroll_offset("modal_body:dismiss_modal"), 0.0);
         }
+        tree.handle_event(UiEvent::PointerDown(outside));
+        assert_eq!(tree.handle_event(UiEvent::PointerUp(outside)), vec![UiAction::Clicked { id: "dismiss_modal".into() }]);
         tree.handle_event(UiEvent::Scroll {
             position: inside,
             delta_y: -40.0,

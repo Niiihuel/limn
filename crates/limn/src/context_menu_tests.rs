@@ -54,6 +54,27 @@ fn item_enabled(tree: &UiTree, action: &str) -> bool {
 }
 
 #[test]
+fn a_wheel_outside_the_menu_closes_it_and_scrolls_the_page_under_the_pointer() {
+    let size = Size::new(600.0, 400.0);
+    let page = Element::column(vec![input(), Element::spacer().size(None, Some(1000.0))]);
+    let mut tree = UiTree::new(Element::scroll("page", page));
+    tree.set_reduced_motion(true);
+    tree.layout(size);
+    tree.handle_event(UiEvent::ContextMenu { position: Point::new(20.0, 16.0) });
+    let frame = tree.layout(size);
+    let menu = frame.regions.iter().find(|region| region.id == "__context_menu:surface").unwrap().rect;
+    // Over the menu it stays open.
+    tree.handle_event(UiEvent::Scroll { position: Point::new(menu.x + 10.0, menu.y + 10.0), delta_y: -40.0 });
+    assert!(tree.context_menu_open());
+    let outside = Point::new(560.0, 360.0);
+    assert!(!menu.contains(outside));
+    assert!(tree.handle_event(UiEvent::Scroll { position: outside, delta_y: -40.0 }).is_empty());
+    assert!(!tree.context_menu_open());
+    tree.layout(size);
+    assert_eq!(tree.scroll_offset("page"), 40.0);
+}
+
+#[test]
 fn menu_geometry_is_fixed_bounded_and_last_action_reachable_with_keyboard_and_wheel() {
     for size in [
         Size::new(360.0, 240.0),
