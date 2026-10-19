@@ -35,6 +35,8 @@ pub struct Composer {
     border_color: Color,
     shadow_color: Color,
     card_radius: f32,
+    card_corner_radii: Option<CornerRadii>,
+    editor_padding: Option<f32>,
     enabled: bool,
 }
 
@@ -77,6 +79,8 @@ impl Composer {
             border_color: palette.border,
             shadow_color: palette.shadow,
             card_radius: crate::tokens().radius.panel,
+            card_corner_radii: None,
+            editor_padding: None,
             enabled: true,
         }
     }
@@ -144,8 +148,12 @@ impl Composer {
         self
     }
 
-    /// Put an empty editor between its actions for a compact initial surface.
-    /// The host switches back to the full-width editor when a draft is entered.
+    /// Put the editor between its actions for a compact surface. In a row
+    /// 28 tall the editor stays one line, so the host switches back to the
+    /// full-width editor when a draft is entered. With `auto_grow`, the row
+    /// grows with the editor instead, and each action stays centered beside
+    /// its first line, as a chat's composer keeps them while a message gets
+    /// longer.
     pub fn inline_controls(mut self, inline: bool) -> Self {
         self.inline_controls = inline;
         self
@@ -230,6 +238,30 @@ impl Composer {
     pub fn card_radius(mut self, radius: f32) -> Self {
         if radius.is_finite() {
             self.card_radius = radius.max(0.0);
+        }
+        self
+    }
+
+    /// The card's corners one by one, in place of `card_radius`, such as
+    /// square top corners under a strip of the host's joined above the card.
+    /// Radii that are not finite or negative are zero.
+    pub fn card_corner_radii(mut self, radii: CornerRadii) -> Self {
+        let clean = |radius: f32| if radius.is_finite() { radius.max(0.0) } else { 0.0 };
+        self.card_corner_radii = Some(CornerRadii {
+            top_left: clean(radii.top_left),
+            top_right: clean(radii.top_right),
+            bottom_right: clean(radii.bottom_right),
+            bottom_left: clean(radii.bottom_left),
+        });
+        self
+    }
+
+    /// Room between the editor's edge and its text, in logical pixels: 8 in
+    /// the card, 6 in the pill and 5 with inline controls unless set. A value
+    /// that is not finite is ignored and a negative one is zero.
+    pub fn editor_padding(mut self, padding: f32) -> Self {
+        if padding.is_finite() {
+            self.editor_padding = Some(padding.max(0.0));
         }
         self
     }
@@ -336,15 +368,30 @@ impl Composer {
                 editor
             }
         };
+        let (radius, radii) = (self.card_radius, self.card_corner_radii);
+        let rounded = move |card: Element| match radii {
+            Some(radii) => card.corner_radii(radii),
+            None => card.radius(radius),
+        };
+        let padding = self.editor_padding;
         if let Some((leading, trailing)) = self.pill_controls {
-            let editor = editor(if self.inline_controls { 5.0 } else { 6.0 });
+            let editor = editor(padding.unwrap_or(if self.inline_controls { 5.0 } else { 6.0 }));
             let mut contents = self.attachments;
             if self.inline_controls {
-                contents.push(
-                    Element::row(vec![leading, editor.flex(1.0), trailing])
+                contents.push(match auto_grow {
+                    // The row is as tall as the editor; each action stays
+                    // centered beside its first line.
+                    Some((first_line, _)) => {
+                        let beside = |control: Element| {
+                            let width = control.style.width;
+                            control.centered_y().size(width, Some(first_line))
+                        };
+                        Element::row(vec![beside(leading), editor.flex(1.0), beside(trailing)]).gap(6.0)
+                    }
+                    None => Element::row(vec![leading, editor.flex(1.0), trailing])
                         .gap(6.0)
                         .size(None, Some(28.0)),
-                );
+                });
             } else {
                 let editor = if let Some(action) = self.editor_action {
                     Element::row(vec![editor.flex(1.0), action]).gap(4.0)
@@ -365,10 +412,9 @@ impl Composer {
                 contents.push(footer);
             }
             let body = Element::column(contents).gap(6.0);
-            let pill = Element::panel(body)
+            let pill = rounded(Element::panel(body))
                 .background(self.palette.selected)
                 .border(self.border_color, 1.0)
-                .radius(self.card_radius)
                 .padding(8.0)
                 .size(Some(self.width), None);
             return if let Some(context) = self.context {
@@ -379,7 +425,7 @@ impl Composer {
                 pill
             };
         }
-        let editor = editor(8.0);
+        let editor = editor(padding.unwrap_or(8.0));
         let mut contents = self.attachments;
         contents.push(editor);
         if let Some(preview) = self.link_preview {
@@ -388,10 +434,9 @@ impl Composer {
         if let Some(footer) = self.footer {
             contents.push(footer);
         }
-        let card = Element::panel(Element::column(contents).gap(4.0))
+        let card = rounded(Element::panel(Element::column(contents).gap(4.0)))
             .background(self.palette.selected)
             .border(self.border_color, 1.0)
-            .radius(self.card_radius)
             .shadow(self.shadow_color, Point::new(0.0, 5.0), 18.0, 0.0)
             .padding(8.0)
             .size(Some(self.width), None);
@@ -578,6 +623,76 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn inline_controls_grow_with_the_editor_and_stay_beside_its_first_line() {
+        let palette = ComponentPalette::neutral_dark();
+        let control = |id: &str| Element::button(id, "+").size(Some(32.0), Some(32.0));
+        let laid = |prompt: &str, enabled: bool| {
+            let composer = Composer::new("prompt", prompt, "Mensaje", 480.0, palette)
+                .pill_controls(control("add"), control("emoji"))
+                .inline_controls(true)
+                .auto_grow(48.0, 200.0)
+                .editor_padding(14.0)
+                .editor_padding(f32::NAN)
+                .card_corner_radii(CornerRadii { top_left: 0.0, top_right: f32::NAN, bottom_right: 8.0, bottom_left: -2.0 })
+                .enabled(enabled)
+                .render();
+            let mut tree = UiTree::new(Element::column(vec![composer, Element::spacer().flex(1.0)]));
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(480.0, 400.0))
+        };
+        let region = |frame: &crate::Frame, id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+        let one = laid("Hola", true);
+        let many = laid("uno\ndos\ntres\ncuatro", true);
+        let (short, tall) = (region(&one, "prompt"), region(&many, "prompt"));
+        assert_eq!(short.height, 48.0);
+        assert!(tall.height > 48.0 && tall.height <= 200.0, "{tall:?}");
+        for frame in [&one, &many] {
+            let editor = region(frame, "prompt");
+            for id in ["add", "emoji"] {
+                // Centered on the first line, whatever the editor's height.
+                let action = region(frame, id);
+                assert_eq!(action.y + action.height / 2.0, editor.y + 24.0, "{id}");
+            }
+            assert!(region(frame, "add").x + 32.0 <= editor.x && region(frame, "emoji").x >= editor.x + editor.width);
+            // The text starts at the editor's own padding.
+            let first = frame.commands.iter().find_map(|command| match command {
+                crate::DrawCommand::Text { text, position, .. } if text == "Hola" || text == "uno" => Some(*position),
+                _ => None,
+            });
+            assert_eq!(first.unwrap().x, editor.x + 14.0);
+        }
+        // The card's corners one by one.
+        let radii = one.commands.iter().find_map(|command| match command {
+            crate::DrawCommand::FillCornerRect { color, radii, .. } if *color == palette.selected => Some(*radii),
+            _ => None,
+        });
+        assert_eq!(radii, Some(CornerRadii { top_left: 0.0, top_right: 0.0, bottom_right: 8.0, bottom_left: 0.0 }));
+        // A long reason in a disabled composer wraps onto further lines instead of being cut.
+        let reason = "Estás aislado hasta mañana a las 10:30 · quedan 19 h 5 min, y nadie puede escribir";
+        let quiet = {
+            let composer = Composer::new("prompt", "", reason, 220.0, palette)
+                .pill_controls(control("add"), control("emoji"))
+                .inline_controls(true)
+                .auto_grow(48.0, 200.0)
+                .disabled()
+                .render();
+            UiTree::new(Element::column(vec![composer, Element::spacer().flex(1.0)])).layout(Size::new(220.0, 400.0))
+        };
+        let lines = quiet.commands.iter().filter(|command| matches!(command,
+            crate::DrawCommand::Text { color, .. } if *color == palette.muted)).count();
+        assert!(lines > 1, "{lines}");
+        // Without auto_grow the row keeps its 28.
+        let fixed = {
+            let composer = Composer::new("prompt", "", "Mensaje", 480.0, palette)
+                .pill_controls(Element::button("add", "+"), Element::button("emoji", ":)"))
+                .inline_controls(true)
+                .render();
+            UiTree::new(Element::column(vec![composer, Element::spacer().flex(1.0)])).layout(Size::new(480.0, 400.0))
+        };
+        assert_eq!(region(&fixed, "prompt").height, 28.0);
     }
 
     #[test]

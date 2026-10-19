@@ -59,7 +59,23 @@ and height, the choice where a field has its text, after the icon if there
 is one, and the chevron at the end. Open, or focused from the keyboard, it
 has the border of a focused field in place of a button's focus ring. Use it
 in a form, among text fields, where a button would stand out.
-A field is never narrower than 80, as a text field is.
+A field is never narrower than 80, as a text field is. While its list is
+open, a field's chevron points up.
+
+```rust
+Select::new("slowmode", label, options, open, "slowmode:dismiss", palette)
+    .variant(SelectVariant::Field)
+    .font_size(16.0)
+    .max_visible_items(5)
+    .ink(accent)
+    .render()
+```
+
+`font_size` sets the choice's text on the trigger, 13 in a field unless set.
+`ink` gives an open field a 2 px border in that color, such as the
+application's accent, in place of a focused field's. `max_visible_items(n)`
+shows `n` options and scrolls the rest; unless set the list is as long as
+its options, within the window.
 
 ## Size
 

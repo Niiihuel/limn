@@ -1,5 +1,5 @@
 use super::{caption, row, section, Cx, Section};
-use limn::{Button, ButtonVariant, Color, Component, Icon, IconButton, Tooltip, TooltipFace, TooltipPlacement};
+use limn::{Button, ButtonVariant, Color, Component, FontFamily, Icon, IconButton, Tooltip, TooltipFace, TooltipPlacement};
 
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
@@ -50,9 +50,27 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render(),
             Tooltip::new(anchor("tooltip-semibold", "Semibold"), "tooltip-semibold", "Rust workshop", palette)
                 .placement(TooltipPlacement::Right)
-                .title_family(limn::FontFamily::SansSemibold)
+                .title_font_family(FontFamily::SansSemibold)
                 .render(),
         ])]),
+        section(cx, "Delay, title, pointer and fill", vec![
+            row(vec![
+                Tooltip::new(anchor("tooltip-at-once", "At once"), "tooltip-at-once", "Rust workshop", palette)
+                    .placement(TooltipPlacement::Right)
+                    .delay_ms(0)
+                    .title_font_size(16.0)
+                    .title_font_family(FontFamily::SansMedium)
+                    .background(Color::rgb(10, 10, 12))
+                    .render(),
+                Tooltip::new(anchor("tooltip-no-arrow", "No pointer"), "tooltip-no-arrow", "Without a pointer", palette)
+                    .arrow(false)
+                    .render(),
+                Tooltip::new(anchor("tooltip-slow", "After a second"), "tooltip-slow", "A slower hint", palette)
+                    .delay_ms(1000)
+                    .render(),
+            ]),
+            caption(cx, "A rail's hint opens at once with a 16 px title on a fill of its own; another hides its pointer or waits longer."),
+        ]),
         section(cx, "Placement", vec![row(vec![
             Tooltip::new(anchor("tooltip-above", "Above"), "tooltip-above", "Above", palette)
                 .placement(TooltipPlacement::Above)

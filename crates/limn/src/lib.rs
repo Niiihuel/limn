@@ -133,7 +133,7 @@ pub use coach_mark::{CoachMark, Tour, TourStep};
 pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
 pub use avatar_group::AvatarGroup;
-pub use badge::Badge;
+pub use badge::{Badge, BadgePlacement};
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 pub use button_group::{ButtonGroup, ButtonGroupSizing};
 pub use card::{Card, CardDensity};
@@ -177,7 +177,7 @@ pub use element::{
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextHint, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipFace, TooltipItem, TooltipPlacement, TooltipSection, TOOLTIP_FACE, TOOLTIP_FACE_ICON, TOOLTIP_FACE_OVERLAP,
-    TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE,
+    TooltipOptions, TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE, SMALL_ICON_SIZE,
 };
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};

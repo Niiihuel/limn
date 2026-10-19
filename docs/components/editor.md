@@ -130,6 +130,32 @@ wrapped lines between two heights, and `editor_height` fixes it instead.
 its sides and filled with that palette's `surface`. Build the strip's content
 `Composer::header_strip_width(width)` wide.
 
+### Controls beside a growing editor
+
+```rust
+Composer::new("composer", &state.draft, "Message #general", width, palette)
+    .pill_controls(add_button, emoji_button)
+    .inline_controls(true)
+    .auto_grow(32.0, 284.0)
+    .editor_padding(6.0)
+    .card_corner_radii(CornerRadii::bottom(8.0))
+    .render()
+```
+
+`inline_controls(true)` puts the editor between the two controls. Without
+`auto_grow` the row is 28 tall and the editor one line, for a compact
+surface the host swaps for the full-width editor once a draft is entered.
+With `auto_grow` the row grows with the editor, and each control stays
+centered beside its first line, `auto_grow`'s least height, as a chat's
+composer keeps them while a message gets longer. A disabled composer's
+placeholder wraps there too, so a long reason not to write stays whole.
+
+`editor_padding` is the room between the editor's edge and its text: 8 in
+the card, 6 in the pill and 5 with inline controls unless set.
+`card_corner_radii` rounds the card's corners one by one in place of
+`card_radius`, such as square top corners under a strip of the host's joined
+above it.
+
 ### Files from another application
 
 Add `.drop_target()` to opt the enabled editor into external file drops.

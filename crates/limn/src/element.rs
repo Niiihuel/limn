@@ -6,6 +6,8 @@ pub const DEFAULT_FONT_SIZE: f32 = 14.0;
 /// Canonical visual size of every chrome icon, in logical pixels.
 /// The host rasterizes this size at the current display scale.
 pub const ICON_SIZE: f32 = 16.0;
+/// The least side [`Element::small_icon`] draws an icon at, in logical pixels.
+pub const SMALL_ICON_SIZE: f32 = 8.0;
 
 /// Preferred side of an anchored floating surface. The layout engine flips
 /// vertically when the preferred side would leave the viewport.
@@ -232,10 +234,35 @@ pub struct TooltipStyle {
     pub muted: Color,
     /// Color of the shadow under the body.
     pub shadow: Color,
-    /// Face of the title, measured and painted in it. [`FontFamily::Sans`]
-    /// unless [`Tooltip::title_family`](crate::Tooltip::title_family) says
-    /// otherwise.
-    pub title_family: FontFamily,
+}
+
+/// When a tooltip opens and how its title and pointer are drawn. The
+/// default is every hint's: 350 ms, a 12 px title in the regular face, and
+/// a pointer.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TooltipOptions {
+    /// How long the pointer rests on the anchor before the hint shows, in
+    /// milliseconds; 0 shows it as soon as the pointer is over it. Keyboard
+    /// focus shows it at once either way.
+    pub delay_ms: u16,
+    /// The title's text size in logical pixels. A one-line hint grows by
+    /// what a title taller than the default adds.
+    pub title_font_size: f32,
+    /// The title's face.
+    pub title_font_family: FontFamily,
+    /// Whether a small pointer joins the hint to its anchor.
+    pub arrow: bool,
+}
+
+impl Default for TooltipOptions {
+    fn default() -> Self {
+        Self {
+            delay_ms: 350,
+            title_font_size: 12.0,
+            title_font_family: FontFamily::Sans,
+            arrow: true,
+        }
+    }
 }
 
 /// Semantic icon names. A host chooses the concrete artwork for each name.
@@ -517,6 +544,18 @@ pub enum Icon {
     /// An empty ring: an option not chosen, as an unselected radio or check
     /// mark in a menu, beside [`Self::CheckCircle`] for the chosen one.
     Circle,
+    /// A tree: nature, such as a category of emoji.
+    Tree,
+    /// A fried egg: food and drink.
+    FriedEgg,
+    /// A game controller: games and activities.
+    Gamepad,
+    /// A car from the front: travel and places.
+    Car,
+    /// A light bulb: objects, or an idea.
+    Lightbulb,
+    /// A flag on its pole: flags, or marking something.
+    Flag,
 }
 
 impl Icon {
@@ -1570,6 +1609,8 @@ pub enum ElementKind {
         placement: TooltipPlacement,
         /// The colors it is painted with.
         colors: TooltipStyle,
+        /// When it opens and how its title and pointer are drawn.
+        options: TooltipOptions,
     },
     /// A vertical scrolling viewport over one child; see [`Element::scroll`].
     Scroll {
@@ -2789,6 +2830,7 @@ impl Element {
                 max_width: 360.0,
                 placement,
                 colors,
+                options: TooltipOptions::default(),
             },
             layout,
         )
@@ -3765,6 +3807,17 @@ impl Element {
     /// Kept for source compatibility while callers migrate to [`ICON_SIZE`].
     /// Icons inside controls use one size; this request is ignored.
     pub fn icon_size(self, _size: f32) -> Self {
+        self
+    }
+
+    /// Draw a standalone [`Element::icon`] smaller than the control size,
+    /// such as a mark over a corner of another icon or a glyph inside a
+    /// small badge: `side` is clamped to 8 to 16 logical pixels. A value
+    /// that is not finite is ignored. Controls keep the standard 16 px.
+    pub fn small_icon(mut self, side: f32) -> Self {
+        if side.is_finite() {
+            self.style.icon_side = Some(side.clamp(SMALL_ICON_SIZE, ICON_SIZE));
+        }
         self
     }
 

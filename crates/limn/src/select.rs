@@ -2,7 +2,7 @@
 
 use crate::components::{control_radius, input_surface, lighter};
 use crate::{
-    Access, Button, ButtonVariant, Component, ComponentPalette, ControlSize, ControlState,
+    Access, Button, ButtonVariant, Color, Component, ComponentPalette, ControlSize, ControlState,
     DropdownMenu, DropdownMenuItem, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,
     Role, SelectorSizing, ICON_SIZE,
 };
@@ -42,6 +42,9 @@ pub struct Select {
     enabled: bool,
     accessibility_label: Option<String>,
     header: Option<Box<Element>>,
+    max_visible_items: Option<usize>,
+    font_size: Option<f32>,
+    ink: Option<Color>,
 }
 
 impl Select {
@@ -73,6 +76,9 @@ impl Select {
             enabled: true,
             accessibility_label: None,
             header: None,
+            max_visible_items: None,
+            font_size: None,
+            ink: None,
         }
     }
 
@@ -160,6 +166,32 @@ impl Select {
         self
     }
 
+    /// How many options the open list shows before it scrolls, at least 1.
+    /// Unless set, the list is as long as its options, within the window.
+    pub fn max_visible_items(mut self, count: usize) -> Self {
+        self.max_visible_items = Some(count.max(1));
+        self
+    }
+
+    /// The size of the choice's text on the trigger, in logical pixels: 13
+    /// in a field unless set, and the button's size otherwise. A size that
+    /// is not finite or not above zero is ignored.
+    pub fn font_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.font_size = Some(size);
+        }
+        self
+    }
+
+    /// The color of a field's border while its list is open, 2 pixels wide,
+    /// such as the application's accent, in place of a focused field's
+    /// lighter border. A field's chevron points up while its list is open
+    /// either way.
+    pub fn ink(mut self, color: Color) -> Self {
+        self.ink = Some(color);
+        self
+    }
+
     /// A disabled select shows its value, stays closed and cannot be focused.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
@@ -202,6 +234,9 @@ impl Component for Select {
             SelectVariant::Button => {
                 let mut sizing = size.button_sizing();
                 sizing.height = height;
+                if let Some(font_size) = self.font_size {
+                    sizing.font_size = font_size;
+                }
                 let mut trigger = Button::new(self.id, self.current_label, self.palette)
                     .variant(ButtonVariant::Outline)
                     .sizing(sizing)
@@ -247,6 +282,9 @@ impl Component for Select {
         .context_menu_style()
         .width(menu_width)
         .placement(self.placement);
+        if let Some(count) = self.max_visible_items {
+            menu = menu.max_visible_items(count);
+        }
         if let Some(header) = self.header {
             menu = menu.header(*header);
         }
@@ -275,7 +313,7 @@ impl Select {
                 Element::truncated_text(label.clone())
                     .foreground(palette.muted)
                     .font_family(FontFamily::Sans)
-                    .font_size(13.0)
+                    .font_size(self.font_size.unwrap_or(13.0))
                     .size(None, Some(height))
                     .flex(1.0),
             );
@@ -304,20 +342,20 @@ impl Select {
             Some(icon) => Element::icon_button(self.id.clone(), icon, label),
             None => Element::button(self.id.clone(), label),
         };
-        let trigger = input_surface(
-            trigger.trailing_icon(Icon::ChevronDown),
-            palette,
-            size,
-            Some(width),
-        )
+        let chevron = if self.open { Icon::ChevronUp } else { Icon::ChevronDown };
+        let trigger = input_surface(trigger.trailing_icon(chevron), palette, size, Some(width));
+        let trigger = match self.font_size {
+            Some(font_size) => trigger.font_size(font_size),
+            None => trigger,
+        }
         .gap(8.0)
         // A focused field's border, not a button's ring, under the keyboard.
         .focus_ring(false)
         .size(Some(width), Some(height));
-        if self.open {
-            trigger.border(lighter(palette.border, 70), 1.5)
-        } else {
-            trigger
+        match (self.open, self.ink) {
+            (true, Some(ink)) => trigger.border(ink, 2.0),
+            (true, None) => trigger.border(lighter(palette.border, 70), 1.5),
+            (false, _) => trigger,
         }
     }
 }
@@ -586,6 +624,46 @@ mod tests {
     }
 
     #[test]
+    fn a_field_takes_its_text_size_rows_in_view_and_an_open_border_with_the_chevron_up() {
+        const ACCENT: Color = Color::rgb(88, 101, 242);
+        let many = |open: bool| {
+            let options = (0..12).map(|index| DropdownOption::new(format!("o:{index}"), format!("Option {index}"))).collect();
+            Select::new("toggle", "Bash", options, open, "dismiss", ComponentPalette::neutral_dark())
+                .variant(SelectVariant::Field)
+                .width(240.0)
+                .font_size(16.0)
+                .font_size(f32::NAN)
+                .font_size(0.0)
+                .ink(ACCENT)
+        };
+        for open in [false, true] {
+            let frame = tree(many(open).max_visible_items(5).max_visible_items(0).max_visible_items(5)).layout(VIEWPORT);
+            let trigger = rect(&frame, "toggle").unwrap();
+            assert!(frame.commands.iter().any(|command| matches!(command,
+                crate::DrawCommand::Text { text, font_size, .. } if text == "Bash" && *font_size == 16.0)));
+            let (_, icons) = drawn(&frame);
+            let chevron = icons.iter().find(|(_, rect)| rect.x > trigger.x + 200.0).unwrap().0;
+            assert_eq!(chevron, if open { Icon::ChevronUp } else { Icon::ChevronDown });
+            let accent = frame.commands.iter().any(|command| matches!(command,
+                crate::DrawCommand::StrokeRect { rect, color, width, .. }
+                    if *rect == trigger && *color == ACCENT && *width == 2.0));
+            assert_eq!(accent, open);
+            if open {
+                // Five rows show; the rest are reached by scrolling.
+                let shown = (0..12).filter(|index| rect(&frame, &format!("o:{index}")).is_some()).count();
+                assert_eq!(shown, 5, "{:?}", frame.regions);
+            }
+        }
+        // Without a limit every option shows, as before.
+        let frame = tree(many(true)).layout(Size::new(600.0, 800.0));
+        assert_eq!((0..12).filter(|index| rect(&frame, &format!("o:{index}")).is_some()).count(), 12);
+        // A button takes the size too.
+        let frame = tree(select(false).font_size(15.0)).layout(VIEWPORT);
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            crate::DrawCommand::Text { text, font_size, .. } if text == "Bash" && *font_size == 15.0)));
+    }
+
+    #[test]
     fn a_field_select_focused_from_the_keyboard_has_a_fields_border_not_a_ring() {
         let palette = ComponentPalette::neutral_dark();
         for open in [false, true] {
@@ -678,7 +756,8 @@ mod tests {
         let (label, icons) = drawn(&enabled);
         let (quiet_label, quiet_icons) = drawn(&disabled);
         assert_eq!(quiet_label.unwrap().x, label.unwrap().x);
-        assert_eq!(quiet_icons[0], icons[0]);
+        // Disabled it stays closed, so its chevron points down.
+        assert_eq!((quiet_icons[0].0, quiet_icons[0].1), (Icon::ChevronDown, icons[0].1));
         // Unnamed, the choice it shows is its name.
         let (_, unnamed) = place(field(false).disabled());
         assert_eq!(unnamed.name, "Bash");
