@@ -11,7 +11,7 @@ use std::sync::{Arc, OnceLock};
 use parley::fontique::{Collection, CollectionOptions, FontInfoOverride, SourceCache};
 use parley::{
     Affinity, Alignment, AlignmentOptions, BoundingBox, Cursor, FontContext, FontFamilyName, FontStyle,
-    FontWeight, LayoutContext, LineHeight, PositionedLayoutItem, Selection, StyleProperty,
+    FontWeight, LayoutContext, LineHeight, OverflowWrap, PositionedLayoutItem, Selection, StyleProperty,
 };
 
 use crate::fonts::{self, Font, Fonts};
@@ -153,8 +153,8 @@ impl TextLayout {
 
     /// The same text broken into lines no wider than `width`, where the
     /// language allows a break, without shaping it again. A word longer than
-    /// `width` keeps its own line. A width that is not finite does not wrap;
-    /// one below zero is zero.
+    /// `width` is broken between graphemes, so no line runs past it. A width
+    /// that is not finite does not wrap; one below zero is zero.
     pub fn wrapped(&self, width: f32) -> Self {
         self.placed(width, Alignment::Start)
     }
@@ -440,6 +440,8 @@ impl System {
         builder.push_default(StyleProperty::FontSize(style.size));
         builder.push_default(StyleProperty::FontWeight(FontWeight::new(weight)));
         builder.push_default(StyleProperty::FontStyle(slant));
+        // A word that cannot fit a line is broken, as limn has always broken it.
+        builder.push_default(StyleProperty::OverflowWrap(OverflowWrap::Anywhere));
         builder.push_default(StyleProperty::LineHeight(match style.line_height {
             Some(height) => LineHeight::Absolute(height),
             None => LineHeight::MetricsRelative(1.0),

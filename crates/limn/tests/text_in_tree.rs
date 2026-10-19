@@ -130,3 +130,16 @@ fn text_that_stays_keeps_its_glyphs_from_one_layout_to_the_next() {
     assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { .. })));
     assert!(runs(&frame).is_empty());
 }
+
+#[test]
+fn a_long_word_wraps_inside_its_box() {
+    let address = "Pneumonoultramicroscopicsilicovolcanoconiosisandmorelettersstill";
+    let mut tree = tree(Element::row(vec![
+        Element::text(address).font_family(FontFamily::Sans).size(Some(120.0), None),
+        Element::spacer().flex(1.0),
+    ]));
+    let frame = tree.layout(Size::new(400.0, 400.0));
+    let lines = &frame.text_layouts()[0].runs;
+    assert!(lines.len() > 1, "{lines:?}");
+    assert!(lines.iter().all(|line| line.rect.x + line.rect.width <= 120.0 + 0.01), "{lines:?}");
+}

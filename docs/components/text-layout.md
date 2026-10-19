@@ -58,8 +58,8 @@ let paragraph = TextLayout::new(text, style).wrapped(360.0);
 
 `wrapped(width)` breaks the same text into lines no wider than `width`, where
 the language allows a break, without shaping it again: a layout made once can
-follow its container's width. A word longer than `width` keeps a line of its
-own. A width that is not finite does not wrap.
+follow its container's width. A word longer than `width` is broken between
+graphemes, so no line runs past it. A width that is not finite does not wrap.
 
 `centered(width)` breaks it as `wrapped` does and centers each line across
 `width`.
