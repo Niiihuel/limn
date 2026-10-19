@@ -80,10 +80,13 @@ Unicode character offsets, and `Composer::editor_highlights` those of the
 composer's editor: `color` inks the range, `italic` slants it and
 `background` fills behind it with rounded corners, under the selection and
 the text, such as a mention drawn as the pill it becomes once sent. The fill
-covers the characters' advances and the line's height, so the caret, the
-wrapping and the stored text are those of the plain text. Highlights follow
-the host's text; while an edit has not reached the host yet, the line paints
-plain.
+covers the range's characters and the line's height. In a tree that lays
+its text out (`UiTree::set_text_layout`, as `limn_egui::attach_fonts` does)
+a highlight is a span of the text: an italic range is set in the italic
+face, and the caret and the wrapping follow it. Otherwise the range is
+painted over the plain text, whose advances the caret and the wrapping
+keep. Highlights follow the host's text; while an edit has not reached the
+host yet, the text paints plain.
 ## Line endings
 
 `preserve_line_endings(true)` keeps CRLF and CR line endings through editing
@@ -106,6 +109,7 @@ text is empty, and is not an input: it reports nothing.
 | Enter | Adds a line; with `enter_submits(true)`, reports `Submitted` with the text |
 | Shift+Enter | Adds a line |
 | Ctrl+Enter | Reports `Submitted` with the text |
+| Up, Down | Move the caret a line, as near its column as the line allows |
 | Home, End | Move the caret to either edge of its line; with Ctrl, of the text |
 | Ctrl+A | Selects everything |
 
