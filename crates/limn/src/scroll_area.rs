@@ -148,6 +148,11 @@ pub struct ScrollbarAppearance {
     /// end button under the pointer is filled at twice this, three times when
     /// held. 14 by default.
     pub hover_track_opacity: u8,
+    /// The corner of the thumb and of its track, in logical pixels. `None`, the
+    /// default, rounds their ends fully; `Some(0.0)` draws them square, as
+    /// Spotify's desktop client on Windows and Linux. Clamped to half the
+    /// thumb's width; a value that is not finite counts as `None`.
+    pub thumb_radius: Option<f32>,
 }
 
 impl Default for ScrollbarAppearance {
@@ -163,6 +168,7 @@ impl Default for ScrollbarAppearance {
             hover_thumb_opacity: 118,
             active_thumb_opacity: 164,
             hover_track_opacity: 14,
+            thumb_radius: None,
         }
     }
 }
@@ -239,6 +245,19 @@ impl ScrollbarAppearance {
             ink.b,
             ((u16::from(ink.a) * u16::from(opacity)) / 255) as u8,
         )
+    }
+
+    /// Set the corner of the thumb and its track: 0 draws them square. A value
+    /// that is not finite keeps their ends fully round; a negative one is 0.
+    pub fn thumb_radius(mut self, radius: f32) -> Self {
+        self.thumb_radius = radius.is_finite().then_some(radius.max(0.0));
+        self
+    }
+
+    /// The corner of a bar `width` wide: what was asked, at most half of it.
+    pub(crate) fn corner(self, width: f32) -> f32 {
+        let round = width / 2.0;
+        self.thumb_radius.filter(|radius| radius.is_finite()).map_or(round, |radius| radius.clamp(0.0, round))
     }
 
     pub(crate) fn effective_rail_width(self, viewport_width: f32) -> f32 {
@@ -402,6 +421,26 @@ mod tests {
         assert!(
             matches!(virtualized.kind, ElementKind::UniformList(list) if list.appearance == appearance)
         );
+    }
+
+    #[test]
+    fn a_thumb_is_round_unless_its_corner_is_set_and_square_at_zero() {
+        let thumb = |appearance: ScrollbarAppearance| {
+            let tall = Element::column((0..40).map(|_| Element::text("row")).collect());
+            let mut tree = crate::UiTree::new(ScrollArea::new("page", tall).appearance(appearance.buttons(false).rail_width(12.0).thumb_width(10.0)).render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(crate::Size::new(200.0, 100.0));
+            frame.commands.iter().rev().find_map(|command| match command {
+                crate::DrawCommand::FillRect { rect, radius, .. } if rect.width == 10.0 => Some(*radius),
+                _ => None,
+            }).expect("a thumb")
+        };
+        assert_eq!(thumb(ScrollbarAppearance::default()), 5.0, "round ends by default");
+        assert_eq!(thumb(ScrollbarAppearance::default().thumb_radius(0.0)), 0.0, "square at zero");
+        assert_eq!(thumb(ScrollbarAppearance::default().thumb_radius(2.0)), 2.0);
+        assert_eq!(thumb(ScrollbarAppearance::default().thumb_radius(40.0)), 5.0, "never past half its width");
+        assert_eq!(ScrollbarAppearance::default().thumb_radius(f32::NAN).thumb_radius, None);
+        assert_eq!(ScrollbarAppearance::default().thumb_radius(-3.0).thumb_radius, Some(0.0));
     }
 
     #[test]
