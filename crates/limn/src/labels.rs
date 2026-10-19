@@ -75,6 +75,13 @@ pub struct Labels {
     pub previous_image: &'static str,
     /// The image viewer.
     pub next_image: &'static str,
+    /// The image viewer's control that turns the picture a quarter clockwise.
+    pub rotate: &'static str,
+    /// The image viewer's percentage, before it: "Zoom 150 %".
+    pub zoom_level: &'static str,
+    /// The hint of the image viewer's percentage, which fits the picture or
+    /// zooms in two and a half times.
+    pub fit_or_zoom: &'static str,
     /// In place of a picture that could not be drawn.
     pub preview_unavailable: &'static str,
     /// A code review.
@@ -236,6 +243,9 @@ impl Labels {
         loading_image: "Loading image…",
         previous_image: "Previous image",
         next_image: "Next image",
+        rotate: "Rotate",
+        zoom_level: "Zoom",
+        fit_or_zoom: "Fit, or zoom in",
         preview_unavailable: "Preview unavailable",
         previous_change: "Previous change",
         next_change: "Next change",
@@ -335,6 +345,9 @@ impl Labels {
         loading_image: "Cargando imagen…",
         previous_image: "Imagen anterior",
         next_image: "Imagen siguiente",
+        rotate: "Girar",
+        zoom_level: "Zoom",
+        fit_or_zoom: "Ajustar o acercar",
         preview_unavailable: "Vista previa no disponible",
         previous_change: "Cambio anterior",
         next_change: "Cambio siguiente",

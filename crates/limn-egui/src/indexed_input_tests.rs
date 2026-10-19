@@ -590,6 +590,8 @@ fn indexed_input_preserves_mixed_source_order_and_marks_frame_derived_files() {
         vec![
             (Some(0), UiEvent::PointerMove(Point::new(10.0, 10.0))),
             (Some(1), UiEvent::Text("é".into())),
+            // A pinch where the pointer is.
+            (Some(2), UiEvent::Zoom { position: Point::new(10.0, 10.0), factor: 1.0 }),
             (Some(3), UiEvent::ImePreedit("仮".into())),
             (Some(4), UiEvent::ImeCommit("界".into())),
             (Some(6), UiEvent::PointerLeave),
@@ -625,7 +627,8 @@ fn indexed_input_preserves_mixed_source_order_and_marks_frame_derived_files() {
 
     let position = Point::new(10.0, 20.0);
     let native = vec![
-        Event::Zoom(1.0),
+        // A native event limn does not translate.
+        Event::WindowFocused(true),
         Event::PointerMoved(egui::Pos2::new(110.0, 70.0)),
     ];
     let (_, hovered) = frame(

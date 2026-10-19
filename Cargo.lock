@@ -1979,12 +1979,14 @@ dependencies = [
 name = "limn-gallery"
 version = "0.1.43"
 dependencies = [
+ "base64",
  "eframe",
  "image",
  "limn",
  "limn-dnd",
  "limn-editor",
  "limn-egui",
+ "sha2",
  "wasm-bindgen-futures",
  "web-time",
  "wgpu",

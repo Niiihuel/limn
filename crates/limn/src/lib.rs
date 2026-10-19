@@ -55,6 +55,7 @@ mod geometry;
 mod glass;
 mod diagram_viewer;
 mod image_viewer;
+mod zoom_view;
 mod list_row;
 mod markdown;
 mod markdown_cache;
@@ -179,7 +180,9 @@ pub use element::{
     PopoverPlacement,
     SpinnerVariant, Style, TabSelection, TextHighlight, TextHint, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipFace, TooltipItem, TooltipPlacement, TooltipSection, TOOLTIP_FACE, TOOLTIP_FACE_ICON, TOOLTIP_FACE_OVERLAP,
     TooltipOptions, TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE, SMALL_ICON_SIZE,
+    ZoomControl, ZoomView,
 };
+pub use zoom_view::{zoom_percent, ZOOM_VIEW_MAX_SCALE};
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};
 pub use diagram::{Diagram, DiagramError};

@@ -5,6 +5,8 @@ use horizontal_scroll_tree::HorizontalScrollState;
 mod corner_mask_tree;
 #[path = "plot_tree.rs"]
 mod plot_tree;
+#[path = "zoom_view_tree.rs"]
+mod zoom_view_tree;
 #[cfg(test)]
 #[path = "popover_initial_focus_tests.rs"]
 mod popover_initial_focus_tests;
@@ -1456,6 +1458,9 @@ pub enum HitKind {
     /// A scrollbar's rail: its thumb drags, its buttons step and a press on the
     /// rail pages.
     Scrollbar,
+    /// A zoom view's box: the wheel and a pinch zoom it, a drag pans it and a
+    /// double click zooms in or back out; see [`Element::zoom_view`].
+    Zoom,
 }
 
 /// A rectangle of the frame that answers the pointer, with the ID of its
@@ -1505,6 +1510,9 @@ pub struct Frame {
     virtual_lists: HashMap<String, VirtualListFocus>,
     context_menu_regions: Vec<ContextMenuRegion>,
     coach: Option<CoachFrame>,
+    /// The zoom views laid out, in order, and the controls that move them.
+    zoom_views: Vec<zoom_view_tree::ZoomFrame>,
+    zoom_controls: HashMap<String, (String, crate::ZoomControl)>,
 }
 
 /// The coach mark rendered this frame, laid out or not.
@@ -3053,6 +3061,16 @@ pub enum UiEvent {
     /// The tree keeps them for [`UiTree::modifiers`]; nothing else reads
     /// them.
     ModifiersChanged(Modifiers),
+    /// A pinch on a touchpad or a touch screen: what lies under `position`
+    /// is to be shown `factor` times as large. A zoom view under it zooms;
+    /// nothing else reads it.
+    Zoom {
+        /// Where the fingers are.
+        position: Point,
+        /// Above 1 to zoom in, below 1 to zoom out; one that is not finite or
+        /// not above zero is ignored.
+        factor: f32,
+    },
 }
 
 /// Which modifier keys are held; see [`UiTree::modifiers`].
@@ -3204,6 +3222,17 @@ pub enum UiAction {
         target: Option<String>,
         /// The paths the host sent, unchanged.
         paths: Vec<std::path::PathBuf>,
+    },
+    /// A zoom view's scale changed (see [`Element::zoom_view`]): the host may
+    /// show it, or fetch a sharper picture to zoom into.
+    Zoomed {
+        /// The zoom view's ID.
+        id: String,
+        /// Logical pixels on screen for each pixel of the picture, where it
+        /// is going to rest.
+        scale: f32,
+        /// It is at its fit, following the box.
+        fitted: bool,
     },
 }
 
@@ -3718,6 +3747,9 @@ pub struct UiTree {
     ime_window_focused: bool,
     keys_held: Vec<Key>,
     modifiers: Modifiers,
+    /// Where each zoom view's picture is, by the view's ID.
+    zoom_views: HashMap<String, crate::zoom_view::ZoomState>,
+    zoom_press: Option<zoom_view_tree::ZoomPress>,
 }
 
 impl UiTree {
@@ -3801,6 +3833,8 @@ impl UiTree {
             ime_window_focused: true,
             keys_held: Vec::new(),
             modifiers: Modifiers::default(),
+            zoom_views: HashMap::new(),
+            zoom_press: None,
         }
     }
 
@@ -4145,6 +4179,10 @@ impl UiTree {
             self.spinner_started.clear();
             self.record_motion.clear();
             self.slider_motion.clear();
+            let now = Instant::now();
+            for state in self.zoom_views.values_mut() {
+                state.jump(state.view, now);
+            }
         }
         self.reduced_motion = reduced;
     }
@@ -4241,7 +4279,10 @@ impl UiTree {
     }
 
     fn visual_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
-        let animation = self.other_animation_repaint_after_at(now);
+        let animation = match (self.other_animation_repaint_after_at(now), self.zoom_repaint_after(now)) {
+            (Some(other), Some(zoom)) => Some(other.min(zoom)),
+            (other, zoom) => other.or(zoom),
+        };
         let scrollbar = self.scrollbar_states.values().filter_map(|state| state.repaint_after(now)).min();
         // A text area's scrollbar hides a moment after its last scroll.
         let bar = self
@@ -4629,10 +4670,14 @@ impl UiTree {
                 observed_shimmers: &mut observed_shimmers,
                 observed_spinners: &mut observed_spinners,
                 observed_sliders: &mut observed_sliders,
+                zoom_views: &mut self.zoom_views,
                 reduced_motion: self.reduced_motion,
                 locating: probe.is_some(),
                 now,
             };
+            for state in builder.zoom_views.values_mut() {
+                state.seen = false;
+            }
             builder.place(&self.root, viewport_rect, None);
             let overlay_start = builder.frame.commands.len();
             let base_regions = builder.frame.regions.len();
@@ -5049,6 +5094,8 @@ impl UiTree {
             self.hovered_region = builder.hovered_region(base_regions);
             (builder.frame, overlay_start)
         };
+        // A zoom view not laid out is gone: a new one under its ID opens fitted.
+        self.zoom_views.retain(|_, state| state.seen);
         // The dragged element follows the pointer above every layer. It
         // is captured once, so it survives its source scrolling away or
         // being recycled by a virtual list.
@@ -6031,6 +6078,7 @@ impl UiTree {
             .flatten()
             .filter(|drag| drag.active);
         let mut actions = self.handle_event_inner(event, now);
+        self.apply_zoom_controls(&mut actions, now);
         if let Some(drag) = cancelled {
             actions.push(UiAction::DragCancelled { id: drag.id });
         }
@@ -6131,6 +6179,9 @@ impl UiTree {
         if let Some(actions) = self.handle_code_event(&event, now) {
             return actions;
         }
+        if let Some(actions) = self.handle_zoom_event(&event, now) {
+            return actions;
+        }
         if self.handle_horizontal_scroll(&event) {
             return Vec::new();
         }
@@ -6182,6 +6233,8 @@ impl UiTree {
             | UiEvent::ModifiersChanged(_) => {
                 unreachable!("external file, history and held-key events resolved before ordinary controls")
             }
+            // A pinch over no zoom view.
+            UiEvent::Zoom { .. } => {}
             UiEvent::PointerMove(point) => {
                 let moved = self.pointer != Some(point);
                 self.pointer = Some(point);
@@ -7346,6 +7399,7 @@ fn collect_focus_order(
         | ElementKind::FadedText { .. }
         | ElementKind::RasterImage(_)
         | ElementKind::Surface { .. }
+        | ElementKind::ZoomView(_)
         | ElementKind::Icon(_)
         | ElementKind::Spacer => {}
     }
@@ -7401,6 +7455,7 @@ fn collect_action_metadata(
         | ElementKind::FormattedText(_)
         | ElementKind::RasterImage(_)
         | ElementKind::Surface { .. }
+        | ElementKind::ZoomView(_)
         | ElementKind::Icon(_)
         | ElementKind::Button { .. }
         | ElementKind::IconButton { .. }
@@ -7705,6 +7760,7 @@ struct LayoutBuilder<'a> {
     observed_shimmers: &'a mut HashSet<String>,
     observed_spinners: &'a mut HashSet<String>,
     observed_sliders: &'a mut HashSet<String>,
+    zoom_views: &'a mut HashMap<String, crate::zoom_view::ZoomState>,
     reduced_motion: bool,
     /// A control is being scrolled into view, which needs the layout an
     /// opening `animate_height` slot ends at.
@@ -10202,7 +10258,7 @@ impl LayoutBuilder<'_> {
                     lines.iter().map(|line| line.height).sum::<f32>() + padding,
                 )
             }
-            ElementKind::RasterImage(_) | ElementKind::Surface { .. } => {
+            ElementKind::RasterImage(_) | ElementKind::Surface { .. } | ElementKind::ZoomView(_) => {
                 Size::new(available.width.min(280.0), 180.0 + padding)
             }
             ElementKind::Icon(_) => {
@@ -10893,7 +10949,8 @@ impl LayoutBuilder<'_> {
             style.background = (color.a > 0).then_some(color);
         }
         let metrics = self.metrics_for(style);
-        if let Some(shadow) = style.shadow {
+        // A zoom view's picture casts its shadow, not its box.
+        if let Some(shadow) = style.shadow.filter(|_| !matches!(element.kind, ElementKind::ZoomView(_))) {
             self.frame.commands.push(DrawCommand::Shadow {
                 rect,
                 shadow,
@@ -13208,6 +13265,7 @@ impl LayoutBuilder<'_> {
                     );
                 }
             }
+            ElementKind::ZoomView(view) => self.place_zoom_view(view, content, clip, style.shadow),
             // A rolling number was placed as its text above.
             ElementKind::Skeleton { .. }
             | ElementKind::RollingNumber { .. }

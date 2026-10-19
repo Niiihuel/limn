@@ -258,16 +258,21 @@ pub fn clear_image_cache() {
     RASTER_CACHE.with(|cache| cache.borrow_mut().clear());
 }
 
+/// A decoded image, and whether any of its pixels is transparent (looked
+/// for only where a checkerboard was asked for).
+type Decoded = (egui::ColorImage, bool);
+
 enum RasterCacheEntry {
-    Decoding(std::sync::mpsc::Receiver<Option<egui::ColorImage>>),
-    Ready(egui::TextureHandle),
+    Decoding(std::sync::mpsc::Receiver<Option<Decoded>>),
+    Ready(egui::TextureHandle, bool),
     Unavailable,
 }
 
-/// What a paint pass has of an image.
+/// What a paint pass has of an image: its texture, its size in pixels and
+/// whether it has transparent pixels.
 #[derive(Debug, PartialEq)]
 enum RasterTexture {
-    Ready(egui::TextureId, [usize; 2]),
+    Ready(egui::TextureId, [usize; 2], bool),
     /// Still being decoded; a repaint is asked for when it lands.
     Decoding,
     Unavailable,
@@ -311,7 +316,14 @@ fn raster_format(format: RasterImageFormat) -> image::ImageFormat {
 /// Only this path may turn journal image bytes into pixels. It verifies the
 /// digest and declared format again at the render boundary, then checks
 /// dimensions before asking a decoder to allocate the full image.
+#[cfg(test)]
 fn decode_raster_thumbnail(source: &RasterImage, side: u32) -> Option<egui::ColorImage> {
+    decode_raster(source, side, source.is_full_resolution()).map(|(image, _)| image)
+}
+
+/// [`decode_raster_thumbnail`], whole when `full`, with whether the image has
+/// transparent pixels when its checkerboard was asked for.
+fn decode_raster(source: &RasterImage, side: u32, full: bool) -> Option<Decoded> {
     use base64::Engine as _;
     use sha2::Digest as _;
     let size = source.size_bytes() as usize;
@@ -345,31 +357,77 @@ fn decode_raster_thumbnail(source: &RasterImage, side: u32) -> Option<egui::Colo
     // A cover is cropped to its box: its shorter side has to fill the side.
     let scale = f64::from(side.max(1))
         / f64::from(if source.is_cover() { width.min(height) } else { width.max(height) });
-    let thumbnail = if source.is_full_resolution() || scale >= 1.0 {
+    let thumbnail = if full || scale >= 1.0 {
         decoded.to_rgba8()
     } else {
         let fit = |length: u32| ((f64::from(length) * scale).round() as u32).max(1);
         decoded.thumbnail(fit(width), fit(height)).to_rgba8()
     };
-    Some(egui::ColorImage::from_rgba_unmultiplied(
-        [thumbnail.width() as usize, thumbnail.height() as usize],
-        thumbnail.as_raw(),
+    let transparent = source.is_checkerboard() && thumbnail.pixels().any(|pixel| pixel[3] < 255);
+    Some((
+        egui::ColorImage::from_rgba_unmultiplied(
+            [thumbnail.width() as usize, thumbnail.height() as usize],
+            thumbnail.as_raw(),
+        ),
+        transparent,
     ))
 }
 
-/// An image's digest, format, whether it is full resolution, and the side
-/// its thumbnail is decoded at (zero at full resolution).
-type RasterKey = (String, RasterImageFormat, bool, u32);
+/// An image's digest, format, whether it is decoded whole, the side its
+/// thumbnail is decoded at (zero when whole), and whether a whole one is
+/// magnified with its pixels sharp.
+type RasterKey = (String, RasterImageFormat, bool, u32, bool);
 
 fn raster_cache_key(image: &RasterImage, side: u32) -> RasterKey {
-    let full = image.is_full_resolution();
-    (image.sha256().to_owned(), image.format(), full, if full { 0 } else { side })
+    raster_key(image, image.is_full_resolution(), side, false)
+}
+
+fn raster_key(image: &RasterImage, full: bool, side: u32, nearest: bool) -> RasterKey {
+    (image.sha256().to_owned(), image.format(), full, if full { 0 } else { side }, full && nearest)
+}
+
+/// From this many pixels of the screen for each of its own, a whole picture
+/// is drawn with its pixels sharp (nearest) instead of smoothed: below it a
+/// photo at 150 % would show uneven pixels; past it they are what one zooms
+/// in to see, as in GNOME's Loupe and Oculante.
+const NEAREST_FROM: f32 = 2.0;
+
+/// The texture of a [`RasterImage::full_resolution`] picture drawn over
+/// `area`: the whole picture, its sharp-pixelled copy past
+/// [`NEAREST_FROM`], or, shown at less than half its size, a copy decoded at
+/// the size it is drawn, which smooths it as mipmaps would.
+fn full_resolution_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterTexture {
+    let whole = raster_texture_keyed(ui, image, raster_key(image, true, 0, false));
+    let RasterTexture::Ready(_, pixels, _) = whole else {
+        return whole;
+    };
+    let ppp = ui.ctx().pixels_per_point();
+    let target = contain(area, turned(pixels, image.quarter_turns()));
+    let shown = target.width().max(target.height()) * ppp;
+    let magnification = shown / pixels[0].max(pixels[1]).max(1) as f32;
+    if magnification >= NEAREST_FROM {
+        return raster_texture_keyed(ui, image, raster_key(image, true, 0, true));
+    }
+    let side = thumbnail_side(target, ppp);
+    if magnification < 0.5 && side as f32 >= shown.ceil() {
+        return raster_texture_keyed(ui, image, raster_key(image, false, side, false));
+    }
+    whole
+}
+
+/// A size in pixels after `turns` quarter turns.
+fn turned(pixels: [usize; 2], turns: u8) -> [usize; 2] {
+    if turns % 2 == 1 {
+        [pixels[1], pixels[0]]
+    } else {
+        pixels
+    }
 }
 
 fn decode_current_image(
     generation: std::sync::Weak<()>,
-    decode: impl FnOnce() -> Option<egui::ColorImage>,
-    landed: std::sync::mpsc::Sender<Option<egui::ColorImage>>,
+    decode: impl FnOnce() -> Option<Decoded>,
+    landed: std::sync::mpsc::Sender<Option<Decoded>>,
 ) {
     if generation.strong_count() != 0 {
         let bitmap = decode();
@@ -382,23 +440,30 @@ fn decode_current_image(
 /// The texture of `image` drawn over `area`, decoded for that size.
 fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterTexture {
     let side = thumbnail_side(area, ui.ctx().pixels_per_point());
+    raster_texture_keyed(ui, image, raster_cache_key(image, side))
+}
+
+/// The texture of `image` decoded as `key` says, or another of the same
+/// picture while it decodes.
+fn raster_texture_keyed(ui: &egui::Ui, image: &RasterImage, key: RasterKey) -> RasterTexture {
+    let (full, side, nearest) = (key.2, key.3, key.4);
     RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
             cache.clear();
             cache.context = Some(ui.ctx().clone());
         }
-        let key = raster_cache_key(image, side);
         // One count for every viewport: each viewport has its own.
         let pass = ui.ctx().cumulative_pass_nr_for(egui::ViewportId::ROOT);
         if let Some(used) = cache.used.get_mut(&key) {
             *used = pass;
         }
-        // Another size of the same picture, shown while this one decodes.
+        // Another size of the same picture, shown while this one decodes: a
+        // thumbnail already on screen stands in for the whole picture.
         let other_size = |cache: &RasterCache| {
             cache.entries.iter().find_map(|(other, entry)| match entry {
-                RasterCacheEntry::Ready(texture) if other.0 == key.0 && other.1 == key.1 && other.2 == key.2 => {
-                    Some(RasterTexture::Ready(texture.id(), texture.size()))
+                RasterCacheEntry::Ready(texture, transparent) if other.0 == key.0 && other.1 == key.1 => {
+                    Some(RasterTexture::Ready(texture.id(), texture.size(), *transparent))
                 }
                 _ => None,
             })
@@ -406,12 +471,16 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
         if let Some(entry) = cache.entries.get_mut(&key) {
             if let RasterCacheEntry::Decoding(decoded) = entry {
                 match decoded.try_recv() {
-                    Ok(Some(bitmap)) => {
-                        *entry = RasterCacheEntry::Ready(ui.ctx().load_texture(
-                            format!("user-image:{}", image.sha256()),
-                            bitmap,
-                            egui::TextureOptions::LINEAR,
-                        ));
+                    Ok(Some((bitmap, transparent))) => {
+                        let options = if nearest {
+                            egui::TextureOptions { magnification: egui::TextureFilter::Nearest, ..egui::TextureOptions::LINEAR }
+                        } else {
+                            egui::TextureOptions::LINEAR
+                        };
+                        *entry = RasterCacheEntry::Ready(
+                            ui.ctx().load_texture(format!("user-image:{}", image.sha256()), bitmap, options),
+                            transparent,
+                        );
                     }
                     Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                         *entry = RasterCacheEntry::Unavailable;
@@ -420,8 +489,8 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
                 }
             }
             return match entry {
-                RasterCacheEntry::Ready(texture) => {
-                    RasterTexture::Ready(texture.id(), texture.size())
+                RasterCacheEntry::Ready(texture, transparent) => {
+                    RasterTexture::Ready(texture.id(), texture.size(), *transparent)
                 }
                 RasterCacheEntry::Decoding(_) => other_size(&cache).unwrap_or(RasterTexture::Decoding),
                 RasterCacheEntry::Unavailable => RasterTexture::Unavailable,
@@ -433,7 +502,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
         let (source, ctx) = (image.clone(), ui.ctx().clone());
         let generation = std::sync::Arc::downgrade(&cache.generation);
         let decode = move || {
-            decode_current_image(generation, || decode_raster_thumbnail(&source, side), landed);
+            decode_current_image(generation, || decode_raster(&source, side, full), landed);
             ctx.request_repaint();
         };
         #[cfg(not(target_arch = "wasm32"))]
@@ -458,7 +527,6 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
             .entries
             .insert(key.clone(), RasterCacheEntry::Decoding(decoded));
         cache.used.insert(key.clone(), pass);
-        let full = image.is_full_resolution();
         let limit = if full {
             FULL_IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         } else {
@@ -703,6 +771,61 @@ fn fit_image(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
     let scale = (area.width() / width).min(area.height() / height).min(1.0);
     let size = egui::vec2(width * scale, height * scale);
     EguiRect::from_center_size(area.center(), size)
+}
+
+thread_local! {
+    /// The two squares of the checkerboard, tiled across the screen.
+    static CHECKERBOARD: RefCell<Option<(egui::Context, egui::TextureHandle)>> = const { RefCell::new(None) };
+}
+
+/// A checkerboard's square, in logical pixels.
+const CHECKER: f32 = 8.0;
+
+/// A checkerboard of [`CHECKER`] squares over `target`, fixed to the screen
+/// so its squares keep their size whatever the picture's, behind a picture
+/// with transparent pixels (as Telegram's viewer does).
+fn paint_checkerboard(ctx: &egui::Context, painter: &egui::Painter, target: EguiRect, radius: f32, round: RoundedClip, opacity: f32) {
+    let texture = CHECKERBOARD.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        if let Some((owner, texture)) = cell.as_ref().filter(|(owner, _)| owner == ctx) {
+            let _ = owner;
+            return texture.id();
+        }
+        let (light, dark) = (Color32::from_rgb(74, 74, 79), Color32::from_rgb(51, 51, 55));
+        let image = egui::ColorImage::new([2, 2], vec![light, dark, dark, light]);
+        let options = egui::TextureOptions {
+            magnification: egui::TextureFilter::Nearest,
+            minification: egui::TextureFilter::Nearest,
+            wrap_mode: egui::TextureWrapMode::Repeat,
+            mipmap_mode: None,
+        };
+        let texture = ctx.load_texture("limn-checkerboard", image, options);
+        let id = texture.id();
+        *cell = Some((ctx.clone(), texture));
+        id
+    });
+    let tile = 2.0 * CHECKER;
+    let uv = EguiRect::from_min_max(
+        Pos2::new(target.min.x / tile, target.min.y / tile),
+        Pos2::new(target.max.x / tile, target.max.y / tile),
+    );
+    paint_texture(painter, texture, (target, uv), radius, round, opacity, false);
+}
+
+/// `texture` over `target` turned `turns` quarters clockwise: the corner of
+/// the screen each corner of the picture lands on. Square corners only.
+fn paint_turned(painter: &egui::Painter, texture: egui::TextureId, (target, uv): (EguiRect, EguiRect), turns: u8, opacity: f32) {
+    let tint = Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8);
+    let corners = [target.left_top(), target.right_top(), target.right_bottom(), target.left_bottom()];
+    let coords = [uv.left_top(), uv.right_top(), uv.right_bottom(), uv.left_bottom()];
+    let mut mesh = egui::Mesh::with_texture(texture);
+    for (at, corner) in corners.iter().enumerate() {
+        // Turned clockwise, the picture's top-left corner is at the top right.
+        let from = (at + 4 - usize::from(turns % 4)) % 4;
+        mesh.vertices.push(egui::epaint::Vertex { pos: *corner, uv: coords[from], color: tint });
+    }
+    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 /// The centered part of an image that fills `area` without distortion, as
@@ -1931,14 +2054,30 @@ fn paint_at_impl(
                     egui::WidgetInfo::labeled(egui::WidgetType::Image, true, image.alt())
                 });
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let texture = raster_texture(ui, image, area);
-                if let RasterTexture::Ready(texture, pixels) = texture {
+                let texture = if image.is_full_resolution() {
+                    full_resolution_texture(ui, image, area)
+                } else {
+                    raster_texture(ui, image, area)
+                };
+                if let RasterTexture::Ready(texture, pixels, transparent) = texture {
+                    let turns = image.quarter_turns();
+                    let whole = EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
                     let (target, uv) = if image.is_cover() {
-                        (area, cover_uv(area, pixels))
+                        (area, cover_uv(area, turned(pixels, turns)))
+                    } else if image.is_full_resolution() {
+                        // Enlarged as a zoom asks; its rectangle has its proportions.
+                        (contain(area, turned(pixels, turns)), whole)
                     } else {
-                        (fit_image(area, pixels), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)))
+                        (fit_image(area, turned(pixels, turns)), whole)
                     };
-                    paint_texture(&painter, texture, (target, uv), *radius, round, *opacity, false);
+                    if transparent {
+                        paint_checkerboard(ui.ctx(), &painter, target, *radius, round, *opacity);
+                    }
+                    if turns == 0 {
+                        paint_texture(&painter, texture, (target, uv), *radius, round, *opacity, false);
+                    } else {
+                        paint_turned(&painter, texture, (target, uv), turns, *opacity);
+                    }
                 } else if texture == RasterTexture::Unavailable {
                     painter.rect_filled(area, CornerRadius::same(6), Color32::from_gray(37));
                     painter.text(
@@ -2029,7 +2168,7 @@ fn paint_at_impl(
                 let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
                 let corner = corner(*radius, sleeve);
                 match image.as_ref().map(|image| raster_texture(ui, image, sleeve)) {
-                    Some(RasterTexture::Ready(texture, pixels)) => {
+                    Some(RasterTexture::Ready(texture, pixels, _)) => {
                         painter.add(
                             egui::epaint::RectShape::filled(sleeve, corner, Color32::from_white_alpha(alpha))
                                 .with_texture(texture, cover_uv(sleeve, pixels)),
@@ -2302,6 +2441,15 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                             UiEvent::ScrollDirect { position, delta_y }
                         } else {
                             UiEvent::Scroll { position, delta_y }
+                        });
+                    }
+                }
+                // A pinch: macOS's touchpad and touch screens send it.
+                egui::Event::Zoom(factor) => {
+                    if let Some(pos) = pointer {
+                        emit(UiEvent::Zoom {
+                            position: relative(origin, pos),
+                            factor: *factor,
                         });
                     }
                 }
@@ -3187,13 +3335,13 @@ mod tests {
             }
             RasterTexture::Decoding
         };
-        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1], _)));
         assert_eq!(settled(&broken), RasterTexture::Unavailable);
         // Drawn larger, it shows the size it has while the new one decodes.
         let large = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 400.0));
         let mut texture = RasterTexture::Unavailable;
         ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, &image, large)).textures_delta.clear();
-        assert!(matches!(texture, RasterTexture::Ready(_, [2, 1])), "{texture:?}");
+        assert!(matches!(texture, RasterTexture::Ready(_, [2, 1], _)), "{texture:?}");
         clear_image_cache();
         RASTER_CACHE.with(|cache| {
             let cache = cache.borrow();
@@ -3201,7 +3349,7 @@ mod tests {
             assert!(cache.used.is_empty());
         });
         assert_eq!(paint(&image), RasterTexture::Decoding, "cleared textures are not reused");
-        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1], _)));
     }
 
     #[test]
@@ -3245,6 +3393,60 @@ mod tests {
         set_image_cache_entries(IMAGE_TEXTURE_CACHE_ENTRIES);
     }
 
+    fn png_with_alpha(width: u32, height: u32, alpha: u8) -> Vec<u8> {
+        let mut png = Vec::new();
+        let rgba: Vec<u8> = (0..width * height).flat_map(|_| [200, 120, 40, alpha]).collect();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(&rgba, width, height, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        png
+    }
+
+    #[test]
+    fn a_checkerboard_is_asked_for_only_behind_transparent_pixels() {
+        let transparent = raster(png_with_alpha(4, 4, 120), RasterImageFormat::Png);
+        let opaque = raster(png_with_alpha(4, 4, 255), RasterImageFormat::Png);
+        let seen = |image: &RasterImage| decode_raster(image, 128, true).unwrap().1;
+        assert!(seen(&transparent.clone().checkerboard()));
+        assert!(!seen(&opaque.checkerboard()), "an opaque picture covers it whole");
+        assert!(!seen(&transparent), "not asked for: not looked for");
+    }
+
+    #[test]
+    fn a_whole_picture_is_sharp_magnified_and_smoothed_shrunk() {
+        let ctx = egui::Context::default();
+        let image = raster(png_with_alpha(256, 128, 255), RasterImageFormat::Png).full_resolution();
+        let paint = |side: f32| {
+            let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(side * 2.0, side));
+            let mut texture = RasterTexture::Unavailable;
+            for _ in 0..400 {
+                ctx.run_ui(Default::default(), |ui| texture = full_resolution_texture(ui, &image, area))
+                    .textures_delta
+                    .clear();
+                let keys: Vec<RasterKey> = RASTER_CACHE.with(|cache| cache.borrow().entries.keys().cloned().collect());
+                let settled = RASTER_CACHE.with(|cache| {
+                    cache.borrow().entries.values().all(|entry| !matches!(entry, RasterCacheEntry::Decoding(_)))
+                });
+                if settled && matches!(texture, RasterTexture::Ready(..)) && keys.len() > 1 {
+                    return keys;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            RASTER_CACHE.with(|cache| cache.borrow().entries.keys().cloned().collect())
+        };
+        clear_image_cache();
+        // Three times its pixels: a copy with sharp pixels besides the whole one.
+        let keys = paint(384.0);
+        assert!(keys.iter().any(|key| key.2 && key.4), "{keys:?}");
+        clear_image_cache();
+        // A third of its size: a copy decoded at the size it is drawn.
+        let keys = paint(42.0);
+        assert!(keys.iter().any(|key| !key.2 && key.3 == IMAGE_THUMBNAIL_STEP), "{keys:?}");
+        assert_eq!(turned([3, 2], 1), [2, 3]);
+        assert_eq!(turned([3, 2], 2), [3, 2]);
+        clear_image_cache();
+    }
+
     #[test]
     fn clearing_images_invalidates_queued_and_already_running_results() {
         let mut cache = RasterCache::default();
@@ -3259,15 +3461,15 @@ mod tests {
         decode_current_image(running, || {
             // Model a clear that happens after decoding started, before completion.
             cache.clear();
-            Some(egui::ColorImage::new([1, 1], vec![Color32::WHITE]))
+            Some((egui::ColorImage::new([1, 1], vec![Color32::WHITE]), false))
         }, landed);
         assert!(matches!(decoded.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)));
 
         let (landed, decoded) = std::sync::mpsc::channel();
         decode_current_image(Arc::downgrade(&cache.generation), || {
-            Some(egui::ColorImage::new([1, 1], vec![Color32::WHITE]))
+            Some((egui::ColorImage::new([1, 1], vec![Color32::WHITE]), false))
         }, landed);
-        assert_eq!(decoded.try_recv().unwrap().unwrap().size, [1, 1]);
+        assert_eq!(decoded.try_recv().unwrap().unwrap().0.size, [1, 1]);
     }
 
     #[test]

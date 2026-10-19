@@ -1890,6 +1890,56 @@ pub enum ElementKind {
     /// Nothing of its own to draw and no natural size; see
     /// [`Element::spacer`].
     Spacer,
+    /// A picture the person zooms and pans; see [`Element::zoom_view`].
+    ZoomView(Box<ZoomView>),
+}
+
+/// What [`Element::zoom_view`] shows and how it answers. Built with that
+/// function and the `zoom_*` methods of [`Element`]; the tree keeps where
+/// the picture is under its ID.
+#[derive(Clone, Debug)]
+pub struct ZoomView {
+    pub(crate) id: String,
+    pub(crate) picture: Element,
+    pub(crate) content: Option<Size>,
+    pub(crate) upscale: f32,
+    pub(crate) controls: Vec<(String, ZoomControl)>,
+    pub(crate) dismiss: Option<String>,
+    pub(crate) opened_from: Option<String>,
+}
+
+impl ZoomView {
+    /// The ID the tree keeps the view under and reports with
+    /// [`UiAction::Zoomed`](crate::UiAction::Zoomed).
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// The picture's own size in pixels, when the host gave it.
+    pub fn content_size(&self) -> Option<Size> {
+        self.content
+    }
+}
+
+/// What a control of a zoom view does to it; see [`Element::zoom_control`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ZoomControl {
+    /// Larger by a step, about the middle.
+    In,
+    /// Smaller by a step, about the middle, down to the fit.
+    Out,
+    /// The whole picture, centered.
+    Fit,
+    /// One pixel of the picture for each logical pixel, about the middle.
+    Actual,
+    /// Fitted, two and a half times the fit; otherwise fitted, as a double
+    /// click does.
+    Toggle,
+    /// A quarter turn clockwise, fitted again. Only a raster picture turns.
+    RotateClockwise,
+    /// A quarter turn counterclockwise, fitted again. Only a raster picture
+    /// turns.
+    RotateCounterclockwise,
 }
 
 /// How a `sticky_top` child of a column sits while pinned. Whole pixels, so
@@ -3110,6 +3160,100 @@ impl Element {
     pub fn surface_mirrored(mut self, mirrored: bool) -> Self {
         if let ElementKind::Surface { mirrored: own, .. } = &mut self.kind {
             *own = mirrored;
+        }
+        self
+    }
+
+    /// A picture the person zooms and pans, in a box that fills this
+    /// element. `picture` is an [`Element::raster_image`] (pass it
+    /// [`RasterImage::full_resolution`](crate::RasterImage::full_resolution)
+    /// to zoom into its pixels) or an [`Element::surface`]; it is drawn
+    /// filling the rectangle the zoom gives it. The tree keeps the zoom under
+    /// `id`, which also names a picture of its own: a new picture under a new
+    /// ID opens fitted.
+    ///
+    /// Fitted, the whole picture shows, centered, never enlarged past its
+    /// own size unless [`Element::zoom_upscale`] allows it; give that size
+    /// in pixels with [`Element::zoom_content`], or the picture fills the
+    /// box at its proportions. A mouse wheel notch zooms by 1.3 about the
+    /// pointer, as Ctrl with a touchpad's scroll and a pinch
+    /// ([`UiEvent::Zoom`](crate::UiEvent::Zoom)) do; a touchpad's scroll and
+    /// a drag move a picture larger than the box, and a released drag
+    /// glides on; a double click zooms to two and a half times the fit about
+    /// the pointer, and back. `+` and `-` step by 1.5, `0` fits, `1`, `2` and
+    /// `3` show 100, 200 and 300 %, Ctrl with an arrow moves the picture and
+    /// Ctrl+R turns it, on the last zoom view laid out, unless a text field
+    /// has the focus. The picture never leaves an edge of the box bare, and
+    /// zooms from the fit (or its own size, when that is smaller) to
+    /// [`ZOOM_VIEW_MAX_SCALE`](crate::ZOOM_VIEW_MAX_SCALE). Each change of
+    /// scale is reported as [`UiAction::Zoomed`](crate::UiAction::Zoomed)
+    /// and shown as a percentage for a moment. Zooms take 200 ms, except
+    /// under reduced motion; the element's [`shadow`](Element::shadow) is
+    /// cast by the picture, not the box.
+    pub fn zoom_view(id: impl Into<String>, picture: Element) -> Self {
+        Self::new(ElementKind::ZoomView(Box::new(ZoomView {
+            id: id.into(),
+            picture,
+            content: None,
+            upscale: 1.0,
+            controls: Vec::new(),
+            dismiss: None,
+            opened_from: None,
+        })))
+    }
+
+    /// On a zoom view: the picture's size in pixels. One pixel of it is one
+    /// logical pixel at 100 %. A size with a side that is not finite or not
+    /// above zero is ignored.
+    pub fn zoom_content(mut self, size: Size) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            let valid = |side: f32| side.is_finite() && side > 0.0;
+            if valid(size.width) && valid(size.height) {
+                view.content = Some(size);
+            }
+        }
+        self
+    }
+
+    /// On a zoom view: how many times its own size a picture smaller than
+    /// the box is enlarged to fit, 1 (the default) keeping it at its size.
+    /// Values below 1 or not finite count as 1.
+    pub fn zoom_upscale(mut self, most: f32) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            view.upscale = if most.is_finite() { most.max(1.0) } else { 1.0 };
+        }
+        self
+    }
+
+    /// On a zoom view: when a control reports `id` as clicked (a header's
+    /// zoom button, say), the view does `control` too. The click is still
+    /// reported. Each call adds one; an empty `id` adds nothing.
+    pub fn zoom_control(mut self, id: impl Into<String>, control: ZoomControl) -> Self {
+        let id = id.into();
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            if !id.is_empty() {
+                view.controls.push((id, control));
+            }
+        }
+        self
+    }
+
+    /// On a zoom view: a click on the box beside the picture, not a drag,
+    /// reports `id` as clicked, such as a viewer's close action.
+    pub fn zoom_dismiss(mut self, id: impl Into<String>) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            view.dismiss = Some(id.into());
+        }
+        self
+    }
+
+    /// On a zoom view: the control the picture was opened from, such as its
+    /// thumbnail. The first time the view is laid out, the picture grows
+    /// from that control's place to its fit, unless motion is reduced or the
+    /// control is not on screen.
+    pub fn zoom_opened_from(mut self, id: impl Into<String>) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            view.opened_from = Some(id.into());
         }
         self
     }

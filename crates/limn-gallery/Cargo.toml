@@ -28,6 +28,10 @@ limn-egui = { version = "0.1.43", path = "../limn-egui", default-features = fals
 limn-editor = { version = "0.1.43", path = "../limn-editor" }
 eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
+# The image viewer's pictures are drawn at start, and a picture is known by
+# the SHA-256 of its bytes, in base64; limn-egui already builds both.
+base64 = "0.22"
+sha2 = "0.10"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # The receive-only native demo shares the host window's Wayland connection.

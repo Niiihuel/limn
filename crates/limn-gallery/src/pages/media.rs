@@ -75,11 +75,66 @@ pub fn present_animation(ctx: &eframe::egui::Context, frame: &limn::Frame) -> Op
 /// What the viewer shows: `open`, `loading`, `failed`, `animation`, or nothing.
 const VIEWER: &str = "media-viewer";
 const INDEX: &str = "media-viewer-index";
-const ZOOM: &str = "media-viewer-zoom";
 
-/// The click that opens the viewer on one picture, fitted to the window.
+/// The click that opens the viewer on one picture.
 fn open_id(index: usize) -> String {
-    format!("{VIEWER}=open&{INDEX}={index}&{ZOOM}=1")
+    format!("{VIEWER}=open&{INDEX}={index}")
+}
+
+/// The viewer's pictures, drawn once: a wide dusk with a fine grid to zoom
+/// into, a small drawing it shows at its own size, and a dark star on
+/// nothing, over the checkerboard. Each is its name, its size and the
+/// picture.
+fn viewer_pictures() -> &'static [(&'static str, Size, RasterImage); 3] {
+    static PICTURES: OnceLock<[(&'static str, Size, RasterImage); 3]> = OnceLock::new();
+    PICTURES.get_or_init(|| {
+        let draw = |name: &'static str, (width, height): (u32, u32), pixel: &dyn Fn(f32, f32) -> [u8; 4]| {
+            use base64::Engine as _;
+            use image::ImageEncoder as _;
+            use sha2::Digest as _;
+            let rgba: Vec<u8> = (0..width * height)
+                .flat_map(|at| pixel((at % width) as f32, (at / width) as f32))
+                .collect();
+            let mut png = Vec::new();
+            image::codecs::png::PngEncoder::new(&mut png)
+                .write_image(&rgba, width, height, image::ExtendedColorType::Rgba8)
+                .expect("a picture drawn here encodes");
+            let picture = RasterImage::new(
+                format!("{:x}", sha2::Sha256::digest(&png)),
+                RasterImageFormat::Png,
+                png.len() as u32,
+                Arc::from(base64::engine::general_purpose::STANDARD.encode(&png)),
+                name,
+            )
+            .expect("a picture drawn here is small");
+            (name, Size::new(width as f32, height as f32), picture)
+        };
+        [
+            draw("dusk.png", (1200, 800), &|x, y| {
+                let ridge = 500.0 + 70.0 * (x / 150.0).sin();
+                let grid = y > ridge && (x as u32 % 40 < 2 || y as u32 % 40 < 2);
+                let t = y / 800.0;
+                match (grid, y > ridge) {
+                    (true, _) => [235, 228, 210, 255],
+                    (false, true) => [(40.0 + 30.0 * t) as u8, (52.0 + 20.0 * t) as u8, 70, 255],
+                    _ => [(250.0 - 120.0 * t) as u8, (150.0 - 60.0 * t) as u8, (110.0 + 90.0 * t) as u8, 255],
+                }
+            }),
+            draw("sketch.png", (240, 180), &|x, y| {
+                let sun = (x - 170.0).hypot(y - 50.0) < 22.0;
+                match (y > 120.0 + 12.0 * (x / 30.0).sin(), sun) {
+                    (true, _) => [72, 140, 84, 255],
+                    (false, true) => [250, 210, 90, 255],
+                    _ => [(120.0 + y / 2.0) as u8, 190, 235, 255],
+                }
+            }),
+            draw("star.png", (400, 400), &|x, y| {
+                let (dx, dy) = (x - 200.0, y - 200.0);
+                let edge = 120.0 + 50.0 * (dy.atan2(dx) * 5.0).cos();
+                if dx.hypot(dy) < edge { [36, 30, 64, 255] } else { [0, 0, 0, 0] }
+            }),
+        ]
+    })
 }
 
 /// Demos side by side where the page is `width` wide, and one under another where it is not.
@@ -95,11 +150,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
     let thumbnail = |index: usize| {
+        let (name, _, picture) = &viewer_pictures()[index];
         Element::clickable(
             open_id(index),
-            Element::raster_image(picture(index).cover()).radius(RadiusRole::Surface.px()).size(Some(120.0), Some(84.0)),
+            Element::raster_image(picture.clone().cover()).radius(RadiusRole::Surface.px()).size(Some(120.0), Some(84.0)),
         )
-        .accessibility_label(format!("Open {}", PICTURES[index].0))
+        .accessibility_label(format!("Open {name}"))
     };
     let outline = |id: &str, label: &str| Button::new(id, label, palette).variant(ButtonVariant::Outline).render();
 
@@ -127,11 +183,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
 
     vec![
         section(cx, "Image viewer", vec![
-            caption(cx, "Click a picture: the viewer covers the window. Left and Right move through the three, the header zooms, and Esc, the close button or a click outside closes it."),
-            row((0..PICTURES.len()).map(thumbnail).collect()),
-            caption(cx, "An animation the host plays on a surface: covering its thumbnail with rounded corners, then in the viewer never past its 96 by 64 pixels (SurfaceFit::ScaleDown), as a picture is."),
+            caption(cx, "Click a picture: it grows out of its thumbnail and covers the window on a dark backdrop. The wheel zooms about the pointer, a drag moves a zoomed picture and glides on, a double click zooms in two and a half times and back, + - 0 1 2 3 and Ctrl+R do what the header does, and the percentage fits or zooms in. The small sketch stays at its own size; the star's transparent pixels show a checkerboard. Left, Right and the thumbnails move through the three; Esc, the close button or a click beside the picture closes it."),
+            row((0..viewer_pictures().len()).map(thumbnail).collect()),
+            caption(cx, "An animation the host plays on a surface: covering its thumbnail with rounded corners, then in the viewer at its 96 by 64 pixels, zoomed as a picture is."),
             row(vec![Element::clickable(
-                format!("{VIEWER}=animation&{INDEX}=0&{ZOOM}=1"),
+                format!("{VIEWER}=animation&{INDEX}=0"),
                 Element::surface(ANIMATION, "A band of light")
                     .surface_fit(SurfaceFit::Cover)
                     .radius(RadiusRole::Surface.px())
@@ -148,8 +204,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, "The native host clears cached textures and pending decodes. Visible pictures are requested again on the next paint pass."),
             caption(cx, "Without a picture the viewer waits with a spinner, or shows the error the host gives it."),
             row(vec![
-                outline(&format!("{VIEWER}=loading&{INDEX}=0&{ZOOM}=1"), "Open while loading"),
-                outline(&format!("{VIEWER}=failed&{INDEX}=0&{ZOOM}=1"), "Open with an error"),
+                outline(&format!("{VIEWER}=loading&{INDEX}=0"), "Open while loading"),
+                outline(&format!("{VIEWER}=failed&{INDEX}=0"), "Open with an error"),
             ]),
         ]),
         section(cx, "Attachment", vec![
@@ -218,30 +274,36 @@ pub fn view(cx: &Cx) -> Vec<Section> {
 pub fn layer(cx: &Cx, base: Element) -> Element {
     let state = cx.state;
     let mode = state.text(VIEWER);
-    let last = PICTURES.len() - 1;
+    let pictures = viewer_pictures();
+    let last = pictures.len() - 1;
     let index = state.choice(INDEX, "0").parse::<usize>().unwrap_or(0).min(last);
-    let zoom = state.choice(ZOOM, "1").parse::<f32>().unwrap_or(1.0);
     // The root is as large as the window, which is what the viewer covers.
     let window = Size::new(base.style.width.unwrap_or(900.0), base.style.height.unwrap_or(620.0));
     // Each control has an ID of its own, also where two would set the same value.
-    let step = |index: usize, control: &str| format!("{INDEX}={index}&{ZOOM}=1&media-viewer-control={control}");
-    let level = |zoom: f32, control: &str| format!("{ZOOM}={zoom}&media-viewer-control={control}");
-    let title = if mode == "animation" { "band.gif" } else { PICTURES[index].0 };
-    let viewer = ImageViewer::new(base, matches!(mode, "open" | "loading" | "failed" | "animation"), title, format!("{VIEWER}=closed"), cx.palette)
+    let step = |index: usize, control: &str| format!("{INDEX}={index}&media-viewer-control={control}");
+    let (name, size, picture) = &pictures[index];
+    let title = if mode == "animation" { "band.gif" } else { name };
+    let mut viewer = ImageViewer::new(base, matches!(mode, "open" | "loading" | "failed" | "animation"), title, format!("{VIEWER}=closed"), cx.palette)
         .viewport(window)
-        .gallery(index, PICTURES.len())
+        .subtitle(format!("{} × {} · PNG", size.width, size.height))
+        .gallery(index, pictures.len())
         .previous_action(step(index.saturating_sub(1), "previous"))
         .next_action(step((index + 1).min(last), "next"))
         .action("media-viewer-control=save", Icon::ArrowDown, "Save as…")
-        .zoom(zoom)
-        .zoom_actions(level((zoom / 2.0).max(1.0), "out"), level(1.0, "fit"), level((zoom * 2.0).min(ImageViewer::MAX_ZOOM), "in"))
+        .zoom_actions("media-viewer-control=out", "media-viewer-control=fit", "media-viewer-control=in")
         .return_focus(open_id(index));
+    for (at, (name, _, picture)) in pictures.iter().enumerate() {
+        viewer = viewer.thumbnail(step(at, "thumbnail"), Some(picture.clone()), *name);
+    }
     match mode {
         "loading" => viewer,
         "failed" => viewer.error("The picture could not be decoded."),
         // Not a picture: the arrows say what they move to.
-        "animation" => viewer.surface(ANIMATION, "A band of light").navigation_labels("Previous item", "Next item"),
-        _ => viewer.image(picture(index)),
+        "animation" => viewer
+            .surface(ANIMATION, "A band of light")
+            .picture_size(Size::new(96.0, 64.0))
+            .navigation_labels("Previous item", "Next item"),
+        _ => viewer.image(picture.clone()).picture_size(*size),
     }
     .render()
 }
@@ -267,8 +329,9 @@ mod tests {
             drawn
         };
         app::update(&mut state, &limn::UiAction::Clicked { id: open_id(1) });
-        // The three thumbnails under it and the picture it shows.
-        assert_eq!(press(&mut state, Key::ArrowRight), 4);
+        // The three thumbnails on the page, the picture it shows and the
+        // three in its strip.
+        assert_eq!(press(&mut state, Key::ArrowRight), 7);
         assert_eq!((state.text(VIEWER), state.text(INDEX)), ("open", "2"));
         // Nothing after the last.
         press(&mut state, Key::ArrowRight);
@@ -277,5 +340,12 @@ mod tests {
         assert_eq!(state.text(VIEWER), "closed");
         assert_eq!(press(&mut state, Key::ArrowLeft), 3);
         assert_eq!(state.text(INDEX), "2");
+        // The header's zoom moves the picture; the page does not keep it.
+        app::update(&mut state, &limn::UiAction::Clicked { id: open_id(0) });
+        let mut tree = UiTree::new(app::view(&state, window));
+        tree.set_reduced_motion(true);
+        tree.layout(window);
+        let zoomed = tree.handle_event(UiEvent::Key { key: Key::Plus, shift: false, ctrl: false, alt: false });
+        assert!(zoomed.iter().any(|action| matches!(action, limn::UiAction::Zoomed { fitted: false, .. })));
     }
 }

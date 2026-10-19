@@ -53,6 +53,7 @@ the tree's origin.
 | `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
 | `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
 | `FilesHovered { position }`, `FilesDropped { position, paths }` | Files dragged from another application. |
+| `Zoom { position, factor }` | A pinch on a touchpad or a touch screen. A [zoom view](components/image-viewer.md#zoom-view) under `position` zooms by `factor`; nothing else reads it. `limn-egui` sends egui's `Event::Zoom`, which winit 0.30 delivers on macOS and iOS; on Windows a touchpad's pinch arrives as Ctrl with the wheel, which a zoom view also zooms with, and on Linux winit delivers no pinch yet. |
 
 External file events preserve the supplied list; they do not read file
 contents. The tree resolves drop targets within floating surfaces and modal
@@ -142,7 +143,7 @@ stamps, single-use semantics and the limits of tree observation.
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
 | `Icon { icon, rect, tint }` | A semantic icon. The backend chooses the artwork. |
-| `RasterImage { .. }` | A decoded image. |
+| `RasterImage { .. }` | A decoded image: a cover fills the rectangle and is cropped, a full-resolution picture fills it at its proportions, enlarged if need be, and any other is fitted inside it, never past its pixels. `image.quarter_turns()` turns it; `image.is_checkerboard()` asks for a checkerboard behind its transparent pixels. |
 | `Surface { rect, id, label, opacity }` | Pixels the host hands to the backend under `id`, outside the frame. They start at the rectangle's top-left corner, one pixel per physical pixel when rendered for this display, and are clipped to the rectangle, never stretched to it. |
 | `Spinner { .. }`, `ProgressRing { .. }` | Vector progress indicators. |
 | `SelectionContour { .. }`, `CornerMask { .. }` | Text selection outlines and rounded clipping of images. |
@@ -193,6 +194,17 @@ The egui backend exposes:
 | `set_image_cache_entries(n)` | How many decoded images stay as textures besides those on screen; a screen of thumbnails needs more than the default 16. The least recently drawn go first, and one drawn in the current or the previous paint pass is never evicted, so a screen with more images than `n` keeps them all until they leave it. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
 | `set_color_emoji(Some(source))` | Paints the host's color pictures over the glyphs of emoji in every text run. See [Color emoji](#color-emoji). |
 | `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
+
+A [`RasterImage::full_resolution`] picture, the one an `ImageViewer` zooms,
+is decoded whole. Drawn at two or more pixels of the screen for each of its
+own it is shown with its pixels sharp (a copy of the texture with nearest
+magnification), as GNOME's Loupe does past 100 %; drawn at less than half
+its size it is shown from a copy decoded at the size it is drawn, which
+smooths it as mipmaps would (egui-wgpu builds none). While a copy decodes,
+any other decoded size of the same picture stands in for it, such as the
+thumbnail already on screen. A picture with `checkerboard()` and transparent
+pixels has a checkerboard of 8 logical pixels painted behind it, fixed to the
+screen; one turned by `rotated(turns)` is painted turned, with square corners.
 
 The native ImageViewer gallery's **Reload image cache** button exercises this
 reset. It preserves the visible synthetic sources, so their textures are
