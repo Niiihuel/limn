@@ -243,6 +243,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .gap(8.0)
             .size(Some(width), None),
             caption(cx, "Form height: 40 px, beside a text field of the same height."),
+            shell_select(cx, "select-field-accent")
+                .variant(SelectVariant::Field)
+                .accessibility_label("Shell")
+                .font_size(16.0)
+                .max_visible_items(2)
+                .ink(cx.state.theme().accent)
+                .height(40.0)
+                .width(width)
+                .menu_width(width)
+                .placement(PopoverPlacement::BottomStart)
+                .render(),
+            caption(cx, ".font_size(16.0), .max_visible_items(2) and .ink(accent): open, two rows show, the chevron points up and the border takes the accent."),
         ]),
         section(cx, "Search", vec![
             SearchField::new("input-search", state.choice(CLEARABLE[0].0, CLEARABLE[0].1), "Search", palette)
@@ -333,6 +345,20 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .render(),
             ]),
             caption(cx, "SwitchVariant::Accent: a light thumb on the link color, on the theme's accent with .ink, and disabled."),
+            row(vec![
+                Switch::new("input-switch-track", !state.flag("input-switch-track"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .ink(cx.state.theme().accent)
+                    .track_size(50.0, 26.0)
+                    .accessibility_label("Developer mode")
+                    .render(),
+                Switch::new("input-switch-track-off", state.flag("input-switch-track-off"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .track_size(50.0, 26.0)
+                    .accessibility_label("Streamer mode")
+                    .render(),
+            ]),
+            caption(cx, ".track_size(50.0, 26.0): a track of the host's own size, the thumb 3 px inside it."),
         ]),
         section(cx, "Slider", vec![
             Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette)
@@ -377,6 +403,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(280.0)
                 .render(),
             caption(cx, "Disabled, every label is muted."),
+            {
+                let threshold = fraction(cx, "input-slider-level", 0.4);
+                let level = 0.55;
+                let theme = cx.state.theme();
+                Slider::new("input-slider-level", threshold, palette)
+                    .ink(theme.accent)
+                    .level(level, if level >= threshold { Color::rgb(35, 165, 90) } else { Color::rgb(240, 178, 50) })
+                    .accessibility_label("Input sensitivity")
+                    .width(280.0)
+                    .render()
+            },
+            caption(cx, ".level(0.55, color): a microphone's input along the track, green over the threshold the thumb sets and yellow under it."),
         ]),
     ]
 }
