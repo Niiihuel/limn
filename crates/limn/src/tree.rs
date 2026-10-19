@@ -9009,13 +9009,13 @@ impl LayoutBuilder<'_> {
             self.frame.commands.push(DrawCommand::FillRect {
                 rect: geometry.track,
                 color: appearance.track_color(ink),
-                radius: geometry.track.width / 2.0,
+                radius: appearance.corner(geometry.track.width),
             });
         }
         self.frame.commands.push(DrawCommand::FillRect {
             rect: geometry.thumb,
             color: appearance.thumb_color(ink, hovered, active),
-            radius: geometry.thumb.width / 2.0,
+            radius: appearance.corner(geometry.thumb.width),
         });
         let target = self
             .scroll_transitions

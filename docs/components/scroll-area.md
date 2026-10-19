@@ -134,6 +134,7 @@ width. Content that fits shows no scrollbar and reserves no rail.
 | `buttons` | `true` | An up and a down button at the ends of the rail |
 | `rail_width` | 14 | From 4 to 24 through `.rail_width` |
 | `thumb_width` | 5 | From 2 to 12 through `.thumb_width` |
+| `thumb_radius` | `None` (round ends) | The corner of the thumb and its track; `.thumb_radius(0.0)` draws them square. Never past half the thumb's width |
 | `min_thumb_length` | 24 | The shortest the thumb gets |
 | `tint` | `None` | The scrollbar's color; `None` uses the element's foreground |
 | `idle_thumb_opacity`, `hover_thumb_opacity`, `active_thumb_opacity` | 72, 118, 164 | The thumb at rest, under the pointer and dragged, out of 255 |
