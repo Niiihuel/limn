@@ -5,9 +5,11 @@ goes, what a selection covers and the glyphs a backend draws all come from
 one layout, so they always agree: no backend lays the text out again.
 
 In a tree told to with `UiTree::set_text_layout(true)`, which
-`limn_egui::attach_fonts` does, every `Element::text` is laid out in a
-`TextLayout`, and selected and underlined from it. limn's other components
-still measure their text through the backend; they move to it one at a time.
+`limn_egui::attach_fonts` does, every `Element::text` and
+`Element::formatted_text` is laid out in a `TextLayout`, and selected,
+underlined and pressed from it: so are `Markdown` and every component made of
+them. Text fields, text areas and the code editor still measure their text
+through the backend; they move to it one at a time.
 An application also draws text with it in an [`Element::drawing`](drawing.md).
 
 ## Import
@@ -67,6 +69,35 @@ graphemes, so no line runs past it. A width that is not finite does not wrap.
 `lines()` gives each line's box, its baseline and the bytes it holds. A line's
 box leaves out the spaces that hang past its end where it wraps.
 
+## Formatted text
+
+```rust
+let spans = [
+    TextSpan::new("Read ", ink, 14.0, FontFamily::Sans),
+    TextSpan::new("the guide", link, 14.0, FontFamily::Sans).underline(),
+    TextSpan::new(" first.", ink, 14.0, FontFamily::Sans),
+];
+let paragraph = TextStyle::new(14.0, FontFamily::Sans).line_height(18.0);
+let layout = TextLayout::formatted(&spans, paragraph).wrapped(320.0);
+```
+
+`TextLayout::formatted(spans, paragraph)` sets each `TextSpan` in its own
+size, family and ink, all on one baseline, with the lines, background, icon
+or picture it asks for, as `Element::formatted_text` draws them. The
+paragraph's line height is the least height of every line, and a line whose
+glyphs need more takes more; its family draws nothing.
+
+A span with a background stays on one line unless it is wider than any. An
+icon goes to the next line with the first word after it. A picture stands in
+for its span's text, which a selection copies whole or not at all.
+
+`max_lines(n)` keeps at most `n` lines. When more would follow, the last ends
+in «…» in the style of the text before it; no offset reaches the «…».
+
+`span_bounds(index)` gives one box for each line a span is on, as tall as
+the line. A span's `action` and `tooltip` belong to the tree, which puts
+their targets and hints there.
+
 ## Caret and selection
 
 ```rust
@@ -115,7 +146,8 @@ rasterized as egui rasterizes its own text, so both look alike.
 
 ## Limits
 
-- Only `Element::text` is laid out with it yet, and only in a tree told to.
+- Only `Element::text` and `Element::formatted_text` are laid out with it
+  yet, and only in a tree told to.
 - No pointer position reaches a drawing, so selecting with the pointer inside
   one is the host's.
 - The bundled faces have no Arabic, Hebrew or CJK glyphs: such text is laid

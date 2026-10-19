@@ -161,3 +161,128 @@ fn a_long_word_wraps_inside_its_box() {
     assert!(lines.len() > 1, "{lines:?}");
     assert!(lines.iter().all(|line| line.rect.x + line.rect.width <= 120.0 + 0.01), "{lines:?}");
 }
+
+mod formatted {
+    use super::*;
+    use limn::{Checkbox, Component, ComponentPalette, ControlSize, HitKind, Key, Markdown, TextSpan, UiAction};
+    use std::time::{Duration, Instant};
+
+    const LINK: Color = Color::rgb(40, 110, 220);
+
+    fn span(text: &str) -> TextSpan {
+        TextSpan::new(text, INK, 14.0, FontFamily::Sans)
+    }
+
+    fn paragraph(spans: Vec<TextSpan>) -> UiTree {
+        tree(Element::column(vec![Element::formatted_text(spans).size(Some(220.0), None)]))
+    }
+
+    #[test]
+    fn a_label_given_back_its_own_width_keeps_every_letter_on_its_line() {
+        // A row hands a label that shrinks to fit the width it measured, by
+        // sums that can come out a rounding error short of it.
+        let palette = ComponentPalette::neutral_dark();
+        for label in ["Compact", "Regular", "Spacious", "Unchecked", "Indeterminate", "Send me the summary"] {
+            for size in [ControlSize::Dense, ControlSize::Compact, ControlSize::Regular, ControlSize::Spacious] {
+                for width in (240..=420).step_by(9) {
+                    let checkbox = Checkbox::new("box", false, palette).label(label).size(size).render();
+                    let mut tree = tree(Element::column(vec![Element::row(vec![checkbox, Element::spacer().flex(1.0)])]));
+                    let frame = tree.layout(Size::new(width as f32, 200.0));
+                    let lines = &frame.text_layouts()[0].runs;
+                    assert_eq!(lines.len(), 1, "{label:?} {size:?} at {width}: {lines:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn spans_are_drawn_as_glyphs_in_their_own_inks() {
+        let mut tree = paragraph(vec![span("Plain and "), TextSpan::new("linked", LINK, 14.0, FontFamily::SansBold)]);
+        let frame = tree.layout(Size::new(300.0, 200.0));
+        assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { .. })));
+        let inks: Vec<_> = runs(&frame).iter().map(|run| (run.text.to_string(), run.color)).collect();
+        assert_eq!(inks, vec![("Plain and ".to_owned(), INK), ("linked".to_owned(), LINK)]);
+        assert_eq!(frame.text_layouts()[0].source, "Plain and linked");
+    }
+
+    #[test]
+    fn an_inline_action_is_pressed_reached_by_tab_and_underlined_under_the_pointer() {
+        let spans = vec![span("Read "), TextSpan::new("the guide", LINK, 14.0, FontFamily::Sans).action("guide"), span(" first.")];
+        let mut tree = paragraph(spans);
+        let frame = tree.layout(Size::new(300.0, 200.0));
+        let target = frame.regions.iter().find(|region| region.id == "guide" && region.kind == HitKind::Button).expect("a target").rect;
+        let layout = TextLayout::new("Read ", TextStyle::new(14.0, FontFamily::Sans));
+        assert!((target.x - layout.size().width).abs() < 0.5, "{target:?}");
+        let center = Point::new(target.x + target.width / 2.0, target.y + target.height / 2.0);
+        tree.handle_event(UiEvent::PointerMove(center));
+        tree.handle_event(UiEvent::PointerDown(center));
+        assert!(tree.handle_event(UiEvent::PointerUp(center)).contains(&UiAction::Clicked { id: "guide".into() }));
+        let hovered = tree.layout(Size::new(300.0, 200.0));
+        let underline = hovered.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { rect, color, .. } if *color == LINK && rect.height == 1.0 && (rect.x - target.x).abs() < 0.01));
+        assert!(underline, "the action under the pointer is underlined");
+        tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false });
+        assert_eq!(tree.focused_id(), Some("guide"));
+    }
+
+    #[test]
+    fn a_runs_hint_shows_over_it_after_the_hover_delay() {
+        let palette = ComponentPalette::neutral_dark();
+        let spans = vec![span("Sent "), span("yesterday").tooltip("Tuesday at 22:13", palette)];
+        let mut tree = paragraph(spans);
+        let start = Instant::now();
+        let frame = tree.layout_at(Size::new(300.0, 200.0), start);
+        let target = frame.regions.iter().find(|region| region.kind == HitKind::Hover).expect("a hint target").rect;
+        let center = Point::new(target.x + target.width / 2.0, target.y + target.height / 2.0);
+        tree.handle_event_at(UiEvent::PointerMove(center), start);
+        let shown = |frame: &Frame| frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { text, .. } if text.contains("Tuesday"))
+            || matches!(command, DrawCommand::Glyphs(run) if run.text.contains("Tuesday")));
+        assert!(!shown(&tree.layout_at(Size::new(300.0, 200.0), start)));
+        assert!(shown(&tree.layout_at(Size::new(300.0, 200.0), start + Duration::from_secs(1))));
+    }
+
+    #[test]
+    fn a_drag_selects_across_spans_by_their_glyphs() {
+        let mut tree = paragraph(vec![span("one "), TextSpan::new("two", INK, 14.0, FontFamily::SansBold), span(" three")]);
+        tree.layout(Size::new(300.0, 200.0));
+        let bold = TextLayout::formatted(
+            &[span("one "), TextSpan::new("two", INK, 14.0, FontFamily::SansBold), span(" three")],
+            TextStyle::new(14.0, FontFamily::Sans).line_height(18.0),
+        );
+        let (from, to) = (bold.caret(2), bold.caret(10));
+        tree.handle_event(UiEvent::PointerDown(Point::new(from.x + 0.3, 9.0)));
+        tree.handle_event(UiEvent::PointerUp(Point::new(to.x - 0.3, 9.0)));
+        assert_eq!(tree.selected_text(), Some("e two th"));
+    }
+
+    #[test]
+    fn a_paragraph_cut_to_its_lines_ends_in_an_ellipsis_it_does_not_select() {
+        let long = "A channel's topic, long enough to run past the lines it is given in a narrow column of the window.";
+        let mut tree = tree(Element::column(vec![Element::formatted_text(vec![span(long)]).size(Some(160.0), None).max_lines(2)]));
+        let frame = tree.layout(Size::new(300.0, 200.0));
+        let lines = &frame.text_layouts()[0].runs;
+        assert_eq!(lines.len(), 2);
+        let drawn: String = runs(&frame).iter().map(|run| &*run.text).collect();
+        assert!(drawn.ends_with('…'), "{drawn:?}");
+        assert!(lines.iter().all(|line| !line.text.contains('…')));
+    }
+
+    #[test]
+    fn a_picture_is_drawn_in_place_of_its_spans_text() {
+        let picture = limn::RasterImage::new("a".repeat(64), limn::RasterImageFormat::Png, 4, std::sync::Arc::from("AAAA"), "dusk").unwrap();
+        let mut tree = paragraph(vec![span("Nice "), span(":dusk:").image(picture)]);
+        let frame = tree.layout(Size::new(300.0, 200.0));
+        assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::RasterImage { rect, .. } if rect.width == 14.0 * limn::INLINE_IMAGE_SCALE)));
+        assert!(runs(&frame).iter().all(|run| !run.text.contains("dusk")));
+        assert_eq!(frame.text_layouts()[0].source, "Nice :dusk:");
+    }
+
+    #[test]
+    fn markdown_is_laid_out_by_the_tree_too() {
+        let mut tree = tree(Markdown::new("A **bold** word and `code`.", ComponentPalette::neutral_dark()).width(400.0).render().element);
+        let frame = tree.layout(Size::new(400.0, 300.0));
+        assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { .. })));
+        let drawn: String = runs(&frame).iter().map(|run| &*run.text).collect();
+        assert_eq!(drawn, "A bold word and code.");
+    }
+}
