@@ -1,6 +1,6 @@
 #[path = "horizontal_scroll_tree.rs"]
 mod horizontal_scroll_tree;
-use horizontal_scroll_tree::HorizontalScrollState;
+use horizontal_scroll_tree::{HorizontalPan, HorizontalScrollState};
 #[path = "corner_mask_tree.rs"]
 mod corner_mask_tree;
 #[path = "plot_tree.rs"]
@@ -1325,6 +1325,9 @@ pub struct Frame {
     sliders: HashMap<String, SliderGeometry>,
     scroll_extents: HashMap<String, f32>,
     horizontal_viewports: HashMap<String, Rect>,
+    /// Each button inside a `drag_to_pan` viewport, with the viewport a drag
+    /// that starts on it pans.
+    pan_items: HashMap<String, String>,
     scrollbars: HashMap<String, ScrollbarGeometry>,
     scroll_motion: HashMap<String, ScrollMotion>,
     scroll_focus_targets: HashMap<String, ScrollFocusTarget>,
@@ -3053,8 +3056,8 @@ pub struct UiTree {
     /// What each measured list keeps between layouts, by its ID.
     measured_lists: HashMap<String, MeasuredListState>,
     scroll_drag: Option<ScrollDrag>,
-    // The viewport being dragged sideways, and the pointer x plus offset it was grabbed at.
-    horizontal_pan: Option<(String, f32)>,
+    /// The press in a `drag_to_pan` viewport, until the pointer is let go.
+    horizontal_pan: Option<HorizontalPan>,
     scroll_button_hold: Option<ScrollButtonHold>,
     slider_drag: Option<SliderDrag>,
     slider_motion: HashMap<String, SliderMotion>,
@@ -3617,7 +3620,8 @@ impl UiTree {
             || self
                 .tab_indicators
                 .values()
-                .any(|state| state.x.is_active(now) || state.width.is_active(now));
+                .any(|state| state.x.is_active(now) || state.width.is_active(now))
+            || self.horizontal_scrolls.values().any(|state| state.is_gliding(now));
         let hover_wait = self.tooltip_hover_since.as_ref().and_then(|(id, since)| {
             let elapsed = now.saturating_duration_since(*since);
             (self.tooltip_triggers.contains(id)
@@ -3868,7 +3872,11 @@ impl UiTree {
                 scroll_to_index: &mut self.scroll_to_index,
                 hovered_scrollbar: self.hovered_scrollbar.as_deref(),
                 dragging_scrollbar: self.scroll_drag.as_ref().map(|drag| drag.id.as_str()),
-                dragging_horizontal: self.horizontal_pan.as_ref().map(|(id, _)| id.as_str()),
+                dragging_horizontal: self
+                    .horizontal_pan
+                    .as_ref()
+                    .filter(|pan| pan.claimed)
+                    .map(|pan| pan.id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
                 pointer: self.pointer,
                 region_hovered: false,
@@ -5476,7 +5484,7 @@ impl UiTree {
                     .hit_region(point)
                     .filter(|region| region.kind == HitKind::Scrollbar)
                     .map(|region| region.id.clone());
-                self.drag_horizontal_pan(point);
+                self.drag_horizontal_pan(point, now);
                 if let Some(drag) = self.scroll_drag.as_ref() {
                     if let Some(geometry) = self.frame.scrollbars.get(&drag.id) {
                         self.scroll_transitions.remove(&drag.id);
@@ -5547,6 +5555,7 @@ impl UiTree {
             UiEvent::PointerDown(point) => {
                 self.scroll_button_hold = None;
                 self.scroll_drag = None;
+                self.horizontal_pan = None;
                 self.pointer = Some(point);
                 self.set_hovered(self.frame.hit_test(point).map(str::to_owned), now);
                 self.keyboard_focus = false;
@@ -5604,9 +5613,12 @@ impl UiTree {
                     actions.push(slider_action(id, fraction, y, false));
                     return actions;
                 }
-                if let Some(pan) = self.horizontal_pan_at(point) {
+                if let Some(pan) = Self::horizontal_pan_at(&self.frame, &mut self.horizontal_scrolls, point, now) {
+                    let claimed = pan.claimed;
                     self.horizontal_pan = Some(pan);
-                    return actions;
+                    if claimed {
+                        return actions;
+                    }
                 }
                 if let Some(region) = hit
                     .as_ref()
@@ -5755,7 +5767,11 @@ impl UiTree {
                     }
                     selection.dragging = false;
                 }
-                if self.scroll_drag.take().is_some() || self.horizontal_pan.take().is_some() {
+                if self.scroll_drag.take().is_some() {
+                    return actions;
+                }
+                if let Some(pan) = self.horizontal_pan.take().filter(|pan| pan.claimed) {
+                    self.release_horizontal_pan(pan, now);
                     return actions;
                 }
                 if self.scroll_button_hold.take().is_some() {

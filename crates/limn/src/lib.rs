@@ -20,6 +20,7 @@ mod breadcrumb;
 mod button_group;
 mod bottom_sheet;
 mod card;
+mod carousel;
 mod caret_blink;
 mod charts;
 mod chat_minimap;
@@ -137,6 +138,7 @@ pub use badge::Badge;
 pub use breadcrumb::{Breadcrumb, BreadcrumbItem};
 pub use button_group::{ButtonGroup, ButtonGroupSizing};
 pub use card::{Card, CardDensity};
+pub use carousel::Carousel;
 pub use charts::{
     AreaChart, BarChart, ChartAxisLabel, ChartDatum, ChartLegend, ChartSeries, ColumnChart, HeatmapCell, HeatmapChart,
     HeatmapScale, LineChart, PieChart, RadarChart,
