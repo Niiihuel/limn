@@ -112,6 +112,14 @@ a cancelled composition leaves the value and the selection as they were.
 `limn_egui::report_ime` tells the platform where the caret is, once a
 frame, so the candidate window opens beside it.
 
+## Pointer
+
+A press puts the caret nearest it, and dragging selects from there.
+Shift and a press extend the selection of a field that has the focus. A
+double press selects the word under the pointer, or the run of spaces or
+the mark; a triple press selects its line, up to the break. Dragging past
+the top or the bottom scrolls the text to the caret.
+
 ## Keyboard
 
 | Key | Effect |
@@ -119,6 +127,9 @@ frame, so the candidate window opens beside it.
 | Enter | Adds a line; with `enter_submits(true)`, reports `Submitted` with the text |
 | Shift+Enter | Adds a line |
 | Ctrl+Enter | Reports `Submitted` with the text |
+| Left, Right | Move the caret a character, an emoji with its modifiers whole; a selection collapses to the edge the arrow points at. With Shift, extend the selection |
+| Ctrl+Left, Ctrl+Right | Move the caret to the start of the word before it or the end of the word after it |
+| Backspace, Delete | Delete the selection, or the character before or after the caret; with Ctrl, the word |
 | Up, Down | Move the caret a line, as near its column as the line allows |
 | Home, End | Move the caret to either edge of its line; with Ctrl, of the text |
 | Ctrl+A | Selects everything |
