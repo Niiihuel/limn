@@ -4,8 +4,8 @@
 //! the changes in order.
 
 use limn::{
-    set_tokens, tokens, Button, Component, ComponentPalette, DrawCommand, Element, Empty, Frame,
-    Markdown, Modal, Motion, Radius, Size, Toast, Tokens, UiTree,
+    set_tokens, tokens, Button, Color, Component, ComponentPalette, DrawCommand, Element, ElementKind, Empty,
+    Frame, Markdown, Modal, Motion, Radius, Size, Toast, Tokens, Tooltip, TooltipStyle, UiTree,
 };
 use web_time::{Duration, Instant};
 
@@ -134,6 +134,45 @@ fn tokens_reshape_and_repace_every_component_built_after_they_change() {
         })
         .expect("toast surface");
     assert!(opacity > 0 && opacity < 255, "{opacity}");
+
+    // One look for every tooltip, whichever palette its control was built with.
+    set_tokens(Tokens::DEFAULT);
+    let light = ComponentPalette { raised: Color::WHITE, border: Color::rgb(220, 220, 220), ..palette };
+    let colors = |element: Element| match element.kind {
+        ElementKind::Tooltip { colors, .. } => colors,
+        _ => panic!("a hint"),
+    };
+    let hint = |palette| colors(Button::new("b", "B", palette).tooltip("Guardar").render());
+    assert_ne!(hint(palette), hint(light), "each palette derives its own");
+    let own = TooltipStyle {
+        background: Color::rgb(40, 40, 40),
+        border: Color::TRANSPARENT,
+        keycap: Color::rgb(62, 62, 62),
+        text: Color::WHITE,
+        muted: Color::rgb(179, 179, 179),
+        shadow: Color::rgba(0, 0, 0, 128),
+    };
+    set_tokens(Tokens { tooltip: Some(own), ..Tokens::DEFAULT });
+    for palette in [palette, light] {
+        assert_eq!(hint(palette), own);
+        assert_eq!(colors(Tooltip::new(Element::spacer(), "a", "A", palette).render()), own);
+    }
+    // Its body is painted in the host's fill, and a transparent border draws no outline.
+    let mut tree = UiTree::new(Button::new("b", "B", light).tooltip("Guardar").render());
+    tree.set_reduced_motion(true);
+    tree.layout(WINDOW);
+    assert!(tree.focus("b"));
+    let frame = tree.layout(WINDOW);
+    let body = frame
+        .commands
+        .iter()
+        .find_map(|command| match command {
+            DrawCommand::FillRect { rect, color, .. } if *color == own.background => Some(*rect),
+            _ => None,
+        })
+        .expect("the hint's body");
+    assert!(frame.commands.iter().all(|command| !matches!(command,
+        DrawCommand::StrokeRect { rect, color, .. } if *rect == body && color.a > 0)));
 
     set_tokens(Tokens::DEFAULT);
     assert_eq!(tokens(), Tokens::DEFAULT);

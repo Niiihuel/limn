@@ -53,6 +53,9 @@ pub struct TopBar {
     browse_active: bool,
     home_label: String,
     browse_label: String,
+    home_icons: (Icon, Icon),
+    browse_icons: (Icon, Icon),
+    search_icon: Icon,
     enabled: bool,
     search_popover: Option<(String, Element)>,
 }
@@ -79,6 +82,9 @@ impl TopBar {
             browse_active: false,
             home_label: "Home".into(),
             browse_label: "Browse".into(),
+            home_icons: (Icon::Home, Icon::HomeFill),
+            browse_icons: (Icon::Grid, Icon::GridFill),
+            search_icon: Icon::Search,
             enabled: true,
             search_popover: None,
         }
@@ -159,6 +165,28 @@ impl TopBar {
         self
     }
 
+    /// The glyphs of the Home button: `rest` while another page is shown and
+    /// `active` while [`Self::home_active`] says Home is; `Icon::Home` and
+    /// `Icon::HomeFill` unless set.
+    pub fn home_icons(mut self, rest: Icon, active: Icon) -> Self {
+        self.home_icons = (rest, active);
+        self
+    }
+
+    /// The glyphs of the browse button, as [`Self::home_icons`];
+    /// `Icon::Grid` and `Icon::GridFill` unless set.
+    pub fn browse_icons(mut self, rest: Icon, active: Icon) -> Self {
+        self.browse_icons = (rest, active);
+        self
+    }
+
+    /// The glyph at the start of the search and on the round search of a
+    /// narrow bar; `Icon::Search` unless set.
+    pub fn search_icon(mut self, icon: Icon) -> Self {
+        self.search_icon = icon;
+        self
+    }
+
     /// Disable Home and the search: they keep their place and their query
     /// and cannot be used. The host's controls are left as given.
     pub fn disabled(mut self) -> Self {
@@ -199,7 +227,7 @@ impl TopBar {
         }
         end.push(Separator::vertical(palette).length(DIVIDER).margin(DIVIDER_MARGIN).centered_in(CONTROL).ink(palette.muted).render());
         end.push(
-            IconButton::new(browse.clone(), if self.browse_active { Icon::GridFill } else { Icon::Grid }, palette)
+            IconButton::new(browse.clone(), if self.browse_active { self.browse_icons.1 } else { self.browse_icons.0 }, palette)
                 .variant(ButtonVariant::Ghost)
                 .round()
                 .sizing(ButtonSizing { height: BROWSE, ..ControlSize::Spacious.button_sizing() })
@@ -221,7 +249,7 @@ impl TopBar {
         let name = crate::labels().search;
         let field = if self.enabled {
             Element::text_input(search.clone(), self.query.clone(), self.placeholder.clone())
-                .leading_icon(Icon::Search)
+                .leading_icon(self.search_icon)
                 .leading_icon_tint(palette.muted)
                 .foreground(palette.text)
                 .font_family(FontFamily::Sans)
@@ -234,7 +262,7 @@ impl TopBar {
         } else {
             let shown = if has_query { self.query.clone() } else { self.placeholder.clone() };
             Element::row(vec![
-                Element::icon(Icon::Search)
+                Element::icon(self.search_icon)
                     .foreground(palette.muted)
                     .size(Some(ICON_SIZE), Some(ICON_SIZE))
                     .centered_y(),
@@ -280,13 +308,13 @@ impl Component for TopBar {
             side(std::mem::take(&mut self.trailing)),
             Element::spacer().size(Some(self.caption.1), None),
         ]);
-        let home_icon = if self.home_active { Icon::HomeFill } else { Icon::Home };
+        let home_icon = if self.home_active { self.home_icons.1 } else { self.home_icons.0 };
         let home = self.round(format!("{}:home", self.id), home_icon, self.home_active, &self.home_label);
         let search = format!("{}:search", self.id);
         let width = self.width.map_or(SEARCH_MAX, |width| (width / 2.0).clamp(SEARCH_MIN, SEARCH_MAX));
         let popover = self.search_popover.take();
         let search = if width <= SEARCH_COLLAPSE {
-            self.round(search, Icon::Search, false, crate::labels().search)
+            self.round(search, self.search_icon, false, crate::labels().search)
         } else {
             let field = self.search(search, width);
             match popover {
@@ -484,6 +512,25 @@ mod tests {
         assert!(drawn.contains(&Icon::HomeFill) && drawn.contains(&Icon::GridFill));
         assert!(!drawn.contains(&Icon::Home) && !drawn.contains(&Icon::Grid));
         assert_eq!(Icon::Home.filled(), Icon::HomeFill);
+    }
+
+    #[test]
+    fn the_host_s_own_glyphs_are_the_ones_drawn() {
+        let own = |bar: TopBar| {
+            bar.home_icons(Icon::Heart, Icon::HeartFill).browse_icons(Icon::Folder, Icon::FolderFill).search_icon(Icon::Filter)
+        };
+        let defaults = [Icon::Home, Icon::HomeFill, Icon::Grid, Icon::GridFill, Icon::Search];
+        let (_, frame) = tree(own(bar(1200.0)), 1200.0);
+        let drawn = icons(&frame);
+        assert!(drawn.contains(&Icon::Heart) && drawn.contains(&Icon::Folder) && drawn.contains(&Icon::Filter), "{drawn:?}");
+        assert!(defaults.iter().all(|icon| !drawn.contains(icon)), "{drawn:?}");
+        let (_, frame) = tree(own(bar(1200.0)).home_active(true).browse_active(true), 1200.0);
+        let drawn = icons(&frame);
+        assert!(drawn.contains(&Icon::HeartFill) && drawn.contains(&Icon::FolderFill), "{drawn:?}");
+        let (_, narrow) = tree(own(bar(800.0)), 800.0);
+        assert!(icons(&narrow).contains(&Icon::Filter), "the round search");
+        let (_, disabled) = tree(own(bar(1200.0)).disabled(), 1200.0);
+        assert!(icons(&disabled).contains(&Icon::Filter), "the disabled search");
     }
 
     #[test]

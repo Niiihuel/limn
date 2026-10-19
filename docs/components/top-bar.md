@@ -126,6 +126,10 @@ icon outlined and muted, and solid in the `text` color while
 and `Icon::GridFill`. `home_label` and `browse_label` set the hint and the
 name of each, "Home" and "Browse" unless set.
 
+`home_icons(rest, active)` and `browse_icons(rest, active)` draw the host's
+own glyphs in their place, and `search_icon(icon)` the magnifier at the
+start of the search and on its round button.
+
 ## Your controls
 
 `leading` and `trailing` take your elements, 8 px apart, each centered on
