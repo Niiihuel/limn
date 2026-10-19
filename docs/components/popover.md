@@ -93,7 +93,7 @@ two durations, `open_scale` the scale it starts from (0.5 to 1.25), and
 
 | Action | When |
 | --- | --- |
-| `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the surface. |
+| `UiAction::Clicked { id }` with the dismiss ID | Escape, a click outside the surface, or a wheel or trackpad scroll outside it, which still scrolls what is under the pointer. A modal is not closed by a scroll. |
 
 ## Accessibility
 

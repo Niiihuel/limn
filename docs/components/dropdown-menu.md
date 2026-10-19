@@ -232,7 +232,7 @@ place at once.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` with an item's ID | The item is activated. |
-| `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the menu, primary or secondary. |
+| `UiAction::Clicked { id }` with the dismiss ID | Escape, a click outside the menu, primary or secondary, or a wheel or trackpad scroll outside it, which still scrolls what is under the pointer. |
 
 ## Accessibility
 

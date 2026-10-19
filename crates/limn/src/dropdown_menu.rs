@@ -3062,6 +3062,57 @@ mod tests {
     }
 
     #[test]
+    fn a_scroll_outside_the_menu_closes_it_and_still_moves_the_page_and_one_over_its_rows_scrolls_them() {
+        let viewport = Size::new(480.0, 320.0);
+        let palette = ComponentPalette::neutral_dark();
+        let rows = (0..6).map(|index| DropdownMenuItem::new(format!("row:{index}"), format!("Fila {index}")).into()).collect();
+        let menu = DropdownMenu::new(trigger(), rows, true, "dismiss", palette).max_visible_items(2);
+        let tiles = (0..8).map(|index| Element::button(format!("album:{index}"), "Álbum").size(Some(100.0), Some(60.0))).collect();
+        // Low enough on the page that the trigger stays in view while it scrolls.
+        let page = Element::column(vec![
+            Element::spacer().size(None, Some(200.0)),
+            menu.render(),
+            Element::spacer().size(None, Some(60.0)),
+            crate::Carousel::new("shelf", tiles, palette).render(),
+            Element::spacer().size(None, Some(1000.0)),
+        ]);
+        let mut tree = UiTree::new(Element::scroll("page", page));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(viewport);
+        // Over its own rows the wheel scrolls them and the menu stays open.
+        let options = region(&frame, "dismiss:options");
+        let rows = Point::new(options.x + 20.0, options.y + 10.0);
+        assert!(tree.handle_event(UiEvent::Scroll { position: rows, delta_y: -30.0 }).is_empty());
+        tree.layout(viewport);
+        assert!(tree.scroll_offset("dismiss:options") > 0.0);
+        assert_eq!(tree.scroll_offset("page"), 0.0);
+        // Outside it every kind of scroll reports the dismissal, and the page under the pointer moves.
+        let dismissed = vec![UiAction::Clicked { id: "dismiss".into() }];
+        let outside = Point::new(400.0, 250.0);
+        for event in [
+            UiEvent::Scroll { position: outside, delta_y: -40.0 },
+            UiEvent::ScrollDirect { position: outside, delta_y: -40.0 },
+            UiEvent::Scroll2D { position: outside, delta_x: 0.0, delta_y: -40.0, direct: false, shift: false },
+        ] {
+            let before = tree.scroll_offset("page");
+            assert_eq!(tree.handle_event(event.clone()), dismissed, "{event:?}");
+            tree.layout(viewport);
+            assert_eq!(tree.scroll_offset("page"), before + 40.0, "{event:?}");
+        }
+        // A trackpad's sideways pan over a shelf of the page, too.
+        let shelf = tree.frame().regions.iter().find(|region| region.id == "shelf" && region.kind == HitKind::Scroll).unwrap().rect;
+        let pan = UiEvent::Scroll2D {
+            position: Point::new(shelf.x + 300.0, shelf.y + shelf.height / 2.0),
+            delta_x: -40.0,
+            delta_y: 0.0,
+            direct: true,
+            shift: false,
+        };
+        assert_eq!(tree.handle_event(pan), dismissed);
+        assert_eq!(tree.horizontal_scroll_offset("shelf"), 40.0);
+    }
+
+    #[test]
     fn a_host_s_bar_scrolls_the_options_and_an_overlay_keeps_the_rows_whole() {
         let layout = |host: fn(DropdownMenu) -> DropdownMenu| {
             let rows = ["first", "second", "third", "fourth"].map(|id| DropdownMenuItem::new(id, id).into());
