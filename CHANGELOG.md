@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- `Element::drawing`: what the application draws itself, in the frame's own `DrawCommand`s, given the size it is laid out at. The tree places the commands, clips them to the element and keeps their clips balanced. See [Drawing](docs/components/drawing.md)
 - Text widths are cached apart for every face: a label in `SansMedium`, `SansBold` or `SansItalic` could be given the width the same text had measured in `Monospace`, and so wrap or truncate at the wrong place
 - `WindowControls`: the minimize, maximize (restore while maximized) and close buttons at the end of a title bar the app draws, as Windows places them, brought from Surco's own frame. `Labels` gains `minimize`, `maximize` and `restore`. See [WindowControls](docs/components/window-controls.md)
 - `limn-egui`: a notch of the mouse wheel scrolls 120 px, as Chrome and Firefox do, instead of 30; touchpads stay one to one
