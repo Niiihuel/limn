@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- Fix: a screen showing more raster images than `set_image_cache_entries` no longer flickers. The texture cache evicted the oldest decoded image even while it was being drawn, so each paint pass decoded again what the one before had evicted, and the images on screen took turns to appear while the decoders woke the host on every frame. It now evicts the least recently drawn first and never an image drawn in the current or the previous paint pass: what is on screen stays past the limit, and goes as new images come once it has left
 - `CodeEditor` view options: `show_whitespace` marks spaces with `·` and tabs with `→`; `rulers` draws up to 16 column guides; `caret_style` takes a `CaretStyle` (`Line`, `Block`, `Underline`; Vim's Normal mode keeps its block); `caret_blink(false)` keeps the caret shown; `indent_guides(false)` and `highlight_current_line(false)` turn off what was always drawn. Defaults keep today's look
 - `limn-editor::TextBuffer::trim_trailing_whitespace`: removes the spaces and tabs ending each line as one undo step, keeping line terminators and every selection's place in its line
 - Bar, column and line charts whose values are all whole numbers get whole ticks: a count of 1 no longer shows a 0.5 tick
