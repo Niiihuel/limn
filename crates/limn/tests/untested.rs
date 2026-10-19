@@ -359,6 +359,33 @@ fn a_long_name_is_still_one_letter_inside_the_circle() {
 }
 
 #[test]
+fn an_avatar_given_a_color_fills_its_circle_with_it_in_place_of_the_palette() {
+    let inks = |avatar: Avatar| -> (Vec<Color>, Vec<Color>) {
+        let frame = frame(avatar.render());
+        let of = |text: bool| {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::FillRect { color, .. } if !text => Some(*color),
+                    DrawCommand::Text { color, .. } if text => Some(*color),
+                    _ => None,
+                })
+                .collect()
+        };
+        (of(false), of(true))
+    };
+    let teal = Color::rgb(26, 188, 156);
+    assert_eq!(inks(Avatar::new("Ana", palette())), (vec![palette().selected], vec![palette().text]));
+    assert_eq!(
+        inks(Avatar::new("Ana", palette()).color(teal)),
+        (vec![teal], vec![palette().text]),
+        "the initial keeps the palette's ink"
+    );
+    assert!(inks(Avatar::new("Ana", palette()).color(teal).image(picture())).0.is_empty(), "a photo covers it");
+}
+
+#[test]
 fn an_avatar_is_a_square_of_32_until_it_is_given_a_size() {
     assert_eq!(extent(Avatar::new("Ana", palette()).render()), (32.0, 32.0));
     assert_eq!(extent(Avatar::new("Ana", palette()).size(64.0).render()), (64.0, 64.0));

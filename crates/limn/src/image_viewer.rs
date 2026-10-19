@@ -248,7 +248,8 @@ impl Component for ImageViewer {
             (height - 32.0 - 36.0 - 24.0 - 24.0).max(0.0),
         );
         let picture = match (self.surface, self.image) {
-            (Some((id, label)), _) => Some(Element::surface(id, label).surface_fit(SurfaceFit::Contain)),
+            // Never past its pixels, as the picture beside it: a small GIF stays small.
+            (Some((id, label)), _) => Some(Element::surface(id, label).surface_fit(SurfaceFit::ScaleDown)),
             (None, Some(image)) => Some(Element::raster_image(image.full_resolution())),
             (None, None) => None,
         };
@@ -505,7 +506,7 @@ mod tests {
                 .expect("the surface is drawn")
         };
         let (fitted, id, label, fit) = shown(1.0, true);
-        assert_eq!((id.as_str(), label.as_str(), fit), ("animation:a", "A loop", SurfaceFit::Contain));
+        assert_eq!((id.as_str(), label.as_str(), fit), ("animation:a", "A loop", SurfaceFit::ScaleDown));
         // The same room a picture gets, and twice it zoomed.
         let mut tree = UiTree::new(viewer(1.0));
         tree.set_reduced_motion(true);

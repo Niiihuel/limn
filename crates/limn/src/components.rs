@@ -43,6 +43,7 @@ pub struct Tooltip {
     placement: TooltipPlacement,
     palette: ComponentPalette,
     described: bool,
+    title_family: FontFamily,
 }
 
 impl Tooltip {
@@ -65,6 +66,7 @@ impl Tooltip {
             placement: TooltipPlacement::Above,
             palette,
             described: true,
+            title_family: FontFamily::Sans,
         }
     }
 
@@ -178,6 +180,15 @@ impl Tooltip {
         self.placement = placement;
         self
     }
+
+    /// The face of the title, such as [`FontFamily::SansSemibold`] for a
+    /// title that names what the anchor stands for. The title is measured
+    /// in it, so a heavier face wraps or shortens it sooner. The default is
+    /// [`FontFamily::Sans`]; descriptions and footers keep theirs.
+    pub fn title_family(mut self, family: FontFamily) -> Self {
+        self.title_family = family;
+        self
+    }
 }
 
 impl Component for Tooltip {
@@ -195,7 +206,7 @@ impl Component for Tooltip {
             self.title,
             self.shortcut,
             self.placement,
-            self.palette.tooltip_style(),
+            TooltipStyle { title_family: self.title_family, ..self.palette.tooltip_style() },
         );
         if let ElementKind::Tooltip {
             sections,
@@ -461,6 +472,7 @@ impl ComponentPalette {
                 text: lighter(self.muted, 76),
                 muted: self.muted,
                 shadow: self.shadow,
+                title_family: FontFamily::Sans,
             }
         } else {
             TooltipStyle {
@@ -470,6 +482,7 @@ impl ComponentPalette {
                 text: self.text,
                 muted: self.muted,
                 shadow: self.shadow,
+                title_family: FontFamily::Sans,
             }
         }
     }
@@ -2930,6 +2943,10 @@ pub struct DropdownOption {
     pub selected: bool,
     /// Whether it can be chosen. A disabled option stays in the list.
     pub state: ControlState,
+    /// A hint shown while the pointer rests on the option or it has the
+    /// keyboard, such as the whole of a name its label shortens. `None` by
+    /// default.
+    pub tooltip: Option<String>,
 }
 
 impl DropdownOption {
@@ -2941,7 +2958,16 @@ impl DropdownOption {
             icon: None,
             selected: false,
             state: ControlState::Enabled,
+            tooltip: None,
         }
+    }
+
+    /// A hint for the option, for what its label cannot say: the whole of a
+    /// name the label shortens, say. A blank hint is ignored.
+    pub fn tooltip(mut self, text: impl Into<String>) -> Self {
+        let text = text.into();
+        self.tooltip = (!text.trim().is_empty()).then_some(text);
+        self
     }
 
     /// Give the option an icon.
@@ -3066,6 +3092,9 @@ impl Component for DropdownList {
                 }
                 if option.state == ControlState::Disabled {
                     item = item.disabled();
+                }
+                if let Some(hint) = option.tooltip {
+                    item = item.tooltip_with(TooltipSpec::new(hint));
                 }
                 DropdownMenuEntry::Item(item)
             })

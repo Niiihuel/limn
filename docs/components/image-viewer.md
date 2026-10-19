@@ -64,8 +64,10 @@ viewer.surface("animation:loop", "A looping animation")
 
 `surface` shows the pixels the host presents under that ID, as
 `Element::surface` does, in place of a picture: an animated GIF, a video. They
-are fitted to the same room a picture gets, enlarged or reduced, and zoomed
-and panned the same way. The host presents the first frame before it opens
+are fitted to the same room a picture gets and, as a picture, reduced but
+never enlarged past their own pixels (`SurfaceFit::ScaleDown`), so a small
+GIF keeps the size of its still first frame; they are zoomed and panned the
+same way. The host presents the first frame before it opens
 the viewer and the next ones as they fall due; see
 [Host-fed surfaces](../backend.md#host-fed-surfaces).
 

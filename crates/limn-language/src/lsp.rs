@@ -956,7 +956,8 @@ pub fn server_candidates(language: Language) -> Vec<PathBuf> {
             &["vscode-html-language-server"],
         ),
         Language::Toml => ("OPENIDE_TOML_LANGUAGE_SERVER", &["taplo"]),
-        Language::Plain | Language::Markdown => return Vec::new(),
+        // No server is looked for the languages without a grammar here either.
+        _ => return Vec::new(),
     };
     let mut candidates = Vec::new();
     if let Some(path) = std::env::var_os(override_name)

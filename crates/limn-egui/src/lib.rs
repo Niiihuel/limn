@@ -1835,7 +1835,7 @@ fn paint_at_impl(
                 let (font, italics) = match font_family {
                     FontFamily::Monospace => (FontId::monospace(*font_size), false),
                     FontFamily::Sans => (FontId::proportional(*font_size), false),
-                    FontFamily::SansMedium | FontFamily::SansBold => {
+                    FontFamily::SansMedium | FontFamily::SansSemibold | FontFamily::SansBold => {
                         (FontId::new(*font_size, egui_family(ui.ctx(), *font_family)), false)
                     }
                     // The bold face slanted, as SansItalic slants the regular one.
@@ -1956,6 +1956,7 @@ fn paint_at_impl(
                     let whole = EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
                     let placed = match fit {
                         limn::SurfaceFit::Contain => (contain(area, pixels), whole),
+                        limn::SurfaceFit::ScaleDown => (fit_image(area, pixels), whole),
                         limn::SurfaceFit::Cover => (area, cover_uv(area, pixels)),
                         limn::SurfaceFit::Native => (surface_rect(area, pixels, density, ui.ctx().pixels_per_point()), whole),
                     };
@@ -2456,6 +2457,8 @@ pub fn font_definitions() -> egui::FontDefinitions {
         .unwrap_or_default();
     for (family, face, bytes) in [
         (SANS_MEDIUM, "Ubuntu-Medium", &include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")[..]),
+        // Ubuntu has no semibold: Ubuntu Sans, its successor under the same licence, does.
+        (SANS_SEMIBOLD, "UbuntuSans-SemiBold", &include_bytes!("../assets/fonts/UbuntuSans-SemiBold.ttf")[..]),
         (SANS_BOLD, "Ubuntu-Bold", &include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")[..]),
     ] {
         fonts
@@ -2474,6 +2477,7 @@ pub fn font_definitions() -> egui::FontDefinitions {
 }
 
 const SANS_MEDIUM: &str = "limn-sans-medium";
+const SANS_SEMIBOLD: &str = "limn-sans-semibold";
 const SANS_BOLD: &str = "limn-sans-bold";
 
 /// Faces of the host's choice for interface text, in place of the bundled
@@ -2484,6 +2488,10 @@ pub struct UiFaces {
     pub regular: egui::FontData,
     /// The face of [`FontFamily::SansMedium`]; `None` uses `regular`.
     pub medium: Option<egui::FontData>,
+    /// The face of [`FontFamily::SansSemibold`]; `None` uses `bold`, then
+    /// `medium`, then `regular`: the nearest weight the family has, heavier
+    /// first, as CSS chooses one.
+    pub semibold: Option<egui::FontData>,
     /// The face of [`FontFamily::SansBold`] and [`FontFamily::SansBoldItalic`];
     /// `None` uses `regular`.
     pub bold: Option<egui::FontData>,
@@ -2498,17 +2506,20 @@ pub fn font_definitions_with(faces: UiFaces) -> egui::FontDefinitions {
     let mut fonts = font_definitions();
     let regular = "limn-ui-regular".to_owned();
     fonts.font_data.insert(regular.clone(), faces.regular.into());
-    for (face, name, family) in [
-        (faces.medium, "limn-ui-medium", SANS_MEDIUM),
-        (faces.bold, "limn-ui-bold", SANS_BOLD),
-    ] {
-        let first = match face {
-            Some(face) => {
-                fonts.font_data.insert(name.to_owned(), face.into());
-                name.to_owned()
-            }
-            None => regular.clone(),
-        };
+    let mut first = |face: Option<egui::FontData>, name: &str| match face {
+        Some(face) => {
+            fonts.font_data.insert(name.to_owned(), face.into());
+            Some(name.to_owned())
+        }
+        None => None,
+    };
+    let medium = first(faces.medium, "limn-ui-medium");
+    let bold = first(faces.bold, "limn-ui-bold");
+    let semibold = first(faces.semibold, "limn-ui-semibold")
+        .or_else(|| bold.clone())
+        .or_else(|| medium.clone());
+    for (first, family) in [(medium, SANS_MEDIUM), (semibold, SANS_SEMIBOLD), (bold, SANS_BOLD)] {
+        let first = first.unwrap_or_else(|| regular.clone());
         fonts.families.entry(egui::FontFamily::Name(family.into())).or_default().insert(0, first);
     }
     fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, regular);
@@ -2522,6 +2533,7 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
         FontFamily::Monospace => return egui::FontFamily::Monospace,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
+        FontFamily::SansSemibold => SANS_SEMIBOLD,
         FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
     };
     let named = egui::FontFamily::Name(weighted.into());
@@ -3193,6 +3205,10 @@ mod tests {
         assert_eq!(contained.calc_bounds(), EguiRect::from_min_max(Pos2::new(0.0, 25.0), Pos2::new(100.0, 75.0)), "fitted inside, centered");
         // A frame smaller than its box is enlarged to fit it, so a zoomed viewer zooms it.
         assert_eq!(contain(square, [20, 10]), contain(square, [200, 100]));
+        // Scaled down, a large frame fits as contained; a small one keeps its
+        // pixels, as a picture in the same box does.
+        assert_eq!(mesh_of(limn::SurfaceFit::ScaleDown, 0.0).calc_bounds(), contained.calc_bounds());
+        assert_eq!(fit_image(square, [20, 10]), EguiRect::from_center_size(square.center(), egui::vec2(20.0, 10.0)));
         assert_eq!(uv_of(&contained), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)));
         let covered = mesh_of(limn::SurfaceFit::Cover, 0.0);
         assert_eq!(covered.calc_bounds(), square, "filling the box");

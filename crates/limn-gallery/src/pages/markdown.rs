@@ -7,7 +7,7 @@ const STREAMING: &str = "The result arrives in parts.\n\n- First item already **
 
 const SIZED: &str = "## Release notes\n\nThe **build** passes in `ci.yml`; see the [log](https://example.com/log).\n\n1. Update the lockfile\n2. Tag the release\n\n> Ship it on Friday.\n\n```sh\ncargo publish\n```";
 
-const HIGHLIGHTED: &str = "```rust\n// The fence names the language.\nfn total(items: &[u32]) -> u32 {\n    items.iter().sum::<u32>() + 1\n}\n```\n\n```py\ndef greet(name):\n    return f\"Hello, {name}\"  # a comment\n```\n\n```json\n{\"name\": \"limn\", \"stable\": false, \"version\": 0.1}\n```\n\n```sh\n# No lexer for this one: plain text\ncargo test -p limn\n```";
+const HIGHLIGHTED: &str = "```rust\n// The fence names the language.\nfn total(items: &[u32]) -> u32 {\n    items.iter().sum::<u32>() + 1\n}\n```\n\n```py\ndef greet(name):\n    return f\"Hello, {name}\"  # a comment\n```\n\n```json\n{\"name\": \"limn\", \"stable\": false, \"version\": 0.1}\n```\n\n```sh\n# Shell, Go, SQL and a diff are colored too\nif [ -n \"$CI\" ]; then cargo test -p limn; fi\n```\n\n```go\nfunc main() { fmt.Println(\"limn\", 44) }\n```\n\n```sql\nSELECT name FROM crates WHERE stable = false; -- not yet\n```\n\n```diff\n@@ -1 +1 @@\n-total = 1\n+total = 2\n```\n\n```text\nNo language: plain text\n```";
 
 const CHAT: &str = "**Bold**, *italic*, ***both***, __underlined__, ~~struck through~~ and __**marks inside marks**__.\n-# Subtext: small and quiet, as a footnote under a message.";
 

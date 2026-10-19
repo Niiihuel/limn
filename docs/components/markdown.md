@@ -167,7 +167,8 @@ Markdown::new(source, palette).render()
 ````
 
 A fence in a language limn's line lexer knows, such as `rust`, `js`, `ts`,
-`py`, `json`, `toml`, `css`, `html` or `md`, has its comments, strings,
+`py`, `json`, `toml`, `css`, `html`, `md`, `go`, `c`, `cpp`, `java`, `sh`,
+`yaml`, `sql` or `diff`, has its comments, strings,
 keywords and numbers colored, with or without the `syntax` feature. The inks
 follow the palette, dark or light, not `MarkdownColors`. A fence with no
 language or another one stays plain, and so does code longer than 64 KiB or

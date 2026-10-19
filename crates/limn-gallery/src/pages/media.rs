@@ -129,7 +129,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Image viewer", vec![
             caption(cx, "Click a picture: the viewer covers the window. Left and Right move through the three, the header zooms, and Esc, the close button or a click outside closes it."),
             row((0..PICTURES.len()).map(thumbnail).collect()),
-            caption(cx, "An animation the host plays on a surface: covering its thumbnail with rounded corners, then fitted in the viewer as a picture is."),
+            caption(cx, "An animation the host plays on a surface: covering its thumbnail with rounded corners, then in the viewer never past its 96 by 64 pixels (SurfaceFit::ScaleDown), as a picture is."),
             row(vec![Element::clickable(
                 format!("{VIEWER}=animation&{INDEX}=0&{ZOOM}=1"),
                 Element::surface(ANIMATION, "A band of light")
@@ -198,6 +198,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             row(["linus", "  margaret", "東京", ""]
                 .into_iter()
                 .map(|name| Avatar::new(name, palette).render())
+                .collect()),
+            caption(cx, "With color(fill): each person's own color behind the initial, in place of the palette's."),
+            row([("Ada", (226, 99, 99)), ("Bruno", (88, 148, 226)), ("Carla", (214, 160, 96)), ("Dario", (168, 112, 214))]
+                .into_iter()
+                .map(|(name, (r, g, b))| Avatar::new(name, palette).color(limn::Color::rgb(r, g, b)).render())
                 .collect()),
         ]),
     ]

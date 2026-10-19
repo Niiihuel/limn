@@ -53,6 +53,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Weights", [
             ("Regular", limn::FontFamily::Sans),
             ("Medium", limn::FontFamily::SansMedium),
+            ("Semibold", limn::FontFamily::SansSemibold),
             ("Bold", limn::FontFamily::SansBold),
             ("Bold italic", limn::FontFamily::SansBoldItalic),
         ].into_iter().map(|(name, family)| {

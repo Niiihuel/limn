@@ -38,6 +38,7 @@ fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
         font_definitions_with(UiFaces {
             regular: face("Ubuntu-Bold"),
             medium: medium.then(|| face("Ubuntu-Medium")),
+            semibold: None,
             bold: None,
         })
     };
@@ -51,6 +52,23 @@ fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
     assert_eq!(medium[1..], family(&bundled, egui::FontFamily::Name(SANS_MEDIUM.into())));
     let bold = family(&chosen, egui::FontFamily::Name(SANS_BOLD.into()));
     assert_eq!(bold[0], "limn-ui-regular", "a weight left out is the regular face");
+    let semibold = family(&chosen, egui::FontFamily::Name(SANS_SEMIBOLD.into()));
+    assert_eq!(semibold[0], "limn-ui-medium", "without semibold or bold, the medium face");
+    assert_eq!(semibold[1..], family(&bundled, egui::FontFamily::Name(SANS_SEMIBOLD.into())));
+    let first_semibold = |faces: UiFaces| family(&font_definitions_with(faces), egui::FontFamily::Name(SANS_SEMIBOLD.into()))[0].clone();
+    let faces = |semibold: bool, bold: bool| UiFaces {
+        regular: face("Ubuntu-Regular"),
+        medium: Some(face("Ubuntu-Medium")),
+        semibold: semibold.then(|| face("UbuntuSans-SemiBold")),
+        bold: bold.then(|| face("Ubuntu-Bold")),
+    };
+    assert_eq!(first_semibold(faces(true, true)), "limn-ui-semibold");
+    assert_eq!(first_semibold(faces(false, true)), "limn-ui-bold", "the heavier neighbour first, as CSS");
+    assert_eq!(
+        first_semibold(UiFaces { medium: None, ..faces(false, false) }),
+        "limn-ui-regular",
+        "a family of one weight is drawn in it"
+    );
     assert_eq!(
         family(&chosen, egui::FontFamily::Monospace),
         family(&bundled, egui::FontFamily::Monospace),
@@ -63,6 +81,7 @@ fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
     let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
     output.textures_delta.clear();
     assert_eq!(egui_family(&ctx, FontFamily::SansBold), egui::FontFamily::Name(SANS_BOLD.into()));
+    assert_eq!(egui_family(&ctx, FontFamily::SansSemibold), egui::FontFamily::Name(SANS_SEMIBOLD.into()));
     assert_eq!(
         egui_family(&ctx, FontFamily::SansBoldItalic),
         egui::FontFamily::Name(SANS_BOLD.into()),
@@ -88,6 +107,7 @@ fn mathematical_names_have_real_glyphs_in_every_limn_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
@@ -118,6 +138,7 @@ fn installing_fallback_keeps_existing_ui_faces_and_monospace_metrics() {
         for (family, first) in [
             (egui::FontFamily::Proportional, "Ubuntu-Regular"),
             (egui::FontFamily::Name(SANS_MEDIUM.into()), "Ubuntu-Medium"),
+            (egui::FontFamily::Name(SANS_SEMIBOLD.into()), "UbuntuSans-SemiBold"),
             (egui::FontFamily::Name(SANS_BOLD.into()), "Ubuntu-Bold"),
         ] {
             assert_eq!(families[&family].first().map(String::as_str), Some(first));
@@ -144,6 +165,7 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
@@ -201,6 +223,7 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
@@ -265,6 +288,7 @@ fn emoji_fallback_preserves_existing_text_metrics() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
@@ -320,6 +344,7 @@ fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,

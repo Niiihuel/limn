@@ -216,7 +216,7 @@ impl TooltipFace {
     }
 }
 
-/// The colors a tooltip is painted with.
+/// The colors a tooltip is painted with, and the face of its title.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TooltipStyle {
     /// Fill of the body and of its pointer.
@@ -232,6 +232,10 @@ pub struct TooltipStyle {
     pub muted: Color,
     /// Color of the shadow under the body.
     pub shadow: Color,
+    /// Face of the title, measured and painted in it. [`FontFamily::Sans`]
+    /// unless [`Tooltip::title_family`](crate::Tooltip::title_family) says
+    /// otherwise.
+    pub title_family: FontFamily,
 }
 
 /// Semantic icon names. A host chooses the concrete artwork for each name.
@@ -571,6 +575,10 @@ pub enum FontFamily {
     /// The medium and bold faces of the sans family: real faces the host
     /// provides, each measured as itself. A host without one paints Sans.
     SansMedium,
+    /// The semibold face of the sans family, between medium and bold: for a
+    /// title that should stand out from medium text without the weight of
+    /// bold. See [`Self::SansMedium`].
+    SansSemibold,
     /// The bold face of the sans family; see [`Self::SansMedium`].
     SansBold,
     /// [`Self::SansBold`] slanted by the host. It measures exactly as
@@ -1425,6 +1433,12 @@ pub enum SurfaceFit {
     /// Filling the rectangle, cropped around the center, as a cover picture
     /// ([`RasterImage::cover`](crate::RasterImage::cover)) is.
     Cover,
+    /// As [`Self::Contain`], but never larger than one logical pixel for each
+    /// of its pixels: smaller than the rectangle, it keeps its own size,
+    /// centered. A [`RasterImage`](crate::RasterImage) that is not a cover
+    /// is shown so, so an animation drawn this way takes exactly the place
+    /// of its still first frame, however small.
+    ScaleDown,
 }
 
 /// What an element is: a container, a control or passive content. The
@@ -3032,9 +3046,10 @@ impl Element {
         })
     }
 
-    /// How a surface's pixels fill its rectangle: [`SurfaceFit::Contain`]
-    /// and [`SurfaceFit::Cover`] scale them as a raster image is scaled, so
-    /// an animation can take the place of its still first frame. Its
+    /// How a surface's pixels fill its rectangle: [`SurfaceFit::Contain`],
+    /// [`SurfaceFit::ScaleDown`] and [`SurfaceFit::Cover`] scale them as a
+    /// raster image is scaled, so an animation can take the place of its
+    /// still first frame. Its
     /// [`radius`](Self::radius) rounds the corners of the pixels shown. Has
     /// no effect on an element that is not a surface.
     pub fn surface_fit(mut self, fit: SurfaceFit) -> Self {

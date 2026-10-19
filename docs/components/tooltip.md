@@ -96,6 +96,18 @@ Tooltip::new(anchor, "more", "More", palette)
 `Above` unless set; `Below`, `Left` and `Right` are the others. The hint flips
 to the opposite side when the preferred one would leave the window.
 
+## Title face
+
+```rust
+Tooltip::new(anchor, "server:7", "Rust workshop", palette)
+    .title_family(FontFamily::SansSemibold)
+    .render()
+```
+
+`title_family` sets the face of the title, which is measured in it: a
+heavier face wraps or shortens a long title sooner. The default is
+`FontFamily::Sans`; descriptions, rows and footers keep their own.
+
 ## Width
 
 `max_width` is 360 unless set and never under 32; the window bounds it too.

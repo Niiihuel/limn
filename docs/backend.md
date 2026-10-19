@@ -278,8 +278,11 @@ most 16 megapixels. A surface holds its last frame until `forget_surface`.
 
 `Element::surface(..).surface_fit(fit)` places the pixels as a raster image
 places its own: `SurfaceFit::Contain` scales them up or down to fit the
-rectangle, centered, and `SurfaceFit::Cover` fills it and crops around the
-center. Either ignores the frame's scale, so an animation can stand where its
+rectangle, centered, `SurfaceFit::ScaleDown` does so but never past one
+logical pixel for each of the frame's pixels, as a `RasterImage` that is not
+a cover is shown, and `SurfaceFit::Cover` fills it and crops around the
+center. `ImageViewer::surface` uses `ScaleDown`, so a small animation stays
+the size of its still first frame there. Either ignores the frame's scale, so an animation can stand where its
 still first frame stood, at the same size. `.radius(r)` rounds the corners of
 the pixels shown in any fit. `SurfaceFit::Native`, the default, is the
 one-to-one placement above.

@@ -49,6 +49,8 @@ fn shell_select(cx: &Cx, group: &str) -> Select {
         .map(|(id, label)| {
             let option = DropdownOption::new(format!("{group}={id}&{group}-open=no"), *label)
                 .selected(*id == chosen);
+            // A hint on an option says what its label cannot.
+            let option = if *id == "fish" { option.tooltip("The friendly interactive shell") } else { option };
             if *id == "nu" {
                 option.disabled()
             } else {
@@ -186,7 +188,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 shell_select(cx, "select-plain").render(),
                 shell_select(cx, "select-off").enabled(false).render(),
             ]),
-            caption(cx, "The list matches the button width. When disabled, it cannot open or receive focus."),
+            caption(cx, "The list matches the button width. When disabled, it cannot open or receive focus. Fish has a hint of its own under the pointer."),
             row(vec![shell_select(cx, "select-compact")
                 .sizing(SelectorSizing::COMPACT)
                 .icon(Icon::Terminal)

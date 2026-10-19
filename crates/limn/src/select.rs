@@ -227,6 +227,9 @@ impl Component for Select {
                 if let Some(icon) = option.icon {
                     item = item.icon(icon);
                 }
+                if let Some(hint) = option.tooltip {
+                    item = item.tooltip_with(crate::TooltipSpec::new(hint));
+                }
                 item.into()
             })
             .collect();
@@ -391,6 +394,55 @@ mod tests {
             tree.handle_event(UiEvent::PointerUp(center)),
             vec![UiAction::Clicked { id: "shell:zsh".into() }]
         );
+    }
+
+    #[test]
+    fn an_option_with_a_hint_shows_it_under_the_pointer_and_a_blank_one_is_ignored() {
+        let long = "Headset of the meeting room (USB, analog stereo)";
+        let hinted = |hint: &str| {
+            Select::new(
+                "toggle",
+                "Headset…",
+                vec![
+                    DropdownOption::new("mic:a", "Headset…").tooltip(hint).selected(true),
+                    DropdownOption::new("mic:b", "Laptop"),
+                ],
+                true,
+                "dismiss",
+                ComponentPalette::neutral_dark(),
+            )
+        };
+        assert_eq!(DropdownOption::new("a", "A").tooltip("  ").tooltip, None);
+        let shown = |select: Select| {
+            let mut tree = tree(select);
+            let option = rect(&tree.layout(VIEWPORT), "mic:a").expect("option");
+            tree.handle_event(UiEvent::PointerMove(Point::new(option.x + 10.0, option.y + 10.0)));
+            let later = web_time::Instant::now() + std::time::Duration::from_secs(2);
+            tree.layout_at(VIEWPORT, later)
+                .commands
+                .iter()
+                .any(|command| matches!(command, crate::DrawCommand::Text { text, .. } if text == long))
+        };
+        assert!(shown(hinted(long)), "the whole name is in the hint");
+        assert!(!shown(hinted("")), "no hint, nothing over the list");
+        // The same hint through the plain dropdown list.
+        let list = crate::DropdownList::new(
+            Element::spacer().size(Some(80.0), Some(24.0)),
+            vec![DropdownOption::new("mic:a", "Headset…").tooltip(long)],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        );
+        let mut tree = UiTree::new(Element::column(vec![list.render(), Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let option = rect(&tree.layout(VIEWPORT), "mic:a").expect("option");
+        tree.handle_event(UiEvent::PointerMove(Point::new(option.x + 10.0, option.y + 10.0)));
+        let later = web_time::Instant::now() + std::time::Duration::from_secs(2);
+        assert!(tree
+            .layout_at(VIEWPORT, later)
+            .commands
+            .iter()
+            .any(|command| matches!(command, crate::DrawCommand::Text { text, .. } if text == long)));
     }
 
     #[test]

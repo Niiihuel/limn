@@ -56,7 +56,7 @@ it.
 | `DatePicker` | An ISO date field with a navigable month calendar. | `InputChanged`, and `Clicked` for navigation and days |
 | `TimePicker` | A 24-hour `HH:MM` field with step controls. | `InputChanged`, and `Clicked` for the steps |
 | `DateTimePicker` | The two above combined, each keeping its own state. | As above |
-| `Select` | A button showing the current choice that opens a `DropdownList` of the others. Controlled: the host passes the label, the options and whether it is open. `.sizing(SelectorSizing)` gives the trigger the profile's `min_width` and the list its `preferred_width`; `.width` and `.menu_width` override them, and without either the list is as wide as the trigger. `.menu_palette`, `.placement` (under the far edge by default), `.icon`, `.enabled`. `.variant(SelectVariant::Field)` draws the trigger as a text field, the choice at its start; `.size(ControlSize)` and `.height(px)` as a text field takes them. | `Clicked` with its own ID, an option's action, or the dismiss ID |
+| `Select` | A button showing the current choice that opens a `DropdownList` of the others. Controlled: the host passes the label, the options and whether it is open. `.sizing(SelectorSizing)` gives the trigger the profile's `min_width` and the list its `preferred_width`; `.width` and `.menu_width` override them, and without either the list is as wide as the trigger. `.menu_palette`, `.placement` (under the far edge by default), `.icon`, `.enabled`. `DropdownOption::tooltip` gives an option a hint of its own. `.variant(SelectVariant::Field)` draws the trigger as a text field, the choice at its start; `.size(ControlSize)` and `.height(px)` as a text field takes them. | `Clicked` with its own ID, an option's action, or the dismiss ID |
 | `FormField`, `FormFieldSizing` | A label over a control the host owns, which fills the field's width. `.hint` adds a muted line under the control, or between the label and the control with `.hint_above(true)`; `.error(text, ink)` adds a last line in the host's color. `FormFieldSizing` sets the label's role, whether it is muted, the least height of its line, the role of hints and error, and the gap. `.rows()` returns the field's lines instead of the rendered column, for a form that sets every line of every field in one column of its own and owns the gap. | Nothing of its own |
 | `Composer` | A message composition surface. The host owns the text and the actions around it. `.enter_submits(true)` sends on Enter and adds a line on Shift+Enter. `.header_strip(element, palette)` joins a 32 px strip of metadata to the top of the card, set in 8 from its sides and filled with that palette's surface; build its content `Composer::header_strip_width(width)` wide. | The actions of the controls the host places in it |
 | `DictationButton`, `DictationState` | The round microphone of a composer. `Idle` is a ghost microphone; `Starting` and `Transcribing` show a `Spinner` and `Listening` a stop square that pulses as a `Skeleton` does, all on a filled circle and all still under reduced motion. The host owns the session and the transcript, and writes recognized text into the composer itself. `.live_palette(palette)` colors a live session (`surface` fills, `text` draws the mark), `.size(ControlSize)`, `.hover_ink`. `.enabled(false)` is a passive microphone in any state. | `Clicked` with its own ID in every state; the host toggles on it |
@@ -114,7 +114,7 @@ it.
 | `Element::unit_grid` | A field of equal cells shared out among parts in reading order (`UnitGrid`: columns, rows, cell, gap, parts, the color of an empty cell and an optional part in focus). Each part's count is kept by ID and moves to a new one, so a part that shrinks gives its cells up from its end; with a part in focus the others recede towards the empty color. |
 | `Element::level_bars` | Levels from 0 to 1 as a row of bars, as many as fit the width it is given (`LevelBars`: the levels oldest first, the width of a bar, the gap, the ink of a bar and of a dot). The newest level takes the last slot; a slot without one is a dot. Each slot's height is kept by ID and springs to a new level. `DictationWaveform` is this with a palette. |
 | `Chip` | An inline pill for a count, a label or a state. `.outline()` draws the border only, with no fill. `.tone(AlertTone)` colors it as an alert of that tone colors its icon, a tint under a label that reads on it, and `.color(color)` does the same with a color of the host's. `.size(ControlSize)` sets height and text together, `.height` the height alone. `.icon(icon)` or `.dot()` stands before the label in its color. It is passive unless `.remove_action(id)` adds a close button that reports `Clicked` with that ID, named `Labels::remove` and the label; `.disabled()` / `.enabled(bool)` mutes the chip and makes the button passive. |
-| `Avatar` | An account photo, or the initial of a name when there is none. |
+| `Avatar` | An account photo, or the initial of a name when there is none, on the palette's selected fill or on `.color(fill)`. |
 | `AvatarGroup` | Several avatars that overlap in a row, the first on top, each with a ring in the surface color: `AvatarGroup::new(avatars, palette)`. `.limit(n)` shows the first `n` and counts the rest in a circle that reads `+N`; `.size` sets every diameter, `.overlap` the share one covers of the next (a quarter unless set) and `.ring` the ring's color on another ground. Passive; one image for the platform with `.id` and `.accessibility_label`. |
 | `Badge` | A passive mark over the top right corner of another element: `Badge::new(child, palette)` with `.count(n)` (`.max(n)`, 99 unless set, above which it reads `99+`; zero shows nothing unless `.show_zero(true)`) or `.dot()`. `.color` sets its fill and `.description` what it says of the control under it to a screen reader. The child keeps its layout size, hit region, focus and actions. |
 
@@ -133,7 +133,7 @@ for how they enter and leave.
 
 | Component | Purpose |
 | --- | --- |
-| `Tooltip` | A hint for a control, after a short hover or at once with keyboard focus. `Tooltip::for_path` names a file over the directory that holds it. When the control it describes is inside a larger anchor, such as a link in a paragraph, the hint points at that control, and at the part of it under the pointer when it runs over several lines. |
+| `Tooltip` | A hint for a control, after a short hover or at once with keyboard focus. `Tooltip::for_path` names a file over the directory that holds it; `.title_family` sets the face of its title. When the control it describes is inside a larger anchor, such as a link in a paragraph, the hint points at that control, and at the part of it under the pointer when it runs over several lines. |
 | `Popover` | A floating slot anchored to any element, for arbitrary content. On the element, `.popover_gap(px)` sets its distance from the anchor (5 unless set); 0 under a hairline anchor makes it stand in for the row that follows (an anchor of no height is not placed inside a scroll area). |
 | `DropdownMenu` | A menu of actions with headings, separators, shortcuts and submenus, which nest: a submenu stays open while the pointer or the focus is in one nested in it. `.at(point)` opens it with its corner on a point of the window, such as where a secondary click was, instead of against its anchor; the arrow keys reach it wherever the focus is, and a secondary click outside closes it, as one outside any popover does. `.header(element)` stays above the options and `.footer(element)` under them, below a hairline, while they scroll. Entries beyond items: `DropdownMenuEntry::Message(text)` (a muted sentence), `Loading { id, rows }` (skeleton rows) and `Error { id, text }` (a failure in a scroll area of 104). |
 | `DropdownMenuItem` | One action. `.enabled(bool)` or `.disabled()`, `.tooltip_with(TooltipSpec)` for a hint. `.checkbox(checked)` and `.radio(checked)` make it a check box or a radio item of the menu: a box or a circle at the end of the row, said to the platform as such and on or off, still reporting its ID. With `.description(text)` it is a two-line row as tall as the menu's `sizing` says (40 without one) that lines up with the menu's one-line rows: icon, label over a muted detail, such as why a disabled item cannot be chosen, and a check column filled when `selected`, or a chevron with a `.submenu`; `.detail_mono(true)` sets the detail in monospace, `.status(text)` puts short text at the end of the detail line (`.status_width(px)` fixes its slot) and `.chevron()` ends the row with a chevron instead of the check, for a row that opens another view. `.truncate()` cuts a long label to one line in a contextual menu, where it would otherwise wrap. |
@@ -265,6 +265,32 @@ keywords and numbers colored; the rest of the code keeps the palette's
 | CSS | `css`, `scss` |
 | HTML | `html`, `htm`, `xml`, `svg` |
 | Markdown | `md`, `markdown` and their variants |
+| Go | `go`, `golang` |
+| Java | `java` |
+| Kotlin | `kotlin`, `kt`, `kts` |
+| Swift | `swift` |
+| C | `c`, `h` |
+| C++ | `cpp`, `c++`, `cc`, `cxx`, `hpp`, `hh`, `hxx` |
+| C# | `csharp`, `c#`, `cs` |
+| PHP | `php` |
+| Ruby | `ruby`, `rb` |
+| Lua | `lua` |
+| Shell | `shell`, `sh`, `bash`, `zsh`, `fish`, `console`, `shellsession` |
+| YAML | `yaml`, `yml` |
+| SQL | `sql`, `mysql`, `postgres`, `postgresql`, `psql`, `sqlite` |
+| Diff | `diff`, `patch` |
+| Dart | `dart` |
+| Zig | `zig` |
+
+The languages from Go on have no tree-sitter grammar: `CodeEditor` and
+`CodeDiff` color them with the same line lexer, with the `syntax` feature or
+without it, and `Language::is_parsed` is false for them. In a shell script
+and in YAML, `#` and `'` begin a comment or a string only at the start of a
+word; in C, C++ and C#, `#include` and the other directives are keywords; SQL
+and PHP keywords match in any case; Kotlin, Swift and Dart comments nest. A
+diff colors whole lines: a hunk header as a keyword, file headers as
+comments, an added line as a number and a removed one as a string, which read
+green and red.
 
 The lexer runs while the tree is built, with or without the `syntax`
 feature, so the colors are there on the first frame. On a dark palette the
@@ -471,7 +497,7 @@ columns menu enters and leaves as any menu does.
 | `CodeEditor` | An editor view over a host-owned text buffer: selection, folding, diagnostics, breakpoints, optional Vim mode. |
 | `CodeDiff` | A virtualized, read-only diff. |
 | `FindBar`, `FindOptions`, `FindIds`, `FindLabels` | Find and replace for a `CodeEditor`, at most 520 wide. Controlled: the host passes the query, `.replacement`, `.replace_open`, `.options`, `.count_label`, `.has_matches`, `.has_current`, `.no_matches` and `.error`, and answers the actions of `FindIds` (derived from the bar's ID, or the host's own through `.ids`). `.labels` takes every string, `.ink` the failure color, `.replace_icons` the two replace glyphs and `.surface` a second palette for the bar under the controls. Below 480 wide, or with replace open, the options take their own row. `render()` gives the bar; `.attach(anchor)` floats it under the anchor without taking the pointer or the focus. `FindBar::height(width, replace_open, error)` is the height it lays out. |
-| `CodeLanguage` | The languages with a grammar. `from_extension`, `from_path` and `from_code_fence` choose one; `comment_markers_for(path)` gives the markers that comment out a line, falling back on the file's name (`#` for shell, YAML, Nix, Ruby, Makefile and Dockerfile) when the language has none. These need the `syntax` feature; without it the enum keeps its variants and `from_code_fence`, which reads the same labels. |
+| `CodeLanguage` | The languages limn colors, with a grammar or with the line lexer ([Highlighted code](#highlighted-code)); `is_parsed` says which have a grammar or Markdown's parser. `from_extension`, `from_path` and `from_code_fence` choose one; `comment_markers_for(path)` gives the markers that comment out a line, falling back on the file's name (`#` for shell, YAML, Nix, Ruby, Makefile and Dockerfile) when the language has none. These need the `syntax` feature; without it the enum keeps its variants and `from_code_fence`, which reads the same labels. |
 
 ## Icons
 

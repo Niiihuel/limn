@@ -176,11 +176,12 @@ download or new runtime dependency.
 
 ### A font of the person's choice
 
-`limn_egui::font_definitions_with(UiFaces { regular, medium, bold })` puts a
-host's faces, such as a family the person picked from the system's fonts,
-first in the interface's families: `regular` for regular and italic text,
-`medium` and `bold` for their weights, which fall back to `regular` when
-left out. Monospace text keeps its face, and every bundled face and fallback
+`limn_egui::font_definitions_with(UiFaces { regular, medium, semibold, bold })`
+puts a host's faces, such as a family the person picked from the system's
+fonts, first in the interface's families: `regular` for regular and italic
+text, `medium`, `semibold` and `bold` for their weights. `medium` and `bold`
+fall back to `regular` when left out; `semibold` falls back to `bold`, then
+`medium`, then `regular`, the nearest weight heavier first, as CSS chooses. Monospace text keeps its face, and every bundled face and fallback
 stays behind the chosen ones, so what the family lacks still draws. limn
 reads no file itself: the host loads the bytes, off its interface's
 thread, and installs the result with `Context::set_fonts`, then calls
@@ -190,6 +191,7 @@ thread, and installs the result with `Context::set_fonts`, then calls
 let faces = limn_egui::UiFaces {
     regular: egui::FontData::from_owned(regular_bytes),
     medium: None,
+    semibold: None,
     bold: Some(egui::FontData::from_owned(bold_bytes)),
 };
 ctx.set_fonts(limn_egui::font_definitions_with(faces));
