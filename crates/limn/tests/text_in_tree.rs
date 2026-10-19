@@ -47,6 +47,24 @@ fn text_is_drawn_as_glyphs_and_sized_as_its_layout() {
 }
 
 #[test]
+fn text_given_back_its_own_width_keeps_every_letter_on_its_line() {
+    // A row hands text that shrinks to fit the width it measured, by sums
+    // that can come out a rounding error short of it.
+    for label in ["Compact", "Regular", "Spacious", "Unchecked", "Indeterminate", "Send me the summary"] {
+        for size in [12.0, 13.0, 14.0, 15.0] {
+            for width in (240..=420).step_by(9) {
+                let text = Element::text(label).font_family(FontFamily::Sans).font_size(size).shrink_to_fit();
+                let row = Element::row(vec![Element::spacer().size(Some(16.0), None), text]).gap(8.0).padding(4.0);
+                let mut tree = tree(Element::column(vec![Element::row(vec![row, Element::spacer().flex(1.0)])]));
+                let frame = tree.layout(Size::new(width as f32, 200.0));
+                let lines = &frame.text_layouts()[0].runs;
+                assert_eq!(lines.len(), 1, "{label:?} at {size} in {width}: {lines:?}");
+            }
+        }
+    }
+}
+
+#[test]
 fn wrapped_text_keeps_the_line_height_of_the_metrics_and_never_passes_its_width() {
     let mut tree = tree(Element::row(vec![
         Element::text(PROSE).font_family(FontFamily::Sans).size(Some(140.0), None),
