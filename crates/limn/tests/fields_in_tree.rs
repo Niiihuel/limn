@@ -6,8 +6,8 @@
 #![cfg(feature = "bundled-fonts")]
 
 use limn::{
-    Color, DrawCommand, Element, FontFamily, Frame, Key, Point, Rect, Size, TextHighlight, TextLayout, TextStyle,
-    UiEvent, UiTree,
+    Color, DrawCommand, Element, FontFamily, Frame, ImeArea, Key, Point, Rect, Size, TextHighlight, TextLayout,
+    TextStyle, UiAction, UiEvent, UiTree,
 };
 
 const INK: Color = Color::rgb(10, 20, 30);
@@ -294,4 +294,125 @@ fn frame_font(frame: &Frame, text: &str) -> u64 {
             _ => None,
         })
         .expect("a run")
+}
+
+/// The lines under what an input method composes: fills a pixel high.
+fn underlines(frame: &Frame) -> Vec<Rect> {
+    frame
+        .commands
+        .iter()
+        .filter_map(|command| match command {
+            DrawCommand::FillRect { rect, color, .. } if rect.height == 1.0 && *color == INK => Some(*rect),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_composition_is_shown_at_the_caret_underlined_and_is_not_the_value_yet() {
+    let mut tree = input("ab", 300.0);
+    focus(&mut tree, "field");
+    key(&mut tree, Key::ArrowLeft);
+    assert!(tree.handle_event(UiEvent::ImePreedit("xyz".into())).is_empty());
+    let frame = tree.layout(WINDOW);
+    assert_eq!(drawn(&frame), ["axyzb"]);
+    assert_eq!(tree.input_value("field"), Some("ab"));
+    let layout = TextLayout::new("axyzb", style());
+    let origin = text_origin(&frame);
+    let lines = underlines(&frame);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!((lines[0].x - (origin.x + layout.caret(1).x)).abs() < 0.01);
+    assert!((lines[0].width - (layout.caret(4).x - layout.caret(1).x)).abs() < 0.01);
+    let caret = caret(&frame).expect("a caret");
+    assert!((caret.x - (origin.x + layout.caret(4).x)).abs() < 0.01, "after what is composed");
+}
+
+#[test]
+fn a_commit_takes_the_composition_into_the_value_and_a_cancel_drops_it() {
+    let mut tree = input("ab", 300.0);
+    focus(&mut tree, "field");
+    tree.handle_event(UiEvent::ImePreedit("x".into()));
+    tree.layout(WINDOW);
+    tree.handle_event(UiEvent::ImeCancelled);
+    let frame = tree.layout(WINDOW);
+    assert_eq!((drawn(&frame), tree.input_value("field")), (vec!["ab".to_owned()], Some("ab")));
+    assert!(underlines(&frame).is_empty());
+    tree.handle_event(UiEvent::ImePreedit("yz".into()));
+    tree.layout(WINDOW);
+    let actions = tree.handle_event(UiEvent::ImeCommit("yz".into()));
+    assert!(actions.contains(&UiAction::InputChanged { id: "field".into(), value: "abyz".into() }), "{actions:?}");
+    let frame = tree.layout(WINDOW);
+    assert_eq!(drawn(&frame), ["abyz"]);
+    assert!(underlines(&frame).is_empty());
+}
+
+#[test]
+fn a_composition_stands_in_for_the_selection_until_it_commits() {
+    let mut tree = input("abc", 300.0);
+    focus(&mut tree, "field");
+    tree.handle_event(UiEvent::Key { key: Key::ArrowLeft, shift: true, ctrl: false });
+    tree.handle_event(UiEvent::Key { key: Key::ArrowLeft, shift: true, ctrl: false });
+    tree.handle_event(UiEvent::ImePreedit("z".into()));
+    let frame = tree.layout(WINDOW);
+    assert_eq!(drawn(&frame), ["az"]);
+    let selection = Color::rgba(75, 130, 210, 130);
+    assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::FillRect { color, .. } if *color == selection)), "no selection over it");
+    tree.handle_event(UiEvent::ImeCancelled);
+    let frame = tree.layout(WINDOW);
+    assert_eq!(tree.input_selection("field"), Some((1, 3)), "the selection is back");
+    assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::FillRect { color, .. } if *color == selection)));
+    tree.handle_event(UiEvent::ImePreedit("z".into()));
+    tree.handle_event(UiEvent::ImeCommit("z".into()));
+    assert_eq!(tree.input_value("field"), Some("az"));
+}
+
+#[test]
+fn an_input_method_deletes_around_the_caret() {
+    let mut tree = input("abcd", 300.0);
+    focus(&mut tree, "field");
+    key(&mut tree, Key::ArrowLeft);
+    let actions = tree.handle_event(UiEvent::ImeDeleteSurrounding { before_chars: 2, after_chars: 1 });
+    assert_eq!(actions, [UiAction::InputChanged { id: "field".into(), value: "a".into() }]);
+    assert_eq!(tree.input_cursor("field"), Some(1));
+}
+
+#[test]
+fn a_text_area_composes_on_the_line_its_caret_is_on() {
+    let value = "one two three four five six seven eight";
+    let mut tree = area(value, 120.0);
+    focus(&mut tree, "notes");
+    tree.handle_event(UiEvent::Key { key: Key::Home, shift: false, ctrl: true });
+    key(&mut tree, Key::ArrowDown);
+    let line = caret(&tree.layout(WINDOW)).expect("a caret").y;
+    tree.handle_event(UiEvent::ImePreedit("zz".into()));
+    let frame = tree.layout(WINDOW);
+    let lines = underlines(&frame);
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!((lines[0].y - (line + 17.0)).abs() < 0.01, "at the bottom of the caret's line");
+    assert_eq!(tree.input_value("notes"), Some(value));
+}
+
+#[test]
+fn an_input_method_belongs_by_the_focused_fields_caret() {
+    let mut tree = input("ab", 300.0);
+    tree.layout(WINDOW);
+    assert_eq!(tree.ime_area(), None, "nothing has the focus");
+    focus(&mut tree, "field");
+    let frame = tree.layout(WINDOW);
+    let field = frame.regions.iter().find(|region| region.id == "field").expect("the field").rect;
+    let ImeArea { area, caret: at, secret } = tree.ime_area().expect("an area");
+    assert_eq!(at, caret(&frame).expect("a caret"));
+    assert!(area.x >= field.x && area.x + area.width <= field.x + field.width);
+    assert!(!secret);
+    tree.set_window_focused(false);
+    assert_eq!(tree.ime_area(), None, "the window is not focused");
+
+    let mut tree = tree_of(Element::text_input("secret", "", "").password(true).font_family(FontFamily::Sans));
+    focus(&mut tree, "secret");
+    tree.layout(WINDOW);
+    assert!(tree.ime_area().expect("an area").secret, "a password composes nothing");
+}
+
+fn tree_of(field: Element) -> UiTree {
+    tree(field)
 }

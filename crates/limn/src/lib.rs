@@ -269,7 +269,7 @@ pub use labels::{labels, set_labels, Labels};
 pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
 pub use theme::Theme;
 pub use tree::{
-    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, PasteTarget, TextLayoutBlock,
+    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, ImeArea, Key, PasteTarget, TextLayoutBlock,
     TextLayoutRun, UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
 };
 pub use tree_view::{guides_for_depths, TreeGuides, TreeRow};

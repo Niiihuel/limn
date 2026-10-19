@@ -54,7 +54,7 @@ the tree's origin.
 | `Key { key, shift, ctrl }` | A non-text key: arrows, Tab, Enter, Escape, and so on. |
 | `Paste(string)`, `PasteTo { id, text }` | Clipboard text, to the focused control or a named one. |
 | `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
-| `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
+| `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition, in a code editor or a text field. |
 | `FilesHovered { position }`, `FilesDropped { position, paths }` | Files dragged from another application. |
 
 External file events preserve the supplied list; they do not read file
@@ -172,6 +172,7 @@ The egui backend exposes:
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
 | `events_indexed(&ctx, origin)` | Unreleased indexed-input contract: input with its source index for an ordered host loop. See below. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
+| `report_ime(&ctx, &tree, origin)` | Tells the platform where an input method belongs: by the caret of the focused code editor or field, from `UiTree::ime_area()`. Each frame, after the layout. Without it egui turns input methods off. A password asks for no composition. |
 | `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
 | `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
 
