@@ -91,7 +91,7 @@ use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
     BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
-    TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
+    TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 
 const TOOLTIP_HEIGHT: f32 = 24.0;
@@ -3275,7 +3275,8 @@ pub struct UiTree {
     keyboard_focus: bool,
     keyboard_tooltip_focus: bool,
     closed_submenu_triggers: HashSet<String>,
-    tooltip_triggers: HashSet<String>,
+    /// The anchors of the last layout's hints, with how long each waits.
+    tooltip_triggers: HashMap<String, Duration>,
     pressed: Option<String>,
     pressed_dispatch: Option<String>,
     pointer_drag: Option<PointerDrag>,
@@ -3360,7 +3361,7 @@ impl UiTree {
             keyboard_focus: false,
             keyboard_tooltip_focus: false,
             closed_submenu_triggers: HashSet::new(),
-            tooltip_triggers: HashSet::new(),
+            tooltip_triggers: HashMap::new(),
             pressed: None,
             pressed_dispatch: None,
             pointer_drag: None,
@@ -3882,10 +3883,8 @@ impl UiTree {
                 .any(|state| state.x.is_active(now) || state.width.is_active(now));
         let hover_wait = self.tooltip_hover_since.as_ref().and_then(|(id, since)| {
             let elapsed = now.saturating_duration_since(*since);
-            (self.tooltip_triggers.contains(id)
-                && self.pressed.as_deref() != Some(id)
-                && elapsed < TOOLTIP_HOVER_DELAY)
-                .then(|| TOOLTIP_HOVER_DELAY - elapsed)
+            let delay = *self.tooltip_triggers.get(id)?;
+            (self.pressed.as_deref() != Some(id) && elapsed < delay).then(|| delay - elapsed)
         });
         if transition {
             Some(Duration::ZERO)
@@ -4074,7 +4073,7 @@ impl UiTree {
         let mut observed_replacements = HashSet::new();
         let mut current_popover_snapshots = HashMap::new();
         let mut observed_tabs = HashSet::new();
-        let mut observed_tooltips = HashSet::new();
+        let mut observed_tooltips = HashMap::new();
         let mut observed_skeletons = HashSet::new();
         let mut observed_shimmers = HashSet::new();
         let mut observed_spinners = HashSet::new();
@@ -4542,6 +4541,7 @@ impl UiTree {
                         max_width,
                         placement,
                         colors,
+                        options,
                     } => {
                         let start = builder.frame.commands.len();
                         builder.paint_tooltip(
@@ -4552,6 +4552,7 @@ impl UiTree {
                             max_width,
                             placement,
                             colors,
+                            options,
                             viewport_rect,
                         );
                         // One hint shows at a time, so they share one fade:
@@ -7240,7 +7241,7 @@ struct LayoutBuilder<'a> {
     observed_popovers: &'a mut HashSet<String>,
     popover_snapshots: &'a mut HashMap<String, PopoverSnapshot>,
     observed_tabs: &'a mut HashSet<String>,
-    observed_tooltips: &'a mut HashSet<String>,
+    observed_tooltips: &'a mut HashMap<String, Duration>,
     observed_skeletons: &'a mut HashSet<String>,
     observed_shimmers: &'a mut HashSet<String>,
     observed_spinners: &'a mut HashSet<String>,
@@ -7288,6 +7289,7 @@ enum DeferredOverlay {
         max_width: f32,
         placement: TooltipPlacement,
         colors: TooltipStyle,
+        options: TooltipOptions,
     },
 }
 
@@ -8034,6 +8036,7 @@ impl LayoutBuilder<'_> {
         preferred_width: f32,
         preferred: TooltipPlacement,
         colors: TooltipStyle,
+        options: TooltipOptions,
         viewport: Rect,
     ) {
         // A hint for a menu row must sit outside the entire menu, including
@@ -8076,10 +8079,20 @@ impl LayoutBuilder<'_> {
             return;
         }
         let title_style = Style {
-            font_size: 12.0,
-            font_family: FontFamily::Sans,
+            font_size: options.title_font_size,
+            font_family: options.title_font_family,
             ..Style::default()
         };
+        // What a title taller than the default adds to a one-line hint.
+        let title_growth = (self.metrics_for(title_style).line_height
+            - self
+                .metrics_for(Style {
+                    font_size: TooltipOptions::default().title_font_size,
+                    font_family: TooltipOptions::default().title_font_family,
+                    ..Style::default()
+                })
+                .line_height)
+            .max(0.0);
         let content_max = max_width - TOOLTIP_PADDING * 2.0;
         let shortcut = shortcut
             .map(shortcut::label)
@@ -8207,7 +8220,7 @@ impl LayoutBuilder<'_> {
         let body_height = if rich {
             (content_height + 12.0).max(TOOLTIP_HEIGHT)
         } else {
-            TOOLTIP_HEIGHT
+            TOOLTIP_HEIGHT + title_growth
         };
         let (body, placement) = place_tooltip(
             anchor,
@@ -8279,14 +8292,16 @@ impl LayoutBuilder<'_> {
         });
         // Painted last so its fill covers the body border at the join; the
         // nested triangles leave a one-pixel outline.
-        self.frame.commands.push(DrawCommand::FillTriangle {
-            points: outline,
-            color: colors.border,
-        });
-        self.frame.commands.push(DrawCommand::FillTriangle {
-            points: fill,
-            color: colors.background,
-        });
+        if options.arrow {
+            self.frame.commands.push(DrawCommand::FillTriangle {
+                points: outline,
+                color: colors.border,
+            });
+            self.frame.commands.push(DrawCommand::FillTriangle {
+                points: fill,
+                color: colors.background,
+            });
+        }
         let content = Rect::new(
             body.x + TOOLTIP_PADDING,
             body.y + if rich { 6.0 } else { 1.0 },
@@ -9127,24 +9142,31 @@ impl LayoutBuilder<'_> {
         self.measured_lists.insert(list.id.clone(), state);
     }
 
+    /// How visible the bar of scroll surface `id` is, from 0 to 1. `area` is
+    /// the surface's visible box: under the pointer it wakes a bar that
+    /// hides unless hovered.
     fn scrollbar_opacity(
         &mut self,
         id: &str,
         offset: f32,
         interacting: bool,
         visibility: crate::ScrollbarVisibility,
+        area: Rect,
     ) -> f32 {
-        match visibility {
+        let (hold_ms, fade_ms, hovered) = match visibility {
             crate::ScrollbarVisibility::Always => {
                 self.scrollbar_states.remove(id);
-                1.0
+                return 1.0;
             }
-            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => {
-                self.scrollbar_states.entry(id.to_owned())
-                    .or_insert_with(|| ScrollbarState::new(offset, self.now))
-                    .observe(offset, interacting, hold_ms, fade_ms, self.reduced_motion, self.now)
+            crate::ScrollbarVisibility::AutoHide { hold_ms, fade_ms } => (hold_ms, fade_ms, false),
+            crate::ScrollbarVisibility::AutoHideUnlessHovered { hold_ms, fade_ms } => {
+                (hold_ms, fade_ms, self.pointer.is_some_and(|point| area.contains(point)))
             }
-        }
+        };
+        self.scrollbar_states
+            .entry(id.to_owned())
+            .or_insert_with(|| ScrollbarState::new(offset, self.now))
+            .observe(offset, interacting || hovered, hold_ms, fade_ms, self.reduced_motion, self.now)
     }
 
     fn paint_scrollbar(
@@ -9167,7 +9189,7 @@ impl LayoutBuilder<'_> {
         let hovered = self.hovered_scrollbar == Some(id);
         let offset = self.scroll_offsets.get(id).copied().unwrap_or(0.0);
         let interacting = active || hovered || self.scroll_button_hold.is_some_and(|hold| hold.id == id);
-        let opacity = self.scrollbar_opacity(id, offset, interacting, visibility);
+        let opacity = self.scrollbar_opacity(id, offset, interacting, visibility, visible);
         if opacity <= 0.0 { return; }
         let ink = appearance.tint.unwrap_or(ink);
         let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
@@ -10802,6 +10824,7 @@ impl LayoutBuilder<'_> {
                 max_width,
                 placement,
                 colors,
+                options,
             } => {
                 let region_start = self.frame.regions.len();
                 self.place(anchor, content, clip);
@@ -10816,8 +10839,9 @@ impl LayoutBuilder<'_> {
                         self.frame.regions[region_start..].rotate_right(1);
                     }
                 }
-                self.observed_tooltips.insert(anchor_id.clone());
-                if let Some(keyboard_focused) = self.hint_due(anchor_id) {
+                let delay = Duration::from_millis(u64::from(options.delay_ms));
+                self.observed_tooltips.insert(anchor_id.clone(), delay);
+                if let Some(keyboard_focused) = self.hint_due(anchor_id, delay) {
                     // The hint points at the control it describes. Inside a
                     // larger anchor, such as a link in a paragraph, that is
                     // the control's own bounds, and the part of them under
@@ -10841,6 +10865,7 @@ impl LayoutBuilder<'_> {
                         max_width: *max_width,
                         placement: *placement,
                         colors: *colors,
+                        options: *options,
                     });
                 }
             }
@@ -11541,8 +11566,8 @@ impl LayoutBuilder<'_> {
                 // the same target, such as one action twice, shows none.
                 let mut shown = HashSet::new();
                 for (id, _, hint) in &hints {
-                    self.observed_tooltips.insert(id.clone());
-                    let Some(keyboard) = self.hint_due(id) else {
+                    self.observed_tooltips.insert(id.clone(), TOOLTIP_HOVER_DELAY);
+                    let Some(keyboard) = self.hint_due(id, TOOLTIP_HOVER_DELAY) else {
                         continue;
                     };
                     if !shown.insert(id.as_str()) {
@@ -11569,6 +11594,7 @@ impl LayoutBuilder<'_> {
                         max_width: 360.0,
                         placement: TooltipPlacement::Above,
                         colors: hint.colors,
+                        options: TooltipOptions::default(),
                     });
                 }
             }
@@ -12090,6 +12116,7 @@ impl LayoutBuilder<'_> {
                             max_width: 420.0,
                             placement: TooltipPlacement::Above,
                             colors: editor.palette.tooltip_style(),
+                            options: TooltipOptions::default(),
                         });
                     }
                     for control in controls {
@@ -12587,6 +12614,7 @@ impl LayoutBuilder<'_> {
                         max_width: 320.0,
                         placement: TooltipPlacement::Right,
                         colors: rail.tooltip,
+                        options: TooltipOptions::default(),
                     });
                 }
                 self.frame.tab_focus.push(TabFocusScope {
@@ -13425,7 +13453,7 @@ impl LayoutBuilder<'_> {
     /// Whether the hint of `anchor_id` shows now: `Some(true)` while it has
     /// the keyboard focus, `Some(false)` once the pointer has rested on it
     /// long enough without pressing it.
-    fn hint_due(&self, anchor_id: &str) -> Option<bool> {
+    fn hint_due(&self, anchor_id: &str, delay: Duration) -> Option<bool> {
         if self.keyboard_tooltip_focus {
             return (self.focused == Some(anchor_id)).then_some(true);
         }
@@ -13433,7 +13461,7 @@ impl LayoutBuilder<'_> {
             && self.pressed != Some(anchor_id)
             && self.tooltip_hover_since.is_some_and(|(id, since)| {
                 id == anchor_id
-                    && self.now.saturating_duration_since(*since) >= TOOLTIP_HOVER_DELAY
+                    && self.now.saturating_duration_since(*since) >= delay
             }))
         .then_some(false)
     }
@@ -15295,6 +15323,87 @@ mod tests {
             .commands
             .iter()
             .any(|command| matches!(command, DrawCommand::FillTriangle { .. })));
+    }
+
+    #[test]
+    fn a_hint_takes_its_own_delay_title_pointer_and_fill() {
+        let palette = ComponentPalette::neutral_dark();
+        let fill = Color::rgb(10, 10, 12);
+        let hint = |tooltip: Tooltip| {
+            let mut tree = UiTree::new(tooltip.render());
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(240.0, 120.0));
+            tree.handle_event(UiEvent::PointerMove(Point::new(16.0, 16.0)));
+            let started = tree.tooltip_hover_since.as_ref().unwrap().1;
+            (tree, started)
+        };
+        let anchor = || Element::icon_button("mark", Icon::PanelLeft, "").size(Some(32.0), Some(32.0));
+        let body = |frame: &Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if rect.x > 32.0 => Some((*rect, *color)),
+                _ => None,
+            })
+        };
+        // The default waits, is 24 tall, has a pointer and the palette's fill.
+        let (mut plain, started) = hint(Tooltip::new(anchor(), "mark", "Server", palette).placement(TooltipPlacement::Right));
+        assert!(body(&plain.layout_at(Size::new(240.0, 120.0), started)).is_none());
+        assert_eq!(plain.animation_repaint_after_at(started), Some(TOOLTIP_HOVER_DELAY));
+        let shown = plain.layout_at(Size::new(240.0, 120.0), started + TOOLTIP_HOVER_DELAY);
+        let (rect, color) = body(&shown).unwrap();
+        assert_eq!((rect.height, color), (TOOLTIP_HEIGHT, palette.tooltip_style().background));
+        assert_eq!(shown.commands.iter().filter(|command| matches!(command, DrawCommand::FillTriangle { .. })).count(), 2);
+        // No wait, a larger medium title, no pointer and a fill of its own.
+        let (mut quick, started) = hint(
+            Tooltip::new(anchor(), "mark", "Server", palette)
+                .placement(TooltipPlacement::Right)
+                .delay_ms(0)
+                .title_font_size(16.0)
+                .title_font_size(f32::NAN)
+                .title_font_size(-1.0)
+                .title_font_family(FontFamily::SansMedium)
+                .arrow(false)
+                .background(fill),
+        );
+        assert_eq!(quick.animation_repaint_after_at(started), None);
+        let shown = quick.layout_at(Size::new(240.0, 120.0), started);
+        let (rect, color) = body(&shown).unwrap();
+        let grown = FontMetrics::default().at_size(16.0).line_height - FontMetrics::default().at_size(12.0).line_height;
+        assert!((rect.height - (TOOLTIP_HEIGHT + grown)).abs() < 0.01, "{rect:?}");
+        assert_eq!(color, fill);
+        assert!(!shown.commands.iter().any(|command| matches!(command, DrawCommand::FillTriangle { .. })));
+        assert!(shown.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, font_size, font_family, .. }
+                if text == "Server" && *font_size == 16.0 && *font_family == FontFamily::SansMedium
+        )));
+        // A delay of its own is what the tree waits for.
+        let (mut slow, started) = hint(Tooltip::new(anchor(), "mark", "Server", palette).placement(TooltipPlacement::Right).delay_ms(800));
+        assert_eq!(slow.animation_repaint_after_at(started), Some(Duration::from_millis(800)));
+        assert!(body(&slow.layout_at(Size::new(240.0, 120.0), started + TOOLTIP_HOVER_DELAY)).is_none());
+    }
+
+    #[test]
+    fn a_small_icon_is_drawn_and_measured_at_its_side_between_8_and_16() {
+        for (asked, side) in [(12.0, 12.0), (4.0, crate::SMALL_ICON_SIZE), (30.0, ICON_SIZE), (f32::NAN, ICON_SIZE)] {
+            let icon = Element::icon(Icon::Volume).small_icon(asked);
+            // Natural size in a row, centered in a larger box in a column.
+            let frame = UiTree::new(Element::column(vec![
+                Element::row(vec![icon.clone(), Element::spacer().flex(1.0)]),
+                Element::panel(icon).size(Some(20.0), Some(20.0)),
+                Element::spacer().flex(1.0),
+            ]))
+            .layout(Size::new(100.0, 100.0));
+            let rects: Vec<Rect> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Icon { rect, icon: Icon::Volume, .. } => Some(*rect),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(rects.len(), 2, "{asked}");
+            assert_eq!(rects[0], Rect::new(0.0, 0.0, side, side), "{asked}");
+            assert_eq!(rects[1], Rect::new((20.0 - side) / 2.0, side + (20.0 - side) / 2.0, side, side), "{asked}");
+        }
     }
 
     #[test]
