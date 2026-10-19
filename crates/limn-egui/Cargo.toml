@@ -20,15 +20,24 @@ syntax = ["limn/syntax"]
 hot = ["limn/hot"]
 
 [dependencies]
-limn = { version = "0.1.43", path = "../limn", default-features = false }
+limn = { version = "0.1.43", path = "../limn", default-features = false, features = ["bundled-fonts"] }
 # `accesskit` publishes what `Frame::access` holds to the platform.
-eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland", "accesskit"] }
+# No `default_fonts`: `install_fonts` gives egui limn's faces, one copy each.
+eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "x11", "wayland", "accesskit"] }
 resvg = { version = "0.48.1", default-features = false }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "gif"] }
 base64 = "0.22"
 sha2 = "0.10"
+# Draw the glyphs limn lays out, as egui draws its own: the same versions
+# and features as epaint's, so neither is built twice.
+skrifa = { version = "0.44.0", default-features = false, features = ["std", "autohint_shaping"] }
+vello_cpu = { version = "0.1.0", default-features = false, features = ["std", "u8_pipeline", "f32_pipeline"] }
+# The glyph cache is looked up once a glyph a frame; epaint's own hasher.
+ahash = { version = "0.8.12", default-features = false, features = ["no-rng", "std"] }
 
 [dev-dependencies]
+# The font tests compare against egui's own faces.
+eframe = { version = "0.36.2", default-features = false, features = ["default_fonts"] }
 limn-editor = { version = "0.1.43", path = "../limn-editor" }
 # Inspect configured font charmaps: egui's has_glyph has false negatives on its replacement face.
 # This parser is already used by egui; it adds no runtime dependency.
