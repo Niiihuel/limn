@@ -122,6 +122,8 @@ pub(crate) struct DetailRow {
     pub(crate) icon: Option<Icon>,
     /// A picture in the icon's place.
     pub(crate) picture: Option<crate::InlineImage>,
+    /// An element of the host's in the icon's place, before any picture.
+    pub(crate) mark: Option<Element>,
     /// Keep the icon's slot without an icon, as the menu's other rows do.
     pub(crate) icon_slot: bool,
     pub(crate) mono: bool,
@@ -144,7 +146,7 @@ pub(crate) struct DetailRow {
 
 impl DetailRow {
     /// The padded row without a width: the caller fixes it or lets it stretch.
-    pub(crate) fn render(self, palette: ComponentPalette) -> Element {
+    pub(crate) fn render(mut self, palette: ComponentPalette) -> Element {
         let sizing = self.sizing;
         // Two lines of text need about 1.2 times their sizes; the padding
         // above and below gives way to them, never past zero.
@@ -194,7 +196,10 @@ impl DetailRow {
         };
         let slot = |element: Element| element.size(Some(sizing.icon_size), Some(body_height));
         let mut children = Vec::with_capacity(4);
-        if let Some(picture) = &self.picture {
+        if let Some(mark) = self.mark.take() {
+            let fitted = sizing.icon_size.min(crate::ICON_SIZE);
+            children.push(slot(mark.size(Some(fitted), Some(fitted)).centered()));
+        } else if let Some(picture) = &self.picture {
             children.push(slot(crate::dropdown_menu::leading(
                 Some(picture),
                 None,
@@ -472,6 +477,7 @@ impl Component for MenuItem {
                     description,
                     icon: self.icon,
                     picture: None,
+                    mark: None,
                     mono: self.detail_mono,
                     status: self.status,
                     status_width: self.status_width,

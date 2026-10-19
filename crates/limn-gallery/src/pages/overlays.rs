@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use crate::app::State;
 use limn::{
-    AlertDialog, AlertTone, BottomSheet, BottomSheetDrag, Button, ButtonVariant, Color, Component, ContextMenu, ContextMenuEntry,
+    AlertDialog, AlertTone, Avatar, BottomSheet, BottomSheetDrag, Button, ButtonVariant, Color, Component, ContextMenu, ContextMenuEntry,
     ContextMenuItem, DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
     DropdownOption, Element, FontFamily, FormField, Icon, Modal, Point, Popover, TextField, Toast,
     TooltipSpec, UiAction, UiEvent, UiTree,
@@ -115,8 +115,27 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .context_menu_style()
                 .width(260.0)
                 .render(),
+                DropdownMenu::new(
+                    trigger(cx, "overlay-marks=open", "Workspace"),
+                    ["North", "Harbor", "Tide"]
+                        .into_iter()
+                        .map(|name| {
+                            let id = format!("overlay-marks-pick={name}&overlay-marks=closed");
+                            DropdownMenuItem::new(id, name)
+                                .leading(Avatar::new(name, palette).render())
+                                .selected(state.choice("overlay-marks-pick", "North") == name)
+                                .into()
+                        })
+                        .collect(),
+                    open("overlay-marks"),
+                    "overlay-marks=closed",
+                    palette,
+                )
+                .width(200.0)
+                .render(),
             ]),
             caption(cx, &format!("Notifications: {}", state.choice("overlay-items-level", "mentions"))),
+            caption(cx, ".leading(element) puts a mark of the host's in the icon's slot: here an Avatar's initial."),
         ]),
         section(cx, "Context menu", vec![row(vec![context])]),
         section(cx, "Menu at a point", vec![point_menu(cx)]),

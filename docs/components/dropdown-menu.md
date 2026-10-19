@@ -71,6 +71,14 @@ at most 16 px on a side and untinted, and `surface(id)` a host-fed surface
 there, fitted inside and named by the label, for an animation the host
 presents. Both keep the slot for the menu's other rows.
 
+```rust
+DropdownMenuItem::new("server=7", "Harbor").leading(Avatar::new("Harbor", palette).render()).into()
+```
+
+`leading(element)` puts an element of yours in the slot instead, in place
+of any icon or picture: a server's icon, rounded, or its initial when it
+has none. It gets the slot's square, at most 16 px, and is not tinted.
+
 ## Check boxes and radio items
 
 ```rust

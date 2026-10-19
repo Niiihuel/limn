@@ -65,6 +65,7 @@ pub struct DropdownMenuItem {
     truncate: bool,
     check: Option<MenuCheck>,
     picture: Option<InlineImage>,
+    mark: Option<Element>,
 }
 
 impl DropdownMenuItem {
@@ -90,6 +91,7 @@ impl DropdownMenuItem {
             truncate: false,
             check: None,
             picture: None,
+            mark: None,
         }
     }
 
@@ -104,6 +106,15 @@ impl DropdownMenuItem {
     /// and in its own colors, so a disabled item does not tint it.
     pub fn image(mut self, image: RasterImage) -> Self {
         self.picture = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// An element of the host's in the icon's slot, in place of any icon or
+    /// picture: a server's icon with its initials when it has none, or a
+    /// person's avatar. It is given the slot's square, [`ICON_SIZE`] on a
+    /// side at most, and is not tinted, so a disabled item does not mute it.
+    pub fn leading(mut self, mark: Element) -> Self {
+        self.mark = Some(mark);
         self
     }
 
@@ -715,7 +726,7 @@ impl Component for DropdownMenu {
         let reserve_icon = self
             .entries
             .iter()
-            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some() || item.picture.is_some()));
+            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some() || item.picture.is_some() || item.mark.is_some()));
         let choices = self
             .entries
             .iter()
@@ -852,6 +863,7 @@ impl Component for DropdownMenu {
                         description: item.description.unwrap_or_default(),
                         icon: item.icon,
                         picture: item.picture,
+                        mark: item.mark,
                         mono: item.detail_mono,
                         status: item.status,
                         status_width: item.status_width,
@@ -936,14 +948,18 @@ impl Component for DropdownMenu {
                     let ink = item.destructive.unwrap_or(palette.text);
                     let mut children = Vec::with_capacity(5);
                     if reserve_icon {
+                        let fitted = icon_size.min(ICON_SIZE);
                         children.push(
-                            leading(
-                                item.picture.as_ref(),
-                                item.icon,
-                                &item.label,
-                                icon_size,
-                                if enabled { ink } else { palette.muted },
-                            )
+                            match item.mark.take() {
+                                Some(mark) => mark.size(Some(fitted), Some(fitted)).centered(),
+                                None => leading(
+                                    item.picture.as_ref(),
+                                    item.icon,
+                                    &item.label,
+                                    icon_size,
+                                    if enabled { ink } else { palette.muted },
+                                ),
+                            }
                             .size(
                                 Some(icon_size),
                                 if contextual {
@@ -1375,6 +1391,67 @@ mod tests {
                 "the options did scroll"
             );
         }
+    }
+
+    #[test]
+    fn a_mark_takes_the_icon_slot_in_its_own_colors_in_one_and_two_line_rows() {
+        let palette = ComponentPalette::neutral_dark();
+        let mark = |color: Color| {
+            Element::panel(Element::spacer())
+                .background(color)
+                .radius(8.0)
+        };
+        let (red, blue) = (Color::rgb(200, 20, 20), Color::rgb(20, 20, 200));
+        let entries = vec![
+            DropdownMenuItem::new("one", "One").icon(Icon::Bell).into(),
+            DropdownMenuItem::new("two", "Two")
+                .image(
+                    RasterImage::new(
+                        "a".repeat(64),
+                        crate::RasterImageFormat::Png,
+                        4,
+                        std::sync::Arc::from("AAAA"),
+                        "A picture",
+                    )
+                    .unwrap(),
+                )
+                .leading(mark(red))
+                .into(),
+            DropdownMenuItem::new("three", "Three")
+                .description("Detail")
+                .leading(mark(blue))
+                .into(),
+        ];
+        let mut tree = open_menu(DropdownMenu::new(trigger(), entries, true, "dismiss", palette).width(300.0));
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        let fill = |color: Color| {
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::FillRect { rect, color: fill, .. } if *fill == color => Some(*rect),
+                    _ => None,
+                })
+                .expect("the mark is painted in its own color")
+        };
+        let bell = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Icon { rect, icon: Icon::Bell, .. } => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        for (color, row) in [(red, "two"), (blue, "three")] {
+            let (at, row) = (fill(color), region(&frame, row));
+            assert_eq!((at.width, at.height), (ICON_SIZE, ICON_SIZE), "the slot's square");
+            assert_eq!(at.x + at.width / 2.0, bell.x + bell.width / 2.0, "the icons' column");
+            assert_eq!(at.y + at.height / 2.0, row.y + row.height / 2.0, "centered in its row");
+        }
+        assert!(
+            !frame.commands.iter().any(|command| matches!(command, DrawCommand::RasterImage { .. })),
+            "the mark replaces the picture"
+        );
     }
 
     // The menu of every two-line test: one-line and two-line rows side by
