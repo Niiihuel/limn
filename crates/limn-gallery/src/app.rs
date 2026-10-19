@@ -106,7 +106,7 @@ impl State {
             "slow" => Motion::DEFAULT.scaled(4.0),
             _ => Motion::DEFAULT,
         };
-        Tokens { radius, motion }
+        Tokens { radius, motion, ..Tokens::DEFAULT }
     }
 
     pub fn theme(&self) -> Theme {

@@ -71,6 +71,8 @@ pub struct SideRail {
     create: Option<String>,
     current: Option<String>,
     playing: Option<String>,
+    library_icon: Icon,
+    create_icon: Icon,
     palette: ComponentPalette,
 }
 
@@ -82,7 +84,17 @@ impl SideRail {
     /// A rail of these items, first to last. `id` prefixes the IDs of its
     /// head buttons and its scroll area, `{id}:items`.
     pub fn new(id: impl Into<String>, items: Vec<SideRailItem>, palette: ComponentPalette) -> Self {
-        Self { id: id.into(), items, expand: None, create: None, current: None, playing: None, palette }
+        Self {
+            id: id.into(),
+            items,
+            expand: None,
+            create: None,
+            current: None,
+            playing: None,
+            library_icon: Icon::Library,
+            create_icon: Icon::Add,
+            palette,
+        }
     }
 
     /// Head the rail with a 40 px button that unfolds the sidebar, reporting
@@ -96,6 +108,18 @@ impl SideRail {
     /// `tooltip` names it, such as "Create a playlist".
     pub fn create(mut self, tooltip: impl Into<String>) -> Self {
         self.create = Some(tooltip.into());
+        self
+    }
+
+    /// The glyph of the head button; `Icon::Library` unless set.
+    pub fn library_icon(mut self, icon: Icon) -> Self {
+        self.library_icon = icon;
+        self
+    }
+
+    /// The glyph of the create button; `Icon::Add` unless set.
+    pub fn create_icon(mut self, icon: Icon) -> Self {
+        self.create_icon = icon;
         self
     }
 
@@ -160,7 +184,7 @@ impl Component for SideRail {
         let mut head = Vec::new();
         if let Some(tooltip) = self.expand.take() {
             let id = format!("{}:expand", self.id);
-            let icon = Element::icon(Icon::Library).large_icon(EXPAND_ICON).foreground(palette.muted);
+            let icon = Element::icon(self.library_icon).large_icon(EXPAND_ICON).foreground(palette.muted);
             let button = palette
                 .interactive_surface(Element::clickable(id.clone(), icon))
                 .hover_foreground(palette.text)
@@ -169,7 +193,7 @@ impl Component for SideRail {
         }
         if let Some(tooltip) = self.create.take() {
             head.push(
-                IconButton::new(format!("{}:create", self.id), Icon::Add, palette)
+                IconButton::new(format!("{}:create", self.id), self.create_icon, palette)
                     .variant(ButtonVariant::Ghost)
                     .round()
                     .tooltip_with(TooltipSpec::new(tooltip).placement(TooltipPlacement::Right))

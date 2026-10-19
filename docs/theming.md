@@ -127,6 +127,7 @@ use limn::{set_tokens, Motion, Radius, Tokens};
 set_tokens(Tokens {
     radius: Radius::SQUARE,
     motion: Motion::DEFAULT.scaled(0.5),
+    ..Tokens::DEFAULT
 });
 ```
 

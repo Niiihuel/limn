@@ -5,9 +5,12 @@
 //! the engine paints tooltips, menus, scrollbars and focus rings itself,
 //! without ever seeing a palette, and an application has one shape and one
 //! pace. They are therefore set once for the process with [`set_tokens`] and
-//! read where they are used, like variables on a style sheet's root.
+//! read where they are used, like variables on a style sheet's root. So is
+//! a host's one look for every tooltip, when it wants one.
 
 use std::sync::{PoisonError, RwLock};
+
+use crate::TooltipStyle;
 
 /// Corner radii in logical pixels, by what is being rounded.
 ///
@@ -172,20 +175,26 @@ impl Default for Motion {
     }
 }
 
-/// Everything about the library's look that is not a color.
+/// Everything about the library's look that is not a palette's color.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Tokens {
     /// The corner radii, by what is being rounded.
     pub radius: Radius,
     /// The four durations every animation is built from.
     pub motion: Motion,
+    /// The colors every tooltip is painted with, whichever palette its
+    /// control was built with, such as a body of #282828 with white text and
+    /// a transparent `border`, which draws no outline. Unless set, each
+    /// palette derives its own. A tooltip given its own `background` keeps it.
+    pub tooltip: Option<TooltipStyle>,
 }
 
 impl Tokens {
-    /// The default radii and durations.
+    /// The default radii and durations, and each palette's own tooltips.
     pub const DEFAULT: Self = Self {
         radius: Radius::DEFAULT,
         motion: Motion::DEFAULT,
+        tooltip: None,
     };
 }
 
@@ -203,7 +212,7 @@ pub fn tokens() -> Tokens {
 pub fn set_tokens(tokens: Tokens) {
     *CURRENT.write().unwrap_or_else(PoisonError::into_inner) = Tokens {
         radius: tokens.radius.sanitized(),
-        motion: tokens.motion,
+        ..tokens
     };
 }
 

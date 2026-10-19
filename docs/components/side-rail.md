@@ -83,7 +83,8 @@ color. Keyboard focus shows it too.
 `expand(tooltip)` heads the rail with a 40 px button holding a 24 px library
 icon; `tooltip` names it, such as "Open Your Library". `create(tooltip)`
 adds a round button with a plus under it. Without either the items start at
-the top.
+the top. `library_icon(icon)` and `create_icon(icon)` draw the host's own
+glyphs in place of the library and the plus.
 
 ## Current and playing
 
