@@ -43,6 +43,9 @@ mod translation_tests;
 #[path = "pointer_blocking_tests.rs"]
 mod pointer_blocking_tests;
 #[cfg(test)]
+#[path = "keyboard_tests.rs"]
+mod keyboard_tests;
+#[cfg(test)]
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
@@ -713,6 +716,9 @@ pub enum DrawCommand {
         fit: crate::SurfaceFit,
         /// Corner radius the pixels shown are rounded to.
         radius: f32,
+        /// The pixels are painted flipped left to right, as a mirror shows
+        /// them; see [`Element::surface_mirrored`](crate::Element::surface_mirrored).
+        mirrored: bool,
     },
     /// An activity indicator that turns, sized to the shorter side of `rect`.
     Spinner {
@@ -2380,8 +2386,10 @@ impl Frame {
     }
 }
 
-/// The keys a host can forward in [`UiEvent::Key`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The keys a host can forward in [`UiEvent::Key`] and
+/// [`UiEvent::KeyReleased`]. The modifiers are not keys of their own: they
+/// arrive as the fields of a key event and as [`UiEvent::ModifiersChanged`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Key {
     /// Page Up: without `ctrl`, scrolls up a page behind the focus or under the
     /// pointer.
@@ -2507,6 +2515,383 @@ pub enum Key {
     F11,
     /// Read only as the shortcut of an item in an open context menu.
     F12,
+    /// Insert, read only as a host's shortcut.
+    Insert,
+    /// The `:` key. The character still arrives as `UiEvent::Text`.
+    Colon,
+    /// The `,` key. The character still arrives as `UiEvent::Text`.
+    Comma,
+    /// The `-` key. The character still arrives as `UiEvent::Text`.
+    Minus,
+    /// The `.` key. The character still arrives as `UiEvent::Text`.
+    Period,
+    /// The `+` key. The character still arrives as `UiEvent::Text`.
+    Plus,
+    /// The `=` key. The character still arrives as `UiEvent::Text`.
+    Equals,
+    /// The `;` key. The character still arrives as `UiEvent::Text`.
+    Semicolon,
+    /// The `[` key. The character still arrives as `UiEvent::Text`.
+    OpenBracket,
+    /// The `]` key. The character still arrives as `UiEvent::Text`.
+    CloseBracket,
+    /// The `{` key. The character still arrives as `UiEvent::Text`.
+    OpenCurlyBracket,
+    /// The `}` key. The character still arrives as `UiEvent::Text`.
+    CloseCurlyBracket,
+    /// The ``` key. The character still arrives as `UiEvent::Text`.
+    Backtick,
+    /// The `\` key. The character still arrives as `UiEvent::Text`.
+    Backslash,
+    /// The `|` key. The character still arrives as `UiEvent::Text`.
+    Pipe,
+    /// The `?` key. The character still arrives as `UiEvent::Text`.
+    Questionmark,
+    /// The `!` key. The character still arrives as `UiEvent::Text`.
+    Exclamationmark,
+    /// The `'` key. The character still arrives as `UiEvent::Text`.
+    Quote,
+    /// The 0 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num0,
+    /// The 1 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num1,
+    /// The 2 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num2,
+    /// The 3 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num3,
+    /// The 4 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num4,
+    /// The 5 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num5,
+    /// The 6 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num6,
+    /// The 7 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num7,
+    /// The 8 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num8,
+    /// The 9 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num9,
+    /// The F13 key, read only as a host's shortcut.
+    F13,
+    /// The F14 key, read only as a host's shortcut.
+    F14,
+    /// The F15 key, read only as a host's shortcut.
+    F15,
+    /// The F16 key, read only as a host's shortcut.
+    F16,
+    /// The F17 key, read only as a host's shortcut.
+    F17,
+    /// The F18 key, read only as a host's shortcut.
+    F18,
+    /// The F19 key, read only as a host's shortcut.
+    F19,
+    /// The F20 key, read only as a host's shortcut.
+    F20,
+    /// The F21 key, read only as a host's shortcut.
+    F21,
+    /// The F22 key, read only as a host's shortcut.
+    F22,
+    /// The F23 key, read only as a host's shortcut.
+    F23,
+    /// The F24 key, read only as a host's shortcut.
+    F24,
+    /// The F25 key, read only as a host's shortcut.
+    F25,
+    /// The F26 key, read only as a host's shortcut.
+    F26,
+    /// The F27 key, read only as a host's shortcut.
+    F27,
+    /// The F28 key, read only as a host's shortcut.
+    F28,
+    /// The F29 key, read only as a host's shortcut.
+    F29,
+    /// The F30 key, read only as a host's shortcut.
+    F30,
+    /// The F31 key, read only as a host's shortcut.
+    F31,
+    /// The F32 key, read only as a host's shortcut.
+    F32,
+    /// The F33 key, read only as a host's shortcut.
+    F33,
+    /// The F34 key, read only as a host's shortcut.
+    F34,
+    /// The F35 key, read only as a host's shortcut.
+    F35,
+    /// The key between the left Shift and Z on ISO keyboards, `<` on many
+    /// of their layouts, named by its place. The character still arrives as
+    /// `UiEvent::Text`.
+    IntlBackslash,
+}
+
+impl Key {
+    /// Every key, in the order the enum declares them.
+    pub const ALL: &'static [Self] = &[
+        Self::PageUp,
+        Self::PageDown,
+        Self::Escape,
+        Self::Tab,
+        Self::ArrowLeft,
+        Self::ArrowRight,
+        Self::ArrowUp,
+        Self::ArrowDown,
+        Self::Home,
+        Self::End,
+        Self::Backspace,
+        Self::Delete,
+        Self::Enter,
+        Self::Space,
+        Self::A,
+        Self::B,
+        Self::C,
+        Self::D,
+        Self::E,
+        Self::F,
+        Self::G,
+        Self::H,
+        Self::I,
+        Self::J,
+        Self::K,
+        Self::L,
+        Self::M,
+        Self::N,
+        Self::O,
+        Self::P,
+        Self::Q,
+        Self::R,
+        Self::S,
+        Self::T,
+        Self::U,
+        Self::V,
+        Self::W,
+        Self::X,
+        Self::Y,
+        Self::Z,
+        Self::Slash,
+        Self::F1,
+        Self::F2,
+        Self::F3,
+        Self::F4,
+        Self::F5,
+        Self::F6,
+        Self::F7,
+        Self::F8,
+        Self::F9,
+        Self::F10,
+        Self::F11,
+        Self::F12,
+        Self::Insert,
+        Self::Colon,
+        Self::Comma,
+        Self::Minus,
+        Self::Period,
+        Self::Plus,
+        Self::Equals,
+        Self::Semicolon,
+        Self::OpenBracket,
+        Self::CloseBracket,
+        Self::OpenCurlyBracket,
+        Self::CloseCurlyBracket,
+        Self::Backtick,
+        Self::Backslash,
+        Self::Pipe,
+        Self::Questionmark,
+        Self::Exclamationmark,
+        Self::Quote,
+        Self::Num0,
+        Self::Num1,
+        Self::Num2,
+        Self::Num3,
+        Self::Num4,
+        Self::Num5,
+        Self::Num6,
+        Self::Num7,
+        Self::Num8,
+        Self::Num9,
+        Self::F13,
+        Self::F14,
+        Self::F15,
+        Self::F16,
+        Self::F17,
+        Self::F18,
+        Self::F19,
+        Self::F20,
+        Self::F21,
+        Self::F22,
+        Self::F23,
+        Self::F24,
+        Self::F25,
+        Self::F26,
+        Self::F27,
+        Self::F28,
+        Self::F29,
+        Self::F30,
+        Self::F31,
+        Self::F32,
+        Self::F33,
+        Self::F34,
+        Self::F35,
+        Self::IntlBackslash,
+    ];
+
+    /// The key's English name, as hosts write it in a shortcut and egui
+    /// names it: `"A"`, `"1"`, `"F13"`, `"Up"`, `"Space"`, `"Backtick"`.
+    /// [`Self::from_name`] reads it back.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ArrowLeft => "Left",
+            Self::ArrowRight => "Right",
+            Self::ArrowUp => "Up",
+            Self::ArrowDown => "Down",
+            Self::PageUp => "PageUp",
+            Self::PageDown => "PageDown",
+            Self::Escape => "Escape",
+            Self::Tab => "Tab",
+            Self::Home => "Home",
+            Self::End => "End",
+            Self::Backspace => "Backspace",
+            Self::Delete => "Delete",
+            Self::Enter => "Enter",
+            Self::Space => "Space",
+            Self::A => "A",
+            Self::B => "B",
+            Self::C => "C",
+            Self::D => "D",
+            Self::E => "E",
+            Self::F => "F",
+            Self::G => "G",
+            Self::H => "H",
+            Self::I => "I",
+            Self::J => "J",
+            Self::K => "K",
+            Self::L => "L",
+            Self::M => "M",
+            Self::N => "N",
+            Self::O => "O",
+            Self::P => "P",
+            Self::Q => "Q",
+            Self::R => "R",
+            Self::S => "S",
+            Self::T => "T",
+            Self::U => "U",
+            Self::V => "V",
+            Self::W => "W",
+            Self::X => "X",
+            Self::Y => "Y",
+            Self::Z => "Z",
+            Self::Slash => "Slash",
+            Self::F1 => "F1",
+            Self::F2 => "F2",
+            Self::F3 => "F3",
+            Self::F4 => "F4",
+            Self::F5 => "F5",
+            Self::F6 => "F6",
+            Self::F7 => "F7",
+            Self::F8 => "F8",
+            Self::F9 => "F9",
+            Self::F10 => "F10",
+            Self::F11 => "F11",
+            Self::F12 => "F12",
+            Self::Insert => "Insert",
+            Self::Colon => "Colon",
+            Self::Comma => "Comma",
+            Self::Minus => "Minus",
+            Self::Period => "Period",
+            Self::Plus => "Plus",
+            Self::Equals => "Equals",
+            Self::Semicolon => "Semicolon",
+            Self::OpenBracket => "OpenBracket",
+            Self::CloseBracket => "CloseBracket",
+            Self::OpenCurlyBracket => "OpenCurlyBracket",
+            Self::CloseCurlyBracket => "CloseCurlyBracket",
+            Self::Backtick => "Backtick",
+            Self::Backslash => "Backslash",
+            Self::Pipe => "Pipe",
+            Self::Questionmark => "Questionmark",
+            Self::Exclamationmark => "Exclamationmark",
+            Self::Quote => "Quote",
+            Self::Num0 => "0",
+            Self::Num1 => "1",
+            Self::Num2 => "2",
+            Self::Num3 => "3",
+            Self::Num4 => "4",
+            Self::Num5 => "5",
+            Self::Num6 => "6",
+            Self::Num7 => "7",
+            Self::Num8 => "8",
+            Self::Num9 => "9",
+            Self::F13 => "F13",
+            Self::F14 => "F14",
+            Self::F15 => "F15",
+            Self::F16 => "F16",
+            Self::F17 => "F17",
+            Self::F18 => "F18",
+            Self::F19 => "F19",
+            Self::F20 => "F20",
+            Self::F21 => "F21",
+            Self::F22 => "F22",
+            Self::F23 => "F23",
+            Self::F24 => "F24",
+            Self::F25 => "F25",
+            Self::F26 => "F26",
+            Self::F27 => "F27",
+            Self::F28 => "F28",
+            Self::F29 => "F29",
+            Self::F30 => "F30",
+            Self::F31 => "F31",
+            Self::F32 => "F32",
+            Self::F33 => "F33",
+            Self::F34 => "F34",
+            Self::F35 => "F35",
+            Self::IntlBackslash => "IntlBackslash",
+        }
+    }
+
+    /// The key a name stands for: [`Self::name`], the variant's own name
+    /// (`"ArrowUp"`, `"Num1"`) or the character the key types (`"/"`,
+    /// `"-"`), names in either case. `None` for anything else.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|key| {
+            key.name().eq_ignore_ascii_case(name)
+                || format!("{key:?}").eq_ignore_ascii_case(name)
+                || key.symbol().is_some_and(|symbol| name.chars().eq([symbol]))
+        })
+    }
+
+    /// The character a punctuation key types, for [`Self::from_name`].
+    fn symbol(self) -> Option<char> {
+        Some(match self {
+            Self::Space => ' ',
+            Self::Slash => '/',
+            Self::Colon => ':',
+            Self::Comma => ',',
+            Self::Minus => '-',
+            Self::Period => '.',
+            Self::Plus => '+',
+            Self::Equals => '=',
+            Self::Semicolon => ';',
+            Self::OpenBracket => '[',
+            Self::CloseBracket => ']',
+            Self::OpenCurlyBracket => '{',
+            Self::CloseCurlyBracket => '}',
+            Self::Backtick => '`',
+            Self::Backslash => '\\',
+            Self::Pipe => '|',
+            Self::Questionmark => '?',
+            Self::Exclamationmark => '!',
+            Self::Quote => '\'',
+            _ => return None,
+        })
+    }
 }
 
 /// Input a host forwards to `UiTree::handle_event`. Positions are in
@@ -2658,6 +3043,27 @@ pub enum UiEvent {
     /// was pressed at this position. The tree does nothing with it; a host
     /// reads it to go forward in its own history.
     PointerForward(Point),
+    /// A key was released. The tree only stops counting it as held; see
+    /// [`UiTree::key_held`].
+    KeyReleased {
+        /// The key that was released.
+        key: Key,
+    },
+    /// The modifiers held changed, such as Shift pressed or released alone.
+    /// The tree keeps them for [`UiTree::modifiers`]; nothing else reads
+    /// them.
+    ModifiersChanged(Modifiers),
+}
+
+/// Which modifier keys are held; see [`UiTree::modifiers`].
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct Modifiers {
+    /// True while Shift is held.
+    pub shift: bool,
+    /// True while Ctrl is held. The egui backend sets it for Command too.
+    pub ctrl: bool,
+    /// True while Alt (Option) is held.
+    pub alt: bool,
 }
 
 /// What `UiTree::handle_event` reports for the host to act on.
@@ -3310,6 +3716,8 @@ pub struct UiTree {
     context_menu_swallow_release: bool,
     ime_owner: Option<ime_tree::ImeOwner>,
     ime_window_focused: bool,
+    keys_held: Vec<Key>,
+    modifiers: Modifiers,
 }
 
 impl UiTree {
@@ -3391,6 +3799,8 @@ impl UiTree {
             context_menu_swallow_release: false,
             ime_owner: None,
             ime_window_focused: true,
+            keys_held: Vec::new(),
+            modifiers: Modifiers::default(),
         }
     }
 
@@ -3755,13 +4165,56 @@ impl UiTree {
 
     /// Hosts forward native window focus (and which tree owns keyboard input).
     /// A change requires one repaint; an inactive caret has no timer deadline.
+    /// Losing the focus also lets go of every key and modifier held, whose
+    /// release the window may never see.
     pub fn set_window_focused(&mut self, focused: bool) -> bool {
         if self.ime_window_focused != focused {
             self.invalidate_paste_targets();
         }
+        if !focused {
+            self.keys_held.clear();
+            self.modifiers = Modifiers::default();
+        }
         self.ime_window_focused = focused;
         self.validate_ime_owner(Instant::now());
         self.caret_blink.set_window_focused(focused)
+    }
+
+    /// Whether `key` is held: from its [`UiEvent::Key`] until its
+    /// [`UiEvent::KeyReleased`], or the window losing the focus. Asked before
+    /// a press is handled, false tells a first press from a key repeating.
+    pub fn key_held(&self, key: Key) -> bool {
+        self.keys_held.contains(&key)
+    }
+
+    /// The modifiers held, as the latest [`UiEvent::Key`] or
+    /// [`UiEvent::ModifiersChanged`] said; none once the window loses the
+    /// focus.
+    pub fn modifiers(&self) -> Modifiers {
+        self.modifiers
+    }
+
+    /// Note what `event` says of the keys and modifiers held, without
+    /// handling it: for an event the host answers before the tree, which
+    /// then never sees it. [`Self::handle_event`] does this itself, and
+    /// noting an event twice changes nothing.
+    pub fn observe_keys(&mut self, event: &UiEvent) {
+        match *event {
+            UiEvent::Key {
+                key,
+                shift,
+                ctrl,
+                alt,
+            } => {
+                if !self.keys_held.contains(&key) {
+                    self.keys_held.push(key);
+                }
+                self.modifiers = Modifiers { shift, ctrl, alt };
+            }
+            UiEvent::KeyReleased { key } => self.keys_held.retain(|held| *held != key),
+            UiEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers,
+            _ => {}
+        }
     }
 
     /// How long until the blinking caret has to be painted again; zero is
@@ -5533,7 +5986,10 @@ impl UiTree {
 
     /// Dispatch with the same monotonic clock used by `layout_at`.
     pub fn handle_event_at(&mut self, event: UiEvent, now: Instant) -> Vec<UiAction> {
+        self.observe_keys(&event);
         let event = match event {
+            // Only kept, for `key_held` and `modifiers`.
+            UiEvent::KeyReleased { .. } | UiEvent::ModifiersChanged(_) => return Vec::new(),
             UiEvent::PasteCaptured { target, text } => {
                 return self.paste_captured(target, text, now)
             }
@@ -5721,8 +6177,10 @@ impl UiTree {
             UiEvent::FilesHovered { .. }
             | UiEvent::FilesDropped { .. }
             | UiEvent::PointerBack(_)
-            | UiEvent::PointerForward(_) => {
-                unreachable!("external file and history events resolved before ordinary controls")
+            | UiEvent::PointerForward(_)
+            | UiEvent::KeyReleased { .. }
+            | UiEvent::ModifiersChanged(_) => {
+                unreachable!("external file, history and held-key events resolved before ordinary controls")
             }
             UiEvent::PointerMove(point) => {
                 let moved = self.pointer != Some(point);
@@ -11412,6 +11870,7 @@ impl LayoutBuilder<'_> {
                                         opacity: 1.0,
                                         fit: crate::SurfaceFit::Contain,
                                         radius: 0.0,
+                                        mirrored: false,
                                     },
                                 });
                                 self.frame.commands.push(DrawCommand::PopClip);
@@ -11608,7 +12067,12 @@ impl LayoutBuilder<'_> {
                     radius: style.radius,
                 });
             }
-            ElementKind::Surface { id, label, fit } => {
+            ElementKind::Surface {
+                id,
+                label,
+                fit,
+                mirrored,
+            } => {
                 self.frame.commands.push(DrawCommand::Surface {
                     rect: content,
                     id: id.clone(),
@@ -11616,6 +12080,7 @@ impl LayoutBuilder<'_> {
                     opacity: 1.0,
                     fit: *fit,
                     radius: style.radius,
+                    mirrored: *mirrored,
                 });
             }
             ElementKind::Icon(icon) => {
@@ -11772,11 +12237,20 @@ impl LayoutBuilder<'_> {
                     side,
                 );
                 match element.kept.as_ref().and_then(|kept| kept.leading_image.as_ref()) {
-                    Some(image) => self.frame.commands.push(DrawCommand::RasterImage {
+                    Some(InlineImage::Raster(image)) => self.frame.commands.push(DrawCommand::RasterImage {
                         rect: icon_rect,
                         image: image.clone(),
                         opacity: 1.0,
                         radius: 0.0,
+                    }),
+                    Some(InlineImage::Surface(surface)) => self.frame.commands.push(DrawCommand::Surface {
+                        rect: icon_rect,
+                        id: surface.clone(),
+                        label: label.clone(),
+                        opacity: 1.0,
+                        fit: crate::SurfaceFit::Contain,
+                        radius: 0.0,
+                        mirrored: false,
                     }),
                     None => self.draw_icon(*icon, icon_rect, style),
                 }

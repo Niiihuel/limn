@@ -68,6 +68,32 @@ fn shell_select(cx: &Cx, group: &str) -> Select {
     )
 }
 
+/// A choice of pictures: two still, one the host animates on a surface.
+fn picture_select(cx: &Cx, group: &str) -> Select {
+    let choices = [("dusk", "Dusk"), ("tide", "Tide"), ("forest", "Forest")];
+    let chosen = cx.state.choice(group, choices[0].0);
+    let label = choices.iter().find(|(id, _)| *id == chosen).map_or(choices[0].1, |(_, label)| label);
+    let options = choices
+        .iter()
+        .enumerate()
+        .map(|(index, (id, label))| {
+            let option = DropdownOption::new(format!("{group}={id}&{group}-open=no"), *label).selected(*id == chosen);
+            match index {
+                1 => option.surface(super::media::ANIMATION),
+                index => option.image(super::media::picture(index)),
+            }
+        })
+        .collect();
+    Select::new(
+        format!("{group}-open=yes"),
+        label,
+        options,
+        cx.state.text(&format!("{group}-open")) == "yes",
+        format!("{group}-open=no"),
+        cx.palette,
+    )
+}
+
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let state = cx.state;
@@ -257,6 +283,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .placement(PopoverPlacement::BottomStart)
                 .render(),
             caption(cx, ".font_size(16.0), .max_visible_items(2) and .ink(accent): open, two rows show, the chevron points up and the border takes the accent."),
+            row(vec![picture_select(cx, "select-pictures").placement(PopoverPlacement::BottomStart).render()]),
+            caption(cx, "Options with a picture in the icon's place, such as custom emoji, or a surface the host plays, such as an animated one."),
         ]),
         section(cx, "Search", vec![
             SearchField::new("input-search", state.choice(CLEARABLE[0].0, CLEARABLE[0].1), "Search", palette)
