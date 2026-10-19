@@ -6,7 +6,7 @@ use std::borrow::Cow;
 use std::cell::RefCell;
 use std::fmt;
 use std::ops::Range;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use parley::fontique::{Collection, CollectionOptions, FontInfoOverride, SourceCache};
 use parley::{
@@ -16,6 +16,18 @@ use parley::{
 
 use crate::fonts::{self, Font, Fonts};
 use crate::{Color, DrawCommand, FontFamily, Point, Rect, Size};
+
+/// Where a line's glyphs stand when the line is taller than they are.
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub enum Leading {
+    /// Half the extra room above the glyphs and half below, as CSS sets a
+    /// line.
+    #[default]
+    Even,
+    /// The glyphs at the top of the line and the extra room under them, as
+    /// limn's measured text and egui set a line.
+    Below,
+}
 
 /// How a piece of text is set: its size and family, and the height of its
 /// lines.
@@ -29,6 +41,9 @@ pub struct TextStyle {
     /// Each line's height in logical pixels; `None` takes the font's own,
     /// its ascent, descent and line gap.
     pub line_height: Option<f32>,
+    /// Where the glyphs stand in a line taller than they are. `Even` by
+    /// default.
+    pub leading: Leading,
 }
 
 impl TextStyle {
@@ -36,7 +51,7 @@ impl TextStyle {
     /// is not finite is the default 14; one below zero is zero.
     pub fn new(size: f32, family: FontFamily) -> Self {
         let size = if size.is_finite() { size.max(0.0) } else { crate::DEFAULT_FONT_SIZE };
-        Self { size, family, line_height: None }
+        Self { size, family, line_height: None, leading: Leading::Even }
     }
 
     /// Set every line `height` pixels apart. A height that is not finite or
@@ -45,6 +60,12 @@ impl TextStyle {
         if height.is_finite() && height >= 0.0 {
             self.line_height = Some(height);
         }
+        self
+    }
+
+    /// Set where the glyphs stand in a line taller than they are.
+    pub fn leading(mut self, leading: Leading) -> Self {
+        self.leading = leading;
         self
     }
 }
@@ -116,6 +137,9 @@ pub struct TextLayout {
     layout: Arc<parley::Layout<()>>,
     /// The faces it was laid out in, which its runs are drawn from.
     fonts: Arc<Fonts>,
+    /// Its runs, made on the first draw and shared by every clone, so a
+    /// backend sees the same glyphs from one frame to the next.
+    runs: Arc<OnceLock<Vec<GlyphRun>>>,
 }
 
 impl TextLayout {
@@ -123,8 +147,8 @@ impl TextLayout {
     pub fn new(text: impl Into<Arc<str>>, style: TextStyle) -> Self {
         let text = text.into();
         let (mut layout, fonts) = with_system(|system| (system.shape(&text, &style), system.given.clone()));
-        place(&mut layout, None);
-        Self { text, style, layout: Arc::new(layout), fonts }
+        place(&mut layout, None, Alignment::Start);
+        Self { text, style, layout: Arc::new(layout), fonts, runs: Arc::default() }
     }
 
     /// The same text broken into lines no wider than `width`, where the
@@ -132,10 +156,27 @@ impl TextLayout {
     /// `width` keeps its own line. A width that is not finite does not wrap;
     /// one below zero is zero.
     pub fn wrapped(&self, width: f32) -> Self {
+        self.placed(width, Alignment::Start)
+    }
+
+    /// The same text broken into lines as [`Self::wrapped`] breaks it, each
+    /// centered across `width`. A width that is not finite centers each line
+    /// across the widest.
+    pub fn centered(&self, width: f32) -> Self {
+        self.placed(width, Alignment::Center)
+    }
+
+    fn placed(&self, width: f32, alignment: Alignment) -> Self {
         let width = width.is_finite().then(|| width.max(0.0));
         let mut layout = parley::Layout::clone(&self.layout);
-        place(&mut layout, width);
-        Self { text: self.text.clone(), style: self.style, layout: Arc::new(layout), fonts: self.fonts.clone() }
+        place(&mut layout, width, alignment);
+        Self {
+            text: self.text.clone(),
+            style: self.style,
+            layout: Arc::new(layout),
+            fonts: self.fonts.clone(),
+            runs: Arc::default(),
+        }
     }
 
     /// The text laid out.
@@ -171,7 +212,7 @@ impl TextLayout {
                     width,
                     metrics.block_max_coord - metrics.block_min_coord,
                 ),
-                baseline: metrics.baseline,
+                baseline: metrics.baseline + self.lift(metrics),
                 range: range.start.min(length)..range.end.min(length),
             }
         })
@@ -213,36 +254,56 @@ impl TextLayout {
     }
 
     /// The commands that draw the text with its top-left corner at `origin`,
-    /// in `color`: one [`DrawCommand::Glyphs`] for each run of one font.
+    /// in `color`: one [`DrawCommand::Glyphs`] for each run of one font. The
+    /// runs of one layout, and of its clones, share their glyphs from one
+    /// call to the next.
     pub fn draw(&self, origin: Point, color: Color) -> Vec<DrawCommand> {
-        let mut commands = Vec::new();
-        if self.text.is_empty() {
-            return commands;
-        }
-        for line in self.layout.lines() {
-            for item in line.items() {
-                let PositionedLayoutItem::GlyphRun(placed) = item else {
-                    continue;
-                };
-                let run = placed.run();
-                let synthesis = run.synthesis();
-                commands.push(DrawCommand::Glyphs(GlyphRun {
-                    origin,
-                    font: self.fonts.find(run.font()),
-                    size: run.font_size(),
-                    coords: run.normalized_coords().iter().map(|coord| coord.to_bits()).collect(),
-                    embolden: synthesis.embolden(),
-                    skew: synthesis.skew(),
-                    glyphs: placed
-                        .positioned_glyphs()
-                        .map(|glyph| Glyph { id: glyph.id, x: glyph.x, y: glyph.y })
-                        .collect(),
-                    color,
-                    text: self.text.get(run.text_range()).unwrap_or_default().into(),
-                }));
+        self.runs()
+            .iter()
+            .map(|run| DrawCommand::Glyphs(GlyphRun { origin, color, ..run.clone() }))
+            .collect()
+    }
+
+    fn runs(&self) -> &[GlyphRun] {
+        self.runs.get_or_init(|| {
+            if self.text.is_empty() {
+                return Vec::new();
             }
+            let mut runs = Vec::new();
+            for line in self.layout.lines() {
+                let lift = self.lift(line.metrics());
+                for item in line.items() {
+                    let PositionedLayoutItem::GlyphRun(placed) = item else {
+                        continue;
+                    };
+                    let run = placed.run();
+                    let synthesis = run.synthesis();
+                    runs.push(GlyphRun {
+                        origin: Point::new(0.0, 0.0),
+                        font: self.fonts.find(run.font()),
+                        size: run.font_size(),
+                        coords: run.normalized_coords().iter().map(|coord| coord.to_bits()).collect(),
+                        embolden: synthesis.embolden(),
+                        skew: synthesis.skew(),
+                        glyphs: placed
+                            .positioned_glyphs()
+                            .map(|glyph| Glyph { id: glyph.id, x: glyph.x, y: glyph.y + lift })
+                            .collect(),
+                        color: Color::rgba(0, 0, 0, 0),
+                        text: self.text.get(run.text_range()).unwrap_or_default().into(),
+                    });
+                }
+            }
+            runs
+        })
+    }
+
+    /// How far down a line's glyphs move from where parley sets them.
+    fn lift(&self, metrics: &parley::LineMetrics) -> f32 {
+        match self.style.leading {
+            Leading::Even => 0.0,
+            Leading::Below => metrics.block_min_coord - metrics.content_block_min_coord,
         }
-        commands
     }
 
     fn boundary(&self, index: usize) -> usize {
@@ -261,9 +322,9 @@ impl fmt::Debug for TextLayout {
     }
 }
 
-fn place(layout: &mut parley::Layout<()>, width: Option<f32>) {
+fn place(layout: &mut parley::Layout<()>, width: Option<f32>, alignment: Alignment) {
     layout.break_all_lines(width);
-    layout.align(Alignment::Start, AlignmentOptions::default());
+    layout.align(alignment, AlignmentOptions::default());
 }
 
 fn rect(bounds: BoundingBox) -> Rect {

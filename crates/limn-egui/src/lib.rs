@@ -2430,9 +2430,12 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
     }
 }
 
-/// Make a tree measure text with the fonts egui paints with. Call once per
-/// tree, and again after changing the context's fonts.
+/// Make a tree measure text with the fonts egui paints with, and lay
+/// `Element::text` out in limn's own text layout, drawn from this backend's
+/// glyph atlas (see `UiTree::set_text_layout`). Call once per tree, and again
+/// after changing the context's fonts.
 pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
+    tree.set_text_layout(true);
     let mono = egui::FontId::monospace(14.0);
     let sans = egui::FontId::proportional(14.0);
     let (metrics, sans_metrics) = ctx.fonts_mut(|fonts| {
