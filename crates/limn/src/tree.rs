@@ -6552,6 +6552,7 @@ fn collect_focus_order(
         | ElementKind::RasterImage(_)
         | ElementKind::Surface { .. }
         | ElementKind::Icon(_)
+        | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -6629,6 +6630,7 @@ fn collect_action_metadata(
         | ElementKind::RadarPlot(_)
         | ElementKind::HeatPlot(_)
         | ElementKind::MarkRail(_)
+        | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -9273,6 +9275,8 @@ impl LayoutBuilder<'_> {
             }
             // The caller sizes it; left alone it is one dot.
             ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
+            // The caller sizes it.
+            ElementKind::Drawing(_) => Size::new(padding, padding),
             // The caller sizes it; left alone it takes the width it is offered.
             ElementKind::HeatPlot(plot) => {
                 let rows = plot.columns.iter().map(Vec::len).max().unwrap_or(0) as f32;
@@ -11746,6 +11750,21 @@ impl LayoutBuilder<'_> {
             ElementKind::PiePlot(plot) => self.paint_pie_plot(plot, content, clip),
             ElementKind::RadarPlot(plot) => self.paint_radar_plot(plot, content, clip),
             ElementKind::HeatPlot(plot) => self.paint_heat_plot(plot, content, clip),
+            ElementKind::Drawing(drawing) => {
+                self.frame.commands.push(DrawCommand::PushClip(content));
+                // The drawing's own clips stay balanced, so none outlives it.
+                let mut open = 0;
+                for command in drawing.draw(Size::new(content.width, content.height)) {
+                    match command {
+                        DrawCommand::PushClip(_) => open += 1,
+                        DrawCommand::PopClip if open == 0 => continue,
+                        DrawCommand::PopClip => open -= 1,
+                        _ => {}
+                    }
+                    self.frame.commands.push(command.moved(content.x, content.y, 1.0));
+                }
+                self.frame.commands.extend(std::iter::repeat_n(DrawCommand::PopClip, open + 1));
+            }
             ElementKind::LevelBars(bars) => {
                 let pitch = bars.bar + bars.gap;
                 let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };

@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- `Element::drawing`: what the application draws itself, in the frame's own `DrawCommand`s, given the size it is laid out at. The tree places the commands, clips them to the element and keeps their clips balanced. See [Drawing](docs/components/drawing.md)
 - `CodeEditor` view options: `show_whitespace` marks spaces with `·` and tabs with `→`; `rulers` draws up to 16 column guides; `caret_style` takes a `CaretStyle` (`Line`, `Block`, `Underline`; Vim's Normal mode keeps its block); `caret_blink(false)` keeps the caret shown; `indent_guides(false)` and `highlight_current_line(false)` turn off what was always drawn. Defaults keep today's look
 - `limn-editor::TextBuffer::trim_trailing_whitespace`: removes the spaces and tabs ending each line as one undo step, keeping line terminators and every selection's place in its line
 - Bar, column and line charts whose values are all whole numbers get whole ticks: a count of 1 no longer shows a 0.5 tick
