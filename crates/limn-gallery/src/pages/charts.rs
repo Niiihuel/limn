@@ -8,6 +8,7 @@ const LANGUAGES: [(&str, f64); 5] = [("Rust", 48.0), ("TypeScript", 31.0), ("Pyt
 const MONTHS: [(usize, &str); 5] = [(0, "Jan"), (5, "Feb"), (9, "Mar"), (13, "Apr"), (18, "May")];
 const WEEKS: usize = 20;
 const MONTHS_HALF: [&str; 6] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+const BANDS: [&str; 10] = ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
 
 fn browsers() -> Vec<ChartDatum> {
     [("Chrome", 275.0), ("Safari", 200.0), ("Firefox", 287.0), ("Edge", 173.0), ("Other", 190.0)]
@@ -127,6 +128,16 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .color(accent)
                 .render(),
             caption(cx, ".smooth(false).dots(true).color(accent): straight strokes with a dot at every point."),
+            LineChart::new("charts-line-range", BANDS, vec![ChartSeries::new("Gain", [4.0, 5.5, 3.0, -1.5, -3.0, -2.0, 1.0, 3.5, 6.0, 2.5])], palette)
+                .width(width)
+                .height(180.0)
+                .range(-12.0, 12.0)
+                .dashed_zero(true)
+                .point_axis(false)
+                .mark(6)
+                .color(accent)
+                .render(),
+            caption(cx, ".range(-12.0, 12.0).dashed_zero(true).point_axis(false).mark(6): an equaliser's response on a fixed scale, its ticks at the ends and at zero, the band being set marked."),
         ]),
         section(cx, "Area chart", vec![
             AreaChart::new("charts-area", MONTHS_HALF, traffic(), palette).width(width).color(accent).render(),
