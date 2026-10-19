@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- Text widths are cached apart for every face: a label in `SansMedium`, `SansBold` or `SansItalic` could be given the width the same text had measured in `Monospace`, and so wrap or truncate at the wrong place
 - `WindowControls`: the minimize, maximize (restore while maximized) and close buttons at the end of a title bar the app draws, as Windows places them, brought from Surco's own frame. `Labels` gains `minimize`, `maximize` and `restore`. See [WindowControls](docs/components/window-controls.md)
 - `limn-egui`: a notch of the mouse wheel scrolls 120 px, as Chrome and Firefox do, instead of 30; touchpads stay one to one
 - `CodeEditor` view options: `show_whitespace` marks spaces with `·` and tabs with `→`; `rulers` draws up to 16 column guides; `caret_style` takes a `CaretStyle` (`Line`, `Block`, `Underline`; Vim's Normal mode keeps its block); `caret_blink(false)` keeps the caret shown; `indent_guides(false)` and `highlight_current_line(false)` turn off what was always drawn. Defaults keep today's look

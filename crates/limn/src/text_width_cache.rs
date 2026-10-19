@@ -17,7 +17,7 @@ pub(crate) struct TextWidthCache {
 
 impl TextWidthCache {
     fn font_key(size: f32, family: FontFamily) -> FontKey {
-        (size.to_bits(), u8::from(family == FontFamily::Sans))
+        (size.to_bits(), family as u8)
     }
 
     pub(crate) fn get(&self, text: &str, size: f32, family: FontFamily) -> Option<f32> {
@@ -76,6 +76,12 @@ mod tests {
         assert_eq!(cache.get("hola", 12.0, FontFamily::Sans), Some(23.0));
         assert_eq!(cache.get("hola", 14.0, FontFamily::Sans), None);
         assert_eq!(cache.get("hola", 12.0, FontFamily::Monospace), None);
+        // Every face measures apart: a bold label is never given a monospace width.
+        for family in [FontFamily::SansItalic, FontFamily::SansMedium, FontFamily::SansBold] {
+            assert_eq!(cache.get("hola", 12.0, family), None);
+        }
+        cache.insert("hola", 12.0, FontFamily::Monospace, 32.0);
+        assert_eq!(cache.get("hola", 12.0, FontFamily::SansBold), None);
         for index in 0..MAX_ENTRIES * 2 {
             cache.insert(&format!("token-{index}"), 12.0, FontFamily::Sans, 40.0);
         }
