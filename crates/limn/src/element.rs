@@ -3417,9 +3417,12 @@ impl Element {
 
     /// Let the pointer drag a horizontal viewport's content sideways, and
     /// show a thin bar where it sits while there is more than fits. The bar
-    /// takes the viewport's foreground; pressing a control inside still
-    /// presses that control. [`Element::scrollbar_visibility`] can make the
-    /// indicator transient without disabling drag input.
+    /// takes the viewport's foreground. A press on a button inside still
+    /// clicks it unless the pointer travels 4 px sideways first: then it
+    /// pans, and the button is not clicked. Let go with speed, the content
+    /// glides on and slows to rest, unless motion is reduced; a press catches
+    /// it. [`Element::scrollbar_visibility`] can make the indicator transient
+    /// without disabling drag input.
     pub fn drag_to_pan(mut self) -> Self {
         if let ElementKind::HorizontalScroll { drag_pan, .. } = &mut self.kind {
             *drag_pan = true;

@@ -175,6 +175,12 @@ Element::horizontal_scroll_2d("shelf", cards)
     .scrollbar_visibility(ScrollbarVisibility::AutoHide { hold_ms: 600, fade_ms: 200 })
 ```
 
+A press anywhere on the viewport pans it, on a button inside too once the
+pointer travels 4 px sideways, and the button is then not clicked; a press
+that does not travel still clicks it. A drag let go with speed glides on and
+slows to rest, unless motion is reduced. [Carousel](carousel.md) is a shelf
+built on it.
+
 Horizontal position changes show it, and an active pointer pan keeps it visible
 until release. Only the indicator's paint hides: the viewport still scrolls,
 drags and dispatches child controls while it is hidden. The indicator overlays

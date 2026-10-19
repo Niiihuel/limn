@@ -11,6 +11,7 @@ mod avatars;
 mod badge;
 mod blocks;
 mod buttons;
+mod carousel;
 mod charts;
 mod checkbox;
 mod chrome;
@@ -171,6 +172,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "framed-card", group: "Layout", title: "FramedCard", source: "surfaces", view: surfaces::view, sections: &["Framed card"], since: "0.1.39" },
     Page { id: "scroll-area", group: "Layout", title: "ScrollArea", source: "surfaces", view: surfaces::view, sections: &["Scroll area", "Column height budgets"], since: "0.1.39" },
     Page { id: "media-tile", group: "Layout", title: "MediaTile", source: "blocks", view: blocks::view, sections: &["Media tile"], since: "0.1.39" },
+    Page { id: "carousel", group: "Layout", title: "Carousel", source: "carousel", view: carousel::view, sections: &[], since: "0.1.43" },
     Page { id: "media-card", group: "Layout", title: "MediaCard", source: "blocks", view: blocks::view, sections: &["Track card"], since: "0.1.39" },
     Page { id: "page-header", group: "Layout", title: "PageHeader", source: "page", view: page::view, sections: &["Page header"], since: "0.1.39" },
     Page { id: "section-header", group: "Layout", title: "SectionHeader", source: "page", view: page::view, sections: &["Section headers"], since: "0.1.39" },
