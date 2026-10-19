@@ -82,6 +82,7 @@ mod message_actions;
 mod pager;
 mod pagination;
 mod panel_header;
+mod peek_panel;
 mod popover_panel;
 mod preferences;
 mod progress;
@@ -96,6 +97,7 @@ mod resize_handle;
 mod separator;
 mod sequence;
 mod shortcut;
+mod side_rail;
 mod skeleton;
 mod slider;
 mod spinner;
@@ -226,6 +228,7 @@ pub use message_actions::{
 pub use pager::{Pager, PagerSizing};
 pub use pagination::Pagination;
 pub use panel_header::{PanelHeaderSizing, PanelHeader, SidebarPanel};
+pub use peek_panel::{PeekPanel, Side};
 pub use popover_panel::{PopoverPanel, PopoverPanelSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
@@ -238,6 +241,7 @@ pub use select::{Select, SelectVariant};
 pub use selector_sizing::SelectorSizing;
 pub use resize_handle::ResizeHandle;
 pub use separator::Separator;
+pub use side_rail::{SideRail, SideRailItem};
 pub use sequence::{
     SequenceArrow, SequenceBlockKind, SequenceBlockLayout, SequenceDiagram, SequenceEvent, SequenceGraph,
     SequenceLayout, SequenceMessage, SequenceMessageLayout, SequenceNoteLayout, SequenceNotePlace,
