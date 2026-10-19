@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- `Element::push_on_hover(id, by)`: as `extend_on_hover`, and the element takes the room it reaches into, so what flows beside it gives way. `PeekPanel` now pushes the main area beside it instead of covering it, as a music app's closed panel does, on either side. See [PeekPanel](docs/components/peek-panel.md)
 - `TopBar::search_popover(dismiss_id, panel)` floats a panel under the search from its start, without taking the keyboard from the field, such as the searches made lately. See [TopBar](docs/components/top-bar.md#a-panel-under-the-search)
 - `SideRail` and `SideRailItem`: a sidebar's library folded into a 72 px column of 48 px pictures, each a button named by its title with a hint to its right that opens at once with the title over a muted second line; a 40 px head button that reports `{id}:expand`, an optional create button (`{id}:create`), `current(id)` and `playing(id)` marks, and items that scroll under the head. On the gallery's SideRail page. See [SideRail](docs/components/side-rail.md)
 - `PeekPanel` and `Side`: a closed side panel as a 40 px strip at the window's edge, rounded where it faces the window, showing the panel's content at its open width behind a veil of 0.9. Under the pointer or the focus it reaches 12 px out on a spring that overshoots, the veil lifts and a chevron lights up; a click, Enter or Space reports its ID. Its content is only painted: its controls take no pointer, focus or reader there. On the gallery's PeekPanel page. See [PeekPanel](docs/components/peek-panel.md)

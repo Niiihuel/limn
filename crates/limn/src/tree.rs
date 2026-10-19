@@ -3186,6 +3186,8 @@ pub struct UiTree {
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
     scalars: RefCell<HashMap<String, AnimatedScalar>>,
     springs: RefCell<HashMap<String, AnimatedSpring>>,
+    /// A pushing reach jumped while placed: the layout it was measured for is stale.
+    pushes_moved: std::cell::Cell<bool>,
     /// The ink of each `animate_foreground` element and when it was seen.
     inks: RefCell<HashMap<String, (ColorTransition, Instant)>>,
     /// The slots each `keep_leaving` column last laid out, in order.
@@ -3270,6 +3272,7 @@ impl UiTree {
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
             springs: RefCell::new(HashMap::new()),
+            pushes_moved: std::cell::Cell::new(false),
             inks: RefCell::new(HashMap::new()),
             leaving: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
@@ -3964,6 +3967,7 @@ impl UiTree {
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
                 springs: &self.springs,
+                pushes_moved: &self.pushes_moved,
                 inks: &self.inks,
                 leaving: &self.leaving,
                 measurement_scope: 0,
@@ -4800,6 +4804,9 @@ impl UiTree {
                 .filter(|region| region.kind == HitKind::Scrollbar)
                 .map(|region| region.id.clone())
         });
+        if self.pushes_moved.replace(false) {
+            return self.layout_at_with_hover_refresh(viewport, now, refresh_hover_paint);
+        }
         // Reconcile pointer state with the new layout: a scroll, navigation,
         // or popover can move the target without any physical pointer motion.
         if let Some(point) = self.pointer {
@@ -6979,6 +6986,7 @@ struct LayoutBuilder<'a> {
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
     springs: &'a RefCell<HashMap<String, AnimatedSpring>>,
+    pushes_moved: &'a std::cell::Cell<bool>,
     inks: &'a RefCell<HashMap<String, (ColorTransition, Instant)>>,
     leaving: &'a RefCell<HashMap<String, (Vec<String>, Instant)>>,
     measurement_scope: u64,
@@ -8981,6 +8989,17 @@ impl LayoutBuilder<'_> {
         if let (Some(expand), Some((id, _))) = (element.animate_height, &element.presence) {
             size.height = self.flow_height(id, expand, size.height);
         }
+        // A pushing reach is room taken: as far as its spring has got.
+        if let Some(kept) = element.kept.as_ref().filter(|kept| kept.extend_pushes) {
+            if let Some((id, by)) = &kept.extend {
+                let length = by.x.abs().max(by.y.abs());
+                if length > 0.0 {
+                    let out = self.springs.borrow().get(&format!("extend/{id}")).map_or(0.0, |state| state.value.value(self.now));
+                    size.width = (size.width + by.x.abs() * out / length).max(0.0);
+                    size.height = (size.height + by.y.abs() * out / length).max(0.0);
+                }
+            }
+        }
         size
     }
 
@@ -9883,11 +9902,23 @@ impl LayoutBuilder<'_> {
             Rect::new(left, top, width.max(0.0), height.max(0.0))
         };
         let key = format!("extend/{id}");
-        let heading = self.springs.borrow().get(&key).map_or(0.0, |state| state.value.target());
+        let pushes = element.kept.as_ref().is_some_and(|kept| kept.extend_pushes);
+        // A pushing reach was laid out already: the box is the room it has taken.
+        let heading = if pushes { 0.0 } else { self.springs.borrow().get(&key).map_or(0.0, |state| state.value.target()) };
         let visible = clip.map_or(Some(reach(heading)), |clip| reach(heading).intersection(clip));
         let held = self.pointer.zip(visible).is_some_and(|(point, visible)| visible.contains(point))
             || holds_reveal(element, self.keyboard_focus, self.focused);
-        reach(self.spring_on(&key, if held { length } else { 0.0 }, bounce_motion()))
+        let measured = self.springs.borrow().get(&key).map_or(0.0, |state| state.value.value(self.now));
+        let out = self.spring_on(&key, if held { length } else { 0.0 }, bounce_motion());
+        if pushes {
+            // Measured before the pointer was known: a jump, as under reduced motion, is laid out again.
+            if (out - measured).abs() > 0.01 {
+                self.pushes_moved.set(true);
+            }
+            rect
+        } else {
+            reach(out)
+        }
     }
 
     /// Record what the platform should know of `element`: what it says of

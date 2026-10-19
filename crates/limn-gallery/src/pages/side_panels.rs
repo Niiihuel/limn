@@ -121,19 +121,15 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             window(cx, vec![main_area(cx, "Main view"), right]),
         ]),
         section(cx, "Peek at the left edge", vec![
-            caption(cx, "On the left the strip reaches over what comes after it, so it is stacked over the window's row."),
-            window(cx, vec![Element::stack(vec![
-                Element::row(vec![Element::spacer().size(Some(40.0), None), main_area(cx, "Main view")]).gap(8.0),
-                Element::row(vec![
-                    PeekPanel::new("side-peek-left", queue(cx, "side-queue-left", Vec::new()), cx.palette)
-                        .side(Side::Left)
-                        .content_width(280.0)
-                        .accessibility_label("Show the library")
-                        .render(),
-                    Element::spacer().flex(1.0),
-                ]),
-            ])
-            .flex(1.0)]),
+            caption(cx, "On either side the strip takes the room it reaches into: the main view gives way."),
+            window(cx, vec![
+                PeekPanel::new("side-peek-left", queue(cx, "side-queue-left", Vec::new()), cx.palette)
+                    .side(Side::Left)
+                    .content_width(280.0)
+                    .accessibility_label("Show the library")
+                    .render(),
+                main_area(cx, "Main view"),
+            ]),
         ]),
     ]
 }

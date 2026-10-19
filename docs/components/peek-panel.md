@@ -60,16 +60,13 @@ px further into the window on a spring that overshoots a little, the veil
 lifts to 0.8 and a small chevron, muted at rest, turns to full ink. The
 pointer over the part it reached keeps it out. Leaving reverses it.
 
-The strip keeps its slot in the layout: the 12 px are painted over what is
-beside it, which must therefore be painted first. On the right that is
-already so in a row. On the left, stack the strip over the row of the
-window:
+The strip takes the room it reaches into, as a music app's does: what is
+beside it in a row gives way, a flexible main area narrowing by the 12 px and
+keeping its gap from the strip, instead of being covered. Put it in a row
+beside the main area, on either side:
 
 ```rust
-Element::stack(vec![
-    Element::row(vec![Element::spacer().size(Some(40.0), None), main_view]).gap(8.0),
-    Element::row(vec![peek.side(Side::Left).render(), Element::spacer().flex(1.0)]),
-])
+Element::row(vec![main_view.flex(1.0), peek.render()]).gap(8.0)
 ```
 
 ## Keyboard
@@ -81,7 +78,7 @@ Element::stack(vec![
 
 ## Motion
 
-The reach is the tree's: an `Element::extend_on_hover` spring with a
+The reach is the tree's: an `Element::push_on_hover` spring with a
 damping ratio of 0.6, which overshoots by about a tenth and settles within
 three `move_ms`. The veil and the chevron fade over `enter_ms` and
 `exit_ms`. With reduced motion the strip reaches out and back at once.
