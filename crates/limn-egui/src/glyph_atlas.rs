@@ -71,6 +71,8 @@ struct DrawnRun {
     /// Held, so no other run takes this one's address while it is kept.
     _glyphs: Arc<[Glyph]>,
     meshes: Vec<Arc<egui::Mesh>>,
+    /// The last frame it was drawn in.
+    frame: u64,
 }
 
 #[derive(Default)]
@@ -85,7 +87,6 @@ struct Atlas {
     /// Runs drawn this frame and the one before, reused while they stay put,
     /// as egui reuses a galley.
     drawn: HashMap<MeshKey, DrawnRun>,
-    drawn_before: HashMap<MeshKey, DrawnRun>,
     frame: u64,
     /// How many times the pages were started again.
     restarts: u64,
@@ -130,7 +131,9 @@ pub(crate) fn paint(painter: &egui::Painter, run: &GlyphRun, origin: Pos2, displ
         atlas.attach(painter.ctx(), (options.color_transfer_function, options.font_hinting));
         let frame = painter.ctx().cumulative_frame_nr();
         if frame != atlas.frame {
-            atlas.drawn_before = std::mem::take(&mut atlas.drawn);
+            // What the frame before did not draw is not drawn again.
+            let last = atlas.frame;
+            atlas.drawn.retain(|_, run| run.frame == last);
             atlas.frame = frame;
         }
         let place = MeshKey {
@@ -140,17 +143,10 @@ pub(crate) fn paint(painter: &egui::Painter, run: &GlyphRun, origin: Pos2, displ
             pixels_per_point: pixels_per_point.to_bits(),
             ink: ink.to_array(),
         };
-        let kept = match atlas.drawn.get(&place) {
-            Some(kept) => Some(kept.meshes.clone()),
-            None => atlas.drawn_before.remove(&place).map(|kept| {
-                let meshes = kept.meshes.clone();
-                atlas.drawn.insert(place, kept);
-                meshes
-            }),
-        };
-        if let Some(meshes) = kept {
-            for mesh in meshes {
-                painter.add(egui::Shape::Mesh(mesh));
+        if let Some(kept) = atlas.drawn.get_mut(&place) {
+            kept.frame = frame;
+            for mesh in &kept.meshes {
+                painter.add(egui::Shape::Mesh(mesh.clone()));
             }
             return;
         }
@@ -213,7 +209,7 @@ pub(crate) fn paint(painter: &egui::Painter, run: &GlyphRun, origin: Pos2, displ
         }
         // A run whose glyphs started the pages again holds some of the old ones.
         if atlas.restarts == restarts {
-            atlas.drawn.insert(place, DrawnRun { _glyphs: run.glyphs.clone(), meshes });
+            atlas.drawn.insert(place, DrawnRun { _glyphs: run.glyphs.clone(), meshes, frame });
         }
     });
 }
@@ -317,7 +313,6 @@ impl Atlas {
                 self.glyphs.clear();
                 self.hinting.clear();
                 self.drawn.clear();
-                self.drawn_before.clear();
                 self.restarts += 1;
             }
             let ctx = self.context.clone()?;
