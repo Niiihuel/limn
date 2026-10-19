@@ -8338,10 +8338,146 @@ impl LayoutBuilder<'_> {
         let layout = self.laid_out_text(value, style, content.width, style.center_content);
         let origin = Point::new(content.x, content.y);
         let block_index = self.frame.text_blocks.len();
+        let runs = self.paint_layout(&layout, value, origin, style, clip, block_index);
+        self.frame.text_blocks.push(SelectableTextBlock {
+            source: value.to_owned(),
+            runs,
+            region_layer: self.frame.regions.len(),
+            layout: Some(PlacedText { layout, origin }),
+        });
+    }
+
+    /// One hint for a run, over its part under the pointer, or its first
+    /// part for the keyboard. Another text with a run of the same target,
+    /// such as one action twice, shows none.
+    fn show_text_hints(&mut self, hints: &[(String, Rect, TextHint)]) {
+        let mut shown = HashSet::new();
+        for (id, _, hint) in hints {
+            // A run's hint waits as long as a `Tooltip` waits by default.
+            self.observed_tooltips.insert(id.clone(), TOOLTIP_HOVER_DELAY);
+            let Some(keyboard) = self.hint_due(id, TOOLTIP_HOVER_DELAY) else {
+                continue;
+            };
+            if !shown.insert(id.as_str()) {
+                continue;
+            }
+            let mut parts = hints
+                .iter()
+                .filter(|(other, ..)| other == id)
+                .map(|(_, rect, _)| *rect);
+            let pointer = self.pointer;
+            let anchor = if keyboard {
+                parts.next()
+            } else {
+                parts.find(|rect| pointer.is_some_and(|pointer| rect.contains(pointer)))
+            };
+            let Some(anchor) = anchor else {
+                continue;
+            };
+            self.overlays.push_back(DeferredOverlay::Tooltip {
+                anchor,
+                title: hint.title.clone(),
+                shortcut: None,
+                sections: Vec::new(),
+                max_width: 360.0,
+                placement: TooltipPlacement::Above,
+                colors: hint.colors,
+                options: TooltipOptions::default(),
+            });
+        }
+    }
+
+    /// Formatted text as laid out for this tree, broken at `width` when it
+    /// is finite and cut to the style's limit of lines.
+    fn laid_out_formatted(&self, spans: &[TextSpan], style: Style, width: f32) -> crate::TextLayout {
+        // The paragraph's least line height, as the measured path takes it.
+        let least = self.metrics_for(style).line_height.max(style.line_height.unwrap_or(0.0));
+        let paragraph = crate::TextStyle::new(style.font_size, style.font_family).line_height(least);
+        self.layout_cache.borrow_mut().formatted(spans, paragraph, width, style.max_lines)
+    }
+
+    /// Paint formatted text laid out in a `TextLayout`: its spans' targets
+    /// and hints, its selection, what it draws, its actions' focus and hover
+    /// marks, and the selectable block a pointer reads it back from.
+    fn paint_laid_out_formatted(&mut self, spans: &[TextSpan], content: Rect, style: Style, clip: Option<Rect>) {
+        let layout = self.laid_out_formatted(spans, style, content.width);
+        let origin = Point::new(content.x, content.y);
+        let at = |area: Rect| Rect::new(origin.x + area.x, origin.y + area.y, area.width, area.height);
+        let source: String = spans.iter().map(|span| span.text.as_str()).collect();
+        let block_index = self.frame.text_blocks.len();
+        let region_layer = self.frame.regions.len();
+        // Each part of a span with an action or a hint, on every line it runs onto.
+        let mut hints: Vec<(String, Rect, TextHint)> = Vec::new();
+        for (index, span) in spans.iter().enumerate() {
+            if span.text.is_empty() || (span.action.is_none() && span.tooltip.is_none()) {
+                continue;
+            }
+            for bounds in layout.span_bounds(index).into_iter().map(at) {
+                if let Some(id) = &span.action {
+                    self.record_inline_focus_target(id, bounds);
+                    self.add_region(id, bounds, HitKind::Button, clip);
+                }
+                if let Some(hint) = &span.tooltip {
+                    // A run without an action is a passive target named after
+                    // its text and its hint, so another text with the same
+                    // hint is another target.
+                    let id = span.action.clone().unwrap_or_else(|| {
+                        let id = format!("{TEXT_HINT_PREFIX}{block_index}:{}", hint.title);
+                        self.add_region(&id, bounds, HitKind::Hover, clip);
+                        id
+                    });
+                    hints.push((id, bounds, hint.clone()));
+                }
+            }
+        }
+        let runs = self.paint_layout(&layout, &source, origin, style, clip, block_index);
+        for (index, span) in spans.iter().enumerate() {
+            let Some(id) = span.action.as_deref() else {
+                continue;
+            };
+            let focused = self.keyboard_focus && self.focused == Some(id);
+            let hovered = self.hovered == Some(id);
+            if !focused && !hovered {
+                continue;
+            }
+            for bounds in layout.span_bounds(index).into_iter().map(at) {
+                if focused {
+                    self.draw_focus_ring(bounds, style);
+                }
+                if hovered {
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect: Rect::new(bounds.x, bounds.y + bounds.height - 1.0, bounds.width, 1.0),
+                        color: span.color,
+                        radius: 0.0,
+                    });
+                }
+            }
+        }
+        self.frame.text_blocks.push(SelectableTextBlock {
+            source,
+            runs,
+            region_layer,
+            layout: Some(PlacedText { layout, origin }),
+        });
+        self.show_text_hints(&hints);
+    }
+
+    /// What every text laid out in a `TextLayout` paints: its selection under
+    /// it, then what the layout draws. Gives its lines as selectable runs of
+    /// `source`.
+    fn paint_layout(
+        &mut self,
+        layout: &crate::TextLayout,
+        source: &str,
+        origin: Point,
+        style: Style,
+        clip: Option<Rect>,
+        block_index: usize,
+    ) -> Vec<SelectableTextRun> {
         let mut runs = Vec::new();
         let mut start = 0;
         for line in layout.lines() {
-            let held = &value[line.range.clone()];
+            let held = &source[line.range.clone()];
             // A line's own text; the break that ends it is the source's.
             let shown = held.strip_suffix('\n').map_or(held, |line| line.strip_suffix('\r').unwrap_or(line));
             let rect = Rect::new(origin.x + line.rect.x, origin.y + line.rect.y, line.rect.width, line.rect.height);
@@ -8359,10 +8495,10 @@ impl LayoutBuilder<'_> {
         }
         if let Some((from, to)) = self
             .selection
-            .filter(|selection| selection.block == block_index && selection.source == value)
+            .filter(|selection| selection.block == block_index && selection.source == source)
             .and_then(|selection| selection.range())
         {
-            let byte = |offset: usize| value.char_indices().nth(offset).map_or(value.len(), |(byte, _)| byte);
+            let byte = |offset: usize| source.char_indices().nth(offset).map_or(source.len(), |(byte, _)| byte);
             for rect in layout.selection(byte(from)..byte(to)) {
                 self.frame.commands.push(DrawCommand::FillRect {
                     rect: Rect::new(origin.x + rect.x, origin.y + rect.y, rect.width, rect.height),
@@ -8372,12 +8508,7 @@ impl LayoutBuilder<'_> {
             }
         }
         self.frame.commands.extend(layout.draw(origin, style.foreground));
-        self.frame.text_blocks.push(SelectableTextBlock {
-            source: value.to_owned(),
-            runs,
-            region_layer: self.frame.regions.len(),
-            layout: Some(PlacedText { layout, origin }),
-        });
+        runs
     }
 
     fn paint_static_run(
@@ -9547,6 +9678,10 @@ impl LayoutBuilder<'_> {
                     if natural.width <= budget { natural.width + padding } else { 0.0 },
                     natural.height + padding,
                 )
+            }
+            ElementKind::FormattedText(spans) if self.text_layout => {
+                let size = self.laid_out_formatted(spans, style, wrap_width).size();
+                Size::new(size.width + padding, size.height + padding)
             }
             ElementKind::FormattedText(spans) => {
                 let lines = self.formatted_lines(spans, wrap_width, style);
@@ -11156,6 +11291,9 @@ impl LayoutBuilder<'_> {
                     source_char += count;
                 }
             }
+            ElementKind::FormattedText(spans) if self.text_layout => {
+                self.paint_laid_out_formatted(spans, content, style, clip);
+            }
             ElementKind::FormattedText(spans) => {
                 let source = spans
                     .iter()
@@ -11391,43 +11529,7 @@ impl LayoutBuilder<'_> {
                     }
                     y += line.height;
                 }
-                // One hint for a run, over its part under the pointer, or
-                // its first part for the keyboard. Another text with a run of
-                // the same target, such as one action twice, shows none.
-                let mut shown = HashSet::new();
-                for (id, _, hint) in &hints {
-                    // A run's hint waits as long as a `Tooltip` waits by default.
-                    self.observed_tooltips.insert(id.clone(), TOOLTIP_HOVER_DELAY);
-                    let Some(keyboard) = self.hint_due(id, TOOLTIP_HOVER_DELAY) else {
-                        continue;
-                    };
-                    if !shown.insert(id.as_str()) {
-                        continue;
-                    }
-                    let mut parts = hints
-                        .iter()
-                        .filter(|(other, ..)| other == id)
-                        .map(|(_, rect, _)| *rect);
-                    let pointer = self.pointer;
-                    let anchor = if keyboard {
-                        parts.next()
-                    } else {
-                        parts.find(|rect| pointer.is_some_and(|pointer| rect.contains(pointer)))
-                    };
-                    let Some(anchor) = anchor else {
-                        continue;
-                    };
-                    self.overlays.push_back(DeferredOverlay::Tooltip {
-                        anchor,
-                        title: hint.title.clone(),
-                        shortcut: None,
-                        sections: Vec::new(),
-                        max_width: 360.0,
-                        placement: TooltipPlacement::Above,
-                        colors: hint.colors,
-                        options: TooltipOptions::default(),
-                    });
-                }
+                self.show_text_hints(&hints);
             }
             ElementKind::RasterImage(image) => {
                 self.frame.commands.push(DrawCommand::RasterImage {
@@ -12746,6 +12848,18 @@ impl LayoutBuilder<'_> {
             clip
         };
         match &element.kind {
+            ElementKind::FormattedText(spans) if self.text_layout => {
+                let probe = spans.iter().enumerate().find_map(|(index, span)| {
+                    span.action.as_deref().filter(|id| Some(*id) == self.focus_probe).map(|id| (index, id))
+                });
+                if let Some((index, id)) = probe {
+                    let layout = self.laid_out_formatted(spans, style, content.width);
+                    if let Some(bounds) = layout.span_bounds(index).first() {
+                        let bounds = Rect::new(content.x + bounds.x, content.y + bounds.y, bounds.width, bounds.height);
+                        self.record_inline_focus_target(id, bounds);
+                    }
+                }
+            }
             ElementKind::FormattedText(spans) => {
                 let mut y = content.y;
                 for line in self.formatted_lines(spans, content.width, style).iter() {

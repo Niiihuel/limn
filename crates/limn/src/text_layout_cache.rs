@@ -5,7 +5,7 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use crate::{TextLayout, TextStyle};
+use crate::{InlineImage, TextLayout, TextSpan, TextStyle};
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct Key {
@@ -34,10 +34,55 @@ impl Key {
     }
 }
 
+/// A formatted text's key: its spans, its paragraph, the width it is broken
+/// at and its limit of lines.
+#[derive(Clone, Copy, Eq, Hash, PartialEq)]
+struct FormattedKey {
+    spans: u64,
+    paragraph: Key,
+    max_lines: Option<usize>,
+}
+
+/// A formatted layout and the spans it was made from, to tell spans with one
+/// hash apart.
+struct Formatted {
+    spans: Vec<TextSpan>,
+    layout: TextLayout,
+}
+
+/// Everything about spans that changes how they are laid out or drawn.
+fn hash_spans(spans: &[TextSpan]) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    spans.len().hash(&mut hasher);
+    for span in spans {
+        span.text.hash(&mut hasher);
+        span.font_size.to_bits().hash(&mut hasher);
+        (span.font_family as u8).hash(&mut hasher);
+        [span.color.r, span.color.g, span.color.b, span.color.a].hash(&mut hasher);
+        span.background.map(|color| [color.r, color.g, color.b, color.a]).hash(&mut hasher);
+        span.icon.hash(&mut hasher);
+        (span.underline, span.strikethrough).hash(&mut hasher);
+        match &span.image {
+            None => 0_u8.hash(&mut hasher),
+            Some(InlineImage::Raster(image)) => {
+                1_u8.hash(&mut hasher);
+                image.sha256().hash(&mut hasher);
+            }
+            Some(InlineImage::Surface(id)) => {
+                2_u8.hash(&mut hasher);
+                id.hash(&mut hasher);
+            }
+        }
+    }
+    hasher.finish()
+}
+
 #[derive(Default)]
 pub(crate) struct TextLayoutCache {
     current: HashMap<Key, TextLayout>,
     previous: HashMap<Key, TextLayout>,
+    formatted: HashMap<FormattedKey, Formatted>,
+    formatted_before: HashMap<FormattedKey, Formatted>,
     /// The fonts the layouts were made with.
     fonts: u64,
 }
@@ -49,9 +94,39 @@ impl TextLayoutCache {
         let fonts = crate::fonts::generation();
         if fonts != self.fonts {
             self.current.clear();
+            self.formatted.clear();
             self.fonts = fonts;
         }
         self.previous = std::mem::take(&mut self.current);
+        self.formatted_before = std::mem::take(&mut self.formatted);
+    }
+
+    /// Formatted `spans` set over `paragraph`, broken into lines no wider
+    /// than `width` when it is finite, and cut to `max_lines` when given.
+    pub(crate) fn formatted(
+        &mut self,
+        spans: &[TextSpan],
+        paragraph: TextStyle,
+        width: f32,
+        max_lines: Option<usize>,
+    ) -> TextLayout {
+        let finite = width.is_finite().then(|| width.max(0.0));
+        let key = FormattedKey { spans: hash_spans(spans), paragraph: Key::new("", paragraph, finite, false), max_lines };
+        if let Some(found) = self.formatted.get(&key).filter(|found| found.spans == spans) {
+            return found.layout.clone();
+        }
+        if let Some(found) = self.formatted_before.remove(&key).filter(|found| found.spans == spans) {
+            let layout = found.layout.clone();
+            self.formatted.insert(key, found);
+            return layout;
+        }
+        let layout = match (finite, max_lines) {
+            (None, None) => TextLayout::formatted(spans, paragraph),
+            (_, None) => self.formatted(spans, paragraph, f32::INFINITY, None).wrapped(width),
+            (_, Some(lines)) => self.formatted(spans, paragraph, width, None).max_lines(lines),
+        };
+        self.formatted.insert(key, Formatted { spans: spans.to_vec(), layout: layout.clone() });
+        layout
     }
 
     /// `text` set in `style`, broken into lines no wider than `width` when it

@@ -36,13 +36,15 @@ impl FormattedTextCache {
         for span in spans {
             span.text.hash(&mut hash);
             span.font_size.to_bits().hash(&mut hash);
-            u8::from(span.font_family == super::FontFamily::Sans).hash(&mut hash);
+            (span.font_family as u8).hash(&mut hash);
             [span.color.r, span.color.g, span.color.b, span.color.a].hash(&mut hash);
             span.background
                 .map(|color| [color.r, color.g, color.b, color.a])
                 .hash(&mut hash);
             span.action.hash(&mut hash);
             span.icon.hash(&mut hash);
+            (span.underline, span.strikethrough).hash(&mut hash);
+            span.tooltip.as_ref().map(|hint| &hint.title).hash(&mut hash);
             match &span.image {
                 None => 0_u8.hash(&mut hash),
                 Some(InlineImage::Raster(image)) => {
