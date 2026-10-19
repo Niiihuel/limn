@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- Hover, measured: `Element::dim_on_hover(id, opacity)` fades an element down to `opacity` (clamped to 0–1; not finite is ignored) while the pointer is over the `hover_region` around it instead of away, as `conceal_on_hover` does, such as a decoration over a card that lets its text read; `Element::hover_region_id(id)` names a `hover_region`, and `UiTree::hovered_region()` reports the innermost named one under the pointer as of the last layout, such as the message whose text the pointer is over, none while a popover, a dialog's backdrop or a context menu lies over it. On the gallery's List page, "Layers in the same space" shows a dimmed layer and the row under the pointer. See [Animation](docs/animation.md#which-row-the-pointer-is-on)
 - `CodeEditor` view options: `show_whitespace` marks spaces with `·` and tabs with `→`; `rulers` draws up to 16 column guides; `caret_style` takes a `CaretStyle` (`Line`, `Block`, `Underline`; Vim's Normal mode keeps its block); `caret_blink(false)` keeps the caret shown; `indent_guides(false)` and `highlight_current_line(false)` turn off what was always drawn. Defaults keep today's look
 - `limn-editor::TextBuffer::trim_trailing_whitespace`: removes the spaces and tabs ending each line as one undo step, keeping line terminators and every selection's place in its line
 - Bar, column and line charts whose values are all whole numbers get whole ticks: a count of 1 no longer shows a 0.5 tick

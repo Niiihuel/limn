@@ -140,6 +140,10 @@ impl eframe::App for Host {
             if self.state.text("hovered") != hovered {
                 self.state.set("hovered", &hovered);
             }
+            let region = self.tree.hovered_region().unwrap_or_default().to_owned();
+            if self.state.text("hovered-region") != region {
+                self.state.set("hovered-region", &region);
+            }
         }
         self.tree.set_root(hot(|| app::view(&self.state, window)));
         self.tree.layout(window);
