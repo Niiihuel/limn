@@ -1,7 +1,7 @@
 # Tokens
 
-Reference for the values that define the library's shape and pace. For color,
-see [Theming](theming.md).
+Reference for the values that define the library's shape and pace, and the
+one look a host may give every tooltip. For color, see [Theming](theming.md).
 
 ## Setting tokens
 
@@ -11,6 +11,7 @@ use limn::{set_tokens, tokens, Motion, Radius, Tokens};
 set_tokens(Tokens {
     radius: Radius::DEFAULT.scaled(1.5),
     motion: Motion::DEFAULT,
+    ..Tokens::DEFAULT
 });
 
 let current = tokens(); // read them back
@@ -94,6 +95,31 @@ or its own entrance duration, whichever is shorter.
 | The crossfade when a popover changes content | Fixed. |
 | The delay before a tooltip appears | Fixed at 350 ms. |
 | Easing curves | Fixed. |
+
+## Tooltip
+
+Each palette derives its tooltips' colors. `tooltip: Some(style)` paints
+every tooltip with one `TooltipStyle` instead, whichever palette its control
+was built with, such as a music app's:
+
+```rust
+use limn::{set_tokens, Color, Tokens, TooltipStyle};
+
+set_tokens(Tokens {
+    tooltip: Some(TooltipStyle {
+        background: Color::rgb(40, 40, 40),
+        border: Color::TRANSPARENT, // no outline
+        keycap: Color::rgb(62, 62, 62),
+        text: Color::WHITE,
+        muted: Color::rgb(179, 179, 179),
+        shadow: Color::rgba(0, 0, 0, 128),
+    }),
+    ..Tokens::DEFAULT
+});
+```
+
+`None`, the default, leaves each palette its own. A tooltip given its own
+`background` keeps it.
 
 ## Per-component overrides
 

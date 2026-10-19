@@ -90,6 +90,21 @@ fn the_rail_is_72_wide_with_48_pictures_inset_8_in_items_4_from_its_edges() {
 }
 
 #[test]
+fn the_head_draws_the_host_s_own_glyphs() {
+    let frame = tree(full(1).library_icon(Icon::Folder).create_icon(Icon::Heart)).layout(WINDOW);
+    let drawn: Vec<Icon> = frame
+        .commands
+        .iter()
+        .filter_map(|command| match command {
+            DrawCommand::Icon { icon, .. } => Some(*icon),
+            _ => None,
+        })
+        .collect();
+    assert!(drawn.contains(&Icon::Folder) && drawn.contains(&Icon::Heart), "{drawn:?}");
+    assert!(!drawn.contains(&Icon::Library) && !drawn.contains(&Icon::Add), "{drawn:?}");
+}
+
+#[test]
 fn a_picture_fills_its_square_and_a_person_is_round() {
     let picture = || {
         let image = crate::RasterImage::new("a".repeat(64), crate::RasterImageFormat::Png, 4, std::sync::Arc::from("AAAA"), "A cover").unwrap();
