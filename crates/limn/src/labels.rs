@@ -81,6 +81,12 @@ pub struct Labels {
     pub previous_change: &'static str,
     /// A code review.
     pub next_change: &'static str,
+    /// A window's own title bar.
+    pub minimize: &'static str,
+    /// A window's own title bar.
+    pub maximize: &'static str,
+    /// A window's own title bar, while the window is maximized.
+    pub restore: &'static str,
     /// A code review: discard the change.
     pub undo: &'static str,
     /// A code review: accept the change.
@@ -233,6 +239,9 @@ impl Labels {
         preview_unavailable: "Preview unavailable",
         previous_change: "Previous change",
         next_change: "Next change",
+        minimize: "Minimize",
+        maximize: "Maximize",
+        restore: "Restore",
         undo: "Undo",
         keep: "Keep",
         review_unavailable: "Review is not available for this version.",
@@ -329,6 +338,9 @@ impl Labels {
         preview_unavailable: "Vista previa no disponible",
         previous_change: "Cambio anterior",
         next_change: "Cambio siguiente",
+        minimize: "Minimizar",
+        maximize: "Maximizar",
+        restore: "Restaurar",
         undo: "Deshacer",
         keep: "Conservar",
         review_unavailable: "La revisión no está disponible para esta versión.",

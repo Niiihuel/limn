@@ -20,6 +20,7 @@ mod context;
 mod dates;
 mod description;
 mod diagrams;
+mod drawing;
 mod editor;
 mod empty;
 mod feedback;
@@ -43,6 +44,7 @@ mod radio;
 mod scheme;
 mod surfaces;
 mod table;
+mod text_layout;
 mod toggle;
 mod tokens;
 mod toolbar;
@@ -114,6 +116,8 @@ pub const PAGES: &[Page] = &[
     Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Inline pictures", "Long text", "Soft focus", "Unicode fallback", "Monochrome emoji"], since: "0.1.39" },
     Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"], since: "0.1.39" },
     Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings"], since: "0.1.39" },
+    Page { id: "drawing", group: "System", title: "Drawing", source: "drawing", view: drawing::view, sections: &[], since: "0.1.44" },
+    Page { id: "text-layout", group: "System", title: "TextLayout", source: "text_layout", view: text_layout::view, sections: &[], since: "0.1.44" },
     Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
     Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"], since: "0.1.39" },
     Page { id: "toolbar", group: "Actions", title: "Toolbar", source: "toolbar", view: toolbar::view, sections: &[], since: "0.1.41" },
@@ -149,6 +153,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "pagination", group: "Navigation", title: "Pagination", source: "pagination", view: pagination::view, sections: &[], since: "0.1.41" },
     Page { id: "menu-bar", group: "Navigation", title: "MenuBar", source: "chrome", view: chrome::view, sections: &["Menu bar"], since: "0.1.39" },
     Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"], since: "0.1.39" },
+    Page { id: "window-controls", group: "Navigation", title: "WindowControls", source: "chrome", view: chrome::view, sections: &["Window controls"], since: "0.1.44" },
     Page { id: "glass", group: "Navigation", title: "NavigationBar", source: "glass", view: glass::view, sections: &[], since: "0.1.39" },
     Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[], since: "0.1.39" },
     Page { id: "tree-row", group: "Data", title: "TreeRow", source: "surfaces", view: surfaces::view, sections: &["Tree rows"], since: "0.1.39" },

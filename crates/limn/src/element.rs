@@ -1,4 +1,4 @@
-use crate::{Color, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, DrawCommand, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -1228,6 +1228,23 @@ pub struct RadarPlot {
     pub tooltip: TooltipStyle,
 }
 
+/// What [`Element::drawing`] keeps: the application's own drawing, made again
+/// at the size the element is laid out at.
+#[derive(Clone)]
+pub struct Drawing(Arc<dyn Fn(Size) -> Vec<DrawCommand> + Send + Sync>);
+
+impl Drawing {
+    pub(crate) fn draw(&self, size: Size) -> Vec<DrawCommand> {
+        (self.0)(size)
+    }
+}
+
+impl std::fmt::Debug for Drawing {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("Drawing")
+    }
+}
+
 /// A column of short marks, one for each part of a long view, such as the
 /// turns of a conversation. The mark under the pointer or the keyboard focus
 /// grows to `peak` and its neighbours step down to `rest` over `reach` marks,
@@ -1681,6 +1698,8 @@ pub enum ElementKind {
     HeatPlot(Box<HeatPlot>),
     /// A column of marks that rise around the pointer; see [`MarkRail`].
     MarkRail(MarkRail),
+    /// The application's own drawing; see [`Element::drawing`].
+    Drawing(Drawing),
     /// Nothing of its own to draw and no natural size; see
     /// [`Element::spacer`].
     Spacer,
@@ -3127,6 +3146,18 @@ impl Element {
     /// see [`MarkRail`].
     pub fn mark_rail(rail: MarkRail) -> Self {
         Self::new(ElementKind::MarkRail(rail))
+    }
+
+    /// A drawing the application makes itself, in the frame's own commands.
+    /// `draw` is given the size the element is laid out at, inside its
+    /// padding, and returns commands placed from that box's top-left corner;
+    /// the tree moves them into place and clips them to the box. Clips the
+    /// drawing pushes and does not pop are popped at its end, and pops it has
+    /// no push for are left out. Give it a size: alone it takes no height,
+    /// and only the width a column stretches it to. A drawing is passive;
+    /// wrap it in [`Element::clickable`] to press it.
+    pub fn drawing(draw: impl Fn(Size) -> Vec<DrawCommand> + Send + Sync + 'static) -> Self {
+        Self::new(ElementKind::Drawing(Drawing(Arc::new(draw))))
     }
 
     /// A non-interactive loading surface with paint-only motion.
