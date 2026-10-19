@@ -138,6 +138,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .size(Some(120.0), Some(84.0)),
             )
             .accessibility_label("Open the animation")]),
+            caption(cx, ".surface_mirrored(true): the same pixels flipped left to right, as a camera's preview is shown to the person in front of it; the band of light runs the other way."),
+            row(vec![Element::surface(ANIMATION, "A band of light, mirrored")
+                .surface_fit(SurfaceFit::Cover)
+                .surface_mirrored(true)
+                .radius(RadiusRole::Surface.px())
+                .size(Some(120.0), Some(84.0))]),
             outline("clear-image-cache", "Reload image cache"),
             caption(cx, "The native host clears cached textures and pending decodes. Visible pictures are requested again on the next paint pass."),
             caption(cx, "Without a picture the viewer waits with a spinner, or shows the error the host gives it."),

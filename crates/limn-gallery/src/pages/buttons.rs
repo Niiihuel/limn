@@ -138,6 +138,20 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .image(super::media::picture(0))
                     .render(),
             ]),
+            caption(cx, "A surface the host plays in the same place, such as an animated custom emoji; a reduced-motion host shows the still picture instead."),
+            row(vec![
+                Button::new("button-surface", "Tide", palette).surface(super::media::ANIMATION).render(),
+                Button::new("button-surface-disabled", "Tide", palette)
+                    .variant(ButtonVariant::Secondary)
+                    .surface(super::media::ANIMATION)
+                    .disabled()
+                    .render(),
+                Button::new("button-surface-alone", "", palette)
+                    .variant(ButtonVariant::Ghost)
+                    .surface(super::media::ANIMATION)
+                    .accessibility_label("Tide")
+                    .render(),
+            ]),
         ]),
         section(cx, "Clipboard", vec![
             caption(cx, "The icon becomes a checkmark while the host reports it (1.5 s with `ClipboardCopied`), and a toast announces it. Clicking here toggles it."),

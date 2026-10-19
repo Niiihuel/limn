@@ -600,6 +600,8 @@ fn alt_and_slash_shortcuts_match_only_with_their_modifiers() {
             ContextMenuEntry::Item(ContextMenuItem::new("doc:back", "Back").shortcut("Alt+E")),
             ContextMenuEntry::Item(ContextMenuItem::new("doc:keys", "Shortcuts").shortcut("Ctrl+/")),
             ContextMenuEntry::Item(ContextMenuItem::new("doc:find", "Find").shortcut("Ctrl+F")),
+            ContextMenuEntry::Item(ContextMenuItem::new("doc:first", "First").shortcut("Ctrl+1")),
+            ContextMenuEntry::Item(ContextMenuItem::new("doc:smaller", "Smaller").shortcut("Ctrl+-")),
         ],
         ComponentPalette::neutral_dark(),
     )
@@ -617,6 +619,9 @@ fn alt_and_slash_shortcuts_match_only_with_their_modifiers() {
     assert_eq!(press(Key::F, true, false), clicked("doc:find"));
     // Alt held is a different chord, not the one without it.
     assert!(press(Key::F, true, true).is_empty());
+    // A digit or punctuation is written as it is typed.
+    assert_eq!(press(Key::Num1, true, false), clicked("doc:first"));
+    assert_eq!(press(Key::Minus, true, false), clicked("doc:smaller"));
 }
 
 #[test]

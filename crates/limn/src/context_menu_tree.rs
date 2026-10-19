@@ -819,9 +819,7 @@ fn shortcut_matches(shortcut: &str, key: Key, shift: bool, ctrl: bool, alt: bool
     shortcut_ctrl == ctrl
         && shortcut_shift == shift
         && shortcut_alt == alt
-        && shortcut_key.is_some_and(|part| {
-            part.eq_ignore_ascii_case(&format!("{key:?}")) || (part == "/" && key == Key::Slash)
-        })
+        && shortcut_key.is_some_and(|part| Key::from_name(part) == Some(key))
 }
 
 fn text_entries(copy: bool, cut: bool, paste: bool, select_all: bool) -> Vec<ContextMenuEntry> {

@@ -66,6 +66,11 @@ out of reach, and `destructive` draws it in an ink of the host's.
 `tooltip_with(TooltipSpec)` adds a hint. `description` and the two-line row
 are in [Catalog menus](picker.md).
 
+`image(picture)` draws a picture in the icon's slot, in place of any icon,
+at most 16 px on a side and untinted, and `surface(id)` a host-fed surface
+there, fitted inside and named by the label, for an animation the host
+presents. Both keep the slot for the menu's other rows.
+
 ## Check boxes and radio items
 
 ```rust

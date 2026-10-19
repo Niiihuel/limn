@@ -1932,6 +1932,7 @@ fn paint_at_impl(
                 opacity,
                 fit,
                 radius,
+                mirrored,
             } => {
                 let area = rect(origin, *area);
                 let response = ui.interact(
@@ -1945,21 +1946,29 @@ fn paint_at_impl(
                 let painter = ui
                     .painter()
                     .with_clip_rect(clips.last().unwrap().intersect(area));
+                let whole = EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                // A mirror reads the texture from its right edge to its left.
+                let mirror = |uv: EguiRect| {
+                    if *mirrored {
+                        EguiRect::from_min_max(Pos2::new(uv.max.x, uv.min.y), Pos2::new(uv.min.x, uv.max.y))
+                    } else {
+                        uv
+                    }
+                };
                 if let Some(backdrop) = backdrop_surface.filter(|backdrop| backdrop.id == id) {
                     painter.image(
                         backdrop.texture,
                         backdrop.rect,
-                        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                        mirror(whole),
                         Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
                     );
                 } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
-                    let whole = EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-                    let placed = match fit {
+                    let (target, uv) = match fit {
                         limn::SurfaceFit::Contain => (contain(area, pixels), whole),
                         limn::SurfaceFit::Cover => (area, cover_uv(area, pixels)),
                         limn::SurfaceFit::Native => (surface_rect(area, pixels, density, ui.ctx().pixels_per_point()), whole),
                     };
-                    paint_texture(&painter, texture, placed, *radius, round, *opacity, true);
+                    paint_texture(&painter, texture, (target, mirror(uv)), *radius, round, *opacity, true);
                 }
             }
             DrawCommand::ProgressRing {
@@ -2060,7 +2069,9 @@ pub struct IndexedUiEvent {
 /// Translate this frame's egui input into limn events, with pointer positions made
 /// relative to `origin`. A primary press with Alt, Ctrl or Command held, or a double or
 /// triple click, becomes `PointerDownEditor`; wheel input is dropped while the pointer is
-/// outside the window; only the keys limn knows are forwarded, with Command counted as Ctrl.
+/// outside the window; only the keys limn knows are forwarded, with Command counted as Ctrl,
+/// each press as `Key` and each release as `KeyReleased`. egui's own keys for the modifiers
+/// are not forwarded: a change of the modifiers held becomes `ModifiersChanged`.
 /// This is the event-only projection of [`events_indexed`].
 pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
     events_indexed(ctx, origin)
@@ -2317,63 +2328,7 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                     modifiers,
                     ..
                 } => {
-                    let mapped = match key {
-                        egui::Key::Escape => Some(Key::Escape),
-                        egui::Key::F1 => Some(Key::F1),
-                        egui::Key::F2 => Some(Key::F2),
-                        egui::Key::F3 => Some(Key::F3),
-                        egui::Key::F4 => Some(Key::F4),
-                        egui::Key::F5 => Some(Key::F5),
-                        egui::Key::F6 => Some(Key::F6),
-                        egui::Key::F7 => Some(Key::F7),
-                        egui::Key::F8 => Some(Key::F8),
-                        egui::Key::Slash => Some(Key::Slash),
-                        egui::Key::F9 => Some(Key::F9),
-                        egui::Key::F10 => Some(Key::F10),
-                        egui::Key::F11 => Some(Key::F11),
-                        egui::Key::F12 => Some(Key::F12),
-                        egui::Key::ArrowLeft => Some(Key::ArrowLeft),
-                        egui::Key::ArrowRight => Some(Key::ArrowRight),
-                        egui::Key::ArrowUp => Some(Key::ArrowUp),
-                        egui::Key::ArrowDown => Some(Key::ArrowDown),
-                        egui::Key::Home => Some(Key::Home),
-                        egui::Key::End => Some(Key::End),
-                        egui::Key::PageUp => Some(Key::PageUp),
-                        egui::Key::PageDown => Some(Key::PageDown),
-                        egui::Key::Backspace => Some(Key::Backspace),
-                        egui::Key::Delete => Some(Key::Delete),
-                        egui::Key::Enter => Some(Key::Enter),
-                        egui::Key::Tab => Some(Key::Tab),
-                        egui::Key::Space => Some(Key::Space),
-                        egui::Key::A => Some(Key::A),
-                        egui::Key::B => Some(Key::B),
-                        egui::Key::C => Some(Key::C),
-                        egui::Key::D => Some(Key::D),
-                        egui::Key::E => Some(Key::E),
-                        egui::Key::F => Some(Key::F),
-                        egui::Key::G => Some(Key::G),
-                        egui::Key::H => Some(Key::H),
-                        egui::Key::I => Some(Key::I),
-                        egui::Key::J => Some(Key::J),
-                        egui::Key::K => Some(Key::K),
-                        egui::Key::L => Some(Key::L),
-                        egui::Key::M => Some(Key::M),
-                        egui::Key::N => Some(Key::N),
-                        egui::Key::O => Some(Key::O),
-                        egui::Key::P => Some(Key::P),
-                        egui::Key::Q => Some(Key::Q),
-                        egui::Key::R => Some(Key::R),
-                        egui::Key::S => Some(Key::S),
-                        egui::Key::T => Some(Key::T),
-                        egui::Key::U => Some(Key::U),
-                        egui::Key::V => Some(Key::V),
-                        egui::Key::W => Some(Key::W),
-                        egui::Key::X => Some(Key::X),
-                        egui::Key::Y => Some(Key::Y),
-                        egui::Key::Z => Some(Key::Z),
-                        _ => None,
-                    };
-                    if let Some(key) = mapped {
+                    if let Some(key) = limn_key(*key) {
                         emit(UiEvent::Key {
                             key,
                             shift: modifiers.shift,
@@ -2382,10 +2337,140 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                         });
                     }
                 }
+                egui::Event::Key {
+                    key,
+                    pressed: false,
+                    ..
+                } => {
+                    if let Some(key) = limn_key(*key) {
+                        emit(UiEvent::KeyReleased { key });
+                    }
+                }
+                egui::Event::ModifiersChanged(modifiers) => {
+                    emit(UiEvent::ModifiersChanged(limn::Modifiers {
+                        shift: modifiers.shift,
+                        ctrl: modifiers.ctrl || modifiers.command,
+                        alt: modifiers.alt,
+                    }));
+                }
                 _ => {}
             }
         }
         events
+    })
+}
+
+/// The limn key for an egui key; `None` for the modifiers, which arrive as
+/// `ModifiersChanged`, and for the keys limn has no name for.
+fn limn_key(key: egui::Key) -> Option<Key> {
+    use egui::Key as E;
+    Some(match key {
+        E::ArrowDown => Key::ArrowDown,
+        E::ArrowLeft => Key::ArrowLeft,
+        E::ArrowRight => Key::ArrowRight,
+        E::ArrowUp => Key::ArrowUp,
+        E::Escape => Key::Escape,
+        E::Tab => Key::Tab,
+        E::Backspace => Key::Backspace,
+        E::Enter => Key::Enter,
+        E::Space => Key::Space,
+        E::Insert => Key::Insert,
+        E::Delete => Key::Delete,
+        E::Home => Key::Home,
+        E::End => Key::End,
+        E::PageUp => Key::PageUp,
+        E::PageDown => Key::PageDown,
+        E::Colon => Key::Colon,
+        E::Comma => Key::Comma,
+        E::Backslash => Key::Backslash,
+        E::Slash => Key::Slash,
+        E::Pipe => Key::Pipe,
+        E::Questionmark => Key::Questionmark,
+        E::Exclamationmark => Key::Exclamationmark,
+        E::OpenBracket => Key::OpenBracket,
+        E::CloseBracket => Key::CloseBracket,
+        E::OpenCurlyBracket => Key::OpenCurlyBracket,
+        E::CloseCurlyBracket => Key::CloseCurlyBracket,
+        E::Backtick => Key::Backtick,
+        E::Minus => Key::Minus,
+        E::Period => Key::Period,
+        E::Plus => Key::Plus,
+        E::Equals => Key::Equals,
+        E::Semicolon => Key::Semicolon,
+        E::Quote => Key::Quote,
+        E::Num0 => Key::Num0,
+        E::Num1 => Key::Num1,
+        E::Num2 => Key::Num2,
+        E::Num3 => Key::Num3,
+        E::Num4 => Key::Num4,
+        E::Num5 => Key::Num5,
+        E::Num6 => Key::Num6,
+        E::Num7 => Key::Num7,
+        E::Num8 => Key::Num8,
+        E::Num9 => Key::Num9,
+        E::A => Key::A,
+        E::B => Key::B,
+        E::C => Key::C,
+        E::D => Key::D,
+        E::E => Key::E,
+        E::F => Key::F,
+        E::G => Key::G,
+        E::H => Key::H,
+        E::I => Key::I,
+        E::J => Key::J,
+        E::K => Key::K,
+        E::L => Key::L,
+        E::M => Key::M,
+        E::N => Key::N,
+        E::O => Key::O,
+        E::P => Key::P,
+        E::Q => Key::Q,
+        E::R => Key::R,
+        E::S => Key::S,
+        E::T => Key::T,
+        E::U => Key::U,
+        E::V => Key::V,
+        E::W => Key::W,
+        E::X => Key::X,
+        E::Y => Key::Y,
+        E::Z => Key::Z,
+        E::F1 => Key::F1,
+        E::F2 => Key::F2,
+        E::F3 => Key::F3,
+        E::F4 => Key::F4,
+        E::F5 => Key::F5,
+        E::F6 => Key::F6,
+        E::F7 => Key::F7,
+        E::F8 => Key::F8,
+        E::F9 => Key::F9,
+        E::F10 => Key::F10,
+        E::F11 => Key::F11,
+        E::F12 => Key::F12,
+        E::F13 => Key::F13,
+        E::F14 => Key::F14,
+        E::F15 => Key::F15,
+        E::F16 => Key::F16,
+        E::F17 => Key::F17,
+        E::F18 => Key::F18,
+        E::F19 => Key::F19,
+        E::F20 => Key::F20,
+        E::F21 => Key::F21,
+        E::F22 => Key::F22,
+        E::F23 => Key::F23,
+        E::F24 => Key::F24,
+        E::F25 => Key::F25,
+        E::F26 => Key::F26,
+        E::F27 => Key::F27,
+        E::F28 => Key::F28,
+        E::F29 => Key::F29,
+        E::F30 => Key::F30,
+        E::F31 => Key::F31,
+        E::F32 => Key::F32,
+        E::F33 => Key::F33,
+        E::F34 => Key::F34,
+        E::F35 => Key::F35,
+        E::IntlBackslash => Key::IntlBackslash,
+        _ => return None,
     })
 }
 
@@ -2752,6 +2837,42 @@ mod tests {
             UiEvent::Key { key: Key::ArrowLeft, shift: false, ctrl: false, alt: true },
             UiEvent::PointerBack(Point::new(20.0, 10.0)),
             UiEvent::PointerForward(Point::new(20.0, 10.0)),
+        ]);
+    }
+
+    #[test]
+    fn every_limn_key_has_its_egui_key_and_name_and_releases_and_modifiers_are_forwarded() {
+        for &key in Key::ALL {
+            let native = egui::Key::from_name(key.name()).unwrap_or_else(|| panic!("egui knows {key:?}"));
+            assert_eq!(native.name(), key.name(), "the same name as egui's");
+            assert_eq!(limn_key(native), Some(key));
+        }
+        let ctx = egui::Context::default();
+        let mut forwarded = Vec::new();
+        let key = |key, pressed, modifiers| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+        let mut output = ctx.run_ui(egui::RawInput {
+            events: vec![
+                egui::Event::ModifiersChanged(egui::Modifiers::SHIFT),
+                // A modifier's own key is said by the change above.
+                key(egui::Key::ShiftLeft, true, egui::Modifiers::SHIFT),
+                key(egui::Key::Num1, true, egui::Modifiers::SHIFT),
+                key(egui::Key::F13, true, egui::Modifiers::default()),
+                key(egui::Key::IntlBackslash, true, egui::Modifiers::default()),
+                key(egui::Key::Num1, false, egui::Modifiers::SHIFT),
+                key(egui::Key::ShiftLeft, false, egui::Modifiers::default()),
+                egui::Event::ModifiersChanged(egui::Modifiers::COMMAND),
+            ],
+            ..Default::default()
+        }, |ui| forwarded = events(ui.ctx(), Pos2::ZERO));
+        output.textures_delta.clear();
+        assert_eq!(forwarded, vec![
+            UiEvent::ModifiersChanged(limn::Modifiers { shift: true, ..Default::default() }),
+            UiEvent::Key { key: Key::Num1, shift: true, ctrl: false, alt: false },
+            UiEvent::Key { key: Key::F13, shift: false, ctrl: false, alt: false },
+            UiEvent::Key { key: Key::IntlBackslash, shift: false, ctrl: false, alt: false },
+            UiEvent::KeyReleased { key: Key::Num1 },
+            // Command counts as Ctrl, as in a key's own modifiers.
+            UiEvent::ModifiersChanged(limn::Modifiers { ctrl: true, ..Default::default() }),
         ]);
     }
 
@@ -3199,6 +3320,47 @@ mod tests {
         assert_eq!(uv_of(&covered), cover_uv(square, [200, 100]), "cropped at the sides");
         // Rounded corners are more than the four vertices of a rectangle.
         assert!(mesh_of(limn::SurfaceFit::Cover, 12.0).vertices.len() > covered.vertices.len());
+    }
+
+    #[test]
+    fn a_mirrored_surface_reads_its_pixels_from_right_to_left() {
+        // Each vertex's texture column against its place, across the box.
+        let columns = |fit: limn::SurfaceFit, radius: f32, mirrored: bool| {
+            let ctx = egui::Context::default();
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+            let root = limn::Element::surface("camera", "Camera")
+                .surface_fit(fit)
+                .surface_mirrored(mirrored)
+                .radius(radius)
+                .size(Some(100.0), Some(100.0));
+            let frame = limn::UiTree::new(root).layout(limn::Size::new(100.0, 100.0));
+            let mut texture = None;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let pixels = SurfaceFrame::from_rgba([100, 100], &[90; 100 * 100 * 4], 1.0).unwrap();
+                assert!(present_surface(ui.ctx(), "camera", pixels));
+                texture = surface_texture(ui, "camera").map(|(id, ..)| id);
+                paint_at(ui, &frame, Pos2::ZERO);
+            });
+            output.textures_delta.clear();
+            forget_surface("camera");
+            let mesh = ctx
+                .tessellate(output.shapes, output.pixels_per_point)
+                .into_iter()
+                .find_map(|clipped| match clipped.primitive {
+                    egui::epaint::Primitive::Mesh(mesh) if Some(mesh.texture_id) == texture => Some(mesh),
+                    _ => None,
+                })
+                .expect("the surface is painted");
+            mesh.vertices.iter().map(|vertex| (vertex.pos.x, vertex.uv.x)).collect::<Vec<_>>()
+        };
+        for (fit, radius) in [(limn::SurfaceFit::Native, 0.0), (limn::SurfaceFit::Cover, 0.0), (limn::SurfaceFit::Contain, 12.0)] {
+            for (x, u) in columns(fit, radius, true) {
+                assert!((u - (1.0 - x / 100.0)).abs() < 0.02, "{fit:?}: column {u} at {x}");
+            }
+            for (x, u) in columns(fit, radius, false) {
+                assert!((u - x / 100.0).abs() < 0.02, "{fit:?}: column {u} at {x}");
+            }
+        }
     }
 
     #[test]
