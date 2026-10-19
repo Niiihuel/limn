@@ -224,11 +224,13 @@ after it scroll, like a section header.
 | `.sticky_top_inset(px)` | Pins it that far below the top of the viewport. |
 | `.sticky_top_max_height(px)` | While pinned, its bottom edge follows the scroll until `px` of height is left. What no longer fits is clipped and fades into the child's `background`. |
 | `.sticky_top_fade(px)` | While pinned, the rows passing under it fade out over `px` below its bottom edge, in the color of the scroll area's `top_fade`. It grows in as the child pins and shortens as the next sticky child arrives. Paint only: no hit region, no layout. Nothing is drawn in a scroll area without a `top_fade`. |
+| `.sticky_top_background_fade_in(from, to)` | Shows none of the child's `background` until it has scrolled `from` px past the line it pins at, all of it by `to`: the header of a page that fills in as the page slides under it, 10 to 80 for a music app's page and 10 to 350 under a tall banner. For the first child of the page the distance is the scroll offset. The tree follows the offset as it lays out; only the background fades. A value that is negative or not finite is ignored, and `to` is kept at least 1 past `from`. |
 
 The pinned child paints above the content passing under it and above the
 scroll area's own fades, and takes clicks where it is drawn; its passive
 parts block the rows beneath. The column's height and the scroll range do
-not change. Give the child an opaque `background`, or the rows show through.
+not change. Give the child an opaque `background`, or the rows show through
+(until it has filled in, with `sticky_top_background_fade_in`).
 
 Limits: one child is pinned per column at a time. `reveal` does not account
 for a pinned child, so pass `reveal_with_margin` its height when a control

@@ -1858,7 +1858,7 @@ impl Component for TextArea {
 }
 
 // What a field drawn disabled still says: the node its input would have been.
-fn disabled_field(
+pub(crate) fn disabled_field(
     role: Role,
     id: String,
     name: Option<String>,
@@ -2121,13 +2121,13 @@ pub enum SwitchVariant {
 }
 
 /// Side of a search field's clear button: its glyph and 4 around it.
-const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
+pub(crate) const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
 /// From the clear button to the field's end, so that its glyph is as far
 /// from that end as the magnifier is from the start.
 const CLEAR_INSET: f32 = 8.0 - (CLEAR_SIDE - ICON_SIZE) / 2.0;
 
 // A circled cross that empties a search field; drawn disabled it is passive.
-fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element {
+pub(crate) fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element {
     // An icon alone: it is named for what it does.
     let said = Access::new(Role::Button).name(crate::labels().clear_search);
     if enabled {

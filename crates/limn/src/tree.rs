@@ -12260,14 +12260,31 @@ impl LayoutBuilder<'_> {
             .iter()
             .zip(&rects)
             .rposition(|(child, rect)| top(child).is_some_and(|top| rect.y < top));
+        // A background that fades in follows how far its child has scrolled
+        // past the line it pins at.
+        let faded = |child: &Element, rect: &Rect| {
+            let (from, to) = child.kept.as_deref()?.sticky_background?;
+            let color = child.style.background?;
+            let share = ((top(child)? - rect.y - from) / (to - from)).clamp(0.0, 1.0);
+            (share < 1.0).then(|| Color { a: (f32::from(color.a) * share).round() as u8, ..color })
+        };
         for (index, (child, rect)) in children.iter().zip(&rects).enumerate() {
-            if Some(index) != pinned {
-                self.place(child, *rect, clip);
+            if Some(index) == pinned {
+                continue;
+            }
+            match faded(child, rect) {
+                Some(color) => {
+                    let mut child = child.clone();
+                    child.style.background = Some(color);
+                    self.place(&child, *rect, clip);
+                }
+                None => self.place(child, *rect, clip),
             }
         }
         let Some(index) = pinned else { return };
         let (child, mut rect) = (&children[index], rects[index]);
         let (Some(sticky), Some(top)) = (child.sticky_top, top(child)) else { return };
+        let background = faded(child, &rect).or(child.style.background);
         // The next sticky child pushes this one out; without one it leaves
         // with the end of its column.
         let limit = children[index + 1..]
@@ -12285,6 +12302,7 @@ impl LayoutBuilder<'_> {
         rect.height = (rect.y + natural - top).clamp(cap, natural);
         rect.y = top.min(limit - rect.height).max(rect.y);
         let mut element = child.clone();
+        element.style.background = background;
         // An anchor stays where the column has it, so revealing it scrolls
         // back to the start of what it pins over.
         if let Some(anchor) = element.anchor.take() {
@@ -12510,11 +12528,39 @@ impl LayoutBuilder<'_> {
                 let lines = Rect::new(content.x, content.y, content.width.min(max), content.height);
                 self.wrap_rects(children, lines, element.style.gap, line_gap)
             }
+            None if element.centers_middle(children.len()) => {
+                self.center_middle_rects(children, content, element.style.gap)
+            }
             None => {
                 let row = !matches!(element.kind, ElementKind::Column(_));
                 self.flex_rects(children, content, element.style.gap, row)
             }
         }
+    }
+
+    /// The three children of a [`Element::center_middle`] row: the ends at
+    /// their natural widths against the row's edges, the middle centered in
+    /// the row unless it would meet one of them, then `gap` after the first
+    /// and no wider than the room it has there.
+    fn center_middle_rects(&self, children: &[Element], content: Rect, gap: f32) -> Vec<Rect> {
+        let width = |child: &Element| self.measure(child, Size::new(f32::INFINITY, content.height)).width;
+        let (start, mut middle, end) = (width(&children[0]), width(&children[1]), width(&children[2]));
+        let after_start = content.x + start + gap;
+        let before_end = content.x + content.width - end - gap;
+        let centered = content.x + (content.width - middle) / 2.0;
+        let fits = centered >= after_start && centered + middle <= before_end;
+        if !fits {
+            middle = middle.min((before_end - after_start).max(0.0));
+        }
+        let x = [content.x, if fits { centered } else { after_start }, content.x + content.width - end];
+        children
+            .iter()
+            .zip(x.into_iter().zip([start, middle, end]))
+            .map(|(child, (x, width))| {
+                let height = child.style.height.unwrap_or(content.height).min(content.height);
+                Rect::new(x, content.y, width, height.max(0.0))
+            })
+            .collect()
     }
 
     /// Where a wrapping row puts its children in `content`: at their natural

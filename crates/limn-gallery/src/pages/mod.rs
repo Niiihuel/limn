@@ -46,6 +46,7 @@ mod table;
 mod toggle;
 mod tokens;
 mod toolbar;
+mod top_bar;
 mod tooltip;
 mod tour;
 mod typography;
@@ -150,6 +151,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "menu-bar", group: "Navigation", title: "MenuBar", source: "chrome", view: chrome::view, sections: &["Menu bar"], since: "0.1.39" },
     Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"], since: "0.1.39" },
     Page { id: "glass", group: "Navigation", title: "NavigationBar", source: "glass", view: glass::view, sections: &[], since: "0.1.39" },
+    Page { id: "top-bar", group: "Navigation", title: "TopBar", source: "top_bar", view: top_bar::view, sections: &[], since: "0.1.43" },
     Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[], since: "0.1.39" },
     Page { id: "tree-row", group: "Data", title: "TreeRow", source: "surfaces", view: surfaces::view, sections: &["Tree rows"], since: "0.1.39" },
     Page { id: "table", group: "Data", title: "Table", source: "table", view: table::view, sections: &[], since: "0.1.39" },
@@ -267,6 +269,7 @@ pub fn update(state: &mut State, action: &UiAction) {
     number::update(state, action);
     checkbox::update(state, action);
     toolbar::update(state, action);
+    top_bar::update(state, action);
     inputs::update(state, action);
     colors::update(state, action);
     overlays::update(state, action);
@@ -285,6 +288,7 @@ pub fn fields(state: &State) -> Vec<(&'static str, String)> {
         number::fields(state),
         inputs::fields(state),
         colors::fields(state),
+        top_bar::fields(state),
     ]
     .concat()
 }

@@ -9,7 +9,7 @@ use limn::{
     DropdownMenu, DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
     MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
     SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TabsVariant, TextArea,
-    TextField, TimePicker, Toast, TreeGuides, TreeRow, UiTree, Point,
+    TextField, TimePicker, Toast, TopBar, TreeGuides, TreeRow, UiTree, Point,
 };
 
 fn palette() -> ComponentPalette {
@@ -56,6 +56,7 @@ fn what_can_be_disabled_takes_both_spellings() {
     let _ = Pagination::new("a", 1, 3, palette).enabled(false).disabled();
     let _ = Chip::new("A", palette).enabled(false).disabled();
     let _ = Toolbar::new("a", palette).enabled(false).disabled();
+    let _ = TopBar::new("a", "", "", palette).enabled(false).disabled();
     let _ = ToolbarItem::button("a", "A").enabled(false).disabled();
     let _ = Slider::new("a", 0.5, palette).enabled(false).disabled();
     let _ = Select::new("a", "A", Vec::new(), false, "a:dismiss", palette).enabled(false).disabled();
@@ -142,6 +143,7 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
             SegmentedControl::new(vec![Tab::new("t", "Tab", 80.0)], palette).height(bad).render(),
         );
         lays_out_with_real_numbers("MenuSeparator::new", MenuSeparator::new(bad, palette.border).render());
+        lays_out_with_real_numbers("TopBar::width", TopBar::new("t", "q", "", palette).width(bad).caption(bad, bad).render());
         lays_out_with_real_numbers(
             "TreeRow::width",
             TreeRow::new(|content| Element::clickable("row", content), Element::spacer(), Element::text("Row"), TreeGuides::root(), palette)
