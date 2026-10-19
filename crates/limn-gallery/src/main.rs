@@ -10,9 +10,6 @@
 //! `--pages` prints the components as JSON, one page each, and exits.
 
 mod app;
-mod glass_content;
-mod glass_demo;
-mod glass_drag;
 mod pages;
 
 use eframe::egui;
@@ -29,7 +26,6 @@ thread_local! {
 }
 
 struct Host {
-    glass: Option<glass_demo::GlassDemo>,
     tree: UiTree,
     state: app::State,
     started: bool,
@@ -168,9 +164,7 @@ impl eframe::App for Host {
                         self.tree.reveal(target);
                     }
                 }
-                if !glass_drag::handle(&mut self.state, &action, self.tree.frame()) {
-                    hot(|| app::update(&mut self.state, &action));
-                }
+                hot(|| app::update(&mut self.state, &action));
                 self.show_what_a_click_changed(&action);
                 changed = true;
             }
@@ -181,9 +175,7 @@ impl eframe::App for Host {
             if matches!(&action, UiAction::Clicked { id } if id == "clear-image-cache") {
                 limn_egui::clear_image_cache();
             }
-            if !glass_drag::handle(&mut self.state, &action, self.tree.frame()) {
-                hot(|| app::update(&mut self.state, &action));
-            }
+            hot(|| app::update(&mut self.state, &action));
             self.show_what_a_click_changed(&action);
             changed = true;
         }
@@ -217,22 +209,7 @@ impl eframe::App for Host {
             }
             ctx.request_repaint();
         }
-        if let Some(glass) = &mut self.glass {
-            let animate = self.screenshot.is_none()
-                && !self.state.flag("tokens-reduced")
-                && self.state.choice("glass-animate", "on") != "off";
-            let speed = self.state.text("glass-speed").parse().unwrap_or(0.5);
-            glass.paint(
-                ui,
-                &frame,
-                area.min,
-                self.state.choice("glass-scene", "amber"),
-                animate,
-                speed,
-            );
-        } else {
-            limn_egui::paint_at(ui, &frame, area.min);
-        }
+        limn_egui::paint_at(ui, &frame, area.min);
 
         if let Some(path) = self.screenshot.clone() {
             self.capture(&ctx, &path);
@@ -243,7 +220,7 @@ impl eframe::App for Host {
 }
 
 /// In a page the gallery fills the canvas `limn`; the address's fragment
-/// (`#glass`) chooses the page, so a site can link to one component, and
+/// (`#button`) chooses the page, so a site can link to one component, and
 /// `?embed` leaves only that page, `?light` in the light theme, on the
 /// ground `&bg=rrggbb`, `&section=2` only its third section and `&variant=0` only the first variant
 /// of that. With `data-diagram` on the document's root, it draws
@@ -296,10 +273,6 @@ fn main() {
                 Box::new(move |creation| {
                     limn_egui::install_fonts(&creation.egui_ctx);
                     Ok(Box::new(Host {
-                        glass: creation
-                            .wgpu_render_state
-                            .as_ref()
-                            .map(glass_demo::GlassDemo::new),
                         tree: UiTree::new(Element::spacer()),
                         state,
                         started: false,
@@ -378,10 +351,6 @@ fn main() -> eframe::Result {
         Box::new(move |creation| {
             limn_egui::install_fonts(&creation.egui_ctx);
             Ok(Box::new(Host {
-                glass: creation
-                    .wgpu_render_state
-                    .as_ref()
-                    .map(glass_demo::GlassDemo::new),
                 tree: UiTree::new(Element::spacer()),
                 state,
                 started: false,

@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- Liquid glass is gone. **Breaking**: `GlassMaterial`, `Element::glass`, `NavigationBar::glass`, `DrawCommand::Glass` and limn-egui's `GlassRenderer` with its shader are removed, with the gallery's glass demo and the Liquid glass guide. A host that matches `DrawCommand::Glass` drops that arm. `NavigationBar` keeps its opaque surface; its gallery page is now `navigation-bar`. See [NavigationBar](docs/components/navigation-bar.md)
 - `ScrollbarAppearance::thumb_radius(px)` and the `thumb_radius` field: the corner of the thumb and its track, round unless set, square at 0, as Spotify's desktop client draws it on Windows and Linux. See [ScrollArea](docs/components/scroll-area.md)
 - Text laid out by limn breaks a word longer than its line between graphemes, as the measured text always has: a long address in `Element::text` no longer runs past its box
 - `Element::push_on_hover(id, by)`: as `extend_on_hover`, and the element takes the room it reaches into, so what flows beside it gives way. `PeekPanel` now pushes the main area beside it instead of covering it, as a music app's closed panel does, on either side. See [PeekPanel](docs/components/peek-panel.md)

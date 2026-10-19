@@ -84,7 +84,7 @@ mod captured_paste;
 pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, InlineImage, Point, PopoverPlacement,
+    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -519,21 +519,6 @@ fn clamp_formatted(
 /// carries out `Frame::commands` in order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
-    /// A rounded backdrop-sampling surface, painted before its foreground.
-    Glass {
-        /// The surface's bounds; what lies behind them is what the material
-        /// samples.
-        rect: Rect,
-        /// Corner radius, the same on all four corners.
-        radius: f32,
-        /// How the backdrop is blurred and tinted. A backend that cannot sample
-        /// the backdrop can fill the bounds with `material.tint`, as the egui
-        /// one does.
-        material: GlassMaterial,
-        /// Opacity of the whole surface from 0 to 1: 1 unless a transition is
-        /// fading it.
-        opacity: f32,
-    },
     /// A box shadow, pushed before the fill of the box that casts it.
     Shadow {
         /// The box that casts the shadow, not the shadow's own extent.
@@ -854,7 +839,6 @@ impl DrawCommand {
                 fade(fill);
             }
             Self::RasterImage { rect, opacity, .. }
-            | Self::Glass { rect, opacity, .. }
             | Self::Record { rect, opacity, .. }
             | Self::Surface { rect, opacity, .. }
             | Self::EffortSlider { rect, opacity, .. } => {
@@ -1351,11 +1335,6 @@ fn animate_popover_command(
             *image_opacity *= opacity.clamp(0.0, 1.0);
             *radius *= scale;
         }
-        DrawCommand::Glass { rect, radius, opacity: own_opacity, .. } => {
-            scale_rect(rect, scale, origin, slide_y);
-            *radius *= scale;
-            *own_opacity *= opacity.clamp(0.0, 1.0);
-        }
         DrawCommand::Spinner { rect, color, .. } => {
             scale_rect(rect, scale, origin, slide_y);
             fade(color, opacity);
@@ -1405,7 +1384,6 @@ fn animate_popover_command(
 fn popover_shell_command(command: &DrawCommand, rect: Rect) -> bool {
     match command {
         DrawCommand::Shadow { rect: painted, .. }
-        | DrawCommand::Glass { rect: painted, .. }
         | DrawCommand::FillRect { rect: painted, .. }
         | DrawCommand::StrokeRect { rect: painted, .. }
         | DrawCommand::FillCornerRect { rect: painted, .. }
@@ -1418,7 +1396,6 @@ fn popover_shell_command(command: &DrawCommand, rect: Rect) -> bool {
 fn morph_popover_shell(command: &mut DrawCommand, rect: Rect) {
     match command {
         DrawCommand::Shadow { rect: painted, .. }
-        | DrawCommand::Glass { rect: painted, .. }
         | DrawCommand::FillRect { rect: painted, .. }
         | DrawCommand::StrokeRect { rect: painted, .. }
         | DrawCommand::FillCornerRect { rect: painted, .. }
@@ -10325,14 +10302,6 @@ impl LayoutBuilder<'_> {
                 radius: style.radius,
             });
         }
-        if let Some(material) = element.kept.as_ref().and_then(|kept| kept.glass) {
-            self.frame.commands.push(DrawCommand::Glass {
-                rect,
-                radius: style.radius,
-                material: material.normalized(),
-                opacity: 1.0,
-            });
-        }
         if let Some(color) = style.background {
             paint_corner_rect(
                 &mut self.frame.commands,
@@ -13407,28 +13376,6 @@ fn wrap_lines(value: &str, width: f32, char_width: f32) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn glass_follows_drag_entrance_and_popover_shell_geometry() {
-        let material = GlassMaterial::new(Color::rgba(100, 120, 140, 60));
-        let mut command = DrawCommand::Glass {
-            rect: Rect::new(10.0, 20.0, 200.0, 60.0),
-            radius: 30.0,
-            material,
-            opacity: 0.8,
-        }.moved(5.0, -10.0, 0.5);
-        assert_eq!(command, DrawCommand::Glass {
-            rect: Rect::new(15.0, 10.0, 200.0, 60.0), radius: 30.0, material, opacity: 0.4,
-        });
-        animate_popover_command(&mut command, 0.5, 4.0, 0.5, Point::new(15.0, 10.0));
-        assert_eq!(command, DrawCommand::Glass {
-            rect: Rect::new(15.0, 14.0, 100.0, 30.0), radius: 15.0, material, opacity: 0.2,
-        });
-        assert!(popover_shell_command(&command, Rect::new(15.0, 14.0, 100.0, 30.0)));
-        let target = Rect::new(20.0, 30.0, 120.0, 80.0);
-        morph_popover_shell(&mut command, target);
-        assert!(matches!(command, DrawCommand::Glass { rect, .. } if rect == target));
-    }
 
     fn menu_with_secondary_actions(mark_secondary: bool, visible_rows: usize) -> Element {
         use crate::{
