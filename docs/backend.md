@@ -18,6 +18,12 @@ back.
 
 ## Text measurement
 
+Call `tree.set_text_layout(true)` once the backend draws `DrawCommand::Glyphs`:
+every `Element::text` is then laid out by limn itself, in the faces of
+`limn::fonts()`, and drawn as glyph runs, so it needs no measuring. Other text
+is still measured as below until it moves too. `limn_egui::attach_fonts` turns
+it on.
+
 Layout depends on text widths, so the tree must measure with the same fonts
 the backend paints with. Register them once, and again if the fonts change:
 
@@ -120,6 +126,7 @@ stamps, single-use semantics and the limits of tree observation.
 | `Polyline { points, color, width, dashed }` | An open stroked path centered on its points, dashed in short marks when asked: the connectors and the decision outline of a `Flowchart`, the lifelines and messages of a `SequenceDiagram`. |
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
+| `Glyphs(GlyphRun)` | Glyphs limn has already shaped and placed: draw each from `run.font` at `run.size`, at its place from `run.origin`, tinted `run.color`; slant by `run.skew` degrees and thicken when `run.embolden`. Lay nothing out again. See [TextLayout](components/text-layout.md#drawing-the-glyphs). |
 | `Icon { icon, rect, tint }` | A semantic icon. The backend chooses the artwork. |
 | `RasterImage { .. }` | A decoded image. |
 | `Surface { rect, id, label, opacity }` | Pixels the host hands to the backend under `id`, outside the frame. They start at the rectangle's top-left corner, one pixel per physical pixel when rendered for this display, and are clipped to the rectangle, never stretched to it. |

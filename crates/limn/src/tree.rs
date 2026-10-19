@@ -61,6 +61,7 @@ use crate::motion::{
 use crate::shortcut;
 use crate::scroll_area::ScrollbarState;
 use crate::text_width_cache::TextWidthCache;
+use crate::text_layout_cache::TextLayoutCache;
 #[path = "formatted_text_cache.rs"]
 mod formatted_text_cache;
 use formatted_text_cache::FormattedTextCache;
@@ -505,6 +506,9 @@ pub enum DrawCommand {
         /// pixel gaps.
         dashed: bool,
     },
+    /// Glyphs limn has shaped and placed; see [`crate::GlyphRun`]. A backend
+    /// draws each glyph where the run says, and lays nothing out again.
+    Glyphs(crate::GlyphRun),
     /// A run of text the tree has already measured and wrapped. A backend
     /// paints it from `position` without wrapping it again.
     Text {
@@ -735,6 +739,10 @@ impl DrawCommand {
             } => {
                 *position = Point::new(position.x + dx, position.y + dy);
                 fade(color);
+            }
+            Self::Glyphs(run) => {
+                run.origin = Point::new(run.origin.x + dx, run.origin.y + dy);
+                fade(&mut run.color);
             }
             Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
@@ -1168,6 +1176,15 @@ fn animate_popover_command(
             scale_point(position, scale, origin, slide_y);
             *font_size *= scale;
             fade(color, opacity);
+        }
+        DrawCommand::Glyphs(run) => {
+            scale_point(&mut run.origin, scale, origin, slide_y);
+            run.size *= scale;
+            // Placed from the run's origin, the glyphs scale about it.
+            if scale != 1.0 {
+                run.glyphs = run.glyphs.iter().map(|glyph| crate::Glyph { x: glyph.x * scale, y: glyph.y * scale, ..*glyph }).collect();
+            }
+            fade(&mut run.color, opacity);
         }
         DrawCommand::Icon { rect, tint, .. } => {
             scale_rect(rect, scale, origin, slide_y);
@@ -1620,6 +1637,24 @@ struct SelectableTextBlock {
     source: String,
     runs: Vec<SelectableTextRun>,
     region_layer: usize,
+    /// Text laid out in a `TextLayout`, which a pointer is read back from.
+    layout: Option<PlacedText>,
+}
+
+/// A text layout and where it was drawn.
+#[derive(Clone, Debug)]
+struct PlacedText {
+    layout: crate::TextLayout,
+    origin: Point,
+}
+
+impl PartialEq for PlacedText {
+    fn eq(&self, other: &Self) -> bool {
+        self.origin == other.origin
+            && self.layout.text() == other.layout.text()
+            && self.layout.style() == other.layout.style()
+            && self.layout.size() == other.layout.size()
+    }
 }
 
 impl SelectableTextBlock {
@@ -1636,6 +1671,12 @@ impl SelectableTextBlock {
         metrics: FontMetrics,
         sans_metrics: FontMetrics,
     ) -> usize {
+        if let Some(placed) = &self.layout {
+            let at = Point::new(point.x - placed.origin.x, point.y - placed.origin.y);
+            let byte = placed.layout.index_at(at);
+            let offset = self.source.get(..byte).map_or(0, |before| before.chars().count());
+            return nearest_source_grapheme_boundary(&self.source, offset);
+        }
         let Some(row) = self.runs.iter().min_by(|left, right| {
             vertical_distance(left.rect, point.y).total_cmp(&vertical_distance(right.rect, point.y))
         }) else {
@@ -2432,8 +2473,9 @@ pub enum UiEvent {
     /// The primary button was released at this position. A release on the
     /// control that was pressed reports `UiAction::Clicked`.
     PointerUp(Point),
-    /// A wheel step, converted to logical pixels by the host. The scrolling
-    /// area under the pointer eases to its new offset.
+    /// A wheel step, converted to logical pixels by the host (`limn-egui`
+    /// moves a notch 120 px, as a browser does). The scrolling area under the
+    /// pointer eases to its new offset.
     Scroll {
         /// Where the pointer is; what scrolls is under it.
         position: Point,
@@ -3037,6 +3079,10 @@ pub struct UiTree {
     text_height_measurer: Option<Arc<TextHeightMeasurer>>,
     width_cache: RefCell<TextWidthCache>,
     formatted_cache: RefCell<FormattedTextCache>,
+    layout_cache: RefCell<TextLayoutCache>,
+    /// Whether `Element::text` is laid out in a `TextLayout`; see
+    /// [`UiTree::set_text_layout`].
+    text_layout: bool,
     measurement_cache: RefCell<MeasurementCache>,
     horizontal_scrolls: HashMap<String, HorizontalScrollState>,
     frame: Frame,
@@ -3125,6 +3171,8 @@ impl UiTree {
             text_height_measurer: None,
             width_cache: RefCell::new(TextWidthCache::default()),
             formatted_cache: RefCell::new(FormattedTextCache::default()),
+            layout_cache: RefCell::new(TextLayoutCache::default()),
+            text_layout: false,
             measurement_cache: RefCell::new(MeasurementCache::default()),
             horizontal_scrolls: HashMap::new(),
             frame: Frame::default(),
@@ -3236,6 +3284,16 @@ impl UiTree {
         self.text_measurer = Some(Arc::new(measure));
         self.width_cache.get_mut().clear();
         self.formatted_cache.get_mut().clear();
+    }
+
+    /// Lay `Element::text` out in limn's own [`crate::TextLayout`] and draw it
+    /// as glyph runs, instead of measuring it through the text measurer and
+    /// leaving the backend to lay it out again. Its caret, its selection and
+    /// its glyphs then come from one layout. `limn_egui::attach_fonts` turns
+    /// it on. Off by default while limn's components move to it one by one;
+    /// once they all have, it is always on and this goes away.
+    pub fn set_text_layout(&mut self, enabled: bool) {
+        self.text_layout = enabled;
     }
 
     /// Remove the host's text width function, so widths come from the font
@@ -3781,6 +3839,7 @@ impl UiTree {
         refresh_hover_paint: bool,
     ) -> Frame {
         self.begin_paste_layout();
+        self.layout_cache.get_mut().begin_pass();
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
         for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
@@ -3847,6 +3906,8 @@ impl UiTree {
                 text_height_measurer: self.text_height_measurer.clone(),
                 width_cache: &self.width_cache,
                 formatted_cache: &self.formatted_cache,
+                layout_cache: &self.layout_cache,
+                text_layout: self.text_layout,
                 measurement_cache: &self.measurement_cache,
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
@@ -6553,6 +6614,7 @@ fn collect_focus_order(
         | ElementKind::RasterImage(_)
         | ElementKind::Surface { .. }
         | ElementKind::Icon(_)
+        | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -6630,6 +6692,7 @@ fn collect_action_metadata(
         | ElementKind::RadarPlot(_)
         | ElementKind::HeatPlot(_)
         | ElementKind::MarkRail(_)
+        | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
     }
 }
@@ -6842,6 +6905,8 @@ struct LayoutBuilder<'a> {
     text_height_measurer: Option<Arc<TextHeightMeasurer>>,
     width_cache: &'a RefCell<TextWidthCache>,
     formatted_cache: &'a RefCell<FormattedTextCache>,
+    layout_cache: &'a RefCell<TextLayoutCache>,
+    text_layout: bool,
     measurement_cache: &'a RefCell<MeasurementCache>,
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
@@ -8082,6 +8147,64 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// `value` in `style`, as laid out for this tree, broken at `width` when
+    /// it is finite.
+    fn laid_out_text(&self, value: &str, style: Style, width: f32, centered: bool) -> crate::TextLayout {
+        // The line height and placement the measured path gives, so the
+        // switch moves nothing.
+        let text_style = crate::TextStyle::new(style.font_size, style.font_family)
+            .line_height(self.metrics_for(style).line_height)
+            .leading(crate::Leading::Below);
+        self.layout_cache.borrow_mut().get(value, text_style, width, centered)
+    }
+
+    /// Paint text laid out in a `TextLayout`: its selection, its glyphs, and
+    /// the selectable block a pointer reads it back from.
+    fn paint_laid_out_text(&mut self, value: &str, content: Rect, style: Style, clip: Option<Rect>) {
+        let layout = self.laid_out_text(value, style, content.width, style.center_content);
+        let origin = Point::new(content.x, content.y);
+        let block_index = self.frame.text_blocks.len();
+        let mut runs = Vec::new();
+        let mut start = 0;
+        for line in layout.lines() {
+            let held = &value[line.range.clone()];
+            // A line's own text; the break that ends it is the source's.
+            let shown = held.strip_suffix('\n').map_or(held, |line| line.strip_suffix('\r').unwrap_or(line));
+            let rect = Rect::new(origin.x + line.rect.x, origin.y + line.rect.y, line.rect.width, line.rect.height);
+            runs.push(SelectableTextRun {
+                start,
+                end: start + shown.chars().count(),
+                text: shown.to_owned(),
+                rect,
+                visible: clip.and_then(|area| rect.intersection(area)).or_else(|| clip.is_none().then_some(rect)),
+                font_size: style.font_size,
+                font_family: style.font_family,
+            });
+            start += held.chars().count();
+        }
+        if let Some((from, to)) = self
+            .selection
+            .filter(|selection| selection.block == block_index && selection.source == value)
+            .and_then(|selection| selection.range())
+        {
+            let byte = |offset: usize| value.char_indices().nth(offset).map_or(value.len(), |(byte, _)| byte);
+            for rect in layout.selection(byte(from)..byte(to)) {
+                self.frame.commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(origin.x + rect.x, origin.y + rect.y, rect.width, rect.height),
+                    color: Color::rgba(180, 180, 180, 84),
+                    radius: 0.0,
+                });
+            }
+        }
+        self.frame.commands.extend(layout.draw(origin, style.foreground));
+        self.frame.text_blocks.push(SelectableTextBlock {
+            source: value.to_owned(),
+            runs,
+            region_layer: self.frame.regions.len(),
+            layout: Some(PlacedText { layout, origin }),
+        });
+    }
+
     fn paint_static_run(
         &mut self,
         block_index: usize,
@@ -8143,9 +8266,10 @@ impl LayoutBuilder<'_> {
         .at_size(style.font_size)
     }
 
-    /// Underline the text painted since command `first`, kept inside `bounds`.
-    /// A faded label paints its line several times; each is underlined once.
-    fn underline_text(&mut self, first: usize, bounds: Rect, style: Style) {
+    /// Underline the text painted since command `first` and text block
+    /// `first_block`, kept inside `bounds`. A faded label paints its line
+    /// several times; each is underlined once.
+    fn underline_text(&mut self, first: usize, first_block: usize, bounds: Rect, style: Style) {
         let mut lines: Vec<(Point, f32, f32, Color)> = Vec::new();
         for command in &self.frame.commands[first..] {
             let DrawCommand::Text {
@@ -8172,6 +8296,21 @@ impl LayoutBuilder<'_> {
                     self.metrics_for(run).line_height,
                     *color,
                 )),
+            }
+        }
+        // Text laid out in a `TextLayout`: under each of its lines, in its ink.
+        let ink = self.frame.commands[first..]
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Glyphs(run) => Some(run.color),
+                _ => None,
+            })
+            .max_by_key(|color| color.a);
+        if let Some(ink) = ink {
+            for block in self.frame.text_blocks[first_block..].iter().filter(|block| block.layout.is_some()) {
+                for run in &block.runs {
+                    lines.push((Point::new(run.rect.x, run.rect.y), run.rect.width, run.rect.height, ink));
+                }
             }
         }
         for (position, width, line_height, color) in lines {
@@ -9012,9 +9151,13 @@ impl LayoutBuilder<'_> {
         }
         let sharp: Vec<DrawCommand> = self.frame.commands.drain(start..).collect();
         for command in sharp {
-            let DrawCommand::Text { color, .. } = &command else {
-                self.frame.commands.push(command);
-                continue;
+            let color = match &command {
+                DrawCommand::Text { color, .. } => color,
+                DrawCommand::Glyphs(run) => &run.color,
+                _ => {
+                    self.frame.commands.push(command);
+                    continue;
+                }
             };
             // Where every copy overlaps, the ink is nearly what it was.
             let ink = f32::from(color.a) / 255.0;
@@ -9127,6 +9270,10 @@ impl LayoutBuilder<'_> {
         let wrap_width = inner.width.min(style.max_width
             .map_or(f32::INFINITY, |max| (max - padding).max(0.0)));
         let natural = match &element.kind {
+            ElementKind::Text(value) if self.text_layout => {
+                let size = self.laid_out_text(value, style, wrap_width, false).size();
+                Size::new(size.width + padding, size.height + padding)
+            }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
                 text: value,
@@ -9295,6 +9442,8 @@ impl LayoutBuilder<'_> {
             }
             // The caller sizes it; left alone it is one dot.
             ElementKind::LevelBars(bars) => Size::new(bars.bar + padding, bars.bar + padding),
+            // The caller sizes it.
+            ElementKind::Drawing(_) => Size::new(padding, padding),
             // The caller sizes it; left alone it takes the width it is offered.
             ElementKind::HeatPlot(plot) => {
                 let rows = plot.columns.iter().map(Vec::len).max().unwrap_or(0) as f32;
@@ -10121,12 +10270,13 @@ impl LayoutBuilder<'_> {
                     );
                 }
                 let first = self.frame.commands.len();
+                let first_block = self.frame.text_blocks.len();
                 self.place(child, content, clip);
                 if style.underline_on_hover
                     && (self.hovered == Some(id.as_str())
                         || self.keyboard_focus && self.focused == Some(id.as_str()))
                 {
-                    self.underline_text(first, content, style);
+                    self.underline_text(first, first_block, content, style);
                 }
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
                     self.draw_focus_ring(rect, style);
@@ -10655,6 +10805,9 @@ impl LayoutBuilder<'_> {
                     }
                 }
             }
+            ElementKind::Text(value) if self.text_layout => {
+                self.paint_laid_out_text(value, content, style, clip);
+            }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
                 text: value,
@@ -10681,6 +10834,7 @@ impl LayoutBuilder<'_> {
                     source: value.clone(),
                     runs: Vec::new(),
                     region_layer: self.frame.regions.len(),
+                    layout: None,
                 });
                 let mut source_byte = 0;
                 let mut source_char = 0;
@@ -10750,6 +10904,7 @@ impl LayoutBuilder<'_> {
                     source: source.clone(),
                     runs: Vec::new(),
                     region_layer: self.frame.regions.len(),
+                    layout: None,
                 });
                 let mut source_byte = 0;
                 let mut source_char = 0;
@@ -11772,6 +11927,21 @@ impl LayoutBuilder<'_> {
             ElementKind::PiePlot(plot) => self.paint_pie_plot(plot, content, clip),
             ElementKind::RadarPlot(plot) => self.paint_radar_plot(plot, content, clip),
             ElementKind::HeatPlot(plot) => self.paint_heat_plot(plot, content, clip),
+            ElementKind::Drawing(drawing) => {
+                self.frame.commands.push(DrawCommand::PushClip(content));
+                // The drawing's own clips stay balanced, so none outlives it.
+                let mut open = 0;
+                for command in drawing.draw(Size::new(content.width, content.height)) {
+                    match command {
+                        DrawCommand::PushClip(_) => open += 1,
+                        DrawCommand::PopClip if open == 0 => continue,
+                        DrawCommand::PopClip => open -= 1,
+                        _ => {}
+                    }
+                    self.frame.commands.push(command.moved(content.x, content.y, 1.0));
+                }
+                self.frame.commands.extend(std::iter::repeat_n(DrawCommand::PopClip, open + 1));
+            }
             ElementKind::LevelBars(bars) => {
                 let pitch = bars.bar + bars.gap;
                 let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };
