@@ -2448,8 +2448,9 @@ pub enum UiEvent {
     /// The primary button was released at this position. A release on the
     /// control that was pressed reports `UiAction::Clicked`.
     PointerUp(Point),
-    /// A wheel step, converted to logical pixels by the host. The scrolling
-    /// area under the pointer eases to its new offset.
+    /// A wheel step, converted to logical pixels by the host (`limn-egui`
+    /// moves a notch 120 px, as a browser does). The scrolling area under the
+    /// pointer eases to its new offset.
     Scroll {
         /// Where the pointer is; what scrolls is under it.
         position: Point,

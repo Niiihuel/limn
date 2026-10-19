@@ -153,6 +153,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "pagination", group: "Navigation", title: "Pagination", source: "pagination", view: pagination::view, sections: &[], since: "0.1.41" },
     Page { id: "menu-bar", group: "Navigation", title: "MenuBar", source: "chrome", view: chrome::view, sections: &["Menu bar"], since: "0.1.39" },
     Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"], since: "0.1.39" },
+    Page { id: "window-controls", group: "Navigation", title: "WindowControls", source: "chrome", view: chrome::view, sections: &["Window controls"], since: "0.1.44" },
     Page { id: "glass", group: "Navigation", title: "NavigationBar", source: "glass", view: glass::view, sections: &[], since: "0.1.39" },
     Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[], since: "0.1.39" },
     Page { id: "tree-row", group: "Data", title: "TreeRow", source: "surfaces", view: surfaces::view, sections: &["Tree rows"], since: "0.1.39" },

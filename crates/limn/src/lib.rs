@@ -66,6 +66,7 @@ mod menu;
 mod menu_bar;
 mod fonts;
 mod text_layout;
+mod window_controls;
 mod menu_header;
 mod modal;
 mod navigation_bar;
@@ -204,6 +205,7 @@ pub use menu::{MenuItem, MenuSeparator};
 pub use menu_bar::{MenuBar, MenuBarMenu};
 pub use fonts::{fonts, set_fonts, Font, FontError, Fonts};
 pub use text_layout::{Glyph, GlyphRun, TextLayout, TextLine, TextStyle};
+pub use window_controls::WindowControls;
 pub use menu_header::MenuHeader;
 pub use modal::{DismissButton, Modal};
 pub use motion::{

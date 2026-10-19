@@ -2177,7 +2177,8 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                     if let Some(pos) = pointer {
                         let scale = match unit {
                             egui::MouseWheelUnit::Point => 1.0,
-                            egui::MouseWheelUnit::Line => 30.0,
+                            // A notch travels as far as in a browser: Chrome and Firefox move 120 px.
+                            egui::MouseWheelUnit::Line => 120.0,
                             egui::MouseWheelUnit::Page => 500.0,
                         };
                         let position = relative(origin, pos);
@@ -2786,7 +2787,7 @@ mod tests {
                 if *position == Point::new(40.0, 30.0) && *delta_y == -2.5)));
         assert!(forwarded.iter().any(|event| matches!(event,
             UiEvent::Scroll { position, delta_y }
-                if *position == Point::new(40.0, 30.0) && *delta_y == -60.0)));
+                if *position == Point::new(40.0, 30.0) && *delta_y == -240.0)));
         assert!(forwarded.iter().any(|event| matches!(event,
             UiEvent::Scroll { delta_y, .. } if *delta_y == 500.0)));
     }
