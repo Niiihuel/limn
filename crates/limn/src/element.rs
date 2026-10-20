@@ -2749,7 +2749,10 @@ impl Element {
     }
 
     /// Show a submenu while its trigger or content is hovered or focused,
-    /// or a submenu nested in it is.
+    /// or a submenu nested in it is. Anything inside the trigger with a
+    /// pointer region of its own, such as a hint's anchor, holds it as the
+    /// trigger does, so a row can open a card on hover that stays while the
+    /// pointer crosses the row's marks on its way to the card.
     pub fn popover_on_hover(mut self) -> Self {
         if let ElementKind::Popover {
             anchor,
