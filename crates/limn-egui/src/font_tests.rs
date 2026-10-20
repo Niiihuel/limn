@@ -29,7 +29,7 @@ fn context(install: bool) -> egui::Context {
 fn hosts_can_extend_bundled_definitions_without_losing_fallbacks() {
     let mut definitions = font_definitions();
     let fallback = definitions.families[&egui::FontFamily::Proportional].clone();
-    definitions.font_data.insert("host-face".into(), definitions.font_data["Ubuntu-Regular"].clone());
+    definitions.font_data.insert("host-face".into(), definitions.font_data["Sans-Regular"].clone());
     definitions.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0, "host-face".into());
     let ctx = egui::Context::default();
     ctx.set_fonts(definitions);
@@ -41,6 +41,18 @@ fn hosts_can_extend_bundled_definitions_without_losing_fallbacks() {
         assert_eq!(family[1..], fallback);
     });
     assert!(covers(&ctx, &egui::FontFamily::Proportional, '𝓡'));
+}
+
+#[test]
+fn a_hosts_ui_face_is_what_egui_measures_and_its_missing_weights_take_it() {
+    let bundled = limn::Fonts::bundled();
+    let host = bundled.face_of(FontFamily::Monospace).unwrap().clone();
+    let definitions = definitions_with(&limn::Fonts::new().face(FontFamily::Sans, host.clone()));
+    for name in ["Sans-Regular", "Sans-Medium", "Sans-Bold"] {
+        assert_eq!(&*definitions.font_data[name].font, host.bytes(), "{name}");
+    }
+    let mono = bundled.face_of(FontFamily::Monospace).unwrap();
+    assert_eq!(&*definitions.font_data["Hack"].font, mono.bytes(), "the code face and fallbacks stay limn's");
 }
 
 #[test]
@@ -86,9 +98,9 @@ fn installing_fallback_keeps_existing_ui_faces_and_monospace_metrics() {
     ctx.fonts(|fonts| {
         let families = &fonts.definitions().families;
         for (family, first) in [
-            (egui::FontFamily::Proportional, "Ubuntu-Regular"),
-            (egui::FontFamily::Name(SANS_MEDIUM.into()), "Ubuntu-Medium"),
-            (egui::FontFamily::Name(SANS_BOLD.into()), "Ubuntu-Bold"),
+            (egui::FontFamily::Proportional, "Sans-Regular"),
+            (egui::FontFamily::Name(SANS_MEDIUM.into()), "Sans-Medium"),
+            (egui::FontFamily::Name(SANS_BOLD.into()), "Sans-Bold"),
         ] {
             assert_eq!(families[&family].first().map(String::as_str), Some(first));
         }
