@@ -2332,7 +2332,14 @@ pub fn install_fonts(ctx: &egui::Context) {
 
 /// The bundled font families and their Unicode fallbacks. Hosts can prepend
 /// system faces before installing these definitions with `Context::set_fonts`.
+/// The UI faces are those in force: a host that gave limn its own with
+/// `limn::set_fonts` first paints and measures in what limn lays out in.
 pub fn font_definitions() -> egui::FontDefinitions {
+    definitions_with(&limn::fonts())
+}
+
+/// [`font_definitions`] with `current` as the faces in force.
+fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
     let bundled = limn::Fonts::bundled();
     // The same bytes limn lays text out in, kept where they are compiled.
     let data = |font: &limn::Font| -> std::sync::Arc<egui::FontData> {
@@ -2343,6 +2350,8 @@ pub fn font_definitions() -> egui::FontDefinitions {
         .into()
     };
     let face = |family| bundled.face_of(family).expect("limn bundles a face for it");
+    // A weight the host gave no face of its own is its regular one, as limn lays it out.
+    let ui_face = |family| current.face_of(family).or(current.face_of(FontFamily::Sans)).unwrap_or_else(|| face(family));
     let [math, symbols] = bundled.fallbacks() else {
         unreachable!("limn bundles two fallbacks: math and symbols");
     };
@@ -2350,9 +2359,9 @@ pub fn font_definitions() -> egui::FontDefinitions {
     // Only limn's faces, so egui's own are never needed and not carried twice.
     let mut fonts = egui::FontDefinitions::empty();
     for (name, font) in [
-        ("Ubuntu-Regular", face(FontFamily::Sans)),
-        ("Ubuntu-Medium", face(FontFamily::SansMedium)),
-        ("Ubuntu-Bold", face(FontFamily::SansBold)),
+        ("Sans-Regular", ui_face(FontFamily::Sans)),
+        ("Sans-Medium", ui_face(FontFamily::SansMedium)),
+        ("Sans-Bold", ui_face(FontFamily::SansBold)),
         ("Hack", face(FontFamily::Monospace)),
         ("NotoSansMath-Regular", math),
         ("NotoSansSymbols2-Regular", symbols),
@@ -2365,13 +2374,13 @@ pub fn font_definitions() -> egui::FontDefinitions {
     // behind the code face the UI face, then the fallbacks; emoji last.
     let chain = |first: &[&str], rest: &[&str]| first.iter().chain(rest).map(|name| (*name).to_owned()).collect();
     let behind_sans = ["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "Hack", "NotoEmoji"];
-    fonts.families.insert(egui::FontFamily::Proportional, chain(&["Ubuntu-Regular"], &behind_sans));
+    fonts.families.insert(egui::FontFamily::Proportional, chain(&["Sans-Regular"], &behind_sans));
     fonts.families.insert(
         egui::FontFamily::Monospace,
-        chain(&["Hack", "Ubuntu-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
+        chain(&["Hack", "Sans-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
     );
-    for (family, face_name) in [(SANS_MEDIUM, "Ubuntu-Medium"), (SANS_BOLD, "Ubuntu-Bold")] {
-        fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Ubuntu-Regular"], &behind_sans));
+    for (family, face_name) in [(SANS_MEDIUM, "Sans-Medium"), (SANS_BOLD, "Sans-Bold")] {
+        fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Sans-Regular"], &behind_sans));
     }
     fonts
 }
