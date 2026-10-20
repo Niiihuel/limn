@@ -739,6 +739,13 @@ impl Component for DropdownMenu {
             && self.entries.iter().any(
                 |entry| matches!(entry, DropdownMenuEntry::Item(item) if item.submenu.is_some()),
             );
+        // Unless a row both leads somewhere and is a choice, the check and the
+        // chevron share the last column: each ends at the row's edge.
+        let trailing_shared = !self.entries.iter().any(|entry| {
+            matches!(entry, DropdownMenuEntry::Item(item)
+                if (item.submenu.is_some() || item.chevron)
+                    && (item.selected || item.check.is_some()))
+        });
         let scrolls = if contextual {
             self.entries.iter().map(action_height).sum::<f32>() > visible_height
         } else {
@@ -871,8 +878,12 @@ impl Component for DropdownMenu {
                         // The menu's chevron column, or one of its own; a row
                         // that leads somewhere keeps the check column only
                         // where the menu has checks.
-                        chevron: (reserve_submenu || leads).then_some(leads),
-                        selected: (reserve_check || !leads).then_some(item.selected),
+                        chevron: (reserve_submenu || leads)
+                            .then_some(leads)
+                            .filter(|_| !trailing_shared || leads),
+                        selected: (reserve_check || !leads)
+                            .then_some(item.selected)
+                            .filter(|_| !trailing_shared || !leads),
                         choice: choices,
                         check: item.check,
                         enabled,
@@ -905,12 +916,15 @@ impl Component for DropdownMenu {
                     let enabled = item.state == ControlState::Enabled;
                     let has_submenu = enabled && item.submenu.is_some();
                     let reserve_submenu = reserve_submenu || has_submenu;
+                    let shared = trailing_shared && reserve_check && reserve_submenu;
+                    let check_column = reserve_check && !(shared && has_submenu);
+                    let submenu_column = reserve_submenu && !(shared && !has_submenu);
                     // Flex children with a natural text width can paint past a
                     // fixed row. Budget the trailing text against the row's
                     // real inner width, including reserved icons and gaps.
                     let control_count = usize::from(reserve_icon)
-                        + usize::from(reserve_check)
-                        + usize::from(reserve_submenu);
+                        + usize::from(check_column)
+                        + usize::from(submenu_column);
                     let inner_width = (row_width - 2.0 * horizontal_padding).max(0.0);
                     let control_width = control_count as f32 * icon_size;
                     let gap = if control_count == 0 {
@@ -1022,7 +1036,7 @@ impl Component for DropdownMenu {
                                 .size(Some(annotation_width), Some(content_height)),
                         );
                     }
-                    if reserve_check {
+                    if check_column {
                         let ink = if enabled { palette.text } else { palette.muted };
                         children.push(
                             if let Some(check) = item.check {
@@ -1045,7 +1059,7 @@ impl Component for DropdownMenu {
                             .min_size(icon_size, content_height),
                         );
                     }
-                    if reserve_submenu {
+                    if submenu_column {
                         children.push(
                             if has_submenu {
                                 Element::icon(Icon::ChevronRight).foreground(palette.muted)
@@ -3516,6 +3530,50 @@ mod tests {
                 _ => None,
             })
             .unwrap_or_else(|| panic!("missing {label}"))
+    }
+
+    #[test]
+    fn a_check_box_ends_at_the_row_s_edge_where_a_submenu_s_chevron_does() {
+        let palette = ComponentPalette::neutral_dark();
+        for contextual in [false, true] {
+            let menu = DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuItem::new("mute", "Mute").checkbox(true).into(),
+                    DropdownMenuItem::new("move", "Move to")
+                        .submenu(vec![DropdownMenuItem::new("lobby", "Lobby").into()])
+                        .into(),
+                    DropdownMenuItem::new("leave", "Disconnect").into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .width(300.0);
+            let mut tree = open_menu(if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            });
+            let frame = tree.layout(Size::new(640.0, 480.0));
+            let center = |wanted: Icon| {
+                let rects: Vec<crate::Rect> = frame
+                    .commands
+                    .iter()
+                    .filter_map(|command| match command {
+                        DrawCommand::Icon { rect, icon, .. } if *icon == wanted => Some(*rect),
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(rects.len(), 1, "one {wanted:?}");
+                rects[0].x + rects[0].width / 2.0
+            };
+            assert_eq!(
+                center(Icon::Check),
+                center(Icon::ChevronRight),
+                "contextual {contextual}: one trailing column"
+            );
+        }
     }
 
     #[test]

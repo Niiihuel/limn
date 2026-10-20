@@ -89,7 +89,10 @@ DropdownMenuItem::new("level=mentions", "Only @mentions").radio(state.level == L
 
 `checkbox(checked)` draws a box at the end of the row, filled with a check
 while it is ticked; `radio(checked)` draws a circle, with a dot in the chosen
-one. The menu keeps the column for every row. Choosing either reports its ID,
+one. The menu keeps the column for every row. A row that opens a submenu
+ends with its chevron in that same column, so a box and a chevron both stand
+at the row's edge; only a menu with a row that is both a choice and a submenu
+keeps the two columns apart. Choosing either reports its ID,
 as any item does: the host flips its own value, or chooses the radio item's
 value. The mark is drawn as a `Checkbox` and a `RadioGroup` draw theirs, and is
 muted while the item is disabled.
