@@ -21,6 +21,9 @@ mod region_focus_tests;
 #[path = "drag_drop_tests.rs"]
 mod drag_drop_tests;
 #[cfg(test)]
+#[path = "hover_popover_tests.rs"]
+mod hover_popover_tests;
+#[cfg(test)]
 #[path = "sticky_tests.rs"]
 mod sticky_tests;
 #[cfg(test)]
@@ -11305,6 +11308,9 @@ impl LayoutBuilder<'_> {
                         || focusables.iter().any(|(id, _)| {
                             hovered == Some(id.as_str()) || focused == Some(id.as_str())
                         })
+                        // What lies inside the trigger holds it too, such as a
+                        // hint's anchor in a row that opens a card on hover.
+                        || holds_submenu(anchor, hovered, focused)
                         || holds_submenu(floating, hovered, focused);
                     if !active {
                         return;
