@@ -1913,6 +1913,8 @@ pub struct Style {
     /// Border painted while an editor owns focus, including pointer focus,
     /// or while another control without a focus ring has the keyboard focus.
     pub focus_border: Option<Border>,
+    /// Border painted while the pointer is over an interactive element; focus wins over it.
+    pub hover_border: Option<Border>,
     /// Editors that paint their own caret may suppress the outer keyboard ring.
     pub focus_ring: bool,
     /// Action menus share one pointer/keyboard highlight instead of a button ring.
@@ -1988,6 +1990,7 @@ impl Default for Style {
             hover_foreground: None,
             pressed_foreground: None,
             focus_border: None,
+            hover_border: None,
             focus_ring: true,
             action_menu_item: false,
             transition_ms: 0,
@@ -3593,6 +3596,15 @@ impl Element {
     /// A width that is not finite or not above zero removes it.
     pub fn focus_border(mut self, color: Color, width: f32) -> Self {
         self.style.focus_border =
+            (width > 0.0 && width.is_finite()).then_some(Border { color, width });
+        self
+    }
+
+    /// Border an interactive element shows in place of its own while the pointer
+    /// is over it, as an outlined field brightens; its focus border wins over it.
+    /// A width that is not finite or not above zero removes it.
+    pub fn hover_border(mut self, color: Color, width: f32) -> Self {
+        self.style.hover_border =
             (width > 0.0 && width.is_finite()).then_some(Border { color, width });
         self
     }

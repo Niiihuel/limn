@@ -10958,6 +10958,7 @@ impl LayoutBuilder<'_> {
             } else if hovered {
                 style.background = style.hover_background.or(style.background);
                 style.foreground = style.hover_foreground.unwrap_or(style.foreground);
+                style.border = style.hover_border.or(style.border);
                 // On a shared surface that is already lit with the same fill,
                 // the control's own hover would vanish: lift it one step.
                 if let (Some(fill), Some(surface)) = (style.background, self.hover_surface_fill) {
@@ -15644,6 +15645,28 @@ mod tests {
         // With its ring, a control keeps the ring and its own border.
         tree.set_root(button(true));
         assert!(!marked(&tree.layout(window)));
+    }
+
+    #[test]
+    fn a_field_brightens_its_border_under_the_pointer_and_its_focus_wins() {
+        let (rest, over, focus) = (Color::rgb(60, 60, 60), Color::rgb(180, 180, 180), Color::rgb(255, 255, 255));
+        let stroke = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::StrokeRect { color, .. } => Some(*color),
+            _ => None,
+        });
+        let field = Element::text_input("name", "", "")
+            .border(rest, 1.0)
+            .hover_border(over, 1.0)
+            .focus_border(focus, 1.5)
+            .size(Some(200.0), Some(48.0));
+        let window = Size::new(200.0, 48.0);
+        let mut tree = UiTree::new(field);
+        tree.set_reduced_motion(true);
+        assert_eq!(stroke(&tree.layout(window)), Some(rest));
+        tree.handle_event(UiEvent::PointerMove(Point::new(100.0, 24.0)));
+        assert_eq!(stroke(&tree.layout(window)), Some(over));
+        assert!(tree.focus("name"));
+        assert_eq!(stroke(&tree.layout(window)), Some(focus));
     }
 
     #[test]
