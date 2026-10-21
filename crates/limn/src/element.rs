@@ -1196,6 +1196,9 @@ pub struct BarPlot {
     pub tooltip: TooltipStyle,
     /// The name of a last row that sums a stacked category in the tooltip, if it has one.
     pub total: Option<String>,
+    /// A rail of this color behind each category's bars, the whole way from the zero
+    /// line to the end of the value axis.
+    pub track: Option<Color>,
 }
 
 /// One series of a [`LinePlot`] or a [`RadarPlot`]: a name, a color and a value
@@ -1243,6 +1246,8 @@ pub struct LinePlot {
     pub dashed_zero: bool,
     /// A point marked on every line with a dot, as the pointer marks one.
     pub mark: Option<usize>,
+    /// True to set each series on the ones before it, its area filled from theirs.
+    pub stacked: bool,
     /// Ink of the pointer's line.
     pub text: Color,
     /// Ink of the ticks and of the points' names.

@@ -433,6 +433,7 @@ struct Bars {
     value_axis: bool,
     value_labels: bool,
     total: Option<String>,
+    track: Option<Color>,
 }
 
 impl Bars {
@@ -454,6 +455,7 @@ impl Bars {
             value_axis: true,
             value_labels: false,
             total: None,
+            track: None,
         }
     }
 
@@ -511,6 +513,7 @@ impl Bars {
             line: Color { a: (f32::from(palette.border.a) * 0.7) as u8, ..palette.border },
             tooltip: palette.tooltip_style(),
             total: self.total,
+            track: self.track,
         })
         .size(self.width, Some(height))
     }
@@ -572,6 +575,13 @@ macro_rules! bars_builders {
             if width.is_finite() {
                 self.0.max_bar = width.max(2.0);
             }
+            self
+        }
+
+        /// Lay a rail of `color` behind each category's bars, from the zero line to the
+        /// end of the value axis, so how full each one is reads at a glance.
+        pub fn track(mut self, color: Color) -> Self {
+            self.0.track = Some(color);
             self
         }
 
@@ -717,6 +727,7 @@ pub struct LineChart {
     range: Option<(f64, f64)>,
     dashed_zero: bool,
     mark: Option<usize>,
+    stacked: bool,
 }
 
 impl LineChart {
@@ -745,6 +756,7 @@ impl LineChart {
             range: None,
             dashed_zero: false,
             mark: None,
+            stacked: false,
         }
     }
 
@@ -835,6 +847,14 @@ impl LineChart {
         self.mark = Some(point);
         self
     }
+    /// Set each series on the ones before it, as a stacked area of ECharts' is:
+    /// each line is the sum so far, and the area under it is filled from the line
+    /// below in its color, strong at the top and lighter at the foot. The tooltip
+    /// still says each series' own value.
+    pub fn stacked(mut self, stacked: bool) -> Self {
+        self.stacked = stacked;
+        self
+    }
 }
 
 impl Component for LineChart {
@@ -864,6 +884,7 @@ impl Component for LineChart {
             range: self.range,
             dashed_zero: self.dashed_zero,
             mark: self.mark,
+            stacked: self.stacked,
             text: palette.text,
             muted: palette.muted,
             line: Color { a: (f32::from(palette.border.a) * 0.7) as u8, ..palette.border },
@@ -1293,6 +1314,25 @@ mod tests {
             ComponentPalette::neutral_dark(),
         )
         .width(400.0)
+    }
+
+    #[test]
+    fn stacked_series_stand_on_those_before_and_fill_from_their_line() {
+        let window = Size::new(400.0, 240.0);
+        let frame_of = |stacked: bool| {
+            let mut tree = UiTree::new(lines().area(true).smooth(false).stacked(stacked).height(240.0).render());
+            tree.set_reduced_motion(true);
+            tree.layout_at(window, web_time::Instant::now())
+        };
+        let top = |frame: &crate::Frame| texts(frame).iter().filter_map(|text| text.parse::<f64>().ok()).fold(0.0, f64::max);
+        // Feb's two together reach 60, past either alone.
+        assert!(top(&frame_of(false)) < 60.0 && top(&frame_of(true)) >= 60.0);
+        let stacked = meshes(&frame_of(true));
+        assert_eq!(stacked.len(), 2);
+        // The second's foot is the first's line, not the zero line.
+        let first_tops: Vec<f32> = stacked[0].iter().step_by(2).map(|point| point.y).collect();
+        let second_feet: Vec<f32> = stacked[1].iter().skip(1).step_by(2).map(|point| point.y).collect();
+        assert_eq!(first_tops, second_feet);
     }
 
     #[test]
