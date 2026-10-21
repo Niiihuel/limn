@@ -678,6 +678,7 @@ pub struct Button {
     gap: Option<f32>,
     radius: RadiusRole,
     round: bool,
+    family: FontFamily,
     palette: ComponentPalette,
     tooltip: TooltipSpec,
     dispatch_as: Option<String>,
@@ -719,6 +720,7 @@ impl Button {
             pressed_ink: None,
             gap: None,
             radius: RadiusRole::Control,
+            family: FontFamily::Sans,
             round: false,
             palette,
             tooltip: TooltipSpec::none(),
@@ -919,6 +921,13 @@ impl Button {
         self
     }
 
+    /// Set the label in `family`, such as a bold face for a host whose
+    /// buttons speak louder than its text.
+    pub fn font_family(mut self, family: FontFamily) -> Self {
+        self.family = family;
+        self
+    }
+
     /// Round the ends fully: an icon button becomes a circle and a labelled
     /// one a pill, at any size. It takes precedence over `radius`.
     pub fn round(mut self) -> Self {
@@ -1115,7 +1124,7 @@ impl Component for Button {
             };
             let label = Element::truncated_text(label)
                 .foreground(ink)
-                .font_family(FontFamily::Sans)
+                .font_family(self.family)
                 .font_size(sizing.font_size)
                 .size(label_width, Some(content_height));
             let visual = if icon_only && self.trailing_icon.is_none() {
@@ -1177,7 +1186,7 @@ impl Component for Button {
             .pressed_foreground(self.pressed_ink.or(self.hover_ink).unwrap_or(ink))
             .transition_ms(hover_ms())
             .foreground(ink)
-            .font_family(FontFamily::Sans)
+            .font_family(self.family)
             .font_size(sizing.font_size)
             .padding(padding)
             .gap(spacing);
@@ -1584,6 +1593,7 @@ pub struct TextField {
     monospace: bool,
     icon: Option<Icon>,
     accessibility_label: Option<String>,
+    label: Option<String>,
 }
 
 impl TextField {
@@ -1609,7 +1619,17 @@ impl TextField {
             monospace: false,
             icon: None,
             accessibility_label: None,
+            label: None,
         }
+    }
+
+    /// Name it with a label that rests inside it while it is empty and
+    /// rises onto its outline once it is used, as an outlined Material field
+    /// does, drawn as a pill on the palette's surface. The label names it to
+    /// the platform unless [`accessibility_label`](Self::accessibility_label) does.
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
     }
 
     /// What the field is called to the platform, in place of its
@@ -1690,8 +1710,9 @@ impl TextField {
 }
 
 impl Component for TextField {
-    fn render(self) -> Element {
-        let least = self.size.height().max(28.0);
+    fn render(mut self) -> Element {
+        // A label needs room to rest in and to rise out of.
+        let least = self.size.height().max(if self.label.is_some() { LABELED_FIELD } else { 28.0 });
         let height = self.height.map_or(least, |height| height.max(least));
         let family = if self.monospace {
             FontFamily::Monospace
@@ -1747,15 +1768,42 @@ impl Component for TextField {
                 .leading_icon(icon)
                 .leading_icon_tint(self.palette.muted);
         }
-        let input = input_surface(input, self.palette, self.size, self.width)
+        let mut input = input_surface(input, self.palette, self.size, self.width)
             .size(self.width, Some(height))
             .font_family(family);
-        match self.accessibility_label {
+        let labeled = self.label.is_some();
+        if let Some(label) = self.label {
+            // Outlined on the surface it sits on, round, its text clear of the curve.
+            input = input
+                .floating_label(label.clone(), self.palette.surface)
+                .background(self.palette.surface)
+                .hover_background(self.palette.surface)
+                .border(lighter(self.palette.border, 30), 1.0)
+                .focus_border(self.palette.text, 1.5)
+                .font_size(14.0)
+                .padding(14.0)
+                .radius(height / 2.0);
+            if self.accessibility_label.is_none() {
+                self.accessibility_label = Some(label);
+            }
+        }
+        let input = match self.accessibility_label {
             Some(name) => input.accessibility_label(name),
             None => input,
+        };
+        // Room over it for the label risen half out of it, inside whatever clips the field.
+        if labeled {
+            return Element::column(vec![Element::spacer().size(None, Some(LABEL_RISE)), input]).size(self.width, None);
         }
+        input
     }
 }
+
+/// How far a [`TextField`]'s risen label reaches over its outline.
+const LABEL_RISE: f32 = 8.0;
+
+/// The least height of a [`TextField`] with a label.
+const LABELED_FIELD: f32 = 48.0;
 
 /// A multi-line editor using the same palette and focus treatment as
 /// [`TextField`]. The host owns its text through `InputChanged`.

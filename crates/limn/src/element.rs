@@ -913,6 +913,9 @@ pub(crate) struct Kept {
     pub(crate) sticky_background: Option<(f32, f32)>,
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
+    /// Set by [`Element::floating_label`]: a text input's name, and the
+    /// colour around the field that parts its edge behind the name risen.
+    pub(crate) floating_label: Option<(String, Color)>,
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
@@ -3191,6 +3194,19 @@ impl Element {
     pub(crate) fn input_trailing_space(mut self, width: f32) -> Self {
         if width.is_finite() && matches!(self.kind, ElementKind::TextInput { .. }) {
             self.kept.get_or_insert_default().input_trailing_space = width.max(0.0);
+        }
+        self
+    }
+
+    /// Name a single-line input with a label that rests inside it, where
+    /// the text goes, while it is empty and unfocused, and rises onto its
+    /// top edge, smaller, once it has the focus or a value, as an outlined
+    /// Material field's does. The edge parts behind the risen label in
+    /// `backdrop`, the colour around the field. The placeholder shows only
+    /// while the label is risen and the field focused. Other elements ignore it.
+    pub fn floating_label(mut self, label: impl Into<String>, backdrop: Color) -> Self {
+        if matches!(self.kind, ElementKind::TextInput { .. }) {
+            self.kept.get_or_insert_default().floating_label = Some((label.into(), backdrop));
         }
         self
     }
