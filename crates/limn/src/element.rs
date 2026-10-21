@@ -570,6 +570,9 @@ pub enum FontFamily {
     /// [`Self::SansBold`] slanted by the host. It measures exactly as
     /// `SansBold`.
     SansBoldItalic,
+    /// A face for headlines and large figures, louder than the text's: one
+    /// the host provides. A host without one paints [`Self::SansBold`].
+    Display,
 }
 
 /// One inline style run in a paragraph. Width is measured by the same host

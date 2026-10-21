@@ -1841,7 +1841,8 @@ impl SelectableTextBlock {
             | FontFamily::SansItalic
             | FontFamily::SansMedium
             | FontFamily::SansBold
-            | FontFamily::SansBoldItalic => sans_metrics,
+            | FontFamily::SansBoldItalic
+            | FontFamily::Display => sans_metrics,
         }
         .at_size(run.font_size)
         .char_width;
@@ -9165,7 +9166,8 @@ impl LayoutBuilder<'_> {
             | FontFamily::SansItalic
             | FontFamily::SansMedium
             | FontFamily::SansBold
-            | FontFamily::SansBoldItalic => self.sans_metrics,
+            | FontFamily::SansBoldItalic
+            | FontFamily::Display => self.sans_metrics,
         }
         .at_size(style.font_size)
     }

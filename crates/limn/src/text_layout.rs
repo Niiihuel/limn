@@ -742,13 +742,14 @@ fn rect(bounds: BoundingBox) -> Rect {
 }
 
 // The family each face is registered under, and what it is asked for with.
-const FAMILIES: [(FontFamily, &str, f32, FontStyle); 6] = [
+const FAMILIES: [(FontFamily, &str, f32, FontStyle); 7] = [
     (FontFamily::Monospace, "limn-mono", 400.0, FontStyle::Normal),
     (FontFamily::Sans, "limn-sans", 400.0, FontStyle::Normal),
     (FontFamily::SansItalic, "limn-sans-italic", 400.0, FontStyle::Italic),
     (FontFamily::SansMedium, "limn-sans-medium", 500.0, FontStyle::Normal),
     (FontFamily::SansBold, "limn-sans-bold", 700.0, FontStyle::Normal),
     (FontFamily::SansBoldItalic, "limn-sans-bold-italic", 700.0, FontStyle::Italic),
+    (FontFamily::Display, "limn-display", 400.0, FontStyle::Normal),
 ];
 
 fn slot(family: FontFamily) -> usize {
@@ -837,7 +838,8 @@ impl System {
                 }
                 _ => {
                     // Without a face of its own, a bold italic is the bold face slanted.
-                    if family == FontFamily::SansBoldItalic {
+                    // Without a face of its own, a bold italic is the bold face slanted, and a display the bold face.
+                    if matches!(family, FontFamily::SansBoldItalic | FontFamily::Display) {
                         names.push(named("limn-sans-bold"));
                     }
                     if family != FontFamily::Sans {
