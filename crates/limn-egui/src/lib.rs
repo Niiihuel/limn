@@ -1767,7 +1767,7 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let font = match font_family {
                     FontFamily::Monospace => FontId::monospace(*font_size),
                     FontFamily::Sans => FontId::proportional(*font_size),
-                    FontFamily::SansMedium | FontFamily::SansBold => {
+                    FontFamily::SansMedium | FontFamily::SansBold | FontFamily::Display => {
                         FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
                     }
                     FontFamily::SansItalic | FontFamily::SansBoldItalic => {
@@ -2382,11 +2382,21 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
     for (family, face_name) in [(SANS_MEDIUM, "Sans-Medium"), (SANS_BOLD, "Sans-Bold")] {
         fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Sans-Regular"], &behind_sans));
     }
+    // A display face only when the host gave one; without it the bold face stands in.
+    let display = match current.face_of(FontFamily::Display) {
+        Some(font) => {
+            fonts.font_data.insert("Display".to_owned(), data(font));
+            "Display"
+        }
+        None => "Sans-Bold",
+    };
+    fonts.families.insert(egui::FontFamily::Name(DISPLAY.into()), chain(&[display, "Sans-Bold", "Sans-Regular"], &behind_sans));
     fonts
 }
 
 const SANS_MEDIUM: &str = "limn-sans-medium";
 const SANS_BOLD: &str = "limn-sans-bold";
+const DISPLAY: &str = "limn-display";
 
 /// The egui family a limn family is painted and measured with. A host that
 /// set its own fonts without the weighted faces gets the regular one.
@@ -2396,6 +2406,7 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
         FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
+        FontFamily::Display => DISPLAY,
     };
     let named = egui::FontFamily::Name(weighted.into());
     if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {

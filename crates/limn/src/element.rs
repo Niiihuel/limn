@@ -570,6 +570,9 @@ pub enum FontFamily {
     /// [`Self::SansBold`] slanted by the host. It measures exactly as
     /// `SansBold`.
     SansBoldItalic,
+    /// A face for headlines and large figures, louder than the text's: one
+    /// the host provides. A host without one paints [`Self::SansBold`].
+    Display,
 }
 
 /// One inline style run in a paragraph. Width is measured by the same host
@@ -913,6 +916,9 @@ pub(crate) struct Kept {
     pub(crate) sticky_background: Option<(f32, f32)>,
     /// Width a text input leaves free at its end, for a control laid over it.
     pub(crate) input_trailing_space: f32,
+    /// Set by [`Element::floating_label`]: a text input's name, and the
+    /// colour around the field that parts its edge behind the name risen.
+    pub(crate) floating_label: Option<(String, Color)>,
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
@@ -1190,6 +1196,9 @@ pub struct BarPlot {
     pub tooltip: TooltipStyle,
     /// The name of a last row that sums a stacked category in the tooltip, if it has one.
     pub total: Option<String>,
+    /// A rail of this color behind each category's bars, the whole way from the zero
+    /// line to the end of the value axis.
+    pub track: Option<Color>,
 }
 
 /// One series of a [`LinePlot`] or a [`RadarPlot`]: a name, a color and a value
@@ -1237,6 +1246,8 @@ pub struct LinePlot {
     pub dashed_zero: bool,
     /// A point marked on every line with a dot, as the pointer marks one.
     pub mark: Option<usize>,
+    /// True to set each series on the ones before it, its area filled from theirs.
+    pub stacked: bool,
     /// Ink of the pointer's line.
     pub text: Color,
     /// Ink of the ticks and of the points' names.
@@ -3191,6 +3202,19 @@ impl Element {
     pub(crate) fn input_trailing_space(mut self, width: f32) -> Self {
         if width.is_finite() && matches!(self.kind, ElementKind::TextInput { .. }) {
             self.kept.get_or_insert_default().input_trailing_space = width.max(0.0);
+        }
+        self
+    }
+
+    /// Name a single-line input with a label that rests inside it, where
+    /// the text goes, while it is empty and unfocused, and rises onto its
+    /// top edge, smaller, once it has the focus or a value, as an outlined
+    /// Material field's does. The edge parts behind the risen label in
+    /// `backdrop`, the colour around the field. The placeholder shows only
+    /// while the label is risen and the field focused. Other elements ignore it.
+    pub fn floating_label(mut self, label: impl Into<String>, backdrop: Color) -> Self {
+        if matches!(self.kind, ElementKind::TextInput { .. }) {
+            self.kept.get_or_insert_default().floating_label = Some((label.into(), backdrop));
         }
         self
     }

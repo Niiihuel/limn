@@ -1841,7 +1841,8 @@ impl SelectableTextBlock {
             | FontFamily::SansItalic
             | FontFamily::SansMedium
             | FontFamily::SansBold
-            | FontFamily::SansBoldItalic => sans_metrics,
+            | FontFamily::SansBoldItalic
+            | FontFamily::Display => sans_metrics,
         }
         .at_size(run.font_size)
         .char_width;
@@ -8691,6 +8692,28 @@ impl LayoutBuilder<'_> {
             .leading(crate::Leading::Below)
     }
 
+    /// Paint a text input's floating label `risen` of the way from resting
+    /// inside it, `inset` after the start of its content, to sitting on its
+    /// top edge at four fifths of the size, the edge parted behind it.
+    #[allow(clippy::too_many_arguments)]
+    fn paint_floating_label(&mut self, rect: Rect, content: Rect, inset: f32, label: &str, backdrop: Color, style: Style, risen: f32, focused: bool) {
+        let lerp = |from: f32, to: f32| from + (to - from) * risen;
+        let font_size = lerp(style.font_size, (style.font_size * 0.8).max(10.0));
+        let text_style = Style { font_size, ..style };
+        let line = self.metrics_for(text_style).line_height;
+        let width = self.text_width(label, text_style);
+        // Risen, it keeps clear of a round field's curve.
+        let x = lerp(content.x + inset, content.x.max(rect.x + style.radius * 0.8));
+        let y = lerp(content.y + (content.height - line) / 2.0, rect.y - line / 2.0);
+        if risen > 0.01 {
+            let gap = Rect::new(x - 4.0, rect.y - 2.0, width + 8.0, 4.0);
+            self.frame.commands.push(DrawCommand::FillRect { rect: gap, color: Color { a: (f32::from(backdrop.a) * risen.min(1.0)) as u8, ..backdrop }, radius: 0.0 });
+        }
+        // Resting it reads as the placeholder does; risen, white while the field is in use.
+        let ink = if focused { style.foreground } else { Color { a: 150, ..style.foreground } };
+        self.frame.commands.push(DrawCommand::Text { position: Point::new(x, y), text: label.to_owned(), color: ink, font_size, font_family: style.font_family });
+    }
+
     /// Paint a single-line field laid out by limn: its text or placeholder,
     /// scrolled no further than keeps the caret in view, its selection and
     /// its caret.
@@ -9143,7 +9166,8 @@ impl LayoutBuilder<'_> {
             | FontFamily::SansItalic
             | FontFamily::SansMedium
             | FontFamily::SansBold
-            | FontFamily::SansBoldItalic => self.sans_metrics,
+            | FontFamily::SansBoldItalic
+            | FontFamily::Display => self.sans_metrics,
         }
         .at_size(style.font_size)
     }
@@ -12330,6 +12354,15 @@ impl LayoutBuilder<'_> {
                 password,
             } => {
                 self.add_region(id, rect, HitKind::TextInput, clip);
+                let floating = element.kept.as_ref().and_then(|kept| kept.floating_label.as_ref());
+                let placeholder: &str = if floating.is_some() && self.focused != Some(id.as_str()) { "" } else { placeholder };
+                if let Some((label, backdrop)) = floating {
+                    let focused = self.focused == Some(id.as_str());
+                    let filled = self.inputs.get(id).map_or(!initial_value.is_empty(), |input| !input.value.is_empty());
+                    let risen = self.spring(&format!("float/{id}"), if focused || filled { 1.0 } else { 0.0 });
+                    let inset = if leading_icon.is_some() { ICON_SIZE + 8.0 } else { 0.0 };
+                    self.paint_floating_label(rect, content, inset, label, *backdrop, style, risen, focused);
+                }
                 // Room a component keeps at the end for a control over it.
                 let trailing = element
                     .kept
@@ -12474,7 +12507,7 @@ impl LayoutBuilder<'_> {
                     let is_placeholder =
                         state.value.is_empty() && (!is_focused || *persistent_placeholder);
                     let shown = if is_placeholder {
-                        placeholder.clone()
+                        placeholder.to_owned()
                     } else {
                         if *password {
                             "•".repeat(visible_end.saturating_sub(state.view_start))

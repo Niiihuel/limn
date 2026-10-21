@@ -257,8 +257,12 @@ impl LayoutBuilder<'_> {
         if count == 0 || plot.series.is_empty() || content.width <= 0.0 || content.height <= 0.0 {
             return;
         }
-        let value = |series: usize, point: usize| {
+        let own = |series: usize, point: usize| {
             plot.series[series].values.get(point).copied().filter(|value| value.is_finite()).unwrap_or(0.0)
+        };
+        // Stacked, a series stands on the sum of those before it.
+        let value = |series: usize, point: usize| {
+            if plot.stacked { (0..=series).map(|below| own(below, point)).sum() } else { own(series, point) }
         };
         let (low, high, step, ticks) = match plot.range.filter(|(low, high)| low < high) {
             Some((low, high)) => {
@@ -341,7 +345,26 @@ impl LayoutBuilder<'_> {
             for (index, series) in plot.series.iter().enumerate() {
                 let knots: Vec<Point> = (0..count).map(|point| Point::new(x_of(point as f32), y_of(value(index, point)))).collect();
                 let path = if plot.smooth { rounded_through(&knots) } else { knots.clone() };
-                if plot.area && path.len() > 1 {
+                // Stacked, its area reaches down to the line of the series under it.
+                let floor: Option<Vec<Point>> = (plot.stacked && index > 0).then(|| {
+                    let knots: Vec<Point> = (0..count).map(|point| Point::new(x_of(point as f32), y_of(value(index - 1, point)))).collect();
+                    if plot.smooth { rounded_through(&knots) } else { knots }
+                }).filter(|floor| floor.len() == path.len());
+                if plot.area && plot.stacked && path.len() > 1 {
+                    let mut points = Vec::with_capacity(path.len() * 2);
+                    let mut colors = Vec::with_capacity(path.len() * 2);
+                    let mut indices = Vec::with_capacity(path.len() * 6);
+                    for (at, point) in path.iter().enumerate() {
+                        let under = floor.as_ref().map_or(Point::new(point.x, zero), |floor| floor[at]);
+                        points.extend([*point, under]);
+                        colors.extend([faded(series.color, 0.9), faded(series.color, 0.45)]);
+                        if at > 0 {
+                            let corner = (at * 2) as u32;
+                            indices.extend([corner - 2, corner - 1, corner, corner - 1, corner + 1, corner]);
+                        }
+                    }
+                    self.frame.commands.push(DrawCommand::FillMesh { points: points.into(), colors: colors.into(), indices: indices.into() });
+                } else if plot.area && path.len() > 1 {
                     // A strip under each stroke of the line, from its color down to nothing at the zero line.
                     let mut points = Vec::with_capacity(path.len() * 2);
                     let mut colors = Vec::with_capacity(path.len() * 2);
@@ -392,7 +415,7 @@ impl LayoutBuilder<'_> {
             .series
             .iter()
             .enumerate()
-            .map(|(index, series)| (Some(series.color), series.name.clone(), written(value(index, point))))
+            .map(|(index, series)| (Some(series.color), series.name.clone(), written(own(index, point))))
             .collect();
         self.plot_tooltip(plot.tooltip, plot.points.get(point).map_or("", String::as_str), rows, area, pointer);
     }
@@ -689,6 +712,14 @@ impl LayoutBuilder<'_> {
         for category in 0..count {
             let dim = 1.0 - DIM * focus * (category as f32 - lit).abs().min(1.0);
             let first = band_start(category as f32) + (band - drawn) / 2.0;
+            if let Some(track) = plot.track {
+                let rail = if vertical {
+                    Rect::new(first, area.y, drawn, (zero - area.y).max(0.0))
+                } else {
+                    Rect::new(zero, first, (area.x + area.width - zero).max(0.0), drawn)
+                };
+                paint_bar(&mut self.frame.commands, rail, faded(track, appear), if vertical { Tip::Up } else { Tip::Right }, plot.radius, false);
+            }
             let mut piles = (0.0f64, 0.0f64);
             // The last series to add to a pile is the one whose tip is round.
             let last = |positive: bool| (0..plot.series.len()).rev().find(|series| {
