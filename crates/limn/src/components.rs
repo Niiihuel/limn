@@ -1778,7 +1778,10 @@ impl Component for TextField {
                 .floating_label(label.clone(), self.palette.surface)
                 .background(self.palette.surface)
                 .hover_background(self.palette.surface)
-                .border(lighter(self.palette.border, 30), 1.0)
+                // As Material's outlined field: a faint line at rest, brighter under the
+                // pointer, whole while in use, whatever border the palette has.
+                .border(Color { a: 77, ..self.palette.text }, 1.0)
+                .hover_border(Color { a: 180, ..self.palette.text }, 1.0)
                 .focus_border(self.palette.text, 1.5)
                 .font_size(14.0)
                 .padding(14.0)
