@@ -274,7 +274,7 @@ pub use toolbar::{Toolbar, ToolbarItem};
 pub use top_bar::TopBar;
 pub use access::{Access, AccessNode, Role};
 pub use labels::{labels, set_labels, Labels};
-pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
+pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, ShortcutStyle, Tokens};
 pub use theme::Theme;
 pub use tree::{
     DrawCommand, FontMetrics, Frame, HitKind, HitRegion, ImeArea, Key, PasteTarget, TextLayoutBlock,

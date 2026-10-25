@@ -187,6 +187,11 @@ pub struct Tokens {
     /// a transparent `border`, which draws no outline. Unless set, each
     /// palette derives its own. A tooltip given its own `background` keeps it.
     pub tooltip: Option<TooltipStyle>,
+    /// How shortcuts are drawn: keycaps unless set. `Text` draws every
+    /// [`crate::Kbd`], and so every menu's shortcuts, as muted text, and a
+    /// tooltip's in its style's `muted`. A field's shortcut hint keeps its
+    /// keycaps.
+    pub shortcut_style: ShortcutStyle,
 }
 
 impl Tokens {
@@ -195,7 +200,19 @@ impl Tokens {
         radius: Radius::DEFAULT,
         motion: Motion::DEFAULT,
         tooltip: None,
+        shortcut_style: ShortcutStyle::Keycaps,
     };
+}
+
+/// How keyboard shortcuts are drawn in menus, tooltips and other hints.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ShortcutStyle {
+    /// Each key in an outlined cap.
+    #[default]
+    Keycaps,
+    /// One line of muted text, such as "Ctrl+Shift+I", as a menu's
+    /// accelerator is drawn.
+    Text,
 }
 
 static CURRENT: RwLock<Tokens> = RwLock::new(Tokens::DEFAULT);
