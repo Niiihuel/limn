@@ -32,6 +32,14 @@ fn update(state: &mut State, action: &UiAction) {
 A checked box is filled with the palette's text color and its check is drawn
 in the surface color. An unchecked one is an empty box with a border.
 
+```rust
+Checkbox::new("terms", state.terms, palette).accent(blue).render()
+```
+
+`accent` fills the checked box with a color of the host's, such as an app's
+blue, in place of the text's; the label keeps the text's color and the check
+the surface's.
+
 ## Label
 
 ```rust

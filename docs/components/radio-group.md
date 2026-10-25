@@ -50,6 +50,14 @@ every circle is empty.
 The circle, the label and the description are one click target. The empty
 circle lights while the pointer is anywhere on its option.
 
+```rust
+RadioGroup::new("theme", options, Some(&state.theme), palette).accent(blue)
+```
+
+`accent` fills the chosen circle with a color of the host's, such as an app's
+blue, in place of the text's; the labels keep the text's color and the dot the
+surface's.
+
 ## Description
 
 ```rust
