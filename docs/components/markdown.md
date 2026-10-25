@@ -92,6 +92,9 @@ column, so an item's text always starts inside the column.
 `code_font_size(size)` sets fenced code independently of the body, in logical
 pixels. Without it, code keeps its existing proportion to the body. Invalid
 numbers and nonpositive sizes are ignored; valid sizes stay within 1 to 96.
+`inline_code_size(size)` sets inline `code` in body text, in logical pixels,
+such as 13 in a 16 px body; in a heading or a subtext line it keeps that
+proportion to the text around it.
 `code_word_wrap(false)` preserves each code source line in a horizontal
 viewport; prose continues to wrap. Both settings take effect in cached and
 streaming previews. A standalone `CodeBlock` offers the same controls as
@@ -173,6 +176,24 @@ follow the palette, dark or light, not `MarkdownColors`. A fence with no
 language or another one stays plain, and so does code longer than 64 KiB or
 2,000 lines, so a long message is not held up. The full list of labels is in
 [Components](../components.md#highlighted-code).
+
+```rust
+Markdown::new(source, palette).code_syntax_colors(CodeSyntaxColors {
+    text: Color::rgb(0x19, 0x19, 0x19),
+    string: Color::rgb(0x1E, 0x9E, 0x3C),
+    function: Some(Color::rgb(0x00, 0x73, 0xE6)),
+    interpolation: Some(Color::rgb(0xCD, 0x20, 0x54)),
+    ..CodeSyntaxColors::for_palette(palette)
+})
+```
+
+`code_syntax_colors` replaces those inks: `text` (names, operators,
+punctuation, and plain code), `keyword`, `string`, `number` and `comment`.
+`function`, when set, colors a name followed by `(`, such as `print`;
+`interpolation`, when set, colors the braces of a Python f-string's `{…}` and a
+JavaScript template's `${…}` and draws what they hold in `text`. Both are
+`None` in `CodeSyntaxColors::for_palette`, which leaves those in `text` and in
+`string`. An interpolation is found only in a string that opens on its line.
 
 ## Code blocks as a chat app draws them
 
