@@ -112,6 +112,15 @@ delimiter at its end already styles its text, a web address there has no
 action until it ends, and the blocks above the last one are reused from the
 previous render.
 
+```rust
+Markdown::new(&state.partial, palette).streaming(true).streaming_fade(true).render()
+```
+
+`streaming_fade(true)` dims the last 24 characters of the block being written
+in six steps, the newest at a fifth of the ink, so new text comes in out of a
+fade. A span with an action or an icon is not split: it takes the step of its
+last character. Off by default, and nothing fades once `streaming` is off.
+
 ## Links
 
 ```rust

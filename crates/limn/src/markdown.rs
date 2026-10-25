@@ -159,6 +159,7 @@ pub(crate) struct MarkdownPresentation {
     font_size_bits: u32,
     code_font_size_bits: Option<u32>,
     code_word_wrap: bool,
+    streaming_fade: bool,
 }
 
 impl MarkdownPresentation {
@@ -228,6 +229,7 @@ impl<'a> Markdown<'a> {
                 font_size_bits: BODY_SIZE.to_bits(),
                 code_font_size_bits: None,
                 code_word_wrap: true,
+                streaming_fade: false,
             },
             streaming: false,
             plain_line_height: None,
@@ -276,6 +278,14 @@ impl<'a> Markdown<'a> {
     /// source lines in a horizontal viewport; prose continues to wrap normally.
     pub fn code_word_wrap(mut self, enabled: bool) -> Self {
         self.presentation.code_word_wrap = enabled;
+        self
+    }
+
+    /// While [`streaming`](Self::streaming), fade the last characters of the
+    /// block being written, the newest faintest, so new text comes in out of
+    /// a fade as a chat client reveals it. Off by default.
+    pub fn streaming_fade(mut self, enabled: bool) -> Self {
+        self.presentation.streaming_fade = enabled;
         self
     }
 
@@ -549,6 +559,7 @@ fn render_inline_mode(
             }
         })
         .collect();
+    let spans = if incomplete && presentation.streaming_fade { fade_tail(spans) } else { spans };
     Element::formatted_text(spans)
         .font_family(FontFamily::Sans)
         .font_size(size)
@@ -558,6 +569,56 @@ fn render_inline_mode(
             size * 1.4
         })
         .size(Some(width.max(0.0)), None)
+}
+
+/// Characters a streaming fade spans, and how many steps it takes over them.
+const FADE_CHARS: usize = 24;
+const FADE_STEPS: usize = 6;
+
+/// The spans with their last `FADE_CHARS` characters in steps of fading ink,
+/// the last step at a fifth of it. A span with an action or an icon is not
+/// split, so its one target stays whole: it takes the step of its last
+/// character.
+fn fade_tail(spans: Vec<TextSpan>) -> Vec<TextSpan> {
+    let step_chars = FADE_CHARS / FADE_STEPS;
+    // Characters from the end of the text to the end of each span.
+    let mut after = 0;
+    let mut out: Vec<TextSpan> = Vec::with_capacity(spans.len() + FADE_STEPS);
+    for span in spans.into_iter().rev() {
+        let count = span.text.chars().count();
+        let alpha = |from_end: usize| {
+            let step = from_end / step_chars;
+            if step >= FADE_STEPS {
+                1.0
+            } else {
+                0.2 + 0.8 * step as f32 / FADE_STEPS as f32
+            }
+        };
+        let faded = |mut span: TextSpan, alpha: f32| {
+            span.color.a = (f32::from(span.color.a) * alpha).round() as u8;
+            span
+        };
+        if after >= FADE_CHARS {
+            out.push(span);
+        } else if span.action.is_some() || span.icon.is_some() {
+            out.push(faded(span, alpha(after)));
+        } else {
+            // Cut the span where the steps change, last piece first.
+            let chars: Vec<char> = span.text.chars().collect();
+            let mut end = count;
+            while end > 0 {
+                let from_end = after + (count - end);
+                let step_left = if from_end >= FADE_CHARS { end } else { step_chars - from_end % step_chars };
+                let start = end.saturating_sub(step_left);
+                let piece = TextSpan { text: chars[start..end].iter().collect(), ..span.clone() };
+                out.push(faded(piece, alpha(from_end)));
+                end = start;
+            }
+        }
+        after += count;
+    }
+    out.reverse();
+    out
 }
 
 fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation) -> Element {
@@ -1120,6 +1181,24 @@ mod tests {
             .collect()
     }
 
+    #[test]
+    fn a_streaming_fade_dims_the_newest_characters_in_steps_and_keeps_the_text() {
+        let ink = Color::rgb(10, 20, 30);
+        let spans = vec![
+            TextSpan::new("The subagent that lists ", ink, 14.0, FontFamily::Sans),
+            TextSpan::new("the files", ink, 14.0, FontFamily::Sans).action("link"),
+            TextSpan::new(" in /work", ink, 14.0, FontFamily::Sans),
+        ];
+        let faded = fade_tail(spans.clone());
+        let text: String = faded.iter().map(|s| s.text.as_str()).collect();
+        assert_eq!(text, spans.iter().map(|s| s.text.as_str()).collect::<String>());
+        // Older text keeps its ink; the last characters are the faintest; the link stays one piece.
+        assert_eq!(faded[0].color.a, 255);
+        assert_eq!(faded.last().unwrap().color.a, (255.0_f32 * 0.2).round() as u8);
+        assert_eq!(faded.iter().filter(|s| s.action.is_some()).count(), 1);
+        let alphas: Vec<u8> = faded.iter().map(|s| s.color.a).collect();
+        assert!(alphas.windows(2).all(|w| w[0] >= w[1]), "{alphas:?}");
+    }
 
     #[test]
     fn parses_blocks_in_order_and_keeps_number_and_checklist_state() {
