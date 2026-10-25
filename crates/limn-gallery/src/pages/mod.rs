@@ -47,6 +47,7 @@ mod side_panels;
 mod split_view;
 mod surfaces;
 mod table;
+mod terminal;
 mod text_layout;
 mod toggle;
 mod tokens;
@@ -170,6 +171,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "output-block", group: "Data", title: "OutputBlock", source: "blocks", view: blocks::view, sections: &["Output block"], since: "0.1.39" },
     Page { id: "code-editor", group: "Data", title: "CodeEditor", source: "code", view: code::view, sections: &["Code editor"], since: "0.1.39" },
     Page { id: "code-diff", group: "Data", title: "CodeDiff", source: "code", view: code::view, sections: &["Code diff"], since: "0.1.39" },
+    Page { id: "terminal-view", group: "Data", title: "TerminalView", source: "terminal", view: terminal::view, sections: &[], since: "0.1.44" },
     Page { id: "charts", group: "Data", title: "Charts", source: "charts", view: charts::view, sections: &[], since: "0.1.39" },
     Page { id: "attachment", group: "Data", title: "Attachment", source: "media", view: media::view, sections: &["Attachment"], since: "0.1.39" },
     Page { id: "card", group: "Layout", title: "Card", source: "blocks", view: blocks::view, sections: &["Card"], since: "0.1.39" },
