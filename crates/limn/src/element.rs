@@ -549,6 +549,21 @@ pub enum SpinnerVariant {
     Circle,
     /// Eight short radial strokes, similar to a rotating Loader.
     Spokes,
+    /// Four dots on a square; two opposite ones slide onto the other
+    /// diagonal and back, one diagonal and then the other, as Claude
+    /// Desktop's running turn shows.
+    Dots,
+}
+
+impl SpinnerVariant {
+    /// Seconds for one full turn of the painted angle.
+    pub(crate) fn period(self) -> f32 {
+        match self {
+            Self::Circle | Self::Spokes => 0.9,
+            // Each diagonal comes about every 0.65 s, measured on Desktop.
+            Self::Dots => 1.3,
+        }
+    }
 }
 
 /// The face a text is measured and painted in. The host chooses the font
