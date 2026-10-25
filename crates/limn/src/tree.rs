@@ -59,7 +59,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, MeasuredRows, UniformList};
 use crate::motion::{
-    skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
+    skeleton_color, spinner_angle, SKELETON_PERIOD, ColorTransition, ScalarSpring, ScalarTransition,
 };
 use crate::shortcut;
 use crate::scroll_area::ScrollbarState;
@@ -10919,12 +10919,14 @@ impl LayoutBuilder<'_> {
                 self.observed_skeletons.insert(id.clone());
             }
             let started = self.skeleton_started.entry(id.clone()).or_insert(self.now);
+            let period = element.kept.as_ref().and_then(|kept| kept.pulse_ms);
             style.background = Some(skeleton_color(
                 *base,
                 *highlight,
                 *started,
                 self.now,
                 self.reduced_motion,
+                period.map_or(SKELETON_PERIOD, |ms| Duration::from_millis(u64::from(ms))),
             ));
         }
         let mut transition_id = None;

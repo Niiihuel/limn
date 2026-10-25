@@ -455,21 +455,25 @@ fn channel(from: u8, to: u8, progress: f32) -> u8 {
     (f32::from(from) + (f32::from(to) - f32::from(from)) * progress).round() as u8
 }
 
-/// A slow, paint-only pulse for passive loading surfaces. Its phase belongs to
-/// a stable element ID in UiTree, so rebuilding an Element does not restart it.
+/// One cycle of a skeleton's pulse, from its base to its highlight and back.
+pub(crate) const SKELETON_PERIOD: Duration = Duration::from_millis(1_600);
+
+/// A slow, paint-only pulse for passive loading surfaces, one cycle every
+/// `period`. Its phase belongs to a stable element ID in UiTree, so
+/// rebuilding an Element does not restart it.
 pub(crate) fn skeleton_color(
     base: Color,
     highlight: Color,
     started: Instant,
     now: Instant,
     reduced_motion: bool,
+    period: Duration,
 ) -> Color {
-    if reduced_motion {
+    if reduced_motion || period.is_zero() {
         return base;
     }
-    const PERIOD: Duration = Duration::from_millis(1_600);
-    let phase = (now.saturating_duration_since(started).as_secs_f32() % PERIOD.as_secs_f32())
-        / PERIOD.as_secs_f32();
+    let phase = (now.saturating_duration_since(started).as_secs_f32() % period.as_secs_f32())
+        / period.as_secs_f32();
     let triangle = 1.0 - (2.0 * phase - 1.0).abs();
     let amount = Easing::InOutCubic.sample(triangle);
     Color::rgba(
@@ -569,7 +573,7 @@ mod tests {
         let start = Instant::now();
         let base = Color::rgb(30, 30, 30);
         let highlight = Color::rgb(50, 50, 50);
-        assert_eq!(skeleton_color(base, highlight, start, start, false), base);
+        assert_eq!(skeleton_color(base, highlight, start, start, false, SKELETON_PERIOD), base);
         assert_eq!(
             skeleton_color(
                 base,
@@ -577,6 +581,7 @@ mod tests {
                 start,
                 start + Duration::from_millis(800),
                 false,
+                SKELETON_PERIOD,
             ),
             highlight
         );
@@ -587,6 +592,7 @@ mod tests {
                 start,
                 start + Duration::from_millis(1_600),
                 false,
+                SKELETON_PERIOD,
             ),
             base
         );
@@ -597,6 +603,7 @@ mod tests {
                 start,
                 start + Duration::from_millis(800),
                 true,
+                SKELETON_PERIOD,
             ),
             base
         );
