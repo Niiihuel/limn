@@ -94,7 +94,7 @@ mod tests {
 
     #[test]
     fn spinner_supports_both_outline_variants() {
-        for variant in [SpinnerVariant::Circle, SpinnerVariant::Spokes] {
+        for variant in [SpinnerVariant::Circle, SpinnerVariant::Spokes, SpinnerVariant::Dots] {
             let frame = UiTree::new(
                 Spinner::new("loading", Color::WHITE)
                     .variant(variant)

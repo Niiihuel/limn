@@ -952,7 +952,7 @@ fn paint_spinner(
     commands.push(DrawCommand::Spinner {
         rect,
         color,
-        angle: spinner_angle(started, now, reduced_motion),
+        angle: spinner_angle(started, now, reduced_motion, variant.period()),
         variant,
     });
 }

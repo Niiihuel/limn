@@ -486,12 +486,11 @@ pub(crate) fn skeleton_color(
 
 /// Continuous paint-only rotation for a passive progress icon. The phase is
 /// measured from a stable element ID's start time and stops under reduced motion.
-pub(crate) fn spinner_angle(started: Instant, now: Instant, reduced_motion: bool) -> f32 {
+pub(crate) fn spinner_angle(started: Instant, now: Instant, reduced_motion: bool, period: f32) -> f32 {
     if reduced_motion {
         return 0.0;
     }
-    const PERIOD: f32 = 0.9;
-    (now.saturating_duration_since(started).as_secs_f32() / PERIOD * std::f32::consts::TAU)
+    (now.saturating_duration_since(started).as_secs_f32() / period * std::f32::consts::TAU)
         .rem_euclid(std::f32::consts::TAU)
 }
 
@@ -613,10 +612,10 @@ mod tests {
     fn spinner_rotates_and_reduced_motion_holds_one_angle() {
         let start = Instant::now();
         let quarter = start + Duration::from_millis(225);
-        assert_eq!(spinner_angle(start, start, false), 0.0);
-        assert!((spinner_angle(start, quarter, false) - std::f32::consts::FRAC_PI_2).abs() < 0.01);
-        assert!(spinner_angle(start, start + Duration::from_millis(900), false) < 0.001);
-        assert_eq!(spinner_angle(start, quarter, true), 0.0);
+        assert_eq!(spinner_angle(start, start, false, 0.9), 0.0);
+        assert!((spinner_angle(start, quarter, false, 0.9) - std::f32::consts::FRAC_PI_2).abs() < 0.01);
+        assert!(spinner_angle(start, start + Duration::from_millis(900), false, 0.9) < 0.001);
+        assert_eq!(spinner_angle(start, quarter, true, 0.9), 0.0);
     }
 
     #[test]
