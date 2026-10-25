@@ -24,6 +24,7 @@ pub struct AlertDialog {
     confirm_colors: Option<(Color, Option<Color>, Color)>,
     cancel_variant: ButtonVariant,
     description_size: f32,
+    description_line_height: Option<f32>,
     closable: bool,
     scrim: Option<Color>,
     title_gap: Option<f32>,
@@ -62,6 +63,7 @@ impl AlertDialog {
             confirm_colors: None,
             cancel_variant: ButtonVariant::Outline,
             description_size: 12.0,
+            description_line_height: None,
             closable: true,
             scrim: None,
             title_gap: None,
@@ -117,6 +119,14 @@ impl AlertDialog {
         if size.is_finite() {
             self.description_size = size.max(0.0);
         }
+        self
+    }
+
+    /// Give each of the description's lines a box at least `height` logical
+    /// pixels high, such as 20 for 14 pixel text; glyphs keep their size. A
+    /// value that is not finite or not above zero is ignored.
+    pub fn description_line_height(mut self, height: f32) -> Self {
+        self.description_line_height = Some(height);
         self
     }
 
@@ -230,12 +240,16 @@ impl Component for AlertDialog {
         };
         let mut content = Vec::new();
         if !self.description.is_empty() {
-            content.push(Element::formatted_text(vec![TextSpan::new(
+            let mut description = Element::formatted_text(vec![TextSpan::new(
                 self.description.clone(),
                 self.palette.muted,
                 self.description_size,
                 FontFamily::Sans,
-            )]));
+            )]);
+            if let Some(height) = self.description_line_height {
+                description = description.line_height(height);
+            }
+            content.push(description);
         }
         if let Some(body) = self.body {
             content.push(body);
@@ -357,6 +371,28 @@ mod tests {
             assert_eq!(rect.height, 30.0);
         }
         assert!(frame.commands.iter().any(|c| matches!(c, DrawCommand::Text { text, font_size, .. } if text == "Cancel" && *font_size == 14.0)));
+    }
+
+    #[test]
+    fn description_lines_sit_the_set_distance_apart() {
+        let gap = |dialog: AlertDialog| {
+            let mut tree = UiTree::new(dialog.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(800.0, 600.0));
+            let y = |wanted: &str| frame.commands.iter().find_map(|c| match c {
+                DrawCommand::Text { text, position, .. } if text == wanted => Some(position.y),
+                _ => None,
+            }).unwrap();
+            y("Second") - y("First")
+        };
+        let dialog = || {
+            AlertDialog::new(Element::spacer(), true, "T", "First\nSecond", "ok", "cancel", ComponentPalette::neutral_dark())
+                .description_size(14.0)
+        };
+        let natural = gap(dialog());
+        assert_ne!(natural, 20.0);
+        assert_eq!(gap(dialog().description_line_height(20.0)), 20.0);
+        assert_eq!(gap(dialog().description_line_height(f32::NAN)), natural);
     }
 
     #[test]
