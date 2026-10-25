@@ -21,7 +21,7 @@ use crate::markdown_parser::{
     MAX_SOURCE_CHARS,
 };
 use crate::{
-    AlertColors, AlertTone, CodeBlock, CodeLanguage, Color, Component, ComponentPalette, Diagram,
+    AlertColors, AlertTone, CodeBlock, CodeLanguage, CodeSyntaxColors, Color, Component, ComponentPalette, Diagram,
     Element, ElementKind, FontFamily, Icon, RadiusRole, TextRole, TextSpan,
 };
 
@@ -166,6 +166,9 @@ pub(crate) struct MarkdownPresentation {
     code_label: bool,
     code_fit_content: bool,
     code_copy_action_prefix: &'static str,
+    code_syntax_colors: Option<CodeSyntaxColors>,
+    // Inline code's size at the body size, as bits; it keeps that proportion elsewhere.
+    inline_code_size_bits: Option<u32>,
 }
 
 impl MarkdownPresentation {
@@ -241,6 +244,8 @@ impl<'a> Markdown<'a> {
                 code_label: true,
                 code_fit_content: false,
                 code_copy_action_prefix: "",
+                code_syntax_colors: None,
+                inline_code_size_bits: None,
             },
             streaming: false,
             plain_line_height: None,
@@ -313,6 +318,25 @@ impl<'a> Markdown<'a> {
     /// default, a block has no button.
     pub fn code_copy_action_prefix(mut self, prefix: &'static str) -> Self {
         self.presentation.code_copy_action_prefix = prefix;
+        self
+    }
+
+    /// The inks of fenced code's highlights and text, in place of
+    /// [`CodeSyntaxColors::for_palette`]. Setting `function` or
+    /// `interpolation` also tells those apart.
+    pub fn code_syntax_colors(mut self, colors: CodeSyntaxColors) -> Self {
+        self.presentation.code_syntax_colors = Some(colors);
+        self
+    }
+
+    /// The size of inline `code` in body text, in logical pixels; the body
+    /// size unless set. In a heading or a subtext line it keeps the same
+    /// proportion to that text. A size that is not finite and positive is
+    /// ignored; the rest is kept between 1 and 96.
+    pub fn inline_code_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.presentation.inline_code_size_bits = Some(size.clamp(1.0, 96.0).to_bits());
+        }
         self
     }
 
@@ -543,7 +567,7 @@ fn render_plain(source: &str, presentation: &MarkdownPresentation, line_height: 
     Element::formatted_text(spans).line_height(line_height)
 }
 
-fn span_element(run: &InlineRun, size: f32, colors: MarkdownColors) -> TextSpan {
+fn span_element(run: &InlineRun, size: f32, colors: MarkdownColors, code_scale: f32) -> TextSpan {
     let (color, family) = match run.kind {
         InlineKind::Normal => (colors.text, FontFamily::Sans),
         InlineKind::Strong => (colors.strong, FontFamily::SansBold),
@@ -552,6 +576,7 @@ fn span_element(run: &InlineRun, size: f32, colors: MarkdownColors) -> TextSpan 
         InlineKind::Emphasis => (colors.emphasis, FontFamily::SansItalic),
         InlineKind::Code => (colors.code_ink, FontFamily::Monospace),
     };
+    let size = if run.kind == InlineKind::Code { size * code_scale } else { size };
     let mut span = TextSpan::new(&run.text, color, size, family);
     if run.kind == InlineKind::Code {
         span = span.background(colors.code_fill);
@@ -570,11 +595,14 @@ fn render_inline_mode(
     presentation: &MarkdownPresentation,
 ) -> Element {
     let hash = source_hash(source);
+    let code_scale = presentation
+        .inline_code_size_bits
+        .map_or(1.0, |bits| f32::from_bits(bits) / presentation.font_size());
     let spans = parse_inline_with_tail(source, incomplete, url_tail_complete)
         .iter()
         .enumerate()
         .map(|(index, run)| {
-            let span = span_element(run, size, presentation.colors);
+            let span = span_element(run, size, presentation.colors, code_scale);
             match run.destination.as_deref().and_then(web_url) {
                 Some(url) => span.icon(link_icon(&url)).action(link_action(
                     presentation.link_action_prefix,
@@ -602,7 +630,8 @@ fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation
         .language(CodeLanguage::from_code_fence(language))
         .word_wrap(presentation.code_word_wrap)
         .font_scale(presentation.scale())
-        .fit_content(presentation.code_fit_content);
+        .fit_content(presentation.code_fit_content)
+        .syntax_colors(presentation.code_syntax_colors);
     if presentation.code_label {
         block = block.label(if language.is_empty() {
             presentation.labels.code_fallback.to_owned()
@@ -2172,6 +2201,90 @@ mod tests {
         let long = format!("```\n{}\n```", "palabra ".repeat(120));
         assert_eq!(block(&frame(desktop(&long))).width, width);
         assert!(block(&frame(desktop(&long).code_word_wrap(false))).width <= width);
+    }
+
+    #[test]
+    fn a_host_sets_the_code_inks_and_tells_functions_and_interpolations_apart() {
+        let desktop = CodeSyntaxColors {
+            text: Color::rgb(0x19, 0x19, 0x19),
+            keyword: Color::rgb(0xB0, 0x5A, 0x00),
+            string: Color::rgb(0x1E, 0x9E, 0x3C),
+            number: Color::rgb(0x0A, 0x6E, 0x6E),
+            comment: Color::rgb(0x70, 0x70, 0x70),
+            function: Some(Color::rgb(0x00, 0x73, 0xE6)),
+            interpolation: Some(Color::rgb(0xCD, 0x20, 0x54)),
+        };
+        let runs = |source: &str, colors: Option<CodeSyntaxColors>| {
+            let mut markdown = Markdown::new(source, palette());
+            if let Some(colors) = colors {
+                markdown = markdown.code_syntax_colors(colors);
+            }
+            code_spans(&markdown.render().element)
+                .unwrap()
+                .into_iter()
+                .map(|span| (span.text, span.color))
+                .collect::<Vec<_>>()
+        };
+        let d = desktop;
+        let (function, braces) = (d.function.unwrap(), d.interpolation.unwrap());
+        assert_eq!(
+            runs("```python\nprint(f\"Hola, {nombre}! {{x}} Bienvenido.\")  # hi\n```", Some(d)),
+            [
+                ("print".into(), function),
+                ("(f".into(), d.text),
+                ("\"Hola, ".into(), d.string),
+                ("{".into(), braces),
+                ("nombre".into(), d.text),
+                ("}".into(), braces),
+                ("! {{x}} Bienvenido.\"".into(), d.string),
+                (")  ".into(), d.text),
+                ("# hi".into(), d.comment),
+            ]
+        );
+        assert_eq!(
+            runs("```js\nconst n = len(`a ${b} c`, 2)\n```", Some(d)),
+            [
+                ("const".into(), d.keyword),
+                (" n = ".into(), d.text),
+                ("len".into(), function),
+                ("(".into(), d.text),
+                ("`a ".into(), d.string),
+                ("${".into(), braces),
+                ("b".into(), d.text),
+                ("}".into(), braces),
+                (" c`".into(), d.string),
+                (", ".into(), d.text),
+                ("2".into(), d.number),
+                (")".into(), d.text),
+            ]
+        );
+        // A plain string is not an f-string; a call alone is still colored.
+        assert_eq!(runs("```py\nx(\"{y}\")\n```", Some(d))[2], ("\"{y}\"".into(), d.string));
+        assert_eq!(runs("```py\nrun()\n```", Some(d))[0], ("run".into(), function));
+        // Unless set: the palette's inks, with the call and the braces in their run.
+        let ours = CodeSyntaxColors::for_palette(palette());
+        assert_eq!(
+            runs("```python\nprint(f\"{n}\")\n```", None),
+            [("print(f".into(), ours.text), ("\"{n}\"".into(), ours.string), (")".into(), ours.text)]
+        );
+    }
+
+    #[test]
+    fn inline_code_takes_its_own_size_in_proportion_to_its_text() {
+        let sizes = |markdown: Markdown| {
+            let mut spans = Vec::new();
+            collect_spans(&markdown.render().element, &mut spans);
+            spans.into_iter().filter(|span| span.font_family == FontFamily::Monospace).map(|span| span.font_size).collect::<Vec<_>>()
+        };
+        let source = "Run `ls`.";
+        assert_eq!(sizes(Markdown::new(source, palette()).font_size(16.0)), [16.0]);
+        assert_eq!(sizes(Markdown::new(source, palette()).font_size(16.0).inline_code_size(13.0)), [13.0]);
+        for bad in [0.0, -1.0, f32::NAN] {
+            assert_eq!(sizes(Markdown::new(source, palette()).font_size(16.0).inline_code_size(bad)), [16.0]);
+        }
+        let heading = sizes(Markdown::new("# A `b`", palette()).font_size(16.0).inline_code_size(13.0));
+        let plain_heading = sizes(Markdown::new("# A `b`", palette()).font_size(16.0));
+        assert!((heading[0] - plain_heading[0] * 13.0 / 16.0).abs() < 0.001, "{heading:?}");
     }
 
     #[test]

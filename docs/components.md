@@ -205,6 +205,8 @@ let preview = Markdown::new(source, palette).width(reading_width).render();
 | `.colors(MarkdownColors)` | The ten inks and fills: `text`, `strong`, `emphasis`, `link`, `code_ink`, `code_fill`, `muted`, `success`, `panel`, `border`. The default, `MarkdownColors::for_palette`, reads the palette and paints strong text like body text, in the bold face. |
 | `.streaming(bool)` | The source is still growing: an unclosed delimiter at its end already styles its text, a half-written fence is held back, and a web address at the end has no action until it is delimited. |
 | `.link_action_prefix(text)` | The start of every link action; `markdown_link:` unless set. |
+| `.code_syntax_colors(CodeSyntaxColors)` | The inks of fenced code: `text`, `keyword`, `string`, `number`, `comment`, and, when set, `function` (a name before `(`) and `interpolation` (an f-string's or a template's braces). `CodeSyntaxColors::for_palette` unless set. |
+| `.inline_code_size(px)` | Inline `code` in body text, the body size unless set; in a heading or subtext it keeps that proportion. |
 | `.code_label(bool)` | The language line above fenced code; shown unless set to `false`. |
 | `.code_fit_content(bool)` | Each code block as wide as its code and padding, up to the reading width; the whole width unless set. |
 | `.code_copy_action_prefix(text)` | A copy icon at the end of each code block whose action is the prefix followed by the code; none unless set. |

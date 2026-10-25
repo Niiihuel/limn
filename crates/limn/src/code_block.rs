@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::code_syntax::highlight_spans;
+use crate::code_syntax::{highlight_spans, CodeSyntaxColors};
 use crate::{
     Clipboard, CodeLanguage, Component, ComponentPalette, ControlSize, Element, FontFamily,
     RadiusRole, TextRole, TextSpan,
@@ -52,6 +52,7 @@ pub struct CodeBlock {
     language: CodeLanguage,
     copy: Option<(String, String)>,
     fit_content: bool,
+    syntax_colors: Option<CodeSyntaxColors>,
 }
 
 impl CodeBlock {
@@ -71,6 +72,7 @@ impl CodeBlock {
             language: CodeLanguage::Plain,
             copy: None,
             fit_content: false,
+            syntax_colors: None,
         }
     }
 
@@ -119,6 +121,12 @@ impl CodeBlock {
     /// Color the plain text with the line lexer for `language`, within its bounds.
     pub(crate) fn language(mut self, language: CodeLanguage) -> Self {
         self.language = language;
+        self
+    }
+
+    /// The inks of the colored code, and of plain code's text.
+    pub(crate) fn syntax_colors(mut self, colors: Option<CodeSyntaxColors>) -> Self {
+        self.syntax_colors = colors;
         self
     }
 
@@ -189,14 +197,15 @@ impl Component for CodeBlock {
                 let size = self
                     .font_size
                     .unwrap_or_else(|| self.sizing.code.size() * self.font_scale);
+                let colors = self.syntax_colors.unwrap_or_else(|| CodeSyntaxColors::for_palette(self.palette));
                 // Set like the plain text, so coloring changes no line height.
-                match highlight_spans(&self.text, self.language, self.palette, size) {
+                match highlight_spans(&self.text, self.language, colors, self.palette.is_dark(), size) {
                     Some(spans) => Element::formatted_text(spans),
                     None => Element::text(self.text),
                 }
                 .font_family(FontFamily::Monospace)
                 .font_size(size)
-                .foreground(self.palette.text)
+                .foreground(colors.text)
             }
         };
         let code = if self.word_wrap { code } else {
