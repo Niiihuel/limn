@@ -30,9 +30,9 @@ pub struct TerminalCell {
     pub fg: Color,
     /// Fill behind the cell; `None` shows the view's background.
     pub bg: Option<Color>,
-    /// Bold, as the program asked. limn has no bold monospace face, so the
-    /// cell is drawn in the regular one: a host that brightens bold text does
-    /// so in `fg`.
+    /// Bold, as the program asked: the cell is drawn in
+    /// [`FontFamily::MonospaceBold`]. A host that also brightens bold text
+    /// does so in `fg`.
     pub bold: bool,
     /// Draw a line under the character, in its ink.
     pub underline: bool,
@@ -95,7 +95,8 @@ pub struct TerminalScreen {
 /// host reads the keys while `UiTree::focused_id()` is the view's ID and
 /// writes them to its terminal. Dragging over the text selects it, and
 /// Ctrl+C reports `UiAction::CopyRequested` with it. The scrolling area's ID
-/// is `{id}:scroll`.
+/// is `{id}:scroll`. Bold cells are drawn in [`FontFamily::MonospaceBold`],
+/// which must be as wide as the regular face, as Hack's is.
 pub struct TerminalView {
     id: String,
     screen: Arc<TerminalScreen>,
@@ -109,7 +110,14 @@ impl TerminalView {
     /// A view of `screen`. Its cursor is drawn in the palette's `text`, and its
     /// background is the palette's `surface` unless set.
     pub fn new(id: impl Into<String>, screen: Arc<TerminalScreen>, palette: ComponentPalette) -> Self {
-        Self { id: id.into(), screen, palette, font_size: FONT_SIZE, background: None, min_contrast: None }
+        Self {
+            id: id.into(),
+            screen,
+            palette,
+            font_size: FONT_SIZE,
+            background: None,
+            min_contrast: None,
+        }
     }
 
     /// Text size in logical pixels, 13 by default. Values that are not finite
@@ -160,12 +168,19 @@ fn font_size(size: f32) -> f32 {
     }
 }
 
-/// Add `ch` to the last run when it has the same ink and line, else start one.
-fn push(spans: &mut Vec<TextSpan>, ch: char, ink: Color, underline: bool, size: f32) {
+fn family(bold: bool) -> FontFamily {
+    if bold { FontFamily::MonospaceBold } else { FontFamily::Monospace }
+}
+
+/// Add `ch` to the last run when it has the same ink, line and weight, else
+/// start one.
+fn push(spans: &mut Vec<TextSpan>, ch: char, ink: Color, underline: bool, bold: bool, size: f32) {
     match spans.last_mut() {
-        Some(last) if last.color == ink && last.underline == underline => last.text.push(ch),
+        Some(last) if last.color == ink && last.underline == underline && last.font_family == family(bold) => {
+            last.text.push(ch)
+        }
         _ => {
-            let span = TextSpan::new(ch, ink, size, FontFamily::Monospace);
+            let span = TextSpan::new(ch, ink, size, family(bold));
             spans.push(if underline { span.underline() } else { span });
         }
     }
@@ -185,14 +200,16 @@ impl Component for TerminalView {
         lines.extend(screen.cells.chunks(screen.cols.max(1)).take(shown));
         let count = screen.scrollback.len() + shown;
 
-        // One run for each stretch of cells with the same ink and line, and
+        // One run for each stretch of cells with the same ink, line and weight, and
         // one fill for each stretch with the same fill: (line, from, to, color).
         let mut spans = Vec::new();
         let mut fills: Vec<(usize, usize, usize, Color)> = Vec::new();
         for (line, cells) in lines.iter().enumerate() {
             if line > 0 {
-                let ink = spans.last().map_or(self.palette.text, |span: &TextSpan| span.color);
-                push(&mut spans, '\n', ink, false, self.font_size);
+                let (ink, bold) = spans.last().map_or((self.palette.text, false), |span: &TextSpan| {
+                    (span.color, span.font_family == FontFamily::MonospaceBold)
+                });
+                push(&mut spans, '\n', ink, false, bold, self.font_size);
             }
             let end = cells.iter().rposition(|cell| !blank(cell)).map_or(0, |last| last + 1);
             for (col, cell) in cells[..end].iter().enumerate() {
@@ -212,7 +229,7 @@ impl Component for TerminalView {
                     }
                 }
                 let ch = if cell.ch.is_control() { ' ' } else { cell.ch };
-                push(&mut spans, ch, ink, cell.underline, self.font_size);
+                push(&mut spans, ch, ink, cell.underline, cell.bold, self.font_size);
             }
         }
 
@@ -244,7 +261,10 @@ impl Component for TerminalView {
                         .and_then(|cell| if cell.inverse { Some(cell.fg) } else { cell.bg })
                         .unwrap_or(background);
                     match ch {
-                        Some(ch) => Element::truncated_text(ch).font_size(self.font_size).foreground(ink),
+                        Some(ch) => Element::truncated_text(ch)
+                            .font_size(self.font_size)
+                            .font_family(family(cell.is_some_and(|cell| cell.bold)))
+                            .foreground(ink),
                         None => Element::spacer(),
                     }
                     .size(Some(cell_width), Some(cell_height))
@@ -341,6 +361,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "bundled-fonts")]
     fn laid_out_in_the_bundled_face_the_text_sits_on_the_grid_the_fills_assume() {
         let mut tree = UiTree::new(TerminalView::new("term", screen(None), palette()).font_size(10.0).render());
         tree.set_text_layout(true);
@@ -354,6 +375,55 @@ mod tests {
             assert!(rect.x.abs() < 0.01 && (rect.y - line as f32 * height).abs() < 0.01, "{lines:?}");
             assert!((rect.width - text.chars().count() as f32 * width).abs() < 0.01, "{lines:?}");
         }
+    }
+
+    /// One row: `$ ` bold, then `ls`, in one ink.
+    fn bold_prompt(cursor: Option<TerminalCursor>) -> Arc<TerminalScreen> {
+        let mut cells: Vec<TerminalCell> = row("$ ", GREEN).into_iter().map(|cell| TerminalCell { bold: true, ..cell }).collect();
+        cells.extend(row("ls", GREEN));
+        Arc::new(TerminalScreen { cols: 4, rows: 1, cells, cursor, ..TerminalScreen::default() })
+    }
+
+    #[test]
+    fn bold_cells_are_a_run_of_their_own_in_the_bold_face_and_so_is_the_cursor_on_one() {
+        let families = |frame: &Frame| -> Vec<(String, FontFamily)> {
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Text { text, font_family, .. } => Some((text.clone(), *font_family)),
+                    _ => None,
+                })
+                .collect()
+        };
+        let frame = tree(bold_prompt(None)).layout(Size::new(200.0, 40.0));
+        assert_eq!(
+            families(&frame),
+            [("$ ".into(), FontFamily::MonospaceBold), ("ls".into(), FontFamily::Monospace)]
+        );
+        let at = TerminalCursor { col: 0, row: 0, shape: TerminalCursorShape::Block };
+        let mut tree = tree(bold_prompt(Some(at)));
+        tree.layout(Size::new(200.0, 40.0));
+        assert!(tree.focus("term"));
+        let frame = tree.layout(Size::new(200.0, 40.0));
+        assert!(families(&frame).contains(&("$".into(), FontFamily::MonospaceBold)), "{:?}", families(&frame));
+    }
+
+    #[test]
+    #[cfg(feature = "bundled-fonts")]
+    fn the_bold_face_keeps_the_grid() {
+        let mut tree = UiTree::new(TerminalView::new("term", bold_prompt(None), palette()).font_size(10.0).render());
+        tree.set_text_layout(true);
+        let frame = tree.layout(Size::new(200.0, 40.0));
+        let width = 10.0 * CELL_WIDTH;
+        // Two bold cells and two regular ones: four cells wide.
+        let line = &frame.text_layouts()[0].runs[0];
+        assert!((line.rect.width - 4.0 * width).abs() < 0.01, "{line:?}");
+        // Every printable ASCII character, not just these: Hack Bold advances as Hack does.
+        let ascii: String = (' '..='~').collect();
+        let measure = |family| crate::TextLayout::new(ascii.as_str(), crate::TextStyle::new(10.0, family)).size().width;
+        assert!((measure(FontFamily::MonospaceBold) - ascii.len() as f32 * width).abs() < 0.01);
+        assert!((measure(FontFamily::Monospace) - ascii.len() as f32 * width).abs() < 0.01);
     }
 
     #[test]

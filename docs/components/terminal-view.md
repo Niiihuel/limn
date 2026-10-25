@@ -24,7 +24,8 @@ fn view(state: &State, palette: ComponentPalette) -> Element {
 A `TerminalScreen` is `cols` by `rows` cells, row by row from the top, the
 lines scrolled off above it in `scrollback`, oldest first, and the cursor. A
 `TerminalCell` is a character, its ink and fill, and whether it is bold,
-underlined or inverse. Colors arrive resolved: the host turns the 16, 256 or
+underlined or inverse. A bold cell is drawn in `FontFamily::MonospaceBold`,
+Hack Bold, which keeps the grid's width. Colors arrive resolved: the host turns the 16, 256 or
 true colors a program asks for into `Color`s.
 
 The view fills the box it is given. Give it a height, or `flex(1.0)` in a
@@ -110,11 +111,12 @@ motion it stays shown.
 
 ## Limits
 
-- A bold cell is drawn in the regular face: limn has no bold monospace face.
-  A host that brightens bold text does so in the cell's ink.
+- A host that brightens bold text, besides drawing it bold, does so in the
+  cell's ink.
 - Every character takes one cell. A wide character, such as a CJK one or an
   emoji, is drawn wider than its cell and pushes the rest of its row right.
-- The grid assumes Hack. A host that gives the tree another monospace face
-  gets text that drifts from the fills and the cursor.
+- The grid assumes Hack. A host that gives the tree another monospace face,
+  or a bold one of another width, gets text that drifts from the fills and
+  the cursor.
 - The whole scrollback is laid out each frame as one text. Keep it to a few
   thousand lines.

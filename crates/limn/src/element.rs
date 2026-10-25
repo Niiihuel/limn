@@ -558,6 +558,10 @@ pub enum FontFamily {
     /// The host's fixed-width face.
     #[default]
     Monospace,
+    /// The bold face of the fixed-width family, as wide as `Monospace`: a
+    /// real face the host provides. A host without one paints
+    /// [`Self::Monospace`].
+    MonospaceBold,
     /// The host's proportional face, at its regular weight.
     Sans,
     /// Sans slanted by the host. It measures exactly as [`Self::Sans`].
