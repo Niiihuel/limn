@@ -932,6 +932,11 @@ pub(crate) struct Kept {
     pub(crate) extend_pushes: bool,
     /// Painted only: no pointer target, focus stop or node inside it.
     pub(crate) inert: bool,
+    /// Set by [`Element::focus_area`]: a clickable that only takes the focus.
+    pub(crate) focus_area: bool,
+    /// Set by [`Element::caret`]: the control whose focus shows the element,
+    /// and where its caret is, which restarts the blink when it moves.
+    pub(crate) caret: Option<(String, usize)>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2560,6 +2565,23 @@ impl Element {
     /// glimpse of a panel that is not open.
     pub(crate) fn inert(mut self) -> Self {
         self.kept.get_or_insert_default().inert = true;
+        self
+    }
+
+    /// A region that takes the keyboard focus under `id` on a press or Tab,
+    /// and reports nothing: the host reads the keys while it has the focus,
+    /// as for a terminal. A press inside it still selects text.
+    pub(crate) fn focus_area(id: impl Into<String>, child: Self) -> Self {
+        let mut element = Self::clickable(id, child);
+        element.kept.get_or_insert_default().focus_area = true;
+        element
+    }
+
+    /// Paint this element only while `id` has the focus, and then on the
+    /// caret clock fields share: blinking, steady under reduced motion, and
+    /// shown again at once when `offset` changes.
+    pub(crate) fn caret(mut self, id: impl Into<String>, offset: usize) -> Self {
+        self.kept.get_or_insert_default().caret = Some((id.into(), offset));
         self
     }
 

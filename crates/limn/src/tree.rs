@@ -1418,6 +1418,10 @@ pub enum HitKind {
     /// Anything pressable: a press and a release on it report
     /// `UiAction::Clicked`. A slider uses it too.
     Button,
+    /// A region that takes the keyboard focus on a press or Tab and reports
+    /// nothing, such as a `TerminalView`: the host reads the keys while it
+    /// has the focus. A press inside it still selects text.
+    Focus,
     /// Read-only pointer target, such as a chart observation's tooltip.
     Hover,
     /// A single-line text field: a press focuses it and places the caret.
@@ -3932,7 +3936,7 @@ impl UiTree {
             candidate == id
                 && matches!(
                     kind,
-                    HitKind::Button | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
+                    HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
                 )
         }) {
             return false;
@@ -6260,7 +6264,7 @@ impl UiTree {
                         .filter(|region| {
                             (matches!(
                                 region.kind,
-                                HitKind::Button | HitKind::TextInput | HitKind::TextArea
+                                HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea
                             ) || (region.kind == HitKind::CodeDiff
                                 && self.focus_order.iter().any(|(id, kind)| {
                                     id == &region.id && *kind == HitKind::CodeDiff
@@ -7043,7 +7047,7 @@ fn collect_focus_order(
         }
         ElementKind::Clickable { id, child } => {
             if seen.insert(id.clone()) {
-                order.push((id.clone(), HitKind::Button));
+                order.push((id.clone(), clickable_kind(element)));
             }
             collect_focus_order(child, order, seen);
         }
@@ -7213,6 +7217,16 @@ fn collect_action_metadata(
     }
 }
 
+/// A clickable's kind of region: a button, or a region that only takes the
+/// focus.
+fn clickable_kind(element: &Element) -> HitKind {
+    if element.kept.as_ref().is_some_and(|kept| kept.focus_area) {
+        HitKind::Focus
+    } else {
+        HitKind::Button
+    }
+}
+
 fn focusable_id(element: &Element) -> Option<&str> {
     match &element.kind {
         ElementKind::CodeEditor(editor) => Some(&editor.id),
@@ -7235,6 +7249,7 @@ fn inferred_access(element: &Element) -> crate::Access {
         ElementKind::Button { label, .. } | ElementKind::IconButton { label, .. } => {
             Access { name: (!label.is_empty()).then(|| label.clone()), ..Access::new(Role::Button) }
         }
+        ElementKind::Clickable { .. } if element.kept.as_ref().is_some_and(|kept| kept.focus_area) => Access::new(Role::Group),
         ElementKind::Clickable { child, .. } => {
             let role = if element.slider.is_some() { Role::Slider } else { Role::Button };
             let name = spoken_text(child);
@@ -10633,6 +10648,15 @@ impl LayoutBuilder<'_> {
 
     fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let rect = self.extended(element, rect, clip);
+        if let Some((id, offset)) = element.kept.as_ref().and_then(|kept| kept.caret.as_ref()) {
+            let location = crate::caret_blink::CaretLocation { document: 0, revision: 0, offset: *offset };
+            let shown = self.focused == Some(id.as_str())
+                && clip.is_none_or(|clip| rect.intersection(clip).is_some())
+                && self.caret_blink.observe(id, location, self.now, self.reduced_motion);
+            if !shown {
+                return;
+            }
+        }
         let dragged = element.draggable
             && !element.drag_in_place
             && self.drag_source.is_some()
@@ -11255,7 +11279,7 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::Clickable { id, child } => {
-                self.add_region(id, rect, HitKind::Button, clip);
+                self.add_region(id, rect, clickable_kind(element), clip);
                 if let Some(travel) = element.slider.as_deref() {
                     self.frame.sliders.insert(
                         id.clone(),
