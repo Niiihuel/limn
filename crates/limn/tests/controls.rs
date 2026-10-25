@@ -10,7 +10,7 @@ use limn::{
     DropdownList, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Empty, Frame,
     HitKind, Icon, IconButton, Key, Link, ListRow, Marker, MediaCard, MediaTile, MenuBar, MenuBarMenu, MenuHeader, MenuItem,
     MessageAction, MessageActions, NavigationAction, NavigationBar, NavigationWorkspace, Pager, PanelHeader,
-    PeekPanel, Point, Rect, Role, SearchField, Side, SideRail, SideRailItem, SectionHeader, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
+    PeekPanel, Point, Rect, Role, SearchField, Side, SideRail, SideRailItem, SectionHeader, SplitButton, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
     TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TopBar, TreeGuides, TreeRow, UiAction, UiEvent,
     UiTree,
 };
@@ -102,6 +102,13 @@ fn controls() -> Vec<Control> {
             || IconButton::new("it", Icon::Search, palette()).accessibility_label("Search").render(),
             || IconButton::new("it", Icon::Search, palette()).accessibility_label("Search").disabled().render(),
         ),
+        always("SplitButton action", "it", || {
+            SplitButton::new("it", "Always allow", "it:menu", palette()).keys(&["Ctrl", "Enter"]).render()
+        }),
+        always("SplitButton chevron", "it:menu", || {
+            let entries = vec![DropdownMenuItem::new("once", "Allow once").into()];
+            SplitButton::new("it", "Always allow", "it:menu", palette()).menu(entries, false, "closed").render()
+        }),
         control(
             "Link",
             "it",

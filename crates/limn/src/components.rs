@@ -935,7 +935,7 @@ impl Button {
         self
     }
 
-    fn colors(&self) -> (Color, Color, Color, Color, bool) {
+    pub(crate) fn colors(&self) -> (Color, Color, Color, Color, bool) {
         let palette = self.palette;
         let (base, hover, pressed, ink) = match self.variant {
             ButtonVariant::Default => (

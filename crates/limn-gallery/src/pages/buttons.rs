@@ -1,7 +1,8 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     ActiveHover, Button, ButtonGroup, ButtonGroupSizing, ButtonSize, ButtonSizing, ButtonVariant, Clipboard,
-    Color, Component, ControlSize, Element, Icon, IconButton, RadiusRole, TooltipPlacement, TooltipSpec,
+    Color, Component, ControlSize, DropdownMenuItem, Element, Icon, IconButton, RadiusRole, SplitButton, TooltipPlacement,
+    TooltipSpec,
 };
 
 /// A host's own densities: a navigation button with a larger label, and a
@@ -246,6 +247,36 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .size(Some(220.0), None),
             caption(cx, "With custom sizing: 12 px between actions in a row and 10 in a column."),
         ]),
+        section(cx, "Split button", {
+            let open = cx.state.text("split-menu") == "open";
+            let allow = SplitButton::new("split-allow", "Always allow", if open { "split-menu=closed" } else { "split-menu=open" }, palette)
+                .keys(&["Ctrl", "Shift", "Enter"])
+                .menu(
+                    vec![
+                        DropdownMenuItem::new("split-menu=once", "Allow once").shortcut("Ctrl+Enter").into(),
+                        DropdownMenuItem::new("split-menu=deny", "Deny").shortcut("Esc").into(),
+                    ],
+                    open,
+                    "split-menu=closed",
+                );
+            vec![
+                row(vec![allow.render()]),
+                caption(cx, "The action, with its shortcut in keycaps, and a chevron that opens its menu. Each half is its own Tab stop."),
+                row(vec![
+                    SplitButton::new("split-secondary", "Run", "split-secondary-menu", palette)
+                        .variant(ButtonVariant::Secondary)
+                        .render(),
+                    SplitButton::new("split-outline", "Deploy", "split-outline-menu", palette)
+                        .variant(ButtonVariant::Outline)
+                        .render(),
+                    SplitButton::new("split-destructive", "Delete", "split-destructive-menu", palette)
+                        .variant(ButtonVariant::Destructive)
+                        .keys(&["Del"])
+                        .render(),
+                ]),
+                caption(cx, "Both halves take a button's variant."),
+            ]
+        }),
         section(cx, "Active", vec![
             row(vec![Button::new("button-toggle", "Toggle", palette)
                 .variant(ButtonVariant::Ghost)

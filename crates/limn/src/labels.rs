@@ -202,6 +202,9 @@ pub struct Labels {
     pub hue: &'static str,
     /// A color picker: what its field of hex digits is called to the platform.
     pub hex: &'static str,
+    /// A split button: what the half that opens its menu is called to the
+    /// platform.
+    pub more_options: &'static str,
 }
 
 impl Labels {
@@ -302,6 +305,7 @@ impl Labels {
         saturation_brightness: "Saturation and brightness",
         hue: "Hue",
         hex: "Hex",
+        more_options: "More options",
     };
 
     /// The library's own words in Spanish.
@@ -401,6 +405,7 @@ impl Labels {
         saturation_brightness: "Saturación y brillo",
         hue: "Matiz",
         hex: "Hexadecimal",
+        more_options: "Más opciones",
     };
 }
 
