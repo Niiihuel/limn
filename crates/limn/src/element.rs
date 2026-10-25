@@ -937,6 +937,9 @@ pub(crate) struct Kept {
     /// Set by [`Element::caret`]: the control whose focus shows the element,
     /// and where its caret is, which restarts the blink when it moves.
     pub(crate) caret: Option<(String, usize)>,
+    /// Set by [`Element::pulse_period`]: one cycle of a skeleton's pulse, in
+    /// milliseconds, in place of the skeleton's own.
+    pub(crate) pulse_ms: Option<u16>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -3411,6 +3414,13 @@ impl Element {
             base,
             highlight,
         })
+    }
+
+    /// One cycle of a [`skeleton`](Self::skeleton)'s pulse, from `base` to
+    /// `highlight` and back, in milliseconds.
+    pub(crate) fn pulse_period(mut self, ms: u16) -> Self {
+        self.kept.get_or_insert_default().pulse_ms = Some(ms);
+        self
     }
 
     /// A passive spinner in `color`, whose phase UiTree keeps by `id`. It has
