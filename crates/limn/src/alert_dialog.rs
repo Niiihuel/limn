@@ -1,7 +1,9 @@
 //! A centered confirmation surface for consequential actions.
 
 use crate::components::{Component, ComponentPalette};
-use crate::{Button, ButtonVariant, Color, ControlSize, Element, FontFamily, Modal, TextSpan};
+use crate::{
+    Button, ButtonSizing, ButtonVariant, Color, ControlSize, Element, FontFamily, Modal, TextSpan,
+};
 
 /// Controlled modal dialog. The host performs the action only after receiving
 /// `confirm_id`; close, Cancel and Escape emit `cancel_id`. The scrim blocks
@@ -18,7 +20,15 @@ pub struct AlertDialog {
     cancel_label: String,
     palette: ComponentPalette,
     width: f32,
-    destructive: Option<Color>,
+    // The confirm button's fill, outline (drawn when set) and ink.
+    confirm_colors: Option<(Color, Option<Color>, Color)>,
+    cancel_variant: ButtonVariant,
+    description_size: f32,
+    description_line_height: Option<f32>,
+    closable: bool,
+    scrim: Option<Color>,
+    title_gap: Option<f32>,
+    button_sizing: ButtonSizing,
     animation_ms: u16,
     body: Option<Element>,
     alternative: Option<(String, String)>,
@@ -50,7 +60,14 @@ impl AlertDialog {
             cancel_label: crate::labels().cancel.into(),
             palette,
             width: 440.0,
-            destructive: None,
+            confirm_colors: None,
+            cancel_variant: ButtonVariant::Outline,
+            description_size: 12.0,
+            description_line_height: None,
+            closable: true,
+            scrim: None,
+            title_gap: None,
+            button_sizing: ControlSize::Compact.button_sizing(),
             animation_ms: crate::tokens().motion.enter_ms,
             body: None,
             alternative: None,
@@ -78,7 +95,64 @@ impl AlertDialog {
     /// Fill the confirm button with `color` and draw its label in white, for an action that
     /// destroys something. Without it the button is filled with the palette's text color.
     pub fn destructive(mut self, color: Color) -> Self {
-        self.destructive = Some(color);
+        self.confirm_colors = Some((color, None, Color::WHITE));
+        self
+    }
+
+    /// A quieter destructive confirm: a pale `fill` with a one-pixel `border`
+    /// and a label in `ink`, such as #FBE7E7, #DC3C3D and #A42528.
+    pub fn soft_destructive(mut self, fill: Color, border: Color, ink: Color) -> Self {
+        self.confirm_colors = Some((fill, Some(border), ink));
+        self
+    }
+
+    /// Paint Cancel as this variant, `Outline` by default; `Secondary` is
+    /// filled with the palette's `raised`.
+    pub fn cancel_variant(mut self, variant: ButtonVariant) -> Self {
+        self.cancel_variant = variant;
+        self
+    }
+
+    /// Set the description's size in logical pixels, 12 by default. A value
+    /// that is not finite is ignored.
+    pub fn description_size(mut self, size: f32) -> Self {
+        if size.is_finite() {
+            self.description_size = size.max(0.0);
+        }
+        self
+    }
+
+    /// Give each of the description's lines a box at least `height` logical
+    /// pixels high, such as 20 for 14 pixel text; glyphs keep their size. A
+    /// value that is not finite or not above zero is ignored.
+    pub fn description_line_height(mut self, height: f32) -> Self {
+        self.description_line_height = Some(height);
+        self
+    }
+
+    /// Whether the title row has a close button; on by default. Without it,
+    /// Cancel and Escape still report `cancel_id`.
+    pub fn closable(mut self, closable: bool) -> Self {
+        self.closable = closable;
+        self
+    }
+
+    /// The color laid over the window behind the card; see [`Modal::scrim`].
+    pub fn scrim(mut self, color: Color) -> Self {
+        self.scrim = Some(color);
+        self
+    }
+
+    /// The space under the title row; see [`Modal::title_gap`].
+    pub fn title_gap(mut self, gap: f32) -> Self {
+        self.title_gap = Some(gap);
+        self
+    }
+
+    /// The geometry of the action buttons, `ControlSize::Compact`'s by
+    /// default: 28 high with a 12 pixel label.
+    pub fn button_sizing(mut self, sizing: ButtonSizing) -> Self {
+        self.button_sizing = sizing;
         self
     }
 
@@ -118,16 +192,12 @@ impl Component for AlertDialog {
         if !self.open {
             return self.base;
         }
-        let ink = self.palette.text;
-        let confirm_fill = self.destructive.unwrap_or(ink);
-        let confirm_ink = if self.destructive.is_some() {
-            Color::WHITE
-        } else {
-            self.palette.surface
-        };
+        let (confirm_fill, confirm_border, confirm_ink) = self
+            .confirm_colors
+            .unwrap_or((self.palette.text, None, self.palette.surface));
         let cancel = Button::new(self.cancel_id.clone(), self.cancel_label, self.palette)
-            .variant(ButtonVariant::Outline)
-            .size(ControlSize::Compact)
+            .variant(self.cancel_variant)
+            .sizing(self.button_sizing)
             .render();
         let confirm = Button::new(
             self.confirm_id,
@@ -137,11 +207,16 @@ impl Component for AlertDialog {
                 surface: confirm_fill,
                 hover: confirm_fill,
                 selected: confirm_fill,
+                border: confirm_border.unwrap_or(self.palette.border),
                 ..self.palette
             },
         )
-        .variant(ButtonVariant::Solid)
-        .size(ControlSize::Compact)
+        .variant(if confirm_border.is_some() {
+            ButtonVariant::Outline
+        } else {
+            ButtonVariant::Solid
+        })
+        .sizing(self.button_sizing)
         .enabled(self.confirm_enabled)
         .render()
         .center_content();
@@ -150,7 +225,7 @@ impl Component for AlertDialog {
             actions.push(
                 Button::new(id, label, self.palette)
                     .variant(ButtonVariant::Outline)
-                    .size(ControlSize::Compact)
+                    .sizing(self.button_sizing)
                     .render(),
             );
         }
@@ -161,16 +236,20 @@ impl Component for AlertDialog {
             actions.insert(0, Element::spacer().flex(1.0));
             Element::row(actions)
                 .gap(6.0)
-                .size(None, Some(ControlSize::Compact.height()))
+                .size(None, Some(self.button_sizing.height))
         };
         let mut content = Vec::new();
         if !self.description.is_empty() {
-            content.push(Element::formatted_text(vec![TextSpan::new(
+            let mut description = Element::formatted_text(vec![TextSpan::new(
                 self.description.clone(),
                 self.palette.muted,
-                12.0,
+                self.description_size,
                 FontFamily::Sans,
-            )]));
+            )]);
+            if let Some(height) = self.description_line_height {
+                description = description.line_height(height);
+            }
+            content.push(description);
         }
         if let Some(body) = self.body {
             content.push(body);
@@ -191,7 +270,14 @@ impl Component for AlertDialog {
         .footer(footer)
         .initial_focus(self.cancel_id)
         .backdrop_dismiss(false)
+        .closable(self.closable)
         .animation_ms(self.animation_ms);
+        if let Some(color) = self.scrim {
+            modal = modal.scrim(color);
+        }
+        if let Some(gap) = self.title_gap {
+            modal = modal.title_gap(gap);
+        }
         if !content.is_empty() {
             modal = modal.body(Element::column(content).gap(10.0));
         }
@@ -222,6 +308,109 @@ mod tests {
         assert_eq!(node("confirm").name, "Borrar");
         assert_eq!(node("cancel").name, crate::labels().cancel);
         assert_eq!(node("cancel:close").name, crate::labels().close);
+    }
+
+    #[test]
+    fn soft_destructive_confirm_filled_cancel_and_larger_description_paint_as_asked() {
+        let palette = ComponentPalette::neutral_dark();
+        let (fill, border, ink) =
+            (Color::rgb(0xFB, 0xE7, 0xE7), Color::rgb(0xDC, 0x3C, 0x3D), Color::rgb(0xA4, 0x25, 0x28));
+        let mut tree = UiTree::new(
+            AlertDialog::new(Element::spacer(), true, "Close terminal?", "A command is still running.", "close", "cancel", palette)
+                .confirm_label("Close terminal")
+                .soft_destructive(fill, border, ink)
+                .cancel_variant(ButtonVariant::Secondary)
+                .description_size(14.0)
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let rect = |id: &str| {
+            frame.regions.iter().find(|region| region.id == id && region.kind == HitKind::Button).unwrap().rect
+        };
+        let (confirm, cancel) = (rect("close"), rect("cancel"));
+        let has = |wanted: &dyn Fn(&DrawCommand) -> bool| frame.commands.iter().any(wanted);
+        assert!(has(&|c| matches!(c, DrawCommand::FillRect { rect, color, .. } if *rect == confirm && *color == fill)));
+        assert!(has(&|c| matches!(c, DrawCommand::StrokeRect { rect, color, width, .. }
+            if *rect == confirm && *color == border && *width == 1.0)));
+        assert!(has(&|c| matches!(c, DrawCommand::Text { text, color, .. } if text == "Close terminal" && *color == ink)));
+        assert!(has(&|c| matches!(c, DrawCommand::FillRect { rect, color, .. } if (rect.x, rect.y) == (cancel.x, cancel.y) && *color == palette.raised)));
+        assert!(has(&|c| matches!(c, DrawCommand::Text { text, font_size, .. }
+            if text.contains("still running") && *font_size == 14.0)));
+    }
+
+    #[test]
+    fn scrim_title_gap_and_button_sizing_reach_the_painted_dialog() {
+        let scrim = Color::rgba(0, 0, 0, 105);
+        let sizing = ButtonSizing { height: 30.0, font_size: 14.0, horizontal_padding: 12.0, ..ControlSize::Compact.button_sizing() };
+        let dialog = || AlertDialog::new(Element::spacer(), true, "Close terminal?", "Still running.", "ok", "cancel", ComponentPalette::neutral_dark());
+        let lay_out = |dialog: AlertDialog| {
+            let mut tree = UiTree::new(dialog.render());
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(1408.0, 844.0))
+        };
+        // From the top of the title to the top of the body that holds the description.
+        let drop = |frame: &crate::Frame| {
+            let title = frame.commands.iter().find_map(|c| match c {
+                DrawCommand::Text { text, position, .. } if text == "Close terminal?" => Some(position.y),
+                _ => None,
+            }).unwrap();
+            frame.regions.iter().find(|r| r.id == "modal_body:cancel").unwrap().rect.y - title
+        };
+        // Unless set, the body sits 34 under the title: a 24 high row and 10.
+        let plain = lay_out(dialog());
+        assert_eq!(drop(&plain), 34.0);
+        assert!(plain.commands.iter().any(|c| matches!(c, DrawCommand::FillRect { color, .. } if *color == Color::rgba(0, 0, 0, 180))));
+
+        let frame = lay_out(dialog().scrim(scrim).title_gap(1.0).button_sizing(sizing));
+        assert_eq!(drop(&frame), 25.0);
+        assert!(frame.commands.iter().any(|c| matches!(c, DrawCommand::FillRect { color, .. } if *color == scrim)));
+        assert!(!frame.commands.iter().any(|c| matches!(c, DrawCommand::FillRect { color, .. } if *color == Color::rgba(0, 0, 0, 180))));
+        for id in ["cancel", "ok"] {
+            let rect = frame.regions.iter().find(|r| r.id == id && r.kind == HitKind::Button).unwrap().rect;
+            assert_eq!(rect.height, 30.0);
+        }
+        assert!(frame.commands.iter().any(|c| matches!(c, DrawCommand::Text { text, font_size, .. } if text == "Cancel" && *font_size == 14.0)));
+    }
+
+    #[test]
+    fn description_lines_sit_the_set_distance_apart() {
+        let gap = |dialog: AlertDialog| {
+            let mut tree = UiTree::new(dialog.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(800.0, 600.0));
+            let y = |wanted: &str| frame.commands.iter().find_map(|c| match c {
+                DrawCommand::Text { text, position, .. } if text == wanted => Some(position.y),
+                _ => None,
+            }).unwrap();
+            y("Second") - y("First")
+        };
+        let dialog = || {
+            AlertDialog::new(Element::spacer(), true, "T", "First\nSecond", "ok", "cancel", ComponentPalette::neutral_dark())
+                .description_size(14.0)
+        };
+        let natural = gap(dialog());
+        assert_ne!(natural, 20.0);
+        assert_eq!(gap(dialog().description_line_height(20.0)), 20.0);
+        assert_eq!(gap(dialog().description_line_height(f32::NAN)), natural);
+    }
+
+    #[test]
+    fn without_its_close_button_escape_and_cancel_still_cancel() {
+        let mut tree = UiTree::new(
+            AlertDialog::new(Element::spacer(), true, "¿Cerrar?", "", "confirm", "cancel", ComponentPalette::neutral_dark())
+                .closable(false)
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(600.0, 400.0));
+        assert!(!frame.regions.iter().any(|region| region.id == "cancel:close"));
+        assert!(!frame.access.iter().any(|node| node.id == "cancel:close"));
+        let escape = UiEvent::Key { key: Key::Escape, shift: false, ctrl: false };
+        assert_eq!(tree.handle_event(escape), vec![UiAction::Clicked { id: "cancel".into() }]);
+        assert!(tree.focus("cancel"));
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        assert_eq!(tree.handle_event(enter), vec![UiAction::Clicked { id: "cancel".into() }]);
     }
 
     #[test]
