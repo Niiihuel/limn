@@ -5698,6 +5698,14 @@ impl UiTree {
                         // Only controls emitted by this exact editor viewport
                         // forward the wheel. Never search through arbitrary
                         // menu, popover or other overlay hit regions.
+                        if let Some((_, view)) = self
+                            .code_diffs
+                            .iter_mut()
+                            .find(|(id, view)| view.owns_expand_control(id, &hit.id, *position))
+                        {
+                            view.viewport.scroll(x, y);
+                            return Some(Vec::new());
+                        }
                         let view = self
                             .code_editors
                             .values_mut()
@@ -12691,6 +12699,15 @@ impl LayoutBuilder<'_> {
                         &measure,
                         text_height,
                     ));
+                    let indent = state.viewport.body.x - content.x;
+                    let expand = std::mem::take(&mut state.expand);
+                    for &(row, at, row_clip) in &expand {
+                        let control = crate::code_diff::expand_control(diff, row, indent, (at.width, at.height));
+                        self.place(&control, at, Some(row_clip));
+                    }
+                    if let Some(state) = self.code_diffs.get_mut(&diff.id) {
+                        state.expand = expand;
+                    }
                 }
             }
             ElementKind::TextArea {
