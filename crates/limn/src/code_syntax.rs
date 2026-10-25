@@ -362,7 +362,9 @@ fn work(jobs: &Mutex<mpsc::Receiver<Job>>, wait: bool) {
                     Source::Diff(lines) => {
                         let line = &lines[row];
                         let text = line.text.trim_end_matches(['\r', '\n']);
-                        if line.old_line.is_none() && line.new_line.is_none() {
+                        if line.kind == crate::CodeDiffLineKind::Folded
+                            || (line.old_line.is_none() && line.new_line.is_none())
+                        {
                             state = LexState::default();
                             old_state = LexState::default();
                             rows.push(Vec::new());
@@ -376,7 +378,8 @@ fn work(jobs: &Mutex<mpsc::Receiver<Job>>, wait: bool) {
                             crate::CodeDiffLineKind::Removed => {
                                 highlight_line(text, 0, job.language, &mut old_state)
                             }
-                            crate::CodeDiffLineKind::Context => {
+                            // Folded rows restart the state above.
+                            crate::CodeDiffLineKind::Context | crate::CodeDiffLineKind::Folded => {
                                 let _ = highlight_line(
                                     text,
                                     0,

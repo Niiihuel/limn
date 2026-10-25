@@ -6,7 +6,7 @@ or removed row, and the text. It scrolls and builds only the rows in view.
 ## Import
 
 ```rust
-use limn::{CodeDiff, CodeDiffLine, CodeDiffLineKind, CodeLanguage, Component};
+use limn::{CodeDiff, CodeDiffLine, CodeDiffLineKind, CodeLanguage, Component, DiffColors, DiffFileHeader};
 ```
 
 ## Usage
@@ -35,7 +35,8 @@ each frame. The view colors its rows once for each allocation, so rows
 rebuilt every frame are colored again every frame. Without `palette` the
 diff uses the neutral dark palette.
 
-The diff fills the width it is given. It reports no actions.
+The diff fills the width it is given. It reports an action only for a folded
+row; see [Folded rows](#folded-rows).
 
 ## Height
 
@@ -50,6 +51,57 @@ it scroll under the wheel or the scrollbar.
 pixels by default. Invalid numbers and nonpositive sizes are ignored; valid
 sizes are kept within 1 to 96. `diff_backgrounds(false)` hides the full row
 tints while preserving the +/- marks and colored edge bands.
+
+## Changed words
+
+```rust
+CodeDiff::new("review", state.rows.clone()).word_ranges(state.words.clone()).render()
+```
+
+`word_ranges` takes the changed words of each row, as an `Arc<[Vec<Range<usize>>]>`:
+entry `i` holds the ranges of `lines[i]`, in Unicode scalar offsets into its
+text, end-exclusive. On added and removed rows they are tinted more strongly
+than the row; on other rows, and past the end of the list, nothing is drawn.
+Keep them in the state beside the rows.
+
+## Colors and the margin bar
+
+```rust
+CodeDiff::new("review", rows).colors(DiffColors { add_row, ..DiffColors::default() }).margin_bar(false).render()
+```
+
+`DiffColors` holds the tint of an added and a removed row (`add_row`,
+`del_row`), of their changed words (`add_word`, `del_word`), and the color of
+their marker and margin bar (`add_bar`, `del_bar`). The default is the diff's
+own green and red. `margin_bar(false)` hides the 2 px bar at the left edge of
+changed rows; it is shown by default.
+
+## Folded rows
+
+```rust
+CodeDiffLine { kind: CodeDiffLineKind::Folded, old_line: None, new_line: None, text: "Show 12 more lines".into() }
+```
+
+A row of kind `Folded` stands for unchanged lines the host left out. It shows
+its text as a label, without line numbers, across a band of the palette's
+`hover`. Activating it reports `Clicked { id: "{id}:expand:{row}" }`, where
+`row` is its index in `lines`; the host replaces it with the lines. Syntax
+coloring starts again after it.
+
+## File header
+
+```rust
+DiffFileHeader::new("file:src/main.rs", "src/main.rs", palette)
+    .stat(state.added, state.removed)
+    .collapsed(state.collapsed)
+    .render()
+```
+
+`DiffFileHeader` is the bar above a file's diff: a chevron, the path with the
+file's name in the text color and its folder muted, and, with `stat`, `+N` in
+`add_bar` and `−M` in `del_bar`. `colors` takes the same `DiffColors` as the
+diff. The chevron points down, or right with `collapsed(true)`. Activating
+the bar reports its ID; the host flips `collapsed` and leaves out the diff.
 
 ## Language
 
@@ -91,3 +143,15 @@ CodeDiff::new("stream", rows).follow_tail(true).render()
 With `follow_tail(true)` a diff that is at its last row stays there as rows
 are appended. Scrolling up stops it, and scrolling back to the end resumes
 it.
+
+## Actions
+
+| Action | When |
+| --- | --- |
+| `Clicked { id: "{id}:expand:{row}" }` | A `Folded` row is activated. |
+| `Clicked { id }` on a `DiffFileHeader` | The header is activated. |
+
+## Limits
+
+The control of a folded row is laid over the diff as it is painted, as the
+fold controls of a `CodeEditor` are: it takes the pointer, but not Tab.
