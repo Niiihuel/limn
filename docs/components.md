@@ -445,7 +445,8 @@ columns menu enters and leaves as any menu does.
 | Component | Purpose |
 | --- | --- |
 | `CodeEditor` | An editor view over a host-owned text buffer: selection, folding, diagnostics, breakpoints, optional Vim mode. |
-| `CodeDiff` | A virtualized, read-only diff. |
+| `CodeDiff` | A virtualized, read-only diff: changed words, folded rows that ask the host for their lines, configurable `DiffColors`. |
+| `DiffFileHeader` | The bar above a file's diff: a chevron that reports its ID, the path with the name emphasized, and `+N −M`. |
 | `FindBar`, `FindOptions`, `FindIds`, `FindLabels` | Find and replace for a `CodeEditor`, at most 520 wide. Controlled: the host passes the query, `.replacement`, `.replace_open`, `.options`, `.count_label`, `.has_matches`, `.has_current`, `.no_matches` and `.error`, and answers the actions of `FindIds` (derived from the bar's ID, or the host's own through `.ids`). `.labels` takes every string, `.ink` the failure color, `.replace_icons` the two replace glyphs and `.surface` a second palette for the bar under the controls. Below 480 wide, or with replace open, the options take their own row. `render()` gives the bar; `.attach(anchor)` floats it under the anchor without taking the pointer or the focus. `FindBar::height(width, replace_open, error)` is the height it lays out. |
 | `CodeLanguage` | The languages with a grammar. `from_extension`, `from_path` and `from_code_fence` choose one; `comment_markers_for(path)` gives the markers that comment out a line, falling back on the file's name (`#` for shell, YAML, Nix, Ruby, Makefile and Dockerfile) when the language has none. Needs the `syntax` feature. |
 

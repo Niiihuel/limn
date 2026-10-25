@@ -3334,6 +3334,9 @@ pub(crate) struct DiffView {
     identity: Option<Arc<[crate::CodeDiffLine]>>,
     digits: usize,
     single_gutter: bool,
+    /// The folded rows in view: their index, their rect and its clip, for the tree to lay
+    /// their controls over.
+    pub expand: Vec<(usize, Rect, Rect)>,
 }
 impl Default for DiffView {
     fn default() -> Self {
@@ -3343,6 +3346,7 @@ impl Default for DiffView {
             identity: None,
             digits: 1,
             single_gutter: false,
+            expand: Vec::new(),
         }
     }
 }
@@ -3350,6 +3354,12 @@ impl DiffView {
     /// True while syntax colours for the diff are still being computed.
     pub fn syntax_pending(&self) -> bool {
         self.syntax.pending()
+    }
+    /// True when `hit` names an expand control this diff, `id`, laid at `position`.
+    pub(crate) fn owns_expand_control(&self, id: &str, hit: &str, position: Point) -> bool {
+        self.expand.iter().any(|(row, rect, clip)| {
+            rect.contains(position) && clip.contains(position) && hit == format!("{id}:expand:{row}")
+        })
     }
 }
 
@@ -3467,22 +3477,36 @@ pub(crate) fn paint_diff(
         }
     }
     let mut commands = vec![DrawCommand::PushClip(clip)];
+    view.expand.clear();
+    let colors = diff.colors;
     for (row, display) in displays {
         let line = &diff.lines[row];
         let y = viewport.body.y + row as f32 * line_height - viewport.scroll_y;
         let text_y = centered_text_y(y, line_height, text_height);
         // Gutter density changes the line numbers, not the meaning of a row.
         // A created file still contains additions with a single number column.
-        let (marker, marker_color, fill) = match line.kind {
-            CodeDiffLineKind::Context => (" ", diff.palette.text, Color::TRANSPARENT),
-            CodeDiffLineKind::Added => {
-                ("+", Color::rgb(105, 185, 135), Color::rgba(72, 142, 92, 20))
-            }
-            CodeDiffLineKind::Removed => {
-                ("−", Color::rgb(210, 115, 122), Color::rgba(170, 76, 85, 20))
+        let (marker, marker_color, fill, word) = match line.kind {
+            CodeDiffLineKind::Context => (" ", diff.palette.text, Color::TRANSPARENT, Color::TRANSPARENT),
+            CodeDiffLineKind::Added => ("+", colors.add_bar, colors.add_row, colors.add_word),
+            CodeDiffLineKind::Removed => ("−", colors.del_bar, colors.del_row, colors.del_word),
+            CodeDiffLineKind::Folded => {
+                // The band only; the tree lays the row's label and control over it.
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(rect.x, y, rect.width, line_height),
+                    color: diff.palette.hover,
+                    radius: 0.0,
+                });
+                let rows = Rect::new(rect.x, viewport.body.y, rect.width, viewport.body.height);
+                if let Some(row_clip) = rows.intersection(clip) {
+                    // Short of the scrollbar, which keeps its own presses.
+                    let right = viewport.body.x + viewport.body.width;
+                    view.expand.push((row, Rect::new(rect.x, y, right - rect.x, line_height), row_clip));
+                }
+                continue;
             }
         };
-        if fill.a > 0 {
+        let changed = line.kind != CodeDiffLineKind::Context;
+        if changed {
             if diff.diff_backgrounds {
                 commands.push(DrawCommand::FillRect {
                     rect: Rect::new(rect.x, y, rect.width, line_height),
@@ -3490,11 +3514,13 @@ pub(crate) fn paint_diff(
                     radius: 0.0,
                 });
             }
-            commands.push(DrawCommand::FillRect {
-                rect: Rect::new(rect.x, y, 2.0, line_height),
-                color: marker_color,
-                radius: 0.0,
-            });
+            if diff.margin_bar {
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(rect.x, y, 2.0, line_height),
+                    color: marker_color,
+                    radius: 0.0,
+                });
+            }
         }
         let numbers = if diff.single_gutter {
             [(rect.x + 8.0, line.new_line.or(line.old_line)), (0.0, None)]
@@ -3530,6 +3556,16 @@ pub(crate) fn paint_diff(
                 0.0,
             )),
         ));
+        for range in diff.word_ranges.get(row).filter(|_| changed).into_iter().flatten() {
+            let (start, end) = (display.x_at(range.start), display.x_at(range.end));
+            if end > start {
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(viewport.body.x - viewport.scroll_x + start, y, end - start, line_height),
+                    color: word,
+                    radius: 0.0,
+                });
+            }
+        }
         display.paint(diff.font_size,
             &mut commands,
             Point::new(viewport.body.x - viewport.scroll_x, text_y),
