@@ -1015,7 +1015,49 @@ fn paint_spinner(
                 painter.circle_filled(to, width / 2.0, ink);
             }
         }
+        SpinnerVariant::Dots => {
+            for (offset, radius) in spinner_dots(angle, side) {
+                painter.circle_filled(area.center() + offset, radius, ink);
+            }
+        }
     }
+}
+
+/// The four dots of a `Dots` spinner, as offsets from its center and a
+/// radius. The angle runs a full turn per cycle: the first half lines the
+/// dots up on one diagonal, the second half on the other.
+fn spinner_dots(angle: f32, side: f32) -> [(egui::Vec2, f32); 4] {
+    let half = side * 0.31;
+    let radius = side * 0.11;
+    let turn = (angle / std::f32::consts::TAU).rem_euclid(1.0) * 2.0;
+    let phase = turn.fract();
+    let smooth = |t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    // Out over a fifth of the half, held, then back; at rest the rest of it.
+    let reach = smooth(phase / 0.2) - smooth((phase - 0.35) / 0.2);
+    let corner = |x: f32, y: f32| egui::vec2(x, y) * half;
+    let toward = |from: egui::Vec2, to: egui::Vec2| from + (to - from) * reach;
+    let third = 1.0 / 3.0;
+    let dots = if turn < 1.0 {
+        // "/": the top right and bottom left stay; the others slide inward.
+        [
+            corner(1.0, -1.0),
+            corner(-1.0, 1.0),
+            toward(corner(-1.0, -1.0), corner(third, -third)),
+            toward(corner(1.0, 1.0), corner(-third, third)),
+        ]
+    } else {
+        // "\": the top left and bottom right stay.
+        [
+            corner(-1.0, -1.0),
+            corner(1.0, 1.0),
+            toward(corner(1.0, -1.0), corner(-third, -third)),
+            toward(corner(-1.0, 1.0), corner(third, third)),
+        ]
+    };
+    dots.map(|offset| (offset, radius))
 }
 
 fn effort_color(r: u8, g: u8, b: u8, alpha: u8, opacity: f32) -> Color32 {
@@ -3553,5 +3595,30 @@ mod tests {
             assert!(point.x > area.left() && point.x < area.right());
             assert!(point.y > area.top() && point.y < area.bottom());
         }
+    }
+}
+
+#[cfg(test)]
+mod spinner_dots_tests {
+    use super::spinner_dots;
+    use std::f32::consts::TAU;
+
+    fn corners(angle: f32) -> Vec<(i32, i32)> {
+        let mut dots: Vec<_> = spinner_dots(angle, 16.0)
+            .iter()
+            .map(|(offset, _)| (offset.x.round() as i32, offset.y.round() as i32))
+            .collect();
+        dots.sort();
+        dots
+    }
+
+    #[test]
+    fn dots_rest_on_a_square_and_line_up_on_each_diagonal() {
+        let square = vec![(-5, -5), (-5, 5), (5, -5), (5, 5)];
+        assert_eq!(corners(0.0), square);
+        assert_eq!(corners(TAU * 0.4), square);
+        // A quarter into each half the moving dots sit on the other diagonal.
+        assert_eq!(corners(TAU * 0.14), vec![(-5, 5), (-2, 2), (2, -2), (5, -5)]);
+        assert_eq!(corners(TAU * 0.64), vec![(-5, -5), (-2, -2), (2, 2), (5, 5)]);
     }
 }
