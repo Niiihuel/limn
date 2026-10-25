@@ -100,6 +100,7 @@ mod side_rail;
 mod skeleton;
 mod slider;
 mod spinner;
+mod split_button;
 mod status_bar;
 mod stepper;
 mod suggestion_list;
@@ -248,6 +249,7 @@ pub use sequence::{
 pub use skeleton::{Skeleton, SkeletonGroup};
 pub use slider::Slider;
 pub use spinner::Spinner;
+pub use split_button::SplitButton;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
 pub use chat_minimap::{ChatMinimap, ChatMinimapMark};
 pub use clipboard::{Clipboard, ClipboardCopied};
