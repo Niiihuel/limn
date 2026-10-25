@@ -1767,7 +1767,7 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let font = match font_family {
                     FontFamily::Monospace => FontId::monospace(*font_size),
                     FontFamily::Sans => FontId::proportional(*font_size),
-                    FontFamily::SansMedium | FontFamily::SansBold | FontFamily::Display => {
+                    FontFamily::MonospaceBold | FontFamily::SansMedium | FontFamily::SansBold | FontFamily::Display => {
                         FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
                     }
                     FontFamily::SansItalic | FontFamily::SansBoldItalic => {
@@ -2363,6 +2363,7 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
         ("Sans-Medium", ui_face(FontFamily::SansMedium)),
         ("Sans-Bold", ui_face(FontFamily::SansBold)),
         ("Hack", face(FontFamily::Monospace)),
+        ("Hack-Bold", face(FontFamily::MonospaceBold)),
         ("NotoSansMath-Regular", math),
         ("NotoSansSymbols2-Regular", symbols),
         ("NotoEmoji", emoji),
@@ -2379,6 +2380,10 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
         egui::FontFamily::Monospace,
         chain(&["Hack", "Sans-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
     );
+    fonts.families.insert(
+        egui::FontFamily::Name(MONO_BOLD.into()),
+        chain(&["Hack-Bold", "Hack", "Sans-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
+    );
     for (family, face_name) in [(SANS_MEDIUM, "Sans-Medium"), (SANS_BOLD, "Sans-Bold")] {
         fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Sans-Regular"], &behind_sans));
     }
@@ -2394,6 +2399,7 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
     fonts
 }
 
+const MONO_BOLD: &str = "limn-mono-bold";
 const SANS_MEDIUM: &str = "limn-sans-medium";
 const SANS_BOLD: &str = "limn-sans-bold";
 const DISPLAY: &str = "limn-display";
@@ -2403,6 +2409,7 @@ const DISPLAY: &str = "limn-display";
 fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
     let weighted = match family {
         FontFamily::Monospace => return egui::FontFamily::Monospace,
+        FontFamily::MonospaceBold => MONO_BOLD,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
         FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
@@ -2411,6 +2418,8 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
     let named = egui::FontFamily::Name(weighted.into());
     if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {
         named
+    } else if family == FontFamily::MonospaceBold {
+        egui::FontFamily::Monospace
     } else {
         egui::FontFamily::Proportional
     }

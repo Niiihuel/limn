@@ -176,7 +176,8 @@ A heavier text names its face: `FontFamily::SansMedium` or
 measured as itself, never a regular face drawn thicker. `limn-egui` ships
 Ubuntu Medium and Bold for them; a host that sets its own fonts without those
 faces paints the regular one. `FontFamily::SansItalic` is the regular face
-slanted by the host.
+slanted by the host. Bold code is `FontFamily::MonospaceBold`, Hack Bold in
+`limn-egui`, as wide as the regular face; without it the regular one is painted.
 
 ## Containers
 

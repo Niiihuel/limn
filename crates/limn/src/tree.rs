@@ -1840,7 +1840,7 @@ impl SelectableTextBlock {
             })
             .unwrap_or(row);
         let char_width = match run.font_family {
-            FontFamily::Monospace => metrics,
+            FontFamily::Monospace | FontFamily::MonospaceBold => metrics,
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
@@ -9184,7 +9184,7 @@ impl LayoutBuilder<'_> {
 
     fn metrics_for(&self, style: Style) -> FontMetrics {
         match style.font_family {
-            FontFamily::Monospace => self.metrics,
+            FontFamily::Monospace | FontFamily::MonospaceBold => self.metrics,
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
