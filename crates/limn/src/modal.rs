@@ -118,6 +118,7 @@ pub struct Modal {
     initial_focus: Option<String>,
     return_focus: Option<String>,
     backdrop_dismiss: bool,
+    closable: bool,
     animation_ms: u16,
     role: Role,
     spoken_description: String,
@@ -151,6 +152,7 @@ impl Modal {
             initial_focus: None,
             return_focus: None,
             backdrop_dismiss: false,
+            closable: true,
             animation_ms: crate::tokens().motion.enter_ms,
             role: Role::Dialog,
             spoken_description: String::new(),
@@ -247,6 +249,13 @@ impl Modal {
         self.animation_ms = duration;
         self
     }
+
+    /// Whether the title row has a close button; on by default. Without it
+    /// Escape still reports `close_id`.
+    pub fn closable(mut self, closable: bool) -> Self {
+        self.closable = closable;
+        self
+    }
 }
 
 impl Component for Modal {
@@ -296,7 +305,11 @@ impl Component for Modal {
             Element::stack(vec![handle, Element::row(vec![title, close]).gap(8.0)])
                 .size(None, Some(44.0))
         } else {
-            Element::row(vec![title.flex(1.0), close]).gap(8.0).min_size(0.0, 24.0)
+            let mut row = vec![title.flex(1.0)];
+            if self.closable {
+                row.push(close);
+            }
+            Element::row(row).gap(8.0).min_size(0.0, 24.0)
         };
         let mut sections = vec![header];
         let mut body = self.body;

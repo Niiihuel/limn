@@ -18,7 +18,11 @@ pub struct AlertDialog {
     cancel_label: String,
     palette: ComponentPalette,
     width: f32,
-    destructive: Option<Color>,
+    // The confirm button's fill, outline (drawn when set) and ink.
+    confirm_colors: Option<(Color, Option<Color>, Color)>,
+    cancel_variant: ButtonVariant,
+    description_size: f32,
+    closable: bool,
     animation_ms: u16,
     body: Option<Element>,
     alternative: Option<(String, String)>,
@@ -50,7 +54,10 @@ impl AlertDialog {
             cancel_label: crate::labels().cancel.into(),
             palette,
             width: 440.0,
-            destructive: None,
+            confirm_colors: None,
+            cancel_variant: ButtonVariant::Outline,
+            description_size: 12.0,
+            closable: true,
             animation_ms: crate::tokens().motion.enter_ms,
             body: None,
             alternative: None,
@@ -78,7 +85,37 @@ impl AlertDialog {
     /// Fill the confirm button with `color` and draw its label in white, for an action that
     /// destroys something. Without it the button is filled with the palette's text color.
     pub fn destructive(mut self, color: Color) -> Self {
-        self.destructive = Some(color);
+        self.confirm_colors = Some((color, None, Color::WHITE));
+        self
+    }
+
+    /// A quieter destructive confirm: a pale `fill` with a one-pixel `border`
+    /// and a label in `ink`, such as #FBE7E7, #DC3C3D and #A42528.
+    pub fn soft_destructive(mut self, fill: Color, border: Color, ink: Color) -> Self {
+        self.confirm_colors = Some((fill, Some(border), ink));
+        self
+    }
+
+    /// Paint Cancel as this variant, `Outline` by default; `Secondary` is
+    /// filled with the palette's `raised`.
+    pub fn cancel_variant(mut self, variant: ButtonVariant) -> Self {
+        self.cancel_variant = variant;
+        self
+    }
+
+    /// Set the description's size in logical pixels, 12 by default. A value
+    /// that is not finite is ignored.
+    pub fn description_size(mut self, size: f32) -> Self {
+        if size.is_finite() {
+            self.description_size = size.max(0.0);
+        }
+        self
+    }
+
+    /// Whether the title row has a close button; on by default. Without it,
+    /// Cancel and Escape still report `cancel_id`.
+    pub fn closable(mut self, closable: bool) -> Self {
+        self.closable = closable;
         self
     }
 
@@ -118,15 +155,11 @@ impl Component for AlertDialog {
         if !self.open {
             return self.base;
         }
-        let ink = self.palette.text;
-        let confirm_fill = self.destructive.unwrap_or(ink);
-        let confirm_ink = if self.destructive.is_some() {
-            Color::WHITE
-        } else {
-            self.palette.surface
-        };
+        let (confirm_fill, confirm_border, confirm_ink) = self
+            .confirm_colors
+            .unwrap_or((self.palette.text, None, self.palette.surface));
         let cancel = Button::new(self.cancel_id.clone(), self.cancel_label, self.palette)
-            .variant(ButtonVariant::Outline)
+            .variant(self.cancel_variant)
             .size(ControlSize::Compact)
             .render();
         let confirm = Button::new(
@@ -137,10 +170,15 @@ impl Component for AlertDialog {
                 surface: confirm_fill,
                 hover: confirm_fill,
                 selected: confirm_fill,
+                border: confirm_border.unwrap_or(self.palette.border),
                 ..self.palette
             },
         )
-        .variant(ButtonVariant::Solid)
+        .variant(if confirm_border.is_some() {
+            ButtonVariant::Outline
+        } else {
+            ButtonVariant::Solid
+        })
         .size(ControlSize::Compact)
         .enabled(self.confirm_enabled)
         .render()
@@ -168,7 +206,7 @@ impl Component for AlertDialog {
             content.push(Element::formatted_text(vec![TextSpan::new(
                 self.description.clone(),
                 self.palette.muted,
-                12.0,
+                self.description_size,
                 FontFamily::Sans,
             )]));
         }
@@ -191,6 +229,7 @@ impl Component for AlertDialog {
         .footer(footer)
         .initial_focus(self.cancel_id)
         .backdrop_dismiss(false)
+        .closable(self.closable)
         .animation_ms(self.animation_ms);
         if !content.is_empty() {
             modal = modal.body(Element::column(content).gap(10.0));
@@ -222,6 +261,53 @@ mod tests {
         assert_eq!(node("confirm").name, "Borrar");
         assert_eq!(node("cancel").name, crate::labels().cancel);
         assert_eq!(node("cancel:close").name, crate::labels().close);
+    }
+
+    #[test]
+    fn soft_destructive_confirm_filled_cancel_and_larger_description_paint_as_asked() {
+        let palette = ComponentPalette::neutral_dark();
+        let (fill, border, ink) =
+            (Color::rgb(0xFB, 0xE7, 0xE7), Color::rgb(0xDC, 0x3C, 0x3D), Color::rgb(0xA4, 0x25, 0x28));
+        let mut tree = UiTree::new(
+            AlertDialog::new(Element::spacer(), true, "Close terminal?", "A command is still running.", "close", "cancel", palette)
+                .confirm_label("Close terminal")
+                .soft_destructive(fill, border, ink)
+                .cancel_variant(ButtonVariant::Secondary)
+                .description_size(14.0)
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let rect = |id: &str| {
+            frame.regions.iter().find(|region| region.id == id && region.kind == HitKind::Button).unwrap().rect
+        };
+        let (confirm, cancel) = (rect("close"), rect("cancel"));
+        let has = |wanted: &dyn Fn(&DrawCommand) -> bool| frame.commands.iter().any(wanted);
+        assert!(has(&|c| matches!(c, DrawCommand::FillRect { rect, color, .. } if *rect == confirm && *color == fill)));
+        assert!(has(&|c| matches!(c, DrawCommand::StrokeRect { rect, color, width, .. }
+            if *rect == confirm && *color == border && *width == 1.0)));
+        assert!(has(&|c| matches!(c, DrawCommand::Text { text, color, .. } if text == "Close terminal" && *color == ink)));
+        assert!(has(&|c| matches!(c, DrawCommand::FillRect { rect, color, .. } if (rect.x, rect.y) == (cancel.x, cancel.y) && *color == palette.raised)));
+        assert!(has(&|c| matches!(c, DrawCommand::Text { text, font_size, .. }
+            if text.contains("still running") && *font_size == 14.0)));
+    }
+
+    #[test]
+    fn without_its_close_button_escape_and_cancel_still_cancel() {
+        let mut tree = UiTree::new(
+            AlertDialog::new(Element::spacer(), true, "¿Cerrar?", "", "confirm", "cancel", ComponentPalette::neutral_dark())
+                .closable(false)
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(600.0, 400.0));
+        assert!(!frame.regions.iter().any(|region| region.id == "cancel:close"));
+        assert!(!frame.access.iter().any(|node| node.id == "cancel:close"));
+        let escape = UiEvent::Key { key: Key::Escape, shift: false, ctrl: false };
+        assert_eq!(tree.handle_event(escape), vec![UiAction::Clicked { id: "cancel".into() }]);
+        assert!(tree.focus("cancel"));
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        assert_eq!(tree.handle_event(enter), vec![UiAction::Clicked { id: "cancel".into() }]);
     }
 
     #[test]
