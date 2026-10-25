@@ -33,6 +33,7 @@ own content, and how to switch movement off.
 | Body of a `Collapsible` | Opens from zero height under its header and fades in. | Closes in place while its last paint fades; what follows moves with it. | a spring, one and a half `move_ms` |
 | An element with `reveal_on_hover`, such as a `MessageActions` row | Fades in where it already is. | Fades out. Its place in the layout is kept. | `enter_ms`, `exit_ms` |
 | An element with `conceal_on_hover` | Fades in when the pointer leaves the region. | Fades out when it comes over it. | `enter_ms`, `exit_ms` |
+| An element with `extend_on_hover`, such as a `PeekPanel` | Its edge reaches out under the pointer or the focus, overshooting a little. | Springs back past its rest and settles. | a spring, three `move_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `NavigationBar` | The workspace capsule springs to the selected workspace; control fills cross-fade and tooltips fade. | | `move_ms`, `hover_ms`, tooltip tokens |
@@ -230,7 +231,9 @@ around them, while one of their controls has keyboard focus, or while a
 popover inside them is open. They keep their place in the layout and in the
 Tab order, so nothing moves when they appear and Tab reaches them. The
 region is passive and the host mirrors no hover state. A pinned
-`sticky_top` child is a region where it is drawn.
+`sticky_top` child is a region where it is drawn. A region that is itself a
+control, such as a clickable row, counts as hovered while it has keyboard
+focus too.
 
 `conceal_on_hover(id)` is the opposite: painted except while the pointer is
 over the region. Put one of each in an `Element::stack` and the two give way
@@ -244,6 +247,24 @@ let cover = Element::stack(vec![
     pause_icon.reveal_on_hover("row-7-pause"),
 ]);
 ```
+
+### An edge that reaches out under the pointer
+
+```rust
+let strip = Element::clickable("queue-peek", glimpse)
+    .size(Some(40.0), None)
+    .extend_on_hover("queue-peek-reach", Point::new(-12.0, 0.0));
+```
+
+While the pointer is over the element, or it or a control inside it has
+keyboard focus, its left edge moves 12 px further left: a negative `x` moves
+the left edge, a positive one the right edge, and `y` the top or bottom. What
+it holds is laid out in the longer box and its own pointer target grows with
+it. The edge travels on a spring with a damping ratio of 0.6, which overshoots
+by about a tenth and settles within three `move_ms`, and it springs back past
+its rest when the pointer leaves. Its slot in the layout does not change, so
+it paints over its neighbour, which must be painted before it. With reduced
+motion it jumps. [PeekPanel](components/peek-panel.md) is built on it.
 
 ### A control's fill
 

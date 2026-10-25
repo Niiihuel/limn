@@ -35,6 +35,8 @@ pub struct Slider {
     default_stop: Option<usize>,
     vertical: bool,
     origin: f32,
+    thumb_on_hover: bool,
+    level: Option<(f32, Color)>,
 }
 
 impl Slider {
@@ -54,7 +56,17 @@ impl Slider {
             default_stop: None,
             vertical: false,
             origin: 0.0,
+            thumb_on_hover: false,
+            level: None,
         }
+    }
+
+    /// Show the thumb only while the pointer is over the slider: a seek bar
+    /// that stays a quiet line until it is reached for. The thumb fades in and
+    /// out; the fill keeps showing the value meanwhile.
+    pub fn thumb_on_hover(mut self) -> Self {
+        self.thumb_on_hover = true;
+        self
     }
 
     /// Stand the slider up: 0 at the bottom and 1 at the top, so dragging up
@@ -72,6 +84,16 @@ impl Slider {
     /// neutral one such as a gain of 0 dB. Clamped to 0 to 1; NaN is 0.
     pub fn origin(mut self, origin: f32) -> Self {
         self.origin = if origin.is_nan() { 0.0 } else { origin.clamp(0.0, 1.0) };
+        self
+    }
+
+    /// Draw a level that moves on its own along the track, from the start
+    /// to `level`, in `color`, in place of the fill: a meter whose threshold
+    /// is the value, such as a microphone's input under the sensitivity the
+    /// thumb sets. The host passes the new level on every rebuild; the
+    /// platform is told only the value. Clamped to 0 to 1; NaN is 0.
+    pub fn level(mut self, level: f32, color: Color) -> Self {
+        self.level = Some((if level.is_nan() { 0.0 } else { level.clamp(0.0, 1.0) }, color));
         self
     }
 
@@ -184,23 +206,27 @@ impl Component for Slider {
             }
         };
         let bar = |color: Color| Element::panel(Element::spacer()).background(color);
-        let (low, high) = (self.origin.min(self.fraction), self.origin.max(self.fraction));
+        // A level takes the fill's place: from the start to the level, in its color.
+        let (low, high, fill) = match self.level {
+            Some((level, color)) => (0.0, level, if self.enabled { color } else { self.palette.muted }),
+            None => (self.origin.min(self.fraction), self.origin.max(self.fraction), ink),
+        };
         let gray = self.palette.selected;
         // The fill runs from the origin to the value, between stops half a
         // thumb in from the ends, so it meets the thumb's center; each end cap
         // takes the color of the part it closes.
         let mut pieces = vec![sized(
-            bar(if low <= 0.0 && high > 0.0 { ink } else { gray }).corner_radii(cap(true)),
+            bar(if low <= 0.0 && high > 0.0 { fill } else { gray }).corner_radii(cap(true)),
             Some(THUMB / 2.0),
             Some(TRACK),
         )];
-        for (share, color) in [(low, gray), (high - low, ink), (1.0 - high, gray)] {
+        for (share, color) in [(low, gray), (high - low, fill), (1.0 - high, gray)] {
             if share > 0.0 {
                 pieces.push(sized(bar(color), None, Some(TRACK)).flex(share));
             }
         }
         pieces.push(sized(
-            bar(if high >= 1.0 && low < 1.0 { ink } else { gray }).corner_radii(cap(false)),
+            bar(if high >= 1.0 && low < 1.0 { fill } else { gray }).corner_radii(cap(false)),
             Some(THUMB / 2.0),
             Some(TRACK),
         ));
@@ -214,7 +240,8 @@ impl Component for Slider {
             if self.fraction < 1.0 {
                 thumb.push(Element::spacer().flex(1.0 - self.fraction));
             }
-            layers.push(line(thumb));
+            let thumb = line(thumb);
+            layers.push(if self.thumb_on_hover { thumb.reveal_on_hover(format!("{}:thumb", self.id)) } else { thumb });
         }
         // The pointer takes the whole of it: the thumb's height across a
         // slider, and the width it is given across a vertical one.
@@ -263,6 +290,7 @@ impl Component for Slider {
         }
         .size(width, height)
         .accessible(access);
+        let slider = if self.thumb_on_hover { slider.hover_region() } else { slider };
         if vertical {
             labels.clear();
         }
@@ -352,6 +380,29 @@ mod tests {
                 "fraction {fraction}: thumb at {center}"
             );
         }
+    }
+
+    #[test]
+    fn a_thumb_on_hover_shows_only_under_the_pointer_and_the_slider_still_drags() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = tree(Slider::new("s", 0.5, palette).width(WIDTH).thumb_on_hover());
+        tree.set_reduced_motion(true);
+        let thumb = |tree: &mut UiTree| {
+            tree.layout(Size::new(400.0, HEIGHT)).commands.iter().find_map(|command| match command {
+                DrawCommand::FillCornerRect { rect, color, .. } | DrawCommand::FillRect { rect, color, .. }
+                    if (rect.width - THUMB).abs() < 0.01 && (rect.height - THUMB).abs() < 0.01 => Some(color.a),
+                _ => None,
+            }).unwrap_or(0)
+        };
+        assert_eq!(thumb(&mut tree), 0, "a quiet line at rest");
+        let middle = Point::new(WIDTH / 2.0, HEIGHT / 2.0);
+        tree.handle_event(UiEvent::PointerMove(middle));
+        assert_eq!(thumb(&mut tree), palette.text.a, "reached for, it shows its thumb");
+        let (fraction, _) = changed(&tree.handle_event(UiEvent::PointerDown(middle)));
+        assert!((fraction - 0.5).abs() < 0.01);
+        tree.handle_event(UiEvent::PointerUp(middle));
+        tree.handle_event(UiEvent::PointerMove(Point::new(390.0, HEIGHT / 2.0)));
+        assert_eq!(thumb(&mut tree), 0, "the thumb goes with the pointer");
     }
 
     #[test]
@@ -763,5 +814,36 @@ mod tests {
         // At the origin nothing is filled.
         let frame = tree(Slider::new("s", 0.5, palette).ink(ink).origin(0.5).width(WIDTH)).layout(Size::new(400.0, HEIGHT));
         assert!(painted(&frame, ink, false).iter().all(|(start, end)| end - start == THUMB));
+    }
+
+    #[test]
+    fn a_level_moves_along_the_track_in_its_color_and_the_thumb_keeps_the_value() {
+        let palette = ComponentPalette::neutral_dark();
+        let (ink, green) = (Color::rgb(250, 250, 250), Color::rgb(35, 165, 90));
+        let along = |fraction: f32| THUMB / 2.0 + fraction * TRAVEL;
+        for (level, end) in [(0.0, None), (0.3, Some(along(0.3))), (1.0, Some(WIDTH)), (f32::NAN, None), (2.0, Some(WIDTH))] {
+            let slider = Slider::new("s", 0.6, palette).ink(ink).level(level, green).width(WIDTH);
+            let frame = tree(slider).layout(Size::new(400.0, HEIGHT));
+            // One stretch from the start in the level's color, and no fill in the ink.
+            let mut bars = painted(&frame, green, false);
+            bars.sort_by(|a, b| a.0.total_cmp(&b.0));
+            match end {
+                None => assert!(bars.is_empty(), "{level}: {bars:?}"),
+                Some(end) => {
+                    assert_eq!(bars.first().map(|bar| bar.0), Some(0.0), "{level}: {bars:?}");
+                    assert!((bars.last().unwrap().1 - end).abs() < 0.6, "{level}: {bars:?}");
+                }
+            }
+            assert!(painted(&frame, ink, false).iter().all(|(start, end)| (end - start - THUMB).abs() < 0.01), "{level}");
+            let thumb = painted(&frame, ink, false)[0];
+            assert!((thumb.0 + THUMB / 2.0 - along(0.6)).abs() < 0.6, "{level}: {thumb:?}");
+            // The platform is told the value, not the level.
+            let node = frame.access.iter().find(|node| node.id == "s").unwrap();
+            assert_eq!(node.value, Some(0.6));
+        }
+        // Disabled, the level stays, muted, and there is no thumb.
+        let frame = tree(Slider::new("s", 0.6, palette).level(0.5, green).width(WIDTH).disabled()).layout(Size::new(400.0, HEIGHT));
+        assert!(painted(&frame, green, false).is_empty());
+        assert!(!painted(&frame, palette.muted, false).is_empty());
     }
 }

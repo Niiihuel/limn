@@ -22,7 +22,6 @@ Background that explains why the library behaves as it does.
 | --- | --- |
 | [Concepts](concepts.md) | Elements, the tree, frames, IDs, and who owns state. |
 | [Animation](animation.md) | What moves, for how long, and how it is switched off. |
-| [Native glass navigation](liquid-glass.md) | The Ricelin-inspired bar, optical material, research and Wayland integration boundary. |
 
 ## Do a specific task
 

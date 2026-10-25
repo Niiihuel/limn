@@ -19,7 +19,6 @@ export const GUIDES = [
       ['accessibility', 'Accessibility'],
       ['hot-reload', 'Hot reload'],
       ['tours', 'Tours'],
-      ['liquid-glass', 'Liquid glass'],
     ],
   },
   {

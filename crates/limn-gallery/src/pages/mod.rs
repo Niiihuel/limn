@@ -11,6 +11,7 @@ mod avatars;
 mod badge;
 mod blocks;
 mod buttons;
+mod carousel;
 mod charts;
 mod checkbox;
 mod chrome;
@@ -20,11 +21,11 @@ mod context;
 mod dates;
 mod description;
 mod diagrams;
+mod drawing;
 mod editor;
 mod empty;
 mod feedback;
 mod file_drop;
-pub mod glass;
 mod inputs;
 mod lists;
 mod loading;
@@ -33,6 +34,7 @@ mod media;
 mod menus;
 mod messages;
 mod navigation;
+mod navigation_bar;
 mod number;
 mod overlays;
 mod page;
@@ -41,11 +43,14 @@ mod panels;
 mod preferences;
 mod radio;
 mod scheme;
+mod side_panels;
 mod surfaces;
 mod table;
+mod text_layout;
 mod toggle;
 mod tokens;
 mod toolbar;
+mod top_bar;
 mod tooltip;
 mod tour;
 mod typography;
@@ -111,9 +116,11 @@ impl Page {
 pub const PAGES: &[Page] = &[
     Page { id: "tokens", group: "System", title: "Tokens", source: "tokens", view: tokens::view, sections: &[], since: "0.1.39" },
     Page { id: "scheme", group: "System", title: "Scheme", source: "scheme", view: scheme::view, sections: &[], since: "0.1.39" },
-    Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Long text", "Soft focus", "Unicode fallback", "Monochrome emoji"], since: "0.1.39" },
+    Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Marks and hints", "A limit of lines", "Inline pictures", "Long text", "Soft focus", "Unicode fallback", "Monochrome emoji"], since: "0.1.39" },
     Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"], since: "0.1.39" },
-    Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings"], since: "0.1.39" },
+    Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings", "Categories and small icons"], since: "0.1.39" },
+    Page { id: "drawing", group: "System", title: "Drawing", source: "drawing", view: drawing::view, sections: &[], since: "0.1.44" },
+    Page { id: "text-layout", group: "System", title: "TextLayout", source: "text_layout", view: text_layout::view, sections: &[], since: "0.1.44" },
     Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
     Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"], since: "0.1.39" },
     Page { id: "toolbar", group: "Actions", title: "Toolbar", source: "toolbar", view: toolbar::view, sections: &[], since: "0.1.41" },
@@ -149,7 +156,9 @@ pub const PAGES: &[Page] = &[
     Page { id: "pagination", group: "Navigation", title: "Pagination", source: "pagination", view: pagination::view, sections: &[], since: "0.1.41" },
     Page { id: "menu-bar", group: "Navigation", title: "MenuBar", source: "chrome", view: chrome::view, sections: &["Menu bar"], since: "0.1.39" },
     Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"], since: "0.1.39" },
-    Page { id: "glass", group: "Navigation", title: "NavigationBar", source: "glass", view: glass::view, sections: &[], since: "0.1.39" },
+    Page { id: "window-controls", group: "Navigation", title: "WindowControls", source: "chrome", view: chrome::view, sections: &["Window controls"], since: "0.1.44" },
+    Page { id: "navigation-bar", group: "Navigation", title: "NavigationBar", source: "navigation_bar", view: navigation_bar::view, sections: &[], since: "0.1.39" },
+    Page { id: "top-bar", group: "Navigation", title: "TopBar", source: "top_bar", view: top_bar::view, sections: &[], since: "0.1.43" },
     Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[], since: "0.1.39" },
     Page { id: "tree-row", group: "Data", title: "TreeRow", source: "surfaces", view: surfaces::view, sections: &["Tree rows"], since: "0.1.39" },
     Page { id: "table", group: "Data", title: "Table", source: "table", view: table::view, sections: &[], since: "0.1.39" },
@@ -166,6 +175,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "framed-card", group: "Layout", title: "FramedCard", source: "surfaces", view: surfaces::view, sections: &["Framed card"], since: "0.1.39" },
     Page { id: "scroll-area", group: "Layout", title: "ScrollArea", source: "surfaces", view: surfaces::view, sections: &["Scroll area", "Column height budgets"], since: "0.1.39" },
     Page { id: "media-tile", group: "Layout", title: "MediaTile", source: "blocks", view: blocks::view, sections: &["Media tile"], since: "0.1.39" },
+    Page { id: "carousel", group: "Layout", title: "Carousel", source: "carousel", view: carousel::view, sections: &[], since: "0.1.43" },
     Page { id: "media-card", group: "Layout", title: "MediaCard", source: "blocks", view: blocks::view, sections: &["Track card"], since: "0.1.39" },
     Page { id: "page-header", group: "Layout", title: "PageHeader", source: "page", view: page::view, sections: &["Page header"], since: "0.1.39" },
     Page { id: "section-header", group: "Layout", title: "SectionHeader", source: "page", view: page::view, sections: &["Section headers"], since: "0.1.39" },
@@ -173,6 +183,8 @@ pub const PAGES: &[Page] = &[
     Page { id: "panel-header", group: "Layout", title: "PanelHeader", source: "panels", view: panels::view, sections: &["Panel header", "Back, close, and long title", "A field in place of the title", "A tint behind the header"], since: "0.1.39" },
     Page { id: "sidebar-panel", group: "Layout", title: "SidebarPanel", source: "panels", view: panels::view, sections: &["Sidebar panel"], since: "0.1.39" },
     Page { id: "resize-handle", group: "Layout", title: "ResizeHandle", source: "panels", view: panels::view, sections: &["Resize handle between panels"], since: "0.1.39" },
+    Page { id: "side-rail", group: "Layout", title: "SideRail", source: "side_panels", view: side_panels::view, sections: &["Folded library", "A long rail"], since: "0.1.43" },
+    Page { id: "peek-panel", group: "Layout", title: "PeekPanel", source: "side_panels", view: side_panels::view, sections: &["Peek at the right edge", "Peek at the left edge"], since: "0.1.43" },
     Page { id: "preferences-group", group: "Layout", title: "PreferencesGroup", source: "preferences", view: preferences::view, sections: &[], since: "0.1.39" },
     Page { id: "empty", group: "States", title: "Empty", source: "empty", view: empty::view, sections: &["With icon and action", "Two actions", "Compact", "Framed", "Title only"], since: "0.1.39" },
     Page { id: "notice", group: "States", title: "Notice", source: "empty", view: empty::view, sections: &["Inline notice", "Stacked notice", "Compact notice", "Fixed-height notice"], since: "0.1.39" },
@@ -267,6 +279,7 @@ pub fn update(state: &mut State, action: &UiAction) {
     number::update(state, action);
     checkbox::update(state, action);
     toolbar::update(state, action);
+    top_bar::update(state, action);
     inputs::update(state, action);
     colors::update(state, action);
     overlays::update(state, action);
@@ -285,6 +298,7 @@ pub fn fields(state: &State) -> Vec<(&'static str, String)> {
         number::fields(state),
         inputs::fields(state),
         colors::fields(state),
+        top_bar::fields(state),
     ]
     .concat()
 }

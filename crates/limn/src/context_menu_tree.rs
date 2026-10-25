@@ -126,9 +126,8 @@ impl UiTree {
     ) -> Option<(Element, Rect, Option<String>, Option<String>)> {
         let menu = self.context_menu.as_ref()?;
         let width = context_menu::WIDTH.min((viewport.width - 16.0).max(0.0));
-        let max_height = context_menu::MAX_HEIGHT
-            .min(viewport.height * 0.75)
-            .min((viewport.height - 16.0).max(0.0));
+        // As a native menu, it takes the window's height before it scrolls.
+        let max_height = (viewport.height - 16.0).max(0.0);
         let measure = |text: &str, size: f32| {
             measured_width(
                 self.text_measurer.as_deref(),
@@ -720,6 +719,14 @@ impl UiTree {
             }) =>
             {
                 self.scroll_regular_regions(*position, *delta_y, false, now);
+            }
+            // Outside the menu it closes, as a press there does, and the
+            // wheel goes on to what is under it.
+            UiEvent::Scroll { .. } | UiEvent::ScrollDirect { .. } | UiEvent::Scroll2D { .. }
+                if scroll_at(event).is_some() =>
+            {
+                self.close_context_menu(now);
+                return None;
             }
             UiEvent::Key {
                 key: Key::Escape | Key::Tab,

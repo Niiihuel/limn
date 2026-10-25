@@ -34,6 +34,8 @@ pub fn fields(state: &State) -> Vec<(&'static str, String)> {
 }
 
 const SHELLS: [(&str, &str); 4] = [("bash", "Bash"), ("zsh", "Zsh"), ("fish", "Fish"), ("nu", "Nushell")];
+// Each band's gain as a share of its slider: 0.5 is 0 dB.
+const EQUALISER: [(&str, f32); 5] = [("60", 0.68), ("250", 0.58), ("1k", 0.5), ("4k", 0.38), ("12k", 0.72)];
 
 /// A slider's value as the gallery keeps it, or `initial` before it is moved.
 fn fraction(cx: &Cx, id: &str, initial: f32) -> f32 {
@@ -243,6 +245,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             .gap(8.0)
             .size(Some(width), None),
             caption(cx, "Form height: 40 px, beside a text field of the same height."),
+            shell_select(cx, "select-field-accent")
+                .variant(SelectVariant::Field)
+                .accessibility_label("Shell")
+                .font_size(16.0)
+                .max_visible_items(2)
+                .ink(cx.state.theme().accent)
+                .height(40.0)
+                .width(width)
+                .menu_width(width)
+                .placement(PopoverPlacement::BottomStart)
+                .render(),
+            caption(cx, ".font_size(16.0), .max_visible_items(2) and .ink(accent): open, two rows show, the chevron points up and the border takes the accent."),
         ]),
         section(cx, "Search", vec![
             SearchField::new("input-search", state.choice(CLEARABLE[0].0, CLEARABLE[0].1), "Search", palette)
@@ -288,6 +302,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .radius(RadiusRole::Surface)
                 .disabled()
                 .render(),
+            caption(cx, ".text_area_highlights: a mention in the accent over a fill, as the pill it becomes once sent"),
+            {
+                let value = state.choice("input-notes-mentions", "Ask @ada about #general before Friday");
+                Element::text_area("input-notes-mentions", value, "Message")
+                    .text_area_highlights(mentions(value, palette.link()))
+                    .font_family(limn::FontFamily::Sans)
+                    .foreground(palette.text)
+                    .padding(10.0)
+                    .background(palette.raised)
+                    .radius(RadiusRole::Surface.px())
+                    .size(Some(width), Some(44.0))
+            },
         ]),
         section(cx, "Switch", vec![
             row(vec![
@@ -333,6 +359,20 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .render(),
             ]),
             caption(cx, "SwitchVariant::Accent: a light thumb on the link color, on the theme's accent with .ink, and disabled."),
+            row(vec![
+                Switch::new("input-switch-track", !state.flag("input-switch-track"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .ink(cx.state.theme().accent)
+                    .track_size(50.0, 26.0)
+                    .accessibility_label("Developer mode")
+                    .render(),
+                Switch::new("input-switch-track-off", state.flag("input-switch-track-off"), palette)
+                    .variant(SwitchVariant::Accent)
+                    .track_size(50.0, 26.0)
+                    .accessibility_label("Streamer mode")
+                    .render(),
+            ]),
+            caption(cx, ".track_size(50.0, 26.0): a track of the host's own size, the thumb 3 px inside it."),
         ]),
         section(cx, "Slider", vec![
             Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette)
@@ -377,6 +417,55 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(280.0)
                 .render(),
             caption(cx, "Disabled, every label is muted."),
+            {
+                let threshold = fraction(cx, "input-slider-level", 0.4);
+                let level = 0.55;
+                let theme = cx.state.theme();
+                Slider::new("input-slider-level", threshold, palette)
+                    .ink(theme.accent)
+                    .level(level, if level >= threshold { Color::rgb(35, 165, 90) } else { Color::rgb(240, 178, 50) })
+                    .accessibility_label("Input sensitivity")
+                    .width(280.0)
+                    .render()
+            },
+            caption(cx, ".level(0.55, color): a microphone's input along the track, green over the threshold the thumb sets and yellow under it."),
+            row(EQUALISER
+                .iter()
+                .map(|(band, gain)| {
+                    let id = format!("input-slider-eq-{band}");
+                    Slider::new(&id, fraction(cx, &id, *gain), palette)
+                        .vertical()
+                        .origin(0.5)
+                        .accessibility_label(format!("{band} Hz"))
+                        .width(120.0)
+                        .render()
+                })
+                .collect()),
+            caption(cx, ".vertical().origin(0.5): an equaliser's bands. Each stands up, 120 px tall, and fills from its middle, the 0 dB of a gain."),
         ]),
     ]
+}
+
+/// Each `@name` and `#name` of `value`, inked and filled in `accent`, by
+/// character offsets.
+fn mentions(value: &str, accent: Color) -> Vec<limn::TextHighlight> {
+    let mut found = Vec::new();
+    let mut start = None;
+    for (index, character) in value.chars().chain([' ']).enumerate() {
+        match (start, character) {
+            (None, '@' | '#') => start = Some(index),
+            (Some(from), character) if !character.is_alphanumeric() && index > from + 1 => {
+                found.push(limn::TextHighlight {
+                    range: from..index,
+                    color: accent,
+                    italic: false,
+                    background: Some(Color::rgba(accent.r, accent.g, accent.b, 40)),
+                });
+                start = None;
+            }
+            (Some(_), character) if !character.is_alphanumeric() => start = None,
+            _ => {}
+        }
+    }
+    found
 }

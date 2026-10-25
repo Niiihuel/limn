@@ -18,6 +18,12 @@ back.
 
 ## Text measurement
 
+Call `tree.set_text_layout(true)` once the backend draws `DrawCommand::Glyphs`:
+every `Element::text` is then laid out by limn itself, in the faces of
+`limn::fonts()`, and drawn as glyph runs, so it needs no measuring. Other text
+is still measured as below until it moves too. `limn_egui::attach_fonts` turns
+it on.
+
 Layout depends on text widths, so the tree must measure with the same fonts
 the backend paints with. Register them once, and again if the fonts change:
 
@@ -48,7 +54,7 @@ the tree's origin.
 | `Key { key, shift, ctrl }` | A non-text key: arrows, Tab, Enter, Escape, and so on. |
 | `Paste(string)`, `PasteTo { id, text }` | Clipboard text, to the focused control or a named one. |
 | `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
-| `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
+| `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition, in a code editor or a text field. |
 | `FilesHovered { position }`, `FilesDropped { position, paths }` | Files dragged from another application. |
 
 External file events preserve the supplied list; they do not read file
@@ -109,7 +115,6 @@ stamps, single-use semantics and the limits of tree observation.
 | Command | Paints |
 | --- | --- |
 | `FillRect { rect, color, radius }` | A filled rectangle with uniformly rounded corners. |
-| `Glass { rect, radius, material, opacity }` | A rounded surface sampling an explicit host backdrop. Paint its blur, refractive edge and tint before foreground controls. A backend without a backdrop uses an opaque tint, multiplied by the command's animation opacity. |
 | `FillCornerRect { rect, color, radii }` | A filled rectangle with a radius per corner. |
 | `StrokeRect { rect, color, width, radius }` | An outline drawn inside the rectangle. |
 | `StrokeCornerRect { .. }` | An outline with a radius per corner. |
@@ -120,6 +125,7 @@ stamps, single-use semantics and the limits of tree observation.
 | `Polyline { points, color, width, dashed }` | An open stroked path centered on its points, dashed in short marks when asked: the connectors and the decision outline of a `Flowchart`, the lifelines and messages of a `SequenceDiagram`. |
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
+| `Glyphs(GlyphRun)` | Glyphs limn has already shaped and placed: draw each from `run.font` at `run.size`, at its place from `run.origin`, tinted `run.color`; slant by `run.skew` degrees and thicken when `run.embolden`. Lay nothing out again. See [TextLayout](components/text-layout.md#drawing-the-glyphs). |
 | `Icon { icon, rect, tint }` | A semantic icon. The backend chooses the artwork. |
 | `RasterImage { .. }` | A decoded image. |
 | `Surface { rect, id, label, opacity }` | Pixels the host hands to the backend under `id`, outside the frame. They start at the rectangle's top-left corner, one pixel per physical pixel when rendered for this display, and are clipped to the rectangle, never stretched to it. |
@@ -166,8 +172,7 @@ The egui backend exposes:
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
 | `events_indexed(&ctx, origin)` | Unreleased indexed-input contract: input with its source index for an ordered host loop. See below. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
-| `GlassRenderer::new(&render_state)` | Creates the native wgpu optical renderer. Supply the backdrop using `set_backdrop_rgba` or `set_backdrop_texture`, then call its `paint_at`. |
-| `GlassRenderer::paint_at_surface(ui, &frame, origin, backdrop_rect, surface_id)` | Displays the shared backdrop texture at a named surface's paint depth and renders the glass above it. This opt-in path stretches the texture to the explicit backdrop rectangle; ordinary host-fed surfaces retain their pixel mapping. See [Native glass navigation](liquid-glass.md). |
+| `report_ime(&ctx, &tree, origin)` | Tells the platform where an input method belongs: by the caret of the focused code editor or field, from `UiTree::ime_area()`. Each frame, after the layout. Without it egui turns input methods off. A password asks for no composition. |
 | `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
 | `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
 

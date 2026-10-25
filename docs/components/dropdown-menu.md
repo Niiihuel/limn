@@ -198,6 +198,12 @@ many rows show before the options scroll. `placement` takes a
 `PopoverPlacement`; `BottomStart` unless set. `sizing(SelectorSizing)` takes a
 shared profile for width, row density and scroll budget.
 
+`scrollbar(ScrollbarAppearance)` gives the options the host's own bar, such
+as the one its pages scroll with; a reserved rail in the palette's muted ink
+unless set. A bar without a `tint` is muted, and an overlay takes no width
+from the rows. `scrollbar_visibility(ScrollbarVisibility)` says when it
+shows, always unless set. Submenus take both.
+
 ## Style
 
 `context_menu_style()` gives the menu the surface and density of a
@@ -226,7 +232,7 @@ place at once.
 | Action | When |
 | --- | --- |
 | `UiAction::Clicked { id }` with an item's ID | The item is activated. |
-| `UiAction::Clicked { id }` with the dismiss ID | Escape, or a click outside the menu, primary or secondary. |
+| `UiAction::Clicked { id }` with the dismiss ID | Escape, a click outside the menu, primary or secondary, or a wheel or trackpad scroll outside it, which still scrolls what is under the pointer. |
 
 ## Accessibility
 

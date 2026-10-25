@@ -40,9 +40,30 @@ fn update(state: &mut State, action: &UiAction) {
 ```
 
 The subset is headings of three levels, paragraphs, bulleted, numbered and
-checked lists, quotes, fenced code and rules, with strong, emphasis, inline
-code and web links. Tables, images, HTML and nested quotes stay text.
+checked lists, quotes, subtext lines, fenced code and rules, with strong,
+emphasis, bold italic, underline, strikethrough, inline code and web links.
+Tables, images, HTML and nested quotes stay text.
 [Components](../components.md) has the full reference.
+
+## Marks
+
+| Written | Drawn |
+| --- | --- |
+| `**strong**` | The bold face (`FontFamily::SansBold`), in `colors.strong` |
+| `*emphasis*` | The italic face, in `colors.emphasis` |
+| `***both***` | `FontFamily::SansBoldItalic`, in `colors.strong` |
+| `__underline__` | A line under the text, as chat clients write it; CommonMark reads it as strong |
+| `~~strikethrough~~` | A line through the text |
+| `` `code` `` | Monospace over `colors.code_fill` |
+| `-# subtext` | A line of its own, 0.8125 times the body's size, in `colors.muted` |
+
+Marks nest: `__**this**__` and `**__this__**` are both bold and
+underlined, and `~~*this*~~` is struck italic. A mark closes at the first
+copy of its delimiter, so it never holds itself, and neither opens nor
+closes inside a `<…>` without spaces, such as an autolink or a chat
+client's `<:emoji_name:id>`. `\~` writes a tilde, as
+`\*` and `\_` write theirs. A web address stops before a `|` at its end,
+which closes a table cell or a `||spoiler||` around it.
 
 ## Width
 

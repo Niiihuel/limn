@@ -2,6 +2,19 @@
 
 use super::*;
 
+/// Whether a face of `family`'s chain maps `ch`. egui's own `has_glyph` says
+/// no for a character of the face it takes its replacement glyph from, so
+/// coverage is read from the faces themselves.
+fn covers(ctx: &egui::Context, family: &egui::FontFamily, ch: char) -> bool {
+    use skrifa::MetadataProvider;
+    let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
+    definitions.families[family].iter().any(|name| {
+        let data = &definitions.font_data[name];
+        skrifa::FontRef::from_index(data.font.as_ref(), data.index)
+            .is_ok_and(|face| face.charmap().map(ch).is_some_and(|id| id != skrifa::GlyphId::NOTDEF))
+    })
+}
+
 fn context(install: bool) -> egui::Context {
     let ctx = egui::Context::default();
     if install {
@@ -16,7 +29,7 @@ fn context(install: bool) -> egui::Context {
 fn hosts_can_extend_bundled_definitions_without_losing_fallbacks() {
     let mut definitions = font_definitions();
     let fallback = definitions.families[&egui::FontFamily::Proportional].clone();
-    definitions.font_data.insert("host-face".into(), definitions.font_data["Ubuntu-Regular"].clone());
+    definitions.font_data.insert("host-face".into(), definitions.font_data["Sans-Regular"].clone());
     definitions.families.get_mut(&egui::FontFamily::Proportional).unwrap().insert(0, "host-face".into());
     let ctx = egui::Context::default();
     ctx.set_fonts(definitions);
@@ -26,8 +39,20 @@ fn hosts_can_extend_bundled_definitions_without_losing_fallbacks() {
         let family = &fonts.definitions().families[&egui::FontFamily::Proportional];
         assert_eq!(family.first().map(String::as_str), Some("host-face"));
         assert_eq!(family[1..], fallback);
-        assert!(fonts.has_glyph(&egui::FontId::proportional(14.0), '𝓡'));
     });
+    assert!(covers(&ctx, &egui::FontFamily::Proportional, '𝓡'));
+}
+
+#[test]
+fn a_hosts_ui_face_is_what_egui_measures_and_its_missing_weights_take_it() {
+    let bundled = limn::Fonts::bundled();
+    let host = bundled.face_of(FontFamily::Monospace).unwrap().clone();
+    let definitions = definitions_with(&limn::Fonts::new().face(FontFamily::Sans, host.clone()));
+    for name in ["Sans-Regular", "Sans-Medium", "Sans-Bold"] {
+        assert_eq!(&*definitions.font_data[name].font, host.bytes(), "{name}");
+    }
+    let mono = bundled.face_of(FontFamily::Monospace).unwrap();
+    assert_eq!(&*definitions.font_data["Hack"].font, mono.bytes(), "the code face and fallbacks stay limn's");
 }
 
 #[test]
@@ -48,22 +73,21 @@ fn mathematical_names_have_real_glyphs_in_every_limn_family() {
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
-        ctx.fonts_mut(|fonts| {
-            for ch in sample.chars().filter(|ch| !ch.is_whitespace()).chain(
-                (0x1d400..=0x1d7ff)
-                    .filter_map(char::from_u32)
-                    .filter(|ch| ch.is_alphanumeric()),
-            ) {
-                assert!(
-                    fonts.has_glyph(&font, ch),
-                    "{family:?} is missing U+{:04X} ({ch})",
-                    ch as u32
-                );
-            }
-        });
+        for ch in sample.chars().filter(|ch| !ch.is_whitespace()).chain(
+            (0x1d400..=0x1d7ff)
+                .filter_map(char::from_u32)
+                .filter(|ch| ch.is_alphanumeric()),
+        ) {
+            assert!(
+                covers(&ctx, &font.family, ch),
+                "{family:?} is missing U+{:04X} ({ch})",
+                ch as u32
+            );
+        }
     }
 }
 
@@ -74,9 +98,9 @@ fn installing_fallback_keeps_existing_ui_faces_and_monospace_metrics() {
     ctx.fonts(|fonts| {
         let families = &fonts.definitions().families;
         for (family, first) in [
-            (egui::FontFamily::Proportional, "Ubuntu-Regular"),
-            (egui::FontFamily::Name(SANS_MEDIUM.into()), "Ubuntu-Medium"),
-            (egui::FontFamily::Name(SANS_BOLD.into()), "Ubuntu-Bold"),
+            (egui::FontFamily::Proportional, "Sans-Regular"),
+            (egui::FontFamily::Name(SANS_MEDIUM.into()), "Sans-Medium"),
+            (egui::FontFamily::Name(SANS_BOLD.into()), "Sans-Bold"),
         ] {
             assert_eq!(families[&family].first().map(String::as_str), Some(first));
         }
@@ -97,12 +121,13 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
     let ctx = context(true);
     let sample = "◆◇●○■□▪▫▸▹▾▿⌜⌟├─│╭╰═║⟡✦✧❖➜→←⇢➤⤷⎯⏤⠿⣿";
     let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
-    assert!(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf").len() <= 400 * 1024);
+    assert!(limn::Fonts::bundled().fallbacks()[1].bytes().len() <= 400 * 1024);
     for family in [
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
@@ -153,12 +178,13 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
     let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
     let samples = include_str!("emoji_samples.txt");
     assert_eq!(samples.lines().count(), 623);
-    assert!(include_bytes!("../assets/fonts/NotoEmoji.ttf").len() <= 2 * 1024 * 1024);
+    assert!(limn::Fonts::bundled().emoji_face().unwrap().bytes().len() <= 2 * 1024 * 1024);
     for family in [
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let names = &definitions.families[&egui_family(&ctx, family)];
@@ -222,6 +248,7 @@ fn emoji_fallback_preserves_existing_text_metrics() {
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
@@ -249,7 +276,9 @@ fn emoji_fallback_preserves_existing_text_metrics() {
                 "{family:?} changed {ch}"
             );
         }
-        for text in ["RUNE 0123 Wi", "👍 ❤️ 😂 🎉 👀 🔥 🙏 ✅", "𝖗𝖚𝖓𝖊 ✦ Lounge"]
+        // Only Noto Emoji draws emoji now that egui's own faces are not
+        // installed, so text the other faces cover is what keeps its layout.
+        for text in ["RUNE 0123 Wi", "𝖗𝖚𝖓𝖊 ✦ Lounge"]
         {
             let layout = |ctx: &egui::Context| {
                 ctx.fonts_mut(|fonts| {
@@ -276,6 +305,7 @@ fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
         FontFamily::SansItalic,
         FontFamily::SansMedium,
         FontFamily::SansBold,
+        FontFamily::SansBoldItalic,
         FontFamily::Monospace,
     ] {
         let font = egui::FontId::new(24.0, egui_family(&ctx, family));
@@ -308,3 +338,4 @@ fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
         }
     }
 }
+

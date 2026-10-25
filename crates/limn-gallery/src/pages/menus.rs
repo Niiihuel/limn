@@ -3,7 +3,7 @@
 
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    Button, ButtonVariant, Component, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
+    Avatar, Button, ButtonVariant, Color, Component, ComponentPalette, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
     DropdownMenuSection, Element, FontFamily, PanelHeaderSizing, Icon, IconButton, Kbd, MenuHeader,
     MenuItem, PanelHeader, Popover, PopoverPanel, PopoverPanelSizing, ScrollArea, SelectorSizing,
     SuggestionItem, SuggestionList, TextField, TooltipPlacement, TooltipSpec,
@@ -348,6 +348,44 @@ fn suggestions(cx: &Cx) -> Element {
     .render()
 }
 
+/// People to mention: a face, the name in a role's color and the handle at
+/// the end of the line.
+fn people(cx: &Cx) -> Element {
+    let palette = cx.palette;
+    let items = [
+        ("Ada Lovelace", "ada", Color::rgb(226, 99, 99), Some(Color::rgb(46, 204, 113))),
+        ("Bruno Díaz", "bruno", Color::rgb(88, 148, 226), None),
+        ("Carla Pérez", "carla", Color::rgb(214, 160, 96), Some(Color::rgb(155, 89, 182))),
+    ]
+    .into_iter()
+    .map(|(name, handle, color, role)| {
+        let face = Avatar::new(name, ComponentPalette { selected: color, ..palette }).size(24.0).render();
+        let item = SuggestionItem::new(format!("menus-mention-pick={handle}&menus-mention=closed"), name)
+            .leading(face)
+            .detail(handle);
+        match role {
+            Some(role) => item.ink(role),
+            None => item,
+        }
+    })
+    .collect();
+    SuggestionList::new(
+        TextField::new("menus-mention-input", cx.state.text("menus-mention-input"), "Type @ to mention", palette)
+            .width(360.0)
+            .render(),
+        "menus-mention-options",
+        items,
+        0,
+        cx.state.text("menus-mention") == "open",
+        "menus-mention=closed",
+        palette,
+    )
+    .title("Members")
+    .width(cx.width)
+    .placement(limn::PopoverPlacement::BottomStart)
+    .render()
+}
+
 fn hints(cx: &Cx) -> Vec<Element> {
     let hints = vec![
         Kbd::new("↑↓", cx.palette).caption("Choose").render(),
@@ -380,6 +418,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 Button::new("menus-suggest-empty", "Clear", cx.palette).variant(ButtonVariant::Ghost).render(),
             ]),
             caption(cx, &format!("Selected: {}", cx.state.text("menus-suggest-pick"))),
+            row(vec![
+                people(cx),
+                Button::new("menus-mention=open", "Show", cx.palette).variant(ButtonVariant::Outline).render(),
+            ]),
+            caption(cx, ".leading(avatar), .ink(role color) and .detail(handle): one line in the middle of the row."),
         ]),
         section(cx, "Keys with captions", vec![row(hints(cx))]),
     ]

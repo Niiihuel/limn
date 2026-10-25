@@ -5,6 +5,10 @@ import Icon from '../components/Icon.astro';
 import LayoutField from '../components/home/LayoutField.astro';
 import { COMPONENTS, REPO, groups } from '../data/site';
 import '../styles/home.css';
+import cargo from '../../../Cargo.toml?raw';
+
+// The workspace's version, so the release that changes it changes the page too.
+const version = cargo.match(/^version = "(.+)"$/m)![1];
 
 const install = 'cargo add limn limn-egui';
 const example = `use limn::{Button, Component, ComponentPalette, Element, Text};
@@ -34,7 +38,7 @@ const built = [
   ['arrow-repeat', 'Hot reload', 'Edit a view while the application runs. The window changes; the state stays where it was.', '/docs/hot-reload/'],
   ['palette', 'Themes and tokens', 'One palette colors every component. Radii and durations are tokens you set once.', '/design-system/'],
   ['code-slash', 'A code editor', 'Carets, selections, undo, syntax colors, a minimap and Vim keys, over a buffer you own.', '/components/code-editor/'],
-  ['droplet-half', 'Liquid glass', 'A material that refracts what is behind it, written as a shader and documented number by number.', '/docs/liquid-glass/'],
+  ['fonts', 'Text, laid out in Rust', 'Shaping, fallback faces, wrapping, carets and selection, the same on every machine and in a browser.', '/components/text-layout/'],
 ];
 const numbers = [
   [String(COMPONENTS.length), 'components, each with a live page'],
@@ -49,7 +53,7 @@ const numbers = [
       <LayoutField />
       <div class="hero-shade" aria-hidden="true"></div>
       <div class="hero-copy">
-        <a class="hero-chip" href={`${REPO}/blob/main/CHANGELOG.md`}><span class="dot"></span> 0.1.39 is on crates.io <Icon name="arrow-right" size={12} /></a>
+        <a class="hero-chip" href={`${REPO}/blob/main/CHANGELOG.md`}><span class="dot"></span> {version} is on crates.io <Icon name="arrow-right" size={12} /></a>
         <h1 id="hero-title">Interfaces,<br />drawn in Rust<span>.</span></h1>
         <p class="hero-lead">limn is a native UI library. You describe the window from your state; it brings the components, the layout, the motion and the accessibility.</p>
         <div class="hero-actions">

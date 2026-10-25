@@ -16,9 +16,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
-mod glass;
+mod glyph_atlas;
 mod touch_context;
-pub use glass::GlassRenderer;
 
 #[cfg(test)]
 mod indexed_input_tests;
@@ -706,6 +705,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::ChevronDown => include_str!("../assets/bootstrap/chevron-down.svg"),
         Icon::ChevronUp => include_str!("../assets/bootstrap/chevron-up.svg"),
         Icon::ChevronRight => include_str!("../assets/bootstrap/chevron-right.svg"),
+        Icon::ChevronLeft => include_str!("../assets/bootstrap/chevron-left.svg"),
         Icon::Search => include_str!("../assets/bootstrap/search.svg"),
         Icon::Stop => include_str!("../assets/bootstrap/stop.svg"),
         Icon::StopFill => include_str!("../assets/bootstrap/stop-fill.svg"),
@@ -749,6 +749,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::MusicNote => include_str!("../assets/bootstrap/music-note-beamed.svg"),
         Icon::Playlist => include_str!("../assets/bootstrap/music-note-list.svg"),
         Icon::Home => include_str!("../assets/bootstrap/house.svg"),
+        Icon::HomeFill => include_str!("../assets/bootstrap/house-fill.svg"),
         Icon::Library => include_str!("../assets/bootstrap/collection.svg"),
         Icon::Sliders => include_str!("../assets/bootstrap/sliders.svg"),
         Icon::MicrophoneMuted => include_str!("../assets/bootstrap/mic-mute.svg"),
@@ -765,6 +766,12 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Invite => include_str!("../assets/bootstrap/person-plus.svg"),
         Icon::Leave => include_str!("../assets/bootstrap/box-arrow-left.svg"),
         Icon::DragHandle => include_str!("../assets/bootstrap/grip-vertical.svg"),
+        Icon::Tree => include_str!("../assets/bootstrap/tree.svg"),
+        Icon::FriedEgg => include_str!("../assets/bootstrap/egg-fried.svg"),
+        Icon::Gamepad => include_str!("../assets/bootstrap/controller.svg"),
+        Icon::Car => include_str!("../assets/bootstrap/car-front.svg"),
+        Icon::Lightbulb => include_str!("../assets/bootstrap/lightbulb.svg"),
+        Icon::Flag => include_str!("../assets/bootstrap/flag.svg"),
         Icon::FolderFill => include_str!("../assets/bootstrap/folder-fill.svg"),
         Icon::PlayFill => include_str!("../assets/bootstrap/play-fill.svg"),
         Icon::GridFill => include_str!("../assets/bootstrap/grid-fill.svg"),
@@ -1356,6 +1363,26 @@ pub fn paint(ui: &egui::Ui, frame: &Frame) {
     paint_at(ui, frame, ui.max_rect().min);
 }
 
+/// Tell the platform where an input method belongs: by the caret of the
+/// text that has the focus, in a tree painted at `origin`. Call it once a
+/// frame, after the layout. Without it egui turns input methods off, so
+/// nothing can be composed in limn's fields; a password asks for no
+/// composition or prediction.
+pub fn report_ime(ctx: &egui::Context, tree: &limn::UiTree, origin: Pos2) {
+    let Some(ime) = tree.ime_area() else {
+        return;
+    };
+    let at = |area: limn::Rect| EguiRect::from_min_size(origin + egui::vec2(area.x, area.y), egui::vec2(area.width, area.height));
+    ctx.output_mut(|output| {
+        output.ime = Some(egui::output::IMEOutput {
+            purpose: if ime.secret { egui::IMEPurpose::Password } else { egui::IMEPurpose::Normal },
+            rect: at(ime.area),
+            cursor_rect: at(ime.caret),
+            should_interrupt_composition: false,
+        });
+    });
+}
+
 /// Give the pointer the shape the tree asks for: `set_cursor(ctx, tree.cursor())`
 /// once a frame, after the layout. egui goes back to its own shape every
 /// frame, so `None` needs nothing done.
@@ -1366,11 +1393,6 @@ pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
             limn::Cursor::ResizeRow => egui::CursorIcon::ResizeRow,
         });
     }
-}
-
-/// Paint a tree laid out in its own coordinate space at a window position.
-pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
-    paint_at_impl(ui, frame, origin, None, None);
 }
 
 /// The ID a limn control has in the platform's accessibility tree.
@@ -1501,52 +1523,16 @@ pub fn apply_access_requests(ctx: &egui::Context, tree: &mut limn::UiTree) -> Ve
     actions
 }
 
-#[derive(Clone, Copy)]
-struct BackdropSurface<'a> {
-    id: &'a str,
-    texture: egui::TextureId,
-    rect: EguiRect,
-}
-
-fn paint_at_impl(
-    ui: &egui::Ui,
-    frame: &Frame,
-    origin: Pos2,
-    glass: Option<(&GlassRenderer, EguiRect)>,
-    backdrop_surface: Option<BackdropSurface<'_>>,
-) {
+/// Paint a tree laid out in its own coordinate space at a window position.
+pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
     publish_access(ui, frame, origin);
+    let display = glyph_atlas::Display::of(ui.ctx());
     let mut clips = vec![ui.clip_rect()];
     // The rounded shape of each clip in force, from a `RoundClip`.
     let mut rounds: Vec<RoundedClip> = vec![None];
     for command in &frame.commands {
         let round = *rounds.last().unwrap();
         match command {
-            DrawCommand::Glass {
-                rect: area,
-                radius,
-                material,
-                opacity,
-            } => {
-                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let area = rect(origin, *area);
-                let painted = glass.is_some_and(|(renderer, backdrop)| {
-                    renderer.paint_glass(ui, &painter, area, *radius, *material, *opacity, backdrop)
-                });
-                if !painted {
-                    let tint = material.tint;
-                    painter.rect_filled(
-                        area,
-                        corner(*radius, area),
-                        Color32::from_rgba_unmultiplied(
-                            tint.r,
-                            tint.g,
-                            tint.b,
-                            (opacity.clamp(0.0, 1.0) * 255.0).round() as u8,
-                        ),
-                    );
-                }
-            }
             DrawCommand::PushClip(area) => {
                 let next = clips
                     .last()
@@ -1781,13 +1767,18 @@ fn paint_at_impl(
                 let font = match font_family {
                     FontFamily::Monospace => FontId::monospace(*font_size),
                     FontFamily::Sans => FontId::proportional(*font_size),
-                    FontFamily::SansMedium | FontFamily::SansBold => {
+                    FontFamily::SansMedium | FontFamily::SansBold | FontFamily::Display => {
                         FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
                     }
-                    FontFamily::SansItalic => {
-                        // egui slants the regular face, so advances match Sans.
+                    FontFamily::SansItalic | FontFamily::SansBoldItalic => {
+                        // egui slants the regular face, or the bold one, so
+                        // advances match Sans or SansBold.
                         let format = egui::TextFormat {
-                            font_id: FontId::proportional(*font_size),
+                            font_id: if *font_family == FontFamily::SansItalic {
+                                FontId::proportional(*font_size)
+                            } else {
+                                FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
+                            },
                             color: color(*ink),
                             italics: true,
                             ..Default::default()
@@ -1804,6 +1795,9 @@ fn paint_at_impl(
                     font,
                     color(*ink),
                 );
+            }
+            DrawCommand::Glyphs(run) => {
+                glyph_atlas::paint(&ui.painter().with_clip_rect(*clips.last().unwrap()), run, origin, display);
             }
             DrawCommand::Icon {
                 rect: area,
@@ -1902,14 +1896,7 @@ fn paint_at_impl(
                 let painter = ui
                     .painter()
                     .with_clip_rect(clips.last().unwrap().intersect(area));
-                if let Some(backdrop) = backdrop_surface.filter(|backdrop| backdrop.id == id) {
-                    painter.image(
-                        backdrop.texture,
-                        backdrop.rect,
-                        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                        Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
-                    );
-                } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
+                if let Some((texture, pixels, density)) = surface_texture(ui, id) {
                     painter.image(
                         texture,
                         surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),
@@ -2172,7 +2159,8 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                     if let Some(pos) = pointer {
                         let scale = match unit {
                             egui::MouseWheelUnit::Point => 1.0,
-                            egui::MouseWheelUnit::Line => 30.0,
+                            // A notch travels as far as in a browser: Chrome and Firefox move 120 px.
+                            egui::MouseWheelUnit::Line => 120.0,
                             egui::MouseWheelUnit::Page => 500.0,
                         };
                         let position = relative(origin, pos);
@@ -2337,77 +2325,78 @@ pub fn events_with_touch(ctx: &egui::Context, origin: Pos2, frame: &Frame) -> Ve
 /// and Noto Sans Symbols 2 follow them for mathematical alphabets and
 /// decorative symbols in all families. Noto Emoji supplies missing
 /// monochrome emoji after all existing faces, without reading
-/// system fonts. See `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
+/// system fonts. See limn's `assets/fonts/NOTICE.md` for the bundled fonts' licenses.
 pub fn install_fonts(ctx: &egui::Context) {
     ctx.set_fonts(font_definitions());
 }
 
 /// The bundled font families and their Unicode fallbacks. Hosts can prepend
 /// system faces before installing these definitions with `Context::set_fonts`.
+/// The UI faces are those in force: a host that gave limn its own with
+/// `limn::set_fonts` first paints and measures in what limn lays out in.
 pub fn font_definitions() -> egui::FontDefinitions {
-    let mut fonts = egui::FontDefinitions::default();
-    let name = "Ubuntu-Regular".to_owned();
-    fonts.font_data.insert(
-        name.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")).into(),
-    );
-    let math = "NotoSansMath-Regular".to_owned();
-    fonts.font_data.insert(
-        math.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansMath-Regular.ttf")).into(),
-    );
-    let symbols = "NotoSansSymbols2-Regular".to_owned();
-    fonts.font_data.insert(
-        symbols.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf")).into(),
-    );
-    let emoji = "NotoEmoji".to_owned();
-    fonts.font_data.insert(
-        emoji.clone(),
-        egui::FontData::from_static(include_bytes!("../assets/fonts/NotoEmoji.ttf")).into(),
-    );
-    // The bundled monospace faces supply box drawing missing from the UI
-    // faces. Reuse their bytes, after the symbols, without replacing UI text.
-    let monospace = fonts.families[&egui::FontFamily::Monospace].clone();
-    // Append before sharing proportional fallbacks with the weighted families.
-    // Existing glyphs retain their faces, including ordinary monospace text.
-    for family in fonts.families.values_mut() {
-        family.push(math.clone());
-        family.push(symbols.clone());
-        for face in &monospace {
-            if !family.contains(face) {
-                family.push(face.clone());
-            }
+    definitions_with(&limn::fonts())
+}
+
+/// [`font_definitions`] with `current` as the faces in force.
+fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
+    let bundled = limn::Fonts::bundled();
+    // The same bytes limn lays text out in, kept where they are compiled.
+    let data = |font: &limn::Font| -> std::sync::Arc<egui::FontData> {
+        match font.static_bytes() {
+            Some(bytes) => egui::FontData::from_static(bytes),
+            None => egui::FontData::from_owned(font.bytes().to_vec()),
         }
-        family.push(emoji.clone());
-    }
-    // The weights are faces of their own, with the same fallbacks behind them.
-    let fallbacks = fonts
-        .families
-        .get(&egui::FontFamily::Proportional)
-        .cloned()
-        .unwrap_or_default();
-    for (family, face, bytes) in [
-        (SANS_MEDIUM, "Ubuntu-Medium", &include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")[..]),
-        (SANS_BOLD, "Ubuntu-Bold", &include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")[..]),
+        .into()
+    };
+    let face = |family| bundled.face_of(family).expect("limn bundles a face for it");
+    // A weight the host gave no face of its own is its regular one, as limn lays it out.
+    let ui_face = |family| current.face_of(family).or(current.face_of(FontFamily::Sans)).unwrap_or_else(|| face(family));
+    let [math, symbols] = bundled.fallbacks() else {
+        unreachable!("limn bundles two fallbacks: math and symbols");
+    };
+    let emoji = bundled.emoji_face().expect("limn bundles an emoji face");
+    // Only limn's faces, so egui's own are never needed and not carried twice.
+    let mut fonts = egui::FontDefinitions::empty();
+    for (name, font) in [
+        ("Sans-Regular", ui_face(FontFamily::Sans)),
+        ("Sans-Medium", ui_face(FontFamily::SansMedium)),
+        ("Sans-Bold", ui_face(FontFamily::SansBold)),
+        ("Hack", face(FontFamily::Monospace)),
+        ("NotoSansMath-Regular", math),
+        ("NotoSansSymbols2-Regular", symbols),
+        ("NotoEmoji", emoji),
     ] {
-        fonts
-            .font_data
-            .insert(face.to_owned(), egui::FontData::from_static(bytes).into());
-        let mut faces = vec![face.to_owned()];
-        faces.extend(fallbacks.iter().cloned());
-        fonts.families.insert(egui::FontFamily::Name(family.into()), faces);
+        fonts.font_data.insert(name.to_owned(), data(font));
     }
-    fonts
-        .families
-        .entry(egui::FontFamily::Proportional)
-        .or_default()
-        .insert(0, name);
+    // The faces in the order limn tries them: behind the UI face the
+    // fallbacks, then the code face for the box drawing the UI face lacks;
+    // behind the code face the UI face, then the fallbacks; emoji last.
+    let chain = |first: &[&str], rest: &[&str]| first.iter().chain(rest).map(|name| (*name).to_owned()).collect();
+    let behind_sans = ["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "Hack", "NotoEmoji"];
+    fonts.families.insert(egui::FontFamily::Proportional, chain(&["Sans-Regular"], &behind_sans));
+    fonts.families.insert(
+        egui::FontFamily::Monospace,
+        chain(&["Hack", "Sans-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
+    );
+    for (family, face_name) in [(SANS_MEDIUM, "Sans-Medium"), (SANS_BOLD, "Sans-Bold")] {
+        fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Sans-Regular"], &behind_sans));
+    }
+    // A display face only when the host gave one; without it the bold face stands in.
+    let display = match current.face_of(FontFamily::Display) {
+        Some(font) => {
+            fonts.font_data.insert("Display".to_owned(), data(font));
+            "Display"
+        }
+        None => "Sans-Bold",
+    };
+    fonts.families.insert(egui::FontFamily::Name(DISPLAY.into()), chain(&[display, "Sans-Bold", "Sans-Regular"], &behind_sans));
     fonts
 }
 
 const SANS_MEDIUM: &str = "limn-sans-medium";
 const SANS_BOLD: &str = "limn-sans-bold";
+const DISPLAY: &str = "limn-display";
 
 /// The egui family a limn family is painted and measured with. A host that
 /// set its own fonts without the weighted faces gets the regular one.
@@ -2416,7 +2405,8 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
         FontFamily::Monospace => return egui::FontFamily::Monospace,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
-        FontFamily::SansBold => SANS_BOLD,
+        FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
+        FontFamily::Display => DISPLAY,
     };
     let named = egui::FontFamily::Name(weighted.into());
     if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {
@@ -2426,9 +2416,12 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
     }
 }
 
-/// Make a tree measure text with the fonts egui paints with. Call once per
-/// tree, and again after changing the context's fonts.
+/// Make a tree measure text with the fonts egui paints with, and lay
+/// `Element::text` out in limn's own text layout, drawn from this backend's
+/// glyph atlas (see `UiTree::set_text_layout`). Call once per tree, and again
+/// after changing the context's fonts.
 pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
+    tree.set_text_layout(true);
     let mono = egui::FontId::monospace(14.0);
     let sans = egui::FontId::proportional(14.0);
     let (metrics, sans_metrics) = ctx.fonts_mut(|fonts| {
@@ -2782,7 +2775,7 @@ mod tests {
                 if *position == Point::new(40.0, 30.0) && *delta_y == -2.5)));
         assert!(forwarded.iter().any(|event| matches!(event,
             UiEvent::Scroll { position, delta_y }
-                if *position == Point::new(40.0, 30.0) && *delta_y == -60.0)));
+                if *position == Point::new(40.0, 30.0) && *delta_y == -240.0)));
         assert!(forwarded.iter().any(|event| matches!(event,
             UiEvent::Scroll { delta_y, .. } if *delta_y == 500.0)));
     }
@@ -3197,6 +3190,7 @@ mod tests {
             Icon::ChevronDown,
             Icon::ChevronUp,
             Icon::ChevronRight,
+            Icon::ChevronLeft,
             Icon::Search,
             Icon::Stop,
             Icon::StopFill,
@@ -3239,6 +3233,7 @@ mod tests {
             Icon::MusicNote,
             Icon::Playlist,
             Icon::Home,
+            Icon::HomeFill,
             Icon::Library,
             Icon::Sliders,
             Icon::MicrophoneMuted,
@@ -3255,6 +3250,12 @@ mod tests {
             Icon::Invite,
             Icon::Leave,
             Icon::DragHandle,
+            Icon::Tree,
+            Icon::FriedEgg,
+            Icon::Gamepad,
+            Icon::Car,
+            Icon::Lightbulb,
+            Icon::Flag,
             Icon::FolderFill,
             Icon::PlayFill,
             Icon::GridFill,
@@ -3364,6 +3365,30 @@ mod tests {
                 assert_eq!(ime.should_interrupt_composition, step == 0, "{id}, frame {step}");
                 assert_eq!(context.memory(|memory| memory.focused()), Some(access_id(id)), "{id}, frame {step}");
             }
+        }
+    }
+
+    #[test]
+    fn report_ime_puts_the_input_method_by_the_focused_fields_caret() {
+        use limn::{Element, FontFamily, Size, UiTree};
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+        let size = Size::new(300.0, 120.0);
+        for (password, purpose) in [(false, egui::IMEPurpose::Normal), (true, egui::IMEPurpose::Password)] {
+            let field = Element::text_input("field", "ab", "").password(password).font_family(FontFamily::Sans);
+            let mut tree = UiTree::new(Element::column(vec![field]));
+            attach_fonts(&mut tree, &ctx);
+            tree.layout(size);
+            assert!(tree.focus("field"));
+            tree.layout(size);
+            let caret = tree.ime_area().expect("the focused field's area").caret;
+            let origin = egui::pos2(10.0, 20.0);
+            let mut output = ctx.run_ui(egui::RawInput::default(), |ui| report_ime(ui.ctx(), &tree, origin));
+            output.textures_delta.clear();
+            let ime = output.platform_output.ime.expect("reported");
+            assert_eq!(ime.purpose, purpose);
+            assert_eq!(ime.cursor_rect.min, origin + egui::vec2(caret.x, caret.y));
         }
     }
 
