@@ -46,7 +46,7 @@ for the process-wide setting and component-specific overrides.
 
 The default `syntax` feature enables tree-sitter highlighting through
 `limn-language`. With `default-features = false`, code views use the line
-lexer instead.
+lexer instead. `Markdown` colors fenced code with the line lexer either way.
 
 ## Used by
 

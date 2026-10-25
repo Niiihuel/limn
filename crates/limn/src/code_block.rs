@@ -2,7 +2,11 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::{Component, ComponentPalette, Element, FontFamily, RadiusRole, TextRole, TextSpan};
+use crate::code_syntax::highlight_spans;
+use crate::{
+    Clipboard, CodeLanguage, Component, ComponentPalette, ControlSize, Element, FontFamily,
+    RadiusRole, TextRole, TextSpan,
+};
 
 /// The type of a [`CodeBlock`]: the label's role and family, and the role of
 /// the code, which is always monospaced.
@@ -45,6 +49,9 @@ pub struct CodeBlock {
     font_scale: f32,
     word_wrap: bool,
     id: Option<String>,
+    language: CodeLanguage,
+    copy: Option<(String, String)>,
+    fit_content: bool,
 }
 
 impl CodeBlock {
@@ -61,6 +68,9 @@ impl CodeBlock {
             font_scale: 1.0,
             word_wrap: true,
             id: None,
+            language: CodeLanguage::Plain,
+            copy: None,
+            fit_content: false,
         }
     }
 
@@ -103,6 +113,24 @@ impl CodeBlock {
 
     pub(crate) fn font_scale(mut self, scale: f32) -> Self {
         self.font_scale = scale;
+        self
+    }
+
+    /// Color the plain text with the line lexer for `language`, within its bounds.
+    pub(crate) fn language(mut self, language: CodeLanguage) -> Self {
+        self.language = language;
+        self
+    }
+
+    /// A copy icon at the end of the code that reports `id`, hinted `title`.
+    pub(crate) fn copy(mut self, id: String, title: String) -> Self {
+        self.copy = Some((id, title));
+        self
+    }
+
+    /// As wide as the code and its padding, up to the width it is given.
+    pub(crate) fn fit_content(mut self, fit: bool) -> Self {
+        self.fit_content = fit;
         self
     }
 
@@ -157,16 +185,36 @@ impl Component for CodeBlock {
                 }
                 Element::formatted_text(spans)
             },
-            None => Element::text(self.text)
+            None => {
+                let size = self
+                    .font_size
+                    .unwrap_or_else(|| self.sizing.code.size() * self.font_scale);
+                // Set like the plain text, so coloring changes no line height.
+                match highlight_spans(&self.text, self.language, self.palette, size) {
+                    Some(spans) => Element::formatted_text(spans),
+                    None => Element::text(self.text),
+                }
                 .font_family(FontFamily::Monospace)
-                .font_size(self.font_size.unwrap_or_else(|| self.sizing.code.size() * self.font_scale))
-                .foreground(self.palette.text),
+                .font_size(size)
+                .foreground(self.palette.text)
+            }
         };
         let code = if self.word_wrap { code } else {
             Element::horizontal_scroll_2d(self.id.unwrap_or_else(anonymous_code_scroll_id), code)
         };
-        children.push(match self.width {
+        let code = match self.width {
             Some(width) => code.size(Some((width - 2.0 * PADDING).max(0.0)), None),
+            None => code,
+        };
+        children.push(match self.copy {
+            Some((id, title)) => {
+                // Centered against the button, so a one-line block holds it in its middle.
+                Element::row(vec![
+                    code.flex(1.0).centered_y(),
+                    Clipboard::new(id, title, self.palette).size(ControlSize::Dense).render(),
+                ])
+                .gap(8.0)
+            }
             None => code,
         });
         let block = Element::panel(Element::column(children).gap(8.0))
@@ -174,10 +222,11 @@ impl Component for CodeBlock {
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
             .radius(RadiusRole::Card.px());
-        match self.width {
+        let block = match self.width {
             Some(width) => block.size(Some(width), None),
             None => block,
-        }
+        };
+        if self.fit_content { Element::row(vec![block.shrink_to_fit()]) } else { block }
     }
 }
 

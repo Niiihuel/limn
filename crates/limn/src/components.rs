@@ -465,7 +465,7 @@ impl ComponentPalette {
         }
     }
 
-    fn is_dark(self) -> bool {
+    pub(crate) fn is_dark(self) -> bool {
         u16::from(self.border.r) + u16::from(self.border.g) + u16::from(self.border.b) < 3 * 128
     }
 

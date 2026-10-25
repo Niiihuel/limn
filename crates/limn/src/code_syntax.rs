@@ -1,6 +1,6 @@
 //! Lazy, shared background syntax analysis. Buffers use native language parsers;
 //! diff fragments use a bounded lexer with independent old/new structural states.
-use crate::{CodeHighlight, Color};
+use crate::{CodeHighlight, Color, ComponentPalette, FontFamily, TextSpan};
 use limn_editor::BufferSnapshot;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock, Weak};
@@ -39,9 +39,30 @@ pub enum CodeLanguage {
 
 #[cfg(not(feature = "syntax"))]
 impl CodeLanguage {
-    /// Without the `syntax` feature every code fence is plain text.
-    pub fn from_code_fence(_info: &str) -> Self {
-        Self::Plain
+    /// Common fenced-code aliases, the same ones `limn_language::Language::from_code_fence`
+    /// reads, and the file extensions of each language; an unknown label stays plain.
+    pub fn from_code_fence(info: &str) -> Self {
+        let label = info
+            .trim_start_matches('{')
+            .trim_start_matches('.')
+            .split(|ch: char| ch.is_whitespace() || ch == ',' || ch == '}')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        // Keep in step with `limn_language::Language::{from_code_fence, from_extension}`.
+        match label.as_str() {
+            "rust" | "rs" => Self::Rust,
+            "json" | "jsonc" => Self::Json,
+            "javascript" | "node" | "nodejs" | "js" | "jsx" | "mjs" | "cjs" => Self::JavaScript,
+            "typescript" | "ts" => Self::TypeScript,
+            "tsx" => Self::Tsx,
+            "python" | "python3" | "py" | "pyi" => Self::Python,
+            "toml" => Self::Toml,
+            "css" | "scss" => Self::Css,
+            "html" | "htm" | "xml" | "svg" => Self::Html,
+            "md" | "markdown" | "mdown" | "mkd" | "mkdn" | "mdwn" => Self::Markdown,
+            _ => Self::Plain,
+        }
     }
 }
 #[derive(Clone, Copy, Debug, Default)]
@@ -56,6 +77,78 @@ const COMMENT: Color = Color::rgb(126, 151, 119);
 const STRING: Color = Color::rgb(206, 163, 127);
 const KEYWORD: Color = Color::rgb(184, 143, 216);
 const NUMBER: Color = Color::rgb(151, 193, 169);
+// What `highlight_spans` paints each lexer ink as on a dark palette and on a light one: each
+// above 4.5:1 on dark fills up to rgb(53, 53, 56) and light ones down to rgb(220, 220, 220).
+// Only the comment is lighter than the code views' own on dark.
+const SPAN_INKS: [(Color, Color, Color); 4] = [
+    (COMMENT, Color::rgb(140, 168, 132), Color::rgb(46, 104, 38)),
+    (STRING, STRING, Color::rgb(163, 21, 21)),
+    (KEYWORD, KEYWORD, Color::rgb(130, 45, 170)),
+    (NUMBER, NUMBER, Color::rgb(8, 106, 80)),
+];
+
+/// Code longer than this many bytes is shown plain by [`highlight_spans`], which runs
+/// on the UI thread while a tree is built.
+pub(crate) const MAX_HIGHLIGHT_BYTES: usize = 64 * 1024;
+/// Code with more lines than this is shown plain by [`highlight_spans`].
+pub(crate) const MAX_HIGHLIGHT_LINES: usize = 2_000;
+
+/// `text` as monospaced spans of `size`, colored by the line lexer for `language` in inks
+/// that read on `palette`, dark or light. The spans' text is `text` exactly. `None`, for the caller to paint plain text,
+/// when the language is plain, nothing gets a color, or `text` is past the bounds above.
+pub(crate) fn highlight_spans(
+    text: &str,
+    language: CodeLanguage,
+    palette: ComponentPalette,
+    size: f32,
+) -> Option<Vec<TextSpan>> {
+    if language == CodeLanguage::Plain
+        || text.len() > MAX_HIGHLIGHT_BYTES
+        || text.bytes().filter(|byte| *byte == b'\n').count() >= MAX_HIGHLIGHT_LINES
+    {
+        return None;
+    }
+    let dark = palette.is_dark();
+    let ink = |color: Color| match (SPAN_INKS.iter().find(|(lexer, ..)| *lexer == color), dark) {
+        (Some((_, on_dark, _)), true) => *on_dark,
+        (Some((.., on_light)), false) => *on_light,
+        // The Markdown parser's other inks are made for dark fills: on light ones, text.
+        (None, true) => color,
+        (None, false) => palette.text,
+    };
+    let mut spans: Vec<TextSpan> = Vec::new();
+    // Neighbours of one color share a span: a string's quote and body are one run.
+    let mut push = |piece: &str, color: Color| match spans.last_mut() {
+        _ if piece.is_empty() => {}
+        Some(last) if last.color == color => last.text.push_str(piece),
+        _ => spans.push(TextSpan::new(piece, color, size, FontFamily::Monospace)),
+    };
+    let (mut state, mut cursor, mut line_start) = (LexState::default(), 0, 0);
+    for line in text.split('\n') {
+        // Highlights count characters; the spans slice bytes of `text`.
+        let bytes: Vec<usize> = line
+            .char_indices()
+            .map(|(at, _)| line_start + at)
+            .chain([line_start + line.len()])
+            .collect();
+        let byte = |char_index: usize| bytes[char_index.min(bytes.len() - 1)];
+        for highlight in highlight_line(line, 0, language, &mut state) {
+            let (start, end) = (byte(highlight.range.start), byte(highlight.range.end));
+            if start < cursor || end <= start {
+                continue;
+            }
+            push(&text[cursor..start], palette.text);
+            push(&text[start..end], ink(highlight.color));
+            cursor = end;
+        }
+        line_start += line.len() + 1;
+    }
+    if cursor == 0 {
+        return None;
+    }
+    push(&text[cursor..], palette.text);
+    Some(spans)
+}
 
 enum Source {
     Buffer(BufferSnapshot),

@@ -283,8 +283,10 @@ fn layout_formatted(
     mut measure: impl FnMut(&str, &TextSpan) -> f32,
     mut line_height: impl FnMut(&TextSpan) -> f32,
 ) -> Vec<FormattedLine> {
+    // A hundredth past the width, as `TextLayout` allows: a box handed back the
+    // width it measured by sums can come out a rounding error short of it.
     let limit = if max_width.is_finite() {
-        max_width.max(0.0)
+        max_width.max(0.0) + 0.01
     } else {
         f32::INFINITY
     };

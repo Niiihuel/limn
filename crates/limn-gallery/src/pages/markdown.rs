@@ -7,6 +7,10 @@ const STREAMING: &str = "The result arrives in parts.\n\n- First item already **
 
 const SIZED: &str = "## Release notes\n\nThe **build** passes in `ci.yml`; see the [log](https://example.com/log).\n\n1. Update the lockfile\n2. Tag the release\n\n> Ship it on Friday.\n\n```sh\ncargo publish\n```";
 
+const HIGHLIGHTED: &str = "```rust\n// The fence names the language.\nfn total(items: &[u32]) -> u32 {\n    items.iter().sum::<u32>() + 1\n}\n```\n\n```py\ndef greet(name):\n    return f\"Hello, {name}\"  # a comment\n```\n\n```json\n{\"name\": \"limn\", \"stable\": false, \"version\": 0.1}\n```\n\n```sh\n# No lexer for this one: plain text\ncargo test -p limn\n```";
+
+const CHAT_CODE: &str = "Save it as `saludo.py`:\n\n```python\nprint(f\"Hola, {nombre}! Bienvenido.\")\n```";
+
 const CHAT: &str = "**Bold**, *italic*, ***both***, __underlined__, ~~struck through~~ and __**marks inside marks**__.\n-# Subtext: small and quiet, as a footnote under a message.";
 
 const PLAIN: &str = "**This is not bold**: check https://github.com/rust-lang/rust and https://example.com/docs, not `src/main.rs`.";
@@ -39,6 +43,25 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(width)
                 .labels(labels)
                 .link_action_prefix("markdown-complete:")
+                .render()
+                .element,
+        ]),
+        section(cx, "Highlighted code", vec![
+            caption(cx, "Fenced code in a language the line lexer knows is colored, in either theme; any other stays plain"),
+            Markdown::new(HIGHLIGHTED, palette)
+                .width(width)
+                .link_action_prefix("markdown-code:")
+                .render()
+                .element,
+        ]),
+        section(cx, "Code as a chat app draws it", vec![
+            caption(cx, ".code_label(false).code_fit_content(true).code_copy_action_prefix(..).code_font_size(13.0)"),
+            Markdown::new(CHAT_CODE, palette)
+                .width(width)
+                .code_label(false)
+                .code_fit_content(true)
+                .code_copy_action_prefix("markdown-copy:")
+                .code_font_size(13.0)
                 .render()
                 .element,
         ]),

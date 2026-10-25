@@ -64,15 +64,26 @@ fn markdown_code_size_and_wrapping_are_independent_of_body_and_cache() {
     let mut tree = tree(root(true));
     let wrapped = tree.layout(Size::new(150.0, 600.0));
     assert_eq!(text(&wrapped, "Body").1, 20.0);
-    let code = wrapped.text_layouts().into_iter().find(|layout| layout.source.contains("a_long_variable")).unwrap();
-    assert!(code.runs.len() > 1);
+    // Highlighted code is a run per colored span; rows tell wrapping apart.
+    let rows = |frame: &limn::Frame| {
+        let code = frame
+            .text_layouts()
+            .into_iter()
+            .find(|layout| layout.source.contains("a_long_variable"))
+            .unwrap();
+        code.runs
+            .iter()
+            .map(|run| run.rect.y.to_bits())
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    assert!(rows(&wrapped) > 1);
     assert!(wrapped.commands.iter().any(|command| matches!(command,
         DrawCommand::Text {font_size, font_family, text, ..}
         if *font_size == 24.0 && *font_family == FontFamily::Monospace && text.contains("let"))));
     tree.set_root(root(false));
     let unwrapped = tree.layout(Size::new(150.0, 600.0));
-    let code = unwrapped.text_layouts().into_iter().find(|layout| layout.source.contains("a_long_variable")).unwrap();
-    assert_eq!(code.runs.len(), 1);
+    assert_eq!(rows(&unwrapped), 1);
     assert_eq!(text(&unwrapped, "Body").1, 20.0);
 }
 
