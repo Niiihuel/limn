@@ -43,6 +43,10 @@ only what it keeps for itself, such as Ctrl+Shift+C to copy.
 | Ctrl+C, Ctrl+Shift+C | Given to the tree with text selected, reports `CopyRequested` with it. |
 | Tab, Shift+Tab | Given to the tree, moves the focus on. A host that wants Tab for its shell keeps it. |
 
+The focused view has the keyboard focus ring around it. `focus_ring(false)`
+takes it away, as xterm.js draws none: the blinking cursor is then the only
+mark of the focus. A press still focuses the view.
+
 ## Size of the grid
 
 `TerminalView::grid_size(size, font_size)` gives the columns and rows of cells

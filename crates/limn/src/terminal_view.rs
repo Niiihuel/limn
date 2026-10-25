@@ -104,6 +104,7 @@ pub struct TerminalView {
     font_size: f32,
     background: Option<Color>,
     min_contrast: Option<f32>,
+    focus_ring: bool,
 }
 
 impl TerminalView {
@@ -117,7 +118,16 @@ impl TerminalView {
             font_size: FONT_SIZE,
             background: None,
             min_contrast: None,
+            focus_ring: true,
         }
+    }
+
+    /// Whether the keyboard focus ring is drawn around the view while it has
+    /// the focus. It is by default; without it the blinking cursor is the
+    /// mark of the focus, as in xterm.js.
+    pub fn focus_ring(mut self, visible: bool) -> Self {
+        self.focus_ring = visible;
+        self
     }
 
     /// Text size in logical pixels, 13 by default. Values that are not finite
@@ -279,7 +289,7 @@ impl Component for TerminalView {
             ]));
         }
         let grid = Element::stack(layers).size(None, Some(count as f32 * cell_height));
-        Element::scroll(format!("{}:scroll", self.id), Element::focus_area(self.id, grid))
+        Element::scroll(format!("{}:scroll", self.id), Element::focus_area(self.id, grid).focus_ring(self.focus_ring))
             .scrollbar_appearance(ScrollbarAppearance::overlay().tint(self.palette.muted))
             .background(background)
     }
@@ -424,6 +434,25 @@ mod tests {
         let measure = |family| crate::TextLayout::new(ascii.as_str(), crate::TextStyle::new(10.0, family)).size().width;
         assert!((measure(FontFamily::MonospaceBold) - ascii.len() as f32 * width).abs() < 0.01);
         assert!((measure(FontFamily::Monospace) - ascii.len() as f32 * width).abs() < 0.01);
+    }
+
+    #[test]
+    fn without_its_focus_ring_the_focused_view_draws_none() {
+        let ring = |frame: &Frame| {
+            frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::StrokeRect { color, .. } if *color == Color::rgb(170, 170, 170)))
+        };
+        for (shown, expected) in [(true, true), (false, false)] {
+            let mut tree = UiTree::new(TerminalView::new("term", screen(None), palette()).focus_ring(shown).render());
+            tree.layout(Size::new(200.0, 100.0));
+            assert!(tree.focus("term"));
+            assert_eq!(ring(&tree.layout(Size::new(200.0, 100.0))), expected);
+        }
+        // A press still focuses it, for the host to read the keys.
+        let mut tree = UiTree::new(TerminalView::new("term", screen(None), palette()).focus_ring(false).render());
+        tree.layout(Size::new(200.0, 100.0));
+        tree.handle_event(UiEvent::PointerDown(Point::new(5.0, 5.0)));
+        assert_eq!(tree.focused_id(), Some("term"));
     }
 
     #[test]
