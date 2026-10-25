@@ -1,6 +1,6 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    Attachment, AttachmentOrientation, Avatar, Button, ButtonVariant, Component, Element, Icon, ImageViewer,
+    Attachment, AttachmentOrientation, Avatar, Button, ButtonVariant, Component, Cursor, Element, Icon, ImageViewer,
     RadiusRole, RasterImage, RasterImageFormat, Size, SurfaceFit,
 };
 use std::sync::{Arc, OnceLock};
@@ -207,6 +207,23 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 outline(&format!("{VIEWER}=loading&{INDEX}=0"), "Open while loading"),
                 outline(&format!("{VIEWER}=failed&{INDEX}=0"), "Open with an error"),
             ]),
+        ]),
+        section(cx, "Hidden pointer", vec![
+            caption(cx, "Over a video playing, a player hides the pointer once it rests: Cursor::Hidden on the picture's clickable. Click the picture to switch it; the host decides when, from its own clock."),
+            {
+                let hidden = state.flag("media-pointer-hidden");
+                let picture = Element::clickable(
+                    "media-pointer-hidden",
+                    Element::panel(Element::icon(Icon::Play).foreground(palette.text).size(Some(32.0), Some(32.0)).centered())
+                        .background(palette.surface)
+                        .border(palette.border, 1.0)
+                        .radius(RadiusRole::Surface.px())
+                        .size(Some(256.0), Some(144.0)),
+                )
+                .accessibility_label("Video");
+                row(vec![if hidden { picture.cursor(Cursor::Hidden) } else { picture }])
+            },
+            caption(cx, if state.flag("media-pointer-hidden") { "The pointer hides over the picture." } else { "The pointer shows over the picture." }),
         ]),
         section(cx, "Attachment", vec![
             caption(cx, "A file card: icon, title and description. The close button reports the remove action and the host drops the file."),

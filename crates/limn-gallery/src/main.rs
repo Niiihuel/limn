@@ -238,6 +238,7 @@ impl eframe::App for Host {
         } else {
             limn_egui::paint_at(ui, &frame, area.min);
         }
+        limn_egui::set_cursor(&ctx, self.tree.cursor());
 
         if let Some(path) = self.screenshot.clone() {
             self.capture(&ctx, &path);

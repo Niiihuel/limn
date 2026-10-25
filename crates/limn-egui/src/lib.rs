@@ -1566,6 +1566,7 @@ pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
         ctx.set_cursor_icon(match cursor {
             limn::Cursor::ResizeColumn => egui::CursorIcon::ResizeColumn,
             limn::Cursor::ResizeRow => egui::CursorIcon::ResizeRow,
+            limn::Cursor::Hidden => egui::CursorIcon::None,
         });
     }
 }
