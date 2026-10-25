@@ -944,10 +944,18 @@ impl Button {
                 darker(palette.text, 30),
                 palette.surface,
             ),
-            ButtonVariant::Secondary => (
+            // Hover and press step away from the surface: a lighter step on a
+            // light palette would fade the fill into the card.
+            ButtonVariant::Secondary if palette.is_dark() => (
                 palette.raised,
                 lighter(palette.raised, 10),
                 lighter(palette.raised, 18),
+                palette.text,
+            ),
+            ButtonVariant::Secondary => (
+                palette.raised,
+                darker(palette.raised, 10),
+                darker(palette.raised, 18),
                 palette.text,
             ),
             ButtonVariant::Destructive => (
@@ -3812,6 +3820,30 @@ mod tests {
                     _ => unreachable!(),
                 })
             );
+        }
+    }
+
+    #[test]
+    fn secondary_hover_and_press_step_away_from_the_surface_on_light_and_dark_palettes() {
+        let dark = ComponentPalette::neutral_dark();
+        let light = ComponentPalette {
+            surface: Color::WHITE,
+            raised: Color::rgb(242, 242, 242),
+            border: Color::rgb(221, 221, 221),
+            text: Color::rgb(25, 25, 25),
+            ..dark
+        };
+        for (palette, hover, pressed) in [
+            (dark, Color::rgb(48, 48, 48), Color::rgb(56, 56, 56)),
+            (light, Color::rgb(232, 232, 232), Color::rgb(224, 224, 224)),
+        ] {
+            let style = Button::new("a", "A", palette)
+                .variant(ButtonVariant::Secondary)
+                .render()
+                .style;
+            assert_eq!(style.background, Some(palette.raised));
+            assert_eq!(style.hover_background, Some(hover));
+            assert_eq!(style.pressed_background, Some(pressed));
         }
     }
 
