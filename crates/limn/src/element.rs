@@ -44,6 +44,10 @@ pub enum Cursor {
     ResizeColumn,
     /// Two arrows pointing up and down: the boundary between two rows.
     ResizeRow,
+    /// No pointer at all, such as over a video playing full screen once the
+    /// pointer has rested on it a while. The pointer still moves and
+    /// presses; the host decides when it hides and shows it again.
+    Hidden,
 }
 
 /// Side of its target a coach mark sits on. The engine takes the opposite

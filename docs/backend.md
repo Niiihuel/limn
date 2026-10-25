@@ -173,6 +173,7 @@ The egui backend exposes:
 | `events_indexed(&ctx, origin)` | Unreleased indexed-input contract: input with its source index for an ordered host loop. See below. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
 | `report_ime(&ctx, &tree, origin)` | Tells the platform where an input method belongs: by the caret of the focused code editor or field, from `UiTree::ime_area()`. Each frame, after the layout. Without it egui turns input methods off. A password asks for no composition. |
+| `set_cursor(&ctx, tree.cursor())` | Gives the pointer the shape the element under it asks for with `Element::cursor`: a resize shape, or none at all with `Cursor::Hidden`, as over a video once the pointer rested on it. Each frame, after the layout; `None` leaves egui's own. |
 | `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
 | `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
 
