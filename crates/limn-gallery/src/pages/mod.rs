@@ -44,6 +44,7 @@ mod preferences;
 mod radio;
 mod scheme;
 mod side_panels;
+mod split_view;
 mod surfaces;
 mod table;
 mod text_layout;
@@ -183,6 +184,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "panel-header", group: "Layout", title: "PanelHeader", source: "panels", view: panels::view, sections: &["Panel header", "Back, close, and long title", "A field in place of the title", "A tint behind the header"], since: "0.1.39" },
     Page { id: "sidebar-panel", group: "Layout", title: "SidebarPanel", source: "panels", view: panels::view, sections: &["Sidebar panel"], since: "0.1.39" },
     Page { id: "resize-handle", group: "Layout", title: "ResizeHandle", source: "panels", view: panels::view, sections: &["Resize handle between panels"], since: "0.1.39" },
+    Page { id: "split-view", group: "Layout", title: "SplitView", source: "split_view", view: split_view::view, sections: &[], since: "0.1.44" },
     Page { id: "side-rail", group: "Layout", title: "SideRail", source: "side_panels", view: side_panels::view, sections: &["Folded library", "A long rail"], since: "0.1.43" },
     Page { id: "peek-panel", group: "Layout", title: "PeekPanel", source: "side_panels", view: side_panels::view, sections: &["Peek at the right edge", "Peek at the left edge"], since: "0.1.43" },
     Page { id: "preferences-group", group: "Layout", title: "PreferencesGroup", source: "preferences", view: preferences::view, sections: &[], since: "0.1.39" },
@@ -283,6 +285,7 @@ pub fn update(state: &mut State, action: &UiAction) {
     inputs::update(state, action);
     colors::update(state, action);
     overlays::update(state, action);
+    split_view::update(state, action);
 }
 
 /// Answer a secondary click or the menu key a page opens its own menu for,
