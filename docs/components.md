@@ -203,7 +203,10 @@ let preview = Markdown::new(source, palette).width(reading_width).render();
 | `.colors(MarkdownColors)` | The ten inks and fills: `text`, `strong`, `emphasis`, `link`, `code_ink`, `code_fill`, `muted`, `success`, `panel`, `border`. The default, `MarkdownColors::for_palette`, reads the palette and paints strong text like body text, in the bold face. |
 | `.streaming(bool)` | The source is still growing: an unclosed delimiter at its end already styles its text, a half-written fence is held back, and a web address at the end has no action until it is delimited. |
 | `.link_action_prefix(text)` | The start of every link action; `markdown_link:` unless set. |
-| `.labels(MarkdownLabels)` | `code_fallback`, the label of a code block with no language; `truncated_note`, the muted line under a cut preview; `diagram`, the label of a drawn diagram; `show_source` and `show_diagram`, the action that switches a diagram to its source and back; and `expand`, the action that opens a diagram over the window. English unless set. |
+| `.code_label(bool)` | The language line above fenced code; shown unless set to `false`. |
+| `.code_fit_content(bool)` | Each code block as wide as its code and padding, up to the reading width; the whole width unless set. |
+| `.code_copy_action_prefix(text)` | A copy icon at the end of each code block whose action is the prefix followed by the code; none unless set. |
+| `.labels(MarkdownLabels)` | `code_fallback`, the label of a code block with no language; `truncated_note`, the muted line under a cut preview; `diagram`, the label of a drawn diagram; `show_source` and `show_diagram`, the action that switches a diagram to its source and back; `expand`, the action that opens a diagram over the window; and `copy_code`, the hint of a code block's copy icon. English unless set. |
 | `.diagram_action_prefix(text)` | Gives every drawn diagram that action; none unless set. |
 | `.diagram_sources(&[u64])` | The diagrams, by the id in their action, to show as source. |
 | `.diagram()` | Instead of `.render()`: the source is what one `mermaid` fence holds, and the result is the card that fence is drawn as, with the labels, prefix and sources set, or `None` when it is not a diagram the engine draws. For a host that renders its documents itself. |

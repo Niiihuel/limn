@@ -139,8 +139,8 @@ Markdown::new(source, palette).labels(labels).render()
 
 `labels` replaces the renderer's own strings with the host's language:
 `code_fallback` labels a code block with no language and `truncated_note` is
-the line under a cut preview. The other fields label a drawn diagram and its
-actions.
+the line under a cut preview. `copy_code` is the hint of a code block's copy
+icon. The other fields label a drawn diagram and its actions.
 
 ## Limits
 
@@ -173,6 +173,28 @@ follow the palette, dark or light, not `MarkdownColors`. A fence with no
 language or another one stays plain, and so does code longer than 64 KiB or
 2,000 lines, so a long message is not held up. The full list of labels is in
 [Components](../components.md#highlighted-code).
+
+## Code blocks as a chat app draws them
+
+````rust
+let palette = ComponentPalette { raised: Color::WHITE, border: Color::rgb(0xE5, 0xE5, 0xE5), ..palette };
+Markdown::new("```python\nprint(\"hi\")\n```", palette)
+    .code_label(false)
+    .code_fit_content(true)
+    .code_copy_action_prefix("copy_code:")
+    .code_font_size(13.0)
+    .render()
+````
+
+A code block is a card on the palette's `raised` fill with a 1 px `border`, the
+card radius (8) and 12 px of padding; pass a palette with other `raised` and
+`border` to change them. `code_label(false)` drops the language line above the
+code. `code_fit_content(true)` makes each block as wide as its code and padding,
+up to the reading width, where longer code wraps. `code_copy_action_prefix(prefix)`
+puts a muted copy icon at the end of each block, hinted with `labels.copy_code`
+and centered against a one-line block; its action is the prefix followed by the
+code exactly, which the host puts on the clipboard. Inline `code` is drawn in
+`colors.code_ink` over `colors.code_fill`.
 
 ## Literal text with links
 
@@ -214,3 +236,4 @@ messages; see the notes on the cache in [Components](../components.md).
 | --- | --- |
 | `UiAction::Clicked { id }` with `id` = the link prefix, then the block hash, the run index and the URL, joined by colons | A link is activated. |
 | `UiAction::Clicked { id }` with `id` = the diagram prefix and sixteen hexadecimal digits | The switch on a diagram or on its source is activated. |
+| `UiAction::Clicked { id }` with `id` = the code copy prefix and the code | A code block's copy icon is activated. |

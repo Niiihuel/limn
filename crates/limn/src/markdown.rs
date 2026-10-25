@@ -92,6 +92,8 @@ pub struct MarkdownLabels {
     pub show_diagram: &'static str,
     /// The action on a diagram that asks the host to show it over the window.
     pub expand: &'static str,
+    /// The hint of a code block's copy button.
+    pub copy_code: &'static str,
 }
 
 impl MarkdownLabels {
@@ -104,6 +106,7 @@ impl MarkdownLabels {
         show_source: "Source",
         show_diagram: "Diagram",
         expand: "Expand",
+        copy_code: "Copy",
     };
 }
 
@@ -118,6 +121,7 @@ impl Default for MarkdownLabels {
             show_source: labels.show_source,
             show_diagram: labels.show_diagram,
             expand: labels.expand,
+            copy_code: labels.copy,
         }
     }
 }
@@ -159,6 +163,9 @@ pub(crate) struct MarkdownPresentation {
     font_size_bits: u32,
     code_font_size_bits: Option<u32>,
     code_word_wrap: bool,
+    code_label: bool,
+    code_fit_content: bool,
+    code_copy_action_prefix: &'static str,
 }
 
 impl MarkdownPresentation {
@@ -231,6 +238,9 @@ impl<'a> Markdown<'a> {
                 font_size_bits: BODY_SIZE.to_bits(),
                 code_font_size_bits: None,
                 code_word_wrap: true,
+                code_label: true,
+                code_fit_content: false,
+                code_copy_action_prefix: "",
             },
             streaming: false,
             plain_line_height: None,
@@ -279,6 +289,30 @@ impl<'a> Markdown<'a> {
     /// source lines in a horizontal viewport; prose continues to wrap normally.
     pub fn code_word_wrap(mut self, enabled: bool) -> Self {
         self.presentation.code_word_wrap = enabled;
+        self
+    }
+
+    /// Write the fence's language, or [`MarkdownLabels::code_fallback`], above
+    /// fenced code (the default). Without it the block holds only the code.
+    pub fn code_label(mut self, shown: bool) -> Self {
+        self.presentation.code_label = shown;
+        self
+    }
+
+    /// Make each code block as wide as its code and padding, up to the
+    /// reading width, instead of the whole width (the default).
+    pub fn code_fit_content(mut self, fit: bool) -> Self {
+        self.presentation.code_fit_content = fit;
+        self
+    }
+
+    /// Give every code block a copy icon at its end, hinted
+    /// [`MarkdownLabels::copy_code`], whose action is `prefix` followed by the
+    /// code exactly: the host copies what follows the prefix. Two blocks with
+    /// the same code in one tree share the action. Without a prefix, the
+    /// default, a block has no button.
+    pub fn code_copy_action_prefix(mut self, prefix: &'static str) -> Self {
+        self.presentation.code_copy_action_prefix = prefix;
         self
     }
 
@@ -568,13 +602,20 @@ fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation
         .language(CodeLanguage::from_code_fence(language))
         .word_wrap(presentation.code_word_wrap)
         .font_scale(presentation.scale())
-        .label(if language.is_empty() {
+        .fit_content(presentation.code_fit_content);
+    if presentation.code_label {
+        block = block.label(if language.is_empty() {
             presentation.labels.code_fallback.to_owned()
         } else {
             language.to_uppercase()
         });
+    }
     if let Some(size) = presentation.code_font_size_bits {
         block = block.font_size(f32::from_bits(size));
+    }
+    let prefix = presentation.code_copy_action_prefix;
+    if !prefix.is_empty() {
+        block = block.copy(format!("{prefix}{content}"), presentation.labels.copy_code.to_owned());
     }
     block.render()
 }
@@ -2071,6 +2112,66 @@ mod tests {
         let cut = build().limits(MarkdownLimits { source_chars: 20_000, blocks: 2 }).render();
         assert!(cut.limited);
         assert_eq!(ink(&commands(cut.element, 400.0), "Cortado."), colors.muted);
+    }
+
+    #[test]
+    fn code_blocks_drop_the_label_fit_their_code_and_offer_a_copy_icon() {
+        let width = 480.0;
+        let source = "Antes `saludo.py`:\n\n```python\nprint(\"hola\")\n```";
+        let frame = |markdown: Markdown| UiTree::new(markdown.render().element).layout(Size::new(width, 600.0));
+        let block = |frame: &crate::Frame| {
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::FillRect { rect, color, .. } if *color == palette().raised => Some(*rect),
+                    _ => None,
+                })
+                .unwrap()
+        };
+        let has_text = |frame: &crate::Frame, value: &str| {
+            frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { text, .. } if text == value))
+        };
+        let desktop = |source| {
+            Markdown::new(source, palette())
+                .width(width)
+                .code_label(false)
+                .code_fit_content(true)
+                .code_copy_action_prefix("copy:")
+        };
+
+        // Unless asked: the label, the whole width and no button.
+        let plain = frame(Markdown::new(source, palette()).width(width));
+        assert!(has_text(&plain, "PYTHON"));
+        assert_eq!(block(&plain).width, width);
+        assert!(plain.regions.iter().all(|region| !region.id.starts_with("copy:")));
+
+        let fitted = frame(desktop(source));
+        assert!(!has_text(&fitted, "PYTHON"));
+        let rect = block(&fitted);
+        assert!(rect.width < width / 2.0, "{rect:?}");
+        let copy = fitted.regions.iter().find(|region| region.id == "copy:print(\"hola\")").unwrap();
+        // At the end of a one-line block, in its middle.
+        assert!((copy.rect.x + copy.rect.width - (rect.x + rect.width - 12.0)).abs() < 0.5, "{copy:?} in {rect:?}");
+        assert!((copy.rect.y + copy.rect.height / 2.0 - (rect.y + rect.height / 2.0)).abs() < 0.5, "{copy:?} in {rect:?}");
+        assert!(fitted.commands.iter().any(|command| matches!(command, DrawCommand::Icon { icon: Icon::Copy, .. })));
+        // On one line: the width handed back is the width measured.
+        let top = |value: &str| {
+            fitted.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, position, .. } if text == value => Some(position.y),
+                _ => None,
+            })
+        };
+        assert_eq!(top("print("), top(")"));
+        // Inline code keeps its own ink and fill.
+        let colors = MarkdownColors::for_palette(palette());
+        assert_eq!(ink(&fitted.commands, "saludo.py"), colors.code_ink);
+        assert!(fitted.commands.iter().any(|command| matches!(command, DrawCommand::FillRect { color, .. } if *color == colors.code_fill)));
+
+        // Code wider than the column still takes only the column, and wraps.
+        let long = format!("```\n{}\n```", "palabra ".repeat(120));
+        assert_eq!(block(&frame(desktop(&long))).width, width);
+        assert!(block(&frame(desktop(&long).code_word_wrap(false))).width <= width);
     }
 
     #[test]
