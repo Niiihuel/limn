@@ -1,7 +1,9 @@
 //! A centered confirmation surface for consequential actions.
 
 use crate::components::{Component, ComponentPalette};
-use crate::{Button, ButtonVariant, Color, ControlSize, Element, FontFamily, Modal, TextSpan};
+use crate::{
+    Button, ButtonSizing, ButtonVariant, Color, ControlSize, Element, FontFamily, Modal, TextSpan,
+};
 
 /// Controlled modal dialog. The host performs the action only after receiving
 /// `confirm_id`; close, Cancel and Escape emit `cancel_id`. The scrim blocks
@@ -23,6 +25,9 @@ pub struct AlertDialog {
     cancel_variant: ButtonVariant,
     description_size: f32,
     closable: bool,
+    scrim: Option<Color>,
+    title_gap: Option<f32>,
+    button_sizing: ButtonSizing,
     animation_ms: u16,
     body: Option<Element>,
     alternative: Option<(String, String)>,
@@ -58,6 +63,9 @@ impl AlertDialog {
             cancel_variant: ButtonVariant::Outline,
             description_size: 12.0,
             closable: true,
+            scrim: None,
+            title_gap: None,
+            button_sizing: ControlSize::Compact.button_sizing(),
             animation_ms: crate::tokens().motion.enter_ms,
             body: None,
             alternative: None,
@@ -119,6 +127,25 @@ impl AlertDialog {
         self
     }
 
+    /// The color laid over the window behind the card; see [`Modal::scrim`].
+    pub fn scrim(mut self, color: Color) -> Self {
+        self.scrim = Some(color);
+        self
+    }
+
+    /// The space under the title row; see [`Modal::title_gap`].
+    pub fn title_gap(mut self, gap: f32) -> Self {
+        self.title_gap = Some(gap);
+        self
+    }
+
+    /// The geometry of the action buttons, `ControlSize::Compact`'s by
+    /// default: 28 high with a 12 pixel label.
+    pub fn button_sizing(mut self, sizing: ButtonSizing) -> Self {
+        self.button_sizing = sizing;
+        self
+    }
+
     /// Set the card's width in logical pixels, never below 240 (440 by default). Below 360
     /// the actions stack in a column. A value that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
@@ -160,7 +187,7 @@ impl Component for AlertDialog {
             .unwrap_or((self.palette.text, None, self.palette.surface));
         let cancel = Button::new(self.cancel_id.clone(), self.cancel_label, self.palette)
             .variant(self.cancel_variant)
-            .size(ControlSize::Compact)
+            .sizing(self.button_sizing)
             .render();
         let confirm = Button::new(
             self.confirm_id,
@@ -179,7 +206,7 @@ impl Component for AlertDialog {
         } else {
             ButtonVariant::Solid
         })
-        .size(ControlSize::Compact)
+        .sizing(self.button_sizing)
         .enabled(self.confirm_enabled)
         .render()
         .center_content();
@@ -188,7 +215,7 @@ impl Component for AlertDialog {
             actions.push(
                 Button::new(id, label, self.palette)
                     .variant(ButtonVariant::Outline)
-                    .size(ControlSize::Compact)
+                    .sizing(self.button_sizing)
                     .render(),
             );
         }
@@ -199,7 +226,7 @@ impl Component for AlertDialog {
             actions.insert(0, Element::spacer().flex(1.0));
             Element::row(actions)
                 .gap(6.0)
-                .size(None, Some(ControlSize::Compact.height()))
+                .size(None, Some(self.button_sizing.height))
         };
         let mut content = Vec::new();
         if !self.description.is_empty() {
@@ -231,6 +258,12 @@ impl Component for AlertDialog {
         .backdrop_dismiss(false)
         .closable(self.closable)
         .animation_ms(self.animation_ms);
+        if let Some(color) = self.scrim {
+            modal = modal.scrim(color);
+        }
+        if let Some(gap) = self.title_gap {
+            modal = modal.title_gap(gap);
+        }
         if !content.is_empty() {
             modal = modal.body(Element::column(content).gap(10.0));
         }
@@ -290,6 +323,40 @@ mod tests {
         assert!(has(&|c| matches!(c, DrawCommand::FillRect { rect, color, .. } if (rect.x, rect.y) == (cancel.x, cancel.y) && *color == palette.raised)));
         assert!(has(&|c| matches!(c, DrawCommand::Text { text, font_size, .. }
             if text.contains("still running") && *font_size == 14.0)));
+    }
+
+    #[test]
+    fn scrim_title_gap_and_button_sizing_reach_the_painted_dialog() {
+        let scrim = Color::rgba(0, 0, 0, 105);
+        let sizing = ButtonSizing { height: 30.0, font_size: 14.0, horizontal_padding: 12.0, ..ControlSize::Compact.button_sizing() };
+        let dialog = || AlertDialog::new(Element::spacer(), true, "Close terminal?", "Still running.", "ok", "cancel", ComponentPalette::neutral_dark());
+        let lay_out = |dialog: AlertDialog| {
+            let mut tree = UiTree::new(dialog.render());
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(1408.0, 844.0))
+        };
+        // From the top of the title to the top of the body that holds the description.
+        let drop = |frame: &crate::Frame| {
+            let title = frame.commands.iter().find_map(|c| match c {
+                DrawCommand::Text { text, position, .. } if text == "Close terminal?" => Some(position.y),
+                _ => None,
+            }).unwrap();
+            frame.regions.iter().find(|r| r.id == "modal_body:cancel").unwrap().rect.y - title
+        };
+        // Unless set, the body sits 34 under the title: a 24 high row and 10.
+        let plain = lay_out(dialog());
+        assert_eq!(drop(&plain), 34.0);
+        assert!(plain.commands.iter().any(|c| matches!(c, DrawCommand::FillRect { color, .. } if *color == Color::rgba(0, 0, 0, 180))));
+
+        let frame = lay_out(dialog().scrim(scrim).title_gap(1.0).button_sizing(sizing));
+        assert_eq!(drop(&frame), 25.0);
+        assert!(frame.commands.iter().any(|c| matches!(c, DrawCommand::FillRect { color, .. } if *color == scrim)));
+        assert!(!frame.commands.iter().any(|c| matches!(c, DrawCommand::FillRect { color, .. } if *color == Color::rgba(0, 0, 0, 180))));
+        for id in ["cancel", "ok"] {
+            let rect = frame.regions.iter().find(|r| r.id == id && r.kind == HitKind::Button).unwrap().rect;
+            assert_eq!(rect.height, 30.0);
+        }
+        assert!(frame.commands.iter().any(|c| matches!(c, DrawCommand::Text { text, font_size, .. } if text == "Cancel" && *font_size == 14.0)));
     }
 
     #[test]

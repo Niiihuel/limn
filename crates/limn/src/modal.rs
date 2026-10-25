@@ -119,6 +119,8 @@ pub struct Modal {
     return_focus: Option<String>,
     backdrop_dismiss: bool,
     closable: bool,
+    scrim: Color,
+    title_gap: f32,
     animation_ms: u16,
     role: Role,
     spoken_description: String,
@@ -153,6 +155,8 @@ impl Modal {
             return_focus: None,
             backdrop_dismiss: false,
             closable: true,
+            scrim: Color::rgba(0, 0, 0, 180),
+            title_gap: 10.0,
             animation_ms: crate::tokens().motion.enter_ms,
             role: Role::Dialog,
             spoken_description: String::new(),
@@ -256,6 +260,23 @@ impl Modal {
         self.closable = closable;
         self
     }
+
+    /// The color laid over the window behind the card, black at about 70 %
+    /// opacity by default.
+    pub fn scrim(mut self, color: Color) -> Self {
+        self.scrim = color;
+        self
+    }
+
+    /// The space under the title row, which is at least 24 high, in logical
+    /// pixels; 10 by default, as between the other sections. A negative value
+    /// becomes zero and one that is not finite is ignored.
+    pub fn title_gap(mut self, gap: f32) -> Self {
+        if gap.is_finite() {
+            self.title_gap = gap.max(0.0);
+        }
+        self
+    }
 }
 
 impl Component for Modal {
@@ -347,7 +368,15 @@ impl Component for Modal {
             sections.push(footer);
         }
 
-        let mut content = Element::column(sections).gap(10.0);
+        let mut spaced = Vec::with_capacity(sections.len() * 2);
+        for (index, section) in sections.into_iter().enumerate() {
+            if index > 0 {
+                let gap = if index == 1 { self.title_gap } else { 10.0 };
+                spaced.push(Element::spacer().size(None, Some(gap)));
+            }
+            spaced.push(section);
+        }
+        let mut content = Element::column(spaced);
         if let Some(sheet) = &self.sheet {
             if sheet.safe_area_bottom > 0.0 {
                 content = Element::column(vec![
@@ -374,7 +403,7 @@ impl Component for Modal {
 
         let mut popover =
             Element::popover(self.base, card, self.close_id, placement)
-                .popover_scrim(Color::rgba(0, 0, 0, 180))
+                .popover_scrim(self.scrim)
                 .popover_backdrop_dismiss(self.backdrop_dismiss)
                 .popover_animation_ms(self.animation_ms);
         if let Some(id) = self.initial_focus {
