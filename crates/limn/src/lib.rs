@@ -131,6 +131,8 @@ mod raw_text_area_tests;
 mod link_presentation_tests;
 #[cfg(test)]
 mod text_measurement_tests;
+#[cfg(test)]
+mod cursor_tests;
 
 pub use accordion::{Accordion, AccordionItem};
 pub use alert::{Alert, AlertColors, AlertTone};
