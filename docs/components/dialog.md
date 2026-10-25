@@ -106,7 +106,8 @@ fills the confirm button with that color and draws its label in white;
 `soft_destructive(fill, border, ink)` paints it pale with a one-pixel outline
 instead, such as #FBE7E7, #DC3C3D and #A42528. `cancel_variant(variant)`
 paints Cancel, `Outline` unless set; `Secondary` fills it with the palette's
-`raised`. `description_size(px)` is 12 unless set. `closable(false)` leaves
+`raised`. `description_size(px)` is 12 unless set, and `description_line_height(px)`
+sets each of its lines at least that high. `closable(false)` leaves
 out the close button; Cancel and Escape still report `cancel_id`.
 `button_sizing(sizing)` sets the actions' geometry, `ControlSize::Compact`'s
 unless set (28 high, 12 px labels). `scrim` and `title_gap` are the modal's. `confirm_enabled(false)` keeps the
