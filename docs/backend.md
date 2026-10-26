@@ -48,11 +48,13 @@ the tree's origin.
 | `Key { key, shift, ctrl, alt }` | A key was pressed, or repeats while held: letters, digits, punctuation, arrows, Tab, Enter, Escape, F1 to F35, and so on. Text still arrives as `Text`. The tree reads `alt` only for context menu shortcuts; the host reads it for its own, such as Alt+Left. |
 | `KeyReleased { key }` | A key was released. The tree only stops counting it as held. |
 | `ModifiersChanged(modifiers)` | The modifiers held changed with no key of their own, such as Shift pressed alone. The tree only keeps them. |
-| `PointerBack(point)`, `PointerForward(point)` | The pointer's side buttons (mouse buttons 4 and 5). The tree ignores them; a host reads them to move through its own history. |
+| `PointerBack(point)`, `PointerForward(point)` | The pointer's side buttons (mouse buttons 4 and 5) on press. The tree ignores them; a host reads them to move through its own history. |
+| `OtherButton { button, pressed, position }` | The middle button (`OtherButton::Middle`) or a side button (`Back`, `Forward`), on press and on release, so a host can bind one as a hold. The tree answers `UiAction::OtherButton` with the same fields and does nothing else with it. |
 | `Paste(string)`, `PasteTo { id, text }` | Clipboard text, to the focused control or a named one. |
 | `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
 | `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition. |
 | `FilesHovered { position }`, `FilesDropped { position, paths }` | Files dragged from another application. |
+| `PasteImage { width, height, rgba }` | Ctrl+V with a picture on the clipboard and no text: unpremultiplied RGBA, row by row from the top. The tree answers `UiAction::PasteImage` with the focused control as `target`; it inserts nothing. |
 | `Zoom { position, factor }` | A pinch on a touchpad or a touch screen. A [zoom view](components/image-viewer.md#zoom-view) under `position` zooms by `factor`; nothing else reads it. `limn-egui` sends egui's `Event::Zoom`, which winit 0.30 delivers on macOS and iOS; on Windows a touchpad's pinch arrives as Ctrl with the wheel, which a zoom view also zooms with, and on Linux winit delivers no pinch yet. |
 
 External file events preserve the supplied list; they do not read file

@@ -179,7 +179,7 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
         assert_eq!(names[math + 1], "NotoSansSymbols2-Regular");
         let covers = |name: &str, ch| {
             let data = &definitions.font_data[name];
-            let face = skrifa::FontRef::from_index(data.font.as_ref(), data.index).unwrap();
+            let face = skrifa::FontRef::from_index(data.font.as_ref().as_ref(), data.index).unwrap();
             face.charmap()
                 .map(ch)
                 .is_some_and(|glyph| glyph != skrifa::GlyphId::NOTDEF)
@@ -234,7 +234,7 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
             .iter()
             .map(|name| {
                 let data = &definitions.font_data[name];
-                skrifa::FontRef::from_index(data.font.as_ref(), data.index).unwrap()
+                skrifa::FontRef::from_index(data.font.as_ref().as_ref(), data.index).unwrap()
             })
             .collect();
         let mut missing = std::collections::BTreeSet::new();
@@ -298,7 +298,7 @@ fn emoji_fallback_preserves_existing_text_metrics() {
             .iter()
             .map(|name| {
                 let data = &previous.font_data[name];
-                skrifa::FontRef::from_index(data.font.as_ref(), data.index).unwrap()
+                skrifa::FontRef::from_index(data.font.as_ref().as_ref(), data.index).unwrap()
             })
             .collect();
         for ch in include_str!("emoji_samples.txt")
@@ -318,7 +318,9 @@ fn emoji_fallback_preserves_existing_text_metrics() {
                 "{family:?} changed {ch}"
             );
         }
-        for text in ["RUNE 0123 Wi", "👍 ❤️ 😂 🎉 👀 🔥 🙏 ✅", "𝖗𝖚𝖓𝖊 ✦ Lounge"]
+        // Emoji are left out: egui 0.37 bundles no emoji face by default, so the
+        // baseline cannot lay them out and NotoEmoji is meant to change them.
+        for text in ["RUNE 0123 Wi", "𝖗𝖚𝖓𝖊 ✦ Lounge"]
         {
             let layout = |ctx: &egui::Context| {
                 ctx.fonts_mut(|fonts| {

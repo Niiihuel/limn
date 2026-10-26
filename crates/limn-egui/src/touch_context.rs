@@ -25,7 +25,7 @@ struct Hold {
 }
 
 pub(super) fn translate(ctx: &egui::Context, origin: Pos2, translated: Vec<UiEvent>, frame: &Frame) -> Vec<UiEvent> {
-    let key = egui::Id::new(("limn_touch_context", ctx.viewport_id()));
+    let key = egui::Id::unique(("limn_touch_context", ctx.viewport_id()));
     let mut hold = ctx.data_mut(|data| data.get_temp::<Hold>(key).unwrap_or_default());
     let (now, raw) = ctx.input(|input| (input.time, input.events.clone()));
     let mut suppress = VecDeque::new();

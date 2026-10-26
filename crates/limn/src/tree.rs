@@ -21,6 +21,9 @@ mod region_focus_tests;
 #[path = "drag_drop_tests.rs"]
 mod drag_drop_tests;
 #[cfg(test)]
+#[path = "host_input_tests.rs"]
+mod host_input_tests;
+#[cfg(test)]
 #[path = "hover_popover_tests.rs"]
 mod hover_popover_tests;
 #[cfg(test)]
@@ -2905,6 +2908,18 @@ impl Key {
     }
 }
 
+/// A pointer button that has no event of its own: the middle button and the
+/// two side buttons. Primary and secondary have their own events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OtherButton {
+    /// The wheel button (mouse button 3).
+    Middle,
+    /// The first side button (mouse button 4).
+    Back,
+    /// The second side button (mouse button 5).
+    Forward,
+}
+
 /// Input a host forwards to `UiTree::handle_event`. Positions are in
 /// logical pixels.
 #[derive(Clone, Debug, PartialEq)]
@@ -3002,6 +3017,16 @@ pub enum UiEvent {
         /// Paths of the dropped files.
         paths: Vec<std::path::PathBuf>,
     },
+    /// The clipboard held a picture and Ctrl+V was pressed. Pixels are RGBA,
+    /// unpremultiplied, row by row from the top.
+    PasteImage {
+        /// Width in pixels.
+        width: usize,
+        /// Height in pixels.
+        height: usize,
+        /// `width * height * 4` bytes.
+        rgba: Arc<[u8]>,
+    },
     /// The pointer moved to this position: updates what is hovered and carries
     /// on a drag, a text selection or a scrollbar drag.
     PointerMove(Point),
@@ -3055,6 +3080,17 @@ pub enum UiEvent {
     /// was pressed at this position. The tree does nothing with it; a host
     /// reads it to go forward in its own history.
     PointerForward(Point),
+    /// The middle or a side button went down or up at this position. Unlike
+    /// `PointerBack` and `PointerForward`, releases come too, so a host can
+    /// bind the button as a hold. The tree answers with `UiAction::OtherButton`.
+    OtherButton {
+        /// Which button changed.
+        button: OtherButton,
+        /// `true` on press, `false` on release.
+        pressed: bool,
+        /// Where the pointer was.
+        position: Point,
+    },
     /// A key was released. The tree only stops counting it as held; see
     /// [`UiTree::key_held`].
     KeyReleased {
@@ -3226,6 +3262,28 @@ pub enum UiAction {
         target: Option<String>,
         /// The paths the host sent, unchanged.
         paths: Vec<std::path::PathBuf>,
+    },
+    /// The middle or a side button went down or up: the answer to
+    /// `UiEvent::OtherButton`. The tree does nothing else with it.
+    OtherButton {
+        /// Which button changed.
+        button: OtherButton,
+        /// `true` on press, `false` on release.
+        pressed: bool,
+        /// Where the pointer was.
+        position: Point,
+    },
+    /// A picture was pasted: the answer to `UiEvent::PasteImage`. The host
+    /// decides what to do with it; `target` is the focused control, if any.
+    PasteImage {
+        /// The control that had focus when the paste arrived.
+        target: Option<String>,
+        /// Width in pixels.
+        width: usize,
+        /// Height in pixels.
+        height: usize,
+        /// `width * height * 4` bytes, unpremultiplied RGBA.
+        rgba: Arc<[u8]>,
     },
     /// A zoom view's scale changed (see [`Element::zoom_view`]): the host may
     /// show it, or fetch a sharper picture to zoom into.
@@ -6066,6 +6124,17 @@ impl UiTree {
                     paths,
                 }]
             }
+            UiEvent::OtherButton { button, pressed, position } => {
+                return vec![UiAction::OtherButton { button, pressed, position }]
+            }
+            UiEvent::PasteImage { width, height, rgba } => {
+                return vec![UiAction::PasteImage {
+                    target: self.focused.clone(),
+                    width,
+                    height,
+                    rgba,
+                }]
+            }
             other => other,
         };
         if let Some(actions) = self.handle_drag_event(&event) {
@@ -6231,6 +6300,8 @@ impl UiTree {
             }
             UiEvent::FilesHovered { .. }
             | UiEvent::FilesDropped { .. }
+            | UiEvent::PasteImage { .. }
+            | UiEvent::OtherButton { .. }
             | UiEvent::PointerBack(_)
             | UiEvent::PointerForward(_)
             | UiEvent::KeyReleased { .. }

@@ -38,6 +38,8 @@ struct Host {
     scroll_end: bool,
     opened: Instant,
     requested: bool,
+    /// Filled by the screenshot callback; `capture` saves it.
+    shot: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<egui::ColorImage>>>>,
     /// The shape of the state when this run began, to notice a patch that changes it.
     launched: limn::hot::Shape,
 }
@@ -82,14 +84,12 @@ impl Host {
         // Long enough for fonts and icons to settle and a tooltip to open.
         if !self.requested && self.opened.elapsed() > Duration::from_millis(900) {
             self.requested = true;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            let shot = self.shot.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(
+                move |image| *shot.lock().expect("screenshot slot") = Some(image),
+            )));
         }
-        let image = ctx.input(|input| {
-            input.events.iter().find_map(|event| match event {
-                egui::Event::Screenshot { image, .. } => Some(image.clone()),
-                _ => None,
-            })
-        });
+        let image = self.shot.lock().expect("screenshot slot").take();
         if let Some(image) = image {
             let [width, height] = image.size;
             let saved = image::save_buffer(
@@ -318,6 +318,7 @@ fn main() {
                         scroll_end: false,
                         opened: Instant::now(),
                         requested: false,
+                        shot: Default::default(),
                         launched: limn::hot_shape!(app::State),
                     }))
                 }),
@@ -401,6 +402,7 @@ fn main() -> eframe::Result {
                 scroll_end,
                 opened: Instant::now(),
                 requested: false,
+                shot: Default::default(),
                 launched: limn::hot_shape!(app::State),
             }))
         }),

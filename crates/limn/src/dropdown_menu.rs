@@ -918,7 +918,7 @@ impl Component for DropdownMenu {
                     let reserve_submenu = reserve_submenu || has_submenu;
                     let shared = trailing_shared && reserve_check && reserve_submenu;
                     let check_column = reserve_check && !(shared && has_submenu);
-                    let submenu_column = reserve_submenu && !(shared && !has_submenu);
+                    let submenu_column = reserve_submenu && (has_submenu || !shared);
                     // Flex children with a natural text width can paint past a
                     // fixed row. Budget the trailing text against the row's
                     // real inner width, including reserved icons and gaps.
