@@ -795,6 +795,60 @@ pub enum DrawCommand {
 }
 
 impl DrawCommand {
+    /// About where the command paints: its rectangle, the box around its
+    /// points, or the line box of its text. `None` for clips and for what is
+    /// fully transparent.
+    pub fn bounds(&self) -> Option<Rect> {
+        let around = |points: &[Point], pad: f32| {
+            let first = points.first()?;
+            let (mut left, mut top, mut right, mut bottom) = (first.x, first.y, first.x, first.y);
+            for point in points {
+                left = left.min(point.x);
+                top = top.min(point.y);
+                right = right.max(point.x);
+                bottom = bottom.max(point.y);
+            }
+            Some(Rect::new(left - pad, top - pad, right - left + pad * 2.0, bottom - top + pad * 2.0))
+        };
+        let seen = |color: &Color| color.a > 0;
+        match self {
+            Self::Shadow { rect, shadow, .. } => seen(&shadow.color).then(|| {
+                let grow = shadow.blur + shadow.spread;
+                Rect::new(rect.x + shadow.offset.x - grow, rect.y + shadow.offset.y - grow, rect.width + grow * 2.0, rect.height + grow * 2.0)
+            }),
+            Self::FillRect { rect, color, .. }
+            | Self::FillCornerRect { rect, color, .. }
+            | Self::CornerMask { rect, color, .. }
+            | Self::StrokeRect { rect, color, .. }
+            | Self::StrokeCornerRect { rect, color, .. }
+            | Self::Spinner { rect, color, .. }
+            | Self::Icon { rect, tint: color, .. } => seen(color).then_some(*rect),
+            Self::FillVerticalGradient { rect, top, bottom } => (seen(top) || seen(bottom)).then_some(*rect),
+            Self::FillHorizontalGradient { rect, left, right } => (seen(left) || seen(right)).then_some(*rect),
+            Self::RasterImage { rect, opacity, .. }
+            | Self::Record { rect, opacity, .. }
+            | Self::Surface { rect, opacity, .. }
+            | Self::EffortSlider { rect, opacity, .. } => (*opacity > 0.0).then_some(*rect),
+            Self::ProgressRing { rect, .. } => Some(*rect),
+            Self::SelectionContour { points, color } => seen(color).then(|| around(points, 0.0)).flatten(),
+            Self::FillTriangle { points, color } => seen(color).then(|| around(points, 0.0)).flatten(),
+            Self::Polyline { points, color, width, .. } => seen(color).then(|| around(points, width / 2.0)).flatten(),
+            Self::FillMesh { points, .. } => around(points, 0.0),
+            Self::Glyphs(run) => {
+                let glyphs: Vec<Point> = run.glyphs.iter().map(|glyph| Point::new(run.origin.x + glyph.x, run.origin.y + glyph.y)).collect();
+                // The glyphs' origins, grown by a line of the run's size: up for the
+                // ascent, right for the last glyph's width, down for the descent.
+                let line = seen(&run.color).then(|| around(&glyphs, 0.0)).flatten()?;
+                Some(Rect::new(line.x, line.y - run.size, line.width + run.size, line.height + run.size * 1.3))
+            }
+            Self::Text { position, text, color, font_size, .. } => seen(color).then(|| {
+                let width = text.chars().count() as f32 * font_size * 0.6;
+                Rect::new(position.x, position.y - font_size, width, font_size * 2.3)
+            }),
+            Self::PushClip(_) | Self::RoundClip { .. } | Self::PopClip => None,
+        }
+    }
+
     /// A translated copy at `opacity` of its own: a drag preview, or a
     /// surface on its way to where it is laid out.
     fn moved(&self, dx: f32, dy: f32, opacity: f32) -> Self {
@@ -1509,6 +1563,40 @@ struct CoachMotion {
 }
 
 impl Frame {
+    /// Whether anything is painted over the host-fed surface `id` after it: a
+    /// menu, a tooltip, a dialog, a panel sliding in. A host that shows a
+    /// native view where the surface is laid out hides the view while this
+    /// holds and lets the surface show its last frame instead, since nothing
+    /// limn paints can cover a native view. Only what lands on the surface's
+    /// visible part counts; `false` when no surface `id` was painted.
+    pub fn drawn_over(&self, id: &str) -> bool {
+        // The clip in force: `None` outside every clip, `Some(None)` inside one that shows nothing.
+        let mut clips: Vec<Option<Rect>> = Vec::new();
+        let mut surface: Option<Rect> = None;
+        for command in &self.commands {
+            let within = |rect: Rect| match clips.last() {
+                None => Some(rect),
+                Some(clip) => clip.and_then(|clip| rect.intersection(clip)),
+            };
+            match command {
+                DrawCommand::PushClip(rect) | DrawCommand::RoundClip { rect, .. } => clips.push(within(*rect)),
+                DrawCommand::PopClip => {
+                    clips.pop();
+                }
+                DrawCommand::Surface { rect, id: drawn, opacity, .. } if drawn == id => {
+                    surface = (*opacity > 0.0).then(|| within(*rect)).flatten();
+                }
+                other => {
+                    let (Some(shown), Some(bounds)) = (surface, other.bounds()) else { continue };
+                    if within(bounds).and_then(|bounds| bounds.intersection(shown)).is_some() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// The target of a coach mark that was rendered but could not be placed:
     /// no control with that ID is laid out in view, so nothing was painted.
     /// The host moves on to another step.
