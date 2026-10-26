@@ -11,6 +11,18 @@ const COLUMN_GAP: f32 = 8.0;
 const ROW_GAP: f32 = 16.0;
 /// Space between a label and the description under it.
 const COPY_GAP: f32 = 2.0;
+/// Space between a card's edge and its content.
+const CARD_PADDING: f32 = 12.0;
+
+/// How a [`RadioGroup`] draws its options.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum RadioVariant {
+    /// A circle and a label on the page.
+    #[default]
+    Plain,
+    /// Each option a rounded card, its circle at the left and its label beside it. Cards are `raised` with a 1 px `border`; the chosen one takes the `selected` fill and a 1 px border in the `text`; the whole card is the click target. Horizontal, the cards share the row's width equally.
+    Card,
+}
 
 /// The circle's diameter and the label's text size, for a control size: the
 /// same as a `Checkbox`, so the two line up in one form.
@@ -85,6 +97,7 @@ pub struct RadioGroup {
     options: Vec<RadioOption>,
     selected: Option<String>,
     horizontal: bool,
+    variant: RadioVariant,
     size: ControlSize,
     enabled: bool,
     accessibility_label: Option<String>,
@@ -106,6 +119,7 @@ impl RadioGroup {
             options,
             selected: selected.map(str::to_owned),
             horizontal: false,
+            variant: RadioVariant::Plain,
             size: ControlSize::Regular,
             enabled: true,
             accessibility_label: None,
@@ -117,6 +131,12 @@ impl RadioGroup {
     /// the other.
     pub fn horizontal(mut self) -> Self {
         self.horizontal = true;
+        self
+    }
+
+    /// Draw the options as [`RadioVariant::Plain`] or as cards; `Plain` by default.
+    pub fn variant(mut self, variant: RadioVariant) -> Self {
+        self.variant = variant;
         self
     }
 
@@ -155,6 +175,7 @@ impl Component for RadioGroup {
         let (side, font_size) = metrics(self.size);
         let dot = dot_side(side);
         let hover_ms = crate::tokens().motion.hover_ms;
+        let card = self.variant == RadioVariant::Card;
         // The arrow keys step among the options that can be chosen.
         let reachable = self
             .options
@@ -219,19 +240,32 @@ impl Component for RadioGroup {
                 }
                 // Each level gives way in a narrow width, down to the text, which wraps.
                 let content = Element::column(lines).gap(COPY_GAP);
-                if enabled {
-                    Element::clickable(option.value, content).radius(crate::tokens().radius.control)
+                let element = if card {
+                    // The whole card is the target and shows the hover; the chosen one keeps its fill.
+                    let (fill, edge) = if chosen { (palette.selected, ink) } else { (palette.raised, palette.border) };
+                    let hover = if chosen { palette.selected } else { palette.hover };
+                    let body = if enabled { Element::clickable(option.value, content).hover_background(hover) } else { Element::panel(content) };
+                    let body = body.padding(CARD_PADDING).background(fill).border(edge, BORDER).radius(crate::tokens().radius.card);
+                    if self.horizontal {
+                        body.flex(1.0)
+                    } else {
+                        body
+                    }
+                } else if enabled {
+                    Element::clickable(option.value, content).radius(crate::tokens().radius.control).shrink_to_fit()
                 } else {
-                    Element::panel(content)
-                }
-                .shrink_to_fit()
-                .accessible(access)
+                    Element::panel(content).shrink_to_fit()
+                };
+                element.accessible(access)
             })
             .collect();
         // A tab strip is what gives arrow keys to a set of actions. It lays
         // its children in a row, so a vertical group is a strip of one column.
         let group = if self.horizontal {
-            Element::tab_strip(options, reachable).every_arrow().gap(ROW_GAP)
+            let gap = if card { COLUMN_GAP } else { ROW_GAP };
+            Element::tab_strip(options, reachable).every_arrow().gap(gap)
+        } else if card {
+            Element::tab_strip(vec![Element::column(options).gap(COLUMN_GAP).flex(1.0)], reachable).every_arrow()
         } else {
             Element::tab_strip(vec![Element::column(options).gap(COLUMN_GAP).shrink_to_fit()], reachable).every_arrow()
         };
@@ -634,5 +668,74 @@ mod tests {
         let frame = tree_of(group()).layout(Size::new(120.0, 400.0));
         assert!(texts(&frame).len() > 4);
         assert!(frame.regions.iter().all(|region| region.rect.x + region.rect.width <= 120.0));
+    }
+
+    /// Every stroke of the frame: its rectangle and color.
+    fn strokes(frame: &Frame) -> Vec<(Rect, Color)> {
+        frame.commands.iter().filter_map(|command| match command {
+            DrawCommand::StrokeRect { rect, color, .. } => Some((*rect, *color)),
+            _ => None,
+        }).collect()
+    }
+
+    #[test]
+    fn a_card_is_one_hit_region_as_wide_as_the_group_and_a_click_on_its_right_end_reports_its_value() {
+        for horizontal in [false, true] {
+            let cards = group().variant(RadioVariant::Card);
+            let mut tree = tree_of(if horizontal { cards.horizontal() } else { cards });
+            let frame = tree.layout(window());
+            assert_eq!(frame.regions.iter().map(|region| region.id.as_str()).collect::<Vec<_>>(), ["plan=free", "plan=team", "plan=company"]);
+            let rects: Vec<Rect> = frame.regions.iter().map(|region| region.rect).collect();
+            if horizontal {
+                // Side by side, sharing the row's width equally.
+                assert!(rects.windows(2).all(|pair| pair[0].y == pair[1].y && pair[0].x < pair[1].x && pair[0].width == pair[1].width));
+            } else {
+                // One under the other, each as wide as the group.
+                assert!(rects.windows(2).all(|pair| pair[0].x == pair[1].x && pair[0].width == pair[1].width && pair[0].y < pair[1].y));
+                assert!(rects.iter().all(|rect| rect.width == window().width));
+            }
+            for (region, rect) in frame.regions.iter().zip(&rects) {
+                let right = Point::new(rect.x + rect.width - 8.0, rect.y + rect.height / 2.0);
+                tree.handle_event(UiEvent::PointerDown(right));
+                assert_eq!(tree.handle_event(UiEvent::PointerUp(right)), clicked(&region.id), "horizontal {horizontal}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_chosen_card_has_the_selected_fill_and_a_text_border_and_the_others_are_raised() {
+        let frame = tree_of(group().variant(RadioVariant::Card)).layout(window());
+        let (fills, strokes) = (fills(&frame), strokes(&frame));
+        for region in &frame.regions {
+            let chosen = region.id == "plan=team";
+            let (fill, edge) = if chosen { (palette().selected, palette().text) } else { (palette().raised, palette().border) };
+            assert!(fills.iter().any(|item| item.0 == region.rect && item.1 == fill), "{}", region.id);
+            assert!(strokes.iter().any(|item| item.0 == region.rect && item.1 == edge), "{}", region.id);
+        }
+    }
+
+    #[test]
+    fn a_disabled_card_takes_no_click_and_no_hover() {
+        let options = vec![RadioOption::new("a", "A"), RadioOption::new("b", "B").disabled()];
+        let mut tree = tree_of(RadioGroup::new("letters", options, None, palette()).variant(RadioVariant::Card));
+        let frame = tree.layout(window());
+        let [region] = frame.regions.as_slice() else { panic!("one region, got {:?}", frame.regions) };
+        assert_eq!(region.id, "a");
+        let b = frame.access.iter().find(|node| node.id == "b").unwrap().rect;
+        let point = Point::new(b.x + b.width - 8.0, b.y + b.height / 2.0);
+        tree.handle_event(UiEvent::PointerMove(point));
+        let frame = tree.layout(window());
+        assert!(fills(&frame).iter().all(|item| item.0 != b || item.1 != palette().hover));
+        tree.handle_event(UiEvent::PointerDown(point));
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+    }
+
+    #[test]
+    fn plain_and_card_tell_the_platform_the_same_things() {
+        let said = |variant| {
+            let frame = tree_of(group().variant(variant)).layout(window());
+            frame.access.iter().map(|node| (node.id.clone(), node.role, node.name.clone(), node.selected, node.description.clone(), node.disabled, node.actionable)).collect::<Vec<_>>()
+        };
+        assert_eq!(said(RadioVariant::Card), said(RadioVariant::Plain));
     }
 }
