@@ -110,6 +110,7 @@ CodeEditor::new("source", controller)
 | `auto_pairs(bool)` | on | Typing an opening bracket or quote also inserts its closing one |
 | `vim_mode(bool)` | off | Modal editing with Vim's keys |
 | `vim_mode_label(bool)` | on | The Vim mode's badge in the editor's corner; a host that shows the mode itself, from `UiTree::code_editor_vim_mode`, turns it off |
+| `scrollbar_appearance(ScrollbarAppearance)` | the editor's thin bar over the text | Draws the vertical scrollbar as a `ScrollArea` with that appearance draws its own: in its own rail beside the text when `Reserved`, the thumb in the rail's middle, and with `buttons` an arrow at each end that scrolls three lines. Thumb drags and track presses work as before |
 
 `IndentStyle` is in `limn_editor`.
 
