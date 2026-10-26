@@ -432,17 +432,24 @@ fn an_editor_given_a_scrollbar_appearance_draws_scrollarea_rail_and_its_arrows_s
     let commands = paint(&mut railed, 600.0);
     let appearance = crate::ScrollbarAppearance::default();
     let rail = appearance.effective_rail_width(600.0);
-    // Reserved: the text leaves the rail's width rather than the bar's 8 px.
+    // Reserved: the text leaves each rail's width rather than the bars' 8 px.
     assert_eq!(
         railed.viewport.body.width,
         plain.viewport.body.width + 8.0 - rail
+    );
+    assert_eq!(
+        railed.viewport.body.height,
+        plain.viewport.body.height + 8.0 - rail
     );
     let arrows = commands
         .iter()
         .filter(|command| matches!(command, DrawCommand::FillTriangle { .. }))
         .count();
-    assert_eq!(arrows, 2);
-    let geometry = railed.viewport.rail_geometry().unwrap();
+    assert_eq!(
+        arrows, 4,
+        "both rails, as the long lines scroll sideways too"
+    );
+    let geometry = railed.viewport.rail_geometry(true).unwrap();
     let (up, down) = (geometry.up.unwrap(), geometry.down.unwrap());
     assert_eq!((up.width, up.height), (rail, rail));
     // The thumb sits in the rail's middle, between the arrows.
@@ -462,6 +469,35 @@ fn an_editor_given_a_scrollbar_appearance_draws_scrollarea_rail_and_its_arrows_s
         railed.viewport.scrollbar_drag.is_none(),
         "an arrow does not start a drag"
     );
+    // The horizontal rail lies under the text, its arrows at its ends.
+    let across = railed.viewport.rail_geometry(false).unwrap();
+    let (left, right) = (across.up.unwrap(), across.down.unwrap());
+    assert_eq!(across.rail.x, railed.viewport.body.x);
+    assert!(railed.viewport.begin_scrollbar(center(right)));
+    assert_eq!(railed.viewport.scroll_x, step);
+    assert!(railed.viewport.begin_scrollbar(center(left)));
+    assert_eq!(railed.viewport.scroll_x, 0.0);
+    // A thumb grabbed where it is drawn stays put: drawing and dragging share its length.
+    let commands = paint(&mut railed, 600.0);
+    let thumb = commands
+        .iter()
+        .find_map(|command| match command {
+            DrawCommand::FillRect { rect, .. }
+                if rect.height == appearance.thumb_width && rect.y > across.rail.y =>
+            {
+                Some(*rect)
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert!(railed
+        .viewport
+        .begin_scrollbar(Point::new(thumb.x + 2.0, thumb.y + 2.0)));
+    assert_eq!(railed.viewport.scroll_x, 0.0);
+    railed
+        .viewport
+        .drag_scrollbar(Point::new(thumb.x + 2.0 + 1000.0, thumb.y), false);
+    assert_eq!(railed.viewport.scroll_x, railed.viewport.max_x);
 }
 
 #[test]
