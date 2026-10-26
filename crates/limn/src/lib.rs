@@ -153,7 +153,7 @@ pub use checkbox::Checkbox;
 pub use chip::Chip;
 pub use code_block::{CodeBlock, CodeBlockSizing};
 pub use code_diff::{CodeDiff, CodeDiffLine, CodeDiffLineKind};
-pub use code_editor::{CaretStyle, CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
+pub use code_editor::{CaretStyle, CodeBreakpoint, CodeChangeMark, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
 pub use code_syntax::CodeLanguage;
 pub use collapse::Collapse;
 pub use collapsible::{collapse_footer, Collapsible};
