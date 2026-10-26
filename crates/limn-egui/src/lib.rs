@@ -494,6 +494,16 @@ impl SurfaceFrame {
         })
     }
 
+    /// Pixels already in egui's premultiplied form, taken as they are: no
+    /// conversion, for frames too large to convert again on the UI thread.
+    pub fn from_image(image: egui::ColorImage, pixels_per_point: f32) -> Option<Self> {
+        Self::bounded(image.size, image.pixels.len() * 4, 4, pixels_per_point).then_some(Self {
+            image,
+            pixels_per_point,
+            part: None,
+        })
+    }
+
     /// Rows of opaque RGB, as a JPEG decodes: no alpha channel is carried.
     pub fn from_rgb(size: [usize; 2], rgb: &[u8], pixels_per_point: f32) -> Option<Self> {
         Self::bounded(size, rgb.len(), 3, pixels_per_point).then(|| Self {
@@ -3060,6 +3070,10 @@ mod tests {
         assert!(SurfaceFrame::from_rgb([0, 4], &[], 1.0).is_none());
         assert!(SurfaceFrame::from_rgb([MAX_SURFACE_SIDE + 1, 1], &[], 1.0).is_none());
         assert!(SurfaceFrame::from_rgb([1, 1], &[0; 3], f32::NAN).is_none());
+        let image = || egui::ColorImage::new([2, 1], vec![Color32::RED; 2]);
+        assert_eq!(SurfaceFrame::from_image(image(), 2.0).map(|f| f.size()), Some([2, 1]));
+        let short = egui::ColorImage { size: [2, 2], ..image() };
+        assert!(SurfaceFrame::from_image(short, 2.0).is_none());
     }
 
     #[test]

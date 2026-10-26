@@ -183,6 +183,7 @@ on source dimensions and decoder allocations are unchanged. Browsers retain
 the existing synchronous decode path because that backend has no native
 workers; clearing still releases its raster cache.
 | `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
+| `SurfaceFrame::from_image(image, scale)` | One frame already in egui's form (`ColorImage`), taken without converting it. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
 | `forget_surface(id)` | Frees a surface's texture. |
