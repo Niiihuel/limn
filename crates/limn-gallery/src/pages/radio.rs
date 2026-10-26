@@ -1,5 +1,5 @@
 use super::{caption, section, Cx, Section};
-use limn::{Component, ControlSize, Element, Icon, RadioGroup, RadioOption};
+use limn::{Component, ControlSize, Element, Icon, RadioGroup, RadioOption, RadioVariant};
 
 const THEMES: [(&str, &str); 3] = [("light", "Light"), ("dark", "Dark"), ("system", "Match the system")];
 const PLANS: [(&str, &str, &str); 3] = [
@@ -39,6 +39,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Descriptions", vec![
             group(cx, "radio-plan", "Plan", plans("radio-plan"), "team").render(),
             caption(cx, "The description is clicked with its label."),
+        ]),
+        section(cx, "Cards", vec![
+            group(cx, "radio-card", "Plan", plans("radio-card").into_iter().enumerate().map(|(index, plan)| plan.enabled(index != 2)).collect(), "team")
+                .variant(RadioVariant::Card)
+                .render(),
+            caption(cx, "Each choice is a card, the whole of it clicked; Company is disabled."),
         ]),
         section(cx, "Icons", vec![
             group(
