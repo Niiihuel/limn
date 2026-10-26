@@ -259,7 +259,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, ".font_size(16.0), .max_visible_items(2) and .ink(accent): open, two rows show, the chevron points up and the border takes the accent."),
             Element::row(vec![
                 Element::spacer().flex(1.0),
-                shell_select(cx, "select-plain")
+                shell_select(cx, "select-quiet")
                     .variant(SelectVariant::Plain)
                     .accessibility_label("Shell")
                     .placement(PopoverPlacement::BottomEnd)
