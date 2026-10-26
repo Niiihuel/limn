@@ -146,7 +146,7 @@ impl EditorView {
         Some(actions)
     }
     pub(super) fn paint_vim_mode(&self, rect: Rect, commands: &mut Vec<DrawCommand>) {
-        if !self.editor.vim_mode || rect.width < 80.0 || rect.height < 22.0 {
+        if !self.editor.vim_mode || !self.editor.vim_mode_label || rect.width < 80.0 || rect.height < 22.0 {
             return;
         }
         let label = self.vim.mode.label();

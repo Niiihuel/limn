@@ -77,6 +77,8 @@ const COMMENT: Color = Color::rgb(126, 151, 119);
 const STRING: Color = Color::rgb(206, 163, 127);
 const KEYWORD: Color = Color::rgb(184, 143, 216);
 const NUMBER: Color = Color::rgb(151, 193, 169);
+#[cfg_attr(not(feature = "syntax"), allow(dead_code))]
+const FUNCTION: Color = Color::rgb(143, 185, 218);
 // What `CodeSyntaxColors::for_palette` paints each lexer ink as on a dark palette and on a light
 // one: each above 4.5:1 on dark fills up to rgb(53, 53, 56) and light ones down to
 // rgb(220, 220, 220). Only the comment is lighter than the code views' own on dark.
@@ -112,6 +114,20 @@ pub struct CodeSyntaxColors {
 }
 
 impl CodeSyntaxColors {
+    /// The host's ink for a built-in one. The inks limn has no field for are made for dark
+    /// fills: on light ones they are `text`.
+    pub(crate) fn ink(&self, built_in: Color, dark: bool) -> Color {
+        match (built_in, self.function) {
+            (COMMENT, _) => self.comment,
+            (STRING, _) => self.string,
+            (KEYWORD, _) => self.keyword,
+            (NUMBER, _) => self.number,
+            (FUNCTION, Some(function)) => function,
+            _ if dark => built_in,
+            _ => self.text,
+        }
+    }
+
     /// Inks that read on `palette`, dark or light, each at least 4.5:1 on its
     /// raised fill; functions and interpolations are not told apart.
     pub fn for_palette(palette: ComponentPalette) -> Self {
@@ -154,15 +170,7 @@ pub(crate) fn highlight_spans(
     {
         return None;
     }
-    let ink = |color: Color| match color {
-        COMMENT => colors.comment,
-        STRING => colors.string,
-        KEYWORD => colors.keyword,
-        NUMBER => colors.number,
-        // The Markdown parser's other inks are made for dark fills: on light ones, text.
-        _ if dark => color,
-        _ => colors.text,
-    };
+    let ink = |color: Color| colors.ink(color, dark);
     let mut spans: Vec<TextSpan> = Vec::new();
     // Neighbours of one color share a span: a string's quote and body are one run.
     let mut push = |piece: &str, color: Color| match spans.last_mut() {
@@ -453,7 +461,7 @@ fn highlight_color(kind: limn_language::HighlightKind) -> Color {
         HighlightKind::String => STRING,
         HighlightKind::Keyword => KEYWORD,
         HighlightKind::Number => NUMBER,
-        HighlightKind::Function => Color::rgb(143, 185, 218),
+        HighlightKind::Function => FUNCTION,
         HighlightKind::Type => Color::rgb(225, 196, 131),
         HighlightKind::Property => Color::rgb(160, 191, 217),
         HighlightKind::Variable | HighlightKind::Operator => Color::rgb(205, 205, 205),
@@ -923,6 +931,29 @@ fn is_keyword(word: &str, language: CodeLanguage) -> bool {
 
 #[cfg(all(test, feature = "syntax"))]
 mod tests {
+    #[test]
+    fn a_hosts_inks_take_the_place_of_the_built_in_ones_it_names() {
+        let host = |n: u8| Color::rgb(n, n, n);
+        let colors = CodeSyntaxColors {
+            text: host(1),
+            keyword: host(2),
+            string: host(3),
+            number: host(4),
+            comment: host(5),
+            function: Some(host(6)),
+            interpolation: None,
+        };
+        let pairs = [(KEYWORD, 2), (STRING, 3), (NUMBER, 4), (COMMENT, 5), (FUNCTION, 6)];
+        for (built_in, expected) in pairs {
+            assert_eq!(colors.ink(built_in, false), host(expected));
+        }
+        let other = Color::rgb(225, 196, 131);
+        assert_eq!(colors.ink(other, false), host(1), "on light fills, text");
+        assert_eq!(colors.ink(other, true), other, "made for dark fills, kept on them");
+        let plain = CodeSyntaxColors { function: None, ..colors };
+        assert_eq!(plain.ink(FUNCTION, false), host(1));
+    }
+
     use super::*;
     use limn_editor::{EditKind, Selection, TextBuffer};
     fn wait(cache: &mut SyntaxCache, snapshot: &BufferSnapshot, language: CodeLanguage) {
