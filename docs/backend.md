@@ -259,6 +259,15 @@ effect, when the surface shows no frame, a frame of another size or one at
 another scale; the host then sends a whole frame, which always replaces
 everything. Parts are applied in the order they are presented.
 
+A surface that takes input, such as an embedded page, sits in
+`Element::focus_area(id, surface)`: a press or Tab gives the region the focus
+and the tree reports nothing for it. While `tree.focused_id()` is `id` the host
+sends the keys, text and input method events it receives to its source
+instead of `handle_event`; wherever `tree.frame().press_region(point)` is the
+region it sends the pointer and the wheel, relative to the region's corner,
+and keeps sending moves to it until the button that pressed there is
+released. It still passes the press to the tree, which focuses the region.
+
 ## See also
 
 - [Concepts](concepts.md) for the model a backend serves.
