@@ -95,6 +95,8 @@ const PADDING: f32 = 14.0;
 const RAIL_WIDTH: f32 = 14.0;
 // The least space kept between the card and the window, both sides together.
 const VIEWPORT_MARGIN: f32 = 24.0;
+/// The header of a modal whose body reaches the card's edges.
+const FLUSH_HEADER: f32 = 44.0;
 
 struct SheetLayout {
     max_height: f32,
@@ -121,6 +123,7 @@ pub struct Modal {
     closable: bool,
     scrim: Color,
     title_gap: f32,
+    flush: bool,
     animation_ms: u16,
     role: Role,
     spoken_description: String,
@@ -157,6 +160,7 @@ impl Modal {
             closable: true,
             scrim: Color::rgba(0, 0, 0, 180),
             title_gap: 10.0,
+            flush: false,
             animation_ms: crate::tokens().motion.enter_ms,
             role: Role::Dialog,
             spoken_description: String::new(),
@@ -277,6 +281,17 @@ impl Modal {
         }
         self
     }
+
+    /// Lay the body out to the card's edges, under a 44-high header and a
+    /// hairline, for a body that is a layout of its own: a column of pages
+    /// beside their content, as a settings window has. The body takes the
+    /// card's width and the height the header and the footer leave, and
+    /// scrolls what it wants to itself: the modal puts no scroll area round
+    /// it. The header and the footer keep their padding.
+    pub fn flush_body(mut self, flush: bool) -> Self {
+        self.flush = flush;
+        self
+    }
 }
 
 impl Component for Modal {
@@ -325,6 +340,19 @@ impl Component for Modal {
             ]).flex(1.0);
             Element::stack(vec![handle, Element::row(vec![title, close]).gap(8.0)])
                 .size(None, Some(44.0))
+        } else if self.flush {
+            let mut row = vec![
+                Element::spacer().size(Some(PADDING + 2.0), None),
+                title.flex(1.0).centered_y(),
+            ];
+            if self.closable {
+                row.push(close.centered_y());
+            }
+            row.push(Element::spacer().size(Some(PADDING - 2.0), None));
+            Element::column(vec![
+                Element::row(row).gap(8.0).size(None, Some(FLUSH_HEADER)),
+                Element::spacer().background(self.palette.border).size(None, Some(1.0)),
+            ])
         } else {
             let mut row = vec![title.flex(1.0)];
             if self.closable {
@@ -344,9 +372,14 @@ impl Component for Modal {
                 let mut content = vec![description];
                 if let Some(body) = body { content.push(body); }
                 body = Some(Element::column(content).gap(10.0));
-            } else { sections.push(description); }
+            } else if self.flush { sections.push(description.padding(PADDING)); } else { sections.push(description); }
         }
 
+        if self.flush {
+            if let Some(body) = body.take() {
+                sections.push(body.flex(1.0));
+            }
+        }
         if let Some(body) = body {
             sections.push(
                 ScrollArea::new(format!("modal_body:{}", self.close_id), body)
@@ -365,12 +398,12 @@ impl Component for Modal {
         }
 
         if let Some(footer) = self.footer {
-            sections.push(footer);
+            sections.push(if self.flush { footer.padding(PADDING) } else { footer });
         }
 
         let mut spaced = Vec::with_capacity(sections.len() * 2);
         for (index, section) in sections.into_iter().enumerate() {
-            if index > 0 {
+            if index > 0 && !self.flush {
                 let gap = if index == 1 { self.title_gap } else { 10.0 };
                 spaced.push(Element::spacer().size(None, Some(gap)));
             }
@@ -386,7 +419,7 @@ impl Component for Modal {
             }
         }
         let mut card = Element::panel(content)
-            .padding(PADDING)
+            .padding(if self.flush { 0.0 } else { PADDING })
             .size(Some(self.width), self.height)
             .background(self.palette.surface)
             .border(self.palette.border, 1.0)
@@ -442,6 +475,28 @@ mod tests {
         let locked = node("locked");
         assert_eq!((locked.role, locked.name.as_str()), (Role::Button, crate::labels().close));
         assert!(locked.disabled && !locked.actionable);
+    }
+
+    #[test]
+    fn a_flush_body_reaches_the_cards_edges_under_its_header() {
+        let palette = ComponentPalette::neutral_dark();
+        let body = Element::clickable("body", Element::spacer().flex(1.0));
+        let mut tree = UiTree::new(
+            Modal::new(Element::spacer(), true, "Settings", "", "settings", palette)
+                .width(600.0)
+                .height(400.0)
+                .flush_body(true)
+                .body(body)
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let card = frame.access.iter().find(|n| n.id == "settings:dialog").unwrap().rect;
+        let body = frame.regions.iter().find(|r| r.id == "body").unwrap().rect;
+        assert_eq!((body.x, body.width), (card.x, card.width));
+        assert_eq!(body.y, card.y + FLUSH_HEADER + 1.0);
+        assert_eq!(body.y + body.height, card.y + card.height);
+        assert!(!frame.regions.iter().any(|r| r.id.starts_with("modal_body:")));
     }
 
     #[test]
