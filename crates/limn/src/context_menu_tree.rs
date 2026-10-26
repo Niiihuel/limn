@@ -110,6 +110,13 @@ impl UiTree {
         self.context_menu_palette = palette;
     }
 
+    /// Draw every context menu at the measures of the host's other menus: the
+    /// width from `preferred_width`, and its rows' height, label size, icon slot,
+    /// padding, gap and scrollbar gutter.
+    pub fn set_context_menu_sizing(&mut self, sizing: crate::SelectorSizing) {
+        self.context_menu_sizes = sizing.into();
+    }
+
     fn close_context_menu(&mut self, now: Instant) {
         if self.context_menu.is_some() {
             self.invalidate_paste_targets();
@@ -125,7 +132,8 @@ impl UiTree {
         viewport: Rect,
     ) -> Option<(Element, Rect, Option<String>, Option<String>)> {
         let menu = self.context_menu.as_ref()?;
-        let width = context_menu::WIDTH.min((viewport.width - 16.0).max(0.0));
+        let sizes = self.context_menu_sizes;
+        let width = sizes.width.min((viewport.width - 16.0).max(0.0));
         // As a native menu, it takes the window's height before it scrolls.
         let max_height = (viewport.height - 16.0).max(0.0);
         let measure = |text: &str, size: f32| {
@@ -143,9 +151,8 @@ impl UiTree {
             width,
             max_height,
             &measure,
-            self.sans_metrics
-                .at_size(context_menu::LABEL_FONT_SIZE)
-                .line_height,
+            self.sans_metrics.at_size(sizes.label_size).line_height,
+            sizes,
         );
         let margin_x = 8.0_f32.min(viewport.width / 2.0);
         let margin_y = 8.0_f32.min(viewport.height / 2.0);
