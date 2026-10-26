@@ -257,6 +257,16 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .placement(PopoverPlacement::BottomStart)
                 .render(),
             caption(cx, ".font_size(16.0), .max_visible_items(2) and .ink(accent): open, two rows show, the chevron points up and the border takes the accent."),
+            Element::row(vec![
+                Element::spacer().flex(1.0),
+                shell_select(cx, "select-plain")
+                    .variant(SelectVariant::Plain)
+                    .accessibility_label("Shell")
+                    .placement(PopoverPlacement::BottomEnd)
+                    .render(),
+            ])
+            .size(Some(width), None),
+            caption(cx, "Plain: the choice and its chevron, filled only under the pointer, at the end of a settings row."),
         ]),
         section(cx, "Search", vec![
             SearchField::new("input-search", state.choice(CLEARABLE[0].0, CLEARABLE[0].1), "Search", palette)

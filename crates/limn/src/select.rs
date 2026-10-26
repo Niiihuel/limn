@@ -18,6 +18,10 @@ pub enum SelectVariant {
     /// start where a field has its text and the chevron at its end: a choice
     /// in a form, among text fields.
     Field,
+    /// The choice and a chevron with no outline or fill until the pointer
+    /// is over it, as wide as they are unless a width is set: a choice at
+    /// the end of a settings row, which a column of them keeps quiet.
+    Plain,
 }
 
 /// A controlled choice among a few options. The host owns the selection and
@@ -216,17 +220,17 @@ impl Component for Select {
             access = access.name(name);
         }
         let size = self.size.unwrap_or(match self.variant {
-            SelectVariant::Button => ControlSize::Compact,
+            SelectVariant::Button | SelectVariant::Plain => ControlSize::Compact,
             SelectVariant::Field => ControlSize::Regular,
         });
         let least = match self.variant {
-            SelectVariant::Button => size.height(),
+            SelectVariant::Button | SelectVariant::Plain => size.height(),
             // As a text field: never under 28.
             SelectVariant::Field => size.height().max(28.0),
         };
         let height = self.height.map_or(least, |height| height.max(least));
         let width = match self.variant {
-            SelectVariant::Button => width,
+            SelectVariant::Button | SelectVariant::Plain => width,
             // As a text field: never under 80.
             SelectVariant::Field => width.max(80.0),
         };
@@ -249,6 +253,30 @@ impl Component for Select {
                 trigger.render()
             }
             SelectVariant::Field => self.field_trigger(size, width, height),
+            SelectVariant::Plain => {
+                let mut sizing = size.button_sizing();
+                sizing.height = height;
+                if let Some(font_size) = self.font_size {
+                    sizing.font_size = font_size;
+                }
+                let mut trigger = Button::new(self.id.clone(), self.current_label.clone(), self.palette)
+                    .variant(ButtonVariant::Ghost)
+                    .sizing(sizing)
+                    .trailing_icon(Icon::ChevronDown)
+                    .enabled(self.enabled);
+                if let Some(width) = self.width {
+                    trigger = trigger.width(width);
+                }
+                if let Some(icon) = self.icon {
+                    trigger = trigger.icon(icon);
+                }
+                trigger.render()
+            }
+        };
+        // A plain trigger is as wide as what it says, unless a width is set.
+        let width = match self.variant {
+            SelectVariant::Plain => self.width,
+            _ => Some(width),
         };
         // The list is the application's one menu: compact rows and a check
         // on the choice, as in every other selector.
@@ -265,9 +293,12 @@ impl Component for Select {
                 item.into()
             })
             .collect();
-        let menu_width = self
-            .menu_width
-            .unwrap_or_else(|| self.sizing.map_or(width, |sizing| sizing.preferred_width));
+        let menu_width = self.menu_width.unwrap_or_else(|| {
+            self.sizing
+                .map(|sizing| sizing.preferred_width)
+                .or(width)
+                .unwrap_or(SelectorSizing::COMPACT.preferred_width)
+        });
         let mut menu = DropdownMenu::new(
             // Over what the button says of itself, disabled or not.
             trigger.accessible(access),
@@ -285,7 +316,7 @@ impl Component for Select {
         if let Some(header) = self.header {
             menu = menu.header(*header);
         }
-        menu.render().size(Some(width), Some(height))
+        menu.render().size(width, Some(height))
     }
 }
 
@@ -390,6 +421,16 @@ mod tests {
 
     fn rect(frame: &crate::Frame, id: &str) -> Option<crate::Rect> {
         frame.regions.iter().find(|region| region.id == id).map(|region| region.rect)
+    }
+
+    #[test]
+    fn plain_it_is_as_wide_as_its_choice_and_still_lists_the_options() {
+        let narrow = tree(select(false).variant(SelectVariant::Plain)).layout(VIEWPORT);
+        let trigger = rect(&narrow, "toggle").expect("trigger");
+        assert!(trigger.width < SelectorSizing::COMPACT.min_width, "{trigger:?}");
+        assert_eq!(trigger.height, ControlSize::Compact.height());
+        let open = tree(select(true).variant(SelectVariant::Plain)).layout(VIEWPORT);
+        assert!(rect(&open, "shell:zsh").is_some());
     }
 
     #[test]
