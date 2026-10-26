@@ -69,6 +69,20 @@ The icon stands between the circle and the label, in the label's color and
 at the 16 pixels of every icon in a control. It is clicked with the label, and
 a description starts under the label, past the icon.
 
+## Cards
+
+```rust
+RadioGroup::new("plan", options, Some(&state.plan), palette).variant(RadioVariant::Card)
+```
+
+Each option is a rounded card with its circle at the left, as a settings
+panel shows its choices: `raised`, with a 1 pixel `border`. The chosen card
+takes the palette's `selected` fill and its border turns `text`, so nothing moves.
+The whole card is the click target, and hover lights it. A disabled card is
+muted and takes no pointer. Horizontal, the cards share the row's width
+equally. Cards are 8 pixels apart; the keyboard and the accessibility tree are
+those of the plain group.
+
 ## Horizontal
 
 ```rust

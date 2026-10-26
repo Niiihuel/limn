@@ -230,7 +230,7 @@ pub use peek_panel::{PeekPanel, Side};
 pub use popover_panel::{PopoverPanel, PopoverPanelSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
-pub use radio::{RadioGroup, RadioOption};
+pub use radio::{RadioGroup, RadioOption, RadioVariant};
 pub use raster_image::{RasterImage, RasterImageFormat};
 pub use scheme::{ControlColors, Scheme, Surface};
 pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement, ScrollbarVisibility};
