@@ -68,6 +68,25 @@ one.
 default, `CodeLanguage::Plain`, colors nothing. `height` is in logical
 pixels, never under 24, and 320 by default.
 
+`syntax_colors(CodeSyntaxColors)` paints those colors in the host's inks, as
+`Markdown::code_syntax_colors` does for fenced code: keywords, strings, numbers,
+comments and, when given, functions, types and properties (`types` and
+`properties`, which the tree-sitter grammars tell apart) take the host's
+colors, and the rest is drawn in `text` on a light palette and in limn's colors
+on a dark one. Colors
+the host gives with `highlights` keep their own.
+
+```rust
+CodeEditor::new("source", controller)
+    .language(CodeLanguage::Rust)
+    .syntax_colors(CodeSyntaxColors {
+        keyword: brand_orange,
+        function: Some(brand_blue),
+        ..CodeSyntaxColors::for_palette(palette)
+    })
+    .render()
+```
+
 ## Options
 
 ```rust
@@ -90,6 +109,7 @@ CodeEditor::new("source", controller)
 | `indent_style(IndentStyle)` | `IndentStyle::Spaces(4)` | Whether Tab indents with spaces or with tabs, and by how many columns |
 | `auto_pairs(bool)` | on | Typing an opening bracket or quote also inserts its closing one |
 | `vim_mode(bool)` | off | Modal editing with Vim's keys |
+| `vim_mode_label(bool)` | on | The Vim mode's badge in the editor's corner; a host that shows the mode itself, from `UiTree::code_editor_vim_mode`, turns it off |
 
 `IndentStyle` is in `limn_editor`.
 
