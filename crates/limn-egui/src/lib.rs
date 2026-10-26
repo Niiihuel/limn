@@ -543,6 +543,8 @@ struct SurfaceTexture {
 struct SurfaceCache {
     context: Option<egui::Context>,
     entries: HashMap<String, SurfaceTexture>,
+    /// Surfaces the host paints itself: the callback it gave, added in their place.
+    painted: HashMap<String, egui::PaintCallback>,
 }
 
 thread_local! {
@@ -566,9 +568,15 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ctx) {
             cache.entries.clear();
+            cache.painted.clear();
             cache.context = Some(ctx.clone());
         }
         let SurfaceFrame { image, pixels_per_point, part } = frame;
+        // A part of a surface the host paints has no texture of limn's to go into.
+        if part.is_some() && cache.painted.contains_key(id) {
+            return false;
+        }
+        cache.painted.remove(id);
         match (cache.entries.get_mut(id), part) {
             (Some(entry), Some((frame, at))) => {
                 if entry.texture.size() != frame || entry.pixels_per_point != pixels_per_point {
@@ -595,9 +603,41 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
     })
 }
 
+/// Have the host paint the surface `id` itself: wherever a
+/// [`DrawCommand::Surface`] names it, limn adds `paint` in its place in the
+/// paint order, its rectangle the surface's area snapped to the pixel grid as
+/// a frame's would be, clipped as the frame would be. What is painted after it
+/// is painted over it. A wgpu host can draw there directly, or clear the
+/// window to transparent for something presented beneath it. The surface's
+/// own texture is freed; a [`SurfaceFrame`] presented again takes the surface
+/// back. Opacity is the host's to apply.
+pub fn present_surface_paint(ctx: &egui::Context, id: &str, paint: egui::PaintCallback) {
+    SURFACE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        if cache.context.as_ref() != Some(ctx) {
+            cache.entries.clear();
+            cache.painted.clear();
+            cache.context = Some(ctx.clone());
+        }
+        cache.entries.remove(id);
+        cache.painted.insert(id.to_owned(), paint);
+    });
+}
+
 /// Free the texture of a surface the host no longer shows.
 pub fn forget_surface(id: &str) {
-    SURFACE_CACHE.with(|cache| cache.borrow_mut().entries.remove(id));
+    SURFACE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.entries.remove(id);
+        cache.painted.remove(id);
+    });
+}
+
+fn surface_paint(ui: &egui::Ui, id: &str) -> Option<egui::PaintCallback> {
+    SURFACE_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.painted.get(id).filter(|_| cache.context.as_ref() == Some(ui.ctx())).cloned()
+    })
 }
 
 fn surface_texture(ui: &egui::Ui, id: &str) -> Option<(egui::TextureId, [usize; 2], f32)> {
@@ -1896,7 +1936,15 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let painter = ui
                     .painter()
                     .with_clip_rect(clips.last().unwrap().intersect(area));
-                if let Some((texture, pixels, density)) = surface_texture(ui, id) {
+                if let Some(paint) = surface_paint(ui, id) {
+                    let ppp = ui.ctx().pixels_per_point();
+                    let snap = |value: f32| (value * ppp).round() / ppp;
+                    let rect = EguiRect::from_min_max(
+                        Pos2::new(snap(area.min.x), snap(area.min.y)),
+                        Pos2::new(snap(area.max.x), snap(area.max.y)),
+                    );
+                    painter.add(egui::PaintCallback { rect, ..paint });
+                } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
                     painter.image(
                         texture,
                         surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),
@@ -3060,6 +3108,53 @@ mod tests {
         assert!(SurfaceFrame::from_rgb([0, 4], &[], 1.0).is_none());
         assert!(SurfaceFrame::from_rgb([MAX_SURFACE_SIDE + 1, 1], &[], 1.0).is_none());
         assert!(SurfaceFrame::from_rgb([1, 1], &[0; 3], f32::NAN).is_none());
+    }
+
+    #[test]
+    fn a_surface_the_host_paints_is_its_callback_on_the_pixel_grid_in_the_paint_order() {
+        let scale = 2.0_f32;
+        let ctx = egui::Context::default();
+        ctx.set_pixels_per_point(scale);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let root = limn::Element::column(vec![
+            limn::Element::spacer().size(None, Some(33.7)),
+            limn::Element::row(vec![
+                limn::Element::spacer().size(Some(10.3), None),
+                limn::Element::surface("page", "Página").size(Some(300.4), Some(200.2)),
+            ]),
+        ]);
+        let frame = limn::UiTree::new(root).layout(limn::Size::new(400.0, 300.0));
+        let marker: std::sync::Arc<dyn std::any::Any + Send + Sync> = std::sync::Arc::new(7_u8);
+        let paint = |ctx: &egui::Context| {
+            let mut output = ctx.run_ui(Default::default(), |ui| paint_at(ui, &frame, Pos2::ZERO));
+            output.textures_delta.clear();
+            output
+                .shapes
+                .into_iter()
+                .filter_map(|clipped| match clipped.shape {
+                    egui::Shape::Callback(callback) => Some((callback.rect, callback.callback)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        present_surface(&ctx, "page", SurfaceFrame::from_rgb([4, 4], &[9; 48], scale).unwrap());
+        present_surface_paint(&ctx, "page", egui::PaintCallback { rect: EguiRect::NOTHING, callback: marker.clone() });
+        let painted = paint(&ctx);
+        let [(rect, callback)] = painted.as_slice() else {
+            panic!("one callback: {}", painted.len());
+        };
+        assert!(std::sync::Arc::ptr_eq(callback, &marker));
+        for edge in [rect.min.x, rect.min.y, rect.max.x, rect.max.y] {
+            assert!(((edge * scale) - (edge * scale).round()).abs() < 1e-3, "{edge} on the grid");
+        }
+        assert!((rect.min.x - 10.3).abs() <= 0.5 / scale && (rect.width() - 300.4).abs() <= 1.0 / scale);
+        // A part has nothing of limn's to go into; a whole frame takes the surface back.
+        assert!(!present_surface(&ctx, "page", SurfaceFrame::from_rgb([1, 1], &[9; 3], scale).unwrap().within([4, 4], [0, 0]).unwrap()));
+        assert!(present_surface(&ctx, "page", SurfaceFrame::from_rgb([4, 4], &[9; 48], scale).unwrap()));
+        assert!(paint(&ctx).is_empty());
+        present_surface_paint(&ctx, "page", egui::PaintCallback { rect: EguiRect::NOTHING, callback: marker });
+        forget_surface("page");
+        assert!(paint(&ctx).is_empty());
     }
 
     #[test]
