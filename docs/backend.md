@@ -268,6 +268,13 @@ region it sends the pointer and the wheel, relative to the region's corner,
 and keeps sending moves to it until the button that pressed there is
 released. It still passes the press to the tree, which focuses the region.
 
+A host may instead put a native view of its own where the surface is laid out,
+such as an embedded browser's window, which limn cannot paint over. While
+`frame.drawn_over(id)` holds, something the tree paints after the surface
+lands on its visible part: a menu, a tooltip, a dialog, a panel sliding in.
+The host hides its view then and presents the view's last frame in the
+surface, and shows the view again once nothing covers it.
+
 ## See also
 
 - [Concepts](concepts.md) for the model a backend serves.

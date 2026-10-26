@@ -4233,4 +4233,27 @@ mod surface_tests {
         tree.handle_event(UiEvent::Key { key: crate::Key::Tab, shift: false, ctrl: false });
         assert_eq!(tree.focused_id(), Some("page"));
     }
+
+    #[test]
+    fn a_surface_is_drawn_over_only_by_what_lands_on_its_visible_part() {
+        use crate::Color;
+        let size = Size::new(300.0, 200.0);
+        let page = || Element::surface("page-pixels", "Page").size(Some(200.0), Some(200.0));
+        let card = |w: f32| Element::spacer().background(Color::rgb(200, 0, 0)).size(Some(w), Some(40.0));
+        // Beside it, nothing covers it; a surface not drawn is not covered either.
+        let mut tree = UiTree::new(Element::row(vec![page(), card(100.0)]));
+        let frame = tree.layout(size);
+        assert!(!frame.drawn_over("page-pixels"));
+        assert!(!frame.drawn_over("elsewhere"));
+        // Stacked after it, a menu covers it.
+        let mut tree = UiTree::new(Element::stack(vec![page(), card(60.0)]));
+        assert!(tree.layout(size).drawn_over("page-pixels"));
+        // Painted before it, or clipped away from it, it does not.
+        let mut tree = UiTree::new(Element::stack(vec![card(60.0), page()]));
+        assert!(!tree.layout(size).drawn_over("page-pixels"));
+        // Moved out of a clip, it would land on the page; the clip keeps it off.
+        let hidden = Element::row(vec![card(60.0).translate(crate::Point::new(120.0, 0.0))]).size(Some(100.0), Some(40.0)).clip_children();
+        let mut tree = UiTree::new(Element::stack(vec![page(), Element::column(vec![hidden])]));
+        assert!(!tree.layout(size).drawn_over("page-pixels"));
+    }
 }
