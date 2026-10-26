@@ -58,7 +58,12 @@ DropdownMenuItem::new("pin", "Pin").icon(Icon::Pin).disabled().into()
 DropdownMenuItem::new("wrap", "Word wrap").selected(state.wrap).into()
 DropdownMenuItem::new("delete", "Delete").destructive(danger).into()
 DropdownMenuItem::new("sync", "Sync").annotation("2 pending").into()
+DropdownMenuItem::new("open:editor", "Editor").picture(app_icon).into()
 ```
+
+`picture(RasterImage)` puts a picture in its own colors in the icon's slot,
+such as the icon of the application an item opens: square, never tinted, in
+place of any `icon`, in plain and two-line rows alike.
 
 `shortcut` shows keycaps at the end of the row and `annotation` plain status
 text. `selected` checks the item, `disabled` (or `enabled(false)`) takes it

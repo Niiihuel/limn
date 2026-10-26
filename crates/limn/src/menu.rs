@@ -115,11 +115,23 @@ impl MenuCheck {
 /// The two-line row shared by [`MenuItem`] and `DropdownMenuItem`: a label
 /// over a quiet detail, between a leading icon and a check or a chevron.
 /// Its metrics are its menu's, so it lines up with the menu's other rows.
+/// A picture `side` square, in the middle of the icon slot it is given, never stretched to the
+/// slot's height.
+pub(crate) fn picture_slot(picture: crate::RasterImage, side: f32) -> Element {
+    Element::column(vec![
+        Element::spacer().flex(1.0),
+        Element::raster_image(picture).size(Some(side), Some(side)),
+        Element::spacer().flex(1.0),
+    ])
+}
+
 pub(crate) struct DetailRow {
     pub(crate) action_id: String,
     pub(crate) label: String,
     pub(crate) description: String,
     pub(crate) icon: Option<Icon>,
+    /// A picture in its own colors in the icon's slot, in place of `icon`.
+    pub(crate) picture: Option<crate::RasterImage>,
     /// Keep the icon's slot without an icon, as the menu's other rows do.
     pub(crate) icon_slot: bool,
     pub(crate) mono: bool,
@@ -192,7 +204,9 @@ impl DetailRow {
         };
         let slot = |element: Element| element.size(Some(sizing.icon_size), Some(body_height));
         let mut children = Vec::with_capacity(4);
-        if let Some(icon) = self.icon {
+        if let Some(picture) = self.picture {
+            children.push(slot(picture_slot(picture, sizing.icon_size)));
+        } else if let Some(icon) = self.icon {
             children.push(slot(
                 Element::icon(icon)
                     // A row that only leads somewhere keeps its icon as quiet
@@ -461,6 +475,7 @@ impl Component for MenuItem {
                     label: self.label,
                     description,
                     icon: self.icon,
+                    picture: None,
                     mono: self.detail_mono,
                     status: self.status,
                     status_width: self.status_width,
