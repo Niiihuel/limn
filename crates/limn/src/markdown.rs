@@ -2292,6 +2292,8 @@ mod tests {
             comment: Color::rgb(0x70, 0x70, 0x70),
             function: Some(Color::rgb(0x00, 0x73, 0xE6)),
             interpolation: Some(Color::rgb(0xCD, 0x20, 0x54)),
+            types: None,
+            properties: None,
         };
         let runs = |source: &str, colors: Option<CodeSyntaxColors>| {
             let mut markdown = Markdown::new(source, palette());

@@ -70,8 +70,10 @@ pixels, never under 24, and 320 by default.
 
 `syntax_colors(CodeSyntaxColors)` paints those colors in the host's inks, as
 `Markdown::code_syntax_colors` does for fenced code: keywords, strings, numbers,
-comments and, when given, functions take the host's colors, and the rest is
-drawn in `text` on a light palette and in limn's colors on a dark one. Colors
+comments and, when given, functions, types and properties (`types` and
+`properties`, which the tree-sitter grammars tell apart) take the host's
+colors, and the rest is drawn in `text` on a light palette and in limn's colors
+on a dark one. Colors
 the host gives with `highlights` keep their own.
 
 ```rust
