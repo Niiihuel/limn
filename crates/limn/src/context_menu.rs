@@ -113,6 +113,47 @@ impl Component for ContextMenu {
 }
 
 pub(crate) use action_style::{INSET, LABEL_FONT_SIZE, ROW_HEIGHT, WIDTH};
+
+/// The measures a context menu is drawn at: limn's own, or those of the host's menus,
+/// from `UiTree::set_context_menu_sizing`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct Sizes {
+    pub width: f32,
+    pub row_height: f32,
+    pub label_size: f32,
+    pub icon_size: f32,
+    pub padding: f32,
+    pub gap: f32,
+    pub gutter: f32,
+}
+
+impl Default for Sizes {
+    fn default() -> Self {
+        Self {
+            width: WIDTH,
+            row_height: ROW_HEIGHT,
+            label_size: LABEL_FONT_SIZE,
+            icon_size: 16.0,
+            padding: HORIZONTAL_PADDING,
+            gap: GAP,
+            gutter: SCROLLBAR_GUTTER,
+        }
+    }
+}
+
+impl From<crate::SelectorSizing> for Sizes {
+    fn from(sizing: crate::SelectorSizing) -> Self {
+        Self {
+            width: sizing.preferred_width,
+            row_height: sizing.row_height,
+            label_size: sizing.label_size,
+            icon_size: sizing.icon_size,
+            padding: sizing.padding,
+            gap: sizing.gap,
+            gutter: sizing.scrollbar_gutter,
+        }
+    }
+}
 pub(crate) const SCROLL_ID: &str = "__context_menu:scroll";
 
 struct RowLayout {
@@ -128,6 +169,7 @@ fn row_layout(
     reserve_icon: bool,
     measure: &dyn Fn(&str, f32) -> f32,
     line_height: f32,
+    sizes: Sizes,
 ) -> RowLayout {
     let ContextMenuEntry::Item(item) = entry else {
         return RowLayout {
@@ -137,9 +179,10 @@ fn row_layout(
             shortcut: None,
         };
     };
-    let available =
-        (row_width - HORIZONTAL_PADDING * 2.0 - if reserve_icon { 16.0 + GAP } else { 0.0 })
-            .max(0.0);
+    let available = (row_width
+        - sizes.padding * 2.0
+        - if reserve_icon { sizes.icon_size + sizes.gap } else { 0.0 })
+    .max(0.0);
     let shortcut = item
         .shortcut
         .as_deref()
@@ -151,16 +194,16 @@ fn row_layout(
             // Keep both the full shortcut and a readable label column. Long
             // labels wrap using real font metrics; only very narrow viewports
             // omit the entire shortcut, never part of a chord.
-            (width + GAP + 40.0 <= available).then_some((value.to_owned(), width))
+            (width + sizes.gap + 40.0 <= available).then_some((value.to_owned(), width))
         });
     let label_width =
-        (available - shortcut.as_ref().map_or(0.0, |(_, width)| width + GAP)).max(0.0);
+        (available - shortcut.as_ref().map_or(0.0, |(_, width)| width + sizes.gap)).max(0.0);
     let lines = crate::wrap_measured(&item.label, label_width, |part| {
-        measure(part, LABEL_FONT_SIZE)
+        measure(part, sizes.label_size)
     });
     let label_height = lines.len().max(1) as f32 * line_height;
     RowLayout {
-        height: (label_height + 6.0).max(ROW_HEIGHT),
+        height: (label_height + 6.0).max(sizes.row_height),
         label_width,
         label_height,
         shortcut,
@@ -174,6 +217,7 @@ pub(crate) fn surface(
     max_height: f32,
     measure: &dyn Fn(&str, f32) -> f32,
     line_height: f32,
+    sizes: Sizes,
 ) -> (Element, f32) {
     let inner = (width - INSET * 2.0).max(0.0);
     let reserve_icon = entries
@@ -182,14 +226,14 @@ pub(crate) fn surface(
     let layouts_at = |row_width| {
         entries
             .iter()
-            .map(|entry| row_layout(entry, row_width, reserve_icon, measure, line_height))
+            .map(|entry| row_layout(entry, row_width, reserve_icon, measure, line_height, sizes))
             .collect::<Vec<_>>()
     };
     let mut layouts = layouts_at(inner);
     let natural_height =
         |rows: &[RowLayout]| rows.iter().map(|row| row.height).sum::<f32>() + INSET * 2.0;
     let scrolling = natural_height(&layouts) > max_height;
-    let row_width = (inner - if scrolling { SCROLLBAR_GUTTER } else { 0.0 }).max(0.0);
+    let row_width = (inner - if scrolling { sizes.gutter } else { 0.0 }).max(0.0);
     if scrolling {
         // Reserving the rail can add wrapped lines. Use that final width for
         // both text paint and the scroll extent, without guessing row counts.
@@ -227,16 +271,17 @@ pub(crate) fn surface(
                     let icon = item
                         .icon
                         .map_or_else(Element::spacer, |icon| Element::icon(icon).foreground(ink));
+                    let side = sizes.icon_size;
                     children.push(
-                        centered(icon.size(Some(16.0), Some(16.0)))
-                            .size(Some(16.0), Some(layout.height)),
+                        centered(icon.size(Some(side), Some(side)))
+                            .size(Some(side), Some(layout.height)),
                     );
                 }
                 children.push(
                     centered(
                         Element::text(&item.label)
                             .font_family(FontFamily::Sans)
-                            .font_size(LABEL_FONT_SIZE)
+                            .font_size(sizes.label_size)
                             .foreground(ink)
                             .size(Some(layout.label_width), Some(layout.label_height)),
                     )
@@ -257,9 +302,9 @@ pub(crate) fn surface(
                     ));
                 }
                 let content = Element::row(vec![
-                    Element::spacer().size(Some(HORIZONTAL_PADDING), None),
-                    Element::row(children).gap(GAP).flex(1.0),
-                    Element::spacer().size(Some(HORIZONTAL_PADDING), None),
+                    Element::spacer().size(Some(sizes.padding), None),
+                    Element::row(children).gap(sizes.gap).flex(1.0),
+                    Element::spacer().size(Some(sizes.padding), None),
                 ]);
                 // The label alone names the row: its keys are not part of what it is called.
                 let access = Access::new(Role::MenuItem).name(&item.label);

@@ -3665,6 +3665,7 @@ pub struct UiTree {
     static_selection: Option<StaticSelection>,
     context_menu: Option<ContextMenuState>,
     context_menu_palette: crate::ComponentPalette,
+    context_menu_sizes: crate::context_menu::Sizes,
     context_menu_swallow_release: bool,
     ime_owner: Option<ime_tree::ImeOwner>,
     /// The field a held press extends the selection of, and whether it is
@@ -3750,6 +3751,7 @@ impl UiTree {
             static_selection: None,
             context_menu: None,
             context_menu_palette: crate::ComponentPalette::neutral_dark(),
+            context_menu_sizes: crate::context_menu::Sizes::default(),
             context_menu_swallow_release: false,
             ime_owner: None,
             field_drag: None,

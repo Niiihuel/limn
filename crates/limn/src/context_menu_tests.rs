@@ -827,3 +827,39 @@ fn a_menu_as_tall_as_the_window_allows_neither_scrolls_nor_lets_the_page_answer_
     assert!(menu.contains(Point::new(20.0, 20.0)));
     assert!(!shown(&frame), "the row under the menu does not answer the pointer");
 }
+
+#[test]
+fn a_host_draws_its_context_menus_at_its_other_menus_measures() {
+    let entries = vec![
+        ContextMenuEntry::Item(ContextMenuItem::new("a", "First")),
+        ContextMenuEntry::Item(ContextMenuItem::new("b", "Second")),
+    ];
+    let mut tree = UiTree::new(
+        ContextMenu::new(
+            "owner",
+            Element::button("owner", "Editor").size(Some(120.0), Some(32.0)),
+            entries,
+            ComponentPalette::neutral_dark(),
+        )
+        .render(),
+    );
+    tree.set_context_menu_sizing(crate::SelectorSizing {
+        preferred_width: 240.0,
+        row_height: 34.0,
+        label_size: 15.0,
+        ..crate::SelectorSizing::COMPACT
+    });
+    tree.set_reduced_motion(true);
+    let size = Size::new(800.0, 600.0);
+    tree.layout(size);
+    tree.focus("owner");
+    tree.handle_event(UiEvent::ContextMenuKeyboard);
+    let frame = tree.layout(size);
+    let rect = |id: &str| frame.regions.iter().find(|r| r.id == id).unwrap().rect;
+    assert_eq!(rect("__context_menu:surface").width, 240.0);
+    assert_eq!(rect(&crate::context_menu::row_id(0)).height, 34.0);
+    assert!(frame.commands.iter().any(|command| matches!(
+        command,
+        DrawCommand::Text { text, font_size, .. } if text == "First" && *font_size == 15.0
+    )));
+}
