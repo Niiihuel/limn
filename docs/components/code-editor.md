@@ -90,6 +90,7 @@ CodeEditor::new("source", controller)
 | `indent_style(IndentStyle)` | `IndentStyle::Spaces(4)` | Whether Tab indents with spaces or with tabs, and by how many columns |
 | `auto_pairs(bool)` | on | Typing an opening bracket or quote also inserts its closing one |
 | `vim_mode(bool)` | off | Modal editing with Vim's keys |
+| `scrollbar_appearance(ScrollbarAppearance)` | the editor's thin bar over the text | Draws both scrollbars as a `ScrollArea` with that appearance draws its own: each in its own rail when `Reserved`, the vertical one beside the text and the horizontal one under it, the thumb in the rail's middle, and with `buttons` an arrow at each end that scrolls three lines' height. Thumb drags and track presses work as before |
 
 `IndentStyle` is in `limn_editor`.
 
