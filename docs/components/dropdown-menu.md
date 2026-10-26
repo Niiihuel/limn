@@ -121,6 +121,11 @@ pointer opened closes when the pointer moves to another row of its parent;
 one the keyboard opened closes when the pointer moves to a row that opens a
 submenu, or to any row of a menu with `context_menu_style`.
 
+The submenu stands 3 px clear of its menu's edge, and the pointer crossing
+that gap from its row keeps it open. Near the foot of the window, with no
+room below its row, it ends level with the row instead of being pushed up by
+the edge.
+
 An item with a submenu can also have a `description`: it is a two-line row
 that ends with a chevron, such as a setting that shows its value under its
 name and opens the list of values.

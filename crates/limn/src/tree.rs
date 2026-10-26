@@ -7640,7 +7640,13 @@ fn place_popover(
         placement,
         PopoverPlacement::RightStart | PopoverPlacement::LeftStart
     ) {
-        anchor.y
+        // With no room below it ends level with its anchor, as a submenu near
+        // the foot of the window does, instead of being pushed up by the edge.
+        if anchor.y + height > viewport.y + viewport.height - inset {
+            anchor.y + anchor.height - height
+        } else {
+            anchor.y
+        }
     } else {
         if available_below == 0.0 && available_above == 0.0 {
             // Container-wide anchors can legitimately occupy the viewport.
@@ -11427,7 +11433,18 @@ impl LayoutBuilder<'_> {
                         || focusables.iter().any(|(id, _)| {
                             hovered == Some(id.as_str()) || focused == Some(id.as_str())
                         })
-                        || holds_submenu(floating, hovered, focused);
+                        || holds_submenu(floating, hovered, focused)
+                        // The pointer crossing the gap from the trigger's row towards the
+                        // surface, on either side, keeps it open on the way.
+                        || self.pointer.is_some_and(|point| {
+                            Rect::new(
+                                anchor_rect.x - *gap,
+                                anchor_rect.y,
+                                anchor_rect.width + *gap * 2.0,
+                                anchor_rect.height,
+                            )
+                            .contains(point)
+                        });
                     if !active {
                         return;
                     }
