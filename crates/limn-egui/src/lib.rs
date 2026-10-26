@@ -10,7 +10,7 @@ use eframe::egui::{
 };
 use limn::{
     Color, DrawCommand, FontFamily, Frame, Icon, Key, Point, RasterImage, RasterImageFormat, Rect,
-    SpinnerVariant, UiEvent,
+    OtherButton, SpinnerVariant, UiEvent,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -1578,7 +1578,7 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
 
 /// The ID a limn control has in the platform's accessibility tree.
 fn access_id(id: &str) -> egui::Id {
-    egui::Id::new(("limn-access", id))
+    egui::Id::unique(("limn-access", id))
 }
 
 /// Tell the platform what is in the frame: each control with its role, its
@@ -2044,7 +2044,7 @@ fn paint_at_impl(
                 let area = rect(origin, *area);
                 let response = ui.interact(
                     area,
-                    egui::Id::new((
+                    egui::Id::unique((
                         "limn-raster-image",
                         image.sha256(),
                         area.min.x.to_bits(),
@@ -2053,7 +2053,7 @@ fn paint_at_impl(
                     egui::Sense::hover(),
                 );
                 response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Image, true, image.alt())
+                    egui::WidgetInfo::labeled(egui::Role::Image, true, image.alt())
                 });
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
                 let texture = if image.is_full_resolution() {
@@ -2103,11 +2103,11 @@ fn paint_at_impl(
                 let area = rect(origin, *area);
                 let response = ui.interact(
                     area,
-                    egui::Id::new(("limn-surface", id)),
+                    egui::Id::unique(("limn-surface", id)),
                     egui::Sense::hover(),
                 );
                 response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label)
+                    egui::WidgetInfo::labeled(egui::Role::Image, true, label)
                 });
                 let painter = ui
                     .painter()
@@ -2356,15 +2356,36 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                 egui::Event::PointerButton {
                     pos,
                     button: button @ (egui::PointerButton::Extra1 | egui::PointerButton::Extra2),
-                    pressed: true,
+                    pressed,
                     ..
                 } => {
                     pointer = Some(*pos);
                     let position = relative(origin, *pos);
-                    emit(if *button == egui::PointerButton::Extra1 {
-                        UiEvent::PointerBack(position)
-                    } else {
-                        UiEvent::PointerForward(position)
+                    let back = *button == egui::PointerButton::Extra1;
+                    if *pressed {
+                        emit(if back {
+                            UiEvent::PointerBack(position)
+                        } else {
+                            UiEvent::PointerForward(position)
+                        });
+                    }
+                    emit(UiEvent::OtherButton {
+                        button: if back { OtherButton::Back } else { OtherButton::Forward },
+                        pressed: *pressed,
+                        position,
+                    });
+                }
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Middle,
+                    pressed,
+                    ..
+                } => {
+                    pointer = Some(*pos);
+                    emit(UiEvent::OtherButton {
+                        button: OtherButton::Middle,
+                        pressed: *pressed,
+                        position: relative(origin, *pos),
                     });
                 }
                 egui::Event::PointerButton {
@@ -2479,6 +2500,16 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                 egui::Event::Paste(value) => {
                     emit(UiEvent::Paste(value.clone()));
                 }
+                // egui keeps premultiplied pixels; the host gets plain RGBA.
+                egui::Event::PasteImage(image) => emit(UiEvent::PasteImage {
+                    width: image.size[0],
+                    height: image.size[1],
+                    rgba: image
+                        .pixels
+                        .iter()
+                        .flat_map(|pixel| pixel.to_srgba_unmultiplied())
+                        .collect(),
+                }),
                 egui::Event::Copy => emit(UiEvent::Key {
                     key: Key::C,
                     shift: input.modifiers.shift,
@@ -3013,7 +3044,7 @@ mod tests {
                 key(egui::Key::ArrowLeft, egui::Modifiers::ALT),
                 side(egui::PointerButton::Extra1, true),
                 side(egui::PointerButton::Extra2, true),
-                // A release is not a second press.
+                // A release is not a second history press, but it is a release.
                 side(egui::PointerButton::Extra1, false),
             ],
             ..Default::default()
@@ -3024,7 +3055,28 @@ mod tests {
             UiEvent::Key { key: Key::Slash, shift: false, ctrl: true, alt: false },
             UiEvent::Key { key: Key::ArrowLeft, shift: false, ctrl: false, alt: true },
             UiEvent::PointerBack(Point::new(20.0, 10.0)),
+            UiEvent::OtherButton { button: OtherButton::Back, pressed: true, position: Point::new(20.0, 10.0) },
             UiEvent::PointerForward(Point::new(20.0, 10.0)),
+            UiEvent::OtherButton { button: OtherButton::Forward, pressed: true, position: Point::new(20.0, 10.0) },
+            UiEvent::OtherButton { button: OtherButton::Back, pressed: false, position: Point::new(20.0, 10.0) },
+        ]);
+    }
+
+    #[test]
+    fn middle_button_is_reported_on_press_and_release() {
+        let ctx = egui::Context::default();
+        let mut forwarded = Vec::new();
+        let middle = |pressed| egui::Event::PointerButton {
+            pos: egui::pos2(30.0, 20.0), button: egui::PointerButton::Middle, pressed, modifiers: egui::Modifiers::default(),
+        };
+        let mut output = ctx.run_ui(egui::RawInput {
+            events: vec![middle(true), middle(false)],
+            ..Default::default()
+        }, |ui| forwarded = events(ui.ctx(), Pos2::new(10.0, 10.0)));
+        output.textures_delta.clear();
+        assert_eq!(forwarded, vec![
+            UiEvent::OtherButton { button: OtherButton::Middle, pressed: true, position: Point::new(20.0, 10.0) },
+            UiEvent::OtherButton { button: OtherButton::Middle, pressed: false, position: Point::new(20.0, 10.0) },
         ]);
     }
 
@@ -3193,6 +3245,35 @@ mod tests {
     }
 
     #[test]
+    fn pasted_picture_reaches_the_host_as_plain_rgba() {
+        let ctx = egui::Context::default();
+        let mut forwarded = Vec::new();
+        let image = egui::ColorImage::new(
+            [2, 1],
+            vec![
+                egui::Color32::from_rgba_premultiplied(10, 20, 30, 255),
+                egui::Color32::TRANSPARENT,
+            ],
+        );
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::PasteImage(std::sync::Arc::new(image))],
+                ..Default::default()
+            },
+            |ui| forwarded = events(ui.ctx(), Pos2::ZERO),
+        );
+        output.textures_delta.clear();
+        assert_eq!(
+            forwarded,
+            vec![UiEvent::PasteImage {
+                width: 2,
+                height: 1,
+                rgba: std::sync::Arc::from([10, 20, 30, 255, 0, 0, 0, 0]),
+            }]
+        );
+    }
+
+    #[test]
     fn native_wheel_units_preserve_direct_touchpad_input_and_scroll_direction() {
         let ctx = egui::Context::default();
         let origin = Pos2::new(100.0, 50.0);
@@ -3205,18 +3286,21 @@ mod tests {
                         unit: egui::MouseWheelUnit::Point,
                         delta: egui::vec2(0.0, -2.5),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::default(),
                     },
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -2.0),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::default(),
                     },
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Page,
                         delta: egui::vec2(0.0, 1.0),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::default(),
                     },
                 ],

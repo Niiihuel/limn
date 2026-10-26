@@ -26,7 +26,7 @@ limn = { version = "0.1.43", path = "../limn", default-features = false }
 limn-egui = { version = "0.1.43", path = "../limn-egui", default-features = false }
 # The buffer a `CodeEditor` draws.
 limn-editor = { version = "0.1.43", path = "../limn-editor" }
-eframe = { version = "0.36.2", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
+eframe = { version = "0.37.0", default-features = false, features = ["wgpu", "default_fonts", "x11", "wayland"] }
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 # The image viewer's pictures are drawn at start, and a picture is known by
 # the SHA-256 of its bytes, in base64; limn-egui already builds both.

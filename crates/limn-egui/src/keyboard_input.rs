@@ -25,7 +25,7 @@ pub fn normalize_keyboard_input(ctx: &egui::Context) {
     }) {
         return;
     }
-    let id = egui::Id::new(("limn_keyboard_normalization", ctx.viewport_id()));
+    let id = egui::Id::unique(("limn_keyboard_normalization", ctx.viewport_id()));
     let mut state = ctx.data_mut(|data| {
         data.get_temp::<KeyboardNormalization>(id)
             .unwrap_or_default()

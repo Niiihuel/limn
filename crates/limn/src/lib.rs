@@ -263,8 +263,8 @@ pub use labels::{labels, set_labels, Labels};
 pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, Tokens};
 pub use theme::Theme;
 pub use tree::{
-    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, Modifiers, PasteTarget, TextLayoutBlock,
-    TextLayoutRun, UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
+    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, Key, Modifiers, OtherButton, PasteTarget,
+    TextLayoutBlock, TextLayoutRun, UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
 };
 pub use tree_view::{guides_for_depths, TreeGuides, TreeRow};
 pub use typography::{truncate_measured, wrap_measured, TextRole};

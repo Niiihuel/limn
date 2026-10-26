@@ -445,7 +445,7 @@ struct App {
     opened: Instant,
     settled_frames: u8,
     capture_requested: bool,
-    capture_data: egui::UserData,
+    shot: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<egui::ColorImage>>>>,
 }
 
 impl App {
@@ -468,7 +468,7 @@ impl App {
             opened: Instant::now(),
             settled_frames: 0,
             capture_requested: false,
-            capture_data: egui::UserData::new(()),
+            shot: Default::default(),
         }
     }
 
@@ -494,7 +494,7 @@ impl App {
         self.opened = Instant::now();
         self.settled_frames = 0;
         self.capture_requested = false;
-        self.capture_data = egui::UserData::new(());
+        self.shot = Default::default();
         self.completion.verified.set(false);
         self.completion.saved.set(false);
         self.completion.failed.set(false);
@@ -717,22 +717,12 @@ impl App {
         if let Some(path) = self.options.screenshot.as_ref() {
             if !self.capture_requested {
                 self.capture_requested = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(self.capture_data.clone()));
+                let shot = self.shot.clone();
+                ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(
+                    move |image| *shot.lock().expect("screenshot slot") = Some(image),
+                )));
             }
-            let image = ctx.input(|input| {
-                input.events.iter().find_map(|event| match event {
-                    egui::Event::Screenshot {
-                        viewport_id,
-                        user_data,
-                        image,
-                    } if *viewport_id == egui::ViewportId::ROOT
-                        && *user_data == self.capture_data =>
-                    {
-                        Some(image.clone())
-                    }
-                    _ => None,
-                })
-            });
+            let image = self.shot.lock().expect("screenshot slot").take();
             if let Some(image) = image {
                 let saved = (|| -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                     let output = std::fs::OpenOptions::new()
