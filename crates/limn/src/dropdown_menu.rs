@@ -25,6 +25,9 @@ pub struct DropdownMenuItem {
     pub label: String,
     /// A leading icon. `None` leaves the slot empty when another item has one.
     pub icon: Option<Icon>,
+    /// A leading picture in its own colors, such as an application's icon, drawn in the
+    /// icon's slot in place of `icon` and never tinted. Set with `picture`.
+    pub picture: Option<crate::RasterImage>,
     /// A keyboard shortcut drawn as keycaps at the trailing edge. The `shortcut`
     /// builder clears `annotation`; with both set, only the shortcut is drawn.
     pub shortcut: Option<String>,
@@ -61,6 +64,7 @@ impl DropdownMenuItem {
             action_id: action_id.into(),
             label: label.into(),
             icon: None,
+            picture: None,
             shortcut: None,
             annotation: None,
             selected: false,
@@ -81,6 +85,14 @@ impl DropdownMenuItem {
     /// A leading icon, drawn in the item's ink, or muted while the item is disabled.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// A leading picture in its own colors, such as the icon of the application the item
+    /// opens. It takes the icon's slot, square, and is drawn as it is: not tinted, not muted
+    /// while the item is disabled. It is drawn in place of any `icon`.
+    pub fn picture(mut self, picture: crate::RasterImage) -> Self {
+        self.picture = Some(picture);
         self
     }
 
@@ -727,7 +739,7 @@ impl Component for DropdownMenu {
         let reserve_icon = self
             .entries
             .iter()
-            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some()));
+            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some() || item.picture.is_some()));
         let choices = self
             .entries
             .iter()
@@ -872,6 +884,7 @@ impl Component for DropdownMenu {
                         label: item.label,
                         description: item.description.unwrap_or_default(),
                         icon: item.icon,
+                        picture: item.picture,
                         mono: item.detail_mono,
                         status: item.status,
                         status_width: item.status_width,
@@ -957,7 +970,9 @@ impl Component for DropdownMenu {
                     let mut children = Vec::with_capacity(5);
                     if reserve_icon {
                         children.push(
-                            if let Some(icon) = item.icon {
+                            if let Some(picture) = item.picture {
+                                crate::menu::picture_slot(picture, icon_size)
+                            } else if let Some(icon) = item.icon {
                                 Element::icon(icon).foreground(if enabled {
                                     ink
                                 } else {
@@ -2886,6 +2901,69 @@ mod tests {
                 id: "dismiss".into()
             }]
         );
+    }
+
+    #[test]
+    fn a_picture_takes_the_icon_slot_square_in_plain_and_detail_rows() {
+        let palette = ComponentPalette::neutral_dark();
+        let picture = |alt: &str| {
+            crate::RasterImage::new(
+                "a".repeat(64),
+                crate::RasterImageFormat::Png,
+                4,
+                std::sync::Arc::from("AAAA"),
+                alt,
+            )
+            .unwrap()
+        };
+        let menu = DropdownMenu::new(
+            Element::button("trigger", "Open in"),
+            vec![
+                DropdownMenuItem::new("editor", "Editor")
+                    .picture(picture("Editor"))
+                    .into(),
+                DropdownMenuItem::new("files", "File manager")
+                    .icon(Icon::Folder)
+                    .into(),
+                DropdownMenuItem::new("other", "Other")
+                    .description("With a line under it")
+                    .picture(picture("Other"))
+                    .into(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        )
+        .render();
+        let frame = UiTree::new(menu).layout(Size::new(360.0, 260.0));
+        let pictures: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::RasterImage { rect, image, .. } => Some((*rect, image.alt())),
+                _ => None,
+            })
+            .collect();
+        let side = SelectorSizing::COMPACT.icon_size;
+        assert_eq!(pictures.len(), 2, "one picture a row that has one");
+        for (rect, _) in &pictures {
+            assert_eq!((rect.width, rect.height), (side, side));
+        }
+        // In line with the icon of the row between them.
+        let folder = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Icon {
+                    icon: Icon::Folder,
+                    rect,
+                    ..
+                } => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        let center = |r: crate::Rect| r.x + r.width / 2.0;
+        assert!((center(pictures[0].0) - center(folder)).abs() < 1.0);
     }
 
     #[test]
