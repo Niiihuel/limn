@@ -79,6 +79,10 @@ const KEYWORD: Color = Color::rgb(184, 143, 216);
 const NUMBER: Color = Color::rgb(151, 193, 169);
 #[cfg_attr(not(feature = "syntax"), allow(dead_code))]
 const FUNCTION: Color = Color::rgb(143, 185, 218);
+#[cfg_attr(not(feature = "syntax"), allow(dead_code))]
+const TYPE: Color = Color::rgb(225, 196, 131);
+#[cfg_attr(not(feature = "syntax"), allow(dead_code))]
+const PROPERTY: Color = Color::rgb(160, 191, 217);
 // What `CodeSyntaxColors::for_palette` paints each lexer ink as on a dark palette and on a light
 // one: each above 4.5:1 on dark fills up to rgb(53, 53, 56) and light ones down to
 // rgb(220, 220, 220). Only the comment is lighter than the code views' own on dark.
@@ -111,21 +115,29 @@ pub struct CodeSyntaxColors {
     /// `}` in a JavaScript template, whose contents are then drawn in
     /// `text`; `None` leaves the whole string in `string`.
     pub interpolation: Option<Color>,
+    /// Type names, as `String` in `let s: String`, where the tree-sitter
+    /// grammars tell them apart; `None` leaves them to the rule for the inks
+    /// limn has no field for.
+    pub types: Option<Color>,
+    /// Fields and properties, as `len` in `v.len`, likewise.
+    pub properties: Option<Color>,
 }
 
 impl CodeSyntaxColors {
     /// The host's ink for a built-in one. The inks limn has no field for are made for dark
     /// fills: on light ones they are `text`.
     pub(crate) fn ink(&self, built_in: Color, dark: bool) -> Color {
-        match (built_in, self.function) {
-            (COMMENT, _) => self.comment,
-            (STRING, _) => self.string,
-            (KEYWORD, _) => self.keyword,
-            (NUMBER, _) => self.number,
-            (FUNCTION, Some(function)) => function,
-            _ if dark => built_in,
-            _ => self.text,
-        }
+        let host = match built_in {
+            COMMENT => Some(self.comment),
+            STRING => Some(self.string),
+            KEYWORD => Some(self.keyword),
+            NUMBER => Some(self.number),
+            FUNCTION => self.function,
+            TYPE => self.types,
+            PROPERTY => self.properties,
+            _ => None,
+        };
+        host.unwrap_or(if dark { built_in } else { self.text })
     }
 
     /// Inks that read on `palette`, dark or light, each at least 4.5:1 on its
@@ -143,6 +155,8 @@ impl CodeSyntaxColors {
             number: ink(3),
             function: None,
             interpolation: None,
+            types: None,
+            properties: None,
         }
     }
 }
@@ -462,8 +476,8 @@ fn highlight_color(kind: limn_language::HighlightKind) -> Color {
         HighlightKind::Keyword => KEYWORD,
         HighlightKind::Number => NUMBER,
         HighlightKind::Function => FUNCTION,
-        HighlightKind::Type => Color::rgb(225, 196, 131),
-        HighlightKind::Property => Color::rgb(160, 191, 217),
+        HighlightKind::Type => TYPE,
+        HighlightKind::Property => PROPERTY,
         HighlightKind::Variable | HighlightKind::Operator => Color::rgb(205, 205, 205),
     }
 }
@@ -939,16 +953,19 @@ mod tests {
             comment: host(5),
             function: Some(host(6)),
             interpolation: None,
+            types: Some(host(7)),
+            properties: None,
         };
-        let pairs = [(KEYWORD, 2), (STRING, 3), (NUMBER, 4), (COMMENT, 5), (FUNCTION, 6)];
+        let pairs = [(KEYWORD, 2), (STRING, 3), (NUMBER, 4), (COMMENT, 5), (FUNCTION, 6), (TYPE, 7)];
         for (built_in, expected) in pairs {
             assert_eq!(colors.ink(built_in, false), host(expected));
         }
-        let other = Color::rgb(225, 196, 131);
+        let other = Color::rgb(205, 205, 205);
         assert_eq!(colors.ink(other, false), host(1), "on light fills, text");
         assert_eq!(colors.ink(other, true), other, "made for dark fills, kept on them");
         let plain = CodeSyntaxColors { function: None, ..colors };
         assert_eq!(plain.ink(FUNCTION, false), host(1));
+        assert_eq!(colors.ink(PROPERTY, false), host(1), "no ink for properties: text");
     }
 
     use super::*;
