@@ -10664,7 +10664,13 @@ impl LayoutBuilder<'_> {
     }
 
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
-        self.place_translated(element, Self::translated_rect(element, rect), clip);
+        let mut rect = Self::translated_rect(element, rect);
+        if let Some((id, y)) = element.kept.as_ref().and_then(|kept| kept.slide.as_ref()) {
+            // Three moves: long enough to see the rows go by, as a counter rolls.
+            let pace = crate::tokens().motion.move_ms.saturating_mul(3);
+            rect.y += self.spring_paced(&format!("slide/{id}"), *y, pace, pace);
+        }
+        self.place_translated(element, rect, clip);
     }
 
     fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
