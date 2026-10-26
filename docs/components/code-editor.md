@@ -99,6 +99,24 @@ the same size. Invalid numbers and nonpositive sizes are ignored; valid sizes
 are kept within 1 to 96. `diff_backgrounds(false)` hides the row tints of review
 hunks while keeping their edge markers, removed lines and controls.
 
+## Change marks
+
+`change_marks(document_id, marks)` marks rows that changed against a version
+the host compares with, as a committed one, in the gutter: each
+`CodeChangeMark` spans `rows` in its `color`, a 3 px bar beside each of them,
+and an empty range is a wedge on the line before its row, where lines were
+removed. The marks are drawn on every revision of their document, so the host
+works them out again when it has a new version to compare with.
+
+```rust
+CodeEditor::new("source", controller)
+    .change_marks(document_id, vec![
+        CodeChangeMark { rows: 4..6, color: added },
+        CodeChangeMark { rows: 12..12, color: removed },
+    ])
+    .render()
+```
+
 ## Read-only
 
 ```rust

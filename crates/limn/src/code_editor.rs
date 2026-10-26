@@ -127,6 +127,18 @@ pub struct CodeDiagnostic {
     pub message: String,
 }
 
+/// A mark in the gutter for rows that changed, as against a saved or committed version. Rows
+/// are zero-based; an empty range marks lines removed before its row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CodeChangeMark {
+    /// The rows the mark spans, end-exclusive. Empty for removed lines, drawn as a short
+    /// wedge on the line between the row before and this one.
+    pub rows: std::ops::Range<usize>,
+    /// The mark's color, the host's: often one for added rows, one for changed and one for
+    /// removed.
+    pub color: Color,
+}
+
 /// The shape of `CodeEditor`'s caret.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CaretStyle {
@@ -262,6 +274,12 @@ pub struct CodeEditor {
     /// The buttons of each hunk, at the same index. No hunk gets controls unless there is
     /// exactly one entry per hunk.
     pub review_actions: Arc<[CodeReviewHunkActions]>,
+    /// The document `change_marks` belong to. Set with `change_marks`.
+    pub change_marks_document_id: Option<u64>,
+    /// Marks of changed rows in the gutter, in ascending order of their rows; only the first
+    /// 4096 are looked at. They are drawn on every revision of their document, so the host
+    /// recomputes them when it has a new version to compare with.
+    pub change_marks: Arc<[CodeChangeMark]>,
 }
 
 impl CodeEditor {
@@ -319,6 +337,8 @@ impl CodeEditor {
             review_revision: None,
             review_hunks: Arc::from([]),
             review_actions: Arc::from([]),
+            change_marks_document_id: None,
+            change_marks: Arc::from([]),
         }
     }
     /// Use this palette for the surface, the text and the editor's marks.
@@ -362,6 +382,17 @@ impl CodeEditor {
     /// The view emits these IDs; it never accepts or rewrites a source file.
     pub fn review_actions(mut self, actions: impl Into<Arc<[CodeReviewHunkActions]>>) -> Self {
         self.review_actions = actions.into();
+        self
+    }
+    /// Mark changed rows of the document `document_id` in the gutter: a bar beside rows
+    /// that were added or changed, a wedge where lines were removed.
+    pub fn change_marks(
+        mut self,
+        document_id: u64,
+        marks: impl Into<Arc<[CodeChangeMark]>>,
+    ) -> Self {
+        self.change_marks_document_id = Some(document_id);
+        self.change_marks = marks.into();
         self
     }
     /// Set the height, in logical pixels, never below 24. A height that is
@@ -2414,6 +2445,15 @@ impl EditorView {
                 continue;
             }
             commands.push(DrawCommand::PushClip(row_clip));
+            if self.editor.change_marks_document_id == Some(snapshot.document_id()) {
+                paint_change_marks(
+                    &mut commands,
+                    &self.editor.change_marks,
+                    row,
+                    continuation,
+                    Rect::new(rect.x, y, 3.0, self.editor.line_height()),
+                );
+            }
             if self.review_layout.added(row) {
                 if self.editor.diff_backgrounds {
                     commands.push(DrawCommand::FillRect {
@@ -2901,6 +2941,32 @@ fn unit_selection(snapshot: &BufferSnapshot, offset: usize, clicks: u8) -> Selec
 // Drawing boundary receives the same snapshot, geometry, palette and native
 // font metrics used by the editor body, without hidden layout state.
 #[allow(clippy::too_many_arguments)]
+/// The marks of `row` at `cell`, the gutter's first 3 px of that line: a bar for a range that
+/// holds the row, and, on its first line, a wedge for removed lines before it.
+fn paint_change_marks(
+    commands: &mut Vec<DrawCommand>,
+    marks: &[CodeChangeMark],
+    row: usize,
+    continuation: bool,
+    cell: Rect,
+) {
+    for mark in marks.iter().take(4096) {
+        if mark.rows.contains(&row) {
+            commands.push(DrawCommand::FillRect {
+                rect: cell,
+                color: mark.color,
+                radius: 0.0,
+            });
+        } else if mark.rows.is_empty() && mark.rows.start == row && !continuation {
+            commands.push(DrawCommand::FillRect {
+                rect: Rect::new(cell.x, cell.y - 3.0, 6.0, 6.0),
+                color: mark.color,
+                radius: 1.0,
+            });
+        }
+    }
+}
+
 fn paint_editor_status(
     commands: &mut Vec<DrawCommand>,
     font_size: f32,

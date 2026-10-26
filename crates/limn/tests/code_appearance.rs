@@ -178,3 +178,40 @@ fn equal_code_blocks_and_cached_markdown_previews_have_independent_scrolls() {
         .map(|region| &region.id).collect::<std::collections::HashSet<_>>();
     assert_eq!(ids.len(), 6, "anonymous instances never share mutable state");
 }
+
+#[test]
+fn change_marks_draw_bars_beside_their_rows_and_wedges_where_lines_went() {
+    let buffer = TextBuffer::new("a\nb\nc\nd\n").unwrap();
+    let document = buffer.document_id();
+    let controller = EditorController::new(buffer);
+    let (green, red) = (limn::Color::rgb(0, 200, 0), limn::Color::rgb(200, 0, 0));
+    let marks = vec![
+        limn::CodeChangeMark { rows: 1..3, color: green },
+        limn::CodeChangeMark { rows: 3..3, color: red },
+    ];
+    let editor = |document| {
+        CodeEditor::new("code", controller.clone())
+            .change_marks(document, marks.clone())
+            .render()
+    };
+    let fills = |frame: &limn::Frame, ink| {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *color == ink => Some(*rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let frame = tree(editor(document)).layout(Size::new(400.0, 200.0));
+    let bars = fills(&frame, green);
+    assert_eq!(bars.len(), 2);
+    assert!(bars.iter().all(|bar| bar.width == 3.0));
+    let wedge = fills(&frame, red);
+    assert_eq!(wedge.len(), 1);
+    assert_eq!(wedge[0].y + 3.0, bars[1].y + bars[1].height, "between the last bar and row 3");
+    // Marks of another document are not drawn.
+    let frame = tree(editor(document + 1)).layout(Size::new(400.0, 200.0));
+    assert!(fills(&frame, green).is_empty());
+}
