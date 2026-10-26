@@ -3238,11 +3238,22 @@ fn visible_display_line(
                 .text_range(window.char_range.clone())
                 .unwrap_or_default()
         };
-        (
-            DisplayLine::new_at(&source, tabs, window.start_column, measure),
-            window.char_range,
-            window.truncated,
-        )
+        let mut display = DisplayLine::new_at(&source, tabs, window.start_column, measure);
+        // A line that goes on past the window is as wide as all its columns, not as what
+        // shows of it: else the horizontal extent grows, and the bar shrinks, as it scrolls.
+        // Past 100 000 characters each counts one column, rather than walk the line each frame.
+        let columns = window
+            .truncated
+            .then(|| snapshot.line_range(row).ok())
+            .flatten()
+            .and_then(|line| match line.len() {
+                len if len > 100_000 => Some(len),
+                _ => snapshot.display_column(line.end, tabs).ok(),
+            });
+        if let Some(columns) = columns {
+            display.width = display.width.max(columns as f32 * cell);
+        }
+        (display, window.char_range, window.truncated && columns.is_none())
     } else {
         (DisplayLine::new("", tabs, measure), 0..0, false)
     }
