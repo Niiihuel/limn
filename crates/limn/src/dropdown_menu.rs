@@ -408,6 +408,9 @@ fn group_boundaries(entries: Vec<DropdownMenuEntry>) -> Vec<DropdownMenuEntry> {
     grouped
 }
 
+/// The space between a menu's edge and a submenu beside it.
+const SUBMENU_CLEARANCE: f32 = 3.0;
+
 /// Caller-owned open state with one retained, animated popover. Arrow keys,
 /// Home/End, Tab, Escape and viewport-aware placement come from `UiTree`.
 pub struct DropdownMenu {
@@ -756,6 +759,9 @@ impl Component for DropdownMenu {
                 .max_visible_items(self.max_visible_items)
                 .render()
                 .popover_on_hover()
+                // Measured from the row, which sits `inset` inside the menu's edge:
+                // the submenu stands clear of the menu instead of overlapping it.
+                .popover_gap(inset + SUBMENU_CLEARANCE)
         };
         let rows = self
             .entries
@@ -2961,6 +2967,46 @@ mod tests {
             ctrl: false,
         });
         assert_eq!(tree.focused_id(), Some("settings"));
+    }
+
+    #[test]
+    fn a_submenu_stands_clear_of_its_menu_and_ends_at_its_row_near_the_foot() {
+        let more: Vec<DropdownMenuEntry> = (0..8)
+            .map(|n| DropdownMenuItem::new(format!("model-{n}"), format!("Model {n}")).into())
+            .collect();
+        let menu = DropdownMenu::new(
+            Element::button("trigger", "Model"),
+            vec![
+                DropdownMenuItem::new("one", "One").into(),
+                DropdownMenuItem::new("more", "More models").submenu(more).into(),
+            ],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        )
+        .placement(PopoverPlacement::TopStart)
+        .render();
+        let size = Size::new(640.0, 400.0);
+        let mut tree = UiTree::new(Element::column(vec![Element::spacer().flex(1.0), menu]));
+        let frame = tree.layout(size);
+        let row = frame.regions.iter().find(|region| region.id == "more").unwrap().rect;
+        tree.handle_event(UiEvent::PointerMove(Point::new(row.x + 12.0, row.y + 12.0)));
+        let frame = tree.layout(size);
+        let first = frame.regions.iter().find(|region| region.id == "model-0").unwrap().rect;
+        let last = frame.regions.iter().find(|region| region.id == "model-7").unwrap().rect;
+        // The row sits 6 inside its menu, the submenu 3 beyond the menu, its rows 6 inside it.
+        assert_eq!(first.x, row.x + row.width + 6.0 + SUBMENU_CLEARANCE + 6.0);
+        // No room below the row: the submenu ends level with it instead.
+        assert!(last.y + last.height <= row.y + row.height, "{last:?} {row:?}");
+        assert!(last.y + last.height >= row.y + row.height - 12.0, "{last:?} {row:?}");
+        // Crossing the menu's padding and the gap on the way keeps it open.
+        let gap = Point::new(row.x + row.width + 6.0 + SUBMENU_CLEARANCE / 2.0, row.y + 12.0);
+        tree.handle_event(UiEvent::PointerMove(gap));
+        let frame = tree.layout(size);
+        let last = frame.regions.iter().find(|region| region.id == "model-7").unwrap().rect;
+        let inside = Point::new(last.x + 12.0, last.y + 12.0);
+        tree.handle_event(UiEvent::PointerMove(inside));
+        assert_eq!(tree.layout(size).hit_test(inside), Some("model-7"));
     }
 
     #[test]
