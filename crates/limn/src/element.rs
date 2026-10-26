@@ -905,6 +905,8 @@ pub(crate) struct Kept {
     /// The ID a paint scale is kept under, its factor, and the point it grows
     /// from as shares of the element's width and height.
     pub(crate) scale: Option<(String, f32, Point)>,
+    /// The ID a paint slide is kept under, and how far down it paints.
+    pub(crate) slide: Option<(String, f32)>,
     /// Set by [`Element::wrap`]: a row moves children onto more lines.
     pub(crate) wrap: bool,
     /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
@@ -2250,6 +2252,20 @@ impl Element {
     pub fn animate_scale_about(mut self, id: impl Into<String>, factor: f32, anchor: Point) -> Self {
         if factor.is_finite() && factor > 0.0 && anchor.x.is_finite() && anchor.y.is_finite() {
             self.kept.get_or_insert_default().scale = Some((id.into(), factor, anchor));
+        }
+        self
+    }
+
+    /// Place this element and what is inside it `y` logical pixels below its
+    /// slot, as [`Element::translate`] does; a negative `y` places it above.
+    /// Its siblings keep their places, so a parent that clips shows a window
+    /// onto a taller column, as [`crate::RollingNumber`] does. The offset is
+    /// kept under `id` and springs to a new one over three `move_ms`, long
+    /// enough to see what passes, or changes at once under reduced motion. An
+    /// offset that is not finite is ignored.
+    pub fn animate_slide(mut self, id: impl Into<String>, y: f32) -> Self {
+        if y.is_finite() {
+            self.kept.get_or_insert_default().slide = Some((id.into(), y));
         }
         self
     }
