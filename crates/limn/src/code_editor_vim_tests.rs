@@ -404,3 +404,16 @@ fn vim_is_opt_in_and_normal_mode_ignores_paste_and_ime_commits() {
     modal.command("x");
     assert_eq!(modal.text(), "xabc");
 }
+
+#[test]
+fn a_host_that_shows_the_mode_itself_turns_the_badge_off() {
+    let mut modal = Modal::new("abc");
+    let editor = CodeEditor::new("vim", modal.controller.clone())
+        .vim_mode(true)
+        .vim_mode_label(false);
+    modal.view = EditorView::new(editor, modal.now);
+    let commands = modal.paint();
+    assert!(!commands
+        .iter()
+        .any(|c| matches!(c, DrawCommand::Text { text, .. } if text == "NORMAL")));
+}
