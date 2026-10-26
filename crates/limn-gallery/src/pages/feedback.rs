@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     Alert, AlertTone, Avatar, Chip, Collapse, Color, Component, ControlSize, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
-    Spinner, SpinnerVariant, Ticker,
+    RollingNumber, Spinner, SpinnerVariant, Ticker,
 };
 
 const CHIP_TONES: [(AlertTone, &str); 5] = [
@@ -203,6 +203,17 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render()]),
             caption(cx, "The slot always measures two lines: content below it stays in place."),
         ]),
+        section(cx, "Rolling number", {
+            let lines: u32 = cx.state.choice("feedback-rolling", "5318").parse().unwrap_or(5318);
+            vec![
+                RollingNumber::new("feedback-rolling-lines", format!("+{lines}"), palette).font_size(14.0).render(),
+                row(vec![
+                    Button::new(format!("feedback-rolling={}", lines + 7), "Add 7", palette).variant(ButtonVariant::Outline).render(),
+                    Button::new(format!("feedback-rolling={}", lines.saturating_sub(1250)), "Take 1,250", palette).variant(ButtonVariant::Outline).render(),
+                ]),
+                caption(cx, "Each digit rolls up to a greater value and down to a lesser one."),
+            ]
+        }),
         section(cx, "Closing slot", vec![
             // No gap around the slot: a gap would vanish in one frame at the end.
             Element::column(vec![
