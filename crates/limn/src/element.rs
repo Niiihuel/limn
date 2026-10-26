@@ -4199,11 +4199,14 @@ mod surface_tests {
         let size = Size::new(300.0, 200.0);
         let page = || Element::surface("page-pixels", "Page").size(Some(200.0), Some(200.0));
         let card = |w: f32| Element::spacer().background(Color::rgb(200, 0, 0)).size(Some(w), Some(40.0));
-        // Beside it, nothing covers it; a surface not drawn is not covered either.
+        // Beside it or under it, nothing covers it; a surface not drawn is not covered either.
         let mut tree = UiTree::new(Element::row(vec![page(), card(100.0)]));
         let frame = tree.layout(size);
         assert!(!frame.drawn_over("page-pixels"));
         assert!(!frame.drawn_over("elsewhere"));
+        let below = Element::column(vec![Element::surface("page-pixels", "Page").size(Some(200.0), Some(150.0)), Element::text("Couldn't open the page")]);
+        let mut tree = UiTree::new(below);
+        assert!(!tree.layout(size).drawn_over("page-pixels"));
         // Stacked after it, a menu covers it.
         let mut tree = UiTree::new(Element::stack(vec![page(), card(60.0)]));
         assert!(tree.layout(size).drawn_over("page-pixels"));
