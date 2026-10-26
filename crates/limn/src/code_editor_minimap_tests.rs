@@ -422,6 +422,49 @@ fn editor_scrollbars_share_scrollarea_ink_and_shape_without_changing_drag_geomet
 }
 
 #[test]
+fn an_editor_given_a_scrollbar_appearance_draws_scrollarea_rail_and_its_arrows_step() {
+    let (_, mut plain) = fixture(200);
+    plain.editor.minimap = false;
+    paint(&mut plain, 600.0);
+    let (_, mut railed) = fixture(200);
+    railed.editor.minimap = false;
+    railed.editor.scrollbar_appearance = Some(crate::ScrollbarAppearance::default());
+    let commands = paint(&mut railed, 600.0);
+    let appearance = crate::ScrollbarAppearance::default();
+    let rail = appearance.effective_rail_width(600.0);
+    // Reserved: the text leaves the rail's width rather than the bar's 8 px.
+    assert_eq!(
+        railed.viewport.body.width,
+        plain.viewport.body.width + 8.0 - rail
+    );
+    let arrows = commands
+        .iter()
+        .filter(|command| matches!(command, DrawCommand::FillTriangle { .. }))
+        .count();
+    assert_eq!(arrows, 2);
+    let geometry = railed.viewport.rail_geometry().unwrap();
+    let (up, down) = (geometry.up.unwrap(), geometry.down.unwrap());
+    assert_eq!((up.width, up.height), (rail, rail));
+    // The thumb sits in the rail's middle, between the arrows.
+    assert!(commands.iter().any(|command| matches!(command,
+        DrawCommand::FillRect { rect, .. }
+        if rect.width == appearance.thumb_width
+            && (rect.x + rect.width / 2.0 - (geometry.rail.x + rail / 2.0)).abs() < 0.01
+            && rect.y >= up.y + up.height)));
+    // At the top the up arrow has nowhere to go; the down arrow steps three lines.
+    let center = |r: Rect| Point::new(r.x + r.width / 2.0, r.y + r.height / 2.0);
+    assert!(railed.viewport.begin_scrollbar(center(up)));
+    assert_eq!(railed.viewport.scroll_y, railed.viewport.min_y);
+    assert!(railed.viewport.begin_scrollbar(center(down)));
+    let step = railed.editor.line_height() * 3.0;
+    assert_eq!(railed.viewport.scroll_y, railed.viewport.min_y + step);
+    assert!(
+        railed.viewport.scrollbar_drag.is_none(),
+        "an arrow does not start a drag"
+    );
+}
+
+#[test]
 #[ignore = "prints timings; run with --profile desktop -- --ignored --nocapture"]
 fn measure_highlight_cost_per_frame_by_document_size() {
     for lines in [200usize, 5_000, 50_000, 150_000] {

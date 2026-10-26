@@ -262,6 +262,10 @@ pub struct CodeEditor {
     /// The buttons of each hunk, at the same index. No hunk gets controls unless there is
     /// exactly one entry per hunk.
     pub review_actions: Arc<[CodeReviewHunkActions]>,
+    /// Draw the vertical scrollbar as `ScrollArea` does with this appearance: in its own
+    /// rail beside the text when `Reserved`, with its arrows when `buttons`. `None`, the
+    /// default, keeps the editor's thin bar over the text. Set with `scrollbar_appearance`.
+    pub scrollbar_appearance: Option<crate::ScrollbarAppearance>,
 }
 
 impl CodeEditor {
@@ -319,6 +323,7 @@ impl CodeEditor {
             review_revision: None,
             review_hunks: Arc::from([]),
             review_actions: Arc::from([]),
+            scrollbar_appearance: None,
         }
     }
     /// Use this palette for the surface, the text and the editor's marks.
@@ -362,6 +367,12 @@ impl CodeEditor {
     /// The view emits these IDs; it never accepts or rewrites a source file.
     pub fn review_actions(mut self, actions: impl Into<Arc<[CodeReviewHunkActions]>>) -> Self {
         self.review_actions = actions.into();
+        self
+    }
+    /// Draw the vertical scrollbar as a `ScrollArea` with `appearance` draws its own, so an
+    /// editor matches the scroll surfaces around it.
+    pub fn scrollbar_appearance(mut self, appearance: crate::ScrollbarAppearance) -> Self {
+        self.scrollbar_appearance = Some(appearance);
         self
     }
     /// Set the height, in logical pixels, never below 24. A height that is
@@ -604,9 +615,59 @@ pub(crate) struct CodeViewport {
     minimap: Option<minimap::Layout>,
     minimap_drag: bool,
     scrollbar_pointer: Option<Point>,
+    /// The vertical scrollbar as `ScrollArea` draws it, when the editor was given an
+    /// appearance: its look, its rail's width and the travel of one of its arrows.
+    rail: Option<(crate::ScrollbarAppearance, f32, f32)>,
+}
+
+/// The vertical scrollbar of an editor with a rail: the rail, its arrows and its track.
+#[derive(Clone, Copy, Debug)]
+struct RailGeometry {
+    rail: Rect,
+    up: Option<Rect>,
+    down: Option<Rect>,
+    track: Rect,
 }
 
 impl CodeViewport {
+    /// The rail's parts, beside the body, for an editor given an appearance.
+    fn rail_geometry(&self) -> Option<RailGeometry> {
+        let (appearance, width, _) = self.rail?;
+        let rail = Rect::new(
+            self.rect.x + self.rect.width - width,
+            self.body.y,
+            width,
+            self.body.height,
+        );
+        // As ScrollArea: very short rails keep their thumb rather than two arrows.
+        let side = if appearance.buttons && rail.height >= width * 4.0 {
+            width
+        } else {
+            0.0
+        };
+        let up = (side > 0.0).then_some(Rect::new(rail.x, rail.y, width, side));
+        let down =
+            (side > 0.0).then_some(Rect::new(rail.x, rail.y + rail.height - side, width, side));
+        let track = Rect::new(
+            rail.x,
+            rail.y + side,
+            width,
+            (rail.height - side * 2.0).max(0.0),
+        );
+        Some(RailGeometry {
+            rail,
+            up,
+            down,
+            track,
+        })
+    }
+    /// Where the vertical thumb travels: the rail's track, or the body beside it.
+    fn vertical_track(&self) -> (f32, f32) {
+        match self.rail_geometry() {
+            Some(rail) => (rail.track.y, rail.track.height),
+            None => (self.body.y, self.body.height),
+        }
+    }
     pub(crate) fn set_hovered_point(&mut self, point: Option<Point>) {
         self.scrollbar_pointer = point;
     }
@@ -632,8 +693,19 @@ impl CodeViewport {
             self.drag_scrollbar(point, true);
             return true;
         }
+        if let (Some(rail), Some((_, _, step))) = (self.rail_geometry(), self.rail) {
+            let arrow = [(rail.up, -1.0), (rail.down, 1.0)]
+                .into_iter()
+                .find(|(button, _)| button.is_some_and(|b| b.contains(point)));
+            if let Some((_, direction)) = arrow.filter(|_| self.max_y > self.min_y) {
+                self.scroll_y = (self.scroll_y + direction * step).clamp(self.min_y, self.max_y);
+                self.reveal_caret = false;
+                return true;
+            }
+        }
+        let lane = self.rail.map_or(8.0, |(_, width, _)| width);
         let vertical = self.max_y > self.min_y
-            && point.x >= self.rect.x + self.rect.width - 8.0
+            && point.x >= self.rect.x + self.rect.width - lane
             && point.y >= self.body.y
             && point.y <= self.body.y + self.body.height;
         let horizontal = self.max_x > 0.0
@@ -644,9 +716,10 @@ impl CodeViewport {
             return false;
         }
         let (start, length, maximum, offset, position) = if vertical {
+            let (start, length) = self.vertical_track();
             (
-                self.body.y,
-                self.body.height,
+                start,
+                length,
                 self.max_y - self.min_y,
                 self.scroll_y - self.min_y,
                 point.y,
@@ -695,12 +768,8 @@ impl CodeViewport {
         }
         if let Some((vertical, grab)) = self.scrollbar_drag {
             let (start, length, maximum, position) = if vertical {
-                (
-                    self.body.y,
-                    self.body.height,
-                    self.max_y - self.min_y,
-                    point.y,
-                )
+                let (start, length) = self.vertical_track();
+                (start, length, self.max_y - self.min_y, point.y)
             } else {
                 (self.body.x, self.body.width, self.max_x, point.x)
             };
@@ -2139,10 +2208,27 @@ impl EditorView {
                 8.0
             };
         let minimap_width = minimap::reserved_width(self.editor.minimap, rect.width - gutter);
+        // A reserved rail takes its own width beside the text; else the bar's 8 px lane.
+        let rail = self.editor.scrollbar_appearance.map(|appearance| {
+            (
+                appearance,
+                appearance.effective_rail_width(rect.width),
+                self.editor.line_height() * 3.0,
+            )
+        });
+        let lane = match rail {
+            Some((appearance, width, _))
+                if appearance.placement == crate::ScrollbarPlacement::Reserved =>
+            {
+                width
+            }
+            _ => 8.0,
+        };
+        self.viewport.rail = rail;
         let body = Rect::new(
             rect.x + gutter,
             rect.y + 4.0,
-            (rect.width - gutter - 8.0 - minimap_width).max(0.0),
+            (rect.width - gutter - lane - minimap_width).max(0.0),
             (code_rect.height - 12.0).max(0.0),
         );
         self.viewport.rect = code_rect;
@@ -3267,6 +3353,14 @@ fn paint_scrollbars(commands: &mut Vec<DrawCommand>, viewport: &CodeViewport, co
     // eight-pixel pointer rail and proportional scroll/drag calculations.
     let appearance = crate::ScrollbarAppearance::overlay().buttons(false);
     let thickness = appearance.thumb_width.min(8.0);
+    let vertical_range = viewport.max_y - viewport.min_y;
+    let railed = match (viewport.rail_geometry(), viewport.rail) {
+        (Some(rail), Some((look, _, _))) if vertical_range > 0.0 => {
+            paint_rail(commands, viewport, rail, look, color, vertical_range);
+            true
+        }
+        _ => false,
+    };
     let mut paint = |track: Rect, thumb: Rect, vertical: bool| {
         let hovered = viewport
             .scrollbar_pointer
@@ -3288,8 +3382,7 @@ fn paint_scrollbars(commands: &mut Vec<DrawCommand>, viewport: &CodeViewport, co
             radius: thickness / 2.0,
         });
     };
-    let vertical_range = viewport.max_y - viewport.min_y;
-    if vertical_range > 0.0 {
+    if !railed && vertical_range > 0.0 {
         let h = (viewport.body.height * viewport.body.height
             / (viewport.body.height + vertical_range))
             .max(16.0)
@@ -3325,6 +3418,92 @@ fn paint_scrollbars(commands: &mut Vec<DrawCommand>, viewport: &CodeViewport, co
             Rect::new(x, track.y + (8.0 - thickness) / 2.0, w, thickness),
             false,
         );
+    }
+}
+
+/// The vertical scrollbar in its rail, as `ScrollArea` paints its own: the track only under
+/// the pointer or while dragged, the thumb in the rail's middle, and its arrows, faint at an
+/// end.
+fn paint_rail(
+    commands: &mut Vec<DrawCommand>,
+    viewport: &CodeViewport,
+    rail: RailGeometry,
+    appearance: crate::ScrollbarAppearance,
+    color: Color,
+    range: f32,
+) {
+    let hovered = viewport
+        .scrollbar_pointer
+        .is_some_and(|point| rail.rail.contains(point));
+    let active = !viewport.minimap_drag && viewport.scrollbar_drag.is_some_and(|(axis, _)| axis);
+    if hovered || active {
+        commands.push(DrawCommand::FillRect {
+            rect: rail.track,
+            color: appearance.track_color(color),
+            radius: appearance.corner(rail.track.width),
+        });
+    }
+    let track = rail.track;
+    let minimum = appearance
+        .min_thumb_length
+        .max(1.0)
+        .min((track.height / 2.0).max(1.0));
+    let height = (track.height * track.height / (track.height + range))
+        .clamp(minimum, track.height.max(minimum));
+    let width = appearance
+        .thumb_width
+        .max(1.0)
+        .min((track.width - 2.0).max(1.0));
+    let y = track.y + (track.height - height) * (viewport.scroll_y - viewport.min_y) / range;
+    commands.push(DrawCommand::FillRect {
+        rect: Rect::new(track.x + (track.width - width) / 2.0, y, width, height),
+        color: appearance.thumb_color(color, hovered, active),
+        radius: appearance.corner(width),
+    });
+    for (button, direction, enabled) in [
+        (
+            rail.up,
+            -1.0_f32,
+            viewport.scroll_y > viewport.min_y + 0.001,
+        ),
+        (rail.down, 1.0, viewport.scroll_y < viewport.max_y - 0.001),
+    ] {
+        let Some(button) = button else {
+            continue;
+        };
+        let over = enabled
+            && viewport
+                .scrollbar_pointer
+                .is_some_and(|point| button.contains(point));
+        let (x, y) = (
+            button.x + button.width / 2.0,
+            button.y + button.height / 2.0,
+        );
+        let (half_width, half_height) = (
+            (button.width * 0.25).min(3.5),
+            (button.height * 0.15).min(2.0),
+        );
+        let ink = if !enabled {
+            appearance.thumb_color(color, false, false)
+        } else {
+            appearance.thumb_color(color, over, false)
+        };
+        let ink = if enabled {
+            ink
+        } else {
+            Color {
+                a: ink.a / 3,
+                ..ink
+            }
+        };
+        commands.push(DrawCommand::FillTriangle {
+            points: [
+                Point::new(x - half_width, y - direction * half_height),
+                Point::new(x + half_width, y - direction * half_height),
+                Point::new(x, y + direction * half_height),
+            ],
+            color: ink,
+        });
     }
 }
 
