@@ -838,14 +838,15 @@ impl DrawCommand {
             Self::FillMesh { points, .. } => around(points, 0.0),
             Self::Glyphs(run) => {
                 let glyphs: Vec<Point> = run.glyphs.iter().map(|glyph| Point::new(run.origin.x + glyph.x, run.origin.y + glyph.y)).collect();
-                // The glyphs' origins, grown by a line of the run's size: up for the
-                // ascent, right for the last glyph's width, down for the descent.
+                // The glyphs' baselines, grown by about an ascent up, a descent down and the
+                // last glyph's width right.
                 let line = seen(&run.color).then(|| around(&glyphs, 0.0)).flatten()?;
-                Some(Rect::new(line.x, line.y - run.size, line.width + run.size, line.height + run.size * 1.3))
+                Some(Rect::new(line.x, line.y - run.size * 0.8, line.width + run.size, line.height + run.size * 1.05))
             }
+            // `position` is the line's top-left corner.
             Self::Text { position, text, color, font_size, .. } => seen(color).then(|| {
                 let width = text.chars().count() as f32 * font_size * 0.6;
-                Rect::new(position.x, position.y - font_size, width, font_size * 2.3)
+                Rect::new(position.x, position.y, width, font_size * 1.3)
             }),
             Self::PushClip(_) | Self::RoundClip { .. } | Self::PopClip => None,
         }
