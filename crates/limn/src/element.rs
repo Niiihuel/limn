@@ -2575,7 +2575,13 @@ impl Element {
     /// A region that takes the keyboard focus under `id` on a press or Tab,
     /// and reports nothing: the host reads the keys while it has the focus,
     /// as for a terminal. A press inside it still selects text.
-    pub(crate) fn focus_area(id: impl Into<String>, child: Self) -> Self {
+    ///
+    /// Around a host-fed [`Element::surface`] it makes an input surface, such
+    /// as an embedded page: while [`crate::UiTree::focused_id`] is `id` the host
+    /// sends it the keys, text and input method events instead of the tree, and
+    /// wherever `frame.press_region(point)` is this region it sends it the
+    /// pointer, relative to the region's corner.
+    pub fn focus_area(id: impl Into<String>, child: Self) -> Self {
         let mut element = Self::clickable(id, child);
         element.kept.get_or_insert_default().focus_area = true;
         element
@@ -4163,5 +4169,27 @@ mod surface_tests {
         // The frame carries the name only: new pixels never rebuild the tree.
         assert_eq!(surfaces, [(Rect::new(0.0, 20.0, 300.0, 200.0), "page-pixels", "Página", 1.0)]);
         assert!(frame.regions.iter().any(|region| region.id == "page" && region.rect == surfaces[0].0));
+    }
+
+    #[test]
+    fn a_surface_in_a_focus_area_takes_the_focus_and_leaves_input_to_the_host() {
+        use crate::{HitKind, Point, UiEvent};
+        let root = Element::column(vec![
+            Element::button("before", "Before"),
+            Element::focus_area("page", Element::surface("page-pixels", "Page")).flex(1.0),
+        ]);
+        let mut tree = UiTree::new(root);
+        let frame = tree.layout(Size::new(300.0, 220.0));
+        let inside = Point::new(150.0, 150.0);
+        let region = frame.press_region(inside).unwrap();
+        assert_eq!((region.id.as_str(), region.kind), ("page", HitKind::Focus));
+        // A press focuses it and reports nothing: what it means is the host's.
+        assert!(tree.handle_event(UiEvent::PointerDown(inside)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(inside)).is_empty());
+        assert_eq!(tree.focused_id(), Some("page"));
+        // Tab reaches it from the control before it.
+        tree.focus("before");
+        tree.handle_event(UiEvent::Key { key: crate::Key::Tab, shift: false, ctrl: false });
+        assert_eq!(tree.focused_id(), Some("page"));
     }
 }
