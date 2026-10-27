@@ -8221,8 +8221,15 @@ impl LayoutBuilder<'_> {
         let shortcut = shortcut
             .map(shortcut::label)
             .filter(|value| !value.is_empty());
+        let plain = crate::tokens().shortcut_style == crate::ShortcutStyle::Text;
         let keycap_width = shortcut
-            .map(|value| self.shortcut_width(value))
+            .map(|value| {
+                if plain {
+                    self.menu_shortcut_width(value)
+                } else {
+                    self.shortcut_width(value)
+                }
+            })
             .filter(|width| content_max - width - 8.0 >= 24.0);
         let title_budget = content_max - keycap_width.map_or(0.0, |width| width + 8.0);
         let rich = !sections.is_empty() || title.contains('\n');
@@ -8448,7 +8455,11 @@ impl LayoutBuilder<'_> {
                 width,
                 shortcut::HEIGHT,
             );
-            self.paint_shortcut(keycap, shortcut, colors.keycap, colors.text);
+            if plain {
+                self.paint_menu_shortcut(keycap, shortcut, colors.muted);
+            } else {
+                self.paint_shortcut(keycap, shortcut, colors.keycap, colors.text);
+            }
         }
         let mut divided = false;
         let mut has_content = title_height > 0.0 || keycap_width.is_some();
