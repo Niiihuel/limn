@@ -2,16 +2,45 @@
 
 use crate::{Access, Color, Component, CornerRadii, DrawCommand, Element, Point, Rect, Role};
 use std::f32::consts::PI;
+use std::sync::Arc;
 use web_time::Instant;
 
-/// Seconds the pen takes to write the stroke, with an ease-in-out on its length.
+/// Seconds the pen takes to write every line, shared by their lengths, with an ease-in-out.
 const WRITE: f64 = 1.0;
-/// Seconds the finished stroke is held before it fades.
-const HOLD_END: f64 = 1.2;
-/// Seconds in one cycle: write, hold, then a fade of 0.4 s.
-const CYCLE: f64 = 1.6;
+/// Seconds the pen takes to lift from where it is to the next mark.
+const HOP: f64 = 0.16;
+/// Seconds a drawn pen takes to come down onto the paper, and to lift away at the end.
+const PEN_IN: f64 = 0.22;
+const PEN_OUT: f64 = 0.32;
+/// Seconds the finished marks are held, then faded, before the pen starts again.
+const HOLD: f64 = 0.2;
+const FADE: f64 = 0.4;
+/// Seconds a drawn pen rests between the ink fading and its next stroke.
+const REST: f64 = 0.2;
 /// Points on the flourish, two loops and a tail, sampled evenly in its parameter.
 const POINTS: usize = 48;
+
+/// One thing the pen writes, in logical pixels from the scribble's top-left corner.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Mark {
+    /// A line drawn as a smooth curve through these points.
+    Line(Vec<(f32, f32)>),
+    /// A dot the pen taps.
+    Dot {
+        /// Its center.
+        at: (f32, f32),
+        /// How wide it is, in logical pixels.
+        diameter: f32,
+    },
+}
+
+/// What a scribble writes, and the pen it is written with, when they are not the defaults;
+/// made by [`Scribble::marks`] and [`Scribble::pen`].
+#[derive(Debug, Default)]
+pub struct Drawing {
+    marks: Vec<Mark>,
+    pen: Vec<Vec<Point>>,
+}
 
 /// A working indicator, a pen writing a loopy flourish. Reuse the ID while
 /// rebuilding the tree so the stroke does not restart.
@@ -21,6 +50,7 @@ pub struct Scribble {
     width: f32,
     height: f32,
     stroke: f32,
+    drawing: Drawing,
 }
 
 impl Scribble {
@@ -34,6 +64,7 @@ impl Scribble {
             width: 28.0,
             height: 12.0,
             stroke: 2.0,
+            drawing: Drawing::default(),
         }
     }
 
@@ -53,12 +84,31 @@ impl Scribble {
         }
         self
     }
+
+    /// Write these marks, in order, in place of the flourish: an app's own signature.
+    pub fn marks(mut self, marks: Vec<Mark>) -> Self {
+        self.drawing.marks = marks;
+        self
+    }
+
+    /// Draw the pen that writes: lines in logical pixels with its nib at (0, 0), drawn a
+    /// little thinner than the stroke. It comes down onto the paper, rides the tip, hops
+    /// between marks and lifts away before the ink fades; still, it rests at the end. Its
+    /// lines may reach past the scribble's box, which does not clip them.
+    pub fn pen(mut self, lines: Vec<Vec<(f32, f32)>>) -> Self {
+        self.drawing.pen = lines
+            .into_iter()
+            .map(|line| line.into_iter().map(|(x, y)| Point::new(x, y)).collect())
+            .collect();
+        self
+    }
 }
 
 impl Component for Scribble {
     fn render(self) -> Element {
         let said = Access::new(Role::ProgressIndicator).id(self.id.clone()).name("Working");
-        Element::scribble(self.id, self.color, self.stroke)
+        let drawing = (!self.drawing.marks.is_empty() || !self.drawing.pen.is_empty()).then(|| Arc::new(self.drawing));
+        Element::scribble_drawing(self.id, self.color, self.stroke, drawing)
             .size(Some(self.width), Some(self.height))
             .accessible(said)
     }
@@ -86,12 +136,88 @@ fn flourish() -> Vec<(f32, f32)> {
     raw.iter().map(|(x, y)| ((x - min_x) / span_x, (y - min_y) / span_y)).collect()
 }
 
-/// The commands that paint the stroke at `now`, given the time `started` at which the
-/// pen began. Under reduced motion the whole stroke is drawn still.
+/// A Catmull-Rom curve through `points`, a few samples between each pair.
+fn smooth(points: &[Point]) -> Vec<Point> {
+    const SAMPLES: usize = 5;
+    if points.len() < 3 {
+        return points.to_vec();
+    }
+    let at = |i: isize| points[i.clamp(0, points.len() as isize - 1) as usize];
+    let mut out = Vec::with_capacity(points.len() * SAMPLES);
+    for i in 0..points.len() as isize - 1 {
+        let (p0, p1, p2, p3) = (at(i - 1), at(i), at(i + 1), at(i + 2));
+        for k in 0..SAMPLES {
+            let t = k as f32 / SAMPLES as f32;
+            let (t2, t3) = (t * t, t * t * t);
+            let axis = |a: f32, b: f32, c: f32, d: f32| {
+                0.5 * (2.0 * b + (c - a) * t + (2.0 * a - 5.0 * b + 4.0 * c - d) * t2 + (3.0 * b - a - 3.0 * c + d) * t3)
+            };
+            out.push(Point::new(axis(p0.x, p1.x, p2.x, p3.x), axis(p0.y, p1.y, p2.y, p3.y)));
+        }
+    }
+    out.push(points[points.len() - 1]);
+    out
+}
+
+fn length(points: &[Point]) -> f32 {
+    points.windows(2).map(|pair| (pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y)).sum()
+}
+
+/// The start of `points` up to `share` of its length, ending exactly there.
+fn written(points: &[Point], share: f32) -> Vec<Point> {
+    let goal = length(points) * share.clamp(0.0, 1.0);
+    let mut out = vec![points[0]];
+    let mut run = 0.0;
+    for pair in points.windows(2) {
+        let step = (pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y);
+        if run + step >= goal {
+            let t = if step > 0.0 { (goal - run) / step } else { 0.0 };
+            out.push(Point::new(pair[0].x + (pair[1].x - pair[0].x) * t, pair[0].y + (pair[1].y - pair[0].y) * t));
+            return out;
+        }
+        run += step;
+        out.push(pair[1]);
+    }
+    out
+}
+
+fn ease_in_out(t: f64) -> f32 {
+    (0.5 - 0.5 * (std::f64::consts::PI * t.clamp(0.0, 1.0)).cos()) as f32
+}
+
+fn ease_out(t: f64) -> f32 {
+    (1.0 - (1.0 - t.clamp(0.0, 1.0)).powi(3)) as f32
+}
+
+/// A mark placed in the frame: a line's curve, or a dot's center and width.
+enum Placed {
+    Line(Vec<Point>),
+    Dot(Point, f32),
+}
+
+impl Placed {
+    fn start(&self) -> Point {
+        match self {
+            Placed::Line(points) => points[0],
+            Placed::Dot(at, _) => *at,
+        }
+    }
+
+    fn end(&self) -> Point {
+        match self {
+            Placed::Line(points) => points[points.len() - 1],
+            Placed::Dot(at, _) => *at,
+        }
+    }
+}
+
+/// The commands that paint the marks at `now`, given the time `started` at which the
+/// pen began. Under reduced motion the whole drawing is still, its pen resting at the end.
 pub(crate) fn paint(
     rect: Rect,
     color: Color,
     stroke: f32,
+    drawing: Option<&Drawing>,
     started: Instant,
     now: Instant,
     reduced_motion: bool,
@@ -99,53 +225,126 @@ pub(crate) fn paint(
     if rect.width <= 0.0 || rect.height <= 0.0 {
         return Vec::new();
     }
-    // The share of the stroke written, the opacity, and whether the pen is on the paper.
-    let (written, alpha, writing) = if reduced_motion {
-        (1.0, 1.0, false)
-    } else {
-        let t = now.saturating_duration_since(started).as_secs_f64() % CYCLE;
-        if t < WRITE {
-            let eased = 0.5 - 0.5 * (PI as f64 * t / WRITE).cos();
-            (eased as f32, 1.0, true)
-        } else if t < HOLD_END {
-            (1.0, 1.0, false)
-        } else {
-            (1.0, (1.0 - (t - HOLD_END) / (CYCLE - HOLD_END)) as f32, false)
+    let custom = drawing.filter(|d| !d.marks.is_empty());
+    let placed: Vec<Placed> = match custom {
+        Some(drawing) => drawing
+            .marks
+            .iter()
+            .filter_map(|mark| match mark {
+                Mark::Line(points) if !points.is_empty() => {
+                    let points: Vec<Point> = points.iter().map(|(x, y)| Point::new(rect.x + x, rect.y + y)).collect();
+                    Some(Placed::Line(smooth(&points)))
+                }
+                Mark::Dot { at: (x, y), diameter } => Some(Placed::Dot(Point::new(rect.x + x, rect.y + y), *diameter)),
+                Mark::Line(_) => None,
+            })
+            .collect(),
+        None => {
+            // Inset by half the stroke so the round caps stay inside the rect.
+            let inset = stroke / 2.0;
+            let (width, height) = ((rect.width - stroke).max(0.0), (rect.height - stroke).max(0.0));
+            vec![Placed::Line(
+                flourish().into_iter().map(|(x, y)| Point::new(rect.x + inset + x * width, rect.y + inset + y * height)).collect(),
+            )]
         }
     };
-    // Inset by half the stroke so the round caps stay inside the rect.
-    let inset = stroke / 2.0;
-    let (width, height) = ((rect.width - stroke).max(0.0), (rect.height - stroke).max(0.0));
-    let points: Vec<Point> = flourish()
-        .into_iter()
-        .map(|(x, y)| Point::new(rect.x + inset + x * width, rect.y + inset + y * height))
-        .collect();
+    if placed.is_empty() {
+        return Vec::new();
+    }
+    let pen = drawing.map(|d| d.pen.as_slice()).filter(|pen| !pen.is_empty());
 
-    let last = points.len() - 1;
-    let at = written * last as f32;
-    let whole = (at.floor() as usize).min(last);
-    let next = (whole + 1).min(last);
-    let share = (at - whole as f32).clamp(0.0, 1.0);
-    let tip = Point::new(
-        points[whole].x + (points[next].x - points[whole].x) * share,
-        points[whole].y + (points[next].y - points[whole].y) * share,
-    );
-    let mut trail = points[..=whole].to_vec();
-    trail.push(tip);
+    // The schedule: the pen comes down, writes each line in a share of WRITE by its length,
+    // hops to each mark after the first, and lifts away; the ink holds, then fades.
+    let total: f32 = placed.iter().map(|m| if let Placed::Line(p) = m { length(p) } else { 0.0 }).sum();
+    let arrive = if pen.is_some() { PEN_IN } else { 0.0 };
+    let mut spans = Vec::with_capacity(placed.len());
+    let mut clock = arrive;
+    for (i, mark) in placed.iter().enumerate() {
+        let hop = if i > 0 { HOP } else { 0.0 };
+        let draw = match mark {
+            Placed::Line(points) if total > 0.0 => WRITE * f64::from(length(points) / total),
+            Placed::Line(_) => 0.0,
+            Placed::Dot(..) if i == 0 => HOP,
+            Placed::Dot(..) => 0.0,
+        };
+        spans.push((clock, clock + hop, clock + hop + draw));
+        clock += hop + draw;
+    }
+    let done = clock;
+    let fade_from = done + if pen.is_some() { PEN_OUT.max(HOLD) } else { HOLD };
+    let cycle = fade_from + FADE + if pen.is_some() { REST } else { 0.0 };
+    let t = if reduced_motion { done } else { now.saturating_duration_since(started).as_secs_f64() % cycle };
+
+    // How much of each mark is drawn, where the nib is, how high it is lifted and how
+    // opaque the pen and the ink are.
+    let alpha = if reduced_motion || t < fade_from { 1.0 } else { (1.0 - (t - fade_from) / FADE).max(0.0) as f32 };
+    // A mark not yet begun has a share below 0; a line begun is drawn from its first point.
+    let mut shares = vec![-1.0f32; placed.len()];
+    let (mut nib, mut lift, mut pen_alpha, mut writing) = (placed[0].start(), 0.0f32, 1.0f32, false);
+    if t < arrive {
+        let u = ease_out(t / PEN_IN);
+        (lift, pen_alpha) = ((1.0 - u) * 3.0, u);
+    }
+    for (i, (mark, &(from, drawn_from, to))) in placed.iter().zip(&spans).enumerate() {
+        if t >= to {
+            shares[i] = 1.0;
+            nib = mark.end();
+            continue;
+        }
+        if t < from {
+            break;
+        }
+        if t < drawn_from {
+            // Lifted between marks, on an arc.
+            let u = (t - from) / (drawn_from - from);
+            let (a, b, e) = (placed[i - 1].end(), mark.start(), ease_in_out(u));
+            nib = Point::new(a.x + (b.x - a.x) * e, a.y + (b.y - a.y) * e);
+            lift = (PI * u as f32).sin() * 2.2;
+        } else if let Placed::Line(points) = mark {
+            shares[i] = ease_in_out((t - drawn_from) / (to - drawn_from));
+            nib = written(points, shares[i]).last().copied().unwrap_or(nib);
+            writing = true;
+        } else {
+            nib = mark.start();
+        }
+        break;
+    }
+    if t >= done && !reduced_motion {
+        let u = ease_out((t - done) / PEN_OUT);
+        (lift, pen_alpha) = (u * 4.0, 1.0 - u);
+    }
 
     let ink = Color { a: (f32::from(color.a) * alpha).round() as u8, ..color };
-    let dot = |center: Point, diameter: f32| DrawCommand::FillCornerRect {
+    let disc = |center: Point, diameter: f32, color: Color| DrawCommand::FillCornerRect {
         rect: Rect::new(center.x - diameter / 2.0, center.y - diameter / 2.0, diameter, diameter),
-        color: ink,
+        color,
         radii: CornerRadii::same(diameter / 2.0),
     };
-    let line = DrawCommand::Polyline { points: trail.clone().into(), color: ink, width: stroke, dashed: false };
-    let mut commands = vec![line];
-    // A dot at each vertex gives round joins and caps.
-    commands.extend(trail.iter().map(|point| dot(*point, stroke)));
-    if writing {
-        // The pen's tip leads, a little larger than the line.
-        commands.push(dot(tip, stroke * 1.6));
+    let mut commands = Vec::new();
+    for (mark, share) in placed.iter().zip(&shares) {
+        match mark {
+            Placed::Line(points) if *share >= 0.0 => {
+                let trail = written(points, *share);
+                commands.push(DrawCommand::Polyline { points: trail.clone().into(), color: ink, width: stroke, dashed: false });
+                // Round caps at both ends.
+                commands.push(disc(trail[0], stroke, ink));
+                commands.push(disc(trail[trail.len() - 1], stroke, ink));
+            }
+            Placed::Dot(at, diameter) if *share >= 1.0 => commands.push(disc(*at, *diameter, ink)),
+            _ => {}
+        }
+    }
+    match pen {
+        Some(lines) if pen_alpha > 0.0 => {
+            let color = Color { a: (f32::from(color.a) * pen_alpha).round() as u8, ..color };
+            for line in lines {
+                let points: Vec<Point> = line.iter().map(|p| Point::new(nib.x + p.x, nib.y - lift + p.y)).collect();
+                commands.push(DrawCommand::Polyline { points: smooth(&points).into(), color, width: stroke * 0.75, dashed: false });
+            }
+        }
+        // Without a pen drawn, its tip leads, a little larger than the line.
+        None if writing => commands.push(disc(nib, stroke * 1.6, ink)),
+        _ => {}
     }
     commands
 }
@@ -212,6 +411,31 @@ mod tests {
         assert_eq!(stroke_at(&mut tree, start, 0.5), (full, alpha));
         assert_eq!(stroke_at(&mut tree, start, 1.4), (full, alpha));
         assert!(!tree.is_animating());
+    }
+
+    #[test]
+    fn a_drawn_pen_writes_the_marks_hops_to_the_dots_and_rests_at_the_end_when_still() {
+        let marks = vec![Mark::Line(vec![(2.0, 10.0), (10.0, 8.0), (18.0, 10.0)]), Mark::Dot { at: (22.0, 8.0), diameter: 3.0 }];
+        let pen = vec![vec![(0.0, 0.0), (6.0, -6.0)]];
+        let scribble = || Scribble::new("working", Color::WHITE).size(28.0, 12.0).marks(marks.clone()).pen(pen.clone()).render();
+        let polylines = |frame: &crate::Frame| frame.commands.iter().filter(|c| matches!(c, DrawCommand::Polyline { .. })).count();
+        let dot = |frame: &crate::Frame| {
+            frame.commands.iter().any(|c| matches!(c, DrawCommand::FillCornerRect { rect, .. } if (rect.width - 3.0).abs() < 1e-3))
+        };
+        let mut tree = UiTree::new(scribble());
+        let start = Instant::now();
+        // Coming down, the pen alone; writing, the line and the pen; once it hopped, the dot.
+        tree.layout_at(VIEW, start);
+        assert_eq!(polylines(&tree.layout_at(VIEW, start + Duration::from_secs_f64(0.1))), 1);
+        let writing = tree.layout_at(VIEW, start + Duration::from_secs_f64(PEN_IN + 0.5));
+        assert_eq!(polylines(&writing), 2);
+        assert!(!dot(&writing));
+        assert!(dot(&tree.layout_at(VIEW, start + Duration::from_secs_f64(PEN_IN + WRITE + HOP + 0.01))));
+
+        let mut still = UiTree::new(scribble());
+        still.set_reduced_motion(true);
+        let frame = still.layout_at(VIEW, start);
+        assert!(dot(&frame) && polylines(&frame) == 2);
     }
 
     #[test]

@@ -256,7 +256,7 @@ pub use skeleton::{Skeleton, SkeletonGroup};
 pub use sketch::{rasterize as rasterize_sketch, Sketch, SketchMark, SketchTool};
 pub use slider::Slider;
 pub use split_view::{Pane, SplitView};
-pub use scribble::Scribble;
+pub use scribble::{Mark, Scribble};
 pub use spinner::Spinner;
 pub use split_button::SplitButton;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
