@@ -422,13 +422,15 @@ impl Component for SuggestionList {
                             let label = if item.detail.is_empty() {
                                 label
                             } else {
-                                // The detail keeps its width; the label is cut before it.
+                                // The detail keeps its width up to half the row, cut past it; the
+                                // label is cut before it, so a long detail never hides the label.
                                 Element::row(vec![
                                     label.flex(1.0),
-                                    Element::text(&item.detail)
+                                    Element::truncated_text(&item.detail)
                                         .font_family(FontFamily::Sans)
                                         .font_size(sizing.detail_size)
                                         .foreground(palette.muted)
+                                        .max_width(row_width / 2.0)
                                         .centered_y(),
                                 ])
                                 .gap(sizing.gap)
@@ -865,6 +867,15 @@ mod tests {
         // The unselected row keeps its height in a list of one-line rows.
         let second = row(&frame, "pick:1").unwrap();
         assert_eq!(second.height, COMPACT_ROW_HEIGHT);
+    }
+
+    #[test]
+    fn a_long_detail_is_cut_and_never_hides_the_label() {
+        let items = vec![SuggestionItem::new("pick:0", "effort").detail("[low|medium|high|xhigh|max|ultra] [--fix] [--all] [--verbose] [--dry-run]")];
+        let frame = shown(items, 0, |list| list.compact(true).width(320.0)).layout(Size::new(900.0, 600.0));
+        let row = row(&frame, "pick:0").unwrap();
+        let (label, _) = drawn(&frame, "effort").expect("the label is drawn");
+        assert!(label.x >= row.x && label.x < row.x + row.width / 2.0, "{label:?} in {row:?}");
     }
 
     #[test]
