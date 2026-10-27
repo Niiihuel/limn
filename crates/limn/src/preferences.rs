@@ -159,6 +159,7 @@ pub struct ActionRow {
     enabled: bool,
     title_size: f32,
     subtitle_size: f32,
+    subtitle_line_height: Option<f32>,
     radius: Option<f32>,
 }
 impl ActionRow {
@@ -180,6 +181,7 @@ impl ActionRow {
             enabled: true,
             title_size: 12.0,
             subtitle_size: 11.0,
+            subtitle_line_height: None,
             radius: None,
         }
     }
@@ -193,6 +195,16 @@ impl ActionRow {
     /// not finite is ignored.
     pub fn subtitle_size(mut self, size: f32) -> Self {
         self.subtitle_size = length(size).unwrap_or(self.subtitle_size);
+        self
+    }
+    /// The distance between two lines of a wrapped subtitle, in logical
+    /// pixels, such as 20 for a 14 px one on a desktop settings page, in place
+    /// of the text's own. A height that is not finite or not above zero is
+    /// ignored.
+    pub fn subtitle_line_height(mut self, height: f32) -> Self {
+        if height.is_finite() && height > 0.0 {
+            self.subtitle_line_height = Some(height);
+        }
         self
     }
     /// Round the row's hover and press fill by `radius` in place of the
@@ -303,8 +315,19 @@ impl Component for ActionRow {
             .font_size(self.title_size)
             .foreground(if self.enabled { self.palette.text } else { self.palette.muted })];
         if let Some(subtitle) = self.subtitle {
+            let subtitle = match self.subtitle_line_height {
+                // Leading is a paragraph's: the subtitle is one run of formatted text.
+                Some(height) => Element::formatted_text(vec![crate::TextSpan::new(
+                    subtitle,
+                    self.palette.muted,
+                    self.subtitle_size,
+                    FontFamily::Sans,
+                )])
+                .line_height(height),
+                None => Element::text(subtitle),
+            };
             copy.push(
-                Element::text(subtitle)
+                subtitle
                     .font_family(FontFamily::Sans)
                     .font_size(self.subtitle_size)
                     .foreground(self.palette.muted),
@@ -414,6 +437,24 @@ mod tests {
         assert!(sizes(&phone).contains(&("Lo básico".to_owned(), 13.0)));
         // A lone row with an action rounds its hover fill as asked.
         assert_eq!(row().action("language").radius(12.0).render().style.radius, 12.0);
+    }
+
+    #[test]
+    fn a_wrapped_subtitle_takes_the_line_height_asked_for() {
+        let palette = ComponentPalette::neutral_dark();
+        let words = "Prevent your computer from idle-sleeping while a long task runs. Your display can still turn off.";
+        // Where a marker under the row lands is the row's height.
+        let height = |row: ActionRow| {
+            let marker = Element::clickable("under", Element::spacer().size(Some(10.0), Some(10.0)));
+            let frame = UiTree::new(Element::column(vec![row.render().size(Some(240.0), None), marker])).layout(Size::new(240.0, 600.0));
+            frame.regions.iter().find(|region| region.id == "under").unwrap().rect.y
+        };
+        let row = || ActionRow::new("Keep computer awake", palette).title_size(14.0).subtitle_size(14.0).subtitle(words);
+        let own = height(row());
+        let tall = height(row().subtitle_line_height(f32::NAN).subtitle_line_height(-1.0).subtitle_line_height(30.0));
+        // Several lines, each 30 px apart: the row grows by more than one line's worth.
+        assert!(tall > own + 20.0, "{own} → {tall}");
+        assert_eq!(height(row().subtitle_line_height(f32::NAN)), own);
     }
 
     fn same_bounds(rect: Rect, bounds: Rect) -> bool {
