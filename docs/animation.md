@@ -47,7 +47,7 @@ own content, and how to switch movement off.
 | `Element::unit_grid`, the cells of a `ContextWindow` | Shown as given. A part's new count is moved to cell by cell, and the parts after it follow; a part in focus makes the others recede. | | three times `move_ms` |
 
 Continuous indicators run on fixed periods and are not transitions: `Spinner`,
-`Skeleton`, `TextShimmer` and the text caret.
+`Scribble`, `Skeleton`, `TextShimmer` and the text caret.
 
 ### Not animated
 

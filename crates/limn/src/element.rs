@@ -1762,6 +1762,16 @@ pub enum ElementKind {
         /// Which outline is drawn.
         variant: SpinnerVariant,
     },
+    /// Passive working indicator: a pen writes a stroke, which fades. Its phase
+    /// is retained by stable ID in UiTree, with the spinners'.
+    Scribble {
+        /// Stable ID under which the tree keeps when the pen began to write.
+        id: String,
+        /// Color of the stroke.
+        color: Color,
+        /// Width of the stroke in logical pixels.
+        stroke: f32,
+    },
     /// A record behind its sleeve. Its slide and its turn are retained by
     /// stable ID in UiTree.
     Record {
@@ -3398,6 +3408,16 @@ impl Element {
             id: id.into(),
             color,
             variant,
+        })
+    }
+
+    /// A passive scribble in `color`, a pen writing a stroke whose phase UiTree
+    /// keeps by `id`. It has no size of its own: give it one with `size`.
+    pub fn scribble(id: impl Into<String>, color: Color, stroke: f32) -> Self {
+        Self::new(ElementKind::Scribble {
+            id: id.into(),
+            color,
+            stroke,
         })
     }
 

@@ -99,6 +99,7 @@ mod shortcut;
 mod side_rail;
 mod skeleton;
 mod slider;
+mod scribble;
 mod spinner;
 mod status_bar;
 mod stepper;
@@ -247,6 +248,7 @@ pub use sequence::{
 };
 pub use skeleton::{Skeleton, SkeletonGroup};
 pub use slider::Slider;
+pub use scribble::Scribble;
 pub use spinner::Spinner;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
 pub use chat_minimap::{ChatMinimap, ChatMinimapMark};

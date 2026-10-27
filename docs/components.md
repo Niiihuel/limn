@@ -103,6 +103,7 @@ it.
 | `Toast` | A brief card in the corner of the window. The host decides when it leaves. |
 | `Progress` | A thin bar for work whose completed share is known. `.flat()` gives it square ends, the fill and the rest side by side as two pieces, for the meter of a dense list; the fill is `palette.text` and the rest `palette.selected`, so a host names a status color in the palette. |
 | `Spinner` | An indicator for work of unknown duration. |
+| `Scribble` | A working indicator: a pen writes a flourish, which fades, and starts again. |
 | `Skeleton` | A pulsing placeholder in the shape of content that is loading. |
 | `SkeletonGroup` | Placeholder rows for a list that is loading: `SkeletonGroup::rows(id, palette, count)`, with an optional leading icon square. `into_rows()` hands the rows to a host that places each one itself. |
 | `Empty` | The state of a page, pane or result list with nothing in it: an icon, a title, a reason and one next step. It has no frame of its own and sits on whatever surface it is given. `.framed()` sets it in a card of its own: the palette's surface, a hairline border and the card radius. |
