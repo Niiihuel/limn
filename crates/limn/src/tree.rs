@@ -5220,6 +5220,9 @@ impl UiTree {
                     .cloned()
                     .or_else(|| scope.focusables.first().map(|(id, _)| id.clone()));
                 Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+                // A modal hands its first control the focus; its tooltip waits for the keyboard
+                // to move there, as a pointer that opened it never asked for one.
+                self.keyboard_tooltip_focus = false;
             }
         } else if had_modal {
             let next_focus = self.modal_return_focus.take().filter(|id| {
