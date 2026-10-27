@@ -3694,6 +3694,9 @@ pub struct UiTree {
     skeleton_started: HashMap<String, Instant>,
     shimmer_started: HashMap<String, Instant>,
     spinner_started: HashMap<String, Instant>,
+    /// Scribbles written once whose pen has gone: their start is kept, and they ask for no
+    /// frames.
+    settled_spinners: HashSet<String>,
     record_motion: HashMap<String, RecordMotion>,
     reduced_motion: bool,
     static_selection: Option<StaticSelection>,
@@ -3781,6 +3784,7 @@ impl UiTree {
             skeleton_started: HashMap::new(),
             shimmer_started: HashMap::new(),
             spinner_started: HashMap::new(),
+            settled_spinners: HashSet::new(),
             record_motion: HashMap::new(),
             reduced_motion: false,
             static_selection: None,
@@ -4210,7 +4214,7 @@ impl UiTree {
         let ambient = (!self.reduced_motion
             && (!self.skeleton_started.is_empty()
                 || !self.shimmer_started.is_empty()
-                || !self.spinner_started.is_empty()
+                || self.spinner_started.keys().any(|id| !self.settled_spinners.contains(id))
                 || self.record_motion.values().any(|record| record.is_moving(now))))
             || self.scroll_button_hold.is_some();
         let transition = (!self.reduced_motion
@@ -4455,6 +4459,7 @@ impl UiTree {
         let mut observed_skeletons = HashSet::new();
         let mut observed_shimmers = HashSet::new();
         let mut observed_spinners = HashSet::new();
+        let mut settled_spinners = HashSet::new();
         let mut observed_records = HashSet::new();
         let mut observed_sliders = HashSet::new();
         let viewport_rect = Rect::new(0.0, 0.0, viewport.width, viewport.height);
@@ -4560,6 +4565,7 @@ impl UiTree {
                 observed_skeletons: &mut observed_skeletons,
                 observed_shimmers: &mut observed_shimmers,
                 observed_spinners: &mut observed_spinners,
+                settled_spinners: &mut settled_spinners,
                 observed_sliders: &mut observed_sliders,
                 reduced_motion: self.reduced_motion,
                 locating: probe.is_some(),
@@ -5158,6 +5164,7 @@ impl UiTree {
             .retain(|id, _| observed_shimmers.contains(id));
         self.spinner_started
             .retain(|id, _| observed_spinners.contains(id));
+        self.settled_spinners = settled_spinners;
         self.record_motion
             .retain(|id, _| observed_records.contains(id));
         self.slider_motion
@@ -7689,6 +7696,7 @@ struct LayoutBuilder<'a> {
     observed_skeletons: &'a mut HashSet<String>,
     observed_shimmers: &'a mut HashSet<String>,
     observed_spinners: &'a mut HashSet<String>,
+    settled_spinners: &'a mut HashSet<String>,
     observed_sliders: &'a mut HashSet<String>,
     reduced_motion: bool,
     /// A control is being scrolled into view, which needs the layout an
@@ -13502,11 +13510,8 @@ impl LayoutBuilder<'_> {
                 );
             }
             ElementKind::Scribble { id, color, stroke, drawing } => {
-                if !self.reduced_motion {
-                    self.observed_spinners.insert(id.clone());
-                }
                 let started = *self.spinner_started.entry(id.clone()).or_insert(self.now);
-                self.frame.commands.extend(crate::scribble::paint(
+                let (commands, moving) = crate::scribble::paint(
                     rect,
                     *color,
                     *stroke,
@@ -13514,7 +13519,14 @@ impl LayoutBuilder<'_> {
                     started,
                     self.now,
                     self.reduced_motion,
-                ));
+                );
+                // A drawing written once stops asking for frames when its pen has gone; its
+                // start is still kept, so it is not written again.
+                self.observed_spinners.insert(id.clone());
+                if !moving {
+                    self.settled_spinners.insert(id.clone());
+                }
+                self.frame.commands.extend(commands);
             }
             ElementKind::EffortSlider {
                 id,
