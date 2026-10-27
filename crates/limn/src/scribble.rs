@@ -1,7 +1,7 @@
 //! A working indicator: a pen writes a stroke, the stroke fades, and it starts again.
 
 use crate::{Access, Color, Component, CornerRadii, DrawCommand, Element, Point, Rect, Role};
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::PI;
 use web_time::Instant;
 
 /// Seconds the pen takes to write the stroke, with an ease-in-out on its length.
@@ -11,7 +11,7 @@ const HOLD_END: f64 = 1.2;
 /// Seconds in one cycle: write, hold, then a fade of 0.4 s.
 const CYCLE: f64 = 1.6;
 /// Points on the flourish, two loops and a tail, sampled evenly in its parameter.
-const POINTS: usize = 40;
+const POINTS: usize = 48;
 
 /// A working indicator, a pen writing a loopy flourish. Reuse the ID while
 /// rebuilding the tree so the stroke does not restart.
@@ -64,13 +64,15 @@ impl Component for Scribble {
     }
 }
 
-/// The flourish in a unit box: two prolate-cycloid loops, stretched to fill it.
+/// The flourish in a unit box: a pen writing two cursive "l"s joined, up from a low lead-in
+/// and out in a low tail (a prolate cycloid whose loops stand up), stretched to fill it.
 fn flourish() -> Vec<(f32, f32)> {
+    let (from, to) = (0.6 * PI, 5.1 * PI);
     let raw: Vec<(f32, f32)> = (0..POINTS)
         .map(|i| {
-            let theta = 2.0 * TAU * i as f32 / (POINTS - 1) as f32;
-            // The ratio of the two constants makes the loops about three times as wide as tall.
-            (0.477 * theta - theta.sin(), -theta.cos())
+            let theta = from + (to - from) * i as f32 / (POINTS - 1) as f32;
+            // Half a turn of travel per radian against a unit wheel: the loops close and stand.
+            (0.5 * theta - theta.sin(), -theta.cos())
         })
         .collect();
     let span = |axis: fn(&(f32, f32)) -> f32| {
