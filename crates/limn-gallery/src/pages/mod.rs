@@ -44,6 +44,7 @@ mod preferences;
 mod radio;
 mod scheme;
 mod side_panels;
+mod sketch;
 mod split_view;
 mod surfaces;
 mod table;
@@ -216,6 +217,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "bottom-sheet", group: "Overlays", title: "BottomSheet", source: "overlays", view: overlays::view, sections: &["Bottom sheet"], since: "0.1.44" },
     Page { id: "toast", group: "Overlays", title: "Toast", source: "overlays", view: overlays::view, sections: &["Toast"], since: "0.1.39" },
     Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer"], since: "0.1.39" },
+    Page { id: "sketch", group: "Overlays", title: "Sketch", source: "sketch", view: sketch::view, sections: &["Sketch"], since: "0.1.43" },
     Page { id: "picker", group: "Overlays", title: "Catalog menus", source: "menus", view: menus::view, sections: &["Select and catalog", "Menu rows", "Popover panel"], since: "0.1.39" },
     Page { id: "suggestion-list", group: "Overlays", title: "SuggestionList", source: "menus", view: menus::view, sections: &["Suggestion list"], since: "0.1.39" },
     Page { id: "tooltip", group: "Overlays", title: "Tooltip", source: "tooltip", view: tooltip::view, sections: &[], since: "0.1.39" },
