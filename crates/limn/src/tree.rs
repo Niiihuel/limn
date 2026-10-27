@@ -7285,6 +7285,7 @@ fn collect_focus_order(
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
+        | ElementKind::Scribble { .. }
         | ElementKind::Record { .. }
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
@@ -7371,6 +7372,7 @@ fn collect_action_metadata(
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
+        | ElementKind::Scribble { .. }
         | ElementKind::Record { .. }
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
@@ -10642,6 +10644,7 @@ impl LayoutBuilder<'_> {
             // A rolling number was measured as its text above.
             ElementKind::Skeleton { .. }
             | ElementKind::Spinner { .. }
+            | ElementKind::Scribble { .. }
             | ElementKind::Record { .. }
             | ElementKind::RollingNumber { .. }
             | ElementKind::Spacer => Size::new(0.0, 0.0),
@@ -13497,6 +13500,20 @@ impl LayoutBuilder<'_> {
                     self.now,
                     self.reduced_motion,
                 );
+            }
+            ElementKind::Scribble { id, color, stroke } => {
+                if !self.reduced_motion {
+                    self.observed_spinners.insert(id.clone());
+                }
+                let started = *self.spinner_started.entry(id.clone()).or_insert(self.now);
+                self.frame.commands.extend(crate::scribble::paint(
+                    rect,
+                    *color,
+                    *stroke,
+                    started,
+                    self.now,
+                    self.reduced_motion,
+                ));
             }
             ElementKind::EffortSlider {
                 id,

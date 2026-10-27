@@ -100,6 +100,7 @@ pub(super) fn fills_available_width(kind: &ElementKind) -> bool {
             | ElementKind::EffortSlider { .. }
             | ElementKind::Skeleton { .. }
             | ElementKind::Spinner { .. }
+            | ElementKind::Scribble { .. }
             | ElementKind::ProgressRing { .. }
     )
 }

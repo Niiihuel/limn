@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     Alert, AlertTone, Avatar, Chip, Collapse, Color, Component, ControlSize, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
-    RollingNumber, Spinner, SpinnerVariant, StatusDot, Ticker,
+    RollingNumber, Scribble, Spinner, SpinnerVariant, StatusDot, Ticker,
 };
 
 const CHIP_TONES: [(AlertTone, &str); 5] = [
@@ -201,6 +201,10 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 caption(cx, "A pulsing dot fades to 0.3 and back every 1.2 s, in step with every other; it holds still under reduced motion."),
             ]
         }),
+        section(cx, "Working", vec![
+            row(vec![Scribble::new("feedback-scribble", palette.text).size(56.0, 24.0).stroke(3.0).render()]),
+            caption(cx, "A pen writes the stroke, fades it, and starts again."),
+        ]),
         section(cx, "Markers", vec![
             Marker::new("feedback-marker", "Branch created", palette).icon(Icon::GitBranch).render(),
             Marker::new("feedback-marker-loading", "Running tests", palette).loading(true).render(),

@@ -106,6 +106,7 @@ it.
 | `Progress` | A thin bar for work whose completed share is known. `.flat()` gives it square ends, the fill and the rest side by side as two pieces, for the meter of a dense list; the fill is `palette.text` and the rest `palette.selected`, so a host names a status color in the palette. `.ring(diameter)` draws a ring in place of the bar, its arc covering the fraction from twelve o'clock: a gauge such as a model's context used. |
 | `Spinner` | An indicator for work of unknown duration. |
 | `StatusDot` | A round mark in a status color, 6 px unless `.size(px)` says otherwise. `.pulse(true)` eases its opacity from 1 to 0.3 and back every 1.2 s, every pulsing dot in step, and holds it at 1 under reduced motion. With `.id(id)` the platform knows it as a picture named by `.description(text)`. |
+| `Scribble` | A working indicator: a pen writes a flourish, which fades, and starts again. |
 | `Skeleton` | A pulsing placeholder in the shape of content that is loading. |
 | `SkeletonGroup` | Placeholder rows for a list that is loading: `SkeletonGroup::rows(id, palette, count)`, with an optional leading icon square. `into_rows()` hands the rows to a host that places each one itself. |
 | `Empty` | The state of a page, pane or result list with nothing in it: an icon, a title, a reason and one next step. It has no frame of its own and sits on whatever surface it is given. `.framed()` sets it in a card of its own: the palette's surface, a hairline border and the card radius. |

@@ -198,6 +198,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "progress", group: "States", title: "Progress", source: "feedback", view: feedback::view, sections: &["Progress"], since: "0.1.39" },
     Page { id: "spinner", group: "States", title: "Spinner", source: "feedback", view: feedback::view, sections: &["Loading"], since: "0.1.39" },
     Page { id: "status-dot", group: "States", title: "StatusDot", source: "feedback", view: feedback::view, sections: &["Status dot"], since: "0.1.44" },
+    Page { id: "scribble", group: "States", title: "Scribble", source: "feedback", view: feedback::view, sections: &["Working"], since: "0.1.44" },
     Page { id: "skeleton", group: "States", title: "Skeleton", source: "loading", view: loading::view, sections: &["Skeleton"], since: "0.1.39" },
     Page { id: "text-shimmer", group: "States", title: "TextShimmer", source: "loading", view: loading::view, sections: &["Text shimmer"], since: "0.1.39" },
     Page { id: "marker", group: "States", title: "Marker", source: "feedback", view: feedback::view, sections: &["Markers"], since: "0.1.39" },

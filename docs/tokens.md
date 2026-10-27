@@ -90,7 +90,7 @@ or its own entrance duration, whichever is shorter.
 | What | Controlled by |
 | --- | --- |
 | Whether anything moves at all | `UiTree::set_reduced_motion(true)`. See [Animation](animation.md#switching-motion-off). |
-| Spinners, skeleton pulses, text shimmer, the caret | Fixed periods. Reduced motion stops them. |
+| Spinners, scribbles, skeleton pulses, text shimmer, the caret | Fixed periods. Reduced motion stops them. |
 | Scrolling | `ScrollMotion`, per scroll area. |
 | The crossfade when a popover changes content | Fixed. |
 | The delay before a tooltip appears | Fixed at 350 ms. |
