@@ -40,6 +40,10 @@ pub enum Mark {
 pub struct Drawing {
     marks: Vec<Mark>,
     pen: Vec<Vec<Point>>,
+    /// Written once and kept, rather than faded and written again.
+    once: bool,
+    /// Seconds the lines take, in place of [`WRITE`].
+    write: Option<f64>,
 }
 
 /// A working indicator, a pen writing a loopy flourish. Reuse the ID while
@@ -91,6 +95,22 @@ impl Scribble {
         self
     }
 
+    /// Write the marks once and keep them: the pen lifts away and the ink stays, as a
+    /// signature or a greeting does. The tree stops animating once the pen is gone.
+    pub fn once(mut self) -> Self {
+        self.drawing.once = true;
+        self
+    }
+
+    /// Take this many seconds to write every line, shared by their lengths; 1 by default. A
+    /// value that is not finite or not above zero is ignored.
+    pub fn duration(mut self, seconds: f64) -> Self {
+        if seconds.is_finite() && seconds > 0.0 {
+            self.drawing.write = Some(seconds);
+        }
+        self
+    }
+
     /// Draw the pen that writes: lines in logical pixels with its nib at (0, 0), drawn as
     /// thick as the stroke, as an icon's lines are. It comes down onto the paper, rides the tip, hops
     /// between marks and lifts away before the ink fades; still, it rests at the end. Its
@@ -107,7 +127,11 @@ impl Scribble {
 impl Component for Scribble {
     fn render(self) -> Element {
         let said = Access::new(Role::ProgressIndicator).id(self.id.clone()).name("Working");
-        let drawing = (!self.drawing.marks.is_empty() || !self.drawing.pen.is_empty()).then(|| Arc::new(self.drawing));
+        let custom = !self.drawing.marks.is_empty()
+            || !self.drawing.pen.is_empty()
+            || self.drawing.once
+            || self.drawing.write.is_some();
+        let drawing = custom.then(|| Arc::new(self.drawing));
         Element::scribble_drawing(self.id, self.color, self.stroke, drawing)
             .size(Some(self.width), Some(self.height))
             .accessible(said)
@@ -212,7 +236,8 @@ impl Placed {
 }
 
 /// The commands that paint the marks at `now`, given the time `started` at which the
-/// pen began. Under reduced motion the whole drawing is still, its pen resting at the end.
+/// pen began, and whether they still move. Under reduced motion the whole drawing is still,
+/// its pen resting at the end.
 pub(crate) fn paint(
     rect: Rect,
     color: Color,
@@ -221,9 +246,9 @@ pub(crate) fn paint(
     started: Instant,
     now: Instant,
     reduced_motion: bool,
-) -> Vec<DrawCommand> {
+) -> (Vec<DrawCommand>, bool) {
     if rect.width <= 0.0 || rect.height <= 0.0 {
-        return Vec::new();
+        return (Vec::new(), false);
     }
     let custom = drawing.filter(|d| !d.marks.is_empty());
     let placed: Vec<Placed> = match custom {
@@ -249,12 +274,14 @@ pub(crate) fn paint(
         }
     };
     if placed.is_empty() {
-        return Vec::new();
+        return (Vec::new(), false);
     }
     let pen = drawing.map(|d| d.pen.as_slice()).filter(|pen| !pen.is_empty());
 
     // The schedule: the pen comes down, writes each line in a share of WRITE by its length,
     // hops to each mark after the first, and lifts away; the ink holds, then fades.
+    let write = drawing.and_then(|d| d.write).unwrap_or(WRITE);
+    let once = drawing.is_some_and(|d| d.once);
     let total: f32 = placed.iter().map(|m| if let Placed::Line(p) = m { length(p) } else { 0.0 }).sum();
     let arrive = if pen.is_some() { PEN_IN } else { 0.0 };
     let mut spans = Vec::with_capacity(placed.len());
@@ -262,7 +289,7 @@ pub(crate) fn paint(
     for (i, mark) in placed.iter().enumerate() {
         let hop = if i > 0 { HOP } else { 0.0 };
         let draw = match mark {
-            Placed::Line(points) if total > 0.0 => WRITE * f64::from(length(points) / total),
+            Placed::Line(points) if total > 0.0 => write * f64::from(length(points) / total),
             Placed::Line(_) => 0.0,
             Placed::Dot(..) if i == 0 => HOP,
             Placed::Dot(..) => 0.0,
@@ -273,7 +300,13 @@ pub(crate) fn paint(
     let done = clock;
     let fade_from = done + if pen.is_some() { PEN_OUT.max(HOLD) } else { HOLD };
     let cycle = fade_from + FADE + if pen.is_some() { REST } else { 0.0 };
-    let t = if reduced_motion { done } else { now.saturating_duration_since(started).as_secs_f64() % cycle };
+    let elapsed = now.saturating_duration_since(started).as_secs_f64();
+    // Written once, the clock stops where the pen has gone and nothing fades.
+    let (t, fade_from) = match (reduced_motion, once) {
+        (true, _) => (done, fade_from),
+        (false, true) => (elapsed.min(done + PEN_OUT), f64::INFINITY),
+        (false, false) => (elapsed % cycle, fade_from),
+    };
 
     // How much of each mark is drawn, where the nib is, how high it is lifted and how
     // opaque the pen and the ink are.
@@ -346,7 +379,9 @@ pub(crate) fn paint(
         None if writing => commands.push(disc(nib, stroke * 1.6, ink)),
         _ => {}
     }
-    commands
+    let settled = reduced_motion || (once && elapsed >= done + PEN_OUT);
+    let moving = !settled;
+    (commands, moving)
 }
 
 #[cfg(test)]
@@ -436,6 +471,32 @@ mod tests {
         still.set_reduced_motion(true);
         let frame = still.layout_at(VIEW, start);
         assert!(dot(&frame) && polylines(&frame) == 2);
+    }
+
+    #[test]
+    fn written_once_the_ink_stays_the_pen_goes_and_the_tree_rests() {
+        let marks = vec![Mark::Line(vec![(2.0, 10.0), (10.0, 8.0), (18.0, 10.0)])];
+        let pen = vec![vec![(0.0, 0.0), (6.0, -6.0)]];
+        let mut tree = UiTree::new(
+            Scribble::new("hello", Color::WHITE).size(28.0, 12.0).marks(marks).pen(pen).once().duration(2.0).render(),
+        );
+        let start = Instant::now();
+        let at = |tree: &mut UiTree, seconds: f64| tree.layout_at(VIEW, start + Duration::from_secs_f64(seconds));
+        at(&mut tree, 0.0);
+        let polylines = |frame: &crate::Frame| frame.commands.iter().filter(|c| matches!(c, DrawCommand::Polyline { .. })).count();
+        // Halfway through its two seconds the pen writes; long after, the ink alone, opaque.
+        assert_eq!(polylines(&at(&mut tree, PEN_IN + 1.0)), 2);
+        assert!(tree.is_animating());
+        let late = at(&mut tree, 30.0);
+        assert_eq!(polylines(&late), 1);
+        let ink = late.commands.iter().find_map(|c| match c {
+            DrawCommand::Polyline { color, .. } => Some(color.a),
+            _ => None,
+        });
+        assert_eq!(ink, Some(255));
+        assert!(!tree.is_animating());
+        // Kept, it is not written again.
+        assert_eq!(polylines(&at(&mut tree, 31.0)), 1);
     }
 
     #[test]
