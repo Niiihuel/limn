@@ -866,6 +866,9 @@ pub struct TabSelection {
     pub selected_id: String,
     /// Fill of the indicator, painted under the tabs.
     pub color: Color,
+    /// A one pixel outline round the indicator, as a segmented control's
+    /// raised chip has. `None`, the default, draws none.
+    pub border: Option<Color>,
     /// Corner radius of the indicator, in logical pixels.
     pub radius: f32,
     /// Time the indicator takes to settle on a newly selected tab, in
@@ -2176,9 +2179,20 @@ impl Element {
                 group_id: group_id.into(),
                 selected_id: selected_id.into(),
                 color,
+                border: None,
                 radius: radius.max(0.0),
                 animation_ms,
             });
+        }
+        self
+    }
+
+    /// Outline a tab strip's selection, set with
+    /// [`tab_selection`](Self::tab_selection), one pixel wide in this color.
+    /// It does nothing before the selection is set or on another element.
+    pub fn tab_selection_border(mut self, color: Color) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            selection.border = Some(color);
         }
         self
     }

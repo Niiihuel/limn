@@ -11382,14 +11382,17 @@ impl LayoutBuilder<'_> {
                             state.width.value(self.now),
                             target.height,
                         );
+                        let radius = selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0);
                         self.frame.commands.insert(
                             command_start,
-                            DrawCommand::FillRect {
-                                rect: indicator,
-                                color: selection.color,
-                                radius: selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0),
-                            },
+                            DrawCommand::FillRect { rect: indicator, color: selection.color, radius },
                         );
+                        if let Some(color) = selection.border {
+                            self.frame.commands.insert(
+                                command_start + 1,
+                                DrawCommand::StrokeRect { rect: indicator, color, radius, width: 1.0 },
+                            );
+                        }
                     }
                 }
                 self.frame.tab_focus.push(TabFocusScope {
