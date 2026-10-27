@@ -30,7 +30,7 @@ impl Default for MenuMotion {
 /// Wheel and scrollbar-button motion in logical pixels. Retained scroll
 /// surfaces share this policy; thumb dragging and precise pointer scrolling
 /// remain direct so the surface stays attached to the pointer.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ScrollMotion {
     /// Zero disables interpolation. The host also snaps under reduced motion.
     pub duration_ms: u16,
@@ -48,13 +48,16 @@ impl Default for ScrollMotion {
 }
 
 /// Timing curve shared by layout and component transitions.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub enum Easing {
     /// A responsive start and a soft finish for short interface movements.
     #[default]
     OutCubic,
     /// A gentle start and finish for larger panel movements.
     InOutCubic,
+    /// A CSS `cubic-bezier(x1, y1, x2, y2)` curve from (0, 0) to (1, 1). The x
+    /// values are clamped to 0..=1, as CSS requires, and y may overshoot.
+    CubicBezier(f32, f32, f32, f32),
 }
 
 impl Easing {
@@ -66,8 +69,47 @@ impl Easing {
             Self::OutCubic => 1.0 - (1.0 - progress).powi(3),
             Self::InOutCubic if progress < 0.5 => 4.0 * progress.powi(3),
             Self::InOutCubic => 1.0 - (-2.0 * progress + 2.0).powi(3) / 2.0,
+            Self::CubicBezier(x1, y1, x2, y2) => cubic_bezier(x1.clamp(0.0, 1.0), y1, x2.clamp(0.0, 1.0), y2, progress),
         }
     }
+}
+
+/// The y of a cubic Bézier at the parameter `s` whose x is `t`. Newton's method
+/// finds `s` in a few steps; where it stalls, bisection on the monotone x does.
+fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
+    if t <= 0.0 || t >= 1.0 {
+        return t.clamp(0.0, 1.0);
+    }
+    let coordinate = |a: f32, b: f32, s: f32| {
+        let u = 1.0 - s;
+        3.0 * u * u * s * a + 3.0 * u * s * s * b + s * s * s
+    };
+    let slope = |a: f32, b: f32, s: f32| {
+        let u = 1.0 - s;
+        3.0 * u * u * a + 6.0 * u * s * (b - a) + 3.0 * s * s * (1.0 - b)
+    };
+    let mut s = t;
+    for _ in 0..8 {
+        let error = coordinate(x1, x2, s) - t;
+        let derivative = slope(x1, x2, s);
+        if error.abs() < 1e-6 || derivative.abs() < 1e-6 {
+            break;
+        }
+        s = (s - error / derivative).clamp(0.0, 1.0);
+    }
+    if (coordinate(x1, x2, s) - t).abs() > 1e-5 {
+        let (mut low, mut high) = (0.0_f32, 1.0_f32);
+        s = t;
+        for _ in 0..40 {
+            if coordinate(x1, x2, s) < t {
+                low = s;
+            } else {
+                high = s;
+            }
+            s = (low + high) / 2.0;
+        }
+    }
+    coordinate(y1, y2, s)
 }
 
 /// Retargetable animation of one logical-pixel value or opacity. A host owns
@@ -494,6 +536,52 @@ pub(crate) fn spinner_angle(started: Instant, now: Instant, reduced_motion: bool
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The y of a cubic Bézier at x = `t`, found by plain bisection on x with no
+    /// shortcut, to check `sample` against.
+    fn reference(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
+        let at = |a: f32, b: f32, s: f32| 3.0 * (1.0 - s).powi(2) * s * a + 3.0 * (1.0 - s) * s * s * b + s.powi(3);
+        let (mut low, mut high) = (0.0_f64, 1.0_f64);
+        for _ in 0..200 {
+            let mid = (low + high) / 2.0;
+            if f64::from(at(x1, x2, mid as f32)) < f64::from(t) {
+                low = mid;
+            } else {
+                high = mid;
+            }
+        }
+        at(y1, y2, ((low + high) / 2.0) as f32)
+    }
+
+    #[test]
+    fn a_cubic_bezier_on_the_diagonal_is_linear() {
+        for step in 0..=20 {
+            let t = step as f32 / 20.0;
+            assert!((Easing::CubicBezier(0.0, 0.0, 1.0, 1.0).sample(t) - t).abs() < 1e-4, "{t}");
+        }
+    }
+
+    #[test]
+    fn the_sheet_curve_starts_and_ends_at_rest_and_never_falls_back() {
+        let curve = Easing::CubicBezier(0.32, 0.72, 0.0, 1.0);
+        assert_eq!(curve.sample(0.0), 0.0);
+        assert!((curve.sample(1.0) - 1.0).abs() < 1e-6);
+        let mut last = 0.0;
+        for step in 0..=1000 {
+            let value = curve.sample(step as f32 / 1000.0);
+            assert!(value >= last - 1e-6, "falls back at {step}");
+            last = value;
+        }
+        // The curve is fast at first: well past half way by the middle of its time.
+        assert!(curve.sample(0.5) > 0.8);
+    }
+
+    #[test]
+    fn the_sheet_curve_matches_a_dense_bisection_at_the_middle() {
+        let (x1, y1, x2, y2) = (0.32, 0.72, 0.0, 1.0);
+        let value = Easing::CubicBezier(x1, y1, x2, y2).sample(0.5);
+        assert!((value - reference(x1, y1, x2, y2, 0.5)).abs() < 0.01, "{value}");
+    }
 
     #[test]
     fn scalar_retarget_keeps_current_position_without_jump() {

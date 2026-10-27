@@ -85,7 +85,7 @@ mod captured_paste;
 pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
+    BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -1187,6 +1187,24 @@ fn paint_dashed_corners(
 /// Move and fade a floating surface's paint only. Its layout, pointer regions,
 /// scroll geometry, and focus targets stay at their final coordinates, so a
 /// short entrance cannot make a menu's click target drift under the pointer.
+/// The curve a popover's pictures travel on from their origin, and back on close.
+const MORPH_CURVE: Easing = Easing::CubicBezier(0.32, 0.72, 0.0, 1.0);
+
+/// Moves a picture `t` of the way from `origin` to where it is laid out, its
+/// corner radius from `radius` to its own. Other commands are left alone.
+fn morph_picture(command: &mut DrawCommand, origin: Rect, radius: f32, t: f32) {
+    if let DrawCommand::RasterImage { rect, radius: corner, .. } = command {
+        let lerp = |from: f32, to: f32| from + (to - from) * t;
+        *rect = Rect::new(
+            lerp(origin.x, rect.x),
+            lerp(origin.y, rect.y),
+            lerp(origin.width, rect.width),
+            lerp(origin.height, rect.height),
+        );
+        *corner = lerp(radius, *corner);
+    }
+}
+
 fn animate_popover_command(
     command: &mut DrawCommand,
     opacity: f32,
@@ -1679,6 +1697,7 @@ struct PopoverSnapshot {
     animation_ms: u16,
     close_animation_ms: Option<u16>,
     open_scale: f32,
+    morph: Option<(Rect, f32)>,
     view_key: Option<String>,
     rect: Rect,
     slide_sign: f32,
@@ -4457,6 +4476,7 @@ impl UiTree {
                         animation_ms,
                         close_animation_ms,
                         open_scale,
+                        morph,
                         view_key,
                         backdrop,
                         focus_scope,
@@ -4696,6 +4716,7 @@ impl UiTree {
                                 animation_ms,
                                 close_animation_ms,
                                 open_scale,
+                                morph,
                                 view_key: view_key.clone(),
                                 rect,
                                 slide_sign,
@@ -4777,6 +4798,11 @@ impl UiTree {
                                 // A coach mark's ring stays on its target.
                                 let slide = if command_start + index < bubble_start { 0.0 } else { slide };
                                 animate_popover_command(command, progress, slide, scale, origin);
+                            }
+                        }
+                        if let (Some((origin, radius)), true) = (morph, progress < 1.0) {
+                            for command in &mut builder.frame.commands[command_start..] {
+                                morph_picture(command, origin, radius, MORPH_CURVE.sample(progress));
                             }
                         }
                         if travel != (0.0, 0.0) {
@@ -4919,6 +4945,9 @@ impl UiTree {
                 }
                 for command in &exit.paint.commands {
                     let mut command = command.clone();
+                    if let Some((from, radius)) = exit.paint.morph {
+                        morph_picture(&mut command, from, radius, MORPH_CURVE.sample(opacity));
+                    }
                     animate_popover_command(&mut command, opacity, slide, scale, origin);
                     exit_commands.push(command);
                 }
@@ -7525,6 +7554,7 @@ enum DeferredOverlay {
         animation_ms: u16,
         close_animation_ms: Option<u16>,
         open_scale: f32,
+        morph: Option<(Rect, f32)>,
         view_key: Option<String>,
         backdrop: bool,
         focus_scope: bool,
@@ -7583,13 +7613,21 @@ fn place_popover(
         placement,
         PopoverPlacement::BottomStart | PopoverPlacement::BottomEnd | PopoverPlacement::RightStart
     );
+    let right_has_room = anchor.x + anchor.width + gap + width <= viewport.x + viewport.width - inset;
     let x = match placement {
         PopoverPlacement::Center => viewport.x + (viewport.width - width) / 2.0,
         PopoverPlacement::RightStart => {
-            if anchor.x + anchor.width + gap + width <= viewport.x + viewport.width - inset {
+            if right_has_room {
                 anchor.x + anchor.width + gap
             } else {
                 anchor.x - gap - width
+            }
+        }
+        PopoverPlacement::RightCorner => {
+            if right_has_room {
+                anchor.x + anchor.width + gap
+            } else {
+                anchor.x + anchor.width - gap - width
             }
         }
         PopoverPlacement::LeftStart => {
@@ -7611,6 +7649,8 @@ fn place_popover(
     let available_above = (anchor.y - gap - viewport.y - inset).max(0.0);
     let y = if placement == PopoverPlacement::Center {
         viewport.y + (viewport.height - height) / 2.0
+    } else if placement == PopoverPlacement::RightCorner {
+        if right_has_room { anchor.y } else { anchor.y + gap }
     } else if matches!(
         placement,
         PopoverPlacement::RightStart | PopoverPlacement::LeftStart
@@ -7950,6 +7990,7 @@ impl LayoutBuilder<'_> {
                 animation_ms: crate::tokens().motion.enter_ms,
                 close_animation_ms: None,
                 open_scale: 1.0,
+                morph: None,
                 view_key: None,
                 rect,
                 slide_sign,
@@ -11306,6 +11347,7 @@ impl LayoutBuilder<'_> {
                 animation_ms,
                 close_animation_ms,
                 open_scale,
+                morph,
                 view_key,
                 hover_open,
                 backdrop,
@@ -11390,6 +11432,7 @@ impl LayoutBuilder<'_> {
                     animation_ms: *animation_ms,
                     close_animation_ms: *close_animation_ms,
                     open_scale: *open_scale,
+                    morph: *morph,
                     view_key: view_key.clone(),
                     backdrop: *backdrop,
                     focus_scope: *focus_scope,

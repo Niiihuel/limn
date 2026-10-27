@@ -1,4 +1,4 @@
-use crate::{Color, DrawCommand, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, DrawCommand, Point, RasterImage, Rect, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -27,6 +27,10 @@ pub enum PopoverPlacement {
     /// To the left of the anchor, their tops aligned. It goes to the right
     /// instead when the left has no room.
     LeftStart,
+    /// To the right of the anchor, its top aligned, the gap away. When the right
+    /// has no room it sits inside the anchor's top-right corner, the gap in from
+    /// the top and from the right: a column of actions beside a picture.
+    RightCorner,
     /// Centered in the viewport, wherever the anchor is: a modal. The gap is
     /// not used.
     Center,
@@ -1508,6 +1512,9 @@ pub enum ElementKind {
         /// Scale the entrance starts from and the exit ends at; 1 does not
         /// scale. [`Element::popover_open_scale`] keeps it within 0.5..=1.25.
         open_scale: f32,
+        /// The rectangle and corner radius the pictures grow from; see
+        /// [`Element::popover_morph`].
+        morph: Option<(Rect, f32)>,
         /// Names the view the surface shows. When it changes under the same
         /// `dismiss_id`, the old content cross-fades into the new.
         view_key: Option<String>,
@@ -2619,6 +2626,7 @@ impl Element {
                 animation_ms: crate::tokens().motion.enter_ms,
                 close_animation_ms: None,
                 open_scale: 1.0,
+                morph: None,
                 view_key: None,
                 hover_open: false,
                 backdrop: true,
@@ -2782,6 +2790,20 @@ impl Element {
         } = &mut self.kind
         {
             *close_animation_ms = Some(duration);
+        }
+        self
+    }
+
+    /// Grow the pictures the surface paints from `origin`, a rectangle in window
+    /// coordinates, and their corner radius from `radius` to their own, over the
+    /// entrance. The exit runs the same change backwards, so the surface stays
+    /// mounted until it has. A rectangle that is not finite is ignored.
+    pub fn popover_morph(mut self, origin: Rect, radius: f32) -> Self {
+        let finite = [origin.x, origin.y, origin.width, origin.height, radius].iter().all(|value| value.is_finite());
+        if let ElementKind::Popover { morph, .. } = &mut self.kind {
+            if finite {
+                *morph = Some((origin, radius.max(0.0)));
+            }
         }
         self
     }

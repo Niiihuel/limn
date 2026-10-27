@@ -300,7 +300,7 @@ if self.panel_width.is_active(Instant::now()) {
 | Method | Effect |
 | --- | --- |
 | `ScalarTransition::new(value, now)` | Starts at rest at `value`. |
-| `.easing(Easing::InOutCubic)` | Chooses the curve; the default is `OutCubic`. |
+| `.easing(Easing::InOutCubic)` | Chooses the curve; the default is `OutCubic`. `Easing::CubicBezier(x1, y1, x2, y2)` is a CSS `cubic-bezier`. |
 | `.retarget(value, now, duration)` | Heads for a new value from wherever it is now, without a jump. |
 | `.retarget_with_motion(value, now, duration, reduced_motion)` | As above, or a snap when `reduced_motion` is true. |
 | `.snap_to(value, now)` | Jumps immediately. |
