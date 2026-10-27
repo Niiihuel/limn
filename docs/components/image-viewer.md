@@ -130,6 +130,33 @@ picture's top-right corner, 6 pixels from it. When the right of the picture
 has no room the column moves inside that corner instead. The column is a
 non-modal popover anchored to the picture, so it takes no backdrop of its own.
 
+## Lightbox
+
+```rust
+viewer
+    .lightbox(true)
+    .natural_size(1200.0, 800.0)
+    .caption("dusk.png")
+```
+
+`lightbox(true)` shows the picture as a lightbox, as a pasted image is shown in
+a desktop chat app: the window dims behind it to 62.5 % black, and there is no
+panel, no header and no count for one picture. The picture keeps its aspect
+ratio, is at most 640 pixels wide and the window's height less 64, and is never
+enlarged past `natural_size`. Its close control and each `action` stand in a
+column just outside its top-right corner, 6 pixels from it, aligned with its
+top; when the window has no room to its right, the column moves inside that
+corner, 6 pixels in. `caption` is the white line under the picture, and a
+gallery of more than one adds its count under that. A click on the backdrop or
+on the picture closes, as Escape does. With `origin`, the picture grows from its
+thumbnail to its fitted place. Zoom is not offered in a lightbox.
+
+`natural_size(width, height)` is the picture's size in pixels, which the host
+knows: `RasterImage` does not carry it. Without it the picture's box is the
+whole of the room (640 wide, the window's height less 64) and the picture is
+fitted inside that. It is used only in lightbox mode; the panel already shows
+the picture whole at its own proportions.
+
 ## Accessibility
 
 The panel is a dialog named by its title, known to the platform as
