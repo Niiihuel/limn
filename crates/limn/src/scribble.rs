@@ -67,12 +67,13 @@ impl Component for Scribble {
 /// The flourish in a unit box: a pen writing two cursive "l"s joined, up from a low lead-in
 /// and out in a low tail (a prolate cycloid whose loops stand up), stretched to fill it.
 fn flourish() -> Vec<(f32, f32)> {
-    let (from, to) = (0.6 * PI, 5.1 * PI);
+    let (from, to) = (0.6 * PI, 4.6 * PI);
     let raw: Vec<(f32, f32)> = (0..POINTS)
         .map(|i| {
             let theta = from + (to - from) * i as f32 / (POINTS - 1) as f32;
-            // Half a turn of travel per radian against a unit wheel: the loops close and stand.
-            (0.5 * theta - theta.sin(), -theta.cos())
+            // A third of a unit of travel per radian against a unit wheel: round, open loops
+            // that stand, which stay legible at a small size.
+            (0.32 * theta - theta.sin(), -theta.cos())
         })
         .collect();
     let span = |axis: fn(&(f32, f32)) -> f32| {
