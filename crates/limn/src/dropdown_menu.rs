@@ -509,8 +509,9 @@ impl DropdownMenu {
         self
     }
 
-    /// Draw the check of a selected row in this color, such as an accent
-    /// blue, rather than the row's ink. A disabled row's stays muted.
+    /// Draw the check of a selected row, and the track of a switch that is on,
+    /// in this color, such as an accent blue, rather than the row's ink or the
+    /// link color. A disabled row's stays muted.
     pub fn check_ink(mut self, color: Color) -> Self {
         self.check_ink = Some(color);
         self
@@ -1045,8 +1046,8 @@ impl Component for DropdownMenu {
                     }
                     if reserve_check {
                         let ink = if enabled { palette.text } else { palette.muted };
-                        // A disabled switch is drawn in the muted color, as the text is.
-                        let accent = (!enabled).then_some(palette.muted);
+                        // A switch is on in the menu's check ink; disabled, in the muted color, as the text is.
+                        let accent = if enabled { self.check_ink } else { Some(palette.muted) };
                         children.push(
                             if let Some(check) = item.check {
                                 check
@@ -3718,6 +3719,35 @@ mod tests {
             }
             _ => None,
         })
+    }
+
+    #[test]
+    fn a_switch_that_is_on_takes_the_menus_check_ink() {
+        let palette = ComponentPalette::neutral_dark();
+        let blue = Color::rgb(37, 125, 224);
+        let menu = DropdownMenu::new(
+            trigger(),
+            vec![
+                DropdownMenuItem::new("on", "On").switch(true).into(),
+                DropdownMenuItem::new("off", "Off").switch(false).into(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        )
+        .width(260.0)
+        .check_ink(blue);
+        let mut tree = open_menu(menu);
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        let fill = |id: &str| {
+            let track = switch_track(&frame, region(&frame, id)).expect("a track");
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *rect == track => Some(*color),
+                _ => None,
+            })
+        };
+        assert_eq!(fill("on"), Some(crate::chip::readable_ink(blue, palette.text, 3.0)));
+        assert_ne!(fill("off"), fill("on"));
     }
 
     #[test]
