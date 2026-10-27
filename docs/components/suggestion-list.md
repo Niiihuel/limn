@@ -126,10 +126,15 @@ SuggestionList::new(anchor, "options", items, selected, open, "dismiss", palette
 
 A compact list is for a command or mention palette: one-line rows, 30 high,
 with the icon, the label and the `detail` at its end. Its items' descriptions
-are not drawn in the rows. The selected item's description shows in a
-tooltip-styled box beside the list, top-aligned with its row and 8 px from it,
-at most 320 wide and ten lines high. The box is not interactive and moves
-with `selected_index`. It is not drawn for an item without a description.
+are not drawn in the rows. The selected item's description shows in a box
+beside the list, on the palette's `raised` fill and `border` edge in its `text`
+ink, top-aligned with its row and 8 px from it, at most 320 wide and ten lines
+high. The box is not interactive and moves with `selected_index`. It is not
+drawn for an item without a description.
+
+`inline_details(true)` sets each `detail` right after its label, as a note on
+it (a session's folder), instead of at the row's end; the label gives way
+first, past three quarters of the row.
 
 ## Width and placement
 

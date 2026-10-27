@@ -157,24 +157,19 @@ fn label_runs(
     Some(runs)
 }
 
-// The selected row's description, in a tooltip's colors beside the row. It is a
-// popover only so the row places it: it takes no pointer or focus.
+// The selected row's description beside the row, on the list's raised surface and edge, as
+// the list's own (desktop apps draw it so, not as a hover tooltip). It is a popover only so the
+// row places it: it takes no pointer or focus.
 fn beside(row: Element, text: &str, palette: ComponentPalette, dismiss_id: String) -> Element {
-    let colors = palette.tooltip_style();
     Popover::new(
         row,
-        Element::formatted_text(vec![TextSpan::new(text, colors.text, 12.0, FontFamily::Sans)])
+        Element::formatted_text(vec![TextSpan::new(text, palette.text, 12.0, FontFamily::Sans)])
             .max_lines(DESCRIPTION_LINES)
             .padding(8.0)
             .size(Some(DESCRIPTION_WIDTH - 12.0), None),
         true,
         dismiss_id,
-        ComponentPalette {
-            raised: colors.background,
-            border: colors.border,
-            shadow: colors.shadow,
-            ..palette
-        },
+        palette,
     )
     .width(DESCRIPTION_WIDTH)
     .placement(PopoverPlacement::RightStart)
@@ -208,6 +203,7 @@ pub struct SuggestionList {
     available: f32,
     max_width: f32,
     compact: bool,
+    inline_details: bool,
     placement: PopoverPlacement,
     animation_ms: (u16, u16),
     sizing: SelectorSizing,
@@ -241,6 +237,7 @@ impl SuggestionList {
             available: f32::INFINITY,
             max_width: MAX_WIDTH,
             compact: false,
+            inline_details: false,
             placement: PopoverPlacement::TopStart,
             animation_ms: (motion.enter_ms, motion.exit_ms),
             sizing: SelectorSizing::CATALOG,
@@ -301,6 +298,13 @@ impl SuggestionList {
         self
     }
 
+    /// Set each item's `detail` right after its label, as a note on it (a session's folder),
+    /// instead of at the row's end. The label gives way first, past three quarters of the row.
+    pub fn inline_details(mut self, inline: bool) -> Self {
+        self.inline_details = inline;
+        self
+    }
+
     /// Where the list opens from its anchor (above its start unless set).
     pub fn placement(mut self, placement: PopoverPlacement) -> Self {
         self.placement = placement;
@@ -330,6 +334,7 @@ impl Component for SuggestionList {
         let sizing = self.sizing;
         let palette = self.palette;
         let compact = self.compact;
+        let inline_details = self.inline_details;
         let row_height = if compact { COMPACT_ROW_HEIGHT } else { ROW_HEIGHT };
         // Not `clamp`: a width that is not a number must still give a width.
         #[allow(clippy::manual_clamp)]
@@ -422,17 +427,19 @@ impl Component for SuggestionList {
                             let label = if item.detail.is_empty() {
                                 label
                             } else {
+                                let detail = Element::truncated_text(&item.detail)
+                                    .font_family(FontFamily::Sans)
+                                    .font_size(sizing.detail_size)
+                                    .foreground(palette.muted)
+                                    .max_width(row_width / 2.0)
+                                    .centered_y();
                                 // The detail keeps its width up to half the row, cut past it; the
                                 // label is cut before it, so a long detail never hides the label.
-                                Element::row(vec![
-                                    label.flex(1.0),
-                                    Element::truncated_text(&item.detail)
-                                        .font_family(FontFamily::Sans)
-                                        .font_size(sizing.detail_size)
-                                        .foreground(palette.muted)
-                                        .max_width(row_width / 2.0)
-                                        .centered_y(),
-                                ])
+                                Element::row(if inline_details {
+                                    vec![label.max_width(row_width * 0.75), detail, Element::spacer().flex(1.0)]
+                                } else {
+                                    vec![label.flex(1.0), detail]
+                                })
                                 .gap(sizing.gap)
                                 .size(None, Some(16.0))
                             };
@@ -830,9 +837,9 @@ mod tests {
         })
     }
 
-    // Fills in the tooltip's background: the description box, and nothing else.
+    // Fills in the list's raised color: the description box, and nothing else.
     fn boxes(frame: &Frame) -> Vec<Rect> {
-        let background = palette().tooltip_style().background;
+        let background = palette().raised;
         frame
             .commands
             .iter()
@@ -876,6 +883,21 @@ mod tests {
         let row = row(&frame, "pick:0").unwrap();
         let (label, _) = drawn(&frame, "effort").expect("the label is drawn");
         assert!(label.x >= row.x && label.x < row.x + row.width / 2.0, "{label:?} in {row:?}");
+    }
+
+    #[test]
+    fn an_inline_detail_follows_its_label_instead_of_the_rows_end() {
+        let items = vec![SuggestionItem::new("pick:0", "Session title").detail("repo")];
+        let at = |inline: bool| {
+            let items = items.clone();
+            let frame = shown(items, 0, move |list| list.compact(true).inline_details(inline).width(560.0).max_width(560.0))
+                .layout(Size::new(900.0, 600.0));
+            let row = row(&frame, "pick:0").unwrap();
+            let (detail, _) = drawn(&frame, "repo").unwrap();
+            detail.x - row.x
+        };
+        assert!(at(true) < 200.0, "{}", at(true));
+        assert!(at(false) > 400.0, "{}", at(false));
     }
 
     #[test]
