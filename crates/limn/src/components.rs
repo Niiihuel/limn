@@ -2450,8 +2450,8 @@ pub struct Tab {
     /// text color without one, and the sliding selection rests under it,
     /// unless it is disabled.
     pub active: bool,
-    /// Width in logical pixels. `new` keeps it at 40 or more and
-    /// `Tabs::fill_width` replaces it.
+    /// Width in logical pixels. `new` keeps it at 24 or more, the least
+    /// target a pointer is given, and `Tabs::fill_width` replaces it.
     pub width: f32,
     /// `Disabled` keeps the tab in its place, in the muted color, and it cannot
     /// be chosen.
@@ -2466,8 +2466,9 @@ impl Tab {
             label: label.into(),
             icon: None,
             active: false,
-            // Never under 40, and 40 when it is not a number.
-            width: if width.is_finite() { width.max(40.0) } else { 40.0 },
+            // Never under 24, the least pointer target (WCAG 2.5.8), so an
+            // icon alone can sit in a narrow segment; 40 when it is not a number.
+            width: if width.is_finite() { width.max(24.0) } else { 40.0 },
             state: ControlState::Enabled,
         }
     }
@@ -2551,6 +2552,9 @@ pub struct Tabs {
     pub radius: Option<f32>,
     /// Size of the labels in logical pixels, 11.5 by default.
     pub font_size: f32,
+    /// A one pixel outline round the segmented selection, as a raised chip
+    /// on its track. `None`, the default, draws none.
+    pub selection_border: Option<Color>,
 }
 
 impl Tabs {
@@ -2567,7 +2571,15 @@ impl Tabs {
             accent: None,
             radius: None,
             font_size: TAB_FONT_SIZE,
+            selection_border: None,
         }
+    }
+
+    /// Outline the segmented selection one pixel wide in this color, such as
+    /// a white chip that needs an edge to stand on a pale track.
+    pub fn selection_border(mut self, color: Color) -> Self {
+        self.selection_border = Some(color);
+        self
     }
 
     /// Round the selection by `radius` logical pixels and the segmented track
@@ -2650,7 +2662,7 @@ impl Tabs {
             let width = (total - TAB_TRACK_PADDING * 2.0 - self.gap * (count - 1.0)) / count;
             for item in &mut self.items {
                 // The same floor as `Tab::new`.
-                item.width = width.max(40.0);
+                item.width = width.max(24.0);
             }
         }
         self
@@ -2805,13 +2817,17 @@ impl Component for Tabs {
             .background(self.palette.surface)
             .radius(track_radius);
         if let Some(selected_id) = selected_id {
-            strip.tab_selection(
+            let strip = strip.tab_selection(
                 group_id,
                 selected_id,
                 self.palette.selected,
                 selection_radius,
                 self.animation_ms,
-            )
+            );
+            match self.selection_border {
+                Some(color) => strip.tab_selection_border(color),
+                None => strip,
+            }
         } else {
             strip
         }
@@ -2825,6 +2841,7 @@ pub struct SegmentedControl {
     items: Vec<Tab>,
     palette: ComponentPalette,
     height: f32,
+    selection_border: Option<Color>,
 }
 
 impl SegmentedControl {
@@ -2834,7 +2851,15 @@ impl SegmentedControl {
             items,
             palette,
             height: 28.0,
+            selection_border: None,
         }
+    }
+
+    /// Outline the chosen segment one pixel wide in this color: a white chip
+    /// on a pale track, as a desktop settings page draws a theme picker.
+    pub fn selection_border(mut self, color: Color) -> Self {
+        self.selection_border = Some(color);
+        self
     }
 
     /// Set the height, in logical pixels, never below 28. A height that is
@@ -2851,9 +2876,9 @@ impl Component for SegmentedControl {
     fn render(self) -> Element {
         let inner_width = self.items.iter().map(|item| item.width).sum::<f32>()
             + TAB_GAP * self.items.len().saturating_sub(1) as f32;
-        Tabs::new(self.items, self.palette)
-            .height(self.height - TAB_TRACK_PADDING * 2.0)
-            .render()
+        let mut tabs = Tabs::new(self.items, self.palette).height(self.height - TAB_TRACK_PADDING * 2.0);
+        tabs.selection_border = self.selection_border;
+        tabs.render()
             .size(
                 Some(inner_width + TAB_TRACK_PADDING * 2.0),
                 Some(self.height),
@@ -5372,6 +5397,40 @@ mod tests {
     }
 
     #[test]
+    fn icon_segments_can_be_narrow_and_the_chosen_one_outlined() {
+        let palette = ComponentPalette::neutral_dark();
+        let edge = Color::rgb(231, 231, 231);
+        let icons = || {
+            vec![
+                Tab::new("system", "", 26.0).icon(Icon::Hash).active(true),
+                Tab::new("light", "", 26.0).icon(Icon::Folder),
+                Tab::new("dark", "", 10.0).icon(Icon::Code),
+            ]
+        };
+        // Three 26 px segments, the last kept at the 24 px floor, on a 2 px track.
+        let segment = SegmentedControl::new(icons(), palette).selection_border(edge).render();
+        assert_eq!(segment.style.width, Some(26.0 + 26.0 + 24.0 + 2.0 * TAB_GAP + 2.0 * TAB_TRACK_PADDING));
+        let mut tree = UiTree::new(segment);
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(200.0, 28.0));
+        let chip = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, color, .. } if *color == palette.selected => Some(*rect),
+            _ => None,
+        });
+        let outline = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::StrokeRect { rect, color, width, .. } if *color == edge => Some((*rect, *width)),
+            _ => None,
+        });
+        assert_eq!(chip.map(|rect| rect.width), Some(26.0));
+        assert_eq!(outline, chip.map(|rect| (rect, 1.0)));
+        // Without it, no outline.
+        let mut plain = UiTree::new(SegmentedControl::new(icons(), palette).render());
+        plain.set_reduced_motion(true);
+        let plain = plain.layout(Size::new(200.0, 28.0));
+        assert!(!plain.commands.iter().any(|command| matches!(command, DrawCommand::StrokeRect { color, .. } if *color == edge)));
+    }
+
+    #[test]
     fn active_tab_hover_preserves_selected_treatment() {
         let palette = ComponentPalette::neutral_dark();
         let tabs = Tabs::new(
@@ -5995,7 +6054,7 @@ mod tests {
             let widths: Vec<_> = tabs(bad).items.iter().map(|item| item.width).collect();
             assert_eq!(widths, [50.0, 90.0, 70.0]);
         }
-        assert!(tabs(-10.0).items.iter().all(|item| item.width == 40.0));
+        assert!(tabs(-10.0).items.iter().all(|item| item.width == 24.0));
         assert!(Tabs::new(Vec::new(), palette).fill_width(200.0).items.is_empty());
     }
 
