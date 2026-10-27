@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     Alert, AlertTone, Avatar, Chip, Collapse, Color, Component, ControlSize, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
-    Scribble, Spinner, SpinnerVariant, Ticker,
+    Mark, Scribble, Spinner, SpinnerVariant, Ticker,
 };
 
 const CHIP_TONES: [(AlertTone, &str); 5] = [
@@ -174,6 +174,16 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         ]),
         section(cx, "Working", vec![
             row(vec![Scribble::new("feedback-scribble", palette.text).size(56.0, 24.0).stroke(3.0).render()]),
+            row(vec![Scribble::new("feedback-scribble-pen", palette.text)
+                .size(56.0, 28.0)
+                .stroke(2.0)
+                .marks(vec![
+                    Mark::Line(vec![(4.0, 22.0), (14.0, 25.0), (24.0, 19.0), (32.0, 23.0), (40.0, 22.0)]),
+                    Mark::Dot { at: (46.0, 20.0), diameter: 4.0 },
+                ])
+                // A pencil: its point, the line where the wood ends, and its body.
+                .pen(vec![vec![(0.0, 0.0), (2.0, -6.0), (14.0, -18.0), (18.0, -14.0), (6.0, -2.0), (0.0, 0.0)], vec![(2.0, -6.0), (6.0, -2.0)]])
+                .render()]),
             caption(cx, "A pen writes the stroke, fades it, and starts again."),
         ]),
         section(cx, "Markers", vec![

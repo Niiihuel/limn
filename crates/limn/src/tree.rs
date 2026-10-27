@@ -13236,7 +13236,7 @@ impl LayoutBuilder<'_> {
                     self.reduced_motion,
                 );
             }
-            ElementKind::Scribble { id, color, stroke } => {
+            ElementKind::Scribble { id, color, stroke, drawing } => {
                 if !self.reduced_motion {
                     self.observed_spinners.insert(id.clone());
                 }
@@ -13245,6 +13245,7 @@ impl LayoutBuilder<'_> {
                     rect,
                     *color,
                     *stroke,
+                    drawing.as_deref(),
                     started,
                     self.now,
                     self.reduced_motion,

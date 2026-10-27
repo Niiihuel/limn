@@ -248,7 +248,7 @@ pub use sequence::{
 };
 pub use skeleton::{Skeleton, SkeletonGroup};
 pub use slider::Slider;
-pub use scribble::Scribble;
+pub use scribble::{Mark, Scribble};
 pub use spinner::Spinner;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
 pub use chat_minimap::{ChatMinimap, ChatMinimapMark};

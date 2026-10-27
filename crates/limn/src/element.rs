@@ -1771,6 +1771,8 @@ pub enum ElementKind {
         color: Color,
         /// Width of the stroke in logical pixels.
         stroke: f32,
+        /// What it writes and the pen it writes with, when not the default flourish.
+        drawing: Option<std::sync::Arc<crate::scribble::Drawing>>,
     },
     /// A record behind its sleeve. Its slide and its turn are retained by
     /// stable ID in UiTree.
@@ -3414,10 +3416,20 @@ impl Element {
     /// A passive scribble in `color`, a pen writing a stroke whose phase UiTree
     /// keeps by `id`. It has no size of its own: give it one with `size`.
     pub fn scribble(id: impl Into<String>, color: Color, stroke: f32) -> Self {
+        Self::scribble_drawing(id, color, stroke, None)
+    }
+
+    pub(crate) fn scribble_drawing(
+        id: impl Into<String>,
+        color: Color,
+        stroke: f32,
+        drawing: Option<std::sync::Arc<crate::scribble::Drawing>>,
+    ) -> Self {
         Self::new(ElementKind::Scribble {
             id: id.into(),
             color,
             stroke,
+            drawing,
         })
     }
 
