@@ -102,6 +102,34 @@ The close button has the focus when the viewer opens.
 | `UiAction::Clicked { id }` with the previous or next ID | An arrow is clicked, or Left or Right is pressed. |
 | `UiAction::Clicked { id }` with a zoom ID | One of the three zoom controls is clicked. |
 
+## Origin
+
+```rust
+viewer.origin(thumbnail_rect)
+```
+
+`origin` is the rectangle the picture comes from, in window coordinates. The
+picture grows from it to its place over 350 ms, its corner going from 8 to 6
+pixels, and the scrim and the panel fade in; closing runs it back in 250 ms,
+and the viewer stays on screen until the picture has returned. Without an
+origin the viewer fades over 180 ms. Under reduced motion, as
+`UiTree::set_reduced_motion` sets it, both happen at once.
+
+## Actions
+
+```rust
+viewer
+    .action("viewer-copy", Icon::Copy, "Copy image")
+    .action("viewer-annotate", Icon::Edit, "Annotate image")
+```
+
+Each `action` is a round icon button, as large as the close button, with its
+label as name and tooltip, and it reports its ID with `UiAction::Clicked`.
+With actions the close button leads them in one column just outside the
+picture's top-right corner, 6 pixels from it. When the right of the picture
+has no room the column moves inside that corner instead. The column is a
+non-modal popover anchored to the picture, so it takes no backdrop of its own.
+
 ## Accessibility
 
 The panel is a dialog named by its title, known to the platform as
