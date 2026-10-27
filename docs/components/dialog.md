@@ -92,9 +92,12 @@ Modal::new(root, open, "Settings", "", "settings:close", palette)
 `flush_body(true)` lays the body out to the card's edges, under a 44-high
 title row and a hairline in the palette's border, for a body that is a
 layout of its own: a column of pages beside their content, as a settings
-window has. The body takes the card's width and the height the title row
-and the footer leave; the modal puts no scroll area round it, so it scrolls
-what it wants itself. The title row and the footer keep their padding.
+window has. The body takes the card's width inside its one pixel outline,
+which stays whole on every side whatever the body fills, and the height the
+title row and the footer leave; the modal puts no scroll area round it, so it
+scrolls what it wants itself. The title row and the footer keep their
+padding. `.outline(color)` draws the outline in a color of its own, quieter
+than the hairline, as a dark settings window does.
 
 ## AlertDialog
 
