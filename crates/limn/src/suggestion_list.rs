@@ -1,5 +1,6 @@
 //! Completions floating over a text input while the user keeps typing.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 use crate::{
@@ -10,9 +11,15 @@ use crate::{
 // Two lines and their padding; taller than a catalog row because the list
 // floats alone over an editor.
 const ROW_HEIGHT: f32 = 42.0;
+// One line and its padding, for a compact list.
+const COMPACT_ROW_HEIGHT: f32 = 30.0;
 const MAX_VISIBLE: usize = 7;
 const MAX_WIDTH: f32 = 352.0;
 const MIN_WIDTH: f32 = 160.0;
+// The description beside a compact list's selected row.
+const DESCRIPTION_WIDTH: f32 = 320.0;
+const DESCRIPTION_LINES: usize = 10;
+const DESCRIPTION_GAP: f32 = 8.0;
 // Below this the hints stack instead of sharing a row.
 const STACKED_HINTS_BELOW: f32 = 300.0;
 
@@ -28,6 +35,7 @@ pub struct SuggestionItem {
     detail: String,
     section: Option<String>,
     enabled: bool,
+    matched: Vec<Range<usize>>,
 }
 
 impl SuggestionItem {
@@ -43,6 +51,7 @@ impl SuggestionItem {
             detail: String::new(),
             section: None,
             enabled: true,
+            matched: Vec::new(),
         }
     }
 
@@ -99,6 +108,79 @@ impl SuggestionItem {
     pub fn disabled(self) -> Self {
         self.enabled(false)
     }
+
+    /// Byte ranges of the label drawn in bold, such as what the query matched.
+    /// A range out of bounds or not on a character boundary is ignored.
+    pub fn matched(mut self, ranges: Vec<std::ops::Range<usize>>) -> Self {
+        self.matched = ranges;
+        self
+    }
+}
+
+// The label as runs, the matched ranges in bold; `None` when no range is usable.
+fn label_runs(
+    label: &str,
+    ranges: &[Range<usize>],
+    color: Color,
+    size: f32,
+) -> Option<Vec<TextSpan>> {
+    let mut ranges: Vec<_> = ranges
+        .iter()
+        .filter(|range| {
+            range.start < range.end
+                && range.end <= label.len()
+                && label.is_char_boundary(range.start)
+                && label.is_char_boundary(range.end)
+        })
+        .cloned()
+        .collect();
+    if ranges.is_empty() {
+        return None;
+    }
+    ranges.sort_by_key(|range| range.start);
+    let mut runs = Vec::with_capacity(ranges.len() * 2 + 1);
+    let mut cursor = 0;
+    for range in ranges {
+        // A range overlapping the one before it is skipped.
+        if range.start < cursor {
+            continue;
+        }
+        if range.start > cursor {
+            runs.push(TextSpan::new(&label[cursor..range.start], color, size, FontFamily::Sans));
+        }
+        runs.push(TextSpan::new(&label[range.clone()], color, size, FontFamily::SansBold));
+        cursor = range.end;
+    }
+    if cursor < label.len() {
+        runs.push(TextSpan::new(&label[cursor..], color, size, FontFamily::Sans));
+    }
+    Some(runs)
+}
+
+// The selected row's description, in a tooltip's colors beside the row. It is a
+// popover only so the row places it: it takes no pointer or focus.
+fn beside(row: Element, text: &str, palette: ComponentPalette, dismiss_id: String) -> Element {
+    let colors = palette.tooltip_style();
+    Popover::new(
+        row,
+        Element::formatted_text(vec![TextSpan::new(text, colors.text, 12.0, FontFamily::Sans)])
+            .max_lines(DESCRIPTION_LINES)
+            .padding(8.0)
+            .size(Some(DESCRIPTION_WIDTH - 12.0), None),
+        true,
+        dismiss_id,
+        ComponentPalette {
+            raised: colors.background,
+            border: colors.border,
+            shadow: colors.shadow,
+            ..palette
+        },
+    )
+    .width(DESCRIPTION_WIDTH)
+    .placement(PopoverPlacement::RightStart)
+    .render()
+    .popover_gap(DESCRIPTION_GAP)
+    .popover_non_modal()
 }
 
 #[derive(Clone, Copy)]
@@ -124,6 +206,8 @@ pub struct SuggestionList {
     hints: Vec<Element>,
     note: Option<String>,
     available: f32,
+    max_width: f32,
+    compact: bool,
     placement: PopoverPlacement,
     animation_ms: (u16, u16),
 }
@@ -153,7 +237,9 @@ impl SuggestionList {
             empty: String::new(),
             hints: Vec::new(),
             note: None,
-            available: MAX_WIDTH,
+            available: f32::INFINITY,
+            max_width: MAX_WIDTH,
+            compact: false,
             placement: PopoverPlacement::TopStart,
             animation_ms: (motion.enter_ms, motion.exit_ms),
         }
@@ -186,11 +272,30 @@ impl SuggestionList {
     }
 
     /// The room the host can offer. The list is as wide as that allows,
-    /// between 160 and 352. Values that are not finite are ignored.
+    /// between 160 and `max_width` (352 unless set). Values that are not
+    /// finite are ignored.
     pub fn width(mut self, available: f32) -> Self {
         if available.is_finite() {
             self.available = available;
         }
+        self
+    }
+
+    /// The widest the list may be, in place of 352. `width` still bounds it,
+    /// and 160 remains the least. Values that are not finite are ignored.
+    pub fn max_width(mut self, max_width: f32) -> Self {
+        if max_width.is_finite() {
+            self.max_width = max_width;
+        }
+        self
+    }
+
+    /// One-line rows, 30 high, with the icon, the label and the detail at its
+    /// end; the description is not drawn. The selected item's description
+    /// shows in a tooltip-styled box beside the list, top-aligned with its
+    /// row, up to ten lines at 320 wide.
+    pub fn compact(mut self, compact: bool) -> Self {
+        self.compact = compact;
         self
     }
 
@@ -215,9 +320,11 @@ impl Component for SuggestionList {
         }
         let sizing = SelectorSizing::CATALOG;
         let palette = self.palette;
+        let compact = self.compact;
+        let row_height = if compact { COMPACT_ROW_HEIGHT } else { ROW_HEIGHT };
         // Not `clamp`: a width that is not a number must still give a width.
         #[allow(clippy::manual_clamp)]
-        let width = self.available.min(MAX_WIDTH).max(MIN_WIDTH);
+        let width = self.available.min(self.max_width).max(MIN_WIDTH);
         let inner_width = width - sizing.padding * 2.0;
         let mut contents = Vec::with_capacity(5);
         if let Some(title) = self.title {
@@ -236,6 +343,7 @@ impl Component for SuggestionList {
         // Reserve the rail before rows are built so scrollbar targets cannot
         // overlap their full-width click surface, even as overflow changes.
         let row_width = (inner_width - sizing.scrollbar_gutter - 2.0).max(0.0);
+        let description_id = format!("{}:description", self.id);
         if self.items.is_empty() {
             contents.push(
                 ScrollArea::new(
@@ -251,8 +359,8 @@ impl Component for SuggestionList {
                 )
                 .appearance(appearance)
                 .render()
-                .min_size(0.0, ROW_HEIGHT)
-                .size(Some(inner_width), Some(ROW_HEIGHT))
+                .min_size(0.0, row_height)
+                .size(Some(inner_width), Some(row_height))
                 .flex(1.0),
             );
         } else {
@@ -267,7 +375,7 @@ impl Component for SuggestionList {
             let items = Arc::new(self.items);
             let selected = self.selected_index;
             contents.push(
-                ScrollArea::uniform_list(self.id, row_count, ROW_HEIGHT, move |slot| {
+                ScrollArea::uniform_list(self.id, row_count, row_height, move |slot| {
                     match slots[slot] {
                         Slot::Section(index) => Element::column(vec![
                             Separator::horizontal(palette).render(),
@@ -278,10 +386,11 @@ impl Component for SuggestionList {
                                 .padding(sizing.padding)
                                 .flex(1.0),
                         ])
-                        .size(Some(row_width), Some(ROW_HEIGHT)),
+                        .size(Some(row_width), Some(row_height)),
                         Slot::Item(index) => {
                             let item = &items[index];
                             let ink = if item.enabled { palette.text } else { palette.muted };
+                            let label_ink = if item.enabled { item.ink.unwrap_or(ink) } else { ink };
                             let mut row = Vec::with_capacity(2);
                             if let Some(leading) = &item.leading {
                                 row.push(leading.clone().centered_y());
@@ -292,11 +401,15 @@ impl Component for SuggestionList {
                                         .size(Some(sizing.icon_size), Some(30.0)),
                                 );
                             }
-                            let label = Element::truncated_text(&item.label)
-                                .font_family(FontFamily::Sans)
-                                .font_size(sizing.label_size)
-                                .foreground(if item.enabled { item.ink.unwrap_or(ink) } else { ink })
-                                .size(None, Some(16.0));
+                            let runs = label_runs(&item.label, &item.matched, label_ink, sizing.label_size);
+                            let label = match runs {
+                                Some(runs) => Element::formatted_text(runs).max_lines(1),
+                                None => Element::truncated_text(&item.label)
+                                    .font_family(FontFamily::Sans)
+                                    .font_size(sizing.label_size)
+                                    .foreground(label_ink),
+                            }
+                            .size(None, Some(16.0));
                             let label = if item.detail.is_empty() {
                                 label
                             } else {
@@ -312,7 +425,7 @@ impl Component for SuggestionList {
                                 .gap(sizing.gap)
                                 .size(None, Some(16.0))
                             };
-                            row.push(if item.description.is_empty() {
+                            row.push(if compact || item.description.is_empty() {
                                 // One line stands in the middle of the row.
                                 label.centered_y().flex(1.0)
                             } else {
@@ -335,34 +448,40 @@ impl Component for SuggestionList {
                             if !said.is_empty() {
                                 access = access.description(said.join(", "));
                             }
-                            if !item.enabled {
-                                return Element::panel(row)
-                                    .size(Some(row_width), Some(ROW_HEIGHT))
-                                    .accessible(access.id(&item.id).disabled(true));
+                            let element = if !item.enabled {
+                                Element::panel(row)
+                                    .size(Some(row_width), Some(row_height))
+                                    .accessible(access.id(&item.id).disabled(true))
+                            } else {
+                                palette
+                                    .interactive_surface(
+                                        Element::clickable(&item.id, row)
+                                            .accessible(access.selected(index == selected)),
+                                    )
+                                    // The host's selection, not the pointer, owns
+                                    // the highlight: it follows the arrow keys.
+                                    .background(if index == selected {
+                                        palette.hover
+                                    } else {
+                                        palette.surface
+                                    })
+                                    .transition_ms(0)
+                                    .size(Some(row_width), Some(row_height))
+                            };
+                            if compact && index == selected && !item.description.is_empty() {
+                                beside(element, &item.description, palette, description_id.clone())
+                            } else {
+                                element
                             }
-                            palette
-                                .interactive_surface(
-                                    Element::clickable(&item.id, row)
-                                        .accessible(access.selected(index == selected)),
-                                )
-                                // The host's selection, not the pointer, owns
-                                // the highlight: it follows the arrow keys.
-                                .background(if index == selected {
-                                    palette.hover
-                                } else {
-                                    palette.surface
-                                })
-                                .transition_ms(0)
-                                .size(Some(row_width), Some(ROW_HEIGHT))
                         }
                     }
                 })
                 .appearance(appearance)
                 .render()
-                .min_size(0.0, ROW_HEIGHT)
+                .min_size(0.0, row_height)
                 .size(
                     Some(inner_width),
-                    Some(row_count.min(MAX_VISIBLE) as f32 * ROW_HEIGHT),
+                    Some(row_count.min(MAX_VISIBLE) as f32 * row_height),
                 )
                 .flex(1.0),
             );
@@ -664,5 +783,153 @@ mod tests {
         let frame = tree.layout(Size::new(400.0, 200.0));
         assert!(row(&frame, "pick:0").is_none());
         assert!(row(&frame, "editor").is_some());
+    }
+
+    fn shown(
+        items: Vec<SuggestionItem>,
+        selected: usize,
+        configure: impl FnOnce(SuggestionList) -> SuggestionList,
+    ) -> UiTree {
+        let list = SuggestionList::new(
+            Element::text_input("editor", "/", "").size(Some(400.0), Some(32.0)),
+            "options",
+            items,
+            selected,
+            true,
+            "dismiss",
+            palette(),
+        );
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::spacer().flex(1.0),
+            configure(list).render(),
+        ]));
+        tree.set_reduced_motion(true);
+        tree
+    }
+
+    fn drawn(frame: &Frame, label: &str) -> Option<(Point, FontFamily)> {
+        frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Text {
+                text,
+                position,
+                font_family,
+                ..
+            } if text == label => Some((*position, *font_family)),
+            _ => None,
+        })
+    }
+
+    // Fills in the tooltip's background: the description box, and nothing else.
+    fn boxes(frame: &Frame) -> Vec<Rect> {
+        let background = palette().tooltip_style().background;
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *color == background => Some(*rect),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn compact_rows_are_one_line_with_the_detail_at_the_end_and_no_description() {
+        let items = vec![
+            SuggestionItem::new("pick:0", "/plan")
+                .icon(Icon::Plan)
+                .detail("plan")
+                .description("Describe the steps"),
+            SuggestionItem::new("pick:1", "/review").description("Review the diff"),
+        ];
+        let frame = shown(items, 1, |list| list.compact(true).width(600.0))
+            .layout(Size::new(900.0, 600.0));
+        let first = row(&frame, "pick:0").unwrap();
+        assert_eq!(first.height, COMPACT_ROW_HEIGHT);
+        assert!(!has_text(&frame, "Describe the steps"), "no description line in a compact row");
+        let (label, _) = drawn(&frame, "/plan").unwrap();
+        let (detail, _) = drawn(&frame, "plan").unwrap();
+        assert!(
+            (label.y - detail.y).abs() < 2.0 && detail.x > first.x + first.width / 2.0,
+            "{label:?} {detail:?} in {first:?}"
+        );
+        assert!(label.y >= first.y && label.y < first.y + first.height);
+        // The unselected row keeps its height in a list of one-line rows.
+        let second = row(&frame, "pick:1").unwrap();
+        assert_eq!(second.height, COMPACT_ROW_HEIGHT);
+    }
+
+    #[test]
+    fn max_width_raises_the_cap_and_width_still_bounds_it() {
+        let width = |configure: fn(SuggestionList) -> SuggestionList| {
+            let mut tree = shown(commands(3), 0, |list| configure(list.width(800.0)));
+            row(&tree.layout(Size::new(900.0, 600.0)), "pick:1").unwrap().width
+        };
+        assert_eq!(width(|list| list), 352.0 - 12.0);
+        assert_eq!(width(|list| list.max_width(512.0)), 512.0 - 12.0);
+        assert_eq!(width(|list| list.max_width(f32::NAN)), 352.0 - 12.0, "not finite is ignored");
+        let mut tree = shown(commands(3), 0, |list| list.max_width(512.0).width(400.0));
+        assert_eq!(row(&tree.layout(Size::new(900.0, 600.0)), "pick:1").unwrap().width, 400.0 - 12.0);
+    }
+
+    #[test]
+    fn the_selected_description_sits_beside_its_row_and_moves_with_the_selection() {
+        let beside = |selected: usize| {
+            let mut tree = shown(commands(3), selected, |list| list.compact(true).width(600.0));
+            let frame = tree.layout(Size::new(900.0, 600.0));
+            let picked = row(&frame, &format!("pick:{selected}")).unwrap();
+            let surfaces = boxes(&frame);
+            assert_eq!(surfaces.len(), 1, "{surfaces:?}");
+            (picked, surfaces[0], frame)
+        };
+        let (picked, surface, frame) = beside(1);
+        assert_eq!(surface.width, DESCRIPTION_WIDTH);
+        assert!(
+            (surface.x - (picked.x + picked.width + DESCRIPTION_GAP)).abs() < 0.5,
+            "{surface:?} beside {picked:?}"
+        );
+        assert!((surface.y - picked.y).abs() < 0.5, "{surface:?} top of {picked:?}");
+        assert!(drawn(&frame, "Runs command 1").is_some());
+        assert!(!has_text(&frame, "Runs command 0"), "other rows keep no description");
+        let (picked, surface, _) = beside(2);
+        assert!((surface.y - picked.y).abs() < 0.5, "{surface:?} follows the selection to {picked:?}");
+    }
+
+    #[test]
+    fn no_description_box_unless_the_list_is_compact_and_the_selection_has_one() {
+        // Two lines: the description is in its row, and there is no box.
+        let frame = shown(commands(3), 1, |list| list.width(600.0)).layout(Size::new(900.0, 600.0));
+        assert!(boxes(&frame).is_empty());
+        assert!(drawn(&frame, "Runs command 1").is_some());
+        let items = || {
+            vec![
+                SuggestionItem::new("pick:0", "/a"),
+                SuggestionItem::new("pick:1", "/b").description("Runs b"),
+            ]
+        };
+        let frame = shown(items(), 0, |list| list.compact(true)).layout(Size::new(900.0, 600.0));
+        assert!(boxes(&frame).is_empty(), "the selected item has no description");
+        let frame = shown(items(), 1, |list| list.compact(true)).layout(Size::new(900.0, 600.0));
+        assert_eq!(boxes(&frame).len(), 1);
+    }
+
+    #[test]
+    fn matched_ranges_are_drawn_in_bold_and_a_bad_range_is_ignored() {
+        let items = vec![
+            SuggestionItem::new("pick:0", "/command-0").matched(vec![1..4]),
+            SuggestionItem::new("pick:1", "éa").matched(vec![1..2, 0..99]),
+        ];
+        let mut tree = shown(items, 0, |list| list.width(600.0));
+        let frame = tree.layout(Size::new(900.0, 600.0));
+        // The "/" of the input is drawn too, so only the runs of the label are looked up.
+        assert_eq!(drawn(&frame, "com").unwrap().1, FontFamily::SansBold);
+        assert_eq!(drawn(&frame, "mand-0").unwrap().1, FontFamily::Sans);
+        // The bad ranges leave the label whole and regular.
+        assert_eq!(drawn(&frame, "éa").unwrap().1, FontFamily::Sans);
+        let bold = frame
+            .commands
+            .iter()
+            .filter(|command| matches!(command, DrawCommand::Text { font_family: FontFamily::SansBold, .. }))
+            .count();
+        assert_eq!(bold, 1, "only the usable range is bold");
     }
 }
