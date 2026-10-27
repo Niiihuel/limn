@@ -513,3 +513,37 @@ fn modal_menu_keeps_nested_hover_submenus_reachable_with_the_keyboard() {
         }]
     );
 }
+
+#[test]
+fn a_modals_first_control_shows_no_tooltip_until_the_keyboard_moves_there() {
+    use crate::Component as _;
+    let page = || Element::text_input("background", "draft", "Background input").size(Some(200.0), Some(32.0));
+    let mut tree = UiTree::new(page());
+    tree.layout(VIEWPORT);
+    // The keyboard was the last to move the focus before the modal opened.
+    tree.handle_event(key(Key::Tab));
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("background"));
+    let close = crate::Tooltip::new(
+        Element::button("close", "Close").size(Some(80.0), Some(32.0)),
+        "close",
+        "Close image",
+        crate::ComponentPalette::neutral_dark(),
+    )
+    .render();
+    let modal = Element::popover(page(), close, "dismiss", PopoverPlacement::Center)
+        .popover_scrim(Color::rgba(0, 0, 0, 160))
+        .popover_initial_focus("close");
+    tree.set_root(modal);
+    let frame = tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("close"));
+    // A tooltip shows its pointer, a triangle; nothing else here draws one.
+    let shown = |frame: &Frame| frame.commands.iter().any(|command| matches!(command, DrawCommand::FillTriangle { .. }));
+    assert!(!shown(&frame), "the opening focus raises no tooltip");
+    // Once the keyboard moves to it, it says what it is.
+    tree.handle_event(key(Key::Tab));
+    tree.handle_event(UiEvent::Key { key: Key::Tab, shift: true, ctrl: false });
+    let frame = tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("close"));
+    assert!(shown(&frame), "the keyboard's focus does");
+}
