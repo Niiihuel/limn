@@ -174,6 +174,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         ]),
         section(cx, "Working", vec![
             row(vec![Scribble::new("feedback-scribble", palette.text).size(56.0, 24.0).stroke(3.0).render()]),
+            caption(cx, "A pen writes the stroke, fades it, and starts again."),
             row(vec![Scribble::new("feedback-scribble-pen", palette.text)
                 .size(56.0, 28.0)
                 .stroke(2.0)
@@ -184,7 +185,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 // A pencil: its point, the line where the wood ends, and its body.
                 .pen(vec![vec![(0.0, 0.0), (2.0, -6.0), (14.0, -18.0), (18.0, -14.0), (6.0, -2.0), (0.0, 0.0)], vec![(2.0, -6.0), (6.0, -2.0)]])
                 .render()]),
-            caption(cx, "A pen writes the stroke, fades it, and starts again."),
+            caption(cx, "Its own marks and a drawn pen, which comes down, writes, taps the dot and lifts away."),
         ]),
         section(cx, "Markers", vec![
             Marker::new("feedback-marker", "Branch created", palette).icon(Icon::GitBranch).render(),
