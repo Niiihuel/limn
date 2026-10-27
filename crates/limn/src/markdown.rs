@@ -952,22 +952,37 @@ fn render_markdown_blocks(
                 // The text keeps room for a few characters, then the marker
                 // column, then the nesting: the item never starts past the
                 // edge. At 14 px this is the old 22 px column and 48 px floor.
-                let marker = (22.0 * scale).min(width - 26.0);
+                // A number takes a column for two digits and sits at its end, as
+                // a browser's list does, so "9." and "10." keep the text in line
+                // and a long number grows the column rather than breaking.
+                let numbered = matches!(marker, ListMarker::Number(_));
+                let marker = if numbered {
+                    (30.0 * scale).max((label.chars().count() as f32 * 0.62 * body).ceil() + 2.0)
+                } else {
+                    22.0 * scale
+                }
+                .min(width - 26.0);
                 let indent = (*depth as f32 * 14.0 * scale)
                     .min((width - marker - 3.0 - 23.0 * scale).max(0.0));
+                let label = Element::formatted_text(vec![TextSpan::new(
+                    label,
+                    color,
+                    body,
+                    FontFamily::Sans,
+                )])
+                .font_family(FontFamily::Sans)
+                .font_size(body)
+                .line_height(BODY_LINE_HEIGHT * scale)
+                .foreground(color)
+                .max_lines(1);
+                let label = if numbered {
+                    Element::row(vec![Element::spacer().flex(1.0), label]).size(Some(marker), None)
+                } else {
+                    label.size(Some(marker), None)
+                };
                 Element::row(vec![
                     Element::spacer().size(Some(indent), Some(1.0)),
-                    Element::formatted_text(vec![TextSpan::new(
-                        label,
-                        color,
-                        body,
-                        FontFamily::Sans,
-                    )])
-                    .font_family(FontFamily::Sans)
-                    .font_size(body)
-                    .line_height(BODY_LINE_HEIGHT * scale)
-                    .foreground(color)
-                    .size(Some(marker), None),
+                    label,
                     render_inline_mode(
                         text,
                         width - indent - marker - 6.0,
@@ -2380,6 +2395,30 @@ mod tests {
             marker[0].rect.x + marker[0].rect.width <= item.x,
             "{marker:?} {item:?}"
         );
+    }
+
+    #[test]
+    fn numbers_of_one_and_two_digits_keep_their_text_in_line_on_one_line() {
+        let element = Markdown::new("9. nueve\n10. diez", palette()).width(480.0).render().element;
+        let mut tree = UiTree::new(Element::column(vec![element, Element::spacer().flex(1.0)]));
+        // A measure closer to a real sans: 0.6 of the size a character.
+        tree.set_text_measurer(|text, size, _| text.chars().count() as f32 * size * 0.6);
+        let blocks = tree.layout(Size::new(480.0, 400.0)).text_layouts();
+        let runs = |source: &str| {
+            blocks
+                .iter()
+                .find(|block| block.source == source)
+                .unwrap_or_else(|| panic!("no {source}"))
+                .runs
+                .clone()
+        };
+        assert_eq!(runs("10.").len(), 1, "\"10.\" stays on one line");
+        let (nine, ten) = (runs("nueve")[0].rect, runs("diez")[0].rect);
+        assert_eq!(nine.x, ten.x, "the items' text starts in one column");
+        // The numbers end at the same place, before the text.
+        let (a, b) = (runs("9.")[0].rect, runs("10.")[0].rect);
+        assert!((a.x + a.width - (b.x + b.width)).abs() < 0.5, "{a:?} {b:?}");
+        assert!(b.x + b.width <= ten.x);
     }
 
     #[test]
