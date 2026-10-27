@@ -91,8 +91,8 @@ impl Scribble {
         self
     }
 
-    /// Draw the pen that writes: lines in logical pixels with its nib at (0, 0), drawn a
-    /// little thinner than the stroke. It comes down onto the paper, rides the tip, hops
+    /// Draw the pen that writes: lines in logical pixels with its nib at (0, 0), drawn as
+    /// thick as the stroke, as an icon's lines are. It comes down onto the paper, rides the tip, hops
     /// between marks and lifts away before the ink fades; still, it rests at the end. Its
     /// lines may reach past the scribble's box, which does not clip them.
     pub fn pen(mut self, lines: Vec<Vec<(f32, f32)>>) -> Self {
@@ -339,7 +339,7 @@ pub(crate) fn paint(
             let color = Color { a: (f32::from(color.a) * pen_alpha).round() as u8, ..color };
             for line in lines {
                 let points: Vec<Point> = line.iter().map(|p| Point::new(nib.x + p.x, nib.y - lift + p.y)).collect();
-                commands.push(DrawCommand::Polyline { points: smooth(&points).into(), color, width: stroke * 0.75, dashed: false });
+                commands.push(DrawCommand::Polyline { points: smooth(&points).into(), color, width: stroke, dashed: false });
             }
         }
         // Without a pen drawn, its tip leads, a little larger than the line.
