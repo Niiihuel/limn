@@ -520,9 +520,9 @@ fn a_modals_first_control_shows_no_tooltip_until_the_keyboard_moves_there() {
     let page = || Element::text_input("background", "draft", "Background input").size(Some(200.0), Some(32.0));
     let mut tree = UiTree::new(page());
     tree.layout(VIEWPORT);
-    // The keyboard was the last to move the focus before the modal opened.
-    tree.handle_event(key(Key::Tab));
+    // The host last put the focus somewhere itself, which counts as the keyboard's.
     tree.layout(VIEWPORT);
+    assert!(tree.focus("background"));
     assert_eq!(tree.focused_id(), Some("background"));
     let close = crate::Tooltip::new(
         Element::button("close", "Close").size(Some(80.0), Some(32.0)),
@@ -531,9 +531,18 @@ fn a_modals_first_control_shows_no_tooltip_until_the_keyboard_moves_there() {
         crate::ComponentPalette::neutral_dark(),
     )
     .render();
-    let modal = Element::popover(page(), close, "dismiss", PopoverPlacement::Center)
-        .popover_scrim(Color::rgba(0, 0, 0, 160))
-        .popover_initial_focus("close");
+    // A modal over the page, its close control in a surface of its own beside it, as an image
+    // viewer's.
+    let actions = Element::popover(
+        Element::spacer().size(Some(120.0), Some(80.0)),
+        close,
+        "actions",
+        PopoverPlacement::RightStart,
+    )
+    .popover_non_modal()
+    .popover_initial_focus("close");
+    let modal = Element::popover(page(), actions, "dismiss", PopoverPlacement::Center)
+        .popover_scrim(Color::rgba(0, 0, 0, 160));
     tree.set_root(modal);
     let frame = tree.layout(VIEWPORT);
     assert_eq!(tree.focused_id(), Some("close"));

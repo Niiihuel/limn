@@ -5126,6 +5126,8 @@ impl UiTree {
         if let Some(id) = initial_focus.filter(|id| self.focused.as_ref() != Some(id)) {
             let next_focus = Some(id.clone());
             Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+            // As a modal's, a surface's opening focus waits for the keyboard to show a tooltip.
+            self.keyboard_tooltip_focus = false;
             self.pending_scroll_focus = Some(id);
             self.caret_blink.reset();
             self.validate_ime_owner(now);
