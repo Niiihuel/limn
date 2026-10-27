@@ -1464,6 +1464,7 @@ pub struct Frame {
     action_menu_items: HashSet<String>,
     menu_secondary_actions: HashSet<String>,
     draggables: HashSet<String>,
+    sketches: HashMap<String, (Rect, crate::sketch::SketchStyle)>,
     cursors: HashMap<String, Cursor>,
     drop_targets: HashSet<String>,
     submenu_targets: HashMap<String, String>,
@@ -2715,6 +2716,16 @@ pub enum UiAction {
         /// leaves the window, and for a step from the keyboard.
         committed: bool,
     },
+    /// A press and drag over a [`Sketch`](crate::Sketch) ended: the mark it
+    /// made, in the sketch's own shares. Released where the press began it is
+    /// a dot or a zero-length line. Nothing is reported while the pointer is
+    /// down; the mark in progress is drawn by the tree.
+    Sketched {
+        /// ID of the sketch.
+        id: String,
+        /// The finished mark.
+        mark: crate::SketchMark,
+    },
     /// The text of a text input or text area changed.
     InputChanged {
         /// ID of the field.
@@ -3519,6 +3530,7 @@ pub struct UiTree {
     horizontal_pan: Option<HorizontalPan>,
     scroll_button_hold: Option<ScrollButtonHold>,
     slider_drag: Option<SliderDrag>,
+    sketch_draft: Option<crate::sketch::SketchDraft>,
     slider_motion: HashMap<String, SliderMotion>,
     hovered_scrollbar: Option<String>,
     focus_order: Vec<(String, HitKind)>,
@@ -3612,6 +3624,7 @@ impl UiTree {
             horizontal_pan: None,
             scroll_button_hold: None,
             slider_drag: None,
+            sketch_draft: None,
             slider_motion: HashMap::new(),
             hovered_scrollbar: None,
             focus_order: Vec::new(),
@@ -4389,6 +4402,7 @@ impl UiTree {
                 region_hovered: false,
                 access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
+                sketch_draft: self.sketch_draft.as_ref(),
                 slider_motion: &mut self.slider_motion,
                 focused: self.focused.as_deref(),
                 caret_blink: &mut self.caret_blink,
@@ -5992,6 +6006,9 @@ impl UiTree {
                 unreachable!("external file events resolved before ordinary controls")
             }
             UiEvent::PointerMove(point) => {
+                if let Some(draft) = self.sketch_draft.as_mut() {
+                    draft.extend(point);
+                }
                 let moved = self.pointer != Some(point);
                 self.pointer = Some(point);
                 let target = self.frame.hit_test(point).map(str::to_owned);
@@ -6073,6 +6090,9 @@ impl UiTree {
                 }
             }
             UiEvent::PointerLeave => {
+                if let Some(draft) = self.sketch_draft.take() {
+                    actions.push(UiAction::Sketched { id: draft.id.clone(), mark: draft.mark() });
+                }
                 self.field_drag = None;
                 for editor in self.code_editors.values_mut() {
                     editor.viewport.cancel_pointer();
@@ -6138,6 +6158,13 @@ impl UiTree {
                     && dismiss_scope.is_some_and(|scope| scope.modal)
                 {
                     self.keyboard_focus = true;
+                    self.pressed = None;
+                    return actions;
+                }
+                if let Some((id, (rect, style))) = hit.as_ref().and_then(|region| {
+                    self.frame.sketches.get(&region.id).map(|sketch| (region.id.clone(), *sketch))
+                }) {
+                    self.sketch_draft = Some(crate::sketch::SketchDraft::new(id, rect, style, point));
                     self.pressed = None;
                     return actions;
                 }
@@ -6287,6 +6314,10 @@ impl UiTree {
                 }
             }
             UiEvent::PointerUp(point) => {
+                if let Some(mut draft) = self.sketch_draft.take() {
+                    draft.extend(point);
+                    actions.push(UiAction::Sketched { id: draft.id.clone(), mark: draft.mark() });
+                }
                 self.field_drag = None;
                 self.pointer = Some(point);
                 self.set_hovered(self.frame.hit_test(point).map(str::to_owned), now);
@@ -7464,6 +7495,7 @@ struct LayoutBuilder<'a> {
     /// What a wrapper said of the control inside it, until that control takes it.
     access_above: Option<crate::Access>,
     slider_drag: Option<&'a SliderDrag>,
+    sketch_draft: Option<&'a crate::sketch::SketchDraft>,
     slider_motion: &'a mut HashMap<String, SliderMotion>,
     focused: Option<&'a str>,
     caret_blink: &'a mut crate::caret_blink::CaretBlink,
@@ -11256,6 +11288,9 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::Clickable { id, child } => {
                 self.add_region(id, rect, HitKind::Button, clip);
+                if let Some(style) = element.kept.as_ref().and_then(|kept| kept.sketch) {
+                    self.frame.sketches.insert(id.clone(), (content, style));
+                }
                 if let Some(travel) = element.slider.as_deref() {
                     self.frame.sliders.insert(
                         id.clone(),
@@ -11274,6 +11309,11 @@ impl LayoutBuilder<'_> {
                 let first = self.frame.commands.len();
                 let first_block = self.frame.text_blocks.len();
                 self.place(child, content, clip);
+                if let Some(draft) = self.sketch_draft.filter(|draft| draft.id == *id) {
+                    self.frame.commands.push(DrawCommand::PushClip(content));
+                    self.frame.commands.extend(crate::sketch::mark_commands(&draft.mark(), content));
+                    self.frame.commands.push(DrawCommand::PopClip);
+                }
                 if style.underline_on_hover
                     && (self.hovered == Some(id.as_str())
                         || self.keyboard_focus && self.focused == Some(id.as_str()))

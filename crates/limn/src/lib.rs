@@ -98,6 +98,7 @@ mod sequence;
 mod shortcut;
 mod side_rail;
 mod skeleton;
+mod sketch;
 mod slider;
 mod spinner;
 mod status_bar;
@@ -246,6 +247,7 @@ pub use sequence::{
     SequenceParticipant, SequenceParticipantLayout,
 };
 pub use skeleton::{Skeleton, SkeletonGroup};
+pub use sketch::{rasterize as rasterize_sketch, Sketch, SketchMark, SketchTool};
 pub use slider::Slider;
 pub use spinner::Spinner;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
