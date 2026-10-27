@@ -556,3 +556,28 @@ fn a_modals_first_control_shows_no_tooltip_until_the_keyboard_moves_there() {
     assert_eq!(tree.focused_id(), Some("close"));
     assert!(shown(&frame), "the keyboard's focus does");
 }
+
+#[test]
+fn a_backdrop_that_answers_to_a_controls_id_raises_no_tooltip() {
+    use crate::Component as _;
+    // An image viewer's: its close control and its backdrop report the same id.
+    let close = crate::Tooltip::new(
+        Element::button("close", "Close").size(Some(80.0), Some(32.0)),
+        "close",
+        "Close image",
+        crate::ComponentPalette::neutral_dark(),
+    )
+    .render();
+    let page = Element::text_input("background", "draft", "Background input").size(Some(200.0), Some(32.0));
+    let mut tree = UiTree::new(
+        Element::popover(page, close, "close", PopoverPlacement::Center)
+            .popover_scrim(Color::rgba(0, 0, 0, 160))
+            .popover_backdrop_dismiss(true),
+    );
+    tree.layout(VIEWPORT);
+    tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 10.0)));
+    let since = tree.tooltip_hover_since.as_ref().map(|(_, since)| *since).unwrap_or_else(Instant::now);
+    let frame = tree.layout_at(VIEWPORT, since + Duration::from_secs(2));
+    let shown = frame.commands.iter().any(|command| matches!(command, DrawCommand::FillTriangle { .. }));
+    assert!(!shown, "the pointer on the backdrop is not on the close control");
+}
