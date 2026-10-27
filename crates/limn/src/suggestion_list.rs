@@ -210,6 +210,7 @@ pub struct SuggestionList {
     compact: bool,
     placement: PopoverPlacement,
     animation_ms: (u16, u16),
+    sizing: SelectorSizing,
 }
 
 impl SuggestionList {
@@ -242,6 +243,7 @@ impl SuggestionList {
             compact: false,
             placement: PopoverPlacement::TopStart,
             animation_ms: (motion.enter_ms, motion.exit_ms),
+            sizing: SelectorSizing::CATALOG,
         }
     }
 
@@ -305,6 +307,13 @@ impl SuggestionList {
         self
     }
 
+    /// The text sizes and icon slot of the rows, in place of the catalog's,
+    /// so the list reads at the size of the editor it completes.
+    pub fn sizing(mut self, sizing: SelectorSizing) -> Self {
+        self.sizing = sizing;
+        self
+    }
+
     /// How long the list takes to appear and to leave, in milliseconds,
     /// for a host that wants it quicker than the motion tokens.
     pub fn animation_ms(mut self, open: u16, close: u16) -> Self {
@@ -318,7 +327,7 @@ impl Component for SuggestionList {
         if !self.open {
             return self.anchor;
         }
-        let sizing = SelectorSizing::CATALOG;
+        let sizing = self.sizing;
         let palette = self.palette;
         let compact = self.compact;
         let row_height = if compact { COMPACT_ROW_HEIGHT } else { ROW_HEIGHT };
@@ -856,6 +865,21 @@ mod tests {
         // The unselected row keeps its height in a list of one-line rows.
         let second = row(&frame, "pick:1").unwrap();
         assert_eq!(second.height, COMPACT_ROW_HEIGHT);
+    }
+
+    #[test]
+    fn rows_take_the_hosts_text_sizes() {
+        let size = |configure: fn(SuggestionList) -> SuggestionList| {
+            let frame = shown(commands(2), 0, |list| configure(list.compact(true)))
+                .layout(Size::new(900.0, 600.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, font_size, .. } if text.starts_with("/command") => Some(*font_size),
+                _ => None,
+            })
+        };
+        let larger = SelectorSizing { label_size: 15.0, ..SelectorSizing::CATALOG };
+        assert_eq!(size(|list| list), Some(SelectorSizing::CATALOG.label_size));
+        assert_eq!(size(|list| list.sizing(SelectorSizing { label_size: 15.0, ..SelectorSizing::CATALOG })), Some(larger.label_size));
     }
 
     #[test]
