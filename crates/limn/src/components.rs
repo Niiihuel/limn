@@ -2267,6 +2267,7 @@ pub struct Switch {
     track: Option<(f32, f32)>,
     variant: SwitchVariant,
     ink: Option<Color>,
+    off_ink: Option<Color>,
 }
 
 impl Switch {
@@ -2283,6 +2284,7 @@ impl Switch {
             track: None,
             variant: SwitchVariant::Default,
             ink: None,
+            off_ink: None,
         }
     }
 
@@ -2320,6 +2322,16 @@ impl Switch {
     /// darkens it where needed for its light thumb to read on it.
     pub fn ink(mut self, color: Color) -> Self {
         self.ink = Some(color);
+        self
+    }
+
+    /// The track's color while the switch is off, as given, in place of the
+    /// palette's selected fill, or of its muted color darkened for
+    /// `SwitchVariant::Accent`: a pale gray track under a white thumb, as a
+    /// desktop settings page draws it. The host answers for the thumb
+    /// reading on it; the state still shows in the thumb's place.
+    pub fn off_ink(mut self, color: Color) -> Self {
+        self.off_ink = Some(color);
         self
     }
 
@@ -2369,6 +2381,10 @@ impl Component for Switch {
                 let track = if checked { self.ink.unwrap_or_else(|| palette.link()) } else { palette.muted };
                 (light, crate::chip::readable_ink(track, light, 3.0))
             }
+        };
+        let track_color = match self.off_ink {
+            Some(off) if !self.checked => off,
+            _ => track_color,
         };
         // The thumb is the strip's selection indicator: it slides between the
         // two slots when `checked` changes and keeps its place across rebuilds.
@@ -5787,6 +5803,10 @@ mod tests {
                 assert_eq!(paint(accent(checked).disabled()), paint(accent(checked)), "disabled, it keeps its paint");
             }
             assert_eq!(paint(accent(true).ink(ink)), (ink, thumb), "an ink that reads is kept");
+            // An off ink is the host's, kept as given, and leaves the switch on as it was.
+            let pale_gray = Color::rgb(206, 206, 206);
+            assert_eq!(paint(accent(false).off_ink(pale_gray)), (pale_gray, thumb));
+            assert_eq!(paint(accent(true).off_ink(pale_gray)), paint(accent(true)));
             assert_eq!(paint(accent(false).ink(ink)), paint(accent(false)));
         }
         // Where the link and muted colors already read, they are the track.
