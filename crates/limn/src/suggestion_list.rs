@@ -343,9 +343,10 @@ impl Component for SuggestionList {
         let mut contents = Vec::with_capacity(5);
         if let Some(title) = self.title {
             contents.push(
-                Element::text(title)
+                // One line, cut short when the list is narrower than it.
+                Element::truncated_text(title)
                     .font_family(FontFamily::Sans)
-                    .font_size(sizing.label_size)
+                    .font_size(sizing.detail_size)
                     .foreground(palette.muted)
                     .padding(sizing.padding)
                     .size(Some(inner_width), Some(sizing.header_height)),
@@ -482,6 +483,13 @@ impl Component for SuggestionList {
                                         palette.hover
                                     } else {
                                         palette.surface
+                                    })
+                                    // A compact list has one highlight, the selection's: the host
+                                    // moves it to the row under the pointer, as palettes do.
+                                    .hover_background(if compact && index != selected {
+                                        palette.surface
+                                    } else {
+                                        palette.hover
                                     })
                                     .transition_ms(0)
                                     .size(Some(row_width), Some(row_height))
@@ -898,6 +906,18 @@ mod tests {
         };
         assert!(at(true) < 200.0, "{}", at(true));
         assert!(at(false) > 400.0, "{}", at(false));
+    }
+
+    #[test]
+    fn a_compact_list_highlights_only_its_selection_under_the_pointer() {
+        let mut tree = shown(commands(3), 0, |list| list.compact(true));
+        let frame = tree.layout(Size::new(900.0, 600.0));
+        let other = row(&frame, "pick:2").unwrap();
+        tree.handle_event(UiEvent::PointerMove(Point::new(other.x + 10.0, other.y + 10.0)));
+        let frame = tree.layout(Size::new(900.0, 600.0));
+        let hover = palette().hover;
+        let lit = frame.commands.iter().filter(|command| matches!(command, DrawCommand::FillRect { color, .. } if *color == hover)).count();
+        assert_eq!(lit, 1, "only the selected row is lit");
     }
 
     #[test]
