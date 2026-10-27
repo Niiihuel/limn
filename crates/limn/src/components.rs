@@ -2383,13 +2383,7 @@ impl Component for Switch {
         let (thumb_color, track_color) = match (self.variant, self.checked) {
             (SwitchVariant::Default, true) => (palette.surface, self.ink.unwrap_or(palette.text)),
             (SwitchVariant::Default, false) => (palette.text, palette.selected),
-            (SwitchVariant::Accent, checked) => {
-                // At full strength, and on a track darkened until it reads at 3:1, as state must.
-                let light = if palette.is_dark() { palette.text } else { palette.surface };
-                let light = Color::rgb(light.r, light.g, light.b);
-                let track = if checked { self.ink.unwrap_or_else(|| palette.link()) } else { palette.muted };
-                (light, crate::chip::readable_ink(track, light, 3.0))
-            }
+            (SwitchVariant::Accent, checked) => accent_switch_colors(palette, checked, self.ink),
         };
         let track_color = match self.off_ink {
             Some(off) if !self.checked => off,
@@ -2441,6 +2435,20 @@ impl Component for Switch {
             .size(Some(track_width), Some(track_height))
             .accessible(access)
     }
+}
+
+/// The thumb and the track of a `SwitchVariant::Accent` switch. The thumb is
+/// light at full strength; the track is `on_ink` or the link color while on,
+/// the muted color while off, darkened until it reads at 3:1 against the thumb.
+pub(crate) fn accent_switch_colors(
+    palette: ComponentPalette,
+    checked: bool,
+    on_ink: Option<Color>,
+) -> (Color, Color) {
+    let light = if palette.is_dark() { palette.text } else { palette.surface };
+    let light = Color::rgb(light.r, light.g, light.b);
+    let track = if checked { on_ink.unwrap_or_else(|| palette.link()) } else { palette.muted };
+    (light, crate::chip::readable_ink(track, light, 3.0))
 }
 
 pub(crate) const fn lighter(color: Color, amount: u8) -> Color {

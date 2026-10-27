@@ -3,7 +3,7 @@
 use crate::components::{
     Component, ComponentPalette, ControlState, Kbd, Popover, Tooltip, lighter,
 };
-use crate::menu::{DetailRow, MenuCheck, action_style};
+use crate::menu::{DetailRow, MenuCheck, SWITCH_WIDTH, action_style};
 use crate::{
     Access, Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, Point, PopoverPlacement, Role,
     ScrollArea, ScrollbarAppearance, ScrollbarVisibility, SelectorSizing, Separator, Skeleton, TooltipSpec,
@@ -218,6 +218,17 @@ impl DropdownMenuItem {
     /// circle takes the place of the `selected` tick; `checkbox` replaces it.
     pub fn radio(mut self, checked: bool) -> Self {
         self.check = Some(MenuCheck::Radio(checked));
+        self
+    }
+
+    /// Make the item a switch, on while `on`, for a setting it turns on and
+    /// off. A small track at the end of the row shows it, with its thumb at
+    /// the end it is on at; the platform is told it is a check box in a menu
+    /// and whether it is on, and choosing it reports `action_id`: the host
+    /// flips its own value. The track takes the place of the `selected` tick;
+    /// `checkbox` and `radio` replace it, and it replaces them.
+    pub fn switch(mut self, on: bool) -> Self {
+        self.check = Some(MenuCheck::Switch(on));
         self
     }
 }
@@ -748,6 +759,14 @@ impl Component for DropdownMenu {
             || self.entries.iter().any(
                 |entry| matches!(entry, DropdownMenuEntry::Item(item) if item.check.is_some()),
             );
+        // A menu with switches gives every row's check column a switch's width.
+        let check_width = if self.entries.iter().any(|entry| {
+            matches!(entry, DropdownMenuEntry::Item(item) if matches!(item.check, Some(MenuCheck::Switch(_))))
+        }) {
+            SWITCH_WIDTH
+        } else {
+            icon_size
+        };
         let reserve_submenu = contextual
             && self.entries.iter().any(
                 |entry| matches!(entry, DropdownMenuEntry::Item(item) if item.submenu.is_some()),
@@ -896,6 +915,7 @@ impl Component for DropdownMenu {
                         selected: (reserve_check || !leads).then_some(item.selected),
                         choice: choices,
                         check: item.check,
+                        check_width,
                         enabled,
                         sizing: detail_sizing,
                     }
@@ -933,7 +953,8 @@ impl Component for DropdownMenu {
                         + usize::from(reserve_check)
                         + usize::from(reserve_submenu);
                     let inner_width = (row_width - 2.0 * horizontal_padding).max(0.0);
-                    let control_width = control_count as f32 * icon_size;
+                    let control_width = control_count as f32 * icon_size
+                        + if reserve_check { check_width - icon_size } else { 0.0 };
                     let gap = if control_count == 0 {
                         preferred_gap
                     } else {
@@ -1045,10 +1066,12 @@ impl Component for DropdownMenu {
                     }
                     if reserve_check {
                         let ink = if enabled { palette.text } else { palette.muted };
+                        // A disabled switch is drawn in the muted color, as the text is.
+                        let accent = (!enabled).then_some(palette.muted);
                         children.push(
                             if let Some(check) = item.check {
                                 check
-                                    .mark(icon_size.min(ICON_SIZE), ink, palette)
+                                    .mark(icon_size.min(ICON_SIZE), ink, accent, palette)
                                     .centered()
                             } else if item.selected {
                                 Element::icon(Icon::Check)
@@ -1057,14 +1080,14 @@ impl Component for DropdownMenu {
                                 Element::spacer()
                             }
                             .size(
-                                Some(icon_size),
+                                Some(check_width),
                                 if contextual {
                                     None
                                 } else {
                                     Some(content_height)
                                 },
                             )
-                            .min_size(icon_size, content_height),
+                            .min_size(check_width, content_height),
                         );
                     }
                     if reserve_submenu {
@@ -3804,6 +3827,140 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The switch's track inside `row`: a fill 28 wide and 16 high.
+    fn switch_track(frame: &crate::Frame, row: crate::Rect) -> Option<crate::Rect> {
+        frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, .. }
+                if rect.width == 28.0
+                    && rect.height == 16.0
+                    && rect.y >= row.y
+                    && rect.y + rect.height <= row.y + row.height =>
+            {
+                Some(*rect)
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn switch_items_draw_a_track_at_the_end_report_their_action_and_say_what_they_are() {
+        let palette = ComponentPalette::neutral_dark();
+        for contextual in [false, true] {
+            let menu = DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuItem::new("sync", "Sync every hour")
+                        .switch(true)
+                        .into(),
+                    DropdownMenuItem::new("mirror", "Mirror changes")
+                        .switch(false)
+                        .into(),
+                    DropdownMenuItem::new("plain", "Mark as read").into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .width(260.0);
+            let mut tree = open_menu(if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            });
+            let size = Size::new(640.0, 480.0);
+            let frame = tree.layout(size);
+            let node = |id: &str| {
+                frame
+                    .access
+                    .iter()
+                    .find(|node| node.id == id)
+                    .unwrap_or_else(|| panic!("no node {id}"))
+            };
+            for (id, on) in [("sync", true), ("mirror", false)] {
+                let item = node(id);
+                assert_eq!((item.role, item.toggled), (Role::MenuItemCheckBox, Some(on)), "{id}");
+            }
+            assert_eq!(node("plain").role, Role::MenuItem);
+            let inset = if contextual {
+                action_style::HORIZONTAL_PADDING
+            } else {
+                7.0
+            };
+            for id in ["sync", "mirror"] {
+                let row = region(&frame, id);
+                let track = switch_track(&frame, row).unwrap_or_else(|| panic!("no track in {id}"));
+                assert_eq!(
+                    track.x + track.width,
+                    row.x + row.width - inset,
+                    "{id} ends its row"
+                );
+                let plain = region(&frame, "plain");
+                assert_eq!(row.width, plain.width, "{id} is as wide as the menu's rows");
+                // The thumb is round, at the end the switch is on at.
+                let thumb = frame
+                    .commands
+                    .iter()
+                    .find_map(|command| match command {
+                        DrawCommand::FillRect { rect, radius, .. }
+                            if rect.width == 10.0
+                                && rect.height == 10.0
+                                && *radius == 5.0
+                                && rect.x >= track.x
+                                && rect.x + rect.width <= track.x + track.width
+                                && rect.y >= track.y
+                                && rect.y + rect.height <= track.y + track.height =>
+                        {
+                            Some(*rect)
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("no thumb in {id}"));
+                let on_end = thumb.x > track.x + track.width / 2.0;
+                assert_eq!(on_end, id == "sync", "{id}");
+                // Its label stays left of the track.
+                let label = if id == "sync" { "Sync every hour" } else { "Mirror changes" };
+                let (label_at, _, _) = text_of(&frame, label);
+                assert!(label_at.x < track.x, "{id}");
+            }
+            // Choosing a switch reports its action: the host flips the value.
+            for id in ["sync", "mirror"] {
+                let point = center(region(&tree.layout(size), id));
+                tree.handle_event(UiEvent::PointerDown(point));
+                assert_eq!(
+                    tree.handle_event(UiEvent::PointerUp(point)),
+                    vec![UiAction::Clicked { id: id.into() }]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_two_line_switch_item_keeps_its_track_inside_its_row() {
+        let palette = ComponentPalette::neutral_dark();
+        let menu = DropdownMenu::new(
+            trigger(),
+            vec![
+                DropdownMenuItem::new("sync", "Sync")
+                    .description("Every hour")
+                    .switch(true)
+                    .into(),
+                DropdownMenuItem::new("mark", "Mark as read")
+                    .description("Hides the badge")
+                    .into(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        )
+        .width(260.0);
+        let mut tree = open_menu(menu);
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        let row = region(&frame, "sync");
+        let track = switch_track(&frame, row).expect("no track in a two-line switch");
+        assert!(track.y >= row.y && track.y + track.height <= row.y + row.height);
+        assert!(track.x + track.width <= row.x + row.width);
     }
 
     #[test]
