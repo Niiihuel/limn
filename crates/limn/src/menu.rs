@@ -46,9 +46,10 @@ pub(crate) mod action_style {
         palette: ComponentPalette,
         width: f32,
         height: Option<f32>,
+        inset: f32,
     ) -> Element {
         Element::panel(content)
-            .padding(INSET)
+            .padding(inset)
             .background(palette.surface)
             .border(palette.border, 1.0)
             .radius(crate::components::surface_radius())

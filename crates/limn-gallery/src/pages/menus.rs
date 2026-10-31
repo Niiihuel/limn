@@ -3,7 +3,7 @@
 
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    Avatar, Button, ButtonVariant, Color, Component, ComponentPalette, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
+    Avatar, Button, ButtonVariant, Color, Component, ComponentPalette, ContextMenuMetrics, DropdownMenu, DropdownMenuEntry, DropdownMenuItem,
     DropdownMenuSection, Element, FontFamily, PanelHeaderSizing, Icon, IconButton, Kbd, MenuHeader,
     MenuItem, PanelHeader, Popover, PopoverPanel, PopoverPanelSizing, ScrollArea, SelectorSizing,
     SuggestionItem, SuggestionList, TextField, TooltipPlacement, TooltipSpec,
@@ -223,8 +223,14 @@ fn rows(cx: &Cx) -> Element {
     .radius(limn::tokens().radius.surface)
 }
 
-/// Actions whose names are cut to one line; the hint says the rest.
-fn actions(cx: &Cx) -> Element {
+/// Actions whose names are cut to one line; the hint says the rest. `dense` draws
+/// them with 32 px rows and 14 px labels.
+fn actions(cx: &Cx, dense: bool) -> Element {
+    let key = if dense {
+        "menus-dense"
+    } else {
+        "menus-actions"
+    };
     let action = |id: &str, icon: Icon, label: &str, description: &str| {
         DropdownMenuItem::new(format!("menus-action={id}"), label)
             .icon(icon)
@@ -237,7 +243,11 @@ fn actions(cx: &Cx) -> Element {
             .into()
     };
     DropdownMenu::new(
-        trigger(cx, "menus-actions=open", "Actions"),
+        trigger(
+            cx,
+            &format!("{key}=open"),
+            if dense { "Dense actions" } else { "Actions" },
+        ),
         vec![
             action("copy", Icon::File, "Copy address", "Copy the visible address to the clipboard."),
             action(
@@ -249,11 +259,22 @@ fn actions(cx: &Cx) -> Element {
             DropdownMenuEntry::Separator,
             action("restart", Icon::Refresh, "Restart", "Open a new context."),
         ],
-        cx.state.text("menus-actions") == "open",
-        "menus-actions=closed",
+        cx.state.text(key) == "open",
+        format!("{key}=closed"),
         cx.palette,
     )
     .context_menu_style()
+    .context_metrics(if dense {
+        ContextMenuMetrics {
+            row_height: 32.0,
+            label_size: 14.0,
+            inset: 8.0,
+            separator_height: 17.0,
+            ..ContextMenuMetrics::default()
+        }
+    } else {
+        ContextMenuMetrics::default()
+    })
     .width(192.0)
     .render()
 }
@@ -403,7 +424,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     vec![
         section(cx, "Select and catalog", vec![
             row(vec![selector(cx), catalog(cx), states(cx)]),
-            row(vec![actions(cx)]),
+            row(vec![actions(cx, false), actions(cx, true)]),
             caption(cx, &format!("Model: {}", cx.state.choice("menus-model", MODELS[0].2))),
         ]),
         section(cx, "Menu rows", vec![

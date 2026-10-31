@@ -4,6 +4,7 @@ use crate::components::{
     Component, ComponentPalette, ControlState, Kbd, Popover, Tooltip, lighter,
 };
 use crate::menu::{DetailRow, MenuCheck, action_style};
+use crate::page::px;
 use crate::{
     Access, Color, Element, FontFamily, ICON_SIZE, Icon, InlineImage, MenuMotion, Point, PopoverPlacement, RasterImage, Role,
     ScrollArea, ScrollbarAppearance, SelectorSizing, Separator, Skeleton, TooltipSpec,
@@ -450,6 +451,64 @@ fn group_boundaries(entries: Vec<DropdownMenuEntry>) -> Vec<DropdownMenuEntry> {
     grouped
 }
 
+/// The density of a menu in `context_menu_style`, in logical pixels: its rows,
+/// labels, insets and separator. `Default` is the editor's context menu, which the
+/// style draws when no metrics are given. A number that is not finite, or is below
+/// zero, counts as zero.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ContextMenuMetrics {
+    /// Height of a one-line row. A label that wraps makes its row taller.
+    pub row_height: f32,
+    /// Font size of a row's label.
+    pub label_size: f32,
+    /// Font size of a heading and of a two-line row's second line.
+    pub detail_size: f32,
+    /// Space between the menu's surface and its rows, on every side.
+    pub inset: f32,
+    /// Space between a row's edge and its content.
+    pub horizontal_padding: f32,
+    /// Space between a row's icon, label, shortcut and check.
+    pub gap: f32,
+    /// Height of a separator, its one-pixel line included.
+    pub separator_height: f32,
+    /// Width the rows give up to the scrollbar while the menu scrolls.
+    pub scrollbar_gutter: f32,
+    /// Height of a heading row.
+    pub header_height: f32,
+}
+
+impl Default for ContextMenuMetrics {
+    fn default() -> Self {
+        Self {
+            row_height: action_style::ROW_HEIGHT,
+            label_size: action_style::LABEL_FONT_SIZE,
+            detail_size: action_style::SHORTCUT_FONT_SIZE,
+            inset: action_style::INSET,
+            horizontal_padding: action_style::HORIZONTAL_PADDING,
+            gap: action_style::GAP,
+            separator_height: action_style::SEPARATOR_HEIGHT,
+            scrollbar_gutter: action_style::SCROLLBAR_GUTTER,
+            header_height: action_style::HEADER_HEIGHT,
+        }
+    }
+}
+
+impl ContextMenuMetrics {
+    fn sanitized(self) -> Self {
+        Self {
+            row_height: px(self.row_height),
+            label_size: px(self.label_size),
+            detail_size: px(self.detail_size),
+            inset: px(self.inset),
+            horizontal_padding: px(self.horizontal_padding),
+            gap: px(self.gap),
+            separator_height: px(self.separator_height),
+            scrollbar_gutter: px(self.scrollbar_gutter),
+            header_height: px(self.header_height),
+        }
+    }
+}
+
 /// Caller-owned open state with one retained, animated popover. Arrow keys,
 /// Home/End, Tab, Escape and viewport-aware placement come from `UiTree`.
 pub struct DropdownMenu {
@@ -470,6 +529,7 @@ pub struct DropdownMenu {
     sizing: Option<SelectorSizing>,
     inline: bool,
     context_menu_style: bool,
+    context_metrics: ContextMenuMetrics,
     hints_in_tooltips: bool,
     // A submenu opens under the pointer: only the tree knows when.
     submenu: bool,
@@ -506,6 +566,7 @@ impl DropdownMenu {
             sizing: None,
             inline: false,
             context_menu_style: false,
+            context_metrics: ContextMenuMetrics::default(),
             hints_in_tooltips: false,
             submenu: false,
             at: None,
@@ -521,6 +582,14 @@ impl DropdownMenu {
         self.width = action_style::WIDTH;
         self.max_visible_items = usize::MAX;
         self.sizing = None;
+        self
+    }
+
+    /// The rows, labels, insets and separator of a `context_menu_style` menu, as
+    /// `ContextMenuMetrics` gives them. Its submenus take the same. Only that style
+    /// reads them, so call this after `context_menu_style`.
+    pub fn context_metrics(mut self, metrics: ContextMenuMetrics) -> Self {
+        self.context_metrics = metrics;
         self
     }
 
@@ -647,9 +716,10 @@ impl Component for DropdownMenu {
         // bounded and every option remains reachable.
         let row_count = self.entries.len();
         let contextual = self.context_menu_style;
+        let metrics = self.context_metrics.sanitized();
         let row_gap = if contextual { 0.0 } else { 2.0 };
         let row_height = if contextual {
-            action_style::ROW_HEIGHT
+            metrics.row_height
         } else {
             self.sizing.map_or(36.0, |sizing| sizing.row_height)
         };
@@ -658,25 +728,25 @@ impl Component for DropdownMenu {
         // is independent from the vertical inset of a compact row.
         let content_height = 22.0;
         let horizontal_padding = if contextual {
-            action_style::HORIZONTAL_PADDING
+            metrics.horizontal_padding
         } else {
             self.sizing.map_or(7.0, |sizing| sizing.padding)
         };
         let vertical_padding = ((row_height - content_height) / 2.0).max(0.0);
         let extra_horizontal = (horizontal_padding - vertical_padding).max(0.0);
         let scrollbar_gutter = if contextual {
-            action_style::SCROLLBAR_GUTTER
+            metrics.scrollbar_gutter
         } else {
             self.sizing
                 .map_or(SCROLLBAR_GUTTER, |sizing| sizing.scrollbar_gutter)
         };
         let preferred_gap = if contextual {
-            action_style::GAP
+            metrics.gap
         } else {
             self.sizing.map_or(9.0, |sizing| sizing.gap)
         };
         let label_size = if contextual {
-            action_style::LABEL_FONT_SIZE
+            metrics.label_size
         } else {
             self.sizing.map_or(13.0, |sizing| sizing.label_size)
         };
@@ -687,7 +757,7 @@ impl Component for DropdownMenu {
             icon_size,
             label_size,
             detail_size: if contextual {
-                action_style::SHORTCUT_FONT_SIZE
+                metrics.detail_size
             } else {
                 self.sizing.map_or(12.0, |sizing| sizing.detail_size)
             },
@@ -696,8 +766,8 @@ impl Component for DropdownMenu {
             ..self.sizing.unwrap_or(SelectorSizing::COMPACT)
         };
         let action_height = |entry: &DropdownMenuEntry| match entry {
-            DropdownMenuEntry::Heading(_) => action_style::HEADER_HEIGHT,
-            DropdownMenuEntry::Separator => action_style::SEPARATOR_HEIGHT,
+            DropdownMenuEntry::Heading(_) => metrics.header_height,
+            DropdownMenuEntry::Separator => metrics.separator_height,
             entry => fixed_entry_height(entry, detail_sizing).unwrap_or(row_height),
         };
         let visible_height = if contextual {
@@ -705,7 +775,7 @@ impl Component for DropdownMenu {
             // measured with the native font and may wrap next to keycaps.
             // A short list keeps its natural height; a long one scrolls.
             (self.max_visible_items as f32 * row_height)
-                .min(action_style::MAX_HEIGHT - action_style::INSET * 2.0)
+                .min(action_style::MAX_HEIGHT - metrics.inset * 2.0)
         } else if let Some(sizing) = self.sizing {
             // Mixed lists can contain short headings, dividers and taller
             // detail rows. Budget the visible prefix itself; multiplying the
@@ -751,7 +821,7 @@ impl Component for DropdownMenu {
         } else {
             row_count > self.max_visible_items
         };
-        let inset = if contextual { action_style::INSET } else { 6.0 };
+        let inset = if contextual { metrics.inset } else { 6.0 };
         let viewport_width = (self.width - inset * 2.0).max(0.0);
         let row_width = viewport_width - if scrolls { scrollbar_gutter } else { 0.0 };
         let palette = self.palette;
@@ -768,7 +838,7 @@ impl Component for DropdownMenu {
                 palette,
             );
             if contextual {
-                submenu = submenu.context_menu_style();
+                submenu = submenu.context_menu_style().context_metrics(metrics);
             } else if let Some(sizing) = self.sizing {
                 submenu = submenu.sizing(sizing);
             }
@@ -787,15 +857,15 @@ impl Component for DropdownMenu {
             .into_iter()
             .map(|entry| match entry {
                 DropdownMenuEntry::Heading(label) if contextual => Element::row(vec![
-                    Element::spacer().size(Some(action_style::HORIZONTAL_PADDING), None),
+                    Element::spacer().size(Some(metrics.horizontal_padding), None),
                     Element::truncated_text(label)
                         .foreground(palette.muted)
                         .font_family(FontFamily::Sans)
-                        .font_size(action_style::SHORTCUT_FONT_SIZE)
+                        .font_size(metrics.detail_size)
                         .flex(1.0)
-                        .size(None, Some(action_style::HEADER_HEIGHT)),
+                        .size(None, Some(metrics.header_height)),
                 ])
-                .size(None, Some(action_style::HEADER_HEIGHT)),
+                .size(None, Some(metrics.header_height)),
                 DropdownMenuEntry::Heading(label) => Element::truncated_text(label)
                     .foreground(palette.muted)
                     .font_family(FontFamily::Sans)
@@ -810,8 +880,8 @@ impl Component for DropdownMenu {
                         .background(palette.border)
                         .size(None, Some(1.0)),
                 )
-                .padding(4.0)
-                .size(None, Some(action_style::SEPARATOR_HEIGHT)),
+                .padding(((metrics.separator_height - 1.0) / 2.0).max(0.0))
+                .size(None, Some(metrics.separator_height)),
                 DropdownMenuEntry::Separator => Element::spacer()
                     .background(palette.border)
                     .size(Some(row_width), Some(1.0)),
@@ -1195,7 +1265,7 @@ impl Component for DropdownMenu {
             content
         };
         if contextual {
-            let surface = action_style::surface(content, palette, self.width, None);
+            let surface = action_style::surface(content, palette, self.width, None, metrics.inset);
             if self.inline {
                 return Element::column(vec![self.anchor, surface])
                     .gap(4.0)
@@ -2614,6 +2684,69 @@ mod tests {
             DrawCommand::Text {text,font_size,..}
                 if text == "Cuenta" && *font_size == sizing.label_size
         )));
+    }
+
+    #[test]
+    fn a_context_menu_takes_its_metrics_and_so_do_its_submenus() {
+        let metrics = ContextMenuMetrics {
+            row_height: 32.0,
+            label_size: 14.0,
+            detail_size: 12.0,
+            inset: 8.0,
+            horizontal_padding: 8.0,
+            gap: 8.0,
+            separator_height: 17.0,
+            scrollbar_gutter: 14.0,
+            header_height: 24.0,
+        };
+        let mut tree = open_menu(
+            DropdownMenu::new(
+                Element::button("trigger", "Menú"),
+                vec![
+                    DropdownMenuItem::new("rename", "Renombrar").into(),
+                    DropdownMenuEntry::Separator,
+                    DropdownMenuItem::new("settings", "Configuración")
+                        .submenu(vec![DropdownMenuItem::new("account", "Cuenta").into()])
+                        .into(),
+                ],
+                true,
+                "dismiss",
+                ComponentPalette::neutral_dark(),
+            )
+            .context_menu_style()
+            .context_metrics(metrics),
+        );
+        let font_size = |frame: &crate::Frame, label: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text {
+                    text, font_size, ..
+                } if text == label => Some(*font_size),
+                _ => None,
+            })
+        };
+        let viewport = Size::new(800.0, 360.0);
+        let frame = tree.layout(viewport);
+        let surface = region(&frame, "popover_surface:dismiss");
+        let rename = region(&frame, "rename");
+        let settings = region(&frame, "settings");
+        assert_eq!(rename.height, 32.0);
+        assert_eq!((rename.x - surface.x, rename.y - surface.y), (8.0, 8.0));
+        assert_eq!(settings.y - (rename.y + rename.height), 17.0);
+        assert_eq!(settings.height, 32.0);
+        assert_eq!(font_size(&frame, "Renombrar"), Some(14.0));
+        assert!(tree.focus("settings"));
+        tree.handle_event(UiEvent::Key {
+            key: Key::ArrowRight,
+            shift: false,
+            ctrl: false,
+            alt: false,
+        });
+        let nested = tree.layout(viewport);
+        let nested_surface = region(&nested, "popover_surface:dismiss:settings");
+        let account = region(&nested, "account");
+        assert_eq!(account.height, 32.0);
+        assert_eq!(account.y - nested_surface.y, 8.0);
+        assert_eq!(font_size(&nested, "Cuenta"), Some(14.0));
     }
 
     #[test]

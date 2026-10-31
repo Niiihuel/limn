@@ -172,7 +172,7 @@ pub use date_time_picker::DateTimePicker;
 pub use description_list::{DescriptionItem, DescriptionList};
 pub use dictation::{DictationButton, DictationState, DictationWaveform};
 pub use dropdown_menu::{
-    DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
+    ContextMenuMetrics, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
 };
 pub use element::{
     Cursor,

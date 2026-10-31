@@ -115,9 +115,10 @@ without one) and lines up with the menu's one-line rows: it has their sides,
 icon slot, label size and gap, and keeps their check and chevron columns, so
 labels, marks and chevrons stand in the same columns in every style. The
 second line is at the profile's `detail_size` (12 without one, and in
-`context_menu_style`). The padding above and below the two lines gives way
-when they need the room. The second line is cut to one line, so a hint says a
-long reason whole. The platform hears it after the label, disabled or not.
+`context_menu_style` the one `context_metrics` sets). The padding above and
+below the two lines gives way when they need the room. The second line is cut
+to one line, so a hint says a long reason whole. The platform hears it after
+the label, disabled or not.
 
 ## Submenus
 
@@ -217,9 +218,29 @@ shared profile for width, row density and scroll budget.
 ## Style
 
 `context_menu_style()` gives the menu the surface and density of a
-[ContextMenu](context-menu.md). `hints_in_tooltips(true)` moves shortcuts and
-annotations into each row's hint, for a narrow menu. `inline(true)` renders
-the options in the layout under the trigger instead of floating them.
+[ContextMenu](context-menu.md). `context_metrics(ContextMenuMetrics { .. })`
+gives that style another density, in logical pixels: the row height, the label
+and detail sizes, the inset, the padding, the gap, the separator and the heading
+height. Submenus take the same. Set the fields you change and take the rest
+from `ContextMenuMetrics::default()`, the editor's values. Two-line rows,
+sections and loading rows keep their own heights.
+
+```rust
+DropdownMenu::new(row, entries, open, "row:dismiss", palette)
+    .context_menu_style()
+    .context_metrics(ContextMenuMetrics {
+        row_height: 32.0,
+        label_size: 14.0,
+        inset: 8.0,
+        separator_height: 17.0,
+        ..ContextMenuMetrics::default()
+    })
+    .render()
+```
+
+`hints_in_tooltips(true)` moves shortcuts and annotations into each row's
+hint, for a narrow menu. `inline(true)` renders the options in the layout
+under the trigger instead of floating them.
 
 ## Keyboard
 
