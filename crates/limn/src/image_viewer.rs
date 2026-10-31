@@ -14,11 +14,12 @@ pub enum ViewerLayout {
     #[default]
     Header,
     /// A lightbox: the host's lead ([`ImageViewer::lead`]) at the top left, or the title
-    /// there when there is none; the controls in a floating group at the top right, whose zoom
-    /// toggle shows zoom in, or zoom out while the picture is zoomed; close on its own in the
-    /// corner; chevron arrows at the window's sides that wrap around; small thumbnails under
-    /// the picture; no "2 of 5". While the picture is zoomed in, the arrows and the thumbnails
-    /// hide; the group, close and the lead stay.
+    /// there when there is none; the controls in a floating group at the top right, its zoom
+    /// toggle first, which shows zoom in, or zoom out while the picture is zoomed; close on its
+    /// own in the corner; chevron arrows at the window's sides that wrap around; small
+    /// thumbnails under the picture; no "2 of 5". A click zooms a still picture, not a surface
+    /// such as a video. While the picture is zoomed in, the arrows and the thumbnails hide; the
+    /// group, close and the lead stay.
     Lightbox,
 }
 
@@ -438,18 +439,10 @@ impl Component for ImageViewer {
             );
         }
         let mut tools = Vec::new();
-        for (id, icon, name) in &self.actions {
-            tools.push(if lightbox {
-                lightbox_button(id, *icon, name, name, controls, LIGHTBOX_CONTROL, crate::tokens().radius.card)
-            } else {
-                control(id, *icon, name, name, true, controls)
-            });
-        }
-        let picture_shown = self.surface.is_some() || self.image.is_some() || self.placeholder.is_some();
         let mut zoom_controls = Vec::new();
+        // The lightbox's zoom toggle leads its group, before the host's actions. It is drawn for
+        // a still picture only: zoom in while the picture fits, zoom out while it is zoomed.
         if lightbox {
-            // The lightbox's one zoom control toggles a still picture: zoom in while it fits,
-            // zoom out while it is zoomed. The host's tool comes last.
             if let Some([_, _, zoom_in]) = &self.zoom_actions {
                 if self.surface.is_none() {
                     let (icon, name, hint) = if zoomed {
@@ -470,6 +463,17 @@ impl Component for ImageViewer {
                     zoom_controls.push((zoom_in.clone(), ZoomControl::Toggle));
                 }
             }
+        }
+        for (id, icon, name) in &self.actions {
+            tools.push(if lightbox {
+                lightbox_button(id, *icon, name, name, controls, LIGHTBOX_CONTROL, crate::tokens().radius.card)
+            } else {
+                control(id, *icon, name, name, true, controls)
+            });
+        }
+        let picture_shown = self.surface.is_some() || self.image.is_some() || self.placeholder.is_some();
+        if lightbox {
+            // The host's own tool comes last in the group.
             tools.extend(self.tool);
         } else {
             tools.extend(self.tool);
@@ -516,12 +520,15 @@ impl Component for ImageViewer {
         let waiting = self.surface.is_none() && self.image.is_none();
         let body = if let Some(picture) = picture {
             let mut view = Element::zoom_view(&view_id, picture).zoom_dismiss(&self.close_id);
-            // A lightbox's picture toggles its zoom on a click and casts no shadow.
-            view = if lightbox {
-                view.zoom_click_toggles()
+            if lightbox {
+                // A still picture zooms on a click; a surface, such as a video, does not. A lightbox
+                // casts no shadow.
+                if self.surface.is_none() {
+                    view = view.zoom_click_toggles();
+                }
             } else {
-                view.shadow(chrome.shadow, Point::new(0.0, 12.0), 40.0, 0.0)
-            };
+                view = view.shadow(chrome.shadow, Point::new(0.0, 12.0), 40.0, 0.0);
+            }
             if let Some(size) = self.picture_size {
                 view = view.zoom_content(size);
             }
@@ -1194,10 +1201,11 @@ mod tests {
         assert_eq!((close.width, close.height), (40.0, 40.0));
         assert_eq!((WINDOW.width - close.x - close.width, close.y), (24.0, 36.0));
         // The group's buttons are 32 square, and the group ends 52 short of the content's edge:
-        // its padding of 3 stands after its last button.
-        let (save, zoom) = (rect("save"), rect("in"));
+        // its padding of 3 stands after its last button, the host's action. The zoom toggle leads.
+        let (zoom, save) = (rect("in"), rect("save"));
         assert_eq!((save.width, save.height, zoom.width, zoom.height), (32.0, 32.0, 32.0, 32.0));
-        assert_eq!(zoom.x + zoom.width + 3.0, WINDOW.width - 24.0 - 52.0);
+        assert!(zoom.x < save.x);
+        assert_eq!(save.x + save.width + 3.0, WINDOW.width - 24.0 - 52.0);
         // Fitted, the zoom toggle offers zoom in.
         assert_eq!(glyph(&frame, "in"), Some(Icon::ZoomIn));
     }
@@ -1272,7 +1280,7 @@ mod tests {
         let (_, frame) = tree(sized(Size::new(400.0, 300.0)).action("save", Icon::ArrowDown, "Save as…").tool(menu()));
         assert!(left(&frame, "save") < left(&frame, "menu") && left(&frame, "menu") < left(&frame, "out"));
         let (_, frame) = tree(lightbox(Size::new(400.0, 300.0)).tool(menu()));
-        assert!(left(&frame, "save") < left(&frame, "in") && left(&frame, "in") < left(&frame, "menu"));
+        assert!(left(&frame, "in") < left(&frame, "save") && left(&frame, "save") < left(&frame, "menu"));
     }
 
     #[test]
@@ -1290,5 +1298,25 @@ mod tests {
         let frame = tree.layout(WINDOW);
         let second = click(&mut tree, &frame, "close:view:0:picture.png");
         assert!(matches!(zoomed(&second), Some((_, true))), "{second:?}");
+    }
+
+    #[test]
+    fn a_click_does_not_zoom_a_surface_in_the_lightbox_but_the_wheel_still_does() {
+        // A video or an animation shown as a surface keeps its fit on a click, and has no zoom toggle.
+        let video = ImageViewer::new(Element::spacer(), true, "loop.gif", "close", ComponentPalette::neutral_dark())
+            .viewport(WINDOW)
+            .picture_size(Size::new(300.0, 340.0))
+            .zoom_actions("out", "fit", "in")
+            .surface("animation:a", "A loop")
+            .layout(ViewerLayout::Lightbox);
+        let (mut tree, frame) = tree(video);
+        let view = "close:view:0:loop.gif";
+        let fitted = tree.zoom_scale(view).unwrap();
+        assert!(zoomed(&click(&mut tree, &frame, view)).is_none());
+        assert_eq!(tree.zoom_scale(view), Some(fitted));
+        assert!(!frame.regions.iter().any(|region| region.id == "in"));
+        // The wheel still zooms it, as a zoom view's does.
+        let at = center(frame.regions.iter().find(|region| region.id == view).unwrap().rect);
+        assert!(zoomed(&tree.handle_event(UiEvent::Scroll { position: at, delta_y: 30.0 })).is_some());
     }
 }
