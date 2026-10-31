@@ -197,7 +197,7 @@ pub use file_icons::{file_icon, folder_icon, language_icon, FileIcon};
 pub use geometry::{Color, Point, Rect, Size};
 pub use glass::GlassMaterial;
 pub use diagram_viewer::DiagramViewer;
-pub use image_viewer::ImageViewer;
+pub use image_viewer::{ImageViewer, ViewerLayout};
 pub use list_row::{DiffStat, ListRow, ListRowSizing};
 pub use markdown::{Markdown, MarkdownColors, MarkdownLabels, MarkdownLimits, MarkdownPreview, MarkdownSourcePage};
 pub use markdown_cache::MarkdownFrame;

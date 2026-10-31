@@ -2,9 +2,24 @@
 //! the tree keeps the zoom.
 
 use crate::{
-    Access, Button, ButtonVariant, Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon,
-    IconButton, Point, PopoverPlacement, RasterImage, Role, Size, Spinner, Tooltip, ZoomControl,
+    Access, Button, ButtonVariant, Color, Component, ComponentPalette, ControlSize, CornerRadii, Element, FontFamily,
+    Icon, IconButton, Point, PopoverPlacement, RasterImage, Role, Size, Spinner, Tooltip, TooltipPlacement, ZoomControl,
 };
+
+/// How an [`ImageViewer`] arranges its controls around the picture.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub enum ViewerLayout {
+    /// A header with the title and one group of controls that ends with close; arrows at the
+    /// sides; thumbnails, or the place in the gallery, under the picture. Today's look.
+    #[default]
+    Header,
+    /// A lightbox: the host's lead ([`ImageViewer::lead`]) at the top left, or the title
+    /// there when there is none; the controls in a floating group at the top right; close on
+    /// its own in the corner; round-cornered arrows at the window's sides that wrap around;
+    /// small thumbnails under the picture; no "2 of 5". While the picture is zoomed in, the
+    /// group, the arrows and the thumbnails hide; close and the lead stay.
+    Lightbox,
+}
 
 /// A picture over the whole window, alone or as one of a gallery: the
 /// picture on a dark backdrop, zoomed and panned as [`Element::zoom_view`]
@@ -35,6 +50,10 @@ pub struct ImageViewer {
     zoom_actions: Option<[String; 3]>,
     actions: Vec<(String, Icon, String)>,
     footer: Option<Element>,
+    layout: ViewerLayout,
+    lead: Option<Element>,
+    tool: Option<Element>,
+    scrim: Option<Color>,
 }
 
 impl ImageViewer {
@@ -74,6 +93,10 @@ impl ImageViewer {
             zoom_actions: None,
             actions: Vec::new(),
             footer: None,
+            layout: ViewerLayout::Header,
+            lead: None,
+            tool: None,
+            scrim: None,
         }
     }
 
@@ -249,6 +272,34 @@ impl ImageViewer {
         self
     }
 
+    /// How the viewer arranges its controls: [`ViewerLayout::Header`] unless set.
+    pub fn layout(mut self, layout: ViewerLayout) -> Self {
+        self.layout = layout;
+        self
+    }
+
+    /// The host's content at the top left in the lightbox layout, such as who sent the
+    /// picture and when, at most 184 pixels wide; the title is then only the dialog's name.
+    /// The header layout does not show it.
+    pub fn lead(mut self, lead: Element) -> Self {
+        self.lead = Some(lead);
+        self
+    }
+
+    /// One more control of the host's own, such as a button that opens a menu: after the
+    /// actions in the header, last in the lightbox's group. Give it the controls' size, 36
+    /// pixels in the header and 32 in the lightbox.
+    pub fn tool(mut self, tool: Element) -> Self {
+        self.tool = Some(tool);
+        self
+    }
+
+    /// The backdrop's color, behind the picture in either layout: 232 black unless set.
+    pub fn scrim(mut self, color: Color) -> Self {
+        self.scrim = Some(color);
+        self
+    }
+
     /// Formerly the largest zoom the host could pass; the tree's limit is
     /// [`ZOOM_VIEW_MAX_SCALE`](crate::ZOOM_VIEW_MAX_SCALE).
     #[deprecated(note = "the tree keeps the zoom; its limit is ZOOM_VIEW_MAX_SCALE")]
@@ -302,12 +353,68 @@ const THUMBNAIL: f32 = 48.0;
 /// The header's height, and the bar the thumbnails sit in.
 const HEADER: f32 = 48.0;
 const STRIP: f32 = THUMBNAIL + 16.0;
+/// The lightbox's measures in logical pixels: the margins from the window's edges, the top
+/// bar, the gaps between its rows, the squares of close and the arrows, the buttons of its
+/// group, the widest lead, the room the group leaves for close, and the thumbnails.
+const LIGHTBOX_MARGIN_X: f32 = 24.0;
+const LIGHTBOX_MARGIN_Y: f32 = 36.0;
+const LIGHTBOX_BAR: f32 = 40.0;
+const LIGHTBOX_GAP: f32 = 12.0;
+const LIGHTBOX_SQUARE: f32 = 40.0;
+const LIGHTBOX_CONTROL: f32 = 32.0;
+const LIGHTBOX_LEAD: f32 = 184.0;
+/// From the group's right edge to the content box's: the close square and the gap before it.
+const LIGHTBOX_CLOSE_ROOM: f32 = LIGHTBOX_SQUARE + LIGHTBOX_GAP;
+const LIGHTBOX_THUMBNAIL: f32 = 40.0;
+const LIGHTBOX_THUMBNAIL_GAP: f32 = 2.0;
+/// The veil over a thumbnail that is not the one shown: black at this alpha, and at
+/// `VEIL_HOVER` while the pointer is over it.
+const VEIL: u8 = 128;
+const VEIL_HOVER: u8 = 38;
+
+/// A lightbox button: `side` on a side with its glyph at 16 pixels, a ghost until the
+/// pointer is over it, rounded by `radius`, and its hint below.
+fn lightbox_button(
+    id: &str,
+    icon: Icon,
+    name: &str,
+    title: &str,
+    palette: ComponentPalette,
+    side: f32,
+    radius: f32,
+) -> Element {
+    let button = IconButton::new(id, icon, palette)
+        .variant(ButtonVariant::Ghost)
+        .ink(palette.muted)
+        .hover_ink(palette.text)
+        .render()
+        .radius(radius)
+        .size(Some(side), Some(side))
+        .accessible(Access::new(Role::Button).name(name));
+    Tooltip::new(button, id, title, palette)
+        .placement(TooltipPlacement::Below)
+        .render()
+        .size(Some(side), Some(side))
+}
+
+/// The lightbox's close and arrows: a lightbox button on a raised square with a 1 px border.
+fn lightbox_square(id: &str, icon: Icon, name: &str, title: &str, palette: ComponentPalette) -> Element {
+    let radius = crate::tokens().radius.panel;
+    Element::panel(lightbox_button(id, icon, name, title, palette, LIGHTBOX_SQUARE, radius))
+        .background(palette.raised)
+        .border(palette.border, 1.0)
+        .radius(radius)
+        .size(Some(LIGHTBOX_SQUARE), Some(LIGHTBOX_SQUARE))
+}
 
 impl Component for ImageViewer {
     fn render(self) -> Element {
         if !self.open {
             return self.base;
         }
+        let lightbox = self.layout == ViewerLayout::Lightbox;
+        // The lightbox hides its group, arrows and thumbnails while the picture is zoomed in.
+        let zoomed = lightbox && matches!(self.level, Some((_, false)));
         let labels = crate::labels();
         // The viewer is dark whatever the window's theme, as a picture is
         // best seen on dark; a dark host palette keeps its own colors.
@@ -329,65 +436,71 @@ impl Component for ImageViewer {
                     .size(None, Some(16.0)),
             );
         }
-        let mut header = vec![Element::column(titles).gap(2.0).flex(1.0).centered_y()];
         let mut tools = Vec::new();
         for (id, icon, name) in &self.actions {
-            tools.push(control(id, *icon, name, name, true, controls));
+            tools.push(if lightbox {
+                lightbox_button(id, *icon, name, name, controls, LIGHTBOX_CONTROL, crate::tokens().radius.card)
+            } else {
+                control(id, *icon, name, name, true, controls)
+            });
         }
         let picture_shown = self.surface.is_some() || self.image.is_some() || self.placeholder.is_some();
         let mut zoom_controls = Vec::new();
-        if let Some([out, fit, zoom_in]) = &self.zoom_actions {
-            let (fitted, most) = match self.level {
-                Some((scale, fitted)) => (fitted, scale >= crate::ZOOM_VIEW_MAX_SCALE - 0.001),
-                None => (false, false),
-            };
-            if !tools.is_empty() {
-                tools.push(Element::spacer().size(Some(8.0), Some(36.0)));
+        if lightbox {
+            // The lightbox's one zoom control toggles a still picture; the host's tool comes last.
+            if let Some([_, _, zoom_in]) = &self.zoom_actions {
+                if self.surface.is_none() {
+                    let hint = format!("{} · +", labels.zoom_in);
+                    let button = lightbox_button(
+                        zoom_in,
+                        Icon::Add,
+                        labels.zoom_in,
+                        &hint,
+                        controls,
+                        LIGHTBOX_CONTROL,
+                        crate::tokens().radius.card,
+                    );
+                    tools.push(button);
+                    zoom_controls.push((zoom_in.clone(), ZoomControl::Toggle));
+                }
             }
-            tools.push(control(out, Icon::Minus, labels.zoom_out, &format!("{} · −", labels.zoom_out), !fitted, controls));
-            zoom_controls.push((out.clone(), ZoomControl::Out));
-            if let Some((scale, _)) = self.level {
-                let id = format!("{}:zoom-level", self.close_id);
-                let percent = format!("{} %", crate::zoom_percent(scale));
-                let button = Button::new(&id, &percent, controls)
-                    .variant(ButtonVariant::Subtle)
-                    .size(ControlSize::Spacious)
-                    .accessibility_label(format!("{} {percent}", labels.zoom_level))
-                    .render()
-                    .size(Some(64.0), Some(36.0));
-                tools.push(Tooltip::new(button, &id, labels.fit_or_zoom, controls).render().size(Some(64.0), Some(36.0)));
-                zoom_controls.push((id, ZoomControl::Toggle));
-            }
-            tools.push(control(zoom_in, Icon::Add, labels.zoom_in, &format!("{} · +", labels.zoom_in), !most, controls));
-            zoom_controls.push((zoom_in.clone(), ZoomControl::In));
-            tools.push(control(fit, Icon::Collapse, labels.fit_to_window, &format!("{} · 0", labels.fit_to_window), !fitted, controls));
-            zoom_controls.push((fit.clone(), ZoomControl::Fit));
-            // Only a picture turns; an animation or a video keeps its way up.
-            if self.surface.is_none() && picture_shown {
-                let id = format!("{}:rotate", self.close_id);
-                tools.push(control(&id, Icon::Refresh, labels.rotate, &format!("{} · Ctrl+R", labels.rotate), true, controls));
-                zoom_controls.push((id, ZoomControl::RotateClockwise));
+            tools.extend(self.tool);
+        } else {
+            tools.extend(self.tool);
+            if let Some([out, fit, zoom_in]) = &self.zoom_actions {
+                let (fitted, most) = match self.level {
+                    Some((scale, fitted)) => (fitted, scale >= crate::ZOOM_VIEW_MAX_SCALE - 0.001),
+                    None => (false, false),
+                };
+                if !tools.is_empty() {
+                    tools.push(Element::spacer().size(Some(8.0), Some(36.0)));
+                }
+                tools.push(control(out, Icon::Minus, labels.zoom_out, &format!("{} · −", labels.zoom_out), !fitted, controls));
+                zoom_controls.push((out.clone(), ZoomControl::Out));
+                if let Some((scale, _)) = self.level {
+                    let id = format!("{}:zoom-level", self.close_id);
+                    let percent = format!("{} %", crate::zoom_percent(scale));
+                    let button = Button::new(&id, &percent, controls)
+                        .variant(ButtonVariant::Subtle)
+                        .size(ControlSize::Spacious)
+                        .accessibility_label(format!("{} {percent}", labels.zoom_level))
+                        .render()
+                        .size(Some(64.0), Some(36.0));
+                    tools.push(Tooltip::new(button, &id, labels.fit_or_zoom, controls).render().size(Some(64.0), Some(36.0)));
+                    zoom_controls.push((id, ZoomControl::Toggle));
+                }
+                tools.push(control(zoom_in, Icon::Add, labels.zoom_in, &format!("{} · +", labels.zoom_in), !most, controls));
+                zoom_controls.push((zoom_in.clone(), ZoomControl::In));
+                tools.push(control(fit, Icon::Collapse, labels.fit_to_window, &format!("{} · 0", labels.fit_to_window), !fitted, controls));
+                zoom_controls.push((fit.clone(), ZoomControl::Fit));
+                // Only a picture turns; an animation or a video keeps its way up.
+                if self.surface.is_none() && picture_shown {
+                    let id = format!("{}:rotate", self.close_id);
+                    tools.push(control(&id, Icon::Refresh, labels.rotate, &format!("{} · Ctrl+R", labels.rotate), true, controls));
+                    zoom_controls.push((id, ZoomControl::RotateClockwise));
+                }
             }
         }
-        if !tools.is_empty() {
-            tools.push(Element::spacer().size(Some(8.0), Some(36.0)));
-        }
-        tools.push(control(
-            &self.close_id,
-            Icon::Close,
-            labels.close_image,
-            &format!("{} · Esc", labels.close_image),
-            true,
-            controls,
-        ));
-        header.push(
-            Element::panel(Element::row(tools).gap(2.0))
-                .padding(4.0)
-                .background(chrome.surface)
-                .radius(crate::tokens().radius.panel * 1.5 + 4.0)
-                .centered_y(),
-        );
-        let header = Element::row(header).gap(16.0).size(None, Some(HEADER));
         let picture = match (&self.surface, &self.image, &self.placeholder) {
             (Some((id, label)), _, _) => Some(Element::surface(id, label)),
             (None, Some(image), _) => Some(Element::raster_image(image.clone().full_resolution().checkerboard())),
@@ -396,9 +509,13 @@ impl Component for ImageViewer {
         };
         let waiting = self.surface.is_none() && self.image.is_none();
         let body = if let Some(picture) = picture {
-            let mut view = Element::zoom_view(&view_id, picture)
-                .zoom_dismiss(&self.close_id)
-                .shadow(chrome.shadow, Point::new(0.0, 12.0), 40.0, 0.0);
+            let mut view = Element::zoom_view(&view_id, picture).zoom_dismiss(&self.close_id);
+            // A lightbox's picture toggles its zoom on a click and casts no shadow.
+            view = if lightbox {
+                view.zoom_click_toggles()
+            } else {
+                view.shadow(chrome.shadow, Point::new(0.0, 12.0), 40.0, 0.0)
+            };
             if let Some(size) = self.picture_size {
                 view = view.zoom_content(size);
             }
@@ -462,22 +579,129 @@ impl Component for ImageViewer {
             ])
             .size(Some(44.0), None)
         };
+        // The lightbox's arrows are never disabled: the gallery wraps around.
+        let lightbox_arrow = |id: &str, icon: Icon, label: &str, key: &str| {
+            Element::column(vec![
+                Element::spacer().flex(1.0),
+                lightbox_square(id, icon, label, &format!("{label} · {key}"), controls),
+                Element::spacer().flex(1.0),
+            ])
+            .size(Some(LIGHTBOX_SQUARE), None)
+        };
         let mut over = Vec::new();
-        if self.total > 1 {
-            if let Some(id) = &self.previous_action {
-                over.push(arrow(id, Icon::ArrowLeft, &previous_label, "←", self.index > 0));
-            }
-            over.push(Element::spacer().flex(1.0));
-            if let Some(id) = &self.next_action {
-                over.push(arrow(id, Icon::ArrowRight, &next_label, "→", self.index + 1 < self.total));
+        if self.total > 1 && !zoomed {
+            if lightbox {
+                if let Some(id) = &self.previous_action {
+                    over.push(lightbox_arrow(id, Icon::ArrowLeft, &previous_label, "←"));
+                }
+                over.push(Element::spacer().flex(1.0));
+                if let Some(id) = &self.next_action {
+                    over.push(lightbox_arrow(id, Icon::ArrowRight, &next_label, "→"));
+                }
+            } else {
+                if let Some(id) = &self.previous_action {
+                    over.push(arrow(id, Icon::ArrowLeft, &previous_label, "←", self.index > 0));
+                }
+                over.push(Element::spacer().flex(1.0));
+                if let Some(id) = &self.next_action {
+                    over.push(arrow(id, Icon::ArrowRight, &next_label, "→", self.index + 1 < self.total));
+                }
             }
         }
         let body = if over.is_empty() { body } else { Element::stack(vec![body, Element::row(over)]) };
-        let mut rows = vec![header, body.flex(1.0)];
+        let top = if lightbox {
+            let left = match self.lead {
+                Some(lead) => Element::row(vec![lead])
+                    .max_width(LIGHTBOX_LEAD)
+                    .clip_children()
+                    .centered_y()
+                    .flex(1.0),
+                None => Element::column(titles).gap(2.0).flex(1.0).centered_y(),
+            };
+            let mut bar = vec![left];
+            if !zoomed && !tools.is_empty() {
+                bar.push(
+                    Element::panel(Element::row(tools).gap(4.0))
+                        .padding(3.0)
+                        .background(chrome.raised)
+                        .border(chrome.border, 1.0)
+                        .radius(crate::tokens().radius.panel)
+                        .centered_y(),
+                );
+            }
+            bar.push(Element::spacer().size(Some(LIGHTBOX_CLOSE_ROOM), None));
+            Element::row(bar).size(None, Some(LIGHTBOX_BAR))
+        } else {
+            let mut header = vec![Element::column(titles).gap(2.0).flex(1.0).centered_y()];
+            if !tools.is_empty() {
+                tools.push(Element::spacer().size(Some(8.0), Some(36.0)));
+            }
+            tools.push(control(
+                &self.close_id,
+                Icon::Close,
+                labels.close_image,
+                &format!("{} · Esc", labels.close_image),
+                true,
+                controls,
+            ));
+            header.push(
+                Element::panel(Element::row(tools).gap(2.0))
+                    .padding(4.0)
+                    .background(chrome.surface)
+                    .radius(crate::tokens().radius.panel * 1.5 + 4.0)
+                    .centered_y(),
+            );
+            Element::row(header).gap(16.0).size(None, Some(HEADER))
+        };
+        let mut rows = vec![top, body.flex(1.0)];
         if let Some(footer) = self.footer {
             rows.push(footer);
         }
-        if self.thumbnails.len() > 1 {
+        if lightbox {
+            if self.thumbnails.len() > 1 && !zoomed {
+                let count = self.thumbnails.len();
+                let strip: Vec<Element> = self
+                    .thumbnails
+                    .iter()
+                    .enumerate()
+                    .map(|(at, (id, image, label))| {
+                        let face = match image {
+                            Some(image) => Element::raster_image(image.clone().cover()),
+                            None => Element::spacer().background(chrome.surface),
+                        }
+                        .size(Some(LIGHTBOX_THUMBNAIL), Some(LIGHTBOX_THUMBNAIL));
+                        // The strip's outer corners are the larger, and its inner ones barely round.
+                        let (outer, inner) = (crate::tokens().radius.card, crate::tokens().radius.control / 2.0);
+                        let left = if at == 0 { outer } else { inner };
+                        let right = if at + 1 == count { outer } else { inner };
+                        let corners = CornerRadii {
+                            top_left: left,
+                            bottom_left: left,
+                            top_right: right,
+                            bottom_right: right,
+                        };
+                        let mut layers = vec![face];
+                        if at != self.index {
+                            let veil = Element::spacer()
+                                .background(Color::rgba(0, 0, 0, VEIL))
+                                .dim_on_hover(format!("{id}:veil"), f32::from(VEIL_HOVER) / f32::from(VEIL));
+                            layers.push(veil);
+                        }
+                        let stack = Element::stack(layers).corner_radii(corners).clip_children().hover_region();
+                        Element::clickable(id, stack)
+                            .size(Some(LIGHTBOX_THUMBNAIL), Some(LIGHTBOX_THUMBNAIL))
+                            .accessible(Access::new(Role::Button).name(label).selected(at == self.index))
+                    })
+                    .collect();
+                rows.push(centered(
+                    Element::horizontal_scroll(
+                        format!("{}:thumbnails", self.close_id),
+                        Element::row(strip).gap(LIGHTBOX_THUMBNAIL_GAP),
+                    ),
+                    LIGHTBOX_THUMBNAIL,
+                ));
+            }
+        } else if self.thumbnails.len() > 1 {
             let strip: Vec<Element> = self
                 .thumbnails
                 .iter()
@@ -509,27 +733,58 @@ impl Component for ImageViewer {
                     .size(None, Some(24.0)),
             );
         }
-        let viewer = Element::column(rows)
-            .gap(12.0)
-            .padding(12.0)
-            // A popover keeps 8 from the window's edges.
-            .size(Some((self.viewport.width - 16.0).max(0.0)), Some((self.viewport.height - 16.0).max(0.0)))
-            // Known by an ID of its own: `close_id` is its close control's.
-            .accessible(Access::new(Role::Dialog).id(format!("{}:dialog", self.close_id)).name(&self.title));
+        // Known by an ID of its own: `close_id` is its close control's.
+        let dialog = Access::new(Role::Dialog).id(format!("{}:dialog", self.close_id)).name(&self.title);
+        let viewer = if lightbox {
+            // The lightbox's close stands alone in the content's top right corner, over the rows.
+            let close = Element::column(vec![
+                Element::row(vec![
+                    Element::spacer().flex(1.0),
+                    lightbox_square(
+                        &self.close_id,
+                        Icon::Close,
+                        labels.close_image,
+                        &format!("{} · Esc", labels.close_image),
+                        controls,
+                    ),
+                ])
+                .size(None, Some(LIGHTBOX_SQUARE)),
+                Element::spacer().flex(1.0),
+            ]);
+            Element::stack(vec![Element::column(rows).gap(LIGHTBOX_GAP), close])
+                .size(
+                    Some((self.viewport.width - 2.0 * LIGHTBOX_MARGIN_X).max(0.0)),
+                    Some((self.viewport.height - 2.0 * LIGHTBOX_MARGIN_Y).max(0.0)),
+                )
+                .accessible(dialog)
+        } else {
+            Element::column(rows)
+                .gap(12.0)
+                .padding(12.0)
+                // A popover keeps 8 from the window's edges.
+                .size(Some((self.viewport.width - 16.0).max(0.0)), Some((self.viewport.height - 16.0).max(0.0)))
+                .accessible(dialog)
+        };
         let initial = self.initial_focus.clone().unwrap_or_else(|| self.close_id.clone());
+        // The arrows its hints show: back while there is one before, on while there is one after.
+        // A lightbox wraps around, so both report whenever there is more than one picture.
+        let (back, next) = if lightbox {
+            (self.previous_action.filter(|_| self.total > 1), self.next_action.filter(|_| self.total > 1))
+        } else {
+            (
+                self.previous_action.filter(|_| self.index > 0),
+                self.next_action.filter(|_| self.index + 1 < self.total),
+            )
+        };
         let mut popover = Element::popover(self.base, viewer, &self.close_id, PopoverPlacement::Center)
             // The window's content stays faintly there behind the picture.
-            .popover_scrim(Color::rgba(0, 0, 0, 232))
+            .popover_scrim(self.scrim.unwrap_or(Color::rgba(0, 0, 0, 232)))
             .popover_animation_ms(crate::tokens().motion.enter_ms)
             // The picture grows out of its thumbnail; the rest fades in.
             .popover_open_scale(1.0)
             .popover_backdrop_dismiss(true)
             .popover_initial_focus(initial)
-            // The arrows its hints show: back while there is one before, on while there is one after.
-            .popover_arrows(
-                self.previous_action.filter(|_| self.index > 0),
-                self.next_action.filter(|_| self.index + 1 < self.total),
-            );
+            .popover_arrows(back, next);
         if let Some(id) = self.return_focus {
             popover = popover.popover_return_focus(id);
         }
@@ -908,5 +1163,111 @@ mod tests {
         let (_, frame) = tree(viewer);
         assert_eq!(picture(&frame).width, 300.0);
         assert!(frame.access.iter().any(|node| node.name == crate::labels().loading_image));
+    }
+
+    /// A lightbox of `size` pixels with its controls: a save action, the zoom toggle and a tool.
+    fn lightbox(size: Size) -> ImageViewer {
+        sized(size).layout(ViewerLayout::Lightbox).action("save", Icon::ArrowDown, "Save as…")
+    }
+
+    #[test]
+    fn the_lightbox_puts_close_in_the_corner_and_its_group_before_it() {
+        let (_, frame) = tree(lightbox(Size::new(400.0, 300.0)));
+        // The backdrop's region takes the close ID too, so a control's own box is read from its node.
+        let rect = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap().rect;
+        let close = rect("close");
+        assert_eq!((close.width, close.height), (40.0, 40.0));
+        assert_eq!((WINDOW.width - close.x - close.width, close.y), (24.0, 36.0));
+        // The group's buttons are 32 square, and the group ends 52 short of the content's edge:
+        // its padding of 3 stands after its last button.
+        let (save, zoom) = (rect("save"), rect("in"));
+        assert_eq!((save.width, save.height, zoom.width, zoom.height), (32.0, 32.0, 32.0, 32.0));
+        assert_eq!(zoom.x + zoom.width + 3.0, WINDOW.width - 24.0 - 52.0);
+    }
+
+    #[test]
+    fn a_lead_sits_at_the_top_left_and_the_title_is_only_the_dialogs_name() {
+        let viewer = lightbox(Size::new(400.0, 300.0)).lead(Element::text("Ana · 12:04"));
+        let (_, frame) = tree(viewer);
+        let position = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Text { text, position, .. } if text == "Ana · 12:04" => Some(*position),
+                _ => None,
+            })
+            .expect("the lead is drawn");
+        assert!(close(position.x, 24.0) && (36.0..76.0).contains(&position.y), "{position:?}");
+        assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { text, .. } if text == "picture.png")));
+        let dialog = frame.access.iter().find(|node| node.id == "close:dialog").unwrap();
+        assert_eq!((dialog.role, dialog.name.as_str()), (Role::Dialog, "picture.png"));
+    }
+
+    #[test]
+    fn a_lightbox_gallery_keeps_both_arrows_and_squares_its_thumbnails_without_a_count() {
+        let gallery = |thumbnails: bool| {
+            let mut viewer = lightbox(Size::new(400.0, 300.0)).gallery(0, 3).previous_action("before").next_action("after");
+            if thumbnails {
+                for at in 0..3 {
+                    viewer = viewer.thumbnail(format!("thumb:{at}"), (at != 2).then(still), format!("Picture {at}"));
+                }
+            }
+            viewer
+        };
+        let (_, frame) = tree(gallery(false));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap().clone();
+        assert!(!node("before").disabled && !node("after").disabled, "the arrows wrap around");
+        assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { text, .. } if text.starts_with("1 "))));
+        let (_, frame) = tree(gallery(true));
+        for at in 0..3 {
+            let rect = frame.regions.iter().find(|region| region.id == format!("thumb:{at}")).unwrap().rect;
+            assert_eq!((rect.width, rect.height), (40.0, 40.0));
+        }
+    }
+
+    #[test]
+    fn a_zoomed_lightbox_keeps_its_close_and_lead_alone() {
+        let viewer = lightbox(Size::new(2400.0, 1600.0))
+            .lead(Element::text("Ana"))
+            .gallery(1, 3)
+            .previous_action("before")
+            .next_action("after")
+            .thumbnail("thumb:0", None, "Picture 0")
+            .thumbnail("thumb:1", None, "Picture 1")
+            .zoom_level(2.5, false);
+        let (_, frame) = tree(viewer);
+        let shown = |id: &str| frame.regions.iter().any(|region| region.id == id);
+        assert!(shown("close"));
+        for id in ["save", "in", "before", "after", "thumb:0"] {
+            assert!(!shown(id), "{id}");
+        }
+        assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { text, .. } if text == "Ana")));
+    }
+
+    #[test]
+    fn a_tool_is_the_last_control_of_the_group_in_either_layout() {
+        let menu = || Element::clickable("menu", Element::spacer()).size(Some(32.0), Some(32.0));
+        let left = |frame: &Frame, id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect.x;
+        let (_, frame) = tree(sized(Size::new(400.0, 300.0)).action("save", Icon::ArrowDown, "Save as…").tool(menu()));
+        assert!(left(&frame, "save") < left(&frame, "menu") && left(&frame, "menu") < left(&frame, "out"));
+        let (_, frame) = tree(lightbox(Size::new(400.0, 300.0)).tool(menu()));
+        assert!(left(&frame, "save") < left(&frame, "in") && left(&frame, "in") < left(&frame, "menu"));
+    }
+
+    #[test]
+    fn the_scrim_paints_the_backdrop_in_its_color() {
+        let scrim = Color::rgba(10, 20, 30, 200);
+        let (_, frame) = tree(sized(Size::new(400.0, 300.0)).scrim(scrim));
+        assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::FillRect { color, .. } if *color == scrim)));
+    }
+
+    #[test]
+    fn a_click_on_a_lightbox_picture_zooms_it_and_the_next_fits_it() {
+        let (mut tree, frame) = tree(lightbox(Size::new(2400.0, 1600.0)));
+        let first = click(&mut tree, &frame, "close:view:0:picture.png");
+        assert_eq!(zoomed(&first).map(|(_, fitted)| fitted), Some(false));
+        let frame = tree.layout(WINDOW);
+        let second = click(&mut tree, &frame, "close:view:0:picture.png");
+        assert!(matches!(zoomed(&second), Some((_, true))), "{second:?}");
     }
 }

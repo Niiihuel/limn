@@ -149,6 +149,39 @@ when clicked or activated by the keyboard. Each call adds one, in order; an
 empty ID adds nothing. The host answers it as it answers any other action,
 for example by saving the picture shown.
 
+## Lightbox
+
+```rust
+viewer.layout(ViewerLayout::Lightbox)
+    .lead(Element::text("Ana · 12:04"))
+    .tool(menu_button)
+    .scrim(Color::rgba(0, 0, 0, 232))
+```
+
+`layout` picks the arrangement: `ViewerLayout::Header`, the default and
+today's look, or `ViewerLayout::Lightbox`, as a chat's media viewer draws it.
+A lightbox has:
+
+- the `lead` at the top left, such as who sent the picture and when, at most
+  184 pixels wide; without one, the title is there. The title is the
+  dialog's name either way;
+- the host's actions and the zoom toggle in one floating group at the top
+  right, with `tool` last: a control of the host's own, such as a button that
+  opens a menu;
+- close alone in the top right corner, and round arrows at the sides that
+  wrap around;
+- thumbnails under the picture, 40 pixels square, with no "2 of 5".
+
+A click on the picture zooms it two and a half times about the point, and the
+next click fits it again, as the group's zoom toggle does about the middle.
+While the picture is zoomed in, the group, the arrows and the thumbnails
+hide; close and the lead stay. `scrim` sets the backdrop's color, 232 black
+unless set, in either layout.
+
+The margins are 24 pixels from the sides and 36 from the top and the bottom.
+The glyphs are 16 pixels, as an icon button's always are. The group hides
+while zoomed, so its toggle is only ever drawn as zoom in.
+
 ## Keyboard
 
 | Key | Does |
