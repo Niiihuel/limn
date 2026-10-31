@@ -165,20 +165,23 @@ A lightbox has:
 - the `lead` at the top left, such as who sent the picture and when, at most
   184 pixels wide; without one, the title is there. The title is the
   dialog's name either way;
-- the host's actions and the zoom toggle in one floating group at the top
-  right, with `tool` last: a control of the host's own, such as a button that
-  opens a menu;
+- one floating group at the top right: the zoom toggle first, then the host's
+  actions, with `tool` last: a control of the host's own, such as a button
+  that opens a menu;
 - close alone in the top right corner, and chevron arrows at the sides that
   wrap around;
 - thumbnails under the picture, 40 pixels square, with no "2 of 5".
 
 The zoom toggle draws `Icon::ZoomIn` while the picture fits and
-`Icon::ZoomOut` while it is zoomed. A click on the picture zooms it two and a
-half times about the point, and the next click fits it again, as the toggle
-does about the middle. While the picture is zoomed in, the arrows and the
-thumbnails hide; the group stays, so a keyboard user who reached its toggle can
-zoom back out, and close and the lead stay. `scrim` sets the backdrop's color,
-232 black unless set, in either layout.
+`Icon::ZoomOut` while it is zoomed. It is drawn for a still picture only: a
+surface, such as an animation or a video, has none. A click on a still picture
+zooms it two and a half times about the point, and the next click fits it
+again, as the toggle does about the middle. A surface does not zoom on a click;
+its wheel, pinch, drag and keys still zoom and move it, as in a zoom view.
+While the picture is zoomed in, the arrows and the thumbnails hide; the group
+stays, so a keyboard user who reached its toggle can zoom back out, and close
+and the lead stay. `scrim` sets the backdrop's color, 232 black unless set, in
+either layout.
 
 The margins are 24 pixels from the sides and 36 from the top and the bottom.
 The glyphs are 16 pixels, as an icon button's always are.
