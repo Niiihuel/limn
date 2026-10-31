@@ -1774,6 +1774,8 @@ pub enum ElementKind {
         /// Shown while the value is empty and the editor does not have the
         /// focus.
         placeholder: String,
+        /// Keep the placeholder while the editor is focused and still empty.
+        persistent_placeholder: bool,
         /// Maximum outer height when content determines the editor's height.
         auto_grow: Option<f32>,
         /// Keep CRLF/CR bytes in editable values instead of normalizing to LF.
@@ -3281,9 +3283,14 @@ impl Element {
         .padding(8.0)
     }
 
-    /// Keep a single-line input's placeholder visible while focused and empty.
+    /// Keep a text input's or a text area's placeholder visible while focused
+    /// and empty.
     pub fn persistent_placeholder(mut self, visible: bool) -> Self {
         if let ElementKind::TextInput {
+            persistent_placeholder,
+            ..
+        }
+        | ElementKind::TextArea {
             persistent_placeholder,
             ..
         } = &mut self.kind
@@ -3373,6 +3380,7 @@ impl Element {
             id: id.into(),
             initial_value: initial_value.into(),
             placeholder: placeholder.into(),
+            persistent_placeholder: false,
             auto_grow: None,
             preserve_line_endings: false,
             enter_submits: false,

@@ -64,6 +64,21 @@ either way. The host clears the field after sending with
 the composer's editor, and `Element::text_area_enter_submits` for a bare
 `Element::text_area`.
 
+## Placeholder
+
+```rust
+TextArea::new("message", &state.message, "Message #general", palette)
+    .persistent_placeholder(true)
+    .render()
+```
+
+The placeholder shows while the area is empty and does not have the focus.
+`persistent_placeholder(true)` keeps it, faint, while the focused area is
+empty, with the caret before it, as a chat composer keeps its hint; the
+first key replaces it. `Composer::persistent_placeholder` does the same for
+the composer's editor, and `Element::persistent_placeholder` for a bare
+`Element::text_area`.
+
 ## Highlights
 
 ```rust
