@@ -230,6 +230,11 @@ opens fitted, and a view that is not laid out is forgotten.
   ID move the view too: `ZoomControl::In`, `Out`, `Fit`, `Actual`, `Toggle`,
   `RotateClockwise`, `RotateCounterclockwise`. `zoom_dismiss(id)` reports a
   click beside the picture as that ID.
+- **Clicks.** `zoom_click_toggles()` makes a click on the picture zoom it two
+  and a half times about the point, and the next click fit it again, as a
+  lightbox does. A drag still pans, and the wheel pans the picture instead of
+  zooming it; with Ctrl it zooms. Without the option a single click does
+  nothing, and a double click zooms.
 - **Shadow.** The element's `shadow` is cast by the picture, not by the box.
 - **Reading it.** `UiTree::zoom_scale(id)` gives the scale where it rests;
   `UiAction::Zoomed` reports each change; the scale shows as a percentage at

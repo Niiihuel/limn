@@ -1912,6 +1912,7 @@ pub struct ZoomView {
     pub(crate) controls: Vec<(String, ZoomControl)>,
     pub(crate) dismiss: Option<String>,
     pub(crate) opened_from: Option<String>,
+    pub(crate) click_toggles: bool,
 }
 
 impl ZoomView {
@@ -3208,6 +3209,7 @@ impl Element {
             controls: Vec::new(),
             dismiss: None,
             opened_from: None,
+            click_toggles: false,
         })))
     }
 
@@ -3263,6 +3265,17 @@ impl Element {
     pub fn zoom_opened_from(mut self, id: impl Into<String>) -> Self {
         if let ElementKind::ZoomView(view) = &mut self.kind {
             view.opened_from = Some(id.into());
+        }
+        self
+    }
+
+    /// On a zoom view: a click on the picture zooms in two and a half times about the point
+    /// clicked, and the next click fits it again, as a lightbox does; a drag still pans. The
+    /// mouse wheel then pans the picture instead of zooming it; with Ctrl it zooms. The zoom
+    /// a click makes is reported as [`UiAction::Zoomed`](crate::UiAction::Zoomed).
+    pub fn zoom_click_toggles(mut self) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            view.click_toggles = true;
         }
         self
     }
