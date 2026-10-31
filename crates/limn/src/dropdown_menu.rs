@@ -30,6 +30,9 @@ const ERROR_HEIGHT: f32 = 104.0;
 // give up this much room, so the scrollbar never paints over a row or label.
 const SCROLLBAR_GUTTER: f32 = 16.0;
 
+// Between a submenu and its parent menu's edge, on either side.
+const SUBMENU_GAP: f32 = 3.0;
+
 /// One action in a menu. The caller handles `action_id` from `UiAction`.
 pub struct DropdownMenuItem {
     /// What the host receives when the item is chosen. A disabled item is known
@@ -828,7 +831,8 @@ impl Component for DropdownMenu {
         };
         let inset = if contextual { metrics.inset } else { 6.0 };
         let viewport_width = (self.width - inset * 2.0).max(0.0);
-        let row_width = viewport_width - if scrolls { scrollbar_gutter } else { 0.0 };
+        let gutter = if scrolls { scrollbar_gutter } else { 0.0 };
+        let row_width = viewport_width - gutter;
         let palette = self.palette;
         // A row that opens a submenu floats it beside itself on hover.
         let with_submenu = |row: Element, id: &str, entries: Option<Vec<DropdownMenuEntry>>| {
@@ -856,6 +860,11 @@ impl Component for DropdownMenu {
                 .max_visible_items(self.max_visible_items)
                 .render()
                 .popover_on_hover()
+                // After `popover_on_hover`, which holds a hover popover's gap at zero.
+                .popover_gap(SUBMENU_GAP)
+                // The row sits inset from the panel's edges, and clear of the scrollbar's gutter
+                // on the right while the menu scrolls; the submenu clears the panel itself.
+                .popover_anchor_outset(inset, inset, inset + gutter, 0.0)
         };
         let rows = self
             .entries
@@ -3248,6 +3257,134 @@ mod tests {
             alt: false,
         });
         assert_eq!(tree.focused_id(), Some("settings"));
+    }
+
+    // A context menu whose second row opens a one-row submenu, with `rows` rows in all.
+    fn context_menu_with_submenu(rows: usize) -> DropdownMenu {
+        let mut entries: Vec<DropdownMenuEntry> =
+            vec![DropdownMenuItem::new("rename", "Renombrar").into()];
+        entries.push(
+            DropdownMenuItem::new("settings", "Configuración")
+                .submenu(vec![DropdownMenuItem::new("account", "Cuenta").into()])
+                .into(),
+        );
+        entries.extend(
+            (2..rows)
+                .map(|n| DropdownMenuItem::new(format!("row:{n}"), format!("Fila {n}")).into()),
+        );
+        DropdownMenu::new(
+            trigger(),
+            entries,
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        )
+        .context_menu_style()
+    }
+
+    // Moves the pointer onto the row `id`, as a person does to open its submenu.
+    fn hover(tree: &mut UiTree, id: &str, viewport: Size) -> crate::Frame {
+        let row = region(&tree.layout(viewport), id);
+        tree.handle_event(UiEvent::PointerMove(Point::new(row.x + 12.0, row.y + 12.0)));
+        tree.layout(viewport)
+    }
+
+    #[test]
+    fn a_submenu_stands_3_px_clear_of_its_context_menu_on_the_right() {
+        let viewport = Size::new(800.0, 480.0);
+        let mut tree = open_menu(context_menu_with_submenu(2));
+        let frame = hover(&mut tree, "settings", viewport);
+        let menu = region(&frame, "popover_surface:dismiss");
+        let submenu = region(&frame, "popover_surface:dismiss:settings");
+        assert_eq!(submenu.x, menu.x + menu.width + 3.0);
+    }
+
+    #[test]
+    fn a_submenu_of_a_scrolling_context_menu_clears_the_scrollbar_too() {
+        let viewport = Size::new(800.0, 480.0);
+        let mut tree = open_menu(context_menu_with_submenu(24));
+        let frame = hover(&mut tree, "settings", viewport);
+        assert!(frame
+            .regions
+            .iter()
+            .any(|region| region.kind == HitKind::Scrollbar));
+        let menu = region(&frame, "popover_surface:dismiss");
+        let submenu = region(&frame, "popover_surface:dismiss:settings");
+        assert_eq!(submenu.x, menu.x + menu.width + 3.0);
+    }
+
+    #[test]
+    fn a_submenu_without_room_on_the_right_opens_3_px_clear_on_the_left() {
+        let viewport = Size::new(800.0, 480.0);
+        let mut tree = open_menu(context_menu_with_submenu(2).at(Point::new(790.0, 40.0)));
+        let frame = hover(&mut tree, "settings", viewport);
+        let menu = region(&frame, "popover_surface:dismiss");
+        let submenu = region(&frame, "popover_surface:dismiss:settings");
+        assert_eq!(submenu.x + submenu.width, menu.x - 3.0);
+    }
+
+    #[test]
+    fn a_submenu_lines_its_first_row_up_with_the_row_that_opened_it() {
+        let viewport = Size::new(800.0, 480.0);
+        let mut tree = open_menu(context_menu_with_submenu(2));
+        let frame = hover(&mut tree, "settings", viewport);
+        assert_eq!(region(&frame, "account").y, region(&frame, "settings").y);
+    }
+
+    #[test]
+    fn a_submenu_of_a_dropdown_menu_stands_3_px_clear_too() {
+        let viewport = Size::new(640.0, 360.0);
+        let menu = DropdownMenu::new(
+            trigger(),
+            vec![DropdownMenuItem::new("settings", "Configuración")
+                .submenu(vec![DropdownMenuItem::new("account", "Cuenta").into()])
+                .into()],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        );
+        let mut tree = open_menu(menu);
+        let frame = hover(&mut tree, "settings", viewport);
+        let menu = region(&frame, "popover_surface:dismiss");
+        let submenu = region(&frame, "popover_surface:dismiss:settings");
+        assert_eq!(submenu.x, menu.x + menu.width + 3.0);
+    }
+
+    #[test]
+    fn a_submenu_stays_open_while_the_pointer_crosses_to_it() {
+        let viewport = Size::new(800.0, 480.0);
+        let dropdown = DropdownMenu::new(
+            trigger(),
+            vec![DropdownMenuItem::new("settings", "Configuración")
+                .submenu(vec![DropdownMenuItem::new("account", "Cuenta").into()])
+                .into()],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        );
+        // A pixel at a time, as a pointer moves: across the row's edge, the menu's
+        // padding and the gap, into the submenu's first row.
+        for mut tree in [open_menu(context_menu_with_submenu(2)), open_menu(dropdown)] {
+            let frame = hover(&mut tree, "settings", viewport);
+            let row = region(&frame, "settings");
+            let submenu = region(&frame, "popover_surface:dismiss:settings");
+            let y = row.y + row.height / 2.0;
+            let mut x = row.x + row.width - 1.0;
+            while x <= submenu.x + 12.0 {
+                tree.handle_event(UiEvent::PointerMove(Point::new(x, y)));
+                let frame = tree.layout(viewport);
+                assert!(
+                    frame.regions.iter().any(|region| region.id == "account"),
+                    "the submenu closed at x = {x}"
+                );
+                x += 1.0;
+            }
+            let frame = tree.layout(viewport);
+            assert_eq!(
+                frame.hit_test(Point::new(submenu.x + 12.0, y)),
+                Some("account")
+            );
+        }
     }
 
     #[test]

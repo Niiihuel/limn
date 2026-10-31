@@ -1607,6 +1607,9 @@ pub enum ElementKind {
         /// A point of the window the surface is placed against instead of
         /// the anchor's box; set by [`Element::popover_at`].
         at: Option<Point>,
+        /// Left, top, right and bottom growth of the anchor's box before the
+        /// surface is placed; see [`Element::popover_anchor_outset`].
+        anchor_outset: [f32; 4],
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -2704,6 +2707,7 @@ impl Element {
                 coach: None,
                 arrows: None,
                 at: None,
+                anchor_outset: [0.0; 4],
             },
             layout,
         )
@@ -2763,7 +2767,9 @@ impl Element {
     /// or a submenu nested in it is. Anything inside the trigger with a
     /// pointer region of its own, such as a hint's anchor, holds it as the
     /// trigger does, so a row can open a card on hover that stays while the
-    /// pointer crosses the row's marks on its way to the card.
+    /// pointer crosses the row's marks on its way to the card. The space that
+    /// [`Element::popover_gap`] and [`Element::popover_anchor_outset`] leave beside
+    /// the trigger's rows holds it too, so the pointer can cross a gap.
     pub fn popover_on_hover(mut self) -> Self {
         if let ElementKind::Popover {
             anchor,
@@ -2818,6 +2824,23 @@ impl Element {
             if value.is_finite() && value >= 0.0 {
                 *gap = value;
             }
+        }
+        self
+    }
+
+    /// Grow the anchor's rectangle by these amounts, in logical pixels, before placing the
+    /// surface against it, as if the anchor were that much larger on each side: a row inside a
+    /// padded panel can float its surface clear of the panel's edge instead of its own. A value
+    /// that is not finite, or negative, counts as zero.
+    pub fn popover_anchor_outset(mut self, left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        if let ElementKind::Popover { anchor_outset, .. } = &mut self.kind {
+            *anchor_outset = [left, top, right, bottom].map(|value| {
+                if value.is_finite() {
+                    value.max(0.0)
+                } else {
+                    0.0
+                }
+            });
         }
         self
     }
@@ -4352,5 +4375,30 @@ mod surface_tests {
         assert_eq!(mirrored(shown), Some(true));
         assert_eq!(mirrored(Element::surface("camera", "Camera").surface_mirrored(true).surface_mirrored(false)), Some(false));
         assert!(mirrored(Element::spacer().surface_mirrored(true)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod popover_outset_tests {
+    use super::*;
+
+    #[test]
+    fn an_outset_side_that_is_not_finite_or_negative_counts_as_zero() {
+        let outset = |left: f32| match Element::popover(
+            Element::spacer(),
+            Element::spacer(),
+            "dismiss",
+            PopoverPlacement::RightStart,
+        )
+        .popover_anchor_outset(left, 1.0, 2.0, 3.0)
+        .kind
+        {
+            ElementKind::Popover { anchor_outset, .. } => anchor_outset,
+            _ => unreachable!("a popover"),
+        };
+        assert_eq!(outset(5.0), [5.0, 1.0, 2.0, 3.0]);
+        for bad in [f32::NAN, f32::INFINITY, -4.0] {
+            assert_eq!(outset(bad), [0.0, 1.0, 2.0, 3.0], "{bad}");
+        }
     }
 }

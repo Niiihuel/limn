@@ -4776,6 +4776,7 @@ impl UiTree {
                         coach,
                         arrows,
                         pointed,
+                        anchor_outset,
                     } => {
                         let coach = coach.as_deref();
                         if let Some(coach) = coach {
@@ -4864,10 +4865,19 @@ impl UiTree {
                             Some(coach) => {
                                 place_coach(anchor, measured, viewport_rect, coach.side, coach.align)
                             }
-                            None => (
-                                place_popover(anchor, measured, viewport_rect, placement, gap),
-                                None,
-                            ),
+                            None => {
+                                let [left, top, right, bottom] = anchor_outset;
+                                let grown = Rect::new(
+                                    anchor.x - left,
+                                    anchor.y - top,
+                                    anchor.width + left + right,
+                                    anchor.height + top + bottom,
+                                );
+                                (
+                                    place_popover(grown, measured, viewport_rect, placement, gap),
+                                    None,
+                                )
+                            }
                         };
                         let rect = LayoutBuilder::translated_rect(&floating, rect);
                         builder.observed_popovers.insert(dismiss_id.clone());
@@ -7870,6 +7880,7 @@ enum DeferredOverlay {
         /// What the Left and Right arrow keys report inside the surface.
         arrows: Option<Box<(Option<String>, Option<String>)>>,
         pointed: bool,
+        anchor_outset: [f32; 4],
     },
     Tooltip {
         anchor: Rect,
@@ -7881,6 +7892,20 @@ enum DeferredOverlay {
         colors: TooltipStyle,
         options: TooltipOptions,
     },
+}
+
+/// Whether the pointer lies in the space an outset and a gap leave beside a popover's
+/// trigger, level with its rows. A hover popover placed clear of its row holds
+/// while the pointer crosses that space to reach it.
+fn beside_trigger(trigger: Rect, outset: [f32; 4], gap: f32, pointer: Option<Point>) -> bool {
+    let [left, _, right, _] = outset;
+    let band = Rect::new(
+        trigger.x - left - gap,
+        trigger.y,
+        trigger.width + left + right + gap * 2.0,
+        trigger.height,
+    );
+    pointer.is_some_and(|point| band.contains(point) && !trigger.contains(point))
 }
 
 fn place_popover(
@@ -11322,6 +11347,7 @@ impl LayoutBuilder<'_> {
                 coach,
                 arrows,
                 at,
+                anchor_outset,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -11382,7 +11408,10 @@ impl LayoutBuilder<'_> {
                         // What lies inside the trigger holds it too, such as a
                         // hint's anchor in a row that opens a card on hover.
                         || holds_submenu(anchor, hovered, focused)
-                        || holds_submenu(floating, hovered, focused);
+                        || holds_submenu(floating, hovered, focused)
+                        // The pointer crosses the space an outset and a gap leave
+                        // beside the trigger on its way into the surface.
+                        || beside_trigger(anchor_rect, *anchor_outset, *gap, self.pointer);
                     if !active {
                         return;
                     }
@@ -11408,6 +11437,7 @@ impl LayoutBuilder<'_> {
                     coach: coach.clone(),
                     arrows: arrows.clone(),
                     pointed: at.is_some(),
+                    anchor_outset: *anchor_outset,
                 });
             }
             ElementKind::Tooltip {
