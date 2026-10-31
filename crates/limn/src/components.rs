@@ -1821,6 +1821,7 @@ pub struct TextArea {
     state: ControlState,
     preserve_line_endings: bool,
     enter_submits: bool,
+    persistent_placeholder: bool,
     accessibility_label: Option<String>,
 }
 
@@ -1844,6 +1845,7 @@ impl TextArea {
             state: ControlState::Enabled,
             preserve_line_endings: false,
             enter_submits: false,
+            persistent_placeholder: false,
             accessibility_label: None,
         }
     }
@@ -1853,6 +1855,12 @@ impl TextArea {
     /// breaks the line.
     pub fn enter_submits(mut self, submits: bool) -> Self {
         self.enter_submits = submits;
+        self
+    }
+
+    /// Keep the placeholder visible while this area is focused and empty.
+    pub fn persistent_placeholder(mut self, visible: bool) -> Self {
+        self.persistent_placeholder = visible;
         self
     }
 
@@ -1939,6 +1947,7 @@ impl Component for TextArea {
             .accessible(access);
         }
         let area = Element::text_area(self.id, self.value, self.placeholder)
+            .persistent_placeholder(self.persistent_placeholder)
             .text_area_preserve_line_endings(self.preserve_line_endings)
             .text_area_enter_submits(self.enter_submits)
             .background(self.palette.raised)

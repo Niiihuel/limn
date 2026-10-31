@@ -26,6 +26,7 @@ pub struct Composer {
     inline_controls: bool,
     editor_font_size: f32,
     enter_submits: bool,
+    persistent_placeholder: bool,
     drop_target: bool,
     editor_action: Option<Element>,
     editor_highlights: Vec<TextHighlight>,
@@ -70,6 +71,7 @@ impl Composer {
             inline_controls: false,
             editor_font_size: 13.0,
             enter_submits: false,
+            persistent_placeholder: false,
             drop_target: false,
             editor_action: None,
             editor_highlights: Vec::new(),
@@ -173,6 +175,13 @@ impl Composer {
     /// Off by default: Enter breaks the line.
     pub fn enter_submits(mut self, submits: bool) -> Self {
         self.enter_submits = submits;
+        self
+    }
+
+    /// Keep the placeholder visible while the editor is focused and empty, as
+    /// a chat keeps its hint until the first key. Off by default.
+    pub fn persistent_placeholder(mut self, visible: bool) -> Self {
+        self.persistent_placeholder = visible;
         self
     }
 
@@ -318,6 +327,7 @@ impl Composer {
         let (highlights, palette, enabled) = (self.editor_highlights, self.palette, self.enabled);
         let (font_size, height, auto_grow) = (self.editor_font_size, self.editor_height, self.auto_grow);
         let enter_submits = self.enter_submits;
+        let persistent_placeholder = self.persistent_placeholder;
         let drop_target = self.drop_target;
         let editor = move |padding: f32| {
             if !enabled {
@@ -350,6 +360,7 @@ impl Composer {
                 return text;
             }
             let mut editor = Element::text_area(id, prompt, placeholder)
+                .persistent_placeholder(persistent_placeholder)
                 .text_area_highlights(highlights)
                 .text_area_enter_submits(enter_submits)
                 .background(palette.selected)
@@ -494,6 +505,23 @@ mod tests {
             assert_eq!((said.role, said.name.as_str()), (crate::Role::MultilineTextInput, "Escribe una tarea"));
             assert_eq!(said.value_text.as_deref(), Some("Borrador"));
             assert_eq!((said.disabled, said.actionable), (!enabled, enabled));
+        }
+    }
+
+    #[test]
+    fn the_editor_keeps_its_placeholder_while_focused_when_asked() {
+        for persistent in [false, true] {
+            let composer = Composer::new("prompt", "", "Escribe una tarea", 480.0, ComponentPalette::neutral_dark())
+                .persistent_placeholder(persistent)
+                .render();
+            let mut tree = UiTree::new(composer);
+            tree.layout(Size::new(480.0, 250.0));
+            assert!(tree.focus("prompt"));
+            let frame = tree.layout(Size::new(480.0, 250.0));
+            let shown = frame.commands.iter().any(|command| {
+                matches!(command, crate::DrawCommand::Text { text, .. } if text == "Escribe una tarea")
+            });
+            assert_eq!(shown, persistent);
         }
     }
 
