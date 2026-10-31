@@ -155,6 +155,24 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         );
         lays_out_with_real_numbers("Button::width", Button::new("b", "B", palette).variant(ButtonVariant::Outline).width(bad).render());
         lays_out_with_real_numbers("Slider::width", Slider::new("s", 0.5, palette).width(bad).render());
+        lays_out_with_real_numbers(
+            "Slider::thumb and bar",
+            Slider::new("s", 0.5, palette).steps(5).marks().thumb(bad, bad).bar(bad, bad).render(),
+        );
+        lays_out_with_real_numbers(
+            "Slider::mark_style",
+            Slider::new("s", 0.5, palette)
+                .steps(5)
+                .mark_labels(["a", "b", "c", "d", "e"])
+                .default_stop(1)
+                .mark_style(limn::MarkStyle {
+                    dash: limn::Size::new(bad, bad),
+                    label_size: bad,
+                    label_weight_medium: true,
+                    default_mark_ink: None,
+                })
+                .render(),
+        );
         lays_out_with_real_numbers("SearchField::height", SearchField::new("s", "", "S", palette).height(bad).render());
         lays_out_with_real_numbers("TextField::radius", TextField::new("s", "", "S", palette).radius(bad).render());
         lays_out_with_real_numbers(

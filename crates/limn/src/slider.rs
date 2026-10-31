@@ -1,6 +1,7 @@
 //! A value dragged along a track: a seek position, a volume, any share of a range.
 
-use crate::{Access, Color, Component, ComponentPalette, CornerRadii, Element, FontFamily, Role};
+use crate::page::px;
+use crate::{Access, Color, Component, ComponentPalette, CornerRadii, Element, FontFamily, Role, Size};
 
 /// Height of the pointer target. The track is thinner and centered in it.
 const HEIGHT: f32 = 16.0;
@@ -14,6 +15,33 @@ const LABEL_GAP: f32 = 4.0;
 /// Past this many stops there are no marks: that close together they would
 /// only gray the track, and each is an element to lay out.
 const MAX_MARKS: usize = 100;
+
+/// What the marks along a stepped slider and the names of its stops look
+/// like. The default is the hairline and the 12 pixel labels a slider has
+/// always drawn. A number that is not finite counts as zero.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct MarkStyle {
+    /// A mark's width and height in logical pixels: 1 by 12 unless set.
+    pub dash: Size,
+    /// The text size of a stop's label, 12 unless set.
+    pub label_size: f32,
+    /// Whether the labels are in the medium weight of the sans family.
+    pub label_weight_medium: bool,
+    /// The color of the mark at the stop [`Slider::default_stop`] names; the
+    /// other marks keep the palette's border color. `None` keeps it for that one too.
+    pub default_mark_ink: Option<Color>,
+}
+
+impl Default for MarkStyle {
+    fn default() -> Self {
+        Self {
+            dash: Size::new(MARK, THUMB),
+            label_size: LABEL_SIZE,
+            label_weight_medium: false,
+            default_mark_ink: None,
+        }
+    }
+}
 
 /// The host owns the value: it passes `fraction` on every rebuild and applies
 /// each `SliderChanged`. `committed` is false while the pointer is down and
@@ -36,6 +64,9 @@ pub struct Slider {
     vertical: bool,
     origin: f32,
     level: Option<(f32, Color)>,
+    thumb: (f32, f32),
+    bar: (f32, f32),
+    mark_style: MarkStyle,
 }
 
 impl Slider {
@@ -56,6 +87,9 @@ impl Slider {
             vertical: false,
             origin: 0.0,
             level: None,
+            thumb: (THUMB, THUMB),
+            bar: (TRACK, TRACK),
+            mark_style: MarkStyle::default(),
         }
     }
 
@@ -94,12 +128,45 @@ impl Slider {
         self
     }
 
-    /// Fix the length of the track, in logical pixels, never below the thumb's 12:
-    /// the width, or the height of a vertical slider. A value that is not finite is ignored.
+    /// Fix the length of the track, in logical pixels, never below the
+    /// thumb's diameter: the width, or the height of a vertical slider. A value
+    /// that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
         if width.is_finite() {
-            self.width = Some(width.max(THUMB));
+            self.width = Some(width.max(0.0));
         }
+        self
+    }
+
+    /// The thumb's diameter at rest and while the pointer is over the slider,
+    /// in logical pixels: 12 and 12 unless set, where Discord's are 16 and 20.
+    /// A value that is not finite is ignored and a negative one is zero.
+    pub fn thumb(mut self, idle: f32, active: f32) -> Self {
+        if idle.is_finite() {
+            self.thumb.0 = idle.max(0.0);
+        }
+        if active.is_finite() {
+            self.thumb.1 = active.max(0.0);
+        }
+        self
+    }
+
+    /// The track's thickness at rest and while the pointer is over the slider,
+    /// in logical pixels: 4 and 4 unless set, where Discord's are 4 and 6. A
+    /// value that is not finite is ignored and a negative one is zero.
+    pub fn bar(mut self, idle: f32, active: f32) -> Self {
+        if idle.is_finite() {
+            self.bar.0 = idle.max(0.0);
+        }
+        if active.is_finite() {
+            self.bar.1 = active.max(0.0);
+        }
+        self
+    }
+
+    /// How the marks and the stops' labels look, as [`MarkStyle`] says.
+    pub fn mark_style(mut self, style: MarkStyle) -> Self {
+        self.mark_style = style;
         self
     }
 
@@ -169,6 +236,13 @@ impl Component for Slider {
             (true, None) => self.palette.text,
         };
         let vertical = self.vertical;
+        // The thumb and the bar at rest, and at the size they take while the pointer is over the slider.
+        let (thumb, thumb_active) = self.thumb;
+        let (bar, bar_active) = self.bar;
+        let thumb_widest = thumb.max(thumb_active);
+        let style = self.mark_style;
+        let dash = Size::new(px(style.dash.width), px(style.dash.height));
+        let label_size = px(style.label_size);
         // Sizes along the track and across it, whichever way it lies.
         let sized = |element: Element, along: Option<f32>, across: Option<f32>| {
             if vertical {
@@ -186,71 +260,102 @@ impl Component for Slider {
                 Element::row(pieces)
             }
         };
-        let round = TRACK / 2.0;
-        let cap = |start: bool| {
-            let (first, last) = if start { (round, 0.0) } else { (0.0, round) };
-            if vertical {
-                CornerRadii { top_left: last, top_right: last, bottom_left: first, bottom_right: first }
-            } else {
-                CornerRadii { top_left: first, bottom_left: first, top_right: last, bottom_right: last }
-            }
-        };
-        let bar = |color: Color| Element::panel(Element::spacer()).background(color);
         // A level takes the fill's place: from the start to the level, in its color.
         let (low, high, fill) = match self.level {
             Some((level, color)) => (0.0, level, if self.enabled { color } else { self.palette.muted }),
             None => (self.origin.min(self.fraction), self.origin.max(self.fraction), ink),
         };
         let gray = self.palette.selected;
-        // The fill runs from the origin to the value, between stops half a
-        // thumb in from the ends, so it meets the thumb's center; each end cap
-        // takes the color of the part it closes.
-        let mut pieces = vec![sized(
-            bar(if low <= 0.0 && high > 0.0 { fill } else { gray }).corner_radii(cap(true)),
-            Some(THUMB / 2.0),
-            Some(TRACK),
-        )];
-        for (share, color) in [(low, gray), (high - low, fill), (1.0 - high, gray)] {
-            if share > 0.0 {
-                pieces.push(sized(bar(color), None, Some(TRACK)).flex(share));
+        // The track at a thickness. The fill runs from the origin to the value,
+        // between stops half a thumb in from the ends, so it meets the thumb's
+        // center; each end cap takes the color of the part it closes.
+        let track_bar = |thickness: f32| {
+            let round = thickness / 2.0;
+            let cap = |start: bool| {
+                let (first, last) = if start { (round, 0.0) } else { (0.0, round) };
+                if vertical {
+                    CornerRadii { top_left: last, top_right: last, bottom_left: first, bottom_right: first }
+                } else {
+                    CornerRadii { top_left: first, bottom_left: first, top_right: last, bottom_right: last }
+                }
+            };
+            let piece = |color: Color| Element::panel(Element::spacer()).background(color);
+            let mut pieces = vec![sized(
+                piece(if low <= 0.0 && high > 0.0 { fill } else { gray }).corner_radii(cap(true)),
+                Some(thumb / 2.0),
+                Some(thickness),
+            )];
+            for (share, color) in [(low, gray), (high - low, fill), (1.0 - high, gray)] {
+                if share > 0.0 {
+                    pieces.push(sized(piece(color), None, Some(thickness)).flex(share));
+                }
             }
-        }
-        pieces.push(sized(
-            bar(if high >= 1.0 && low < 1.0 { fill } else { gray }).corner_radii(cap(false)),
-            Some(THUMB / 2.0),
-            Some(TRACK),
-        ));
-        let mut layers = vec![line(pieces)];
-        if self.enabled {
-            let mut thumb = Vec::with_capacity(3);
+            pieces.push(sized(
+                piece(if high >= 1.0 && low < 1.0 { fill } else { gray }).corner_radii(cap(false)),
+                Some(thumb / 2.0),
+                Some(thickness),
+            ));
+            line(pieces)
+        };
+        // The thumb at a diameter, on the middle line of the track.
+        let thumb_row = |diameter: f32| {
+            let mut pieces = Vec::with_capacity(3);
             if self.fraction > 0.0 {
-                thumb.push(Element::spacer().flex(self.fraction));
+                pieces.push(Element::spacer().flex(self.fraction));
             }
-            thumb.push(sized(Element::spacer().background(ink).radius(THUMB / 2.0), Some(THUMB), Some(THUMB)));
+            pieces.push(sized(
+                Element::spacer().background(ink).radius(diameter / 2.0),
+                Some(diameter),
+                Some(diameter),
+            ));
             if self.fraction < 1.0 {
-                thumb.push(Element::spacer().flex(1.0 - self.fraction));
+                pieces.push(Element::spacer().flex(1.0 - self.fraction));
             }
-            layers.push(line(thumb));
-        }
-        // The pointer takes the whole of it: the thumb's height across a
-        // slider, and the width it is given across a vertical one.
-        let (width, height) = if vertical { (None, self.width) } else { (self.width, Some(HEIGHT)) };
+            line(pieces)
+        };
+        // A bar or a thumb that changes size while the pointer is over the
+        // slider is drawn twice, at rest and active, each copy shown only in
+        // its own state. Where nothing changes, each is drawn once, as before.
+        let changes = self.enabled && (thumb != thumb_active || bar != bar_active);
+        let mut layers = if changes {
+            vec![
+                Element::stack(vec![track_bar(bar), thumb_row(thumb)]).conceal_on_hover(format!("{}:resting", self.id)),
+                Element::stack(vec![track_bar(bar_active), thumb_row(thumb_active)])
+                    .reveal_on_hover(format!("{}:active", self.id)),
+            ]
+        } else {
+            let mut layers = vec![track_bar(bar)];
+            if self.enabled {
+                layers.push(thumb_row(thumb));
+            }
+            layers
+        };
         let stops = if self.steps >= 2 { self.steps } else { 0 };
         let mut labels = self.labels;
         labels.truncate(stops);
-        if !vertical && (2..=MAX_MARKS).contains(&stops) && (self.marks || !labels.is_empty()) {
+        let marked = !vertical && (2..=MAX_MARKS).contains(&stops) && (self.marks || !labels.is_empty());
+        // The pointer takes the whole of it: the thumb's height across a slider,
+        // and the width it is given across a vertical one. Marks may stand taller.
+        let length = self.width.map(|length| length.max(thumb_widest));
+        let across = HEIGHT.max(thumb_widest).max(if marked { dash.height } else { 0.0 });
+        let (width, height) = if vertical { (None, length) } else { (length, Some(across)) };
+        if marked {
             // Each mark's center is a stop: half a thumb in from the ends,
             // with even shares of the rest between them.
-            let edge = || Element::spacer().size(Some((THUMB - MARK) / 2.0), None);
+            let edge = || Element::spacer().size(Some(((thumb - dash.width) / 2.0).max(0.0)), None);
             let mut marks = vec![edge()];
             for stop in 0..stops {
                 if stop > 0 {
                     marks.push(Element::spacer().flex(1.0));
                 }
+                let color = match (self.default_stop, style.default_mark_ink) {
+                    (Some(default), Some(ink)) if default == stop => ink,
+                    _ => self.palette.border,
+                };
                 marks.push(
                     Element::panel(Element::spacer())
-                        .background(self.palette.border)
-                        .size(Some(MARK), Some(THUMB))
+                        .background(color)
+                        .size(Some(dash.width), Some(dash.height))
                         .centered_y(),
                 );
             }
@@ -273,12 +378,13 @@ impl Component for Slider {
             access = access.value_text(label.clone());
         }
         let slider = match (self.enabled, vertical) {
-            (true, false) => Element::clickable(self.id, track).slider(self.fraction, self.steps, THUMB / 2.0),
-            (true, true) => Element::clickable(self.id, track).vertical_slider(self.fraction, self.steps, THUMB / 2.0),
+            (true, false) => Element::clickable(self.id, track).slider(self.fraction, self.steps, thumb / 2.0),
+            (true, true) => Element::clickable(self.id, track).vertical_slider(self.fraction, self.steps, thumb / 2.0),
             (false, _) => Element::panel(track),
-        }
-        .size(width, height)
-        .accessible(access);
+        };
+        // The pointer over the slider is what shows the active sizes.
+        let slider = if changes { slider.hover_region() } else { slider };
+        let slider = slider.size(width, height).accessible(access);
         if vertical {
             labels.clear();
         }
@@ -290,16 +396,15 @@ impl Component for Slider {
             .filter(|(_, label)| !label.is_empty())
             .map(|(stop, label)| {
                 let text = Element::text(label)
-                    .font_family(FontFamily::Sans)
-                    .font_size(LABEL_SIZE)
+                    .font_family(if style.label_weight_medium { FontFamily::SansMedium } else { FontFamily::Sans })
+                    .font_size(label_size)
                     .foreground(if self.default_stop == Some(stop) { ink } else { self.palette.muted });
                 let share = |stops: usize| Element::spacer().flex(stops as f32);
-                let edge = || Element::spacer().size(Some(THUMB / 2.0), None);
+                let edge = || Element::spacer().size(Some(thumb / 2.0), None);
                 match stop {
                     0 => Element::row(vec![text, share(1)]),
                     _ if stop == last => Element::row(vec![share(1), text]),
-                    // Centered in the widest room around its stop the slider
-                    // has, on one line: in a row the text keeps its natural width.
+                    // Centered in the widest room around its stop the slider has, on one line: in a row the text keeps its natural width.
                     _ => {
                         let room = stop.min(last - stop);
                         Element::row(vec![
@@ -316,7 +421,7 @@ impl Component for Slider {
         if layers.is_empty() {
             return slider;
         }
-        Element::column(vec![Element::stack(layers), slider]).gap(LABEL_GAP).size(self.width, None)
+        Element::column(vec![Element::stack(layers), slider]).gap(LABEL_GAP).size(width, None)
     }
 }
 
@@ -810,5 +915,123 @@ mod tests {
         let frame = tree(Slider::new("s", 0.6, palette).level(0.5, green).width(WIDTH).disabled()).layout(Size::new(400.0, HEIGHT));
         assert!(painted(&frame, green, false).is_empty());
         assert!(!painted(&frame, palette.muted, false).is_empty());
+    }
+
+    /// The rectangles of the shapes painted in the frame: those faded out to
+    /// nothing are left out.
+    fn drawn_shapes(frame: &crate::Frame) -> Vec<crate::Rect> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } | DrawCommand::FillCornerRect { rect, color, .. } if color.a > 0 => {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_thumb_and_a_bar_take_their_active_size_while_the_pointer_is_over_the_slider() {
+        let palette = ComponentPalette::neutral_dark();
+        let slider = Slider::new("s", 0.5, palette).width(WIDTH).thumb(16.0, 20.0).bar(4.0, 6.0);
+        let mut tree = UiTree::new(Element::row(vec![slider.render(), Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let window = Size::new(400.0, 40.0);
+        let frame = tree.layout(window);
+        let region = frame.regions.iter().find(|region| region.id == "s").expect("the slider").rect;
+        // At rest the thumb is 16 across and the bar 4 thick; the active ones are hidden.
+        let rest = drawn_shapes(&frame);
+        assert!(rest.iter().any(|shape| shape.width == 16.0 && shape.height == 16.0), "{rest:?}");
+        assert!(rest.iter().any(|shape| shape.height == 4.0), "{rest:?}");
+        assert!(!rest.iter().any(|shape| shape.height == 20.0 || shape.height == 6.0), "{rest:?}");
+        // Over the slider, the active ones show and the resting ones go.
+        tree.handle_event(UiEvent::PointerMove(Point::new(region.x + region.width / 2.0, region.y + region.height / 2.0)));
+        let active = drawn_shapes(&tree.layout(window));
+        assert!(active.iter().any(|shape| shape.width == 20.0 && shape.height == 20.0), "{active:?}");
+        assert!(active.iter().any(|shape| shape.height == 6.0), "{active:?}");
+        assert!(!active.iter().any(|shape| shape.height == 16.0 || shape.height == 4.0), "{active:?}");
+        // The pointer leaves: the resting ones again.
+        tree.handle_event(UiEvent::PointerLeave);
+        assert!(drawn_shapes(&tree.layout(window)).iter().any(|shape| shape.width == 16.0 && shape.height == 16.0));
+        // The slider is as tall as its active thumb, and never shorter than the track's 16.
+        assert_eq!(region.height, 20.0);
+        // Drawn disabled it has no thumb to grow, nor a region.
+        let disabled = UiTree::new(Element::row(vec![
+            Slider::new("s", 0.5, palette).width(WIDTH).thumb(16.0, 20.0).disabled().render(),
+            Element::spacer().flex(1.0),
+        ]))
+        .layout(window);
+        assert!(!drawn_shapes(&disabled).iter().any(|shape| shape.height == 20.0), "a disabled slider grows");
+    }
+
+    #[test]
+    fn a_thumb_no_wider_than_the_track_keeps_the_track_wide_enough_for_it() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = UiTree::new(Element::row(vec![
+            Slider::new("s", 0.5, palette).width(2.0).thumb(16.0, 20.0).render(),
+            Element::spacer().flex(1.0),
+        ]))
+        .layout(Size::new(400.0, 40.0));
+        let region = frame.regions.iter().find(|region| region.id == "s").expect("the slider").rect;
+        assert_eq!((region.width, region.height), (20.0, 20.0));
+    }
+
+    #[test]
+    fn the_defaults_draw_what_the_slider_always_drew() {
+        let palette = ComponentPalette::neutral_dark();
+        let plain = || Slider::new("s", 0.4, palette).width(WIDTH).steps(5).marks().mark_labels(["0", "1", "2", "3", "4"]);
+        let layout = |slider: Slider| {
+            UiTree::new(Element::row(vec![slider.render(), Element::spacer().flex(1.0)])).layout(Size::new(400.0, 80.0))
+        };
+        // Naming the defaults changes nothing: no second copy of a bar or thumb is drawn.
+        let named = plain().thumb(12.0, 12.0).bar(4.0, 4.0).mark_style(MarkStyle::default());
+        assert_eq!(layout(plain()).commands, layout(named).commands);
+    }
+
+    #[test]
+    fn mark_style_sets_the_marks_and_the_stops_names() {
+        let palette = ComponentPalette::neutral_dark();
+        let green = Color::rgb(59, 165, 93);
+        let style = MarkStyle {
+            dash: Size::new(2.0, 24.0),
+            label_size: 14.0,
+            label_weight_medium: true,
+            default_mark_ink: Some(green),
+        };
+        let slider = Slider::new("s", 0.5, palette)
+            .width(WIDTH)
+            .steps(5)
+            .marks()
+            .mark_labels(["0", "1", "2", "3", "4"])
+            .default_stop(2)
+            .mark_style(style);
+        let frame = UiTree::new(Element::row(vec![slider.render(), Element::spacer().flex(1.0)])).layout(Size::new(400.0, 80.0));
+        // Five marks 2 by 24, and the default stop's is the green one.
+        let marks: Vec<Color> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if rect.width == 2.0 && rect.height == 24.0 => Some(*color),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(marks.len(), 5);
+        assert_eq!(marks.iter().filter(|color| **color == green).count(), 1);
+        // Each stop's name is 14 in the medium weight; the default stop's is the ink.
+        let names: Vec<(f32, FontFamily)> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { font_size, font_family, .. } => Some((*font_size, *font_family)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(names.len(), 5);
+        assert!(names.iter().all(|name| *name == (14.0, FontFamily::SansMedium)), "{names:?}");
+        // The slider is as tall as its marks, so they are not cut short.
+        let region = frame.regions.iter().find(|region| region.id == "s").expect("the slider").rect;
+        assert_eq!(region.height, 24.0);
     }
 }

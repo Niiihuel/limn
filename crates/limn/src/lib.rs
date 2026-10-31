@@ -241,7 +241,7 @@ pub use sequence::{
     SequenceParticipant, SequenceParticipantLayout,
 };
 pub use skeleton::{Skeleton, SkeletonGroup};
-pub use slider::Slider;
+pub use slider::{MarkStyle, Slider};
 pub use spinner::Spinner;
 pub use status_bar::{StatusBar, StatusBarItem, StatusBarItemSizing};
 pub use chat_minimap::{ChatMinimap, ChatMinimapMark};

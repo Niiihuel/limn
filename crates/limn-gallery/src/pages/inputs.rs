@@ -1,8 +1,9 @@
 use super::{caption, row, section, Cx, Section};
 use crate::app::State;
 use limn::{
-    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
-    SearchField, Select, SelectVariant, SelectorSizing, Slider, Switch, SwitchVariant, TextArea, TextField, TextRole, UiAction,
+    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, MarkStyle, PopoverPlacement,
+    RadiusRole, SearchField, Select, SelectVariant, SelectorSizing, Size, Slider, Switch, SwitchVariant, TextArea, TextField,
+    TextRole, UiAction,
 };
 
 /// The search fields with a clear button, and the query each starts with.
@@ -446,6 +447,22 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(280.0)
                 .render(),
             caption(cx, ".marks(): a hairline at each stop, behind the thumb."),
+            Slider::new("input-slider-discord", fraction(cx, "input-slider-discord", 0.6), palette)
+                .thumb(16.0, 20.0)
+                .bar(4.0, 6.0)
+                .steps(5)
+                .marks()
+                .mark_style(MarkStyle {
+                    dash: Size::new(2.0, 24.0),
+                    label_size: 12.0,
+                    label_weight_medium: true,
+                    default_mark_ink: Some(cx.state.theme().accent),
+                })
+                .default_stop(2)
+                .accessibility_label("Opacity")
+                .width(280.0)
+                .render(),
+            caption(cx, ".thumb(16, 20), .bar(4, 6) and .mark_style(..): the thumb and the bar grow over the pointer; the default stop's mark is the accent."),
             Slider::new("input-slider-sizes", fraction(cx, "input-slider-sizes", 0.5), palette)
                 .steps(7)
                 .mark_labels(["12px", "14px", "15px", "16px", "18px", "20px", "24px"])
