@@ -1633,6 +1633,8 @@ pub struct TextField {
     monospace: bool,
     icon: Option<Icon>,
     accessibility_label: Option<String>,
+    outline: Option<(Color, Color)>,
+    radius: Option<f32>,
 }
 
 impl TextField {
@@ -1658,6 +1660,8 @@ impl TextField {
             monospace: false,
             icon: None,
             accessibility_label: None,
+            outline: None,
+            radius: None,
         }
     }
 
@@ -1716,6 +1720,23 @@ impl TextField {
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.height = Some(height);
+        }
+        self
+    }
+
+    /// The field's own outline: `border` at rest and `focus` while it has the
+    /// focus, each as wide as the palette's, in place of the palette's colors,
+    /// such as a settings page's hairline and its accent. A disabled field keeps `border`.
+    pub fn outline(mut self, border: Color, focus: Color) -> Self {
+        self.outline = Some((border, focus));
+        self
+    }
+
+    /// The corner radius in logical pixels, in place of the control's. A value
+    /// that is not finite is ignored and a negative one is zero.
+    pub fn radius(mut self, radius: f32) -> Self {
+        if radius.is_finite() {
+            self.radius = Some(radius.max(0.0));
         }
         self
     }
@@ -1780,11 +1801,12 @@ impl Component for TextField {
                 .gap(8.0),
                 None => text,
             };
+            let border = self.outline.map_or(self.palette.border, |(border, _)| border);
             return Element::panel(content)
                 .padding(8.0)
                 .background(self.palette.raised)
-                .border(self.palette.border, 1.0)
-                .radius(input_radius(self.size))
+                .border(border, 1.0)
+                .radius(self.radius.unwrap_or_else(|| input_radius(self.size)))
                 .size(self.width, Some(height))
                 .accessible(access);
         }
@@ -1796,9 +1818,15 @@ impl Component for TextField {
                 .leading_icon(icon)
                 .leading_icon_tint(self.palette.muted);
         }
-        let input = input_surface(input, self.palette, self.size, self.width)
+        let mut input = input_surface(input, self.palette, self.size, self.width)
             .size(self.width, Some(height))
             .font_family(family);
+        if let Some((border, focus)) = self.outline {
+            input = input.border(border, 1.0).focus_border(focus, 1.5);
+        }
+        if let Some(radius) = self.radius {
+            input = input.radius(radius);
+        }
         match self.accessibility_label {
             Some(name) => input.accessibility_label(name),
             None => input,
@@ -2013,9 +2041,11 @@ pub struct SearchField {
     palette: ComponentPalette,
     size: ControlSize,
     width: Option<f32>,
+    height: Option<f32>,
     state: ControlState,
     shortcut: Option<String>,
     clearable: bool,
+    persistent_placeholder: bool,
     accessibility_label: Option<String>,
 }
 
@@ -2039,9 +2069,11 @@ impl SearchField {
             palette,
             size: ControlSize::Spacious,
             width: None,
+            height: None,
             state: ControlState::Enabled,
             shortcut: None,
             clearable: false,
+            persistent_placeholder: false,
             accessibility_label: None,
         }
     }
@@ -2064,6 +2096,23 @@ impl SearchField {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
         }
+        self
+    }
+
+    /// A height of the host's own, for a field taller than a [`ControlSize`]'s,
+    /// such as a settings page's 40. The field is never shorter than its control
+    /// size; a value that is not finite is ignored.
+    pub fn height(mut self, height: f32) -> Self {
+        if height.is_finite() {
+            self.height = Some(height);
+        }
+        self
+    }
+
+    /// Keep the placeholder visible while the field is focused and empty, as
+    /// a settings page's search does, instead of hiding it at the first key.
+    pub fn persistent_placeholder(mut self, visible: bool) -> Self {
+        self.persistent_placeholder = visible;
         self
     }
 
@@ -2105,7 +2154,8 @@ impl Component for SearchField {
     fn render(self) -> Element {
         let clear =
             (self.clearable && !self.value.is_empty()).then(|| format!("{}:clear", self.id));
-        let height = self.size.height().max(28.0);
+        let least = self.size.height().max(28.0);
+        let height = self.height.map_or(least, |height| height.max(least));
         let radius = input_radius(self.size);
         let surface = self.palette.raised;
         if self.state == ControlState::Disabled {
@@ -2173,11 +2223,13 @@ impl Component for SearchField {
         let mut input = input_surface(
             Element::text_input(self.id, self.value, self.placeholder)
                 .leading_icon(Icon::Search)
-                .leading_icon_tint(self.palette.muted),
+                .leading_icon_tint(self.palette.muted)
+                .persistent_placeholder(self.persistent_placeholder),
             self.palette,
             self.size,
             self.width,
-        );
+        )
+        .size(self.width, Some(height));
         if let Some(shortcut) = self.shortcut {
             input = input
                 .input_shortcut(shortcut)
@@ -2252,6 +2304,10 @@ fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element
     .size(Some(CLEAR_SIDE), Some(CLEAR_SIDE))
 }
 
+/// How far a switch's thumb stands in from its track's edges, unless a host
+/// says otherwise: 3 pixels, so a size's thumb is 6 less than its track.
+const THUMB_INSET: f32 = 3.0;
+
 /// A caller-controlled switch with a single focusable target. The thumb is
 /// painted inside its track and moves only when the caller passes a new
 /// `checked` value after receiving `UiAction::Clicked`.
@@ -2265,6 +2321,8 @@ pub struct Switch {
     track: Option<(f32, f32)>,
     variant: SwitchVariant,
     ink: Option<Color>,
+    thumb_inset: f32,
+    off_track: Option<(Color, Color)>,
 }
 
 impl Switch {
@@ -2281,13 +2339,16 @@ impl Switch {
             track: None,
             variant: SwitchVariant::Default,
             ink: None,
+            thumb_inset: THUMB_INSET,
+            off_track: None,
         }
     }
 
     /// The track's width and height and the thumb's side: 28, 16 and 10
     /// pixels for `Dense`, 32, 18 and 12 for `Compact`, 36, 20 and 14 for
     /// `Regular`, which is the switch without a size, and 44, 24 and 18 for
-    /// `Spacious`. The thumb is always 3 pixels inside the track.
+    /// `Spacious`. The thumb is 3 pixels inside the track unless
+    /// [`thumb_inset`](Self::thumb_inset) says otherwise.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
         self.track = None;
@@ -2296,14 +2357,34 @@ impl Switch {
 
     /// A track of the host's own size, in logical pixels, in place of a
     /// [`ControlSize`]'s, such as a settings page's 50 by 26: the thumb is
-    /// as tall as the track less 6, 3 pixels inside it. The height is at
-    /// least 12 and the width leaves room for the thumb to travel, at least
-    /// twice the height less 6. Values that are not finite are ignored.
+    /// as tall as the track less twice its inset, 3 pixels from each edge
+    /// unless [`thumb_inset`](Self::thumb_inset) says otherwise. The height is
+    /// at least 12 and the width leaves room for the thumb to travel, at least
+    /// twice the height less twice the inset. Values that are not finite are ignored.
     pub fn track_size(mut self, width: f32, height: f32) -> Self {
         if width.is_finite() && height.is_finite() {
-            let height = height.max(12.0);
-            self.track = Some((width.max(height * 2.0 - 6.0), height));
+            self.track = Some((width, height.max(12.0)));
         }
+        self
+    }
+
+    /// How far the thumb stands in from the track's edges, in logical
+    /// pixels: 3 unless set, and a track of 24 with a thumb of 16 takes 4.
+    /// The thumb is never larger than its track; a value that is not finite is
+    /// ignored and a negative one is zero.
+    pub fn thumb_inset(mut self, inset: f32) -> Self {
+        if inset.is_finite() {
+            self.thumb_inset = inset.max(0.0);
+        }
+        self
+    }
+
+    /// The track while the switch is off, in `fill` with a 1 pixel `border`
+    /// around it, as Discord draws it: a translucent fill that shows what
+    /// lies under it. The thumb keeps its color. The track while it is on is
+    /// unchanged.
+    pub fn off_track(mut self, fill: Color, border: Color) -> Self {
+        self.off_track = Some((fill, border));
         self
     }
 
@@ -2348,14 +2429,18 @@ impl Switch {
 
 impl Component for Switch {
     fn render(self) -> Element {
-        const INSET: f32 = 3.0;
-        let (track_width, track_height, thumb) = match (self.track, self.size) {
-            (Some((width, height)), _) => (width, height, height - INSET * 2.0),
-            (None, ControlSize::Dense) => (28.0, 16.0, 10.0),
-            (None, ControlSize::Compact) => (32.0, 18.0, 12.0),
-            (None, ControlSize::Regular) => (36.0, 20.0, 14.0),
-            (None, ControlSize::Spacious) => (44.0, 24.0, 18.0),
+        let (track_width, track_height) = match (self.track, self.size) {
+            (Some((width, height)), _) => (width, height),
+            (None, ControlSize::Dense) => (28.0, 16.0),
+            (None, ControlSize::Compact) => (32.0, 18.0),
+            (None, ControlSize::Regular) => (36.0, 20.0),
+            (None, ControlSize::Spacious) => (44.0, 24.0),
         };
+        // At most half the track, so the thumb is never negative.
+        let inset = self.thumb_inset.min(track_height / 2.0);
+        let thumb = track_height - inset * 2.0;
+        // Room for the thumb to travel between its two slots, with a gap between them.
+        let track_width = track_width.max(thumb * 2.0 + inset * 2.0);
         let palette = self.palette;
         let (thumb_color, track_color) = match (self.variant, self.checked) {
             (SwitchVariant::Default, true) => (palette.surface, self.ink.unwrap_or(palette.text)),
@@ -2378,7 +2463,7 @@ impl Component for Switch {
         let contents = Element::tab_strip(
             vec![
                 slot("off"),
-                Element::spacer().size(Some(track_width - thumb * 2.0 - INSET * 2.0), Some(thumb)),
+                Element::spacer().size(Some(track_width - thumb * 2.0 - inset * 2.0), Some(thumb)),
                 slot("on"),
             ],
             Vec::new(),
@@ -2390,6 +2475,11 @@ impl Component for Switch {
             thumb / 2.0,
             crate::tokens().motion.move_ms,
         );
+        // Off, the host's own track when it gives one, with its border.
+        let (track_color, border) = match (self.off_track, self.checked) {
+            (Some((fill, border)), false) => (fill, Some(border)),
+            _ => (track_color, None),
+        };
         let enabled = self.state == ControlState::Enabled;
         // Drawn disabled it is passive, and known by the ID it would have had.
         let mut access = Access::new(Role::Switch)
@@ -2407,12 +2497,16 @@ impl Component for Switch {
         } else {
             Element::panel(contents)
         };
-        track
+        let track = track
             .background(track_color)
-            .padding(INSET)
+            .padding(inset)
             .radius(track_height / 2.0)
             .size(Some(track_width), Some(track_height))
-            .accessible(access)
+            .accessible(access);
+        match border {
+            Some(border) => track.border(border, 1.0),
+            None => track,
+        }
     }
 }
 
@@ -3567,6 +3661,32 @@ mod tests {
             field.height
         );
         assert!(text("Destructive").is_some(), "disabled label was truncated");
+    }
+
+    #[test]
+    fn search_field_height_and_persistent_placeholder_are_opt_in() {
+        let palette = ComponentPalette::neutral_dark();
+        let search = || SearchField::new("search", "", "Buscar", palette).width(300.0);
+        let height = |field: SearchField| {
+            // A column keeps the field at its own height; a root would be the whole window.
+            let frame = UiTree::new(Element::column(vec![field.render()])).layout(Size::new(400.0, 200.0));
+            frame.regions.iter().find(|region| region.id == "search").expect("field").rect.height
+        };
+        assert_eq!(height(search()), 36.0, "Spacious unless the host says otherwise");
+        assert_eq!(height(search().height(40.0)), 40.0);
+        assert_eq!(height(search().height(30.0)), 36.0, "never shorter than its control size");
+        assert_eq!(height(search().height(f32::NAN)), 36.0, "a height that is not finite is ignored");
+        // Focused and empty, the placeholder goes unless it is kept.
+        let placeholder_while_focused = |field: SearchField| {
+            let mut tree = UiTree::new(field.render());
+            tree.layout(Size::new(400.0, 200.0));
+            assert!(tree.focus("search"));
+            tree.layout(Size::new(400.0, 200.0)).commands.iter().any(
+                |command| matches!(command, DrawCommand::Text { text, .. } if text == "Buscar"),
+            )
+        };
+        assert!(!placeholder_while_focused(search()));
+        assert!(placeholder_while_focused(search().persistent_placeholder(true)));
     }
 
     #[test]
@@ -5873,6 +5993,48 @@ mod tests {
     }
 
     #[test]
+    fn a_switch_thumb_inset_and_off_track_are_opt_in() {
+        let palette = ComponentPalette::neutral_dark();
+        // Discord's: a 40 by 24 track with a 16-pixel thumb 4 pixels in from each edge.
+        let discord = |checked| Switch::new("s", checked, palette).track_size(40.0, 24.0).thumb_inset(4.0);
+        let ((track, _), (thumb, _)) = switch_paint(discord(false));
+        assert_eq!((thumb.width, thumb.height), (16.0, 16.0));
+        assert_eq!((thumb.x - track.x, thumb.y - track.y), (4.0, 4.0));
+        let ((track, _), (thumb, _)) = switch_paint(discord(true));
+        assert_eq!(thumb.x - track.x, 40.0 - 4.0 - 16.0, "on, the thumb is at the far inset");
+        // A value that is not finite changes nothing.
+        let ((_, _), (thumb, _)) = switch_paint(Switch::new("s", false, palette).size(ControlSize::Dense).thumb_inset(f32::NAN));
+        assert_eq!((thumb.width, thumb.x), (10.0, 3.0));
+        // An inset past half the track leaves no negative thumb.
+        let frame = UiTree::new(Element::row(vec![Switch::new("s", false, palette).size(ControlSize::Dense).thumb_inset(20.0).render()]))
+            .layout(Size::new(200.0, 40.0));
+        for command in &frame.commands {
+            if let DrawCommand::FillRect { rect, .. } = command {
+                assert!(rect.width >= 0.0 && rect.height >= 0.0, "{rect:?}");
+            }
+        }
+        // Off, the track is the host's fill with a 1-pixel border; on, the palette's.
+        let fill = Color::rgba(255, 255, 255, 40);
+        let border = Color::rgb(90, 90, 90);
+        let ((track, color), (_, thumb_color)) = switch_paint(Switch::new("s", false, palette).off_track(fill, border));
+        assert_eq!((color, thumb_color), (fill, palette.text));
+        let mut tree = UiTree::new(Element::row(vec![Switch::new("s", false, palette).off_track(fill, border).render()]));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(200.0, 40.0));
+        let outlines: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::StrokeRect { rect, color, width, .. } if *color == border => Some((*rect, *width)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(outlines, vec![(track, 1.0)]);
+        let ((_, on), _) = switch_paint(Switch::new("s", true, palette).off_track(fill, border));
+        assert_eq!(on, palette.text);
+    }
+
+    #[test]
     fn a_track_of_its_own_size_keeps_the_thumb_three_pixels_inside_it() {
         let palette = ComponentPalette::neutral_dark();
         for (asked, (width, height)) in [((50.0, 26.0), (50.0, 26.0)), ((10.0, 26.0), (46.0, 26.0)), ((30.0, 4.0), (30.0, 12.0))] {
@@ -6470,6 +6632,36 @@ mod tests {
                 assert_eq!(style(bad).height, plain.height, "{bad}");
             }
         }
+    }
+
+    #[test]
+    fn a_text_field_takes_the_hosts_outline_and_radius_and_the_palettes_otherwise() {
+        let palette = ComponentPalette::neutral_dark();
+        let (border, focus) = (Color::rgb(60, 60, 60), Color::rgb(88, 101, 242));
+        // Every outline the field draws, as its color, width and radius.
+        let strokes = |field: TextField, focused: bool| {
+            let mut tree = UiTree::new(Element::column(vec![field.width(200.0).render()]));
+            tree.layout(Size::new(300.0, 120.0));
+            if focused {
+                assert!(tree.focus("field"));
+            }
+            tree.layout(Size::new(300.0, 120.0)).commands.iter().filter_map(|command| match command {
+                DrawCommand::StrokeRect { color, width, radius, .. } => Some((*color, *width, *radius)),
+                _ => None,
+            }).collect::<Vec<_>>()
+        };
+        let field = || TextField::new("field", "", "Name", palette);
+        let rest = (palette.border, 1.0, control_radius());
+        assert_eq!(strokes(field(), false), [rest], "as the palette draws it");
+        let set = || field().outline(border, focus).radius(8.0);
+        assert_eq!(strokes(set(), false), [(border, 1.0, 8.0)]);
+        let focused = strokes(set(), true);
+        assert!(focused.contains(&(focus, 1.5, 8.0)) && !focused.contains(&(border, 1.0, 8.0)), "{focused:?}");
+        // Disabled, it keeps the host's border and radius, and nothing focuses.
+        assert_eq!(strokes(set().disabled(), false), [(border, 1.0, 8.0)]);
+        // A radius that is not finite is ignored; a negative one is zero.
+        assert_eq!(strokes(field().radius(f32::NAN), false), [rest]);
+        assert_eq!(strokes(field().radius(-3.0), false), [(palette.border, 1.0, 0.0)]);
     }
 
     #[test]

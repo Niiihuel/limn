@@ -109,6 +109,25 @@ These are a [Checkbox](checkbox.md)'s, so the two line up in one form. A
 description is one pixel smaller than its label. An option is as high as its
 text, not as a control of that size.
 
+## Metrics
+
+```rust
+RadioGroup::new("plan", options, Some(&state.plan), palette).metrics(RadioMetrics {
+    circle: 20.0,
+    option_gap: 16.0,
+    description_size: 14.0,
+    description_gap: 4.0,
+    label_size: 16.0,
+})
+```
+
+`metrics` takes the measures of a plain group in place of its control size's:
+the circle, the label and description text, the space between options stacked
+one under the other, and the space between a label and its description. The
+values above are Discord's settings list. Side by side, options keep their 16
+pixels, and a card keeps its control size's measures. A number that is not
+finite counts as zero.
+
 ## Narrow widths
 
 A label or a description that does not fit wraps inside the width the group is

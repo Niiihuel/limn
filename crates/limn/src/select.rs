@@ -45,6 +45,8 @@ pub struct Select {
     max_visible_items: Option<usize>,
     font_size: Option<f32>,
     ink: Option<Color>,
+    outline: Option<(Color, Color)>,
+    radius: Option<f32>,
 }
 
 impl Select {
@@ -79,6 +81,8 @@ impl Select {
             max_visible_items: None,
             font_size: None,
             ink: None,
+            outline: None,
+            radius: None,
         }
     }
 
@@ -189,6 +193,25 @@ impl Select {
     /// either way.
     pub fn ink(mut self, color: Color) -> Self {
         self.ink = Some(color);
+        self
+    }
+
+    /// A field's outline, as [`TextField::outline`](crate::TextField::outline)
+    /// takes it: `border` at rest and `focus` while the trigger has the focus
+    /// or its list is open, in place of the palette's. `ink` still wins while
+    /// the list is open. The button variant has no field and ignores it.
+    pub fn outline(mut self, border: Color, focus: Color) -> Self {
+        self.outline = Some((border, focus));
+        self
+    }
+
+    /// A field's corner radius in logical pixels, in place of the control's;
+    /// the button variant ignores it. A value that is not finite is ignored
+    /// and a negative one is zero.
+    pub fn radius(mut self, radius: f32) -> Self {
+        if radius.is_finite() {
+            self.radius = Some(radius.max(0.0));
+        }
         self
     }
 
@@ -322,8 +345,8 @@ impl Select {
                 Element::spacer().size(Some(8.0), None),
             ]))
             .background(palette.raised)
-            .border(palette.border, 1.0)
-            .radius(control_radius())
+            .border(self.outline.map_or(palette.border, |(border, _)| border), 1.0)
+            .radius(self.radius.unwrap_or_else(control_radius))
             .size(Some(width), Some(height))
             .accessible(said);
         }
@@ -341,9 +364,18 @@ impl Select {
         // A focused field's border, not a button's ring, under the keyboard.
         .focus_ring(false)
         .size(Some(width), Some(height));
+        let trigger = match self.outline {
+            Some((border, focus)) => trigger.border(border, 1.0).focus_border(focus, 1.5),
+            None => trigger,
+        };
+        let trigger = match self.radius {
+            Some(radius) => trigger.radius(radius),
+            None => trigger,
+        };
+        let focus = self.outline.map_or(lighter(palette.border, 70), |(_, focus)| focus);
         match (self.open, self.ink) {
             (true, Some(ink)) => trigger.border(ink, 2.0),
-            (true, None) => trigger.border(lighter(palette.border, 70), 1.5),
+            (true, None) => trigger.border(focus, 1.5),
             (false, _) => trigger,
         }
     }
@@ -678,6 +710,43 @@ mod tests {
                 "open: {open}"
             );
         }
+    }
+
+    #[test]
+    fn a_field_select_takes_the_hosts_outline_and_radius_and_keeps_the_ink_while_open() {
+        let palette = ComponentPalette::neutral_dark();
+        let (border, focus) = (Color::rgb(60, 60, 60), Color::rgb(88, 101, 242));
+        // The trigger's own outlines, as their color, width and radius.
+        let strokes = |select: Select, focused: bool| {
+            let mut tree = tree(select);
+            tree.layout(VIEWPORT);
+            if focused {
+                assert!(tree.focus("toggle"));
+            }
+            let frame = tree.layout(VIEWPORT);
+            // Disabled, the trigger has no region, and its outline is the only one drawn.
+            let trigger = rect(&frame, "toggle");
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    crate::DrawCommand::StrokeRect { rect, color, width, radius }
+                        if trigger.is_none_or(|trigger| *rect == trigger) =>
+                    {
+                        Some((*color, *width, *radius))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let set = |open: bool| field(open).outline(border, focus).radius(8.0);
+        assert_eq!(strokes(set(false), false), [(border, 1.0, 8.0)]);
+        assert_eq!(strokes(set(false), true), [(focus, 1.5, 8.0)], "focused: the focus border, once");
+        assert_eq!(strokes(set(true), false), [(focus, 1.5, 8.0)], "open: the focus color");
+        assert_eq!(strokes(set(true).ink(palette.text), false), [(palette.text, 2.0, 8.0)], "open: the ink wins");
+        assert_eq!(strokes(set(false).disabled(), false), [(border, 1.0, 8.0)]);
+        // A radius that is not finite is the control's.
+        assert_eq!(strokes(field(false).radius(f32::NAN), false), [(palette.border, 1.0, control_radius())]);
     }
 
     #[test]

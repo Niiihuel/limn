@@ -86,6 +86,24 @@ than its control size. A width or height that is not finite is ignored.
 `persistent_placeholder(true)` keeps the placeholder visible while the field
 is focused and empty.
 
+## Outline and radius
+
+```rust
+TextField::new("server", &state.server, "e.g. filesystem", palette)
+    .outline(theme.border, theme.accent)
+    .radius(8.0)
+    .height(40.0)
+    .render()
+```
+
+`outline(border, focus)` draws the border in `border` at rest and in `focus`
+while the field has the focus, in place of the palette's colors. Both are as
+wide as the palette's, 1 and 1.5 pixels. A disabled field keeps `border`.
+`radius(px)` rounds the corners by that many logical pixels in place of the
+control's; a value that is not finite is ignored and a negative one is zero.
+A settings page draws its fields this way, with its own outline and rounder
+corners.
+
 ## Disabled
 
 ```rust

@@ -3,7 +3,7 @@
 
 use limn::{
     ActionRow, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard, Collapsible, Component, ComponentPalette,
-    Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
+    Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioMetrics, RadioOption, Toggle, ToggleGroup, ToggleItem,
     Toolbar, ToolbarItem, ColorPicker, Hsv, SwatchPicker,
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
     ContextMenuMetrics, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
@@ -155,6 +155,37 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         );
         lays_out_with_real_numbers("Button::width", Button::new("b", "B", palette).variant(ButtonVariant::Outline).width(bad).render());
         lays_out_with_real_numbers("Slider::width", Slider::new("s", 0.5, palette).width(bad).render());
+        lays_out_with_real_numbers(
+            "Slider::thumb and bar",
+            Slider::new("s", 0.5, palette).steps(5).marks().thumb(bad, bad).bar(bad, bad).render(),
+        );
+        lays_out_with_real_numbers(
+            "Slider::mark_style",
+            Slider::new("s", 0.5, palette)
+                .steps(5)
+                .mark_labels(["a", "b", "c", "d", "e"])
+                .default_stop(1)
+                .mark_style(limn::MarkStyle {
+                    dash: limn::Size::new(bad, bad),
+                    label_size: bad,
+                    label_weight_medium: true,
+                    default_mark_ink: None,
+                })
+                .render(),
+        );
+        lays_out_with_real_numbers("SearchField::height", SearchField::new("s", "", "S", palette).height(bad).render());
+        lays_out_with_real_numbers("TextField::radius", TextField::new("s", "", "S", palette).radius(bad).render());
+        lays_out_with_real_numbers(
+            "Select::radius",
+            Select::new("s", "S", Vec::new(), false, "s:dismiss", palette).variant(limn::SelectVariant::Field).radius(bad).render(),
+        );
+        lays_out_with_real_numbers("Switch::track_size", Switch::new("s", true, palette).track_size(bad, bad).render());
+        lays_out_with_real_numbers("Switch::thumb_inset", Switch::new("s", true, palette).thumb_inset(bad).render());
+        let radio = RadioMetrics { circle: bad, option_gap: bad, description_size: bad, description_gap: bad, label_size: bad };
+        lays_out_with_real_numbers(
+            "RadioGroup::metrics",
+            RadioGroup::new("r", vec![RadioOption::new("a", "A").description("d")], Some("a"), palette).metrics(radio).render(),
+        );
         lays_out_with_real_numbers(
             "Markdown::font_size",
             Markdown::new("# a\n\n- [b](https://example.test/b)", palette)

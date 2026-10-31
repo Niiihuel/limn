@@ -66,6 +66,38 @@ Without `steps` of 2 or more there are no stops, so neither marks nor labels.
 Past 100 stops there are no marks: that close together they would only gray
 the track. The labels still show.
 
+## Thumb, bar and mark style
+
+```rust
+Slider::new("opacity", state.opacity, palette)
+    .thumb(16.0, 20.0)
+    .bar(4.0, 6.0)
+    .steps(5)
+    .marks()
+    .mark_style(MarkStyle {
+        dash: Size::new(2.0, 24.0),
+        label_size: 12.0,
+        label_weight_medium: true,
+        default_mark_ink: Some(theme.success),
+    })
+    .default_stop(2)
+    .render()
+```
+
+`thumb(idle, active)` sets the thumb's diameter at rest and while the pointer
+is over the slider. `bar(idle, active)` sets the track's thickness the same
+way. Both default to 12 and 4, so the two states are alike. A value that is
+not finite is ignored and a negative one is zero. The slider is as tall as
+its largest thumb.
+
+`mark_style(MarkStyle { .. })` sets how the marks and the stops' names look:
+`dash` is a mark's width and height, 1 by 12 unless set; `label_size` is the
+text size, 12; `label_weight_medium` draws the labels in the sans family's
+medium weight; `default_mark_ink` colors the mark at the stop that
+`default_stop` names, in place of the border color. `MarkStyle::default()` is
+the look a slider has without it. A mark taller than the thumb makes the
+slider taller, so the marks are not cut short.
+
 ## Ink
 
 ```rust
@@ -129,6 +161,11 @@ A slider with labels says the label of the stop its value is on, or the
 nearest one during a drag, as its value in words: "16px".
 
 ## Limits
+
+The thumb and the bar take their active size only while the pointer is over
+the slider. A keyboard focus does not enlarge them, and a drag that leaves the
+slider brings them back to rest: the element tree reveals a part of a control
+on its pointer region alone.
 
 Labels do not move apart or wrap when they are too wide for their stops, and
 the track stays where it is. A label centers on its stop only while it is no

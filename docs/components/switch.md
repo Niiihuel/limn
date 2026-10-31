@@ -40,7 +40,7 @@ Switch::new("notifications", state.notifications, palette).size(ControlSize::Spa
 | `Regular`, the default | 36 × 20 | 14 |
 | `Spacious` | 44 × 24 | 18 |
 
-The thumb is always 3 pixels inside the track.
+The thumb is 3 pixels inside the track, or as `thumb_inset` says below.
 
 ```rust
 Switch::new("notifications", state.notifications, palette).track_size(50.0, 26.0)
@@ -48,9 +48,29 @@ Switch::new("notifications", state.notifications, palette).track_size(50.0, 26.0
 
 `track_size(width, height)` takes a track of the host's own size in place of
 a control size's, such as a settings page's 50 × 26: the thumb is the height
-less 6. The height is at least 12, and the width at least twice the height
-less 6, so the thumb has room to travel. Whichever of `size` and
-`track_size` comes last decides.
+less twice its inset, 6 by default. The height is at least 12, and the width
+at least twice the height less twice the inset, so the thumb has room to
+travel. Whichever of `size` and `track_size` comes last decides.
+
+## Thumb inset and off track
+
+```rust
+Switch::new("notifications", state.notifications, palette)
+    .track_size(40.0, 24.0)
+    .thumb_inset(4.0)
+    .off_track(Color::rgba(255, 255, 255, 40), palette.border)
+```
+
+`thumb_inset(px)` sets how far the thumb stands in from the track's edges:
+3 pixels unless set. A 24-pixel track with a 16-pixel thumb takes 4. The
+inset is at most half the track's height, so the thumb is never negative,
+and a value that is not finite is ignored.
+
+`off_track(fill, border)` paints the track while the switch is off in `fill`,
+with a 1-pixel `border` around it. `fill` may be translucent, as Discord's
+off track is, so what lies under it shows through. It replaces the variant's
+off track in either variant; the thumb keeps its color, and the track while
+the switch is on is unchanged.
 
 ## Variant
 
