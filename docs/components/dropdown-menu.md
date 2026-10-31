@@ -132,7 +132,9 @@ DropdownMenuItem::new("settings", "Settings")
 ```
 
 The second menu opens beside its row while the pointer is over the row or the
-submenu, or with the keyboard. A submenu can hold submenus of its own: each
+submenu, or with the keyboard. It stands 3 px clear of its parent menu's edge
+on whichever side it opens, and, with room in the window, its first row lines
+up with the row that opened it. A submenu can hold submenus of its own: each
 stays open while the pointer or the focus is in one nested in it. One the
 pointer opened closes when the pointer moves to another row of its parent;
 one the keyboard opened closes when the pointer moves to a row that opens a
