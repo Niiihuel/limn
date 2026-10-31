@@ -2276,6 +2276,10 @@ fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element
     .size(Some(CLEAR_SIDE), Some(CLEAR_SIDE))
 }
 
+/// How far a switch's thumb stands in from its track's edges, unless a host
+/// says otherwise: 3 pixels, so a size's thumb is 6 less than its track.
+const THUMB_INSET: f32 = 3.0;
+
 /// A caller-controlled switch with a single focusable target. The thumb is
 /// painted inside its track and moves only when the caller passes a new
 /// `checked` value after receiving `UiAction::Clicked`.
@@ -2289,6 +2293,8 @@ pub struct Switch {
     track: Option<(f32, f32)>,
     variant: SwitchVariant,
     ink: Option<Color>,
+    thumb_inset: f32,
+    off_track: Option<(Color, Color)>,
 }
 
 impl Switch {
@@ -2305,13 +2311,16 @@ impl Switch {
             track: None,
             variant: SwitchVariant::Default,
             ink: None,
+            thumb_inset: THUMB_INSET,
+            off_track: None,
         }
     }
 
     /// The track's width and height and the thumb's side: 28, 16 and 10
     /// pixels for `Dense`, 32, 18 and 12 for `Compact`, 36, 20 and 14 for
     /// `Regular`, which is the switch without a size, and 44, 24 and 18 for
-    /// `Spacious`. The thumb is always 3 pixels inside the track.
+    /// `Spacious`. The thumb is 3 pixels inside the track unless
+    /// [`thumb_inset`](Self::thumb_inset) says otherwise.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
         self.track = None;
@@ -2320,14 +2329,34 @@ impl Switch {
 
     /// A track of the host's own size, in logical pixels, in place of a
     /// [`ControlSize`]'s, such as a settings page's 50 by 26: the thumb is
-    /// as tall as the track less 6, 3 pixels inside it. The height is at
-    /// least 12 and the width leaves room for the thumb to travel, at least
-    /// twice the height less 6. Values that are not finite are ignored.
+    /// as tall as the track less twice its inset, 3 pixels from each edge
+    /// unless [`thumb_inset`](Self::thumb_inset) says otherwise. The height is
+    /// at least 12 and the width leaves room for the thumb to travel, at least
+    /// twice the height less twice the inset. Values that are not finite are ignored.
     pub fn track_size(mut self, width: f32, height: f32) -> Self {
         if width.is_finite() && height.is_finite() {
-            let height = height.max(12.0);
-            self.track = Some((width.max(height * 2.0 - 6.0), height));
+            self.track = Some((width, height.max(12.0)));
         }
+        self
+    }
+
+    /// How far the thumb stands in from the track's edges, in logical
+    /// pixels: 3 unless set, and a track of 24 with a thumb of 16 takes 4.
+    /// The thumb is never larger than its track; a value that is not finite is
+    /// ignored and a negative one is zero.
+    pub fn thumb_inset(mut self, inset: f32) -> Self {
+        if inset.is_finite() {
+            self.thumb_inset = inset.max(0.0);
+        }
+        self
+    }
+
+    /// The track while the switch is off, in `fill` with a 1 pixel `border`
+    /// around it, as Discord draws it: a translucent fill that shows what
+    /// lies under it. The thumb keeps its color. The track while it is on is
+    /// unchanged.
+    pub fn off_track(mut self, fill: Color, border: Color) -> Self {
+        self.off_track = Some((fill, border));
         self
     }
 
@@ -2372,14 +2401,18 @@ impl Switch {
 
 impl Component for Switch {
     fn render(self) -> Element {
-        const INSET: f32 = 3.0;
-        let (track_width, track_height, thumb) = match (self.track, self.size) {
-            (Some((width, height)), _) => (width, height, height - INSET * 2.0),
-            (None, ControlSize::Dense) => (28.0, 16.0, 10.0),
-            (None, ControlSize::Compact) => (32.0, 18.0, 12.0),
-            (None, ControlSize::Regular) => (36.0, 20.0, 14.0),
-            (None, ControlSize::Spacious) => (44.0, 24.0, 18.0),
+        let (track_width, track_height) = match (self.track, self.size) {
+            (Some((width, height)), _) => (width, height),
+            (None, ControlSize::Dense) => (28.0, 16.0),
+            (None, ControlSize::Compact) => (32.0, 18.0),
+            (None, ControlSize::Regular) => (36.0, 20.0),
+            (None, ControlSize::Spacious) => (44.0, 24.0),
         };
+        // At most half the track, so the thumb is never negative.
+        let inset = self.thumb_inset.min(track_height / 2.0);
+        let thumb = track_height - inset * 2.0;
+        // Room for the thumb to travel between its two slots, with a gap between them.
+        let track_width = track_width.max(thumb * 2.0 + inset * 2.0);
         let palette = self.palette;
         let (thumb_color, track_color) = match (self.variant, self.checked) {
             (SwitchVariant::Default, true) => (palette.surface, self.ink.unwrap_or(palette.text)),
@@ -2402,7 +2435,7 @@ impl Component for Switch {
         let contents = Element::tab_strip(
             vec![
                 slot("off"),
-                Element::spacer().size(Some(track_width - thumb * 2.0 - INSET * 2.0), Some(thumb)),
+                Element::spacer().size(Some(track_width - thumb * 2.0 - inset * 2.0), Some(thumb)),
                 slot("on"),
             ],
             Vec::new(),
@@ -2414,6 +2447,11 @@ impl Component for Switch {
             thumb / 2.0,
             crate::tokens().motion.move_ms,
         );
+        // Off, the host's own track when it gives one, with its border.
+        let (track_color, border) = match (self.off_track, self.checked) {
+            (Some((fill, border)), false) => (fill, Some(border)),
+            _ => (track_color, None),
+        };
         let enabled = self.state == ControlState::Enabled;
         // Drawn disabled it is passive, and known by the ID it would have had.
         let mut access = Access::new(Role::Switch)
@@ -2431,12 +2469,16 @@ impl Component for Switch {
         } else {
             Element::panel(contents)
         };
-        track
+        let track = track
             .background(track_color)
-            .padding(INSET)
+            .padding(inset)
             .radius(track_height / 2.0)
             .size(Some(track_width), Some(track_height))
-            .accessible(access)
+            .accessible(access);
+        match border {
+            Some(border) => track.border(border, 1.0),
+            None => track,
+        }
     }
 }
 
@@ -5920,6 +5962,48 @@ mod tests {
         }
         // Without a size it is the regular one.
         assert_eq!(switch_paint(Switch::new("s", true, palette)).0 .0.width, 36.0);
+    }
+
+    #[test]
+    fn a_switch_thumb_inset_and_off_track_are_opt_in() {
+        let palette = ComponentPalette::neutral_dark();
+        // Discord's: a 40 by 24 track with a 16-pixel thumb 4 pixels in from each edge.
+        let discord = |checked| Switch::new("s", checked, palette).track_size(40.0, 24.0).thumb_inset(4.0);
+        let ((track, _), (thumb, _)) = switch_paint(discord(false));
+        assert_eq!((thumb.width, thumb.height), (16.0, 16.0));
+        assert_eq!((thumb.x - track.x, thumb.y - track.y), (4.0, 4.0));
+        let ((track, _), (thumb, _)) = switch_paint(discord(true));
+        assert_eq!(thumb.x - track.x, 40.0 - 4.0 - 16.0, "on, the thumb is at the far inset");
+        // A value that is not finite changes nothing.
+        let ((_, _), (thumb, _)) = switch_paint(Switch::new("s", false, palette).size(ControlSize::Dense).thumb_inset(f32::NAN));
+        assert_eq!((thumb.width, thumb.x), (10.0, 3.0));
+        // An inset past half the track leaves no negative thumb.
+        let frame = UiTree::new(Element::row(vec![Switch::new("s", false, palette).size(ControlSize::Dense).thumb_inset(20.0).render()]))
+            .layout(Size::new(200.0, 40.0));
+        for command in &frame.commands {
+            if let DrawCommand::FillRect { rect, .. } = command {
+                assert!(rect.width >= 0.0 && rect.height >= 0.0, "{rect:?}");
+            }
+        }
+        // Off, the track is the host's fill with a 1-pixel border; on, the palette's.
+        let fill = Color::rgba(255, 255, 255, 40);
+        let border = Color::rgb(90, 90, 90);
+        let ((track, color), (_, thumb_color)) = switch_paint(Switch::new("s", false, palette).off_track(fill, border));
+        assert_eq!((color, thumb_color), (fill, palette.text));
+        let mut tree = UiTree::new(Element::row(vec![Switch::new("s", false, palette).off_track(fill, border).render()]));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(200.0, 40.0));
+        let outlines: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::StrokeRect { rect, color, width, .. } if *color == border => Some((*rect, *width)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(outlines, vec![(track, 1.0)]);
+        let ((_, on), _) = switch_paint(Switch::new("s", true, palette).off_track(fill, border));
+        assert_eq!(on, palette.text);
     }
 
     #[test]

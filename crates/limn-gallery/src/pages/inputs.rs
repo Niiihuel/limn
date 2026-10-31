@@ -405,8 +405,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .track_size(50.0, 26.0)
                     .accessibility_label("Streamer mode")
                     .render(),
+                Switch::new("input-switch-inset", state.flag("input-switch-inset"), palette)
+                    .track_size(40.0, 24.0)
+                    .thumb_inset(4.0)
+                    .off_track(Color::rgba(255, 255, 255, 40), palette.border)
+                    .accessibility_label("Compact layout")
+                    .render(),
             ]),
-            caption(cx, ".track_size(50.0, 26.0): a track of the host's own size, the thumb 3 px inside it."),
+            caption(cx, ".track_size(50.0, 26.0): a track of the host's own size, the thumb 3 px inside it. The last one has .thumb_inset(4.0) and a translucent .off_track."),
         ]),
         section(cx, "Slider", vec![
             Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette)
