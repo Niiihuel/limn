@@ -2013,9 +2013,11 @@ pub struct SearchField {
     palette: ComponentPalette,
     size: ControlSize,
     width: Option<f32>,
+    height: Option<f32>,
     state: ControlState,
     shortcut: Option<String>,
     clearable: bool,
+    persistent_placeholder: bool,
     accessibility_label: Option<String>,
 }
 
@@ -2039,9 +2041,11 @@ impl SearchField {
             palette,
             size: ControlSize::Spacious,
             width: None,
+            height: None,
             state: ControlState::Enabled,
             shortcut: None,
             clearable: false,
+            persistent_placeholder: false,
             accessibility_label: None,
         }
     }
@@ -2064,6 +2068,23 @@ impl SearchField {
         if width.is_finite() {
             self.width = Some(width.max(0.0));
         }
+        self
+    }
+
+    /// A height of the host's own, for a field taller than a [`ControlSize`]'s,
+    /// such as a settings page's 40. The field is never shorter than its control
+    /// size; a value that is not finite is ignored.
+    pub fn height(mut self, height: f32) -> Self {
+        if height.is_finite() {
+            self.height = Some(height);
+        }
+        self
+    }
+
+    /// Keep the placeholder visible while the field is focused and empty, as
+    /// a settings page's search does, instead of hiding it at the first key.
+    pub fn persistent_placeholder(mut self, visible: bool) -> Self {
+        self.persistent_placeholder = visible;
         self
     }
 
@@ -2105,7 +2126,8 @@ impl Component for SearchField {
     fn render(self) -> Element {
         let clear =
             (self.clearable && !self.value.is_empty()).then(|| format!("{}:clear", self.id));
-        let height = self.size.height().max(28.0);
+        let least = self.size.height().max(28.0);
+        let height = self.height.map_or(least, |height| height.max(least));
         let radius = input_radius(self.size);
         let surface = self.palette.raised;
         if self.state == ControlState::Disabled {
@@ -2173,11 +2195,13 @@ impl Component for SearchField {
         let mut input = input_surface(
             Element::text_input(self.id, self.value, self.placeholder)
                 .leading_icon(Icon::Search)
-                .leading_icon_tint(self.palette.muted),
+                .leading_icon_tint(self.palette.muted)
+                .persistent_placeholder(self.persistent_placeholder),
             self.palette,
             self.size,
             self.width,
-        );
+        )
+        .size(self.width, Some(height));
         if let Some(shortcut) = self.shortcut {
             input = input
                 .input_shortcut(shortcut)
@@ -3567,6 +3591,32 @@ mod tests {
             field.height
         );
         assert!(text("Destructive").is_some(), "disabled label was truncated");
+    }
+
+    #[test]
+    fn search_field_height_and_persistent_placeholder_are_opt_in() {
+        let palette = ComponentPalette::neutral_dark();
+        let search = || SearchField::new("search", "", "Buscar", palette).width(300.0);
+        let height = |field: SearchField| {
+            // A column keeps the field at its own height; a root would be the whole window.
+            let frame = UiTree::new(Element::column(vec![field.render()])).layout(Size::new(400.0, 200.0));
+            frame.regions.iter().find(|region| region.id == "search").expect("field").rect.height
+        };
+        assert_eq!(height(search()), 36.0, "Spacious unless the host says otherwise");
+        assert_eq!(height(search().height(40.0)), 40.0);
+        assert_eq!(height(search().height(30.0)), 36.0, "never shorter than its control size");
+        assert_eq!(height(search().height(f32::NAN)), 36.0, "a height that is not finite is ignored");
+        // Focused and empty, the placeholder goes unless it is kept.
+        let placeholder_while_focused = |field: SearchField| {
+            let mut tree = UiTree::new(field.render());
+            tree.layout(Size::new(400.0, 200.0));
+            assert!(tree.focus("search"));
+            tree.layout(Size::new(400.0, 200.0)).commands.iter().any(
+                |command| matches!(command, DrawCommand::Text { text, .. } if text == "Buscar"),
+            )
+        };
+        assert!(!placeholder_while_focused(search()));
+        assert!(placeholder_while_focused(search().persistent_placeholder(true)));
     }
 
     #[test]

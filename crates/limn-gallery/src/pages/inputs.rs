@@ -306,6 +306,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ])
             .gap(8.0),
             caption(cx, "With a query, and disabled: the button stays in its place and cannot be used."),
+            SearchField::new("input-search-tall", "", "Search", palette)
+                .height(40.0)
+                .persistent_placeholder(true)
+                .width(width)
+                .render(),
+            caption(cx, ".height(40.0) and .persistent_placeholder(true), as a settings page's search: the placeholder stays while focused."),
         ]),
         section(cx, "Text area", vec![
             TextArea::new("input-notes", state.text("input-notes"), "Notes", palette)

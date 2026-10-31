@@ -79,6 +79,21 @@ only while the field is empty, so the two never meet.
 `size` takes a `ControlSize`; the default is `Spacious`. `width` sets the
 width, and a value that is not finite is ignored.
 
+## Height and placeholder
+
+```rust
+SearchField::new("search", &state.query, "Search", palette)
+    .height(40.0)
+    .persistent_placeholder(true)
+    .render()
+```
+
+`height` sets a height in logical pixels for a field taller than its
+`ControlSize`, as a settings page's 40 is. The field is never shorter than
+its control size, and a value that is not finite is ignored.
+`persistent_placeholder(true)` keeps the placeholder visible while the field
+is focused and empty; by default it goes at the first key, as in a text field.
+
 ## Disabled
 
 ```rust
