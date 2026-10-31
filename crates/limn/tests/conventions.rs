@@ -3,7 +3,7 @@
 
 use limn::{
     ActionRow, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard, Collapsible, Component, ComponentPalette,
-    Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
+    Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioMetrics, RadioOption, Toggle, ToggleGroup, ToggleItem,
     Toolbar, ToolbarItem, ColorPicker, Hsv, SwatchPicker,
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
     ContextMenuMetrics, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
@@ -158,6 +158,11 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         lays_out_with_real_numbers("SearchField::height", SearchField::new("s", "", "S", palette).height(bad).render());
         lays_out_with_real_numbers("Switch::track_size", Switch::new("s", true, palette).track_size(bad, bad).render());
         lays_out_with_real_numbers("Switch::thumb_inset", Switch::new("s", true, palette).thumb_inset(bad).render());
+        let radio = RadioMetrics { circle: bad, option_gap: bad, description_size: bad, description_gap: bad, label_size: bad };
+        lays_out_with_real_numbers(
+            "RadioGroup::metrics",
+            RadioGroup::new("r", vec![RadioOption::new("a", "A").description("d")], Some("a"), palette).metrics(radio).render(),
+        );
         lays_out_with_real_numbers(
             "Markdown::font_size",
             Markdown::new("# a\n\n- [b](https://example.test/b)", palette)

@@ -1,6 +1,7 @@
 //! One choice among several: a circle for each option, with a dot in the
 //! chosen one and a label beside it that is part of the click target.
 
+use crate::page::px;
 use crate::{Access, Color, Component, ComponentPalette, ControlSize, Element, FontFamily, Icon, Role, ICON_SIZE};
 
 /// Space between a circle and its label.
@@ -22,6 +23,24 @@ pub enum RadioVariant {
     Plain,
     /// Each option a rounded card, its circle at the left and its label beside it. Cards are `raised` with a 1 px `border`; the chosen one takes the `selected` fill and a 1 px border in the `text`; the whole card is the click target. Horizontal, the cards share the row's width equally.
     Card,
+}
+
+/// The measures of a [`RadioVariant::Plain`] group, in logical pixels, for a
+/// host whose options are denser or looser than a [`ControlSize`]'s. A number
+/// that is not finite counts as zero.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct RadioMetrics {
+    /// The circle's diameter. Its dot is two fifths of it, as a control size's is.
+    pub circle: f32,
+    /// Space between two options stacked one under the other. Side by side,
+    /// options keep their 16 pixels.
+    pub option_gap: f32,
+    /// The description's text size.
+    pub description_size: f32,
+    /// Space between a label and its description.
+    pub description_gap: f32,
+    /// The label's text size.
+    pub label_size: f32,
 }
 
 /// The circle's diameter and the label's text size, for a control size: the
@@ -99,6 +118,7 @@ pub struct RadioGroup {
     horizontal: bool,
     variant: RadioVariant,
     size: ControlSize,
+    metrics: Option<RadioMetrics>,
     enabled: bool,
     accessibility_label: Option<String>,
     palette: ComponentPalette,
@@ -121,6 +141,7 @@ impl RadioGroup {
             horizontal: false,
             variant: RadioVariant::Plain,
             size: ControlSize::Regular,
+            metrics: None,
             enabled: true,
             accessibility_label: None,
             palette,
@@ -148,6 +169,16 @@ impl RadioGroup {
         self
     }
 
+    /// Take these measures in place of the control size's for a plain group:
+    /// the circle, the label and description text, the space between options
+    /// stacked one under the other and between a label and its description.
+    /// Side by side the options keep their 16 pixels, and a card keeps its
+    /// control size's measures.
+    pub fn metrics(mut self, metrics: RadioMetrics) -> Self {
+        self.metrics = Some(metrics);
+        self
+    }
+
     /// A disabled group is passive: every option shows in the muted color,
     /// the chosen one still marked, and none has a hit region.
     pub fn enabled(mut self, enabled: bool) -> Self {
@@ -172,10 +203,16 @@ impl RadioGroup {
 impl Component for RadioGroup {
     fn render(self) -> Element {
         let palette = self.palette;
-        let (side, font_size) = metrics(self.size);
-        let dot = dot_side(side);
-        let hover_ms = crate::tokens().motion.hover_ms;
         let card = self.variant == RadioVariant::Card;
+        // A plain group takes the host's measures; a card keeps its control size's.
+        let measures = self.metrics.filter(|_| !card);
+        let (side, font_size) = match measures {
+            Some(measures) => (px(measures.circle), px(measures.label_size)),
+            None => metrics(self.size),
+        };
+        let dot = dot_side(side);
+        let description_size = measures.map_or(font_size - 1.0, |measures| px(measures.description_size));
+        let hover_ms = crate::tokens().motion.hover_ms;
         // The arrow keys step among the options that can be chosen.
         let reachable = self
             .options
@@ -233,13 +270,14 @@ impl Component for RadioGroup {
                     lines.push(
                         Element::row(vec![
                             Element::spacer().size(Some(indent), None),
-                            text(option.description, font_size - 1.0, palette.muted),
+                            text(option.description, description_size, palette.muted),
                         ])
                         .gap(GAP),
                     );
                 }
                 // Each level gives way in a narrow width, down to the text, which wraps.
-                let content = Element::column(lines).gap(COPY_GAP);
+                let copy_gap = measures.map_or(COPY_GAP, |measures| px(measures.description_gap));
+                let content = Element::column(lines).gap(copy_gap);
                 let element = if card {
                     // The whole card is the target and shows the hover; the chosen one keeps its fill.
                     let (fill, edge) = if chosen { (palette.selected, ink) } else { (palette.raised, palette.border) };
@@ -267,7 +305,8 @@ impl Component for RadioGroup {
         } else if card {
             Element::tab_strip(vec![Element::column(options).gap(COLUMN_GAP).flex(1.0)], reachable).every_arrow()
         } else {
-            Element::tab_strip(vec![Element::column(options).gap(COLUMN_GAP).shrink_to_fit()], reachable).every_arrow()
+            let option_gap = measures.map_or(COLUMN_GAP, |measures| px(measures.option_gap));
+            Element::tab_strip(vec![Element::column(options).gap(option_gap).shrink_to_fit()], reachable).every_arrow()
         };
         match self.accessibility_label {
             Some(name) => group.accessible(Access::new(Role::Group).id(self.id).name(name)),
@@ -611,6 +650,39 @@ mod tests {
                 .collect();
             assert_eq!(sizes, [font, font - 1.0, font, font]);
         }
+    }
+
+    /// Discord's measures: a 20-pixel circle, options 16 apart, and a 14-pixel
+    /// description 4 under a 16-pixel label.
+    #[test]
+    fn metrics_give_a_plain_group_the_hosts_measures_and_a_card_keeps_its_own() {
+        let discord = RadioMetrics { circle: 20.0, option_gap: 16.0, description_size: 14.0, description_gap: 4.0, label_size: 16.0 };
+        let region = |frame: &Frame, id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+        let frame = tree_of(group().metrics(discord)).layout(window());
+        let shapes = fills(&frame);
+        assert_eq!((shapes[0].0.width, shapes[0].2), (20.0, 10.0));
+        assert_eq!(shapes[1].0.width, dot_side(20.0));
+        let sizes: Vec<f32> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { font_size, .. } => Some(*font_size),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(sizes, [16.0, 14.0, 16.0, 16.0]);
+        let (free, team) = (region(&frame, "plan=free"), region(&frame, "plan=team"));
+        assert_eq!(team.y - (free.y + free.height), 16.0, "options stacked");
+        // The description starts under its label by the gap: 2 less puts it 2 higher.
+        let description_y = |gap: f32| texts(&tree_of(group().metrics(RadioMetrics { description_gap: gap, ..discord })).layout(window()))[1].1.y;
+        assert_eq!(description_y(4.0) - description_y(2.0), 2.0);
+        // Side by side the options keep their 16 pixels, whatever the option gap is.
+        let row = tree_of(group().horizontal().metrics(RadioMetrics { option_gap: 8.0, ..discord })).layout(window());
+        let (free, team) = (region(&row, "plan=free"), region(&row, "plan=team"));
+        assert_eq!(team.x - (free.x + free.width), 16.0);
+        // A card keeps the control size's circle, of 16 pixels with a radius of 8.
+        let card = tree_of(group().variant(RadioVariant::Card).metrics(discord)).layout(window());
+        assert!(fills(&card).iter().any(|(rect, _, radius)| rect.width == 16.0 && *radius == 8.0));
     }
 
     /// Text, with an icon and a description, and Voice, with an icon alone.
