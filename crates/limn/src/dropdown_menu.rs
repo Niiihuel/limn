@@ -475,6 +475,9 @@ pub struct ContextMenuMetrics {
     pub scrollbar_gutter: f32,
     /// Height of a heading row.
     pub header_height: f32,
+    /// The tallest the menu gets before its rows scroll, surface included; a
+    /// host can follow the window, as a menu that never leaves it.
+    pub max_height: f32,
 }
 
 impl Default for ContextMenuMetrics {
@@ -489,6 +492,7 @@ impl Default for ContextMenuMetrics {
             separator_height: action_style::SEPARATOR_HEIGHT,
             scrollbar_gutter: action_style::SCROLLBAR_GUTTER,
             header_height: action_style::HEADER_HEIGHT,
+            max_height: action_style::MAX_HEIGHT,
         }
     }
 }
@@ -505,6 +509,7 @@ impl ContextMenuMetrics {
             separator_height: px(self.separator_height),
             scrollbar_gutter: px(self.scrollbar_gutter),
             header_height: px(self.header_height),
+            max_height: px(self.max_height),
         }
     }
 }
@@ -775,7 +780,7 @@ impl Component for DropdownMenu {
             // measured with the native font and may wrap next to keycaps.
             // A short list keeps its natural height; a long one scrolls.
             (self.max_visible_items as f32 * row_height)
-                .min(action_style::MAX_HEIGHT - metrics.inset * 2.0)
+                .min(metrics.max_height - metrics.inset * 2.0)
         } else if let Some(sizing) = self.sizing {
             // Mixed lists can contain short headings, dividers and taller
             // detail rows. Budget the visible prefix itself; multiplying the
@@ -2698,6 +2703,7 @@ mod tests {
             separator_height: 17.0,
             scrollbar_gutter: 14.0,
             header_height: 24.0,
+            max_height: 480.0,
         };
         let mut tree = open_menu(
             DropdownMenu::new(
@@ -2747,6 +2753,37 @@ mod tests {
         assert_eq!(account.height, 32.0);
         assert_eq!(account.y - nested_surface.y, 8.0);
         assert_eq!(font_size(&nested, "Cuenta"), Some(14.0));
+    }
+
+    #[test]
+    fn a_context_menu_scrolls_only_past_its_metrics_max_height() {
+        let rows = |count: usize| {
+            (0..count)
+                .map(|n| DropdownMenuItem::new(format!("row:{n}"), format!("Fila {n}")).into())
+                .collect::<Vec<DropdownMenuEntry>>()
+        };
+        let menu = |max_height: f32| {
+            DropdownMenu::new(
+                Element::button("trigger", "Menú"),
+                rows(20),
+                true,
+                "dismiss",
+                ComponentPalette::neutral_dark(),
+            )
+            .context_menu_style()
+            .context_metrics(ContextMenuMetrics {
+                row_height: 32.0,
+                max_height,
+                ..ContextMenuMetrics::default()
+            })
+        };
+        let viewport = Size::new(800.0, 1200.0);
+        let tall = open_menu(menu(1000.0)).layout(viewport);
+        let surface = region(&tall, "popover_surface:dismiss");
+        assert!(surface.height >= 20.0 * 32.0, "{surface:?}");
+        let short = open_menu(menu(480.0)).layout(viewport);
+        let surface = region(&short, "popover_surface:dismiss");
+        assert!(surface.height <= 480.0, "{surface:?}");
     }
 
     #[test]

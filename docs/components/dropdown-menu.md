@@ -220,8 +220,9 @@ shared profile for width, row density and scroll budget.
 `context_menu_style()` gives the menu the surface and density of a
 [ContextMenu](context-menu.md). `context_metrics(ContextMenuMetrics { .. })`
 gives that style another density, in logical pixels: the row height, the label
-and detail sizes, the inset, the padding, the gap, the separator and the heading
-height. Submenus take the same. Set the fields you change and take the rest
+and detail sizes, the inset, the padding, the gap, the separator, the heading
+height and the tallest the menu gets before it scrolls (`max_height`, 480 by
+default; a host can pass its window's height). Submenus take the same. Set the fields you change and take the rest
 from `ContextMenuMetrics::default()`, the editor's values. Two-line rows,
 sections and loading rows keep their own heights.
 

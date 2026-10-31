@@ -190,6 +190,7 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
             separator_height: bad,
             scrollbar_gutter: bad,
             header_height: bad,
+            max_height: bad,
         };
         lays_out_with_real_numbers(
             "DropdownMenu::context_metrics",
