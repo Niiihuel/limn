@@ -77,6 +77,12 @@ application's accent, in place of a focused field's. `max_visible_items(n)`
 shows `n` options and scrolls the rest; unless set the list is as long as
 its options, within the window.
 
+`outline(border, focus)` and `radius(px)` give a field the outline and corners
+a [TextField](text-field.md#outline-and-radius) takes: the border at rest, the
+focus color while the trigger has the focus or its list is open, where `ink`
+still wins, and the radius in place of the control's. The button variant
+ignores both.
+
 ## Size
 
 ```rust

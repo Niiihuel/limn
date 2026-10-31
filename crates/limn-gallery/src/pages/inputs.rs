@@ -124,6 +124,13 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .height(40.0)
                 .render(),
             caption(cx, "Form height: 40 px on a compact control."),
+            TextField::new("input-outline", state.text("input-outline"), "Server name", palette)
+                .outline(palette.border, cx.state.theme().accent)
+                .radius(8.0)
+                .height(40.0)
+                .width(width)
+                .render(),
+            caption(cx, ".outline(border, focus) and .radius(8.0): a settings field with its own outline and corners."),
             Element::column(vec![
                 TextField::new("input-channel", state.text("input-channel"), "new-channel", palette)
                     .icon(Icon::Hash)

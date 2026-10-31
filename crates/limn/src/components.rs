@@ -1633,6 +1633,8 @@ pub struct TextField {
     monospace: bool,
     icon: Option<Icon>,
     accessibility_label: Option<String>,
+    outline: Option<(Color, Color)>,
+    radius: Option<f32>,
 }
 
 impl TextField {
@@ -1658,6 +1660,8 @@ impl TextField {
             monospace: false,
             icon: None,
             accessibility_label: None,
+            outline: None,
+            radius: None,
         }
     }
 
@@ -1716,6 +1720,23 @@ impl TextField {
     pub fn height(mut self, height: f32) -> Self {
         if height.is_finite() {
             self.height = Some(height);
+        }
+        self
+    }
+
+    /// The field's own outline: `border` at rest and `focus` while it has the
+    /// focus, each as wide as the palette's, in place of the palette's colors,
+    /// such as a settings page's hairline and its accent. A disabled field keeps `border`.
+    pub fn outline(mut self, border: Color, focus: Color) -> Self {
+        self.outline = Some((border, focus));
+        self
+    }
+
+    /// The corner radius in logical pixels, in place of the control's. A value
+    /// that is not finite is ignored and a negative one is zero.
+    pub fn radius(mut self, radius: f32) -> Self {
+        if radius.is_finite() {
+            self.radius = Some(radius.max(0.0));
         }
         self
     }
@@ -1780,11 +1801,12 @@ impl Component for TextField {
                 .gap(8.0),
                 None => text,
             };
+            let border = self.outline.map_or(self.palette.border, |(border, _)| border);
             return Element::panel(content)
                 .padding(8.0)
                 .background(self.palette.raised)
-                .border(self.palette.border, 1.0)
-                .radius(input_radius(self.size))
+                .border(border, 1.0)
+                .radius(self.radius.unwrap_or_else(|| input_radius(self.size)))
                 .size(self.width, Some(height))
                 .accessible(access);
         }
@@ -1796,9 +1818,15 @@ impl Component for TextField {
                 .leading_icon(icon)
                 .leading_icon_tint(self.palette.muted);
         }
-        let input = input_surface(input, self.palette, self.size, self.width)
+        let mut input = input_surface(input, self.palette, self.size, self.width)
             .size(self.width, Some(height))
             .font_family(family);
+        if let Some((border, focus)) = self.outline {
+            input = input.border(border, 1.0).focus_border(focus, 1.5);
+        }
+        if let Some(radius) = self.radius {
+            input = input.radius(radius);
+        }
         match self.accessibility_label {
             Some(name) => input.accessibility_label(name),
             None => input,
@@ -6604,6 +6632,36 @@ mod tests {
                 assert_eq!(style(bad).height, plain.height, "{bad}");
             }
         }
+    }
+
+    #[test]
+    fn a_text_field_takes_the_hosts_outline_and_radius_and_the_palettes_otherwise() {
+        let palette = ComponentPalette::neutral_dark();
+        let (border, focus) = (Color::rgb(60, 60, 60), Color::rgb(88, 101, 242));
+        // Every outline the field draws, as its color, width and radius.
+        let strokes = |field: TextField, focused: bool| {
+            let mut tree = UiTree::new(Element::column(vec![field.width(200.0).render()]));
+            tree.layout(Size::new(300.0, 120.0));
+            if focused {
+                assert!(tree.focus("field"));
+            }
+            tree.layout(Size::new(300.0, 120.0)).commands.iter().filter_map(|command| match command {
+                DrawCommand::StrokeRect { color, width, radius, .. } => Some((*color, *width, *radius)),
+                _ => None,
+            }).collect::<Vec<_>>()
+        };
+        let field = || TextField::new("field", "", "Name", palette);
+        let rest = (palette.border, 1.0, control_radius());
+        assert_eq!(strokes(field(), false), [rest], "as the palette draws it");
+        let set = || field().outline(border, focus).radius(8.0);
+        assert_eq!(strokes(set(), false), [(border, 1.0, 8.0)]);
+        let focused = strokes(set(), true);
+        assert!(focused.contains(&(focus, 1.5, 8.0)) && !focused.contains(&(border, 1.0, 8.0)), "{focused:?}");
+        // Disabled, it keeps the host's border and radius, and nothing focuses.
+        assert_eq!(strokes(set().disabled(), false), [(border, 1.0, 8.0)]);
+        // A radius that is not finite is ignored; a negative one is zero.
+        assert_eq!(strokes(field().radius(f32::NAN), false), [rest]);
+        assert_eq!(strokes(field().radius(-3.0), false), [(palette.border, 1.0, 0.0)]);
     }
 
     #[test]
