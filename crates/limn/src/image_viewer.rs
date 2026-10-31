@@ -14,10 +14,11 @@ pub enum ViewerLayout {
     #[default]
     Header,
     /// A lightbox: the host's lead ([`ImageViewer::lead`]) at the top left, or the title
-    /// there when there is none; the controls in a floating group at the top right; close on
-    /// its own in the corner; round-cornered arrows at the window's sides that wrap around;
-    /// small thumbnails under the picture; no "2 of 5". While the picture is zoomed in, the
-    /// group, the arrows and the thumbnails hide; close and the lead stay.
+    /// there when there is none; the controls in a floating group at the top right, whose zoom
+    /// toggle shows zoom in, or zoom out while the picture is zoomed; close on its own in the
+    /// corner; chevron arrows at the window's sides that wrap around; small thumbnails under
+    /// the picture; no "2 of 5". While the picture is zoomed in, the arrows and the thumbnails
+    /// hide; the group, close and the lead stay.
     Lightbox,
 }
 
@@ -413,7 +414,7 @@ impl Component for ImageViewer {
             return self.base;
         }
         let lightbox = self.layout == ViewerLayout::Lightbox;
-        // The lightbox hides its group, arrows and thumbnails while the picture is zoomed in.
+        // Zoomed in, the lightbox hides its arrows and thumbnails; its group stays, for the zoom toggle.
         let zoomed = lightbox && matches!(self.level, Some((_, false)));
         let labels = crate::labels();
         // The viewer is dark whatever the window's theme, as a picture is
@@ -447,14 +448,19 @@ impl Component for ImageViewer {
         let picture_shown = self.surface.is_some() || self.image.is_some() || self.placeholder.is_some();
         let mut zoom_controls = Vec::new();
         if lightbox {
-            // The lightbox's one zoom control toggles a still picture; the host's tool comes last.
+            // The lightbox's one zoom control toggles a still picture: zoom in while it fits,
+            // zoom out while it is zoomed. The host's tool comes last.
             if let Some([_, _, zoom_in]) = &self.zoom_actions {
                 if self.surface.is_none() {
-                    let hint = format!("{} · +", labels.zoom_in);
+                    let (icon, name, hint) = if zoomed {
+                        (Icon::ZoomOut, labels.zoom_out, format!("{} · −", labels.zoom_out))
+                    } else {
+                        (Icon::ZoomIn, labels.zoom_in, format!("{} · +", labels.zoom_in))
+                    };
                     let button = lightbox_button(
                         zoom_in,
-                        Icon::Add,
-                        labels.zoom_in,
+                        icon,
+                        name,
                         &hint,
                         controls,
                         LIGHTBOX_CONTROL,
@@ -592,11 +598,11 @@ impl Component for ImageViewer {
         if self.total > 1 && !zoomed {
             if lightbox {
                 if let Some(id) = &self.previous_action {
-                    over.push(lightbox_arrow(id, Icon::ArrowLeft, &previous_label, "←"));
+                    over.push(lightbox_arrow(id, Icon::ChevronLeft, &previous_label, "←"));
                 }
                 over.push(Element::spacer().flex(1.0));
                 if let Some(id) = &self.next_action {
-                    over.push(lightbox_arrow(id, Icon::ArrowRight, &next_label, "→"));
+                    over.push(lightbox_arrow(id, Icon::ChevronRight, &next_label, "→"));
                 }
             } else {
                 if let Some(id) = &self.previous_action {
@@ -619,7 +625,7 @@ impl Component for ImageViewer {
                 None => Element::column(titles).gap(2.0).flex(1.0).centered_y(),
             };
             let mut bar = vec![left];
-            if !zoomed && !tools.is_empty() {
+            if !tools.is_empty() {
                 bar.push(
                     Element::panel(Element::row(tools).gap(4.0))
                         .padding(3.0)
@@ -1170,6 +1176,15 @@ mod tests {
         sized(size).layout(ViewerLayout::Lightbox).action("save", Icon::ArrowDown, "Save as…")
     }
 
+    /// The glyph drawn in the control `id`: the icon whose box lies within the control's.
+    fn glyph(frame: &Frame, id: &str) -> Option<Icon> {
+        let rect = frame.access.iter().find(|node| node.id == id)?.rect;
+        frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Icon { icon, rect: at, .. } if rect.contains(center(*at)) => Some(*icon),
+            _ => None,
+        })
+    }
+
     #[test]
     fn the_lightbox_puts_close_in_the_corner_and_its_group_before_it() {
         let (_, frame) = tree(lightbox(Size::new(400.0, 300.0)));
@@ -1183,6 +1198,8 @@ mod tests {
         let (save, zoom) = (rect("save"), rect("in"));
         assert_eq!((save.width, save.height, zoom.width, zoom.height), (32.0, 32.0, 32.0, 32.0));
         assert_eq!(zoom.x + zoom.width + 3.0, WINDOW.width - 24.0 - 52.0);
+        // Fitted, the zoom toggle offers zoom in.
+        assert_eq!(glyph(&frame, "in"), Some(Icon::ZoomIn));
     }
 
     #[test]
@@ -1217,6 +1234,7 @@ mod tests {
         let (_, frame) = tree(gallery(false));
         let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap().clone();
         assert!(!node("before").disabled && !node("after").disabled, "the arrows wrap around");
+        assert_eq!((glyph(&frame, "before"), glyph(&frame, "after")), (Some(Icon::ChevronLeft), Some(Icon::ChevronRight)));
         assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { text, .. } if text.starts_with("1 "))));
         let (_, frame) = tree(gallery(true));
         for at in 0..3 {
@@ -1226,7 +1244,7 @@ mod tests {
     }
 
     #[test]
-    fn a_zoomed_lightbox_keeps_its_close_and_lead_alone() {
+    fn a_zoomed_lightbox_keeps_its_group_close_and_lead_and_offers_zoom_out() {
         let viewer = lightbox(Size::new(2400.0, 1600.0))
             .lead(Element::text("Ana"))
             .gallery(1, 3)
@@ -1237,8 +1255,11 @@ mod tests {
             .zoom_level(2.5, false);
         let (_, frame) = tree(viewer);
         let shown = |id: &str| frame.regions.iter().any(|region| region.id == id);
-        assert!(shown("close"));
-        for id in ["save", "in", "before", "after", "thumb:0"] {
+        // The group stays, so keyboard users who reach its toggle can zoom out again.
+        assert!(shown("close") && shown("save") && shown("in"));
+        assert_eq!(glyph(&frame, "in"), Some(Icon::ZoomOut));
+        assert_eq!(frame.access.iter().find(|node| node.id == "in").unwrap().name, crate::labels().zoom_out);
+        for id in ["before", "after", "thumb:0"] {
             assert!(!shown(id), "{id}");
         }
         assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::Text { text, .. } if text == "Ana")));

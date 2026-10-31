@@ -391,5 +391,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ]),
             caption(cx, "The categories of an emoji picker at 20 px, and icons under 16 px: a padlock over a channel's glyph, a speaker in a small mark."),
         ]),
+        section(cx, "Zoom and chevrons", vec![
+            row(
+                [(Icon::ZoomIn, "ZoomIn"), (Icon::ZoomOut, "ZoomOut"), (Icon::ChevronLeft, "ChevronLeft")]
+                    .into_iter()
+                    .flat_map(|(icon, name)| [
+                        Element::icon(icon).foreground(palette.text),
+                        caption(cx, name),
+                        Element::spacer().size(Some(8.0), None),
+                    ])
+                    .collect(),
+            ),
+            caption(cx, "The lightbox's zoom toggle, zoomed in and out, and the chevron of its previous arrow."),
+        ]),
     ]
 }

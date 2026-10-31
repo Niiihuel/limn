@@ -294,6 +294,10 @@ pub enum Icon {
     Add,
     /// A horizontal dash: remove, collapse or unstage.
     Minus,
+    /// A magnifying glass with a plus: zoom in.
+    ZoomIn,
+    /// A magnifying glass with a minus: zoom out.
+    ZoomOut,
     /// A microphone: voice input.
     Microphone,
     /// A card with lines of text: plain text.
@@ -388,6 +392,8 @@ pub enum Icon {
     /// shows [`Self::ChevronDown`]. A section that opens in place shows
     /// [`Self::ChevronDown`] when open and [`Self::ChevronRight`] when closed.
     ChevronUp,
+    /// A chevron pointing left.
+    ChevronLeft,
     /// A chevron pointing right.
     ChevronRight,
     /// A magnifying glass: search.
