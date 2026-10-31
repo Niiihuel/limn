@@ -1610,6 +1610,9 @@ pub enum ElementKind {
         /// Left, top, right and bottom growth of the anchor's box before the
         /// surface is placed; see [`Element::popover_anchor_outset`].
         anchor_outset: [f32; 4],
+        /// The dismiss ID of the popover whose surface this one is placed beside;
+        /// see [`Element::popover_clear_of`].
+        clear_of: Option<String>,
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -2708,6 +2711,7 @@ impl Element {
                 arrows: None,
                 at: None,
                 anchor_outset: [0.0; 4],
+                clear_of: None,
             },
             layout,
         )
@@ -2769,7 +2773,8 @@ impl Element {
     /// trigger does, so a row can open a card on hover that stays while the
     /// pointer crosses the row's marks on its way to the card. The space that
     /// [`Element::popover_gap`] and [`Element::popover_anchor_outset`] leave beside
-    /// the trigger's rows holds it too, so the pointer can cross a gap.
+    /// the trigger's rows holds it too, and so does the space beside the surface
+    /// that [`Element::popover_clear_of`] names: the pointer can cross a gap.
     pub fn popover_on_hover(mut self) -> Self {
         if let ElementKind::Popover {
             anchor,
@@ -2841,6 +2846,18 @@ impl Element {
                     0.0
                 }
             });
+        }
+        self
+    }
+
+    /// Place the surface beside the whole of another open popover's surface, the one whose
+    /// dismiss ID is `surface`, instead of beside the anchor's own sides: a submenu stands
+    /// clear of its parent menu's edge however its rows sit inside it (the menu's padding, a
+    /// scrollbar's rail). Only the left and right sides come from that surface; the top and
+    /// the bottom stay the anchor's, with any outset. Ignored while no such surface is open.
+    pub fn popover_clear_of(mut self, surface: impl Into<String>) -> Self {
+        if let ElementKind::Popover { clear_of, .. } = &mut self.kind {
+            *clear_of = Some(surface.into());
         }
         self
     }

@@ -4777,6 +4777,7 @@ impl UiTree {
                         arrows,
                         pointed,
                         anchor_outset,
+                        clear_of,
                     } => {
                         let coach = coach.as_deref();
                         if let Some(coach) = coach {
@@ -4867,10 +4868,18 @@ impl UiTree {
                             }
                             None => {
                                 let [left, top, right, bottom] = anchor_outset;
+                                // A parent surface, when one is open, sets the sides instead.
+                                let (x, width) = match clear_of
+                                    .as_deref()
+                                    .and_then(|id| surface_rect(&builder.frame, id))
+                                {
+                                    Some(surface) => (surface.x, surface.width),
+                                    None => (anchor.x - left, anchor.width + left + right),
+                                };
                                 let grown = Rect::new(
-                                    anchor.x - left,
+                                    x,
                                     anchor.y - top,
-                                    anchor.width + left + right,
+                                    width,
                                     anchor.height + top + bottom,
                                 );
                                 (
@@ -7881,6 +7890,7 @@ enum DeferredOverlay {
         arrows: Option<Box<(Option<String>, Option<String>)>>,
         pointed: bool,
         anchor_outset: [f32; 4],
+        clear_of: Option<String>,
     },
     Tooltip {
         anchor: Rect,
@@ -7894,18 +7904,35 @@ enum DeferredOverlay {
     },
 }
 
-/// Whether the pointer lies in the space an outset and a gap leave beside a popover's
-/// trigger, level with its rows. A hover popover placed clear of its row holds
-/// while the pointer crosses that space to reach it.
-fn beside_trigger(trigger: Rect, outset: [f32; 4], gap: f32, pointer: Option<Point>) -> bool {
+/// Whether the pointer lies in the space a popover's trigger leaves beside its rows: the
+/// outset and the gap, or, when the popover stands beside its parent's `surface`, the gap
+/// on either side of that surface. A hover popover placed clear of its row holds while the
+/// pointer crosses that space to reach it.
+fn beside_trigger(
+    trigger: Rect,
+    outset: [f32; 4],
+    gap: f32,
+    surface: Option<Rect>,
+    pointer: Option<Point>,
+) -> bool {
     let [left, _, right, _] = outset;
-    let band = Rect::new(
-        trigger.x - left - gap,
-        trigger.y,
-        trigger.width + left + right + gap * 2.0,
-        trigger.height,
-    );
+    let (x, width) = match surface {
+        Some(surface) => (surface.x, surface.width),
+        None => (trigger.x - left, trigger.width + left + right),
+    };
+    let band = Rect::new(x - gap, trigger.y, width + gap * 2.0, trigger.height);
     pointer.is_some_and(|point| band.contains(point) && !trigger.contains(point))
+}
+
+/// The rectangle of the surface of the popover `dismiss_id`, when it was placed in this frame.
+fn surface_rect(frame: &Frame, dismiss_id: &str) -> Option<Rect> {
+    let id = format!("popover_surface:{dismiss_id}");
+    frame
+        .regions
+        .iter()
+        .rev()
+        .find(|region| region.id == id)
+        .map(|region| region.rect)
 }
 
 fn place_popover(
@@ -11348,6 +11375,7 @@ impl LayoutBuilder<'_> {
                 arrows,
                 at,
                 anchor_outset,
+                clear_of,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -11409,9 +11437,15 @@ impl LayoutBuilder<'_> {
                         // hint's anchor in a row that opens a card on hover.
                         || holds_submenu(anchor, hovered, focused)
                         || holds_submenu(floating, hovered, focused)
-                        // The pointer crosses the space an outset and a gap leave
-                        // beside the trigger on its way into the surface.
-                        || beside_trigger(anchor_rect, *anchor_outset, *gap, self.pointer);
+                        // The pointer crosses the space the trigger's outset and the gap leave
+                        // beside its rows, or beside the parent's surface, on the way in.
+                        || beside_trigger(
+                            anchor_rect,
+                            *anchor_outset,
+                            *gap,
+                            clear_of.as_deref().and_then(|id| surface_rect(&self.frame, id)),
+                            self.pointer,
+                        );
                     if !active {
                         return;
                     }
@@ -11438,6 +11472,7 @@ impl LayoutBuilder<'_> {
                     arrows: arrows.clone(),
                     pointed: at.is_some(),
                     anchor_outset: *anchor_outset,
+                    clear_of: clear_of.clone(),
                 });
             }
             ElementKind::Tooltip {
