@@ -905,6 +905,8 @@ pub(crate) struct Kept {
     /// The ID a paint scale is kept under, its factor, and the point it grows
     /// from as shares of the element's width and height.
     pub(crate) scale: Option<(String, f32, Point)>,
+    /// Set by [`Element::animate_move`]: the ID its place is kept under.
+    pub(crate) moving: Option<String>,
     /// Set by [`Element::wrap`]: a row moves children onto more lines.
     pub(crate) wrap: bool,
     /// Set by [`Element::line_gap`]; `None` takes the row's `gap`.
@@ -2251,6 +2253,21 @@ impl Element {
         if factor.is_finite() && factor > 0.0 && anchor.x.is_finite() && anchor.y.is_finite() {
             self.kept.get_or_insert_default().scale = Some((id.into(), factor, anchor));
         }
+        self
+    }
+
+    /// Glide to a new place in the parent's flow instead of jumping there.
+    /// When the column or row holding this element lays it out somewhere
+    /// else than on the last frame, as when a list reorders or a row above it
+    /// comes or goes, its paint, pointer target and descendants start where
+    /// they were shown and ease into the new place over `move_ms`. The place
+    /// is kept under `id`, which must be unique and stable across rebuilds,
+    /// so the same ID on a rebuilt element in another slot is what moves. An
+    /// ID seen for the first time rests where it is laid out, as does every
+    /// move under reduced motion; the parent's own moves (a scroll, a resize)
+    /// carry the element along at once.
+    pub fn animate_move(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().moving = Some(id.into());
         self
     }
 
