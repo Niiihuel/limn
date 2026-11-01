@@ -61,8 +61,8 @@ fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
     let face = |name: &str| (*bundled.font_data[name]).clone();
     let with = |medium: bool| {
         font_definitions_with(UiFaces {
-            regular: face("Ubuntu-Bold"),
-            medium: medium.then(|| face("Ubuntu-Medium")),
+            regular: face("Sans-Bold"),
+            medium: medium.then(|| face("Sans-Medium")),
             bold: None,
         })
     };
@@ -88,7 +88,7 @@ fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
     let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
     output.textures_delta.clear();
     assert_eq!(egui_family(&ctx, FontFamily::SansBold), egui::FontFamily::Name(SANS_BOLD.into()));
-    ctx.fonts_mut(|fonts| assert!(fonts.has_glyph(&egui::FontId::proportional(14.0), '𝓡')));
+    assert!(covers(&ctx, &egui::FontFamily::Proportional, '𝓡'));
 }
 
 #[test]
