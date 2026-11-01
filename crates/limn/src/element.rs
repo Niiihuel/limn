@@ -973,6 +973,9 @@ pub(crate) struct Kept {
     /// Set by [`Element::caret`]: the control whose focus shows the element,
     /// and where its caret is, which restarts the blink when it moves.
     pub(crate) caret: Option<(String, usize)>,
+    /// Set by [`Sketch`](crate::Sketch): a press and drag over the element
+    /// make marks instead of clicks.
+    pub(crate) sketch: Option<crate::sketch::SketchStyle>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2427,6 +2430,13 @@ impl Element {
         if let Some(travel) = self.slider.as_mut() {
             travel.vertical = true;
         }
+        self
+    }
+
+    /// Make a clickable a sketch surface: a press and drag over it make a mark of
+    /// the style's tool instead of a click. See [`Sketch`](crate::Sketch).
+    pub(crate) fn sketch(mut self, style: crate::sketch::SketchStyle) -> Self {
+        self.kept.get_or_insert_default().sketch = Some(style);
         self
     }
 

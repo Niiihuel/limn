@@ -99,6 +99,7 @@ mod sequence;
 mod shortcut;
 mod side_rail;
 mod skeleton;
+mod sketch;
 mod slider;
 mod scribble;
 mod spinner;
@@ -254,6 +255,7 @@ pub use sequence::{
     SequenceParticipant, SequenceParticipantLayout,
 };
 pub use skeleton::{Skeleton, SkeletonGroup};
+pub use sketch::{rasterize as rasterize_sketch, Sketch, SketchMark, SketchTool};
 pub use slider::Slider;
 pub use split_view::{Pane, SplitView};
 pub use scribble::{Mark, Scribble};
