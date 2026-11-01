@@ -70,7 +70,10 @@ Modal::new(root, open, "Sources", "", "sources:close", palette)
 max)` is the width that keeps the window's margin clear, and
 `Modal::body_width(modal_width)` the width a body can count on. `height`
 bounds the card, never under 160; the body takes what is left and scrolls.
-`backdrop_dismiss(true)` makes a click on the dimmed window report the close
+`closable(false)` leaves the close button out of the title row; Escape
+still reports the close ID. `scrim(color)` sets what dims the window, black
+at about 70 % unless set. `title_gap(px)` is the space under the title row,
+which is at least 24 high; 10 unless set. `backdrop_dismiss(true)` makes a click on the dimmed window report the close
 ID; without it that click does nothing. `initial_focus(id)` names the control
 focused when the modal opens and `return_focus(id)` the one focused when it
 closes.
@@ -99,7 +102,15 @@ AlertDialog::new(
 
 The labels are "Continue" and "Cancel" unless set, or the `confirm` and
 `cancel` of the library's [labels](../theming.md#language). `destructive(color)`
-fills the confirm button with that color. `confirm_enabled(false)` keeps the
+fills the confirm button with that color and draws its label in white;
+`soft_destructive(fill, border, ink)` paints it pale with a one-pixel outline
+instead, such as #FBE7E7, #DC3C3D and #A42528. `cancel_variant(variant)`
+paints Cancel, `Outline` unless set; `Secondary` fills it with the palette's
+`raised`. `description_size(px)` is 12 unless set, and `description_line_height(px)`
+sets each of its lines at least that high. `closable(false)` leaves
+out the close button; Cancel and Escape still report `cancel_id`.
+`button_sizing(sizing)` sets the actions' geometry, `ControlSize::Compact`'s
+unless set (28 high, 12 px labels). `scrim` and `title_gap` are the modal's. `confirm_enabled(false)` keeps the
 button in view and passive while the action is being prepared.
 `alternative(id, label)` adds a second way to go ahead between the two, and
 `body(element)` puts content between the description and the actions. `width`
