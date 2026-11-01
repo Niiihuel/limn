@@ -161,6 +161,9 @@ pub struct CodeEditor {
     pub read_only: bool,
     /// Native modal editing, independent of the workbench shortcut profile.
     pub vim_mode: bool,
+    /// Draw the Vim mode's badge in the editor's corner while it has focus. True by default;
+    /// a host that shows the mode itself, with `UiTree::code_editor_vim_mode`, turns it off.
+    pub vim_mode_label: bool,
     /// Show line numbers in the gutter. True by default.
     pub line_numbers: bool,
     /// Paint live cursor/selection and document metadata from this frame's snapshot.
@@ -241,6 +244,11 @@ pub struct CodeEditor {
     /// The document `highlights` were computed for. For any other, the built-in colours of
     /// `language` are used.
     pub highlight_document_id: Option<u64>,
+    /// The host's inks for the built-in syntax colours, as `Markdown::code_syntax_colors` takes
+    /// them: keywords, strings, numbers, comments and functions in the host's colours, and the
+    /// rest in `text` on a light palette. `None` keeps limn's. Set with `syntax_colors`;
+    /// `highlights` keep their own colours.
+    pub syntax_colors: Option<crate::CodeSyntaxColors>,
     /// The host's syntax colours, in place of the built-in ones. Give them sorted by start
     /// offset: unsorted, all of them are scanned for every row. Set with `highlights`.
     pub highlights: Arc<[CodeHighlight]>,
@@ -278,6 +286,7 @@ impl CodeEditor {
             diff_backgrounds: true,
             read_only: false,
             vim_mode: false,
+            vim_mode_label: true,
             line_numbers: true,
             status_bar: false,
             tab_width: 4,
@@ -308,6 +317,7 @@ impl CodeEditor {
             search_matches: Arc::from([]),
             search_revision: None,
             context_actions: Vec::new(),
+            syntax_colors: None,
             highlight_revision: None,
             highlight_document_id: None,
             highlights: Arc::from([]),
@@ -376,6 +386,16 @@ impl CodeEditor {
     /// The status bar, when shown, says the document is read-only.
     pub fn read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
+        self
+    }
+    /// Draw the Vim mode's badge, or leave the mode for the host to show.
+    pub fn vim_mode_label(mut self, shown: bool) -> Self {
+        self.vim_mode_label = shown;
+        self
+    }
+    /// Paint the built-in syntax colours in the host's inks.
+    pub fn syntax_colors(mut self, colors: crate::CodeSyntaxColors) -> Self {
+        self.syntax_colors = Some(colors);
         self
     }
     /// Turn modal editing on or off. Changing it puts the editor back in Normal mode.
@@ -833,7 +853,19 @@ impl HighlightIndex {
             self.carried
                 .filter(|(revision, _)| *revision == snapshot.revision()),
         ) else {
-            return Cow::Borrowed(syntax.line(snapshot, editor.language, row));
+            let line = syntax.line(snapshot, editor.language, row);
+            let Some(colors) = editor.syntax_colors else {
+                return Cow::Borrowed(line);
+            };
+            let dark = editor.palette.is_dark();
+            return Cow::Owned(
+                line.iter()
+                    .map(|span| CodeHighlight {
+                        range: span.range.clone(),
+                        color: colors.ink(span.color, dark),
+                    })
+                    .collect(),
+            );
         };
         if row < prefix {
             return Cow::Borrowed(self.row(spans, range));

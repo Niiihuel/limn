@@ -189,3 +189,32 @@ fn equal_code_blocks_and_cached_markdown_previews_have_independent_scrolls() {
         .map(|region| &region.id).collect::<std::collections::HashSet<_>>();
     assert_eq!(ids.len(), 6, "anonymous instances never share mutable state");
 }
+
+#[test]
+fn an_editor_paints_its_built_in_syntax_in_the_hosts_inks() {
+    let controller = EditorController::new(TextBuffer::new("fn main() {}\n").unwrap());
+    let keyword = limn::Color::rgb(1, 2, 3);
+    let palette = ComponentPalette::neutral_dark();
+    let colors = limn::CodeSyntaxColors {
+        keyword,
+        ..limn::CodeSyntaxColors::for_palette(palette)
+    };
+    let root = CodeEditor::new("code", controller)
+        .palette(palette)
+        .language(limn::CodeLanguage::Rust)
+        .syntax_colors(colors)
+        .render();
+    let mut tree = tree(root);
+    // The colours are worked out beside the tree: lay it out until they come.
+    let inked = (0..400).any(|_| {
+        let frame = tree.layout(Size::new(400.0, 200.0));
+        let found = frame.commands.iter().any(|command| {
+            matches!(command, DrawCommand::Text { text, color, .. } if text == "fn" && *color == keyword)
+        });
+        if !found {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        found
+    });
+    assert!(inked, "the keyword is never painted in the host's ink");
+}
