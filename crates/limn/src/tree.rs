@@ -8850,6 +8850,7 @@ impl LayoutBuilder<'_> {
         style: Style,
         clip: Option<Rect>,
         placeholder: &str,
+        persistent_placeholder: bool,
         initial_value: &str,
         highlights: &[crate::TextHighlight],
     ) {
@@ -8859,7 +8860,7 @@ impl LayoutBuilder<'_> {
             return;
         };
         let composed = state.composed().filter(|_| focused);
-        let is_placeholder = state.value.is_empty() && !focused;
+        let is_placeholder = state.value.is_empty() && composed.is_none() && (!focused || persistent_placeholder);
         // Highlights follow the host's text; a stale edit, or one being
         // composed, is laid out plain until the host catches up.
         let marked = !highlights.is_empty() && state.value == initial_value && composed.is_none();
@@ -12826,6 +12827,7 @@ impl LayoutBuilder<'_> {
                 id,
                 initial_value,
                 placeholder,
+                persistent_placeholder,
                 preserve_line_endings,
                 enter_submits,
                 highlights,
@@ -12875,7 +12877,17 @@ impl LayoutBuilder<'_> {
                     .floor()
                     .max(1.0) as usize;
                 if self.text_layout {
-                    self.paint_laid_out_area(id, rect, content, style, clip, placeholder, initial_value, highlights);
+                    self.paint_laid_out_area(
+                        id,
+                        rect,
+                        content,
+                        style,
+                        clip,
+                        placeholder,
+                        *persistent_placeholder,
+                        initial_value,
+                        highlights,
+                    );
                 } else {
                     state.laid_out = None;
                     state.ime = None;
@@ -12893,7 +12905,7 @@ impl LayoutBuilder<'_> {
                     }
 
                     let is_focused = self.focused == Some(id.as_str());
-                    let is_placeholder = state.value.is_empty() && !is_focused;
+                    let is_placeholder = state.value.is_empty() && (!is_focused || *persistent_placeholder);
                     let placeholder_lines;
                     let shown_lines = if is_placeholder {
                         placeholder_lines =
@@ -15938,6 +15950,44 @@ mod tests {
             .any(|command| matches!(command,
                 DrawCommand::Text { text, .. } if text == "Placeholder"
             )));
+    }
+
+    #[test]
+    fn a_text_area_keeps_its_placeholder_while_focused_only_when_asked() {
+        use crate::{Component, ComponentPalette, TextArea};
+
+        let viewport = Size::new(240.0, 120.0);
+        for persistent in [false, true] {
+            let area = TextArea::new("notes", "", "Notes", ComponentPalette::neutral_dark())
+                .persistent_placeholder(persistent)
+                .render();
+            let mut tree = UiTree::new(area);
+            tree.set_reduced_motion(true);
+            tree.layout(viewport);
+            assert!(tree.focus("notes"));
+            let frame = tree.layout(viewport);
+            let placeholder = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, position, color, .. } if text == "Notes" => Some((*position, color.a)),
+                _ => None,
+            });
+            let caret = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, .. } if rect.width == 1.5 => Some(*rect),
+                _ => None,
+            });
+            match placeholder {
+                // Faint, with the caret before it, where the first key goes.
+                Some((at, alpha)) => {
+                    assert!(persistent, "a focused area hides its placeholder by default");
+                    assert_eq!(alpha, 110);
+                    assert_eq!(caret.map(|caret| (caret.x, caret.y)), Some((at.x, at.y)));
+                }
+                None => assert!(!persistent, "the focused empty area keeps its placeholder"),
+            }
+            tree.handle_event(UiEvent::Text("a".into()));
+            assert!(!tree.layout(viewport).commands.iter().any(|command| matches!(command,
+                DrawCommand::Text { text, .. } if text == "Notes"
+            )));
+        }
     }
 
     #[test]

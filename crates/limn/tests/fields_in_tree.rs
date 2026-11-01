@@ -155,6 +155,34 @@ fn an_empty_field_draws_its_placeholder_faint() {
 }
 
 #[test]
+fn a_focused_text_area_keeps_its_placeholder_faint_when_asked() {
+    for persistent in [false, true] {
+        let mut tree = tree(
+            Element::text_area("notes", "", "Write")
+                .persistent_placeholder(persistent)
+                .font_family(FontFamily::Sans)
+                .foreground(INK)
+                .padding(0.0)
+                .size(Some(300.0), Some(90.0)),
+        );
+        focus(&mut tree, "notes");
+        let frame = tree.layout(WINDOW);
+        let faint: Vec<(String, u8)> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Glyphs(run) => Some((run.text.to_string(), run.color.a)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(faint, if persistent { vec![("Write".to_owned(), 110)] } else { vec![] });
+        assert_eq!(caret(&frame).map(|caret| caret.x), Some(0.0), "the caret where the first key goes");
+        tree.handle_event(UiEvent::Text("a".into()));
+        assert_eq!(drawn(&tree.layout(WINDOW)), ["a"]);
+    }
+}
+
+#[test]
 fn typed_text_is_laid_out_again_before_the_next_paint() {
     let mut tree = input("ab", 300.0);
     focus(&mut tree, "field");
