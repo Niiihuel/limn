@@ -513,3 +513,36 @@ fn modal_menu_keeps_nested_hover_submenus_reachable_with_the_keyboard() {
         }]
     );
 }
+
+#[test]
+fn clicking_blank_space_in_an_open_modal_blurs_instead_of_refocusing_its_first_field() {
+    let mut tree = UiTree::new(modal_with_select(false, false));
+    tree.set_reduced_motion(true);
+    let frame = tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("form_name"));
+    // Inside the modal's body, under the select and above the footer.
+    let blank = Point::new(300.0, 190.0);
+    assert_eq!(
+        frame.hit_test(blank),
+        Some("modal_body:modal_dismiss"),
+        "the point is blank body space"
+    );
+    tree.handle_event(UiEvent::PointerDown(blank));
+    tree.handle_event(UiEvent::PointerUp(blank));
+    tree.layout(VIEWPORT);
+    assert_eq!(
+        tree.focused_id(),
+        None,
+        "a pointer blur is not sent to the first field"
+    );
+    // The keyboard still starts inside the modal.
+    tree.handle_event(key(Key::Tab));
+    let focused = tree.focused_id().map(str::to_owned);
+    assert!(
+        matches!(
+            focused.as_deref(),
+            Some("form_name" | "choice" | "save" | "modal_dismiss:close")
+        ),
+        "{focused:?}"
+    );
+}
