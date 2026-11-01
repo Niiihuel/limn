@@ -53,6 +53,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         section(cx, "Weights", [
             ("Regular", limn::FontFamily::Sans),
             ("Medium", limn::FontFamily::SansMedium),
+            ("Semibold", limn::FontFamily::SansSemibold),
             ("Bold", limn::FontFamily::SansBold),
             ("Bold italic", limn::FontFamily::SansBoldItalic),
         ].into_iter().map(|(name, family)| {
@@ -61,6 +62,46 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .font_size(15.0)
                 .foreground(palette.text)
         }).collect()),
+        section(cx, "Gradient ink", vec![
+            caption(cx, ".foreground_gradient(stops): a name in the colors of its role"),
+            Element::text("Two colors, left to right")
+                .font_family(limn::FontFamily::SansBold)
+                .font_size(18.0)
+                .foreground_gradient(vec![limn::Color::rgb(0xE0, 0x6C, 0x75), limn::Color::rgb(0xE5, 0xC0, 0x7B)]),
+            Element::text("Three colors, holographic")
+                .font_family(limn::FontFamily::SansBold)
+                .font_size(18.0)
+                .foreground_gradient(vec![
+                    limn::Color::rgb(0xA9, 0xC9, 0xFF),
+                    limn::Color::rgb(0xFF, 0xBB, 0xEC),
+                    limn::Color::rgb(0xFF, 0xC3, 0xA0),
+                ]),
+            caption(cx, "Cut short, the gradient spans what is painted"),
+            Element::truncated_text(long)
+                .font_size(15.0)
+                .foreground_gradient(vec![palette.muted, palette.text])
+                .size(Some(width.min(240.0)), None),
+        ]),
+        section(cx, "Inline pictures", {
+            let span = |text: &str, size: f32| limn::TextSpan::new(text, palette.text, size, limn::FontFamily::Sans);
+            vec![
+                caption(cx, "TextSpan::image(picture) and .surface(id): a square 1.375 times the text's size, painted in place of its text, which is what a selection copies and a screen reader reads"),
+                Element::formatted_text(vec![
+                    span("A custom emoji ", 16.0),
+                    span(":dusk:", 16.0).image(super::media::picture(0).cover()),
+                    span(" in a line, one that moves ", 16.0),
+                    span(":tide:", 16.0).surface(super::media::ANIMATION),
+                    span(" on the host's surface, and the line wraps around them whole.", 16.0),
+                ])
+                .size(Some(width), None),
+                caption(cx, "Alone, larger: a message that is only emoji, at 48 px"),
+                Element::formatted_text(vec![
+                    span(":forest:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(1).cover()),
+                    span(" ", 48.0 / limn::INLINE_IMAGE_SCALE),
+                    span(":dusk:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(0).cover()),
+                ]),
+            ]
+        }),
         section(cx, "Marks and hints", {
             let span = |text: &str| limn::TextSpan::new(text, palette.text, 15.0, limn::FontFamily::Sans);
             vec![
@@ -95,6 +136,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 Element::formatted_text(vec![
                     limn::TextSpan::new("A channel's topic, ", palette.muted, 14.0, limn::FontFamily::Sans),
                     limn::TextSpan::new("with marks", palette.text, 14.0, limn::FontFamily::SansBold),
+                    limn::TextSpan::new(" and a picture ", palette.muted, 14.0, limn::FontFamily::Sans),
+                    limn::TextSpan::new(":dusk:", palette.muted, 14.0, limn::FontFamily::Sans).image(super::media::picture(0).cover()),
                     limn::TextSpan::new(", long enough to run past the lines it is given in a narrow column.", palette.muted, 14.0, limn::FontFamily::Sans),
                 ])
                 .size(Some(width.min(240.0)), None)
@@ -106,26 +149,6 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 paragraph().max_lines(2),
                 caption(cx, "No limit"),
                 paragraph(),
-            ]
-        }),
-        section(cx, "Inline pictures", {
-            let span = |text: &str, size: f32| limn::TextSpan::new(text, palette.text, size, limn::FontFamily::Sans);
-            vec![
-                caption(cx, "TextSpan::image(picture): a square 1.375 times the text's size, painted in place of its text, which is what a selection copies and a screen reader reads"),
-                Element::formatted_text(vec![
-                    span("A custom emoji ", 16.0),
-                    span(":dusk:", 16.0).image(super::media::picture(0).cover()),
-                    span(" in a line, and another ", 16.0),
-                    span(":tide:", 16.0).image(super::media::picture(2).cover()),
-                    span(": the line wraps around them whole.", 16.0),
-                ])
-                .size(Some(width), None),
-                caption(cx, "Alone, larger: a message that is only emoji, at 48 px"),
-                Element::formatted_text(vec![
-                    span(":forest:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(1).cover()),
-                    span(" ", 48.0 / limn::INLINE_IMAGE_SCALE),
-                    span(":dusk:", 48.0 / limn::INLINE_IMAGE_SCALE).image(super::media::picture(0).cover()),
-                ]),
             ]
         }),
         section(cx, "Long text", vec![
@@ -182,6 +205,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, "Sequence limits: regional flags and some keycaps / joined flags can still use an earlier font."),
             Element::text("🇦🇷 · #️⃣ · 🏳️‍🌈").font_size(20.0).foreground(palette.muted),
         ]).collect()),
+        section(cx, "Color emoji", vec![
+            caption(cx, "limn_egui::set_color_emoji: the host's artwork over the glyphs; here synthetic discs for 😀, ❤️ and 👍🏽. Width, selection and copied text stay the font's."),
+            Element::text("Text 😀 with ❤️ and 👍🏽, and ❤ without VS16").font_size(20.0).foreground(palette.text),
+            Element::text("Italic 😀 · faded ❤️").font_family(limn::FontFamily::SansItalic).font_size(16.0).foreground(palette.muted),
+        ]),
         section(cx, "Separator", vec![
             Element::column(vec![
                 Text::new("Above", palette).render(),
@@ -206,4 +234,36 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, "Vertical: centered in the toolbar with margin, and with no options (fills the height)."),
         ]),
     ]
+}
+
+/// The gallery's color emoji: a disc of one color for each of three
+/// clusters, drawn here rather than shipping anyone's artwork. `❤` without
+/// VS16 asks for text presentation and keeps its glyph.
+pub fn demo_emoji(cluster: &str) -> Option<&'static [u8]> {
+    use std::sync::OnceLock;
+    static DISCS: OnceLock<Vec<Vec<u8>>> = OnceLock::new();
+    let discs = DISCS.get_or_init(|| {
+        [[255, 204, 77], [221, 46, 68], [175, 126, 87]]
+            .into_iter()
+            .map(|[r, g, b]| {
+                let disc = image::RgbaImage::from_fn(72, 72, |x, y| {
+                    let (dx, dy) = (x as f32 - 35.5, y as f32 - 35.5);
+                    let alpha = (33.0 - (dx * dx + dy * dy).sqrt()).clamp(0.0, 1.0);
+                    image::Rgba([r, g, b, (alpha * 255.0) as u8])
+                });
+                let mut png = Vec::new();
+                image::DynamicImage::ImageRgba8(disc)
+                    .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+                    .expect("encode a disc");
+                png
+            })
+            .collect()
+    });
+    let index = match cluster {
+        "😀" => 0,
+        "❤\u{fe0f}" => 1,
+        "👍🏽" => 2,
+        _ => return None,
+    };
+    Some(&discs[index])
 }

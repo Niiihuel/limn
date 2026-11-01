@@ -71,6 +71,19 @@ out of reach, and `destructive` draws it in an ink of the host's.
 `tooltip_with(TooltipSpec)` adds a hint. `description` and the two-line row
 are in [Catalog menus](picker.md).
 
+`image(picture)` draws a picture in the icon's slot, in place of any icon,
+at most 16 px on a side and untinted, and `surface(id)` a host-fed surface
+there, fitted inside and named by the label, for an animation the host
+presents. Both keep the slot for the menu's other rows.
+
+```rust
+DropdownMenuItem::new("server=7", "Harbor").leading(Avatar::new("Harbor", palette).render()).into()
+```
+
+`leading(element)` puts an element of yours in the slot instead, in place
+of any icon or picture: a server's icon, rounded, or its initial when it
+has none. It gets the slot's square, at most 16 px, and is not tinted.
+
 ## Check boxes and radio items
 
 ```rust
@@ -81,7 +94,10 @@ DropdownMenuItem::new("level=mentions", "Only @mentions").radio(state.level == L
 
 `checkbox(checked)` draws a box at the end of the row, filled with a check
 while it is ticked; `radio(checked)` draws a circle, with a dot in the chosen
-one. The menu keeps the column for every row. Choosing either reports its ID,
+one. The menu keeps the column for every row. A row that opens a submenu
+ends with its chevron in that same column, so a box and a chevron both stand
+at the row's edge; only a menu with a row that is both a choice and a submenu
+keeps the two columns apart. Choosing either reports its ID,
 as any item does: the host flips its own value, or chooses the radio item's
 value. The mark is drawn as a `Checkbox` and a `RadioGroup` draw theirs, and is
 muted while the item is disabled.
@@ -104,9 +120,10 @@ without one) and lines up with the menu's one-line rows: it has their sides,
 icon slot, label size and gap, and keeps their check and chevron columns, so
 labels, marks and chevrons stand in the same columns in every style. The
 second line is at the profile's `detail_size` (12 without one, and in
-`context_menu_style`). The padding above and below the two lines gives way
-when they need the room. The second line is cut to one line, so a hint says a
-long reason whole. The platform hears it after the label, disabled or not.
+`context_menu_style` the one `context_metrics` sets). The padding above and
+below the two lines gives way when they need the room. The second line is cut
+to one line, so a hint says a long reason whole. The platform hears it after
+the label, disabled or not.
 
 ## Submenus
 
@@ -120,7 +137,9 @@ DropdownMenuItem::new("settings", "Settings")
 ```
 
 The second menu opens beside its row while the pointer is over the row or the
-submenu, or with the keyboard. A submenu can hold submenus of its own: each
+submenu, or with the keyboard. It stands 3 px clear of its parent menu's edge
+on whichever side it opens, and, with room in the window, its first row lines
+up with the row that opened it. A submenu can hold submenus of its own: each
 stays open while the pointer or the focus is in one nested in it. One the
 pointer opened closes when the pointer moves to another row of its parent;
 one the keyboard opened closes when the pointer moves to a row that opens a
@@ -217,9 +236,30 @@ shows, always unless set. Submenus take both.
 ## Style
 
 `context_menu_style()` gives the menu the surface and density of a
-[ContextMenu](context-menu.md). `hints_in_tooltips(true)` moves shortcuts and
-annotations into each row's hint, for a narrow menu. `inline(true)` renders
-the options in the layout under the trigger instead of floating them.
+[ContextMenu](context-menu.md). `context_metrics(ContextMenuMetrics { .. })`
+gives that style another density, in logical pixels: the row height, the label
+and detail sizes, the inset, the padding, the gap, the separator, the heading
+height and the tallest the menu gets before it scrolls (`max_height`, 480 by
+default; a host can pass its window's height). Submenus take the same. Set the fields you change and take the rest
+from `ContextMenuMetrics::default()`, the editor's values. Two-line rows,
+sections and loading rows keep their own heights.
+
+```rust
+DropdownMenu::new(row, entries, open, "row:dismiss", palette)
+    .context_menu_style()
+    .context_metrics(ContextMenuMetrics {
+        row_height: 32.0,
+        label_size: 14.0,
+        inset: 8.0,
+        separator_height: 17.0,
+        ..ContextMenuMetrics::default()
+    })
+    .render()
+```
+
+`hints_in_tooltips(true)` moves shortcuts and annotations into each row's
+hint, for a narrow menu. `inline(true)` renders the options in the layout
+under the trigger instead of floating them.
 `check_ink(color)` draws a selected row's check in that color, such as an
 accent blue, and `selected_fill(false)` leaves the row unfilled, marked by its
 check alone; submenus take both. Shortcuts are keycaps unless the

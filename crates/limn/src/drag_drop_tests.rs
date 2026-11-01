@@ -56,7 +56,7 @@ fn escape_and_pointer_leave_cancel_and_undraggable_presses_never_drag() {
     tree.handle_event(UiEvent::PointerDown(at(10.0)));
     tree.handle_event(UiEvent::PointerMove(at(45.0)));
     assert_eq!(
-        tree.handle_event(UiEvent::Key { key: Key::Escape, shift: false, ctrl: false }),
+        tree.handle_event(UiEvent::Key { key: Key::Escape, shift: false, ctrl: false, alt: false }),
         vec![UiAction::DragCancelled { id: "file".into() }]
     );
     assert!(tree.handle_event(UiEvent::PointerUp(at(45.0))).is_empty());

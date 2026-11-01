@@ -1384,7 +1384,7 @@ impl EditorView {
             self.ensure_visual_map(&snapshot, self.viewport.body.width, measure);
         }
         self.ensure_review_layout(&snapshot);
-        let targets = if let UiEvent::Key { key, shift, ctrl } = event {
+        let targets = if let UiEvent::Key { key, shift, ctrl, .. } = event {
             let mut targets = Vec::new();
             let mut primary_x = self.viewport.desired_x;
             for (index, selected) in snapshot.selections().enumerate() {
@@ -1456,6 +1456,7 @@ impl EditorView {
                 key: Key::D,
                 ctrl: true,
                 shift,
+                ..
             } => {
                 result = buffer
                     .execute_command(
@@ -3151,6 +3152,22 @@ fn paint_editor_status(
         CodeLanguage::Css => "CSS",
         CodeLanguage::Html => "HTML",
         CodeLanguage::Markdown => "Markdown",
+        CodeLanguage::Go => "Go",
+        CodeLanguage::Java => "Java",
+        CodeLanguage::Kotlin => "Kotlin",
+        CodeLanguage::Swift => "Swift",
+        CodeLanguage::C => "C",
+        CodeLanguage::Cpp => "C++",
+        CodeLanguage::CSharp => "C#",
+        CodeLanguage::Php => "PHP",
+        CodeLanguage::Ruby => "Ruby",
+        CodeLanguage::Lua => "Lua",
+        CodeLanguage::Shell => "Shell",
+        CodeLanguage::Yaml => "YAML",
+        CodeLanguage::Sql => "SQL",
+        CodeLanguage::Diff => "Diff",
+        CodeLanguage::Dart => "Dart",
+        CodeLanguage::Zig => "Zig",
     };
     let ending = match snapshot.preferred_line_ending() {
         limn_editor::LineEnding::Lf => "LF",
@@ -4074,7 +4091,7 @@ mod tests {
         (controller, tree)
     }
     fn key(tree: &mut UiTree, key: Key, shift: bool, ctrl: bool) -> Vec<UiAction> {
-        tree.handle_event(UiEvent::Key { key, shift, ctrl })
+        tree.handle_event(UiEvent::Key { key, shift, ctrl, alt: false })
     }
     fn text(controller: &EditorController) -> String {
         let snapshot = controller.snapshot().unwrap();
@@ -4153,6 +4170,7 @@ mod tests {
                 key: Key::ArrowUp,
                 shift: false,
                 ctrl: false,
+                alt: false,
             },
             Instant::now(),
             &measure,

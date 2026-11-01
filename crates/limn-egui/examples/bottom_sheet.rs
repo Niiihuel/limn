@@ -12,6 +12,7 @@ struct App {
     attached: bool,
     capture: Option<String>,
     frames: u32,
+    shot: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<egui::ColorImage>>>>,
 }
 
 impl App {
@@ -78,14 +79,12 @@ impl App {
             return;
         };
         if self.frames == 20 {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            let shot = self.shot.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(
+                move |image| *shot.lock().expect("screenshot slot") = Some(image),
+            )));
         }
-        if let Some(image) = ctx.input(|input| {
-            input.events.iter().find_map(|event| match event {
-                egui::Event::Screenshot { image, .. } => Some(image.clone()),
-                _ => None,
-            })
-        }) {
+        if let Some(image) = self.shot.lock().expect("screenshot slot").take() {
             image::save_buffer(
                 path,
                 image.as_raw(),
@@ -164,6 +163,7 @@ fn main() -> eframe::Result {
                 attached: false,
                 capture,
                 frames: 0,
+                shot: Default::default(),
             }))
         }),
     )

@@ -241,3 +241,25 @@ fn a_bar_that_hides_unless_hovered_wakes_under_the_pointer_and_fades_after_it_le
     plain.handle_event_at(UiEvent::PointerMove(Point::new(20.0, 60.0)), now);
     assert_eq!(thumb_alpha(&plain.layout_at(Size::new(220.0, 160.0), now)), None);
 }
+
+#[test]
+fn content_a_rounding_error_taller_than_its_viewport_shows_no_scrollbar() {
+    let body = |height: f32| {
+        Element::column(vec![
+            ScrollArea::new("body", Element::spacer().size(None, Some(100.0)))
+                .appearance(ScrollbarAppearance::reserved())
+                .render()
+                .size(None, Some(height)),
+            Element::spacer().flex(1.0),
+        ])
+    };
+    // What a column handing out a flexible height leaves behind.
+    let mut tree = UiTree::new(body(100.0 - 0.000_01));
+    let frame = tree.layout(Size::new(220.0, 160.0));
+    assert!(!frame.scrollbars.contains_key("body"));
+    assert_eq!(frame.scroll_extents.get("body"), Some(&0.0));
+    let mut tree = UiTree::new(body(99.0));
+    let frame = tree.layout(Size::new(220.0, 160.0));
+    assert!(frame.scrollbars.contains_key("body"));
+    assert_eq!(frame.scroll_extents.get("body"), Some(&1.0));
+}

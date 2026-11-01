@@ -91,6 +91,12 @@ application's accent, in place of a focused field's. `max_visible_items(n)`
 shows `n` options and scrolls the rest; unless set the list is as long as
 its options, within the window.
 
+`outline(border, focus)` and `radius(px)` give a field the outline and corners
+a [TextField](text-field.md#outline-and-radius) takes: the border at rest, the
+focus color while the trigger has the focus or its list is open, where `ink`
+still wins, and the radius in place of the control's. The button variant
+ignores both.
+
 ## Size
 
 ```rust
@@ -112,10 +118,23 @@ shorter than 28. A height that is not finite is ignored.
 ```rust
 DropdownOption::new("shell:fish", "Fish").icon(Icon::Terminal).selected(true)
 DropdownOption::new("shell:nu", "Nushell").disabled()
+DropdownOption::new("mic:usb", "USB Audio Device (…").tooltip(whole_name)
 ```
 
 `selected(true)` puts a check on the option. A disabled option is passive: it
-cannot be chosen or focused.
+cannot be chosen or focused. `tooltip` gives the option a hint of its own,
+shown while the pointer rests on it, such as the whole of a name its label
+shortens; a blank one is ignored.
+
+```rust
+DropdownOption::new("color:red", ":red:").image(emoji)
+DropdownOption::new("color:party", ":party:").surface("emoji:party")
+```
+
+`image` draws a picture in the icon's place, such as a custom emoji, at most
+16 px on a side and in its own colors; `surface(id)` draws a host-fed surface
+there instead, such as the same emoji animated. The other options keep the
+slot, so their labels line up.
 
 ## Width
 

@@ -30,6 +30,16 @@ Avatar::new("Ada Lovelace", palette).image(photo).render()
 initial. The host provides a square photo; one of another shape fills the
 circle when it is marked `.cover()`.
 
+## Color
+
+```rust
+Avatar::new("Ada Lovelace", palette).color(person.color).render()
+```
+
+`color` is the fill behind the initial, such as the color an application
+gives each person, in place of the palette's `selected`. The initial keeps
+the palette's `text`. A photo covers it.
+
 ## Size
 
 ```rust

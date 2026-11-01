@@ -40,6 +40,7 @@ impl Modal {
             key,
             ctrl,
             shift: false,
+            alt: false,
         });
     }
     fn escape(&mut self) {
@@ -359,6 +360,7 @@ fn focused_modal_editor_owns_control_navigation_and_escape_before_host_shortcuts
         key: Key::J,
         ctrl: true,
         shift: false,
+        alt: false,
     });
     assert_eq!(controller.snapshot().unwrap().selection().head, 6);
     tree.handle_event(UiEvent::Text("i".into()));
@@ -368,6 +370,7 @@ fn focused_modal_editor_owns_control_navigation_and_escape_before_host_shortcuts
         key: Key::Escape,
         ctrl: false,
         shift: false,
+        alt: false,
     });
     assert_eq!(tree.code_editor_vim_mode("vim"), Some(VimMode::Normal));
 }

@@ -3,10 +3,10 @@
 
 use limn::{
     ActionRow, BreadcrumbItem, Button, ButtonVariant, Checkbox, Clipboard, Collapsible, Component, ComponentPalette,
-    Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioOption, Toggle, ToggleGroup, ToggleItem,
+    Accordion, AccordionItem, Chip, NumberInput, Pagination, RadioGroup, RadioMetrics, RadioOption, Toggle, ToggleGroup, ToggleItem,
     Toolbar, ToolbarItem, ColorPicker, Hsv, SwatchPicker,
     Composer, ContextMenuItem, DatePicker, DateTimePicker, DictationButton, DictationState, DismissButton,
-    DropdownMenu, DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
+    ContextMenuMetrics, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownOption, Element, Icon, IconButton, Link, ListRow, Markdown, Marker, MediaCard, MediaTile,
     MenuBarMenu, MenuItem, MenuSeparator, NavigationAction, NavigationWorkspace, ResizeHandle, SearchField,
     SegmentedControl, Select, Size, Slider, Step, SuggestionItem, Switch, Tab, TabItem, Tabs, TabsVariant, TextArea,
     TextField, TimePicker, Toast, TopBar, TreeGuides, TreeRow, UiTree, Point,
@@ -158,6 +158,37 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         lays_out_with_real_numbers("Button::width", Button::new("b", "B", palette).variant(ButtonVariant::Outline).width(bad).render());
         lays_out_with_real_numbers("Slider::width", Slider::new("s", 0.5, palette).width(bad).render());
         lays_out_with_real_numbers(
+            "Slider::thumb and bar",
+            Slider::new("s", 0.5, palette).steps(5).marks().thumb(bad, bad).bar(bad, bad).render(),
+        );
+        lays_out_with_real_numbers(
+            "Slider::mark_style",
+            Slider::new("s", 0.5, palette)
+                .steps(5)
+                .mark_labels(["a", "b", "c", "d", "e"])
+                .default_stop(1)
+                .mark_style(limn::MarkStyle {
+                    dash: limn::Size::new(bad, bad),
+                    label_size: bad,
+                    label_weight_medium: true,
+                    default_mark_ink: None,
+                })
+                .render(),
+        );
+        lays_out_with_real_numbers("SearchField::height", SearchField::new("s", "", "S", palette).height(bad).render());
+        lays_out_with_real_numbers("TextField::radius", TextField::new("s", "", "S", palette).radius(bad).render());
+        lays_out_with_real_numbers(
+            "Select::radius",
+            Select::new("s", "S", Vec::new(), false, "s:dismiss", palette).variant(limn::SelectVariant::Field).radius(bad).render(),
+        );
+        lays_out_with_real_numbers("Switch::track_size", Switch::new("s", true, palette).track_size(bad, bad).render());
+        lays_out_with_real_numbers("Switch::thumb_inset", Switch::new("s", true, palette).thumb_inset(bad).render());
+        let radio = RadioMetrics { circle: bad, option_gap: bad, description_size: bad, description_gap: bad, label_size: bad };
+        lays_out_with_real_numbers(
+            "RadioGroup::metrics",
+            RadioGroup::new("r", vec![RadioOption::new("a", "A").description("d")], Some("a"), palette).metrics(radio).render(),
+        );
+        lays_out_with_real_numbers(
             "Markdown::font_size",
             Markdown::new("# a\n\n- [b](https://example.test/b)", palette)
                 .font_size(bad)
@@ -182,6 +213,35 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
         let menu = || DropdownMenu::new(Element::spacer(), vec![DropdownMenuItem::new("i", "I").into()], true, "d", palette);
         lays_out_with_real_numbers("DropdownMenu::at", menu().at(Point::new(bad, 40.0)).render());
         lays_out_with_real_numbers("DropdownMenu::at", menu().at(Point::new(40.0, bad)).render());
+        let metrics = ContextMenuMetrics {
+            row_height: bad,
+            label_size: bad,
+            detail_size: bad,
+            inset: bad,
+            horizontal_padding: bad,
+            gap: bad,
+            separator_height: bad,
+            scrollbar_gutter: bad,
+            header_height: bad,
+            max_height: bad,
+        };
+        lays_out_with_real_numbers(
+            "DropdownMenu::context_metrics",
+            DropdownMenu::new(
+                Element::spacer(),
+                vec![
+                    DropdownMenuItem::new("i", "I").into(),
+                    DropdownMenuEntry::Separator,
+                    DropdownMenuItem::new("j", "J").into(),
+                ],
+                true,
+                "d",
+                palette,
+            )
+            .context_menu_style()
+            .context_metrics(metrics)
+            .render(),
+        );
     }
 }
 
@@ -193,7 +253,7 @@ fn page_down_and_page_up_scroll_what_the_wheel_scrolls() {
     let rows: Vec<Element> = (0..60).map(|row| Button::new(format!("row-{row}"), format!("Row {row}"), palette).render()).collect();
     let window = Size::new(320.0, 240.0);
     let mut tree = UiTree::new(ScrollArea::new("list", Element::column(rows)).render().size(Some(window.width), Some(window.height)));
-    let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+    let key = |key| UiEvent::Key { key, shift: false, ctrl: false, alt: false };
     let settle = |tree: &mut UiTree| {
         // A smooth scroll arrives over a few frames.
         let start = web_time::Instant::now();

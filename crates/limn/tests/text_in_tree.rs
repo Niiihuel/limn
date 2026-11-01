@@ -221,7 +221,7 @@ mod formatted {
         let underline = hovered.commands.iter().any(|command| matches!(command,
             DrawCommand::FillRect { rect, color, .. } if *color == LINK && rect.height == 1.0 && (rect.x - target.x).abs() < 0.01));
         assert!(underline, "the action under the pointer is underlined");
-        tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false });
+        tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false, alt: false });
         assert_eq!(tree.focused_id(), Some("guide"));
     }
 

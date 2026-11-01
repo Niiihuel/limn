@@ -164,6 +164,7 @@ fn escape_reaches_real_editor_snippets_and_multicursors_after_dismissing_a_menu(
         key: Key::Escape,
         ctrl: false,
         shift: false,
+        alt: false,
     };
     tree.handle_event(UiEvent::ContextMenuKeyboard);
     layout(&mut tree);

@@ -75,6 +75,10 @@ pub enum Role {
     Label,
     /// A thing with no kind of its own. A node whose role nothing said is one.
     Group,
+    /// A landmark: a part of the window, such as a sidebar or a list of
+    /// messages, that F6 and [`UiTree::focus_next_region`](crate::UiTree::focus_next_region)
+    /// move the focus between. Give it an `id` and a `name`.
+    Region,
 }
 
 /// What a component says about one of its elements. Everything is optional:

@@ -273,7 +273,7 @@ mod tests {
     }
 
     fn key(tree: &mut UiTree, key: Key) -> Vec<UiAction> {
-        tree.handle_event(UiEvent::Key { key, ctrl: false, shift: false })
+        tree.handle_event(UiEvent::Key { key, ctrl: false, shift: false, alt: false })
     }
 
     #[test]

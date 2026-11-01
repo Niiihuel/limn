@@ -566,7 +566,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "open-result".into()
@@ -642,7 +643,7 @@ mod tests {
             for id in ["event", "open-result"] {
                 assert!(!tree.focus(id));
             }
-            let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+            let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false };
             assert!(tree.handle_event(enter).is_empty());
             // Muted as ever and in the same place, hovered or not: only the control is gone.
             assert_eq!(disabled.commands, enabled.commands);

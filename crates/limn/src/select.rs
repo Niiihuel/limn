@@ -2,8 +2,8 @@
 
 use crate::components::{control_radius, input_surface, lighter};
 use crate::{
-    Access, Button, ButtonVariant, Color, Component, ComponentPalette, ControlSize, ControlState,
-    DropdownMenu, DropdownMenuItem, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,
+    Access, Button, ButtonVariant, Color, Component, ComponentPalette, ControlSize,
+    DropdownMenu, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,
     Role, SelectorSizing, ICON_SIZE,
 };
 
@@ -49,6 +49,8 @@ pub struct Select {
     max_visible_items: Option<usize>,
     font_size: Option<f32>,
     ink: Option<Color>,
+    outline: Option<(Color, Color)>,
+    radius: Option<f32>,
 }
 
 impl Select {
@@ -83,6 +85,8 @@ impl Select {
             max_visible_items: None,
             font_size: None,
             ink: None,
+            outline: None,
+            radius: None,
         }
     }
 
@@ -196,6 +200,25 @@ impl Select {
         self
     }
 
+    /// A field's outline, as [`TextField::outline`](crate::TextField::outline)
+    /// takes it: `border` at rest and `focus` while the trigger has the focus
+    /// or its list is open, in place of the palette's. `ink` still wins while
+    /// the list is open. The button variant has no field and ignores it.
+    pub fn outline(mut self, border: Color, focus: Color) -> Self {
+        self.outline = Some((border, focus));
+        self
+    }
+
+    /// A field's corner radius in logical pixels, in place of the control's;
+    /// the button variant ignores it. A value that is not finite is ignored
+    /// and a negative one is zero.
+    pub fn radius(mut self, radius: f32) -> Self {
+        if radius.is_finite() {
+            self.radius = Some(radius.max(0.0));
+        }
+        self
+    }
+
     /// A disabled select shows its value, stays closed and cannot be focused.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
@@ -283,15 +306,7 @@ impl Component for Select {
         let entries = self
             .options
             .into_iter()
-            .map(|option| {
-                let mut item = DropdownMenuItem::new(option.action_id, option.label)
-                    .selected(option.selected)
-                    .enabled(option.state != ControlState::Disabled);
-                if let Some(icon) = option.icon {
-                    item = item.icon(icon);
-                }
-                item.into()
-            })
+            .map(|option| option.item().into())
             .collect();
         let menu_width = self.menu_width.unwrap_or_else(|| {
             self.sizing
@@ -361,8 +376,8 @@ impl Select {
                 Element::spacer().size(Some(8.0), None),
             ]))
             .background(palette.raised)
-            .border(palette.border, 1.0)
-            .radius(control_radius())
+            .border(self.outline.map_or(palette.border, |(border, _)| border), 1.0)
+            .radius(self.radius.unwrap_or_else(control_radius))
             .size(Some(width), Some(height))
             .accessible(said);
         }
@@ -380,9 +395,18 @@ impl Select {
         // A focused field's border, not a button's ring, under the keyboard.
         .focus_ring(false)
         .size(Some(width), Some(height));
+        let trigger = match self.outline {
+            Some((border, focus)) => trigger.border(border, 1.0).focus_border(focus, 1.5),
+            None => trigger,
+        };
+        let trigger = match self.radius {
+            Some(radius) => trigger.radius(radius),
+            None => trigger,
+        };
+        let focus = self.outline.map_or(lighter(palette.border, 70), |(_, focus)| focus);
         match (self.open, self.ink) {
             (true, Some(ink)) => trigger.border(ink, 2.0),
-            (true, None) => trigger.border(lighter(palette.border, 70), 1.5),
+            (true, None) => trigger.border(focus, 1.5),
             (false, _) => trigger,
         }
     }
@@ -473,6 +497,55 @@ mod tests {
     }
 
     #[test]
+    fn an_option_with_a_hint_shows_it_under_the_pointer_and_a_blank_one_is_ignored() {
+        let long = "Headset of the meeting room (USB, analog stereo)";
+        let hinted = |hint: &str| {
+            Select::new(
+                "toggle",
+                "Headset…",
+                vec![
+                    DropdownOption::new("mic:a", "Headset…").tooltip(hint).selected(true),
+                    DropdownOption::new("mic:b", "Laptop"),
+                ],
+                true,
+                "dismiss",
+                ComponentPalette::neutral_dark(),
+            )
+        };
+        assert_eq!(DropdownOption::new("a", "A").tooltip("  ").tooltip, None);
+        let shown = |select: Select| {
+            let mut tree = tree(select);
+            let option = rect(&tree.layout(VIEWPORT), "mic:a").expect("option");
+            tree.handle_event(UiEvent::PointerMove(Point::new(option.x + 10.0, option.y + 10.0)));
+            let later = web_time::Instant::now() + std::time::Duration::from_secs(2);
+            tree.layout_at(VIEWPORT, later)
+                .commands
+                .iter()
+                .any(|command| matches!(command, crate::DrawCommand::Text { text, .. } if text == long))
+        };
+        assert!(shown(hinted(long)), "the whole name is in the hint");
+        assert!(!shown(hinted("")), "no hint, nothing over the list");
+        // The same hint through the plain dropdown list.
+        let list = crate::DropdownList::new(
+            Element::spacer().size(Some(80.0), Some(24.0)),
+            vec![DropdownOption::new("mic:a", "Headset…").tooltip(long)],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        );
+        let mut tree = UiTree::new(Element::column(vec![list.render(), Element::spacer().flex(1.0)]));
+        tree.set_reduced_motion(true);
+        let option = rect(&tree.layout(VIEWPORT), "mic:a").expect("option");
+        tree.handle_event(UiEvent::PointerMove(Point::new(option.x + 10.0, option.y + 10.0)));
+        let later = web_time::Instant::now() + std::time::Duration::from_secs(2);
+        assert!(tree
+            .layout_at(VIEWPORT, later)
+            .commands
+            .iter()
+            .any(|command| matches!(command, crate::DrawCommand::Text { text, .. } if text == long)));
+    }
+
+    #[test]
     fn the_list_follows_the_trigger_width_unless_told_otherwise() {
         for (select, wanted) in [
             (select(true).width(300.0), 300.0),
@@ -487,7 +560,7 @@ mod tests {
 
     #[test]
     fn the_keyboard_moves_through_enabled_options_chooses_and_dismisses() {
-        let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+        let key = |key| UiEvent::Key { key, shift: false, ctrl: false, alt: false };
         let mut tree = tree(select(true));
         tree.layout(VIEWPORT);
         assert!(tree.focus("toggle"));
@@ -681,6 +754,43 @@ mod tests {
     }
 
     #[test]
+    fn a_field_select_takes_the_hosts_outline_and_radius_and_keeps_the_ink_while_open() {
+        let palette = ComponentPalette::neutral_dark();
+        let (border, focus) = (Color::rgb(60, 60, 60), Color::rgb(88, 101, 242));
+        // The trigger's own outlines, as their color, width and radius.
+        let strokes = |select: Select, focused: bool| {
+            let mut tree = tree(select);
+            tree.layout(VIEWPORT);
+            if focused {
+                assert!(tree.focus("toggle"));
+            }
+            let frame = tree.layout(VIEWPORT);
+            // Disabled, the trigger has no region, and its outline is the only one drawn.
+            let trigger = rect(&frame, "toggle");
+            frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    crate::DrawCommand::StrokeRect { rect, color, width, radius }
+                        if trigger.is_none_or(|trigger| *rect == trigger) =>
+                    {
+                        Some((*color, *width, *radius))
+                    }
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        let set = |open: bool| field(open).outline(border, focus).radius(8.0);
+        assert_eq!(strokes(set(false), false), [(border, 1.0, 8.0)]);
+        assert_eq!(strokes(set(false), true), [(focus, 1.5, 8.0)], "focused: the focus border, once");
+        assert_eq!(strokes(set(true), false), [(focus, 1.5, 8.0)], "open: the focus color");
+        assert_eq!(strokes(set(true).ink(palette.text), false), [(palette.text, 2.0, 8.0)], "open: the ink wins");
+        assert_eq!(strokes(set(false).disabled(), false), [(border, 1.0, 8.0)]);
+        // A radius that is not finite is the control's.
+        assert_eq!(strokes(field(false).radius(f32::NAN), false), [(palette.border, 1.0, control_radius())]);
+    }
+
+    #[test]
     fn a_field_select_takes_a_size_or_a_height_of_its_own_and_never_a_bad_one() {
         let height = |select: Select| {
             rect(&tree(select).layout(VIEWPORT), "toggle")
@@ -871,6 +981,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert_eq!(
             tree.handle_event(key(Key::Escape)),
@@ -890,5 +1001,67 @@ mod tests {
                 id: "shell:zsh".into()
             }]
         );
+    }
+
+    #[test]
+    fn an_option_shows_a_picture_or_a_surface_in_its_icon_slot() {
+        let picture = crate::RasterImage::new(
+            "a".repeat(64),
+            crate::RasterImageFormat::Png,
+            4,
+            std::sync::Arc::from("AAAA"),
+            "red",
+        )
+        .unwrap();
+        let select = Select::new(
+            "color",
+            "Red",
+            vec![
+                DropdownOption::new("color:red", "Red").image(picture).selected(true),
+                DropdownOption::new("color:party", "Party").surface("animation:party"),
+                DropdownOption::new("color:plain", "Plain"),
+            ],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        );
+        let frame = tree(select).layout(VIEWPORT);
+        let row = |id: &str| rect(&frame, id).expect("a row");
+        let image = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                crate::DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("the picture");
+        let (surface, label, fit) = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                crate::DrawCommand::Surface { rect, id, label, fit, .. } if id == "animation:party" => {
+                    Some((*rect, label.clone(), *fit))
+                }
+                _ => None,
+            })
+            .expect("the surface");
+        assert_eq!((label.as_str(), fit), ("Party", crate::SurfaceFit::Contain));
+        for (slot, id) in [(image, "color:red"), (surface, "color:party")] {
+            let row = row(id);
+            assert!(slot.width <= ICON_SIZE && slot.height <= ICON_SIZE, "{id}: {slot:?}");
+            assert!(slot.y >= row.y && slot.y + slot.height <= row.y + row.height, "{id} in its row");
+            assert!(slot.x < row.x + 40.0, "{id} at the row's start");
+        }
+        // Every label starts after the slot, with a picture or without.
+        let text_x = |said: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                crate::DrawCommand::Text { text, position, .. } if text == said && position.y > row("color:red").y - 1.0 => {
+                    Some(position.x)
+                }
+                _ => None,
+            })
+        };
+        assert_eq!(text_x("Party"), text_x("Plain"));
+        assert!(text_x("Plain").unwrap() > surface.x + surface.width);
     }
 }

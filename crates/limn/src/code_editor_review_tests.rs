@@ -69,6 +69,7 @@ fn key(view: &mut EditorView, key: Key, ctrl: bool) -> Vec<UiAction> {
             key,
             shift: false,
             ctrl,
+            alt: false,
         },
         Instant::now(),
         &measure,

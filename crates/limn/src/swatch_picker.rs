@@ -284,6 +284,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         })
     }
 

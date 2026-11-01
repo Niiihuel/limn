@@ -59,6 +59,20 @@ vertically when the preferred side would leave the window. `Center` and
 `Bottom` ignore the anchor and gap; `Bottom` meets the safe viewport's bottom
 edge, centers horizontally and can use its full width.
 
+## Shown on hover
+
+`Element::popover(anchor, content, dismiss_id, placement).popover_on_hover()`
+shows the content while the pointer or the focus is on the anchor's first
+control, on anything inside the anchor with a pointer region of its own (a
+hint's anchor, a nested button), or on the content, with no gap and no
+backdrop: a submenu, or a card beside a row that stays while the pointer
+crosses the row's marks on its way to it. Give the content a transparent
+margin toward the anchor for a visible gap that the pointer can still cross.
+`popover_on_hover` holds the gap at zero, so call `popover_gap` after it. The
+space that `popover_gap` and `popover_anchor_outset` leave beside the anchor's
+rows holds the content too, and so does the space beside the surface that
+`popover_clear_of` names, so that gap can be crossed without a margin.
+
 ## Width
 
 ```rust

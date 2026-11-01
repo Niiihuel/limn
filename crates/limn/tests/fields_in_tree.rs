@@ -46,7 +46,7 @@ fn focus(tree: &mut UiTree, id: &str) {
 }
 
 fn key(tree: &mut UiTree, key: Key) {
-    tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false });
+    tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false, alt: false });
 }
 
 /// The text each glyph run draws, in order.
@@ -213,7 +213,7 @@ fn up_and_down_keep_the_column_in_pixels_across_shorter_lines() {
     tree.layout(WINDOW);
     key(&mut tree, Key::Home);
     // From the end of the first line's third word to the short line, and on.
-    tree.handle_event(UiEvent::Key { key: Key::Home, shift: false, ctrl: true });
+    tree.handle_event(UiEvent::Key { key: Key::Home, shift: false, ctrl: true, alt: false });
     for _ in 0..12 {
         key(&mut tree, Key::ArrowRight);
     }
@@ -234,7 +234,7 @@ fn home_and_end_go_to_the_edges_of_the_wrapped_line_the_caret_is_on() {
     let mut tree = area(value, 120.0);
     focus(&mut tree, "notes");
     tree.layout(WINDOW);
-    tree.handle_event(UiEvent::Key { key: Key::Home, shift: false, ctrl: true });
+    tree.handle_event(UiEvent::Key { key: Key::Home, shift: false, ctrl: true, alt: false });
     key(&mut tree, Key::ArrowDown);
     let line = caret(&tree.layout(WINDOW)).expect("a caret").y;
     key(&mut tree, Key::End);
@@ -378,8 +378,8 @@ fn a_commit_takes_the_composition_into_the_value_and_a_cancel_drops_it() {
 fn a_composition_stands_in_for_the_selection_until_it_commits() {
     let mut tree = input("abc", 300.0);
     focus(&mut tree, "field");
-    tree.handle_event(UiEvent::Key { key: Key::ArrowLeft, shift: true, ctrl: false });
-    tree.handle_event(UiEvent::Key { key: Key::ArrowLeft, shift: true, ctrl: false });
+    tree.handle_event(UiEvent::Key { key: Key::ArrowLeft, shift: true, ctrl: false, alt: false });
+    tree.handle_event(UiEvent::Key { key: Key::ArrowLeft, shift: true, ctrl: false, alt: false });
     tree.handle_event(UiEvent::ImePreedit("z".into()));
     let frame = tree.layout(WINDOW);
     assert_eq!(drawn(&frame), ["az"]);
@@ -409,7 +409,7 @@ fn a_text_area_composes_on_the_line_its_caret_is_on() {
     let value = "one two three four five six seven eight";
     let mut tree = area(value, 120.0);
     focus(&mut tree, "notes");
-    tree.handle_event(UiEvent::Key { key: Key::Home, shift: false, ctrl: true });
+    tree.handle_event(UiEvent::Key { key: Key::Home, shift: false, ctrl: true, alt: false });
     key(&mut tree, Key::ArrowDown);
     let line = caret(&tree.layout(WINDOW)).expect("a caret").y;
     tree.handle_event(UiEvent::ImePreedit("zz".into()));
@@ -460,7 +460,7 @@ fn press(tree: &mut UiTree, at: Point, shift: bool, click_count: u8) {
 }
 
 fn ctrl(tree: &mut UiTree, key: Key, shift: bool) {
-    tree.handle_event(UiEvent::Key { key, shift, ctrl: true });
+    tree.handle_event(UiEvent::Key { key, shift, ctrl: true, alt: false });
 }
 
 #[test]
@@ -523,7 +523,7 @@ fn ctrl_and_an_arrow_step_by_word_and_ctrl_backspace_deletes_one() {
     ctrl(&mut tree, Key::ArrowLeft, true);
     assert_eq!(tree.input_selection("field"), Some((4, 9)), "Shift selects the step");
     ctrl(&mut tree, Key::End, false);
-    let actions = tree.handle_event(UiEvent::Key { key: Key::Backspace, shift: false, ctrl: true });
+    let actions = tree.handle_event(UiEvent::Key { key: Key::Backspace, shift: false, ctrl: true, alt: false });
     assert_eq!(actions, [UiAction::InputChanged { id: "field".into(), value: "one two, ".into() }]);
 }
 
@@ -535,7 +535,7 @@ fn the_caret_steps_over_a_grapheme_whole_and_an_arrow_collapses_a_selection() {
     key(&mut tree, Key::ArrowRight);
     key(&mut tree, Key::ArrowRight);
     assert_eq!(tree.input_cursor("field"), Some(3), "past the thumb and its skin tone");
-    let actions = tree.handle_event(UiEvent::Key { key: Key::Backspace, shift: false, ctrl: false });
+    let actions = tree.handle_event(UiEvent::Key { key: Key::Backspace, shift: false, ctrl: false, alt: false });
     assert_eq!(actions, [UiAction::InputChanged { id: "field".into(), value: "ab".into() }]);
     ctrl(&mut tree, Key::A, false);
     key(&mut tree, Key::ArrowLeft);

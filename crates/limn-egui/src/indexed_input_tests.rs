@@ -30,7 +30,7 @@ fn shortcut(keycode: egui::Key, command: bool, shift: bool) -> Event {
 }
 
 fn ui_key(key: Key, ctrl: bool, shift: bool) -> UiEvent {
-    UiEvent::Key { key, ctrl, shift }
+    UiEvent::Key { key, ctrl, shift, alt: false }
 }
 
 fn frame(
@@ -97,6 +97,9 @@ fn walk(
 ) -> Vec<UiAction> {
     let mut items = items.into_iter().peekable();
     let mut actions = Vec::new();
+    while items.peek().is_some_and(|item| item.source_index.is_none()) {
+        actions.extend(tree.handle_event(items.next().unwrap().event));
+    }
     for (index, native) in source.iter().enumerate() {
         let consumed = host(index, native, tree, &actions);
         while items
@@ -109,14 +112,10 @@ fn walk(
             }
         }
     }
-    // Frame-derived file metadata trails every indexed translation.
-    for item in items {
-        assert!(
-            item.source_index.is_none(),
-            "every translation was associated with its source or the derived suffix"
-        );
-        actions.extend(tree.handle_event(item.event));
-    }
+    assert!(
+        items.next().is_none(),
+        "every translation was associated with its source or derived prefix"
+    );
     actions
 }
 
@@ -202,8 +201,10 @@ fn indexed_input_uses_post_normalization_indices_and_keeps_native_key_metadata()
         mapped(&items),
         vec![
             (Some(0), UiEvent::Text(">".into())),
-            (Some(2), ui_key(Key::ArrowDown, false, false)),
-            (Some(3), ui_key(Key::ArrowDown, false, false)),
+            // Alt+Down: the translation carries Alt; repeat stays native.
+            (Some(2), UiEvent::Key { key: Key::ArrowDown, ctrl: false, shift: false, alt: true }),
+            (Some(3), UiEvent::Key { key: Key::ArrowDown, ctrl: false, shift: false, alt: true }),
+            (Some(4), UiEvent::KeyReleased { key: Key::ArrowDown }),
         ]
     );
     for (index, expected_repeat) in [(2, false), (3, true)] {
@@ -589,6 +590,8 @@ fn indexed_input_preserves_mixed_source_order_and_marks_frame_derived_files() {
         vec![
             (Some(0), UiEvent::PointerMove(Point::new(10.0, 10.0))),
             (Some(1), UiEvent::Text("é".into())),
+            // A pinch where the pointer is.
+            (Some(2), UiEvent::Zoom { position: Point::new(10.0, 10.0), factor: 1.0 }),
             (Some(3), UiEvent::ImePreedit("仮".into())),
             (Some(4), UiEvent::ImeCommit("界".into())),
             (Some(6), UiEvent::PointerLeave),
@@ -624,7 +627,8 @@ fn indexed_input_preserves_mixed_source_order_and_marks_frame_derived_files() {
 
     let position = Point::new(10.0, 20.0);
     let native = vec![
-        Event::Zoom(1.0),
+        // A native event limn does not translate.
+        Event::WindowFocused(true),
         Event::PointerMoved(egui::Pos2::new(110.0, 70.0)),
     ];
     let (_, hovered) = frame(
@@ -642,8 +646,8 @@ fn indexed_input_preserves_mixed_source_order_and_marks_frame_derived_files() {
     assert_eq!(
         mapped(&hovered),
         vec![
-            (Some(1), UiEvent::PointerMove(position)),
-            (None, UiEvent::FilesHovered { position })
+            (None, UiEvent::FilesHovered { position }),
+            (Some(1), UiEvent::PointerMove(position))
         ]
     );
 
@@ -676,14 +680,14 @@ fn indexed_input_preserves_mixed_source_order_and_marks_frame_derived_files() {
         assert_eq!(
             mapped(&dropped),
             vec![
-                (Some(1), UiEvent::PointerMove(position)),
                 (
                     None,
                     UiEvent::FilesDropped {
                         position,
                         paths: vec![path]
                     }
-                )
+                ),
+                (Some(1), UiEvent::PointerMove(position))
             ]
         );
     }

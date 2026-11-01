@@ -10,7 +10,7 @@ fn covers(ctx: &egui::Context, family: &egui::FontFamily, ch: char) -> bool {
     let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
     definitions.families[family].iter().any(|name| {
         let data = &definitions.font_data[name];
-        skrifa::FontRef::from_index(data.font.as_ref(), data.index)
+        skrifa::FontRef::from_index((*data.font).as_ref(), data.index)
             .is_ok_and(|face| face.charmap().map(ch).is_some_and(|id| id != skrifa::GlyphId::NOTDEF))
     })
 }
@@ -48,11 +48,11 @@ fn a_hosts_ui_face_is_what_egui_measures_and_its_missing_weights_take_it() {
     let bundled = limn::Fonts::bundled();
     let host = bundled.face_of(FontFamily::Monospace).unwrap().clone();
     let definitions = definitions_with(&limn::Fonts::new().face(FontFamily::Sans, host.clone()));
-    for name in ["Sans-Regular", "Sans-Medium", "Sans-Bold"] {
-        assert_eq!(&*definitions.font_data[name].font, host.bytes(), "{name}");
+    for name in ["Sans-Regular", "Sans-Medium", "Sans-Semibold", "Sans-Bold"] {
+        assert_eq!((*definitions.font_data[name].font).as_ref(), host.bytes(), "{name}");
     }
     let mono = bundled.face_of(FontFamily::Monospace).unwrap();
-    assert_eq!(&*definitions.font_data["Hack"].font, mono.bytes(), "the code face and fallbacks stay limn's");
+    assert_eq!((*definitions.font_data["Hack"].font).as_ref(), mono.bytes(), "the code face and fallbacks stay limn's");
 }
 
 #[test]
@@ -63,6 +63,7 @@ fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
         font_definitions_with(UiFaces {
             regular: face("Sans-Bold"),
             medium: medium.then(|| face("Sans-Medium")),
+            semibold: None,
             bold: None,
         })
     };
@@ -76,6 +77,23 @@ fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
     assert_eq!(medium[1..], family(&bundled, egui::FontFamily::Name(SANS_MEDIUM.into())));
     let bold = family(&chosen, egui::FontFamily::Name(SANS_BOLD.into()));
     assert_eq!(bold[0], "limn-ui-regular", "a weight left out is the regular face");
+    let semibold = family(&chosen, egui::FontFamily::Name(SANS_SEMIBOLD.into()));
+    assert_eq!(semibold[0], "limn-ui-medium", "without semibold or bold, the medium face");
+    assert_eq!(semibold[1..], family(&bundled, egui::FontFamily::Name(SANS_SEMIBOLD.into())));
+    let first_semibold = |faces: UiFaces| family(&font_definitions_with(faces), egui::FontFamily::Name(SANS_SEMIBOLD.into()))[0].clone();
+    let faces = |semibold: bool, bold: bool| UiFaces {
+        regular: face("Sans-Regular"),
+        medium: Some(face("Sans-Medium")),
+        semibold: semibold.then(|| face("Sans-Semibold")),
+        bold: bold.then(|| face("Sans-Bold")),
+    };
+    assert_eq!(first_semibold(faces(true, true)), "limn-ui-semibold");
+    assert_eq!(first_semibold(faces(false, true)), "limn-ui-bold", "the heavier neighbour first, as CSS");
+    assert_eq!(
+        first_semibold(UiFaces { medium: None, ..faces(false, false) }),
+        "limn-ui-regular",
+        "a family of one weight is drawn in it"
+    );
     assert_eq!(
         family(&chosen, egui::FontFamily::Monospace),
         family(&bundled, egui::FontFamily::Monospace),
@@ -88,7 +106,13 @@ fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
     let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
     output.textures_delta.clear();
     assert_eq!(egui_family(&ctx, FontFamily::SansBold), egui::FontFamily::Name(SANS_BOLD.into()));
-    assert!(covers(&ctx, &egui::FontFamily::Proportional, '𝓡'));
+    assert_eq!(egui_family(&ctx, FontFamily::SansSemibold), egui::FontFamily::Name(SANS_SEMIBOLD.into()));
+    assert_eq!(
+        egui_family(&ctx, FontFamily::SansBoldItalic),
+        egui::FontFamily::Name(SANS_BOLD.into()),
+        "bold italic is the bold face, slanted"
+    );
+    ctx.fonts_mut(|fonts| assert!(fonts.has_glyph(&egui::FontId::proportional(14.0), '𝓡')));
 }
 
 #[test]
@@ -108,6 +132,7 @@ fn mathematical_names_have_real_glyphs_in_every_limn_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
@@ -149,6 +174,7 @@ fn installing_fallback_keeps_existing_ui_faces_and_monospace_metrics() {
         for (family, first) in [
             (egui::FontFamily::Proportional, "Sans-Regular"),
             (egui::FontFamily::Name(SANS_MEDIUM.into()), "Sans-Medium"),
+            (egui::FontFamily::Name(SANS_SEMIBOLD.into()), "Sans-Semibold"),
             (egui::FontFamily::Name(SANS_BOLD.into()), "Sans-Bold"),
         ] {
             assert_eq!(families[&family].first().map(String::as_str), Some(first));
@@ -175,6 +201,7 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
@@ -189,7 +216,7 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
         assert_eq!(names[math + 1], "NotoSansSymbols2-Regular");
         let covers = |name: &str, ch| {
             let data = &definitions.font_data[name];
-            let face = skrifa::FontRef::from_index(data.font.as_ref(), data.index).unwrap();
+            let face = skrifa::FontRef::from_index(data.font.as_ref().as_ref(), data.index).unwrap();
             face.charmap()
                 .map(ch)
                 .is_some_and(|glyph| glyph != skrifa::GlyphId::NOTDEF)
@@ -233,6 +260,7 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
@@ -244,7 +272,7 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
             .iter()
             .map(|name| {
                 let data = &definitions.font_data[name];
-                skrifa::FontRef::from_index(data.font.as_ref(), data.index).unwrap()
+                skrifa::FontRef::from_index(data.font.as_ref().as_ref(), data.index).unwrap()
             })
             .collect();
         let mut missing = std::collections::BTreeSet::new();
@@ -298,6 +326,7 @@ fn emoji_fallback_preserves_existing_text_metrics() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
@@ -308,7 +337,7 @@ fn emoji_fallback_preserves_existing_text_metrics() {
             .iter()
             .map(|name| {
                 let data = &previous.font_data[name];
-                skrifa::FontRef::from_index(data.font.as_ref(), data.index).unwrap()
+                skrifa::FontRef::from_index(data.font.as_ref().as_ref(), data.index).unwrap()
             })
             .collect();
         for ch in include_str!("emoji_samples.txt")
@@ -356,6 +385,7 @@ fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
         FontFamily::Sans,
         FontFamily::SansItalic,
         FontFamily::SansMedium,
+        FontFamily::SansSemibold,
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
