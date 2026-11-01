@@ -40,6 +40,9 @@ mod pointer_blocking_tests;
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
+#[path = "animate_move_tests.rs"]
+mod animate_move_tests;
+#[cfg(test)]
 #[path = "stack_tests.rs"]
 mod stack_tests;
 #[cfg(test)]
@@ -1825,6 +1828,15 @@ struct AnimatedScalar {
 /// A value the tree follows for a slot of `LevelBars`.
 struct AnimatedSpring {
     value: ScalarSpring,
+    seen: Instant,
+}
+
+/// An `animate_move` element: its slot from its parent's origin, how far
+/// from it it is painted on its way there, and when it was seen.
+struct AnimatedMove {
+    slot: Point,
+    x: ScalarTransition,
+    y: ScalarTransition,
     seen: Instant,
 }
 
@@ -3680,6 +3692,7 @@ pub struct UiTree {
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
     scalars: RefCell<HashMap<String, AnimatedScalar>>,
     springs: RefCell<HashMap<String, AnimatedSpring>>,
+    moves: HashMap<String, AnimatedMove>,
     /// A pushing reach jumped while placed: the layout it was measured for is stale.
     pushes_moved: std::cell::Cell<bool>,
     /// The ink of each `animate_foreground` element and when it was seen.
@@ -3774,6 +3787,7 @@ impl UiTree {
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
             springs: RefCell::new(HashMap::new()),
+            moves: HashMap::new(),
             pushes_moved: std::cell::Cell::new(false),
             inks: RefCell::new(HashMap::new()),
             leaving: RefCell::new(HashMap::new()),
@@ -4104,6 +4118,7 @@ impl UiTree {
             self.flow_heights.get_mut().clear();
             self.scalars.get_mut().clear();
             self.springs.get_mut().clear();
+            self.moves.clear();
             self.inks.get_mut().clear();
             self.leaving.get_mut().clear();
             self.popover_view_transitions.clear();
@@ -4248,6 +4263,7 @@ impl UiTree {
                 .borrow()
                 .values()
                 .any(|state| state.value.is_active(now))
+            || self.moves.values().any(|state| state.x.is_active(now) || state.y.is_active(now))
             || self.inks.borrow().values().any(|(ink, _)| ink.is_active(now))
             || self
                 .popover_view_transitions
@@ -4498,6 +4514,8 @@ impl UiTree {
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
                 springs: &self.springs,
+                moves: &mut self.moves,
+                flow_origin: Point::default(),
                 pushes_moved: &self.pushes_moved,
                 inks: &self.inks,
                 leaving: &self.leaving,
@@ -5137,6 +5155,7 @@ impl UiTree {
         // that arrives in one seen empty is what `expand` opens.
         self.scalars.get_mut().retain(|_, state| state.seen == now);
         self.springs.get_mut().retain(|_, state| state.seen == now);
+        self.moves.retain(|_, state| state.seen == now);
         self.inks.get_mut().retain(|_, (_, seen)| *seen == now);
         self.leaving.get_mut().retain(|_, (_, seen)| *seen == now);
         self.flow_heights.get_mut().retain(|_, state| {
@@ -7633,6 +7652,10 @@ struct LayoutBuilder<'a> {
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
     springs: &'a RefCell<HashMap<String, AnimatedSpring>>,
+    moves: &'a mut HashMap<String, AnimatedMove>,
+    /// Where the column or row being placed starts its children, which an
+    /// `animate_move` slot is measured from.
+    flow_origin: Point,
     pushes_moved: &'a std::cell::Cell<bool>,
     inks: &'a RefCell<HashMap<String, (ColorTransition, Instant)>>,
     leaving: &'a RefCell<HashMap<String, (Vec<String>, Instant)>>,
@@ -10855,13 +10878,42 @@ impl LayoutBuilder<'_> {
     }
 
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
-        let mut rect = Self::translated_rect(element, rect);
+        let mut placed = Self::translated_rect(element, rect);
         if let Some((id, y)) = element.kept.as_ref().and_then(|kept| kept.slide.as_ref()) {
             // Three moves: long enough to see the rows go by, as a counter rolls.
             let pace = crate::tokens().motion.move_ms.saturating_mul(3);
-            rect.y += self.spring_paced(&format!("slide/{id}"), *y, pace, pace);
+            placed.y += self.spring_paced(&format!("slide/{id}"), *y, pace, pace);
         }
-        self.place_translated(element, rect, clip);
+        if let Some(id) = element.kept.as_ref().and_then(|kept| kept.moving.as_deref()) {
+            let offset = self.moved(id, rect);
+            placed = Rect::new(placed.x + offset.x, placed.y + offset.y, placed.width, placed.height);
+        }
+        self.place_translated(element, placed, clip);
+    }
+
+    /// How far from `rect` an `animate_move` element kept under `id` is
+    /// painted on this frame: from where it was shown when its slot changed,
+    /// easing to nothing over `move_ms`.
+    fn moved(&mut self, id: &str, rect: Rect) -> Point {
+        let now = self.now;
+        let slot = Point::new(rect.x - self.flow_origin.x, rect.y - self.flow_origin.y);
+        let state = self.moves.entry(id.to_owned()).or_insert_with(|| AnimatedMove {
+            slot,
+            x: ScalarTransition::new(0.0, now),
+            y: ScalarTransition::new(0.0, now),
+            seen: now,
+        });
+        state.seen = now;
+        if state.slot != slot {
+            let duration = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
+            // It sets off from where it is shown, as far from its new slot as that is.
+            for (axis, from) in [(&mut state.x, state.slot.x - slot.x), (&mut state.y, state.slot.y - slot.y)] {
+                axis.snap_to(axis.value(now) + from, now);
+                axis.retarget_with_motion(0.0, now, duration, self.reduced_motion);
+            }
+            state.slot = slot;
+        }
+        Point::new(state.x.value(now), state.y.value(now))
     }
 
     fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
@@ -11395,6 +11447,7 @@ impl LayoutBuilder<'_> {
         let mut pinned = Vec::new();
         match &element.kind {
             ElementKind::Column(children) => {
+                let outer = std::mem::replace(&mut self.flow_origin, Point::new(content.x, content.y));
                 let kept = self.with_leaving(element, children);
                 let previous_scope = matches!(&kept, Cow::Owned(_)).then(|| self.enter_measurement_scope());
                 let children = kept.as_ref();
@@ -11416,14 +11469,17 @@ impl LayoutBuilder<'_> {
                     }
                 }
                 if let Some(scope) = previous_scope { self.measurement_scope = scope; }
+                self.flow_origin = outer;
             }
             ElementKind::Row(children) => {
+                let outer = std::mem::replace(&mut self.flow_origin, Point::new(content.x, content.y));
                 for (child, rect) in children
                     .iter()
                     .zip(self.child_rects(element, children, content))
                 {
                     self.place(child, rect, clip);
                 }
+                self.flow_origin = outer;
             }
             ElementKind::TabStrip {
                 children,
