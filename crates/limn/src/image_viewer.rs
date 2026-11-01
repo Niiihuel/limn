@@ -23,6 +23,7 @@ pub struct ImageViewer {
     return_focus: Option<String>,
     zoom: f32,
     zoom_actions: Option<[String; 3]>,
+    actions: Vec<(String, Icon, String)>,
 }
 
 impl ImageViewer {
@@ -53,6 +54,7 @@ impl ImageViewer {
             return_focus: None,
             zoom: 1.0,
             zoom_actions: None,
+            actions: Vec::new(),
         }
     }
 
@@ -131,6 +133,18 @@ impl ImageViewer {
         self
     }
 
+    /// One more control in the header, before the zoom controls: `icon`,
+    /// named and hinted `name`, reporting `id` when activated, such as saving
+    /// the picture. Each call adds one; they keep the order of the calls. An
+    /// empty `id` adds nothing.
+    pub fn action(mut self, id: impl Into<String>, icon: Icon, name: impl Into<String>) -> Self {
+        let id = id.into();
+        if !id.is_empty() {
+            self.actions.push((id, icon, name.into()));
+        }
+        self
+    }
+
     /// The largest level [`ImageViewer::zoom`] accepts.
     pub const MAX_ZOOM: f32 = 8.0;
 }
@@ -187,6 +201,9 @@ impl Component for ImageViewer {
             .flex(1.0)
             .size(None, Some(36.0))];
         let zoomed = self.zoom > 1.0;
+        for (id, icon, name) in &self.actions {
+            header.push(control(id, *icon, name, name, true, controls));
+        }
         if let Some([out, fit, zoom_in]) = &self.zoom_actions {
             let labels = crate::labels();
             header.push(control(out, Icon::Minus, labels.zoom_out, labels.zoom_out, zoomed, controls));
@@ -384,6 +401,29 @@ mod tests {
             assert_eq!((said.role, said.name.as_str()), (Role::Button, name));
             assert_eq!((said.disabled, said.actionable), (!enabled, enabled), "{id}");
         }
+    }
+
+    #[test]
+    fn host_actions_sit_before_the_zoom_controls_and_report_their_ids() {
+        let picture = RasterImage::new("a".repeat(64), RasterImageFormat::Png, 4, Arc::from("AAAA"), "A picture").unwrap();
+        let viewer = ImageViewer::new(Element::spacer(), true, "picture.png", "close", ComponentPalette::neutral_dark())
+            .viewport(WINDOW)
+            .image(picture)
+            .action("save", Icon::ArrowDown, "Save as…")
+            .action("", Icon::Copy, "Ignored")
+            .action("copy", Icon::Copy, "Copy link")
+            .zoom_actions("out", "fit", "in")
+            .render();
+        let mut tree = UiTree::new(viewer);
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(WINDOW);
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        assert_eq!((node("save").role, node("save").name.as_str()), (Role::Button, "Save as…"));
+        assert!(node("save").actionable && !node("save").disabled);
+        assert!(!frame.access.iter().any(|node| node.name == "Ignored"));
+        let left = |id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect.x;
+        assert!(left("save") < left("copy") && left("copy") < left("out"));
+        assert_eq!(click(&mut tree, &frame, "save"), vec![UiAction::Clicked { id: "save".into() }]);
     }
 
     #[test]

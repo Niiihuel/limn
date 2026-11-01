@@ -173,6 +173,7 @@ pub fn layer(cx: &Cx, base: Element) -> Element {
         .gallery(index, PICTURES.len())
         .previous_action(step(index.saturating_sub(1), "previous"))
         .next_action(step((index + 1).min(last), "next"))
+        .action("media-viewer-control=save", Icon::ArrowDown, "Save as…")
         .zoom(zoom)
         .zoom_actions(level((zoom / 2.0).max(1.0), "out"), level(1.0, "fit"), level((zoom * 2.0).min(ImageViewer::MAX_ZOOM), "in"))
         .return_focus(open_id(index));
