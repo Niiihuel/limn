@@ -24,6 +24,7 @@ pub struct Composer {
     footer: Option<Element>,
     pill_controls: Option<(Element, Element)>,
     inline_controls: bool,
+    controls_at_last_line: bool,
     editor_font_size: f32,
     enter_submits: bool,
     drop_target: bool,
@@ -68,6 +69,7 @@ impl Composer {
             footer: None,
             pill_controls: None,
             inline_controls: false,
+            controls_at_last_line: false,
             editor_font_size: 13.0,
             enter_submits: false,
             drop_target: false,
@@ -156,6 +158,14 @@ impl Composer {
     /// longer.
     pub fn inline_controls(mut self, inline: bool) -> Self {
         self.inline_controls = inline;
+        self
+    }
+
+    /// With `inline_controls` and `auto_grow`, keep each action beside the
+    /// editor's last line, at the bottom of the row as it grows, rather than
+    /// beside its first. Off by default.
+    pub fn controls_at_last_line(mut self, last: bool) -> Self {
+        self.controls_at_last_line = last;
         self
     }
 
@@ -382,9 +392,16 @@ impl Composer {
                     // The row is as tall as the editor; each action stays
                     // centered beside its first line.
                     Some((first_line, _)) => {
+                        let last = self.controls_at_last_line;
                         let beside = |control: Element| {
                             let width = control.style.width;
-                            control.centered_y().size(width, Some(first_line))
+                            let control = control.centered_y().size(width, Some(first_line));
+                            if last {
+                                // Pushed down to the row's bottom: the editor's last line.
+                                Element::column(vec![Element::spacer().flex(1.0), control]).size(width, None)
+                            } else {
+                                control
+                            }
                         };
                         Element::row(vec![beside(leading), editor.flex(1.0), beside(trailing)]).gap(6.0)
                     }
@@ -620,6 +637,34 @@ mod tests {
                 if index >= 2 {
                     assert_eq!(region(&frame, "go"), region(&enabled, "go"), "layout {index}");
                 }
+            }
+        }
+    }
+
+    #[test]
+    fn inline_controls_can_stay_beside_the_last_line_as_the_editor_grows() {
+        let palette = ComponentPalette::neutral_dark();
+        let control = |id: &str| Element::button(id, "+").size(Some(32.0), Some(32.0));
+        let laid = |prompt: &str| {
+            let composer = Composer::new("prompt", prompt, "Mensaje", 480.0, palette)
+                .pill_controls(control("add"), control("send"))
+                .inline_controls(true)
+                .auto_grow(48.0, 200.0)
+                .controls_at_last_line(true)
+                .render();
+            let mut tree = UiTree::new(Element::column(vec![composer, Element::spacer().flex(1.0)]));
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(480.0, 400.0))
+        };
+        let region = |frame: &crate::Frame, id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+        let (one, many) = (laid("Hola"), laid("uno\ndos\ntres\ncuatro"));
+        assert!(region(&many, "prompt").height > 48.0);
+        for frame in [&one, &many] {
+            let editor = region(frame, "prompt");
+            for id in ["add", "send"] {
+                // Centered on the last line: 24 above the editor's bottom.
+                let action = region(frame, id);
+                assert_eq!(action.y + action.height / 2.0, editor.y + editor.height - 24.0, "{id}");
             }
         }
     }

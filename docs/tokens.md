@@ -121,6 +121,20 @@ set_tokens(Tokens {
 `None`, the default, leaves each palette its own. A tooltip given its own
 `background` keeps it.
 
+## Shortcuts
+
+`shortcut_style` says how keyboard shortcuts are drawn: `ShortcutStyle::Keycaps`,
+the default, puts each key in an outlined cap; `ShortcutStyle::Text` draws the
+whole combination as one line of muted text, such as "Ctrl+Shift+I", in every
+menu and `Kbd`, and in a tooltip in its style's `muted`. A text field's
+shortcut hint keeps its keycaps.
+
+```rust
+use limn::{set_tokens, ShortcutStyle, Tokens};
+
+set_tokens(Tokens { shortcut_style: ShortcutStyle::Text, ..Tokens::DEFAULT });
+```
+
 ## Per-component overrides
 
 Most animated components accept an explicit duration that takes precedence

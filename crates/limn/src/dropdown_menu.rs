@@ -431,6 +431,8 @@ pub struct DropdownMenu {
     inline: bool,
     context_menu_style: bool,
     hints_in_tooltips: bool,
+    check_ink: Option<Color>,
+    selected_fill: bool,
     // A submenu opens under the pointer: only the tree knows when.
     submenu: bool,
     at: Option<Point>,
@@ -469,6 +471,8 @@ impl DropdownMenu {
             inline: false,
             context_menu_style: false,
             hints_in_tooltips: false,
+            check_ink: None,
+            selected_fill: true,
             submenu: false,
             at: None,
         }
@@ -491,6 +495,21 @@ impl DropdownMenu {
     /// action IDs, enabled state and keyboard navigation are unchanged.
     pub fn hints_in_tooltips(mut self, enabled: bool) -> Self {
         self.hints_in_tooltips = enabled;
+        self
+    }
+
+    /// Draw the check of a selected row in this color, such as an accent
+    /// blue, rather than the row's ink. A disabled row's stays muted.
+    pub fn check_ink(mut self, color: Color) -> Self {
+        self.check_ink = Some(color);
+        self
+    }
+
+    /// Whether a selected row is filled with the palette's `selected`; on by
+    /// default. Off, the check alone marks it, and it hovers as the others
+    /// do. A context menu style never fills it.
+    pub fn selected_fill(mut self, fill: bool) -> Self {
+        self.selected_fill = fill;
         self
     }
 
@@ -625,6 +644,7 @@ impl Component for DropdownMenu {
         // bounded and every option remains reachable.
         let row_count = self.entries.len();
         let contextual = self.context_menu_style;
+        let filled = self.selected_fill && !contextual;
         let row_gap = if contextual { 0.0 } else { 2.0 };
         let row_height = if contextual {
             action_style::ROW_HEIGHT
@@ -747,10 +767,12 @@ impl Component for DropdownMenu {
             }
             submenu.submenu = true;
             submenu.scrollbar = self.scrollbar;
+            submenu.check_ink = self.check_ink;
             submenu
                 .scrollbar_visibility(self.scrollbar_visibility)
                 .width(self.width)
                 .hints_in_tooltips(self.hints_in_tooltips)
+                .selected_fill(self.selected_fill)
                 .placement(PopoverPlacement::RightStart)
                 .motion(self.motion)
                 .max_visible_items(self.max_visible_items)
@@ -1008,7 +1030,8 @@ impl Component for DropdownMenu {
                                     .mark(icon_size.min(ICON_SIZE), ink, palette)
                                     .centered()
                             } else if item.selected {
-                                Element::icon(Icon::Check).foreground(ink)
+                                Element::icon(Icon::Check)
+                                    .foreground(if enabled { self.check_ink.unwrap_or(ink) } else { ink })
                             } else {
                                 Element::spacer()
                             }
@@ -1070,19 +1093,19 @@ impl Component for DropdownMenu {
                     // The popover paints one continuous surface. Resting rows
                     // are transparent so their fills cannot stack with that
                     // surface while the whole menu fades in or out.
-                    let row = if item.selected && !contextual {
+                    let row = if item.selected && filled {
                         row.background(palette.selected)
                     } else {
                         row
                     };
                     let row = palette
                         .interactive_surface(row)
-                        .hover_background(if item.selected && !contextual {
+                        .hover_background(if item.selected && filled {
                             lighter(palette.selected, 8)
                         } else {
                             palette.hover
                         })
-                        .pressed_background(if item.selected && !contextual {
+                        .pressed_background(if item.selected && filled {
                             lighter(palette.selected, 14)
                         } else {
                             palette.selected
@@ -1261,6 +1284,33 @@ mod tests {
 
     fn trigger() -> Element {
         Element::button("trigger", "Open").size(Some(80.0), Some(28.0))
+    }
+
+    #[test]
+    fn a_selector_can_mark_its_choice_with_an_accent_check_and_no_fill() {
+        let palette = ComponentPalette::neutral_dark();
+        let blue = Color::rgb(0x25, 0x7D, 0xE0);
+        let laid = |menu: &dyn Fn(DropdownMenu) -> DropdownMenu| {
+            let entries = vec![
+                DropdownMenuItem::new("opus", "Opus").selected(true).into(),
+                DropdownMenuItem::new("sonnet", "Sonnet").into(),
+            ];
+            let menu = menu(DropdownMenu::new(Element::button("model", "Model"), entries, true, "models", palette)
+                .sizing(SelectorSizing::COMPACT));
+            let mut tree = UiTree::new(menu.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(500.0, 400.0));
+            let row = frame.regions.iter().find(|region| region.id == "opus").unwrap().rect;
+            let filled = frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::FillRect { rect, color, .. } if *rect == row && *color == palette.selected));
+            let check = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Icon { icon: Icon::Check, tint, .. } => Some(*tint),
+                _ => None,
+            });
+            (filled, check)
+        };
+        assert_eq!(laid(&|menu| menu), (true, Some(palette.text)));
+        assert_eq!(laid(&|menu| menu.check_ink(blue).selected_fill(false)), (false, Some(blue)));
     }
 
     #[test]

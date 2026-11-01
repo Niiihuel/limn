@@ -210,6 +210,10 @@ shows, always unless set. Submenus take both.
 [ContextMenu](context-menu.md). `hints_in_tooltips(true)` moves shortcuts and
 annotations into each row's hint, for a narrow menu. `inline(true)` renders
 the options in the layout under the trigger instead of floating them.
+`check_ink(color)` draws a selected row's check in that color, such as an
+accent blue, and `selected_fill(false)` leaves the row unfilled, marked by its
+check alone; submenus take both. Shortcuts are keycaps unless the
+[`shortcut_style` token](../tokens.md#shortcuts) is `ShortcutStyle::Text`.
 
 ## Keyboard
 

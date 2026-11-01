@@ -99,7 +99,8 @@ impl Tooltip {
         }
     }
 
-    /// Show a keyboard shortcut in the hint, as key caps.
+    /// Show a keyboard shortcut in the hint, as key caps, or as muted text
+    /// under `ShortcutStyle::Text`.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self
@@ -1566,7 +1567,7 @@ impl Component for Kbd {
         if crate::shortcut::label(&self.keys).is_empty() {
             return Element::spacer().size(Some(0.0), Some(0.0));
         }
-        let element = if self.menu {
+        let element = if self.menu || crate::tokens().shortcut_style == crate::ShortcutStyle::Text {
             Element::menu_shortcut(self.keys, self.max_width)
                 .foreground(self.palette.muted)
                 .font_size(crate::shortcut::MENU_FONT_SIZE)
