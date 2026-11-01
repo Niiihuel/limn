@@ -166,6 +166,7 @@ a text element or the label of a button horizontally within that element.
 | `Element::text(s)` | Wraps onto more lines. |
 | `Element::truncated_text(s)` | One line, ending in an ellipsis. |
 | `Element::faded_text(s, fade_width)` | One line, fading out at the right edge. |
+| `Element::shimmer_faded_text(id, s, highlight, fade_width)` | As `faded_text`, with a moving highlight for work under way. |
 | `Element::formatted_text(spans)` | Wraps; each span has its own color, size and optional action. |
 
 Text is monospace by default. UI text sets `.font_family(FontFamily::Sans)`
