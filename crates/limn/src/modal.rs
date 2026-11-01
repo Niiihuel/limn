@@ -95,6 +95,10 @@ const PADDING: f32 = 14.0;
 const RAIL_WIDTH: f32 = 14.0;
 // The least space kept between the card and the window, both sides together.
 const VIEWPORT_MARGIN: f32 = 24.0;
+/// The header of a modal whose body reaches the card's edges.
+const FLUSH_HEADER: f32 = 44.0;
+/// The card's outline, in logical pixels.
+const OUTLINE: f32 = 1.0;
 
 struct SheetLayout {
     max_height: f32,
@@ -120,7 +124,9 @@ pub struct Modal {
     backdrop_dismiss: bool,
     closable: bool,
     scrim: Color,
+    outline: Option<Color>,
     title_gap: f32,
+    flush: bool,
     animation_ms: u16,
     role: Role,
     spoken_description: String,
@@ -156,7 +162,9 @@ impl Modal {
             backdrop_dismiss: false,
             closable: true,
             scrim: Color::rgba(0, 0, 0, 180),
+            outline: None,
             title_gap: 10.0,
+            flush: false,
             animation_ms: crate::tokens().motion.enter_ms,
             role: Role::Dialog,
             spoken_description: String::new(),
@@ -268,6 +276,15 @@ impl Modal {
         self
     }
 
+    /// The card's one pixel outline in this color, in place of the palette's
+    /// border, which still draws the hairline under a flush body's header:
+    /// a dark settings window outlines its card more quietly than it parts
+    /// the header from the body.
+    pub fn outline(mut self, color: Color) -> Self {
+        self.outline = Some(color);
+        self
+    }
+
     /// The space under the title row, which is at least 24 high, in logical
     /// pixels; 10 by default, as between the other sections. A negative value
     /// becomes zero and one that is not finite is ignored.
@@ -275,6 +292,18 @@ impl Modal {
         if gap.is_finite() {
             self.title_gap = gap.max(0.0);
         }
+        self
+    }
+
+    /// Lay the body out to the card's edges, under a 44-high header and a
+    /// hairline, for a body that is a layout of its own: a column of pages
+    /// beside their content, as a settings window has. The body takes the
+    /// card's width inside its one pixel outline, which stays whole on every
+    /// side, and the height the header and the footer leave, and
+    /// scrolls what it wants to itself: the modal puts no scroll area round
+    /// it. The header and the footer keep their padding.
+    pub fn flush_body(mut self, flush: bool) -> Self {
+        self.flush = flush;
         self
     }
 }
@@ -325,6 +354,19 @@ impl Component for Modal {
             ]).flex(1.0);
             Element::stack(vec![handle, Element::row(vec![title, close]).gap(8.0)])
                 .size(None, Some(44.0))
+        } else if self.flush {
+            let mut row = vec![
+                Element::spacer().size(Some(PADDING + 2.0), None),
+                title.flex(1.0).centered_y(),
+            ];
+            if self.closable {
+                row.push(close.centered_y());
+            }
+            row.push(Element::spacer().size(Some(PADDING - 2.0), None));
+            Element::column(vec![
+                Element::row(row).gap(8.0).size(None, Some(FLUSH_HEADER)),
+                Element::spacer().background(self.palette.border).size(None, Some(1.0)),
+            ])
         } else {
             let mut row = vec![title.flex(1.0)];
             if self.closable {
@@ -344,9 +386,14 @@ impl Component for Modal {
                 let mut content = vec![description];
                 if let Some(body) = body { content.push(body); }
                 body = Some(Element::column(content).gap(10.0));
-            } else { sections.push(description); }
+            } else if self.flush { sections.push(description.padding(PADDING)); } else { sections.push(description); }
         }
 
+        if self.flush {
+            if let Some(body) = body.take() {
+                sections.push(body.flex(1.0));
+            }
+        }
         if let Some(body) = body {
             sections.push(
                 ScrollArea::new(format!("modal_body:{}", self.close_id), body)
@@ -365,12 +412,12 @@ impl Component for Modal {
         }
 
         if let Some(footer) = self.footer {
-            sections.push(footer);
+            sections.push(if self.flush { footer.padding(PADDING) } else { footer });
         }
 
         let mut spaced = Vec::with_capacity(sections.len() * 2);
         for (index, section) in sections.into_iter().enumerate() {
-            if index > 0 {
+            if index > 0 && !self.flush {
                 let gap = if index == 1 { self.title_gap } else { 10.0 };
                 spaced.push(Element::spacer().size(None, Some(gap)));
             }
@@ -386,10 +433,11 @@ impl Component for Modal {
             }
         }
         let mut card = Element::panel(content)
-            .padding(PADDING)
+            // Flush, the body stops inside the outline, so its own fills never cover it.
+            .padding(if self.flush { OUTLINE } else { PADDING })
             .size(Some(self.width), self.height)
             .background(self.palette.surface)
-            .border(self.palette.border, 1.0)
+            .border(self.outline.unwrap_or(self.palette.border), OUTLINE)
             .radius(crate::tokens().radius.panel)
             .shadow(self.palette.shadow, Point::new(0.0, 16.0), 32.0, 0.0)
             .clip_children()
@@ -442,6 +490,35 @@ mod tests {
         let locked = node("locked");
         assert_eq!((locked.role, locked.name.as_str()), (Role::Button, crate::labels().close));
         assert!(locked.disabled && !locked.actionable);
+    }
+
+    #[test]
+    fn a_flush_body_reaches_the_cards_edges_under_its_header() {
+        let palette = ComponentPalette::neutral_dark();
+        let body = Element::clickable("body", Element::spacer().flex(1.0));
+        let mut tree = UiTree::new(
+            Modal::new(Element::spacer(), true, "Settings", "", "settings", palette)
+                .width(600.0)
+                .height(400.0)
+                .flush_body(true)
+                .outline(Color::rgb(42, 42, 42))
+                .body(body)
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let card = frame.access.iter().find(|n| n.id == "settings:dialog").unwrap().rect;
+        // The outline takes its own color; the hairline under the header keeps the border's.
+        assert!(frame.commands.iter().any(|c| matches!(c,
+            crate::DrawCommand::StrokeRect { color, .. } if *color == Color::rgb(42, 42, 42))));
+        assert!(frame.commands.iter().any(|c| matches!(c,
+            crate::DrawCommand::FillRect { rect, color, .. } if *color == palette.border && rect.height == 1.0)));
+        let body = frame.regions.iter().find(|r| r.id == "body").unwrap().rect;
+        // Inside the outline on every side, so a body's own fill never covers it.
+        assert_eq!((body.x, body.width), (card.x + 1.0, card.width - 2.0));
+        assert_eq!(body.y, card.y + 1.0 + FLUSH_HEADER + 1.0);
+        assert_eq!(body.y + body.height, card.y + card.height - 1.0);
+        assert!(!frame.regions.iter().any(|r| r.id.starts_with("modal_body:")));
     }
 
     #[test]
