@@ -58,24 +58,54 @@ pub(crate) mod action_style {
     }
 }
 
-/// What a menu item that is a check box or a radio item draws at the end of
-/// its row, and tells the platform it is.
+/// The width of a switch's track, which the check column takes in a menu
+/// with switches, in place of an icon's.
+pub(crate) const SWITCH_WIDTH: f32 = 28.0;
+
+/// What a menu item that is a check box, a radio item or a switch draws at
+/// the end of its row, and tells the platform it is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum MenuCheck {
     /// A check box, ticked while `true`.
     Box(bool),
     /// One radio item of a set, the chosen one while `true`.
     Radio(bool),
+    /// A switch, on while `true`: a small track with its thumb at the end it
+    /// is on at. It is a static mark; the row is what is chosen.
+    Switch(bool),
 }
 
 impl MenuCheck {
     /// The box or the circle, `side` square: filled with `ink` and marked in
     /// the surface color while checked, an outline in the muted color while
-    /// not, as a `Checkbox` and a `RadioGroup` draw theirs.
-    pub(crate) fn mark(self, side: f32, ink: Color, palette: ComponentPalette) -> Element {
+    /// not, as a `Checkbox` and a `RadioGroup` draw theirs. A switch is
+    /// `SWITCH_WIDTH` wide instead, colored as `SwitchVariant::Accent`, its
+    /// on color `accent` or the palette's link color; `side` and `ink` are not
+    /// used by it.
+    pub(crate) fn mark(
+        self,
+        side: f32,
+        ink: Color,
+        accent: Option<Color>,
+        palette: ComponentPalette,
+    ) -> Element {
         let (checked, round) = match self {
             Self::Box(checked) => (checked, false),
             Self::Radio(checked) => (checked, true),
+            Self::Switch(on) => {
+                let (thumb, track) = crate::components::accent_switch_colors(palette, on, accent);
+                let thumb = Element::spacer()
+                    .background(thumb)
+                    .radius(5.0)
+                    .size(Some(10.0), Some(10.0));
+                let gap = Element::spacer().flex(1.0);
+                let thumbs = if on { vec![gap, thumb] } else { vec![thumb, gap] };
+                return Element::panel(Element::row(thumbs))
+                    .padding(3.0)
+                    .background(track)
+                    .radius(8.0)
+                    .size(Some(SWITCH_WIDTH), Some(16.0));
+            }
         };
         let (fill, mark) = if checked {
             (ink, palette.surface)
@@ -98,10 +128,11 @@ impl MenuCheck {
             .size(Some(side), Some(side))
     }
 
-    /// `access` as a check box or a radio item of a menu, on or off.
+    /// `access` as a check box or a radio item of a menu, on or off. There is
+    /// no menu-item switch role, so a switch is a check box that is on or off.
     pub(crate) fn access(self, access: Access) -> Access {
         let (role, checked) = match self {
-            Self::Box(checked) => (Role::MenuItemCheckBox, checked),
+            Self::Box(checked) | Self::Switch(checked) => (Role::MenuItemCheckBox, checked),
             Self::Radio(checked) => (Role::MenuItemRadio, checked),
         };
         Access {
@@ -147,6 +178,8 @@ pub(crate) struct DetailRow {
     pub(crate) choice: bool,
     /// A check box or a radio item in the check column, in place of the tick.
     pub(crate) check: Option<MenuCheck>,
+    /// The check column's width: a switch's, where the menu has switches.
+    pub(crate) check_width: f32,
     pub(crate) enabled: bool,
     /// Its height, icon slot, text sizes and gap, and `padding` at its sides.
     pub(crate) sizing: SelectorSizing,
@@ -228,14 +261,18 @@ impl DetailRow {
             .flex(1.0),
         );
         if self.selected.is_some() || self.check.is_some() {
-            children.push(slot(match (self.check, self.selected) {
-                _ if leads => Element::spacer(),
-                (Some(check), _) => check
-                    .mark(sizing.icon_size.min(ICON_SIZE), ink, palette)
-                    .centered(),
-                (None, Some(true)) => Element::icon(Icon::Check).foreground(palette.text),
-                (None, _) => Element::spacer(),
-            }));
+            let accent = (!self.enabled).then_some(palette.muted);
+            children.push(
+                match (self.check, self.selected) {
+                    _ if leads => Element::spacer(),
+                    (Some(check), _) => check
+                        .mark(sizing.icon_size.min(ICON_SIZE), ink, accent, palette)
+                        .centered(),
+                    (None, Some(true)) => Element::icon(Icon::Check).foreground(palette.text),
+                    (None, _) => Element::spacer(),
+                }
+                .size(Some(self.check_width), Some(body_height)),
+            );
         }
         if let Some(chevron) = self.chevron {
             children.push(slot(if chevron {
@@ -485,6 +522,7 @@ impl Component for MenuItem {
                     selected: self.selected.filter(|_| !self.chevron),
                     choice: true,
                     check: None,
+                    check_width: SelectorSizing::COMPACT.icon_size,
                     enabled: self.enabled,
                     sizing: SelectorSizing::COMPACT,
                 }
