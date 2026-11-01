@@ -46,9 +46,10 @@ pub(crate) mod action_style {
         palette: ComponentPalette,
         width: f32,
         height: Option<f32>,
+        inset: f32,
     ) -> Element {
         Element::panel(content)
-            .padding(INSET)
+            .padding(inset)
             .background(palette.surface)
             .border(palette.border, 1.0)
             .radius(crate::components::surface_radius())
@@ -146,23 +147,16 @@ impl MenuCheck {
 /// The two-line row shared by [`MenuItem`] and `DropdownMenuItem`: a label
 /// over a quiet detail, between a leading icon and a check or a chevron.
 /// Its metrics are its menu's, so it lines up with the menu's other rows.
-/// A picture `side` square, in the middle of the icon slot it is given, never stretched to the
-/// slot's height.
-pub(crate) fn picture_slot(picture: crate::RasterImage, side: f32) -> Element {
-    Element::column(vec![
-        Element::spacer().flex(1.0),
-        Element::raster_image(picture).size(Some(side), Some(side)),
-        Element::spacer().flex(1.0),
-    ])
-}
 
 pub(crate) struct DetailRow {
     pub(crate) action_id: String,
     pub(crate) label: String,
     pub(crate) description: String,
     pub(crate) icon: Option<Icon>,
-    /// A picture in its own colors in the icon's slot, in place of `icon`.
-    pub(crate) picture: Option<crate::RasterImage>,
+    /// A picture in the icon's place.
+    pub(crate) picture: Option<crate::InlineImage>,
+    /// An element of the host's in the icon's place, before any picture.
+    pub(crate) mark: Option<Element>,
     /// Keep the icon's slot without an icon, as the menu's other rows do.
     pub(crate) icon_slot: bool,
     pub(crate) mono: bool,
@@ -187,7 +181,7 @@ pub(crate) struct DetailRow {
 
 impl DetailRow {
     /// The padded row without a width: the caller fixes it or lets it stretch.
-    pub(crate) fn render(self, palette: ComponentPalette) -> Element {
+    pub(crate) fn render(mut self, palette: ComponentPalette) -> Element {
         let sizing = self.sizing;
         // Two lines of text need about 1.2 times their sizes; the padding
         // above and below gives way to them, never past zero.
@@ -237,8 +231,17 @@ impl DetailRow {
         };
         let slot = |element: Element| element.size(Some(sizing.icon_size), Some(body_height));
         let mut children = Vec::with_capacity(4);
-        if let Some(picture) = self.picture {
-            children.push(slot(picture_slot(picture, sizing.icon_size)));
+        if let Some(mark) = self.mark.take() {
+            let fitted = sizing.icon_size.min(crate::ICON_SIZE);
+            children.push(slot(mark.size(Some(fitted), Some(fitted)).centered()));
+        } else if let Some(picture) = &self.picture {
+            children.push(slot(crate::dropdown_menu::leading(
+                Some(picture),
+                None,
+                &self.label,
+                sizing.icon_size,
+                ink,
+            )));
         } else if let Some(icon) = self.icon {
             children.push(slot(
                 Element::icon(icon)
@@ -513,6 +516,7 @@ impl Component for MenuItem {
                     description,
                     icon: self.icon,
                     picture: None,
+                    mark: None,
                     mono: self.detail_mono,
                     status: self.status,
                     status_width: self.status_width,

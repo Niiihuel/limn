@@ -562,7 +562,7 @@ mod tests {
             assert_eq!(tree.hovered_id(), None);
             assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
             assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
-            tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false });
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false, alt: false });
             assert_eq!(tree.focused_id(), None);
         }
     }
@@ -597,11 +597,11 @@ mod tests {
             tree.handle_event(UiEvent::PointerDown(point));
             assert_eq!(tree.handle_event(UiEvent::PointerUp(point)), vec![UiAction::Clicked { id: "open-repo".into() }]);
             // Tab reaches it, and it alone.
-            tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false });
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false, alt: false });
             assert_eq!(tree.focused_id(), Some("open-repo"));
             for key in [Key::Enter, Key::Space] {
                 assert_eq!(
-                    tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false }),
+                    tree.handle_event(UiEvent::Key { key, shift: false, ctrl: false, alt: false }),
                     vec![UiAction::Clicked { id: "open-repo".into() }]
                 );
             }

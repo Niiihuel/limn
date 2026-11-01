@@ -57,6 +57,7 @@ fn key(key: Key) -> UiEvent {
         key,
         shift: false,
         ctrl: false,
+        alt: false,
     }
 }
 
@@ -382,6 +383,7 @@ fn modal_select_tab_and_arrows_stay_in_the_open_child() {
         key: Key::Tab,
         shift: true,
         ctrl: false,
+        alt: false,
     });
     assert_eq!(tree.focused_id(), Some("third"));
     for (key_value, expected) in [
@@ -584,7 +586,7 @@ fn a_modals_first_control_shows_no_tooltip_until_the_keyboard_moves_there() {
     assert!(!shown(&frame), "the opening focus raises no tooltip");
     // Once the keyboard moves to it, it says what it is.
     tree.handle_event(key(Key::Tab));
-    tree.handle_event(UiEvent::Key { key: Key::Tab, shift: true, ctrl: false });
+    tree.handle_event(UiEvent::Key { key: Key::Tab, shift: true, ctrl: false, alt: false });
     let frame = tree.layout(VIEWPORT);
     assert_eq!(tree.focused_id(), Some("close"));
     assert!(shown(&frame), "the keyboard's focus does");

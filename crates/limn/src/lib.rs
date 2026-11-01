@@ -55,6 +55,7 @@ mod framed_card;
 mod geometry;
 mod diagram_viewer;
 mod image_viewer;
+mod zoom_view;
 mod list_row;
 mod markdown;
 mod markdown_cache;
@@ -185,17 +186,19 @@ pub use date_time_picker::DateTimePicker;
 pub use description_list::{DescriptionItem, DescriptionList};
 pub use dictation::{DictationButton, DictationState, DictationWaveform};
 pub use dropdown_menu::{
-    DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
+    ContextMenuMetrics, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
 };
 pub use element::{
     Cursor,
-    Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Drawing, Element, ElementKind, FontFamily, HeatCell, HeatPlot, Icon, LevelBars,
+    Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Drawing, Element, ElementKind, SurfaceFit, FontFamily, HeatCell, HeatPlot, Icon, LevelBars,
     LinePlot,
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
-    SpinnerVariant, Style, TabSelection, TextHighlight, TextHint, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipItem, TooltipPlacement, TooltipSection,
+    SpinnerVariant, Style, TabSelection, TextHighlight, TextHint, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipFace, TooltipItem, TooltipPlacement, TooltipSection, TOOLTIP_FACE, TOOLTIP_FACE_ICON, TOOLTIP_FACE_OVERLAP,
     TooltipOptions, TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE, SMALL_ICON_SIZE,
+    ZoomControl, ZoomView,
 };
+pub use zoom_view::{zoom_percent, ZOOM_VIEW_MAX_SCALE};
 pub use empty::Empty;
 pub use form_field::{FormField, FormFieldSizing};
 pub use diagram::{Diagram, DiagramError};
@@ -207,7 +210,7 @@ pub use find_bar::{FindBar, FindIds, FindLabels, FindOptions};
 pub use file_icons::{file_icon, folder_icon, language_icon, FileIcon};
 pub use geometry::{Color, Point, Rect, Size};
 pub use diagram_viewer::DiagramViewer;
-pub use image_viewer::ImageViewer;
+pub use image_viewer::{ImageViewer, ViewerLayout};
 pub use list_row::{DiffStat, ListRow, ListRowSizing};
 pub use markdown::{Markdown, MarkdownColors, MarkdownLabels, MarkdownLimits, MarkdownPreview, MarkdownSourcePage};
 pub use markdown_cache::MarkdownFrame;
@@ -239,7 +242,7 @@ pub use peek_panel::{PeekPanel, Side};
 pub use popover_panel::{PopoverPanel, PopoverPanelSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
-pub use radio::{RadioGroup, RadioOption, RadioVariant};
+pub use radio::{RadioGroup, RadioMetrics, RadioOption, RadioVariant};
 pub use raster_image::{RasterImage, RasterImageFormat};
 pub use scheme::{ControlColors, Scheme, Surface};
 pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement, ScrollbarVisibility};
@@ -256,7 +259,7 @@ pub use sequence::{
 };
 pub use skeleton::{Skeleton, SkeletonGroup};
 pub use sketch::{rasterize as rasterize_sketch, Sketch, SketchMark, SketchTool};
-pub use slider::Slider;
+pub use slider::{MarkStyle, Slider};
 pub use split_view::{Pane, SplitView};
 pub use scribble::{Mark, Scribble};
 pub use spinner::Spinner;
@@ -285,8 +288,8 @@ pub use labels::{labels, set_labels, Labels};
 pub use tokens::{set_tokens, tokens, Motion, Radius, RadiusRole, ShortcutStyle, Tokens};
 pub use theme::Theme;
 pub use tree::{
-    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, ImeArea, Key, PasteTarget, TextLayoutBlock,
-    TextLayoutRun, UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
+    DrawCommand, FontMetrics, Frame, HitKind, HitRegion, ImeArea, Key, Modifiers, OtherButton, PasteTarget,
+    TextLayoutBlock, TextLayoutRun, UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
 };
 pub use tree_view::{guides_for_depths, TreeGuides, TreeRow};
 pub use typography::{truncate_measured, wrap_measured, TextRole};

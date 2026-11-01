@@ -505,7 +505,7 @@ mod tests {
         tree.handle_event(UiEvent::PointerMove(Point::new(150.0, 3.0 * 13.0 - 4.0)));
         assert_eq!(tree.handle_event(UiEvent::PointerUp(Point::new(150.0, 3.0 * 13.0 - 4.0))), vec![]);
         assert_eq!(
-            tree.handle_event(UiEvent::Key { key: Key::C, ctrl: true, shift: true }),
+            tree.handle_event(UiEvent::Key { key: Key::C, ctrl: true, shift: true, alt: false }),
             vec![UiAction::CopyRequested { text: "old\n$ ls\nab".into() }]
         );
     }

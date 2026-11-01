@@ -1,5 +1,5 @@
 use super::{caption, section, Cx, Section};
-use limn::{Component, ControlSize, Element, Icon, RadioGroup, RadioOption, RadioVariant};
+use limn::{Component, ControlSize, Element, Icon, RadioGroup, RadioMetrics, RadioOption, RadioVariant};
 
 const THEMES: [(&str, &str); 3] = [("light", "Light"), ("dark", "Dark"), ("system", "Match the system")];
 const PLANS: [(&str, &str, &str); 3] = [
@@ -84,6 +84,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             })
             .collect(),
         ),
+        section(cx, "Metrics", vec![
+            group(cx, "radio-metrics", "Plan", plans("radio-metrics"), "team")
+                .metrics(RadioMetrics { circle: 20.0, option_gap: 16.0, description_size: 14.0, description_gap: 4.0, label_size: 16.0 })
+                .render(),
+            caption(cx, ".metrics(RadioMetrics { .. }): a 20 px circle, options 16 apart, a 14 px description 4 under a 16 px label."),
+        ]),
         section(cx, "Disabled", vec![
             group(cx, "radio-off", "Theme, disabled", themes("radio-off"), "dark").disabled().render(),
             caption(cx, "A disabled group shows its choice and takes no pointer or focus."),

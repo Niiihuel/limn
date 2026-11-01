@@ -51,25 +51,49 @@ the tree's origin.
 | `ContextMenu { position }`, `ContextMenuKeyboard` | Secondary button, or the keyboard shortcut that opens a context menu. |
 | `Scroll { position, delta_y }`, `ScrollDirect { .. }`, `Scroll2D { .. }` | Wheel, precise touchpad, and two-axis scrolling. |
 | `Text(string)` | Typed text. |
-| `Key { key, shift, ctrl }` | A non-text key: arrows, Tab, Enter, Escape, and so on. |
+| `Key { key, shift, ctrl, alt }` | A key was pressed, or repeats while held: letters, digits, punctuation, arrows, Tab, Enter, Escape, F1 to F35, and so on. Text still arrives as `Text`. The tree reads `alt` only for context menu shortcuts; the host reads it for its own, such as Alt+Left. |
+| `KeyReleased { key }` | A key was released. The tree only stops counting it as held. |
+| `ModifiersChanged(modifiers)` | The modifiers held changed with no key of their own, such as Shift pressed alone. The tree only keeps them. |
+| `PointerBack(point)`, `PointerForward(point)` | The pointer's side buttons (mouse buttons 4 and 5) on press. The tree ignores them; a host reads them to move through its own history. |
+| `OtherButton { button, pressed, position }` | The middle button (`OtherButton::Middle`) or a side button (`Back`, `Forward`), on press and on release, so a host can bind one as a hold. The tree answers `UiAction::OtherButton` with the same fields and does nothing else with it. |
 | `Paste(string)`, `PasteTo { id, text }` | Clipboard text, to the focused control or a named one. |
 | `PasteCaptured { target, text }` | An unreleased delayed text reply bound to a previously captured editable state. |
 | `ImePreedit`, `ImeCommit`, `ImeCancelled`, `ImeDeleteSurrounding` | Input method composition, in a code editor or a text field. |
 | `FilesHovered { position }`, `FilesDropped { position, paths }` | Files dragged from another application. |
+| `PasteImage { width, height, rgba }` | Ctrl+V with a picture on the clipboard and no text: unpremultiplied RGBA, row by row from the top. The tree answers `UiAction::PasteImage` with the focused control as `target`; it inserts nothing. |
+| `Zoom { position, factor }` | A pinch on a touchpad or a touch screen. A [zoom view](components/image-viewer.md#zoom-view) under `position` zooms by `factor`; nothing else reads it. `limn-egui` sends egui's `Event::Zoom`, which winit 0.30 delivers on macOS and iOS; on Windows a touchpad's pinch arrives as Ctrl with the wheel, which a zoom view also zooms with, and on Linux winit delivers no pinch yet. |
 
 External file events preserve the supplied list; they do not read file
 contents. The tree resolves drop targets within floating surfaces and modal
 boundaries. Hosts validate targets and paths before starting file I/O.
-`limn_egui::events` delivers file hover/drop after the frame's ordinary input,
-so a host can apply a click or key that changes its view before admitting files.
-egui groups file metadata separately; this is not an OS event chronology.
+`limn_egui::events_indexed` places this frame-derived metadata before ordinary
+input with `source_index: None`; `events` projects the same converter. This
+supersedes the RUNE integration's earlier artificial after-input ordering.
+egui groups file metadata separately; neither position is an OS chronology.
 The touch wrapper can append derived touch actions afterward. Hosts must
-revalidate their current view and prevent an editor submission in a frame
-containing new files when their product requires preparation before sending.
+explicitly defer or reject unpositioned files, revalidate their current view,
+and prevent editor submission in that frame when preparation must precede sending.
 
 `handle_event` returns the `UiAction`s the event produced. Call
 `UiTree::layout` before delivering pointer events: they are resolved against
 the regions of the last layout.
+
+### Keys held
+
+The tree keeps which keys are down and which modifiers are held, from the
+events above, for a host that acts while a key is held, such as push to talk,
+or that shows more while Shift is held:
+
+| Call | Answers |
+| --- | --- |
+| `UiTree::key_held(key)` | From the key's `Key` until its `KeyReleased`. Asked before a press is handled, false tells a first press from a repeat. |
+| `UiTree::modifiers()` | Shift, Ctrl and Alt as the latest `Key` or `ModifiersChanged` said. |
+| `UiTree::observe_keys(&event)` | Notes an event the host answers before the tree, which then never sees it. Noting one twice changes nothing. |
+
+`set_window_focused(false)` lets go of every key and modifier, since the
+window may never see their release. `Key::name()` gives a key's English name,
+as a host writes it in a shortcut it keeps (`"Ctrl+"` before it is the host's
+own), and `Key::from_name` reads it back, or the character the key types.
 
 ### Captured paste replies (unreleased)
 
@@ -127,7 +151,7 @@ stamps, single-use semantics and the limits of tree observation.
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
 | `Glyphs(GlyphRun)` | Glyphs limn has already shaped and placed: draw each from `run.font` at `run.size`, at its place from `run.origin`, tinted `run.color`; slant by `run.skew` degrees and thicken when `run.embolden`. Lay nothing out again. See [TextLayout](components/text-layout.md#drawing-the-glyphs). |
 | `Icon { icon, rect, tint }` | A semantic icon. The backend chooses the artwork. |
-| `RasterImage { .. }` | A decoded image. |
+| `RasterImage { .. }` | A decoded image: a cover fills the rectangle and is cropped, a full-resolution picture fills it at its proportions, enlarged if need be, and any other is fitted inside it, never past its pixels. `image.quarter_turns()` turns it; `image.is_checkerboard()` asks for a checkerboard behind its transparent pixels. |
 | `Surface { rect, id, label, opacity }` | Pixels the host hands to the backend under `id`, outside the frame. They start at the rectangle's top-left corner, one pixel per physical pixel when rendered for this display, and are clipped to the rectangle, never stretched to it. |
 | `Spinner { .. }`, `ProgressRing { .. }` | Vector progress indicators. |
 | `SelectionContour { .. }`, `CornerMask { .. }` | Text selection outlines and rounded clipping of images. |
@@ -175,8 +199,20 @@ The egui backend exposes:
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
 | `report_ime(&ctx, &tree, origin)` | Tells the platform where an input method belongs: by the caret of the focused code editor or field, from `UiTree::ime_area()`. Each frame, after the layout. Without it egui turns input methods off. A password asks for no composition. |
 | `set_cursor(&ctx, tree.cursor())` | Gives the pointer the shape the element under it asks for with `Element::cursor`: a resize shape, or none at all with `Cursor::Hidden`, as over a video once the pointer rested on it. Each frame, after the layout; `None` leaves egui's own. |
-| `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
+| `set_image_cache_entries(n)` | How many decoded images stay as textures besides those on screen; a screen of thumbnails needs more than the default 16. The least recently drawn go first, and one drawn in the current or the previous paint pass is never evicted, so a screen with more images than `n` keeps them all until they leave it. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
+| `set_color_emoji(Some(source))` | Paints the host's color pictures over the glyphs of emoji in every text run. See [Color emoji](#color-emoji). |
 | `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
+
+A [`RasterImage::full_resolution`] picture, the one an `ImageViewer` zooms,
+is decoded whole. Drawn at two or more pixels of the screen for each of its
+own it is shown with its pixels sharp (a copy of the texture with nearest
+magnification), as GNOME's Loupe does past 100 %; drawn at less than half
+its size it is shown from a copy decoded at the size it is drawn, which
+smooths it as mipmaps would (egui-wgpu builds none). While a copy decodes,
+any other decoded size of the same picture stands in for it, such as the
+thumbnail already on screen. A picture with `checkerboard()` and transparent
+pixels has a checkerboard of 8 logical pixels painted behind it, fixed to the
+screen; one turned by `rotated(turns)` is painted turned, with square corners.
 
 The native ImageViewer gallery's **Reload image cache** button exercises this
 reset. It preserves the visible synthetic sources, so their textures are
@@ -184,7 +220,7 @@ decoded again. There is no filesystem or network I/O in the decoder. Limits
 on source dimensions and decoder allocations are unchanged. Browsers retain
 the existing synchronous decode path because that backend has no native
 workers; clearing still releases its raster cache.
-| `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
+| `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. A clone shares the converted pixels: keep an animation's frames and present clones as it loops. |
 | `SurfaceFrame::from_image(image, scale)` | One frame already in egui's form (`ColorImage`), taken without converting it. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
@@ -206,16 +242,17 @@ Translations retain source order, and several may share one index.
 
 An ordered host traverses **every source event in that snapshot**, including unknown events
 that produce no `UiEvent`. At each index, process its associated translations
-in order. Read physical_key, pressed, repeat and modifiers (including Alt)
-from that source Key event, rather than a whole-frame key prepass. Apply earlier
+in order. A translated `UiEvent::Key` carries Shift, Ctrl and Alt; read
+physical_key, pressed, repeat and any other modifier from that source Key
+event, rather than a whole-frame key prepass. Apply earlier
 host actions, pending focus and layout before capturing a later paste target.
 Draining only translated events, or processing all markers at the end, loses
 their place among navigation and clicks.
 
-`None` identifies frame-derived input without an `egui::Event` source. RawInput
-file-hover/drop metadata comes after every indexed event, as in `events`, with no
-invented source index or native chronology: process it once the source loop is
-done. The legacy `events` function shares the converter and discards the indices.
+`None` identifies frame-derived input without an `egui::Event` source. Existing
+RawInput file-hover/drop metadata keeps its compatibility position before
+ordinary events, with no invented source index or native chronology. The
+legacy `events` function shares the converter and discards the indices.
 
 Deduplication changes from whole-frame searches to forward, contiguous,
 non-overlapping pairs: pressed Enter followed by Text exactly `\n`, `\r` or
@@ -243,6 +280,31 @@ sequence's final state, with both historical results below. Use `--small` for
 with the original mode. This demonstration uses a separate synthetic egui
 context and the visible limn tree, without requesting clipboard I/O.
 
+### Color emoji
+
+limn bundles only monochrome Noto Emoji. A host with color artwork installs
+`set_color_emoji(Some(source))` on the UI thread, where `source` is a
+`fn(&str) -> Option<&'static [u8]>`: given one extended grapheme cluster of
+painted text, it returns a PNG or `None`. Skin tones, joined sequences, flags
+and keycaps arrive as the one cluster they form, with any variation selector,
+so the host decides presentation (for example drawing `❤️` but not `❤` or
+`❤︎`). All-ASCII text is never asked about.
+
+Nothing about the text changes: the tree measures and wraps with the font,
+the glyph keeps its place and is painted transparent, and the picture is
+fitted to that place, between 1 and 1.2 ems wide, centered on the line and
+tinted with the text's alpha. Selection, copied text and accessibility keep
+the original characters. This covers every `DrawCommand::Text`: labels,
+formatted text, tooltips and editors alike.
+
+Pictures are decoded on the UI thread, downscaled to the size drawn in steps
+of 4 pixels, and cached per egui context (1024 textures). A paint pass
+decodes at most 24 new ones and requests another pass for the rest, which
+show their glyph meanwhile. A source that is not a PNG, is larger than
+256 KiB, or exceeds 512 pixels a side keeps the glyph. Replacing or
+removing the source clears the cache. The Text gallery page installs three
+synthetic discs.
+
 ### Host-fed surfaces
 
 `Element::surface(id, label)` reserves a rectangle for pixels that change
@@ -255,6 +317,25 @@ snapped to the pixel grid; a frame a pixel larger or smaller than the
 rectangle is clipped or leaves a gap, and is not resampled. At another scale
 it keeps its logical size. Each side is at most 8192 pixels and a frame at
 most 16 megapixels. A surface holds its last frame until `forget_surface`.
+
+`Element::surface(..).surface_fit(fit)` places the pixels as a raster image
+places its own: `SurfaceFit::Contain` scales them up or down to fit the
+rectangle, centered, `SurfaceFit::ScaleDown` does so but never past one
+logical pixel for each of the frame's pixels, as a `RasterImage` that is not
+a cover is shown, and `SurfaceFit::Cover` fills it and crops around the
+center. `ImageViewer::surface` uses `ScaleDown`, so a small animation stays
+the size of its still first frame there. Either ignores the frame's scale, so an animation can stand where its
+still first frame stood, at the same size. `.radius(r)` rounds the corners of
+the pixels shown in any fit. `SurfaceFit::Native`, the default, is the
+one-to-one placement above.
+
+`.surface_mirrored(true)` paints the pixels flipped left to right, in any fit,
+as a camera's preview is shown to the person in front of it. Only the painting
+changes: the host presents the frames as they are, and sends them on unflipped.
+
+An animation converts each frame once, into a `SurfaceFrame` it keeps, and
+presents a clone of the one that is due: a clone shares the pixels, so
+looping copies nothing more on the host side.
 
 A source that knows what changed sends only that: `frame.within(size, at)`
 turns the pixels of one rectangle into a part of the frame of `size` pixels

@@ -31,6 +31,7 @@ mod lists;
 mod loading;
 mod markdown;
 mod media;
+pub use media::present_animation;
 mod menus;
 mod messages;
 mod navigation;
@@ -57,6 +58,7 @@ mod top_bar;
 mod tooltip;
 mod tour;
 mod typography;
+pub use typography::demo_emoji;
 
 /// One page for each component. `title` is the name of its type, and `id`
 /// that name in kebab-case: the address of its page on the site and the name
@@ -119,12 +121,12 @@ impl Page {
 pub const PAGES: &[Page] = &[
     Page { id: "tokens", group: "System", title: "Tokens", source: "tokens", view: tokens::view, sections: &[], since: "0.1.39" },
     Page { id: "scheme", group: "System", title: "Scheme", source: "scheme", view: scheme::view, sections: &[], since: "0.1.39" },
-    Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Marks and hints", "A limit of lines", "Inline pictures", "Long text", "Soft focus", "Unicode fallback", "Monochrome emoji"], since: "0.1.39" },
+    Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Gradient ink", "Inline pictures", "Marks and hints", "A limit of lines", "Long text", "Soft focus", "Unicode fallback", "Monochrome emoji", "Color emoji"], since: "0.1.39" },
     Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"], since: "0.1.39" },
     Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings", "Categories and small icons"], since: "0.1.39" },
     Page { id: "drawing", group: "System", title: "Drawing", source: "drawing", view: drawing::view, sections: &[], since: "0.1.44" },
     Page { id: "text-layout", group: "System", title: "TextLayout", source: "text_layout", view: text_layout::view, sections: &[], since: "0.1.44" },
-    Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
+    Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "With picture", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
     Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"], since: "0.1.39" },
     Page { id: "split-button", group: "Actions", title: "SplitButton", source: "buttons", view: buttons::view, sections: &["Split button"], since: "0.1.44" },
     Page { id: "toolbar", group: "Actions", title: "Toolbar", source: "toolbar", view: toolbar::view, sections: &[], since: "0.1.41" },

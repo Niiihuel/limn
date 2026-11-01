@@ -364,7 +364,7 @@ mod tests {
     }
 
     fn key(key: Key) -> UiEvent {
-        UiEvent::Key { key, shift: false, ctrl: false }
+        UiEvent::Key { key, shift: false, ctrl: false, alt: false }
     }
 
     fn center(rect: Rect) -> Point {

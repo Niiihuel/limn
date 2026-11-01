@@ -172,11 +172,12 @@ a text element or the label of a button horizontally within that element.
 Text is monospace by default. UI text sets `.font_family(FontFamily::Sans)`
 and a size with `.font_size(px)`.
 
-A heavier text names its face: `FontFamily::SansMedium` or
-`FontFamily::SansBold`. They are real faces that the host provides and each is
-measured as itself, never a regular face drawn thicker. `limn-egui` ships
-Ubuntu Medium and Bold for them; a host that sets its own fonts without those
-faces paints the regular one. `FontFamily::SansItalic` is the regular face
+A heavier text names its face: `FontFamily::SansMedium`,
+`FontFamily::SansSemibold` or `FontFamily::SansBold`. They are real faces that
+the host provides and each is measured as itself, never a regular face drawn
+thicker. `limn-egui` ships Ubuntu Medium and Bold for them, and Ubuntu Sans
+SemiBold for the semibold, since Ubuntu has none; a host that sets its own
+fonts without those faces paints the regular one. `FontFamily::SansItalic` is the regular face
 slanted by the host. Bold code is `FontFamily::MonospaceBold`, Hack Bold in
 `limn-egui`, as wide as the regular face; without it the regular one is painted.
 
@@ -215,6 +216,38 @@ its bottom, blending from each to the next, behind its children and over its
 background, its corners rounded by its `radius`: the bar of hues of a
 `ColorPicker`, or a fade of the host's own. One stop is a plain fill.
 
+`.foreground_gradient(stops)` inks a text, plain or truncated, the same way:
+from the left of each painted line to its right, a name in the colors of a
+role. It paints the line in narrow clipped bands, so it changes neither its
+size nor where it wraps or is cut; the foreground's alpha scales the stops,
+and one stop is plain ink.
+
+### Pictures in a line of text
+
+A span of `Element::formatted_text` can be a picture, such as a custom
+emoji in a message:
+
+```rust
+Element::formatted_text(vec![
+    TextSpan::new("Nice ", palette.text, 14.0, FontFamily::Sans),
+    TextSpan::new(":party:", palette.text, 14.0, FontFamily::Sans).image(picture),
+]);
+```
+
+| Builder | Paints |
+| --- | --- |
+| `TextSpan::image(raster)` | The picture, as `DrawCommand::RasterImage`. |
+| `TextSpan::surface(id)` | The host's surface `id`, fitted inside (`SurfaceFit::Contain`), as `DrawCommand::Surface`: an animation whose frames the host presents there. |
+
+The picture is a square `INLINE_IMAGE_SCALE` (1.375) times the span's
+`font_size` on a side, centered on its line, and it moves to the next line
+whole. Its line is at least that tall. For a larger picture, such as a
+message that is only emoji, give the span a larger `font_size`. The span's
+text is not painted, but it is what a selection copies and what a screen
+reader reads: `:party:` here. A selection takes the picture whole or not at
+all. An `action` makes the picture a target, as on text. `background` and
+`icon` are not painted on such a span.
+
 ### Marks, hints and a limit of lines
 
 ```rust
@@ -233,34 +266,8 @@ Element::formatted_text(vec![
 | `TextSpan::tooltip(title, palette)` | A hint over the run in `palette`'s tooltip colors, after the same delay as a `Tooltip`, above the part of the run under the pointer. A run with an `action` also shows it while it has the keyboard focus; one without is a passive hover target that leaves presses to the text, so it can still be selected. A blank title shows none. |
 | `Element::max_lines(n)` | Shows at most `n` lines (at least one) of a formatted text. When more follow, the last line ends in «…» in the style of the run before it, giving up its end, and any space there, to make room. The «…» is not part of the text a selection copies. |
 
-The lines are not drawn under an icon. `FontFamily::SansBoldItalic` is the
-bold face slanted, measured as `SansBold`.
-
-### Pictures in a line of text
-
-A span of `Element::formatted_text` can be a picture, such as a custom
-emoji in a message:
-
-```rust
-Element::formatted_text(vec![
-    TextSpan::new("Nice ", palette.text, 14.0, FontFamily::Sans),
-    TextSpan::new(":party:", palette.text, 14.0, FontFamily::Sans).image(picture),
-]);
-```
-
-| Builder | Paints |
-| --- | --- |
-| `TextSpan::image(raster)` | The picture, as `DrawCommand::RasterImage`. |
-| `TextSpan::surface(id)` | The host's surface `id`, as `DrawCommand::Surface`: an animation whose frames the host presents there, at the square's size. |
-
-The picture is a square `INLINE_IMAGE_SCALE` (1.375) times the span's
-`font_size` on a side, centered on its line, and it moves to the next line
-whole. Its line is at least that tall. For a larger picture, such as a
-message that is only emoji, give the span a larger `font_size`. The span's
-text is not painted, but it is what a selection copies and what a screen
-reader reads: `:party:` here. A selection takes the picture whole or not at
-all. An `action` makes the picture a target, as on text. `background` and
-`icon` are not painted on such a span.
+The lines are not drawn under a picture or an icon. `FontFamily::SansBoldItalic`
+is the bold face slanted, measured as `SansBold`.
 
 ### Sticky children
 

@@ -5,22 +5,36 @@ use horizontal_scroll_tree::{HorizontalPan, HorizontalScrollState};
 mod corner_mask_tree;
 #[path = "plot_tree.rs"]
 mod plot_tree;
+#[path = "zoom_view_tree.rs"]
+mod zoom_view_tree;
 #[cfg(test)]
 #[path = "popover_initial_focus_tests.rs"]
 mod popover_initial_focus_tests;
 #[cfg(test)]
 #[path = "coach_mark_tests.rs"]
 mod coach_mark_tests;
+#[cfg(test)]
+#[path = "region_focus_tests.rs"]
+mod region_focus_tests;
 
 #[cfg(test)]
 #[path = "drag_drop_tests.rs"]
 mod drag_drop_tests;
+#[cfg(test)]
+#[path = "host_input_tests.rs"]
+mod host_input_tests;
+#[cfg(test)]
+#[path = "hover_popover_tests.rs"]
+mod hover_popover_tests;
 #[cfg(test)]
 #[path = "sticky_tests.rs"]
 mod sticky_tests;
 #[cfg(test)]
 #[path = "top_fade_tests.rs"]
 mod top_fade_tests;
+#[cfg(test)]
+#[path = "text_gradient_tests.rs"]
+mod text_gradient_tests;
 #[cfg(test)]
 #[path = "text_marks_tests.rs"]
 mod text_marks_tests;
@@ -36,6 +50,9 @@ mod translation_tests;
 #[cfg(test)]
 #[path = "pointer_blocking_tests.rs"]
 mod pointer_blocking_tests;
+#[cfg(test)]
+#[path = "keyboard_tests.rs"]
+mod keyboard_tests;
 #[cfg(test)]
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
@@ -689,9 +706,10 @@ pub enum DrawCommand {
         /// Corner radius the picture is rounded to.
         radius: f32,
     },
-    /// Pixels the host presents to the backend under `id`, outside the frame.
-    /// They start at the rectangle's top-left corner at their own density and
-    /// are clipped to the rectangle, never stretched to fill it.
+    /// Pixels the host presents to the backend under `id`, outside the frame,
+    /// placed in the rectangle as `fit` says and clipped to it. With
+    /// `SurfaceFit::Native` they start at the top-left corner at their own
+    /// density, never stretched to fill it.
     Surface {
         /// The area the surface shows in; its pixels are clipped to it.
         rect: Rect,
@@ -701,6 +719,13 @@ pub enum DrawCommand {
         label: String,
         /// Opacity from 0 to 1: 1 unless a transition is fading the element.
         opacity: f32,
+        /// How the pixels fill the rectangle.
+        fit: crate::SurfaceFit,
+        /// Corner radius the pixels shown are rounded to.
+        radius: f32,
+        /// The pixels are painted flipped left to right, as a mirror shows
+        /// them; see [`Element::surface_mirrored`](crate::Element::surface_mirrored).
+        mirrored: bool,
     },
     /// An activity indicator that turns, sized to the shorter side of `rect`.
     Spinner {
@@ -1438,9 +1463,14 @@ fn animate_popover_command(
         DrawCommand::Surface {
             rect,
             opacity: own_opacity,
+            radius,
             ..
+        } => {
+            scale_rect(rect, scale, origin, slide_y);
+            *own_opacity *= opacity.clamp(0.0, 1.0);
+            *radius *= scale;
         }
-        | DrawCommand::EffortSlider {
+        DrawCommand::EffortSlider {
             rect,
             opacity: own_opacity,
             ..
@@ -1515,6 +1545,9 @@ pub enum HitKind {
     /// A scrollbar's rail: its thumb drags, its buttons step and a press on the
     /// rail pages.
     Scrollbar,
+    /// A zoom view's box: the wheel and a pinch zoom it, a drag pans it and a
+    /// double click zooms in or back out; see [`Element::zoom_view`].
+    Zoom,
 }
 
 /// A rectangle of the frame that answers the pointer, with the ID of its
@@ -1571,6 +1604,9 @@ pub struct Frame {
     virtual_lists: HashMap<String, VirtualListFocus>,
     context_menu_regions: Vec<ContextMenuRegion>,
     coach: Option<CoachFrame>,
+    /// The zoom views laid out, in order, and the controls that move them.
+    zoom_views: Vec<zoom_view_tree::ZoomFrame>,
+    zoom_controls: HashMap<String, (String, crate::ZoomControl)>,
 }
 
 /// The coach mark rendered this frame, laid out or not.
@@ -1970,6 +2006,7 @@ impl SelectableTextBlock {
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
+            | FontFamily::SansSemibold
             | FontFamily::SansBold
             | FontFamily::SansBoldItalic
             | FontFamily::Display => sans_metrics,
@@ -2530,8 +2567,10 @@ impl Frame {
     }
 }
 
-/// The keys a host can forward in [`UiEvent::Key`].
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The keys a host can forward in [`UiEvent::Key`] and
+/// [`UiEvent::KeyReleased`]. The modifiers are not keys of their own: they
+/// arrive as the fields of a key event and as [`UiEvent::ModifiersChanged`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Key {
     /// Page Up: without `ctrl`, scrolls up a page behind the focus or under the
     /// pointer.
@@ -2630,10 +2669,25 @@ pub enum Key {
     /// The Z key: with `ctrl` in an editable code editor, undoes, or redoes
     /// with `shift`.
     Z,
+    /// The slash key (`/`), read as a key for shortcuts such as Ctrl+/. The
+    /// character still arrives as `UiEvent::Text`.
+    Slash,
+    /// Read only as the shortcut of an item in an open context menu.
+    F1,
     /// Read only as the shortcut of an item in an open context menu.
     F2,
     /// Read only as the shortcut of an item in an open context menu.
+    F3,
+    /// Read only as the shortcut of an item in an open context menu.
+    F4,
+    /// Read only as the shortcut of an item in an open context menu.
     F5,
+    /// Read only as the shortcut of an item in an open context menu.
+    F6,
+    /// Read only as the shortcut of an item in an open context menu.
+    F7,
+    /// Read only as the shortcut of an item in an open context menu.
+    F8,
     /// Read only as the shortcut of an item in an open context menu.
     F9,
     /// Read only as the shortcut of an item in an open context menu.
@@ -2642,6 +2696,395 @@ pub enum Key {
     F11,
     /// Read only as the shortcut of an item in an open context menu.
     F12,
+    /// Insert, read only as a host's shortcut.
+    Insert,
+    /// The `:` key. The character still arrives as `UiEvent::Text`.
+    Colon,
+    /// The `,` key. The character still arrives as `UiEvent::Text`.
+    Comma,
+    /// The `-` key. The character still arrives as `UiEvent::Text`.
+    Minus,
+    /// The `.` key. The character still arrives as `UiEvent::Text`.
+    Period,
+    /// The `+` key. The character still arrives as `UiEvent::Text`.
+    Plus,
+    /// The `=` key. The character still arrives as `UiEvent::Text`.
+    Equals,
+    /// The `;` key. The character still arrives as `UiEvent::Text`.
+    Semicolon,
+    /// The `[` key. The character still arrives as `UiEvent::Text`.
+    OpenBracket,
+    /// The `]` key. The character still arrives as `UiEvent::Text`.
+    CloseBracket,
+    /// The `{` key. The character still arrives as `UiEvent::Text`.
+    OpenCurlyBracket,
+    /// The `}` key. The character still arrives as `UiEvent::Text`.
+    CloseCurlyBracket,
+    /// The ``` key. The character still arrives as `UiEvent::Text`.
+    Backtick,
+    /// The `\` key. The character still arrives as `UiEvent::Text`.
+    Backslash,
+    /// The `|` key. The character still arrives as `UiEvent::Text`.
+    Pipe,
+    /// The `?` key. The character still arrives as `UiEvent::Text`.
+    Questionmark,
+    /// The `!` key. The character still arrives as `UiEvent::Text`.
+    Exclamationmark,
+    /// The `'` key. The character still arrives as `UiEvent::Text`.
+    Quote,
+    /// The 0 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num0,
+    /// The 1 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num1,
+    /// The 2 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num2,
+    /// The 3 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num3,
+    /// The 4 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num4,
+    /// The 5 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num5,
+    /// The 6 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num6,
+    /// The 7 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num7,
+    /// The 8 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num8,
+    /// The 9 key, on the top row or the keypad. The character still
+    /// arrives as `UiEvent::Text`.
+    Num9,
+    /// The F13 key, read only as a host's shortcut.
+    F13,
+    /// The F14 key, read only as a host's shortcut.
+    F14,
+    /// The F15 key, read only as a host's shortcut.
+    F15,
+    /// The F16 key, read only as a host's shortcut.
+    F16,
+    /// The F17 key, read only as a host's shortcut.
+    F17,
+    /// The F18 key, read only as a host's shortcut.
+    F18,
+    /// The F19 key, read only as a host's shortcut.
+    F19,
+    /// The F20 key, read only as a host's shortcut.
+    F20,
+    /// The F21 key, read only as a host's shortcut.
+    F21,
+    /// The F22 key, read only as a host's shortcut.
+    F22,
+    /// The F23 key, read only as a host's shortcut.
+    F23,
+    /// The F24 key, read only as a host's shortcut.
+    F24,
+    /// The F25 key, read only as a host's shortcut.
+    F25,
+    /// The F26 key, read only as a host's shortcut.
+    F26,
+    /// The F27 key, read only as a host's shortcut.
+    F27,
+    /// The F28 key, read only as a host's shortcut.
+    F28,
+    /// The F29 key, read only as a host's shortcut.
+    F29,
+    /// The F30 key, read only as a host's shortcut.
+    F30,
+    /// The F31 key, read only as a host's shortcut.
+    F31,
+    /// The F32 key, read only as a host's shortcut.
+    F32,
+    /// The F33 key, read only as a host's shortcut.
+    F33,
+    /// The F34 key, read only as a host's shortcut.
+    F34,
+    /// The F35 key, read only as a host's shortcut.
+    F35,
+    /// The key between the left Shift and Z on ISO keyboards, `<` on many
+    /// of their layouts, named by its place. The character still arrives as
+    /// `UiEvent::Text`.
+    IntlBackslash,
+}
+
+impl Key {
+    /// Every key, in the order the enum declares them.
+    pub const ALL: &'static [Self] = &[
+        Self::PageUp,
+        Self::PageDown,
+        Self::Escape,
+        Self::Tab,
+        Self::ArrowLeft,
+        Self::ArrowRight,
+        Self::ArrowUp,
+        Self::ArrowDown,
+        Self::Home,
+        Self::End,
+        Self::Backspace,
+        Self::Delete,
+        Self::Enter,
+        Self::Space,
+        Self::A,
+        Self::B,
+        Self::C,
+        Self::D,
+        Self::E,
+        Self::F,
+        Self::G,
+        Self::H,
+        Self::I,
+        Self::J,
+        Self::K,
+        Self::L,
+        Self::M,
+        Self::N,
+        Self::O,
+        Self::P,
+        Self::Q,
+        Self::R,
+        Self::S,
+        Self::T,
+        Self::U,
+        Self::V,
+        Self::W,
+        Self::X,
+        Self::Y,
+        Self::Z,
+        Self::Slash,
+        Self::F1,
+        Self::F2,
+        Self::F3,
+        Self::F4,
+        Self::F5,
+        Self::F6,
+        Self::F7,
+        Self::F8,
+        Self::F9,
+        Self::F10,
+        Self::F11,
+        Self::F12,
+        Self::Insert,
+        Self::Colon,
+        Self::Comma,
+        Self::Minus,
+        Self::Period,
+        Self::Plus,
+        Self::Equals,
+        Self::Semicolon,
+        Self::OpenBracket,
+        Self::CloseBracket,
+        Self::OpenCurlyBracket,
+        Self::CloseCurlyBracket,
+        Self::Backtick,
+        Self::Backslash,
+        Self::Pipe,
+        Self::Questionmark,
+        Self::Exclamationmark,
+        Self::Quote,
+        Self::Num0,
+        Self::Num1,
+        Self::Num2,
+        Self::Num3,
+        Self::Num4,
+        Self::Num5,
+        Self::Num6,
+        Self::Num7,
+        Self::Num8,
+        Self::Num9,
+        Self::F13,
+        Self::F14,
+        Self::F15,
+        Self::F16,
+        Self::F17,
+        Self::F18,
+        Self::F19,
+        Self::F20,
+        Self::F21,
+        Self::F22,
+        Self::F23,
+        Self::F24,
+        Self::F25,
+        Self::F26,
+        Self::F27,
+        Self::F28,
+        Self::F29,
+        Self::F30,
+        Self::F31,
+        Self::F32,
+        Self::F33,
+        Self::F34,
+        Self::F35,
+        Self::IntlBackslash,
+    ];
+
+    /// The key's English name, as hosts write it in a shortcut and egui
+    /// names it: `"A"`, `"1"`, `"F13"`, `"Up"`, `"Space"`, `"Backtick"`.
+    /// [`Self::from_name`] reads it back.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::ArrowLeft => "Left",
+            Self::ArrowRight => "Right",
+            Self::ArrowUp => "Up",
+            Self::ArrowDown => "Down",
+            Self::PageUp => "PageUp",
+            Self::PageDown => "PageDown",
+            Self::Escape => "Escape",
+            Self::Tab => "Tab",
+            Self::Home => "Home",
+            Self::End => "End",
+            Self::Backspace => "Backspace",
+            Self::Delete => "Delete",
+            Self::Enter => "Enter",
+            Self::Space => "Space",
+            Self::A => "A",
+            Self::B => "B",
+            Self::C => "C",
+            Self::D => "D",
+            Self::E => "E",
+            Self::F => "F",
+            Self::G => "G",
+            Self::H => "H",
+            Self::I => "I",
+            Self::J => "J",
+            Self::K => "K",
+            Self::L => "L",
+            Self::M => "M",
+            Self::N => "N",
+            Self::O => "O",
+            Self::P => "P",
+            Self::Q => "Q",
+            Self::R => "R",
+            Self::S => "S",
+            Self::T => "T",
+            Self::U => "U",
+            Self::V => "V",
+            Self::W => "W",
+            Self::X => "X",
+            Self::Y => "Y",
+            Self::Z => "Z",
+            Self::Slash => "Slash",
+            Self::F1 => "F1",
+            Self::F2 => "F2",
+            Self::F3 => "F3",
+            Self::F4 => "F4",
+            Self::F5 => "F5",
+            Self::F6 => "F6",
+            Self::F7 => "F7",
+            Self::F8 => "F8",
+            Self::F9 => "F9",
+            Self::F10 => "F10",
+            Self::F11 => "F11",
+            Self::F12 => "F12",
+            Self::Insert => "Insert",
+            Self::Colon => "Colon",
+            Self::Comma => "Comma",
+            Self::Minus => "Minus",
+            Self::Period => "Period",
+            Self::Plus => "Plus",
+            Self::Equals => "Equals",
+            Self::Semicolon => "Semicolon",
+            Self::OpenBracket => "OpenBracket",
+            Self::CloseBracket => "CloseBracket",
+            Self::OpenCurlyBracket => "OpenCurlyBracket",
+            Self::CloseCurlyBracket => "CloseCurlyBracket",
+            Self::Backtick => "Backtick",
+            Self::Backslash => "Backslash",
+            Self::Pipe => "Pipe",
+            Self::Questionmark => "Questionmark",
+            Self::Exclamationmark => "Exclamationmark",
+            Self::Quote => "Quote",
+            Self::Num0 => "0",
+            Self::Num1 => "1",
+            Self::Num2 => "2",
+            Self::Num3 => "3",
+            Self::Num4 => "4",
+            Self::Num5 => "5",
+            Self::Num6 => "6",
+            Self::Num7 => "7",
+            Self::Num8 => "8",
+            Self::Num9 => "9",
+            Self::F13 => "F13",
+            Self::F14 => "F14",
+            Self::F15 => "F15",
+            Self::F16 => "F16",
+            Self::F17 => "F17",
+            Self::F18 => "F18",
+            Self::F19 => "F19",
+            Self::F20 => "F20",
+            Self::F21 => "F21",
+            Self::F22 => "F22",
+            Self::F23 => "F23",
+            Self::F24 => "F24",
+            Self::F25 => "F25",
+            Self::F26 => "F26",
+            Self::F27 => "F27",
+            Self::F28 => "F28",
+            Self::F29 => "F29",
+            Self::F30 => "F30",
+            Self::F31 => "F31",
+            Self::F32 => "F32",
+            Self::F33 => "F33",
+            Self::F34 => "F34",
+            Self::F35 => "F35",
+            Self::IntlBackslash => "IntlBackslash",
+        }
+    }
+
+    /// The key a name stands for: [`Self::name`], the variant's own name
+    /// (`"ArrowUp"`, `"Num1"`) or the character the key types (`"/"`,
+    /// `"-"`), names in either case. `None` for anything else.
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL.iter().copied().find(|key| {
+            key.name().eq_ignore_ascii_case(name)
+                || format!("{key:?}").eq_ignore_ascii_case(name)
+                || key.symbol().is_some_and(|symbol| name.chars().eq([symbol]))
+        })
+    }
+
+    /// The character a punctuation key types, for [`Self::from_name`].
+    fn symbol(self) -> Option<char> {
+        Some(match self {
+            Self::Space => ' ',
+            Self::Slash => '/',
+            Self::Colon => ':',
+            Self::Comma => ',',
+            Self::Minus => '-',
+            Self::Period => '.',
+            Self::Plus => '+',
+            Self::Equals => '=',
+            Self::Semicolon => ';',
+            Self::OpenBracket => '[',
+            Self::CloseBracket => ']',
+            Self::OpenCurlyBracket => '{',
+            Self::CloseCurlyBracket => '}',
+            Self::Backtick => '`',
+            Self::Backslash => '\\',
+            Self::Pipe => '|',
+            Self::Questionmark => '?',
+            Self::Exclamationmark => '!',
+            Self::Quote => '\'',
+            _ => return None,
+        })
+    }
+}
+
+/// A pointer button that has no event of its own: the middle button and the
+/// two side buttons. Primary and secondary have their own events.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OtherButton {
+    /// The wheel button (mouse button 3).
+    Middle,
+    /// The first side button (mouse button 4).
+    Back,
+    /// The second side button (mouse button 5).
+    Forward,
 }
 
 /// Input a host forwards to `UiTree::handle_event`. Positions are in
@@ -2742,6 +3185,16 @@ pub enum UiEvent {
         /// Paths of the dropped files.
         paths: Vec<std::path::PathBuf>,
     },
+    /// The clipboard held a picture and Ctrl+V was pressed. Pixels are RGBA,
+    /// unpremultiplied, row by row from the top.
+    PasteImage {
+        /// Width in pixels.
+        width: usize,
+        /// Height in pixels.
+        height: usize,
+        /// `width * height * 4` bytes.
+        rgba: Arc<[u8]>,
+    },
     /// The pointer moved to this position: updates what is hovered and carries
     /// on a drag, a text selection or a scrollbar drag.
     PointerMove(Point),
@@ -2782,7 +3235,61 @@ pub enum UiEvent {
         shift: bool,
         /// True while Ctrl is held. The egui backend sets it for Command too.
         ctrl: bool,
+        /// True while Alt (Option) is held. The tree reads it only to match a
+        /// context menu item's shortcut; a host reads it for its own, such as
+        /// Alt+Left.
+        alt: bool,
     },
+    /// The pointer's back button (the first side button, mouse button 4) was
+    /// pressed at this position. The tree does nothing with it; a host reads
+    /// it to go back in its own history.
+    PointerBack(Point),
+    /// The pointer's forward button (the second side button, mouse button 5)
+    /// was pressed at this position. The tree does nothing with it; a host
+    /// reads it to go forward in its own history.
+    PointerForward(Point),
+    /// The middle or a side button went down or up at this position. Unlike
+    /// `PointerBack` and `PointerForward`, releases come too, so a host can
+    /// bind the button as a hold. The tree answers with `UiAction::OtherButton`.
+    OtherButton {
+        /// Which button changed.
+        button: OtherButton,
+        /// `true` on press, `false` on release.
+        pressed: bool,
+        /// Where the pointer was.
+        position: Point,
+    },
+    /// A key was released. The tree only stops counting it as held; see
+    /// [`UiTree::key_held`].
+    KeyReleased {
+        /// The key that was released.
+        key: Key,
+    },
+    /// The modifiers held changed, such as Shift pressed or released alone.
+    /// The tree keeps them for [`UiTree::modifiers`]; nothing else reads
+    /// them.
+    ModifiersChanged(Modifiers),
+    /// A pinch on a touchpad or a touch screen: what lies under `position`
+    /// is to be shown `factor` times as large. A zoom view under it zooms;
+    /// nothing else reads it.
+    Zoom {
+        /// Where the fingers are.
+        position: Point,
+        /// Above 1 to zoom in, below 1 to zoom out; one that is not finite or
+        /// not above zero is ignored.
+        factor: f32,
+    },
+}
+
+/// Which modifier keys are held; see [`UiTree::modifiers`].
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
+pub struct Modifiers {
+    /// True while Shift is held.
+    pub shift: bool,
+    /// True while Ctrl is held. The egui backend sets it for Command too.
+    pub ctrl: bool,
+    /// True while Alt (Option) is held.
+    pub alt: bool,
 }
 
 /// What `UiTree::handle_event` reports for the host to act on.
@@ -2933,6 +3440,39 @@ pub enum UiAction {
         target: Option<String>,
         /// The paths the host sent, unchanged.
         paths: Vec<std::path::PathBuf>,
+    },
+    /// The middle or a side button went down or up: the answer to
+    /// `UiEvent::OtherButton`. The tree does nothing else with it.
+    OtherButton {
+        /// Which button changed.
+        button: OtherButton,
+        /// `true` on press, `false` on release.
+        pressed: bool,
+        /// Where the pointer was.
+        position: Point,
+    },
+    /// A picture was pasted: the answer to `UiEvent::PasteImage`. The host
+    /// decides what to do with it; `target` is the focused control, if any.
+    PasteImage {
+        /// The control that had focus when the paste arrived.
+        target: Option<String>,
+        /// Width in pixels.
+        width: usize,
+        /// Height in pixels.
+        height: usize,
+        /// `width * height * 4` bytes, unpremultiplied RGBA.
+        rgba: Arc<[u8]>,
+    },
+    /// A zoom view's scale changed (see [`Element::zoom_view`]): the host may
+    /// show it, or fetch a sharper picture to zoom into.
+    Zoomed {
+        /// The zoom view's ID.
+        id: String,
+        /// Logical pixels on screen for each pixel of the picture, where it
+        /// is going to rest.
+        scale: f32,
+        /// It is at its fit, following the box.
+        fitted: bool,
     },
 }
 
@@ -3663,6 +4203,8 @@ pub struct UiTree {
     slider_motion: HashMap<String, SliderMotion>,
     hovered_scrollbar: Option<String>,
     focus_order: Vec<(String, HitKind)>,
+    /// Each landmark region and its controls in focus order, outermost first.
+    focus_regions: Vec<(String, Vec<String>)>,
     action_aliases: HashMap<String, String>,
     focused: Option<String>,
     caret_blink: crate::caret_blink::CaretBlink,
@@ -3673,6 +4215,8 @@ pub struct UiTree {
     pending_reveal: Option<(String, f32, bool)>,
     pending_center: Option<String>,
     hovered: Option<String>,
+    /// The named `hover_region` under the pointer as of the last layout.
+    hovered_region: Option<String>,
     pointer: Option<Point>,
     tooltip_hover_since: Option<(String, Instant)>,
     keyboard_focus: bool,
@@ -3722,6 +4266,11 @@ pub struct UiTree {
     /// a text area.
     field_drag: Option<(String, bool)>,
     ime_window_focused: bool,
+    keys_held: Vec<Key>,
+    modifiers: Modifiers,
+    /// Where each zoom view's picture is, by the view's ID.
+    zoom_views: HashMap<String, crate::zoom_view::ZoomState>,
+    zoom_press: Option<zoom_view_tree::ZoomPress>,
 }
 
 impl UiTree {
@@ -3762,6 +4311,7 @@ impl UiTree {
             slider_motion: HashMap::new(),
             hovered_scrollbar: None,
             focus_order: Vec::new(),
+            focus_regions: Vec::new(),
             action_aliases: HashMap::new(),
             focused: None,
             caret_blink: crate::caret_blink::CaretBlink::default(),
@@ -3770,6 +4320,7 @@ impl UiTree {
             pending_reveal: None,
             pending_center: None,
             hovered: None,
+            hovered_region: None,
             pointer: None,
             tooltip_hover_since: None,
             keyboard_focus: false,
@@ -3809,6 +4360,10 @@ impl UiTree {
             ime_owner: None,
             field_drag: None,
             ime_window_focused: true,
+            keys_held: Vec::new(),
+            modifiers: Modifiers::default(),
+            zoom_views: HashMap::new(),
+            zoom_press: None,
         }
     }
 
@@ -3928,14 +4483,24 @@ impl UiTree {
     /// Move the caret without changing focus or replacing text. Autocomplete
     /// uses this after inserting a token in the middle of a multiline draft.
     pub fn set_input_cursor(&mut self, id: &str, cursor: usize) {
+        self.set_input_selection(id, cursor, cursor);
+    }
+
+    /// Select the Unicode characters `start..end` of a text input or text
+    /// area without changing focus or replacing text: the anchor at `start`
+    /// and the caret at `end`, each kept within the text. Equal ends leave
+    /// only the caret there. A composer uses this to keep words selected
+    /// after wrapping them in markers. A field not laid out yet is left alone.
+    pub fn set_input_selection(&mut self, id: &str, start: usize, end: usize) {
         if let Some(state) = self.inputs.get_mut(id) {
-            let cursor = cursor.min(state.value.chars().count());
-            if self.focused.as_deref() == Some(id)
-                && (state.cursor != cursor || state.selected_range().is_some())
-            {
+            let count = state.value.chars().count();
+            let cursor = end.min(count);
+            let anchor = Some(start.min(count)).filter(|anchor| *anchor != cursor);
+            let current = state.anchor.filter(|anchor| *anchor != state.cursor);
+            if self.focused.as_deref() == Some(id) && (state.cursor, current) != (cursor, anchor) {
                 self.caret_blink.reset();
             }
-            state.set_selection(cursor, None);
+            state.set_selection(cursor, anchor);
             state.keep_cursor_visible = true;
             state.desired_column = None;
             state.desired_x = None;
@@ -4056,12 +4621,62 @@ impl UiTree {
         self.hovered.as_deref()
     }
 
+    /// The ID of the innermost [`Element::hover_region_id`] under the
+    /// pointer as of the last layout, such as the row of a message while the
+    /// pointer is over its text, which is no control. A popover, a dialog's
+    /// backdrop or a context menu over it takes the pointer from it.
+    pub fn hovered_region(&self) -> Option<&str> {
+        self.hovered_region.as_deref()
+    }
+
     /// The shape the pointer should have: that of the element being dragged,
     /// wherever the pointer went with it, or else of the element under it.
     /// `None` leaves it to the platform.
     pub fn cursor(&self) -> Option<Cursor> {
         let dragged = self.pointer_drag.as_ref().filter(|drag| drag.active).map(|drag| drag.id.as_str());
         self.frame.cursors.get(dragged.or(self.hovered.as_deref())?).copied()
+    }
+
+    /// The controls inside the landmark region `region` (an element marked
+    /// `Access::new(Role::Region).id(region)`), in focus order, as of the
+    /// last layout. Empty for an ID that is not a region.
+    pub fn focusables_within(&self, region: &str) -> Vec<&str> {
+        self.focus_regions
+            .iter()
+            .find(|(id, _)| id == region)
+            .map(|(_, members)| members.iter().map(String::as_str).collect())
+            .unwrap_or_default()
+    }
+
+    /// Move the focus to the first control of the next landmark region, or
+    /// of the previous one with `reverse`, wrapping around, as F6 and
+    /// Shift+F6 do. Regions follow the order they are in the tree, a nested
+    /// one after the region around it; one with nothing to focus is passed
+    /// over. Returns the ID of the region reached, for a host that would
+    /// rather land on another of its controls; `None` when a popover holds
+    /// the focus or no region has a control.
+    pub fn focus_next_region(&mut self, reverse: bool) -> Option<String> {
+        if self.has_open_popover() {
+            return None;
+        }
+        let reachable: Vec<usize> =
+            (0..self.focus_regions.len()).filter(|index| !self.focus_regions[*index].1.is_empty()).collect();
+        let focused = self.focused.as_deref();
+        // The innermost region the focus is in: nested regions come later.
+        let current = focused.and_then(|id| {
+            reachable.iter().rposition(|index| self.focus_regions[*index].1.iter().any(|member| member == id))
+        });
+        let count = reachable.len();
+        let next = match (current, reverse) {
+            _ if count == 0 => return None,
+            (Some(at), false) => (at + 1) % count,
+            (Some(at), true) => (at + count - 1) % count,
+            (None, false) => 0,
+            (None, true) => count - 1,
+        };
+        let (region, members) = &self.focus_regions[reachable[next]];
+        let (region, first) = (region.clone(), members[0].clone());
+        self.focus(&first).then_some(region)
     }
 
     /// Focus an interactive element after layout. Returns false for an unknown ID.
@@ -4129,6 +4744,10 @@ impl UiTree {
             self.spinner_started.clear();
             self.record_motion.clear();
             self.slider_motion.clear();
+            let now = Instant::now();
+            for state in self.zoom_views.values_mut() {
+                state.jump(state.view, now);
+            }
         }
         self.reduced_motion = reduced;
     }
@@ -4149,13 +4768,56 @@ impl UiTree {
 
     /// Hosts forward native window focus (and which tree owns keyboard input).
     /// A change requires one repaint; an inactive caret has no timer deadline.
+    /// Losing the focus also lets go of every key and modifier held, whose
+    /// release the window may never see.
     pub fn set_window_focused(&mut self, focused: bool) -> bool {
         if self.ime_window_focused != focused {
             self.invalidate_paste_targets();
         }
+        if !focused {
+            self.keys_held.clear();
+            self.modifiers = Modifiers::default();
+        }
         self.ime_window_focused = focused;
         self.validate_ime_owner(Instant::now());
         self.caret_blink.set_window_focused(focused)
+    }
+
+    /// Whether `key` is held: from its [`UiEvent::Key`] until its
+    /// [`UiEvent::KeyReleased`], or the window losing the focus. Asked before
+    /// a press is handled, false tells a first press from a key repeating.
+    pub fn key_held(&self, key: Key) -> bool {
+        self.keys_held.contains(&key)
+    }
+
+    /// The modifiers held, as the latest [`UiEvent::Key`] or
+    /// [`UiEvent::ModifiersChanged`] said; none once the window loses the
+    /// focus.
+    pub fn modifiers(&self) -> Modifiers {
+        self.modifiers
+    }
+
+    /// Note what `event` says of the keys and modifiers held, without
+    /// handling it: for an event the host answers before the tree, which
+    /// then never sees it. [`Self::handle_event`] does this itself, and
+    /// noting an event twice changes nothing.
+    pub fn observe_keys(&mut self, event: &UiEvent) {
+        match *event {
+            UiEvent::Key {
+                key,
+                shift,
+                ctrl,
+                alt,
+            } => {
+                if !self.keys_held.contains(&key) {
+                    self.keys_held.push(key);
+                }
+                self.modifiers = Modifiers { shift, ctrl, alt };
+            }
+            UiEvent::KeyReleased { key } => self.keys_held.retain(|held| *held != key),
+            UiEvent::ModifiersChanged(modifiers) => self.modifiers = modifiers,
+            _ => {}
+        }
     }
 
     /// How long until the blinking caret has to be painted again; zero is
@@ -4182,7 +4844,10 @@ impl UiTree {
     }
 
     fn visual_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
-        let animation = self.other_animation_repaint_after_at(now);
+        let animation = match (self.other_animation_repaint_after_at(now), self.zoom_repaint_after(now)) {
+            (Some(other), Some(zoom)) => Some(other.min(zoom)),
+            (other, zoom) => other.or(zoom),
+        };
         let scrollbar = self.scrollbar_states.values().filter_map(|state| state.repaint_after(now)).min();
         // A text area's scrollbar hides a moment after its last scroll.
         let bar = self
@@ -4542,6 +5207,7 @@ impl UiTree {
                 // An open menu is modal: the page under it does not answer the pointer.
                 pointer: self.pointer.filter(|_| context_menu_paint.is_none()),
                 region_hovered: false,
+                hovered_regions: Vec::new(),
                 access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
                 sketch_draft: self.sketch_draft.as_ref(),
@@ -4585,12 +5251,17 @@ impl UiTree {
                 observed_spinners: &mut observed_spinners,
                 settled_spinners: &mut settled_spinners,
                 observed_sliders: &mut observed_sliders,
+                zoom_views: &mut self.zoom_views,
                 reduced_motion: self.reduced_motion,
                 locating: probe.is_some(),
                 now,
             };
+            for state in builder.zoom_views.values_mut() {
+                state.seen = false;
+            }
             builder.place(&self.root, viewport_rect, None);
             let overlay_start = builder.frame.commands.len();
+            let base_regions = builder.frame.regions.len();
             // Deferred painting gives popovers one stable top layer even when
             // their anchor lives inside a clipped scroll container. Nested
             // overlays are appended and painted above their parent overlay.
@@ -5009,8 +5680,11 @@ impl UiTree {
                 builder.keyboard_focus = old_keyboard;
             }
             ghost_range = builder.drag_ghost.take();
+            self.hovered_region = builder.hovered_region(base_regions);
             (builder.frame, overlay_start)
         };
+        // A zoom view not laid out is gone: a new one under its ID opens fitted.
+        self.zoom_views.retain(|_, state| state.seen);
         // The dragged element follows the pointer above every layer. It
         // is captured once, so it survives its source scrolling away or
         // being recycled by a virtual list.
@@ -5107,18 +5781,34 @@ impl UiTree {
                 }
             }
         }
-        self.focus_order = focus_order
+        let expand = |order: Vec<(String, HitKind)>| -> Vec<(String, HitKind)> {
+            order
+                .into_iter()
+                .flat_map(|(id, kind)| {
+                    if kind == HitKind::Scroll && id.starts_with(VIRTUAL_FOCUS_PREFIX) {
+                        frame
+                            .virtual_lists
+                            .get(&id[VIRTUAL_FOCUS_PREFIX.len()..])
+                            .map(|scope| scope.focusables().cloned().collect::<Vec<_>>())
+                            .unwrap_or_default()
+                    } else {
+                        vec![(id, kind)]
+                    }
+                })
+                .collect()
+        };
+        self.focus_order = expand(focus_order);
+        let mut regions = Vec::new();
+        collect_focus_regions(&self.root, &mut regions);
+        self.focus_regions = regions
             .into_iter()
-            .flat_map(|(id, kind)| {
-                if kind == HitKind::Scroll && id.starts_with(VIRTUAL_FOCUS_PREFIX) {
-                    frame
-                        .virtual_lists
-                        .get(&id[VIRTUAL_FOCUS_PREFIX.len()..])
-                        .map(|scope| scope.focusables().cloned().collect::<Vec<_>>())
-                        .unwrap_or_default()
-                } else {
-                    vec![(id, kind)]
-                }
+            .map(|(id, order)| {
+                let members = expand(order)
+                    .into_iter()
+                    .map(|(member, _)| member)
+                    .filter(|member| self.focus_order.iter().any(|(id, _)| id == member))
+                    .collect();
+                (id, members)
             })
             .collect();
         if let Some(id) = self.focused.as_ref().filter(|id| {
@@ -5953,10 +6643,15 @@ impl UiTree {
 
     /// Dispatch with the same monotonic clock used by `layout_at`.
     pub fn handle_event_at(&mut self, event: UiEvent, now: Instant) -> Vec<UiAction> {
+        self.observe_keys(&event);
         let event = match event {
+            // Only kept, for `key_held` and `modifiers`.
+            UiEvent::KeyReleased { .. } | UiEvent::ModifiersChanged(_) => return Vec::new(),
             UiEvent::PasteCaptured { target, text } => {
                 return self.paste_captured(target, text, now)
             }
+            // The host's history buttons: nothing in the tree reads them.
+            UiEvent::PointerBack(_) | UiEvent::PointerForward(_) => return Vec::new(),
             event => event,
         };
         self.validate_ime_owner(now);
@@ -5975,6 +6670,17 @@ impl UiTree {
                     position,
                     target: self.drop_target_at(position, ""),
                     paths,
+                }]
+            }
+            UiEvent::OtherButton { button, pressed, position } => {
+                return vec![UiAction::OtherButton { button, pressed, position }]
+            }
+            UiEvent::PasteImage { width, height, rgba } => {
+                return vec![UiAction::PasteImage {
+                    target: self.focused.clone(),
+                    width,
+                    height,
+                    rgba,
                 }]
             }
             other => other,
@@ -5997,6 +6703,7 @@ impl UiTree {
         if let Some(dismissed) = dismissed {
             actions.insert(0, dismissed);
         }
+        self.apply_zoom_controls(&mut actions, now);
         if let Some(drag) = cancelled {
             actions.push(UiAction::DragCancelled { id: drag.id });
         }
@@ -6116,6 +6823,9 @@ impl UiTree {
         if let Some(actions) = self.handle_code_event(&event, now) {
             return actions;
         }
+        if let Some(actions) = self.handle_zoom_event(&event, now) {
+            return actions;
+        }
         if self.handle_horizontal_scroll(&event) {
             return Vec::new();
         }
@@ -6177,9 +6887,18 @@ impl UiTree {
             | UiEvent::Paste(_) => {
                 unreachable!("additive editor events normalized above")
             }
-            UiEvent::FilesHovered { .. } | UiEvent::FilesDropped { .. } => {
-                unreachable!("external file events resolved before ordinary controls")
+            UiEvent::FilesHovered { .. }
+            | UiEvent::FilesDropped { .. }
+            | UiEvent::PasteImage { .. }
+            | UiEvent::OtherButton { .. }
+            | UiEvent::PointerBack(_)
+            | UiEvent::PointerForward(_)
+            | UiEvent::KeyReleased { .. }
+            | UiEvent::ModifiersChanged(_) => {
+                unreachable!("external file, history and held-key events resolved before ordinary controls")
             }
+            // A pinch over no zoom view.
+            UiEvent::Zoom { .. } => {}
             UiEvent::PointerMove(point) => {
                 if let Some(draft) = self.sketch_draft.as_mut() {
                     draft.extend(point);
@@ -6574,7 +7293,7 @@ impl UiTree {
                     }
                 }
             }
-            UiEvent::Key { key, shift, ctrl } => {
+            UiEvent::Key { key, shift, ctrl, alt } => {
                 if matches!(key, Key::PageUp | Key::PageDown) && !ctrl && self.scroll_by_page(key == Key::PageDown, now) {
                     // Scrolled: a page of what is behind the focus, or under the pointer.
                 } else if key == Key::Escape {
@@ -6623,6 +7342,8 @@ impl UiTree {
                             }
                         }
                     }
+                } else if key == Key::F6 && !ctrl && !alt {
+                    self.focus_next_region(shift);
                 } else if key == Key::Tab {
                     self.step_focus(shift);
                     self.keyboard_focus = true;
@@ -7217,6 +7938,47 @@ fn find_uniform_list<'a>(element: &'a Element, id: &str) -> Option<&'a UniformLi
     }
 }
 
+/// Each landmark region in `element`, outermost first, with what it holds in
+/// focus order (virtual list markers included, for layout to expand).
+fn collect_focus_regions(element: &Element, out: &mut Vec<(String, Vec<(String, HitKind)>)>) {
+    let region = element
+        .access
+        .as_deref()
+        .filter(|said| said.role == Some(crate::Role::Region))
+        .and_then(|said| said.id.clone());
+    if let Some(id) = region {
+        let mut order = Vec::new();
+        collect_focus_order(element, &mut order, &mut HashSet::new());
+        out.push((id, order));
+    }
+    match &element.kind {
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::TabStrip { children, .. }
+        | ElementKind::Stack(children) => {
+            for child in children {
+                collect_focus_regions(child, out);
+            }
+        }
+        ElementKind::Panel(child)
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. }
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Tooltip { anchor: child, .. } => collect_focus_regions(child, out),
+        ElementKind::Overlay { base, floating } => {
+            collect_focus_regions(base, out);
+            collect_focus_regions(floating, out);
+        }
+        ElementKind::Popover { anchor, floating, hover_open, .. } => {
+            collect_focus_regions(anchor, out);
+            if !*hover_open {
+                collect_focus_regions(floating, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn collect_focus_order(
     element: &Element,
     order: &mut Vec<(String, HitKind)>,
@@ -7336,6 +8098,7 @@ fn collect_focus_order(
         | ElementKind::FadedText { .. }
         | ElementKind::RasterImage(_)
         | ElementKind::Surface { .. }
+        | ElementKind::ZoomView(_)
         | ElementKind::Icon(_)
         | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
@@ -7392,6 +8155,7 @@ fn collect_action_metadata(
         | ElementKind::FormattedText(_)
         | ElementKind::RasterImage(_)
         | ElementKind::Surface { .. }
+        | ElementKind::ZoomView(_)
         | ElementKind::Icon(_)
         | ElementKind::Button { .. }
         | ElementKind::IconButton { .. }
@@ -7684,6 +8448,9 @@ struct LayoutBuilder<'a> {
     pointer: Option<Point>,
     /// The pointer is over the `hover_region` being placed.
     region_hovered: bool,
+    /// The named hover regions the pointer is over, outermost and earliest
+    /// first, each with the count of hit regions once its own were laid out.
+    hovered_regions: Vec<(String, usize)>,
     /// What a wrapper said of the control inside it, until that control takes it.
     access_above: Option<crate::Access>,
     slider_drag: Option<&'a SliderDrag>,
@@ -7727,6 +8494,7 @@ struct LayoutBuilder<'a> {
     observed_spinners: &'a mut HashSet<String>,
     settled_spinners: &'a mut HashSet<String>,
     observed_sliders: &'a mut HashSet<String>,
+    zoom_views: &'a mut HashMap<String, crate::zoom_view::ZoomState>,
     reduced_motion: bool,
     /// A control is being scrolled into view, which needs the layout an
     /// opening `animate_height` slot ends at.
@@ -8154,9 +8922,129 @@ enum TooltipBlock<'a> {
         color: Color,
     },
     IconRow(TooltipIconRowLayout),
+    Faces {
+        icon: Option<Icon>,
+        faces: &'a [crate::TooltipFace],
+        more: usize,
+        width: f32,
+    },
+}
+
+/// The style of a tooltip's «+N» after its faces.
+fn tooltip_more_style() -> Style {
+    Style {
+        font_size: 12.0,
+        font_family: FontFamily::SansMedium,
+        ..Style::default()
+    }
 }
 
 impl LayoutBuilder<'_> {
+    /// The width of a «+N» pill: its text with 8 on each side, at least round.
+    fn tooltip_more_width(&self, more: usize) -> f32 {
+        (self.text_width(&format!("+{more}"), tooltip_more_style()) + 16.0).max(crate::TOOLTIP_FACE)
+    }
+
+    /// How a row of faces fits `available`: the faces shown, how many the
+    /// «+N» says, and the row's width.
+    fn measure_tooltip_faces(&self, icon: bool, faces: usize, more: usize, available: f32) -> (usize, usize, f32) {
+        let lead = if icon { crate::TOOLTIP_FACE_ICON + 8.0 } else { 0.0 };
+        let step = crate::TOOLTIP_FACE - crate::TOOLTIP_FACE_OVERLAP;
+        let width = |shown: usize, more: usize| {
+            lead + shown as f32 * step
+                + crate::TOOLTIP_FACE_OVERLAP
+                + if more > 0 { self.tooltip_more_width(more) - crate::TOOLTIP_FACE_OVERLAP } else { 0.0 }
+        };
+        let (mut shown, mut more) = (faces, more);
+        while shown > 1 && width(shown, more) > available {
+            shown -= 1;
+            more += 1;
+        }
+        (shown, more, width(shown, more))
+    }
+
+    /// Paint a row of faces at `x`, `y`: each cut from the one before by a
+    /// ring of the tooltip's fill, then «+N».
+    fn paint_tooltip_faces(&mut self, x: f32, y: f32, icon: Option<Icon>, faces: &[crate::TooltipFace], more: usize, colors: TooltipStyle) {
+        let side = crate::TOOLTIP_FACE;
+        let mut x = x;
+        if let Some(icon) = icon {
+            let icon_side = crate::TOOLTIP_FACE_ICON;
+            self.frame.commands.push(DrawCommand::Icon {
+                rect: Rect::new(x, y + (side - icon_side) / 2.0, icon_side, icon_side),
+                icon,
+                tint: colors.text,
+            });
+            x += icon_side + 8.0;
+        }
+        let ring = |commands: &mut Vec<DrawCommand>, rect: Rect| {
+            commands.push(DrawCommand::FillRect {
+                rect: Rect::new(rect.x - 2.0, rect.y - 2.0, rect.width + 4.0, rect.height + 4.0),
+                color: colors.background,
+                radius: side / 2.0 + 2.0,
+            });
+        };
+        let initial_style = Style {
+            font_size: 11.0,
+            font_family: FontFamily::SansMedium,
+            ..Style::default()
+        };
+        for (index, face) in faces.iter().enumerate() {
+            let rect = Rect::new(x, y, side, side);
+            if index > 0 {
+                ring(&mut self.frame.commands, rect);
+            }
+            match &face.image {
+                Some(image) => self.frame.commands.push(DrawCommand::RasterImage {
+                    rect,
+                    image: image.clone(),
+                    opacity: 1.0,
+                    radius: side / 2.0,
+                }),
+                None => {
+                    self.frame.commands.push(DrawCommand::FillRect {
+                        rect,
+                        color: face.color,
+                        radius: side / 2.0,
+                    });
+                    let initial: String = face.name.chars().next().into_iter().flat_map(char::to_uppercase).collect();
+                    let width = self.text_width(&initial, initial_style);
+                    let height = self.metrics_for(initial_style).line_height;
+                    self.frame.commands.push(DrawCommand::Text {
+                        position: Point::new(x + (side - width) / 2.0, y + (side - height) / 2.0),
+                        text: initial,
+                        color: Color::rgb(255, 255, 255),
+                        font_size: initial_style.font_size,
+                        font_family: initial_style.font_family,
+                    });
+                }
+            }
+            x += side - crate::TOOLTIP_FACE_OVERLAP;
+        }
+        if more > 0 {
+            let label = format!("+{more}");
+            let rect = Rect::new(x, y, self.tooltip_more_width(more), side);
+            if !faces.is_empty() {
+                ring(&mut self.frame.commands, rect);
+            }
+            self.frame.commands.push(DrawCommand::FillRect {
+                rect,
+                color: colors.keycap,
+                radius: side / 2.0,
+            });
+            let style = tooltip_more_style();
+            let width = self.text_width(&label, style);
+            let height = self.metrics_for(style).line_height;
+            self.frame.commands.push(DrawCommand::Text {
+                position: Point::new(rect.x + (rect.width - width) / 2.0, y + (side - height) / 2.0),
+                text: label,
+                color: colors.text,
+                font_size: style.font_size,
+                font_family: style.font_family,
+            });
+        }
+    }
+
     /// Give what was painted since command `start` the shared entrance and,
     /// if it `leaves`, keep its paint to fade out once it stops being painted.
     /// Used by everything that is not a popover: tooltips, context menus and
@@ -8209,6 +9097,19 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// The innermost named hover region under the pointer that nothing laid
+    /// over it takes the pointer from: a popover, a dialog's backdrop or a
+    /// context menu, placed after the base tree's `base_regions` hit regions.
+    fn hovered_region(&mut self, base_regions: usize) -> Option<String> {
+        let point = self.pointer?;
+        let regions = &self.frame.regions;
+        let index = self.hovered_regions.iter().rposition(|(_, end)| {
+            let above = (*end).max(base_regions).min(regions.len());
+            !regions[above..].iter().any(|region| region.rect.contains(point))
+        })?;
+        Some(std::mem::take(&mut self.hovered_regions[index].0))
+    }
+
     /// Paint only: fade what was painted since command `start` in or out
     /// with the hover of the region around it. Layout, hit regions and the
     /// focus order are the same either way.
@@ -8219,7 +9120,8 @@ impl LayoutBuilder<'_> {
         } else {
             self.region_hovered || holds_reveal(element, self.keyboard_focus, self.focused)
         };
-        let target = if shown { 1.0 } else { 0.0 };
+        let hidden = element.kept.as_ref().and_then(|kept| kept.dim).unwrap_or(0.0);
+        let target = if shown { 1.0 } else { hidden };
         let now = self.now;
         self.observed_popovers.insert(id.to_owned());
         // First seen at rest: a page does not open with its rows fading.
@@ -8551,6 +9453,19 @@ impl LayoutBuilder<'_> {
                     }
                     TooltipBlock::IconRow(row)
                 }
+                TooltipSection::Faces { icon, faces, more } => {
+                    if faces.is_empty() {
+                        continue;
+                    }
+                    let (shown, more, width) =
+                        self.measure_tooltip_faces(icon.is_some(), faces.len(), *more, content_max);
+                    TooltipBlock::Faces {
+                        icon: *icon,
+                        faces: &faces[..shown],
+                        more,
+                        width,
+                    }
+                }
             };
             if separator_pending {
                 content_height += 15.0;
@@ -8568,6 +9483,7 @@ impl LayoutBuilder<'_> {
                     lines.len() as f32 * self.metrics_for(*style).line_height,
                 ),
                 TooltipBlock::IconRow(row) => row.size,
+                TooltipBlock::Faces { width, .. } => Size::new(*width, crate::TOOLTIP_FACE),
                 TooltipBlock::Separator => unreachable!(),
             };
             content_width = content_width.max(size.width);
@@ -8791,6 +9707,10 @@ impl LayoutBuilder<'_> {
                         });
                     }
                     text_y += row.size.height;
+                }
+                TooltipBlock::Faces { icon, faces, more, .. } => {
+                    self.paint_tooltip_faces(content.x, text_y, icon, faces, more, colors);
+                    text_y += crate::TOOLTIP_FACE;
                 }
                 TooltipBlock::Separator => unreachable!(),
             }
@@ -9420,6 +10340,7 @@ impl LayoutBuilder<'_> {
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
+            | FontFamily::SansSemibold
             | FontFamily::SansBold
             | FontFamily::SansBoldItalic
             | FontFamily::Display => self.sans_metrics,
@@ -9564,6 +10485,53 @@ impl LayoutBuilder<'_> {
                 });
                 self.frame.commands.push(DrawCommand::PopClip);
             }
+        }
+    }
+
+    /// `text` in `rect`, inked with `stops` from its left edge to its right:
+    /// bands clipped side by side, each in the color at its middle, as the
+    /// shimmer paints its sweep.
+    fn paint_gradient_line(
+        &mut self,
+        text: &str,
+        rect: Rect,
+        style: Style,
+        stops: &[Color],
+        clip: Option<Rect>,
+    ) {
+        const BANDS: usize = 24;
+        let last = (stops.len() - 1) as f32;
+        let opacity = f32::from(style.foreground.a) / 255.0;
+        for band in 0..BANDS {
+            let left = rect.x + rect.width * band as f32 / BANDS as f32;
+            let right = rect.x + rect.width * (band + 1) as f32 / BANDS as f32;
+            let area = Rect::new(left, rect.y, right - left, rect.height);
+            let visible = clip.map_or(Some(area), |outer| area.intersection(outer));
+            let Some(area) = visible.filter(|area| area.width > 0.0 && area.height > 0.0) else {
+                continue;
+            };
+            let at = (band as f32 + 0.5) / BANDS as f32 * last;
+            let from = stops[at.floor() as usize];
+            let to = stops[(at.ceil() as usize).min(stops.len() - 1)];
+            let mix = at.fract();
+            let blend = |a: u8, b: u8| {
+                (f32::from(a) + (f32::from(b) - f32::from(a)) * mix).round() as u8
+            };
+            let color = Color::rgba(
+                blend(from.r, to.r),
+                blend(from.g, to.g),
+                blend(from.b, to.b),
+                (f32::from(blend(from.a, to.a)) * opacity).round() as u8,
+            );
+            self.frame.commands.push(DrawCommand::PushClip(area));
+            self.frame.commands.push(DrawCommand::Text {
+                position: Point::new(rect.x, rect.y),
+                text: text.to_owned(),
+                color,
+                font_size: style.font_size,
+                font_family: style.font_family,
+            });
+            self.frame.commands.push(DrawCommand::PopClip);
         }
     }
 
@@ -10536,7 +11504,7 @@ impl LayoutBuilder<'_> {
                     lines.iter().map(|line| line.height).sum::<f32>() + padding,
                 )
             }
-            ElementKind::RasterImage(_) | ElementKind::Surface { .. } => {
+            ElementKind::RasterImage(_) | ElementKind::Surface { .. } | ElementKind::ZoomView(_) => {
                 Size::new(available.width.min(280.0), 180.0 + padding)
             }
             ElementKind::Icon(_) => {
@@ -10957,6 +11925,15 @@ impl LayoutBuilder<'_> {
                     .zip(visible)
                     .is_some_and(|(point, visible)| visible.contains(point));
         }
+        let named = element
+            .kept
+            .as_ref()
+            .and_then(|kept| kept.hover_name.clone())
+            .filter(|_| reveal == HoverReveal::Region && self.region_hovered)
+            .map(|name| {
+                self.hovered_regions.push((name, usize::MAX));
+                self.hovered_regions.len() - 1
+            });
         // A wrapper that is not itself a control speaks for the control inside
         // it: a field in its frame, a switch in its row.
         let hands_down = element.access.as_deref().filter(|said| said.id.is_none() && focusable_id(element).is_none());
@@ -10973,6 +11950,9 @@ impl LayoutBuilder<'_> {
         match (&element.presence, element.animate_height) {
             (Some((id, _)), Some(_)) => self.place_flow_height(element, id, rect, clip),
             _ => self.place_inner(element, rect, clip),
+        }
+        if let Some(index) = named {
+            self.hovered_regions[index].1 = self.frame.regions.len();
         }
         // Whoever was inside took it, or nobody was: either way it goes no further.
         let taken = self.access_above.is_none();
@@ -11329,7 +12309,8 @@ impl LayoutBuilder<'_> {
             style.background = (color.a > 0).then_some(color);
         }
         let metrics = self.metrics_for(style);
-        if let Some(shadow) = style.shadow {
+        // A zoom view's picture casts its shadow, not its box.
+        if let Some(shadow) = style.shadow.filter(|_| !matches!(element.kind, ElementKind::ZoomView(_))) {
             self.frame.commands.push(DrawCommand::Shadow {
                 rect,
                 shadow,
@@ -11692,6 +12673,9 @@ impl LayoutBuilder<'_> {
                         || focusables.iter().any(|(id, _)| {
                             hovered == Some(id.as_str()) || focused == Some(id.as_str())
                         })
+                        // What lies inside the trigger holds it too, such as a
+                        // hint's anchor in a row that opens a card on hover.
+                        || holds_submenu(anchor, hovered, focused)
                         || holds_submenu(floating, hovered, focused)
                         // The pointer crossing the gap from the trigger's row towards the
                         // surface, on either side, keeps it open on the way.
@@ -12110,6 +13094,10 @@ impl LayoutBuilder<'_> {
                     }
                     _ => None,
                 };
+                let ink = element
+                    .kept
+                    .as_ref()
+                    .and_then(|kept| kept.ink_gradient.clone());
                 if let Some((id, highlight)) = shimmer {
                     self.observed_shimmers.insert(id.clone());
                     let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
@@ -12123,6 +13111,15 @@ impl LayoutBuilder<'_> {
                             self.now.saturating_duration_since(started).as_secs_f32(),
                             width,
                         ),
+                        clip,
+                    );
+                } else if let Some(stops) = ink.filter(|_| !shown.is_empty()) {
+                    let width = self.text_width(&shown, style);
+                    self.paint_gradient_line(
+                        &shown,
+                        Rect::new(x, y, width, metrics.line_height),
+                        style,
+                        &stops,
                         clip,
                     );
                 } else {
@@ -12245,6 +13242,21 @@ impl LayoutBuilder<'_> {
                             (highlight, elapsed, sweep_width),
                             clip,
                         );
+                    } else if let Some(stops) = element
+                        .kept
+                        .as_ref()
+                        .and_then(|kept| kept.ink_gradient.clone())
+                        .filter(|_| !line.is_empty())
+                    {
+                        // As the sweep: the same run, painted in bands.
+                        self.frame.commands.pop();
+                        self.paint_gradient_line(
+                            line,
+                            Rect::new(x, y, line_width.max(0.0), metrics.line_height),
+                            style,
+                            &stops,
+                            clip,
+                        );
                     }
                     source_byte += line.len();
                     source_char += count;
@@ -12337,6 +13349,9 @@ impl LayoutBuilder<'_> {
                                         id: id.clone(),
                                         label: fragment.text.clone(),
                                         opacity: 1.0,
+                                        fit: crate::SurfaceFit::Contain,
+                                        radius: 0.0,
+                                        mirrored: false,
                                     },
                                 });
                                 self.frame.commands.push(DrawCommand::PopClip);
@@ -12498,12 +13513,20 @@ impl LayoutBuilder<'_> {
                     radius: style.radius,
                 });
             }
-            ElementKind::Surface { id, label } => {
+            ElementKind::Surface {
+                id,
+                label,
+                fit,
+                mirrored,
+            } => {
                 self.frame.commands.push(DrawCommand::Surface {
                     rect: content,
                     id: id.clone(),
                     label: label.clone(),
                     opacity: 1.0,
+                    fit: *fit,
+                    radius: style.radius,
+                    mirrored: *mirrored,
                 });
             }
             ElementKind::Icon(icon) => {
@@ -12659,7 +13682,24 @@ impl LayoutBuilder<'_> {
                     side,
                     side,
                 );
-                self.draw_icon(*icon, icon_rect, style);
+                match element.kept.as_ref().and_then(|kept| kept.leading_image.as_ref()) {
+                    Some(InlineImage::Raster(image)) => self.frame.commands.push(DrawCommand::RasterImage {
+                        rect: icon_rect,
+                        image: image.clone(),
+                        opacity: 1.0,
+                        radius: 0.0,
+                    }),
+                    Some(InlineImage::Surface(surface)) => self.frame.commands.push(DrawCommand::Surface {
+                        rect: icon_rect,
+                        id: surface.clone(),
+                        label: label.clone(),
+                        opacity: 1.0,
+                        fit: crate::SurfaceFit::Contain,
+                        radius: 0.0,
+                        mirrored: false,
+                    }),
+                    None => self.draw_icon(*icon, icon_rect, style),
+                }
                 if !label.is_empty() {
                     let text_x = start_x + side + style.gap;
                     let text_y = content.y + (content.height - metrics.line_height) / 2.0;
@@ -13689,6 +14729,7 @@ impl LayoutBuilder<'_> {
                     );
                 }
             }
+            ElementKind::ZoomView(view) => self.place_zoom_view(view, content, clip, style.shadow),
             // A rolling number was placed as its text above.
             ElementKind::Skeleton { .. }
             | ElementKind::RollingNumber { .. }
@@ -14571,6 +15612,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         for (from, direction, expected) in [
             ("main:1", Key::ArrowDown, "main:2"),
@@ -14604,6 +15646,7 @@ mod tests {
                 key: Key::Tab,
                 shift: true,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("main:1"));
@@ -14648,6 +15691,7 @@ mod tests {
                 key: Key::End,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("main:2"));
@@ -14672,6 +15716,7 @@ mod tests {
                 key: Key::Tab,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         assert_eq!(tree.focused_id(), Some("close:2"));
@@ -14687,12 +15732,14 @@ mod tests {
             key: Key::ArrowDown,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("close:1"));
         tree.handle_event(UiEvent::Key {
             key: Key::End,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("close:2"));
     }
@@ -15077,7 +16124,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 [UiAction::Clicked {
                     id: "rounded-row".into()
@@ -15403,6 +16451,7 @@ mod tests {
                 key: Key::ArrowRight,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::SliderChanged {
                 id: "effort".into(),
@@ -15611,6 +16660,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             })
             .is_empty());
         let exiting = tree.layout_at(viewport, start + Duration::from_millis(205));
@@ -16186,6 +17236,7 @@ mod tests {
             key: Key::Backspace,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert!(placeholder(&tree.layout(viewport)).is_some());
         assert!(tree.focus("other"));
@@ -16366,6 +17417,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let focused = tree.layout(Size::new(200.0, 100.0));
         assert!(focused
@@ -16689,7 +17741,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked {
                     id: "exact-model".into()
@@ -16910,6 +17963,7 @@ mod tests {
                 key: Key::Escape,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked {
                 id: "dismiss".into()
@@ -16968,6 +18022,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         tree.handle_event(key(Key::ArrowDown));
         assert_eq!(tree.focused_id(), Some("pin"));
@@ -17193,7 +18248,7 @@ mod tests {
     }
 
     #[test]
-    fn an_inline_surface_paints_the_hosts_pixels_in_the_square() {
+    fn an_inline_surface_paints_the_hosts_pixels_fitted_in_the_square() {
         let mut tree = UiTree::new(Element::formatted_text(vec![TextSpan::new(
             ":dance:",
             Color::WHITE,
@@ -17205,14 +18260,17 @@ mod tests {
         tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 4.0);
         let frame = tree.layout(Size::new(200.0, 100.0));
         let surface = frame.commands.iter().find_map(|command| match command {
-            DrawCommand::Surface { rect, id, label, .. } => {
-                Some((*rect, id.clone(), label.clone()))
-            }
+            DrawCommand::Surface {
+                rect, id, label, fit, ..
+            } => Some((*rect, id.clone(), label.clone(), *fit)),
             _ => None,
         });
-        let (rect, id, label) = surface.unwrap();
+        let (rect, id, label, fit) = surface.unwrap();
         assert_eq!((rect.width, rect.height), (19.25, 19.25));
-        assert_eq!((id.as_str(), label.as_str()), ("animation:dance", ":dance:"));
+        assert_eq!(
+            (id.as_str(), label.as_str(), fit),
+            ("animation:dance", ":dance:", crate::SurfaceFit::Contain)
+        );
         assert_eq!(
             frame.hit_test(Point::new(rect.x + 5.0, rect.y + 5.0)),
             Some("emoji:dance")
@@ -17305,6 +18363,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("new"));
         for key in [Key::Enter, Key::Space] {
@@ -17312,7 +18371,8 @@ mod tests {
                 tree.handle_event(UiEvent::Key {
                     key,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked { id: "new".into() }]
             );
@@ -17321,6 +18381,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("second"));
     }
@@ -17354,12 +18415,14 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("before"));
         tree.handle_event(UiEvent::Key {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("link"));
         let frame = tree.layout(viewport);
@@ -17379,6 +18442,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             tree.focused_id(),
@@ -17502,6 +18566,7 @@ mod tests {
                 key: Key::C,
                 shift: false,
                 ctrl: true,
+                alt: false,
             }),
             vec![UiAction::CopyRequested {
                 text: "hi 👩‍💻".into(),
@@ -17671,6 +18736,7 @@ mod tests {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         let selected = tree.layout(Size::new(120.0, 30.0));
         assert!(selected.commands.iter().any(|command| matches!(
@@ -17709,11 +18775,13 @@ mod tests {
             key: Key::ArrowLeft,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowUp,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         let moved = tree.layout(Size::new(20.0, 60.0));
         assert!(moved.commands.iter().any(|command| matches!(
@@ -17917,12 +18985,14 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::Clicked { id: "new".into() }]
         );
@@ -18044,6 +19114,7 @@ mod tests {
                 key: Key::Enter,
                 shift: false,
                 ctrl: false,
+                alt: false,
             }),
             vec![UiAction::InputChanged {
                 id: "prompt".into(),
@@ -18059,6 +19130,7 @@ mod tests {
                 key: Key::Enter,
                 shift: false,
                 ctrl: true,
+                alt: false,
             }),
             vec![UiAction::Submitted {
                 id: "prompt".into(),
@@ -18066,6 +19138,43 @@ mod tests {
             }]
         );
         assert_eq!(tree.input_value("prompt"), Some("uno\ndos"));
+    }
+
+    #[test]
+    fn set_input_selection_selects_characters_and_typing_replaces_them() {
+        let area = || Element::text_area("prompt", "a **ñandú** b", "Ask").size(None, Some(88.0));
+        let mut tree = UiTree::new(area());
+        tree.layout(Size::new(240.0, 88.0));
+        tree.set_input_selection("prompt", 4, 9);
+        assert_eq!(tree.focused_id(), None, "selecting does not focus");
+        assert_eq!(tree.input_selection("prompt"), Some((4, 9)));
+        assert_eq!(tree.input_cursor("prompt"), Some(9));
+        // The caret stays at `end`, before the anchor here.
+        tree.set_input_selection("prompt", 9, 4);
+        assert_eq!(tree.input_selection("prompt"), Some((4, 9)));
+        assert_eq!(tree.input_cursor("prompt"), Some(4));
+        // Both ends are kept within the 13 characters.
+        tree.set_input_selection("prompt", 11, 99);
+        assert_eq!(tree.input_selection("prompt"), Some((11, 13)));
+        tree.set_input_selection("prompt", 99, 99);
+        assert_eq!(tree.input_selection("prompt"), Some((13, 13)));
+        tree.set_input_selection("prompt", 2, 2);
+        assert_eq!(tree.input_selection("prompt"), Some((2, 2)));
+        tree.set_input_selection("missing", 0, 1);
+        assert_eq!(tree.input_selection("missing"), None);
+
+        assert!(tree.focus("prompt"));
+        tree.set_input_selection("prompt", 4, 9);
+        assert_eq!(tree.focused_id(), Some("prompt"));
+        assert_eq!(tree.input_value("prompt"), Some("a **ñandú** b"));
+        assert_eq!(
+            tree.handle_event(UiEvent::Text("emú".into())),
+            vec![UiAction::InputChanged {
+                id: "prompt".into(),
+                value: "a **emú** b".into(),
+            }]
+        );
+        assert_eq!(tree.input_selection("prompt"), Some((7, 7)));
     }
 
     #[test]
@@ -18113,6 +19222,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert!(tree
             .layout(Size::new(100.0, 28.0))
@@ -18476,6 +19586,7 @@ mod tests {
                 key: Key::A,
                 shift: false,
                 ctrl: true,
+                alt: false,
             });
             let mut expected = String::new();
             for character in "fixture ñ🦀".chars() {
@@ -18498,6 +19609,7 @@ mod tests {
                 key: Key::A,
                 shift: false,
                 ctrl: true,
+                alt: false,
             });
             tree.handle_event(UiEvent::Text("n".into()));
             tree.handle_event(UiEvent::Text("a".into()));
@@ -18514,6 +19626,7 @@ mod tests {
             key: Key::ArrowLeft,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Paste("ñ".into()));
         tree.handle_event(UiEvent::Text("🦀".into()));
@@ -18523,6 +19636,7 @@ mod tests {
                 key: Key::C,
                 shift: false,
                 ctrl: true,
+                alt: false,
             })
             .is_empty(),
             "typing must leave no active selection"
@@ -18537,11 +19651,13 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         let selected = tree.layout(Size::new(240.0, 88.0));
         assert_eq!(
@@ -18557,6 +19673,7 @@ mod tests {
             key: Key::ArrowUp,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Text("!".into()));
         assert_eq!(tree.input_value("prompt"), Some("x!"));
@@ -19807,11 +20924,13 @@ mod tests {
             key: Key::ArrowLeft,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         tree.handle_event(UiEvent::Key {
             key: Key::Backspace,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.input_value("prompt"), Some("a🦀"));
         tree.set_root(Element::text_input("prompt", "stale", "Ask"));
@@ -20013,7 +21132,7 @@ mod tests {
             ]),
         );
         let tab = |tree: &mut UiTree, shift: bool| {
-            tree.handle_event(UiEvent::Key { key: Key::Tab, shift, ctrl: false });
+            tree.handle_event(UiEvent::Key { key: Key::Tab, shift, ctrl: false, alt: false });
             tree.layout(Size::new(120.0, 60.0));
         };
         let mut tree = UiTree::new(list);
@@ -20083,6 +21202,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("row:3"));
         let frame = tree.layout(Size::new(120.0, 60.0));
@@ -20094,6 +21214,7 @@ mod tests {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("menu:0"));
         let frame = tree.layout(Size::new(120.0, 60.0));
@@ -20162,7 +21283,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "command_pick:0:workspace-b/query-b".into(),
@@ -20244,6 +21366,7 @@ mod tests {
             key: Key::A,
             shift: false,
             ctrl: true,
+            alt: false,
         });
         tree.handle_event(UiEvent::Text("rust".into()));
         assert_eq!(tree.input_value("input"), Some("rust"));
@@ -20251,7 +21374,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Submitted {
                 id: "input".into(),
@@ -20275,6 +21399,7 @@ mod tests {
             key: Key::Tab,
             shift,
             ctrl: false,
+            alt: false,
         };
         tree.handle_event(tab(false));
         assert_eq!(tree.focused_id(), Some("first"));
@@ -20300,6 +21425,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         for key in [Key::Enter, Key::Space] {
             assert_eq!(
@@ -20307,6 +21433,7 @@ mod tests {
                     key,
                     shift: false,
                     ctrl: false,
+                    alt: false,
                 }),
                 vec![UiAction::Clicked { id: "send".into() }]
             );
@@ -20327,6 +21454,7 @@ mod tests {
             key: Key::Tab,
             shift: false,
             ctrl: false,
+            alt: false,
         });
         tree.set_root(Element::button("new", "New"));
         tree.layout(Size::new(100.0, 40.0));
@@ -20335,6 +21463,7 @@ mod tests {
             key: Key::Tab,
             shift: true,
             ctrl: false,
+            alt: false,
         });
         assert_eq!(tree.focused_id(), Some("new"));
     }

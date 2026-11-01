@@ -748,7 +748,7 @@ mod tests {
     fn tab_walks_the_headers_then_the_rows_and_enter_activates_them() {
         let mut tree = tree_of(table(WIDTH).columns_menu(false, "Columnas").render());
         tree.layout(SIZE);
-        let key = |key| UiEvent::Key { key, shift: false, ctrl: false };
+        let key = |key| UiEvent::Key { key, shift: false, ctrl: false, alt: false };
         let mut reported = Vec::new();
         for _ in 0..7 {
             tree.handle_event(key(Key::Tab));

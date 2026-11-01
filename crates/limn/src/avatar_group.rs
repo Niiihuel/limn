@@ -345,7 +345,7 @@ mod tests {
         assert_eq!(tree.hovered_id(), None);
         assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
         assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
-        assert!(tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false }).is_empty());
+        assert!(tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false, alt: false }).is_empty());
         assert_eq!(tree.focused_id(), None);
     }
 

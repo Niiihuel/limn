@@ -194,6 +194,7 @@ fn a_hinted_link_wrapped_over_two_lines_shows_one_hint_for_the_keyboard() {
         key: Key::Tab,
         shift: false,
         ctrl: false,
+        alt: false,
     });
     let frame = tree.layout(size);
     let hints = painted(&frame)
