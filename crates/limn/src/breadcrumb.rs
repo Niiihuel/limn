@@ -118,7 +118,8 @@ impl BreadcrumbItem {
 }
 
 /// A path of segments. Those with an action are links and the last is the
-/// current resource; the middle ones collapse into a menu when room is short.
+/// current resource; the middle ones collapse into a menu when room is short,
+/// unless [`Breadcrumb::fade_overflow`] fades the end that does not fit.
 pub struct Breadcrumb {
     id: String,
     items: Vec<BreadcrumbItem>,
@@ -130,6 +131,7 @@ pub struct Breadcrumb {
     search_shortcut: String,
     editing: Option<(String, String, String)>,
     path: Option<PathSegments>,
+    fade: bool,
 }
 
 impl Breadcrumb {
@@ -150,6 +152,7 @@ impl Breadcrumb {
             search_shortcut: "Ctrl+F".into(),
             editing: None,
             path: None,
+            fade: false,
         }
     }
 
@@ -194,6 +197,15 @@ impl Breadcrumb {
     /// [`Self::from_path`]. It becomes the current resource.
     pub fn item(mut self, item: BreadcrumbItem) -> Self {
         self.items.push(item);
+        self
+    }
+
+    /// Keep every segment whole, at its own width, instead of collapsing
+    /// ancestors into a menu: what does not fit is faded at the edge it
+    /// leaves by and scrolls into view under the wheel, and a wider bar
+    /// shows more of it. The fade takes the palette's surface.
+    pub fn fade_overflow(mut self) -> Self {
+        self.fade = true;
         self
     }
 
@@ -291,27 +303,29 @@ impl Component for Breadcrumb {
                 + 4.0
                 + if item.icon.is_some() { 18.0 } else { 0.0 }
         };
+        let fade = self.fade;
         let keep_root = self.width >= 84.0 && last > 0 && self.items[0].action.is_some();
-        let mut visible: Vec<usize> = if self.width < 84.0 {
+        let mut visible: Vec<usize> = if self.width < 84.0 && !fade {
             vec![last]
         } else {
             (0..self.items.len()).collect()
         };
         let minimum = if keep_root { 2 } else { 1 };
-        while visible.len() > minimum
+        while !fade
+            && visible.len() > minimum
             && visible.iter().copied().map(estimated).sum::<f32>()
                 + SEPARATOR_SPACE * visible.len().saturating_sub(1) as f32
                 > self.width
         {
             visible.remove(usize::from(keep_root));
         }
-        let root_collapsed = keep_root && estimated(0) > (self.width * 0.4).max(24.0);
+        let root_collapsed = !fade && keep_root && estimated(0) > (self.width * 0.4).max(24.0);
         if root_collapsed {
             visible.retain(|index| *index != 0);
         }
         let has_hidden = visible.len() < self.items.len();
         let current_reserve = estimated(last).min(96.0).min(self.width);
-        let show_overflow = has_hidden && self.width >= 84.0;
+        let show_overflow = !fade && has_hidden && self.width >= 84.0;
         while show_overflow
             && visible.len() > 1
             && visible
@@ -469,7 +483,7 @@ impl Component for Breadcrumb {
                 tooltip
             };
             let segment = tooltip.render();
-            if index == last {
+            if index == last && !fade {
                 // The slot may stretch, but its action must hug the resource.
                 // Keeping the spare space outside the trigger avoids a header-
                 // wide hover and a misleading clickable blank area. The
@@ -483,6 +497,13 @@ impl Component for Breadcrumb {
                 children.push(segment);
             }
         }
+        if fade {
+            // At its own width, so it scrolls and fades only when it overflows.
+            let row = Element::row(children).gap(GAP).size(None, Some(self.height));
+            return Element::horizontal_scroll(format!("{}:scroll", self.id), row)
+                .horizontal_edge_fade(self.palette.surface, 24.0)
+                .size(Some(self.width), Some(self.height));
+        }
         Element::row(children)
             .gap(GAP)
             .size(Some(self.width), Some(self.height))
@@ -494,6 +515,27 @@ impl Component for Breadcrumb {
 mod tests {
     use super::*;
     use crate::{Color, DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn a_fading_path_keeps_every_segment_and_no_overflow_menu() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut items = (0..4)
+            .map(|index| BreadcrumbItem::new(format!("carpeta-numero-{index}")).action(format!("go:{index}")))
+            .collect::<Vec<_>>();
+        items.push(BreadcrumbItem::new("main.rs"));
+        let render = |fade: bool| {
+            let crumbs = Breadcrumb::new("path", items.clone(), palette).width(160.0);
+            let crumbs = if fade { crumbs.fade_overflow() } else { crumbs };
+            UiTree::new(crumbs.render()).layout(Size::new(200.0, 60.0))
+        };
+        let has = |frame: &crate::Frame, id: &str| frame.regions.iter().any(|region| region.id == id);
+        let collapsed = render(false);
+        assert!(has(&collapsed, "path:overflow_toggle") && !has(&collapsed, "go:1"));
+        // The path from its start, whole, the rest past the faded edge.
+        let faded = render(true);
+        assert!(has(&faded, "go:0") && has(&faded, "go:1"));
+        assert!(!has(&faded, "path:overflow_toggle") && has(&faded, "path:scroll"));
+    }
 
     #[test]
     fn a_segment_with_an_action_is_a_link_and_the_overflow_says_whether_it_is_open() {
