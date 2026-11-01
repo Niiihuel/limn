@@ -103,8 +103,8 @@ mod sketch;
 mod slider;
 mod scribble;
 mod spinner;
-mod split_view;
 mod split_button;
+mod split_view;
 mod status_bar;
 mod status_dot;
 mod stepper;
@@ -138,6 +138,8 @@ mod raw_text_area_tests;
 mod link_presentation_tests;
 #[cfg(test)]
 mod text_measurement_tests;
+#[cfg(test)]
+mod cursor_tests;
 
 pub use accordion::{Accordion, AccordionItem};
 pub use alert::{Alert, AlertColors, AlertTone};
@@ -160,7 +162,7 @@ pub use checkbox::Checkbox;
 pub use chip::Chip;
 pub use code_block::{CodeBlock, CodeBlockSizing};
 pub use code_diff::{CodeDiff, CodeDiffLine, CodeDiffLineKind, DiffColors, DiffFileHeader};
-pub use code_editor::{CaretStyle, CodeBreakpoint, CodeChangeMark, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
+pub use code_editor::{CaretStyle, CodeBreakpoint, CodeBreakpointState, CodeChangeMark, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
 pub use code_syntax::{CodeLanguage, CodeSyntaxColors};
 pub use collapse::Collapse;
 pub use collapsible::{collapse_footer, Collapsible};
@@ -237,7 +239,7 @@ pub use peek_panel::{PeekPanel, Side};
 pub use popover_panel::{PopoverPanel, PopoverPanelSizing};
 pub use preferences::{ActionRow, ActionRowSizing, PreferencesGroup};
 pub use progress::Progress;
-pub use radio::{RadioGroup, RadioOption};
+pub use radio::{RadioGroup, RadioOption, RadioVariant};
 pub use raster_image::{RasterImage, RasterImageFormat};
 pub use scheme::{ControlColors, Scheme, Surface};
 pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement, ScrollbarVisibility};

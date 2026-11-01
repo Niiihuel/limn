@@ -170,11 +170,17 @@ impl ImageViewer {
         self
     }
 
-    /// Add a round icon button, `label` as its name and tooltip, that reports `id`. The
-    /// buttons stand in a column under the close button, just outside the picture's top-right
-    /// corner, or on the picture's own corner when there is no room beside it.
+    /// Add a round icon button, `label` as its name and tooltip, that reports `id`, such
+    /// as saving the picture. Each call adds one; they keep the order of the calls. An empty
+    /// `id` adds nothing. With [`ImageViewer::zoom_actions`] they sit in the header, before
+    /// the zoom controls. Otherwise, and in a lightbox, they stand in a column under the close
+    /// button, just outside the picture's top-right corner, or on the picture's own corner
+    /// when there is no room beside it.
     pub fn action(mut self, id: impl Into<String>, icon: Icon, label: impl Into<String>) -> Self {
-        self.actions.push((id.into(), icon, label.into()));
+        let id = id.into();
+        if !id.is_empty() {
+            self.actions.push((id, icon, label.into()));
+        }
         self
     }
 
@@ -414,15 +420,22 @@ impl Component for ImageViewer {
             .flex(1.0)
             .size(None, Some(36.0))];
         let zoomed = self.zoom > 1.0;
+        // A header with zoom controls is a toolbar, and the host's actions join it.
+        let column = !self.actions.is_empty() && self.zoom_actions.is_none();
+        if !column {
+            for (id, icon, name) in &self.actions {
+                header.push(control(id, *icon, name, name, true, controls));
+            }
+        }
         if let Some([out, fit, zoom_in]) = &self.zoom_actions {
             let labels = crate::labels();
             header.push(control(out, Icon::Minus, labels.zoom_out, labels.zoom_out, zoomed, controls));
             header.push(control(fit, Icon::Collapse, labels.fit_to_window, labels.fit_to_window, zoomed, controls));
             header.push(control(zoom_in, Icon::Add, labels.zoom_in, labels.zoom_in, self.zoom < Self::MAX_ZOOM, controls));
         }
-        // With actions the close button leads their column beside the picture instead.
+        // With a column of actions the close button leads it beside the picture instead.
         let close = || close_control(&self.close_id, controls);
-        if self.actions.is_empty() {
+        if !column {
             header.push(close());
         }
         let header = Element::row(header).gap(12.0).size(None, Some(36.0));
@@ -454,7 +467,7 @@ impl Component for ImageViewer {
             pending(&self.close_id, self.error.as_deref(), width, self.palette)
         }
         .flex(1.0);
-        let image = if self.actions.is_empty() {
+        let image = if !column {
             image
         } else {
             let mut column = vec![close()];
@@ -565,6 +578,29 @@ mod tests {
             assert_eq!((said.role, said.name.as_str()), (Role::Button, name));
             assert_eq!((said.disabled, said.actionable), (!enabled, enabled), "{id}");
         }
+    }
+
+    #[test]
+    fn host_actions_sit_before_the_zoom_controls_and_report_their_ids() {
+        let picture = RasterImage::new("a".repeat(64), RasterImageFormat::Png, 4, Arc::from("AAAA"), "A picture").unwrap();
+        let viewer = ImageViewer::new(Element::spacer(), true, "picture.png", "close", ComponentPalette::neutral_dark())
+            .viewport(WINDOW)
+            .image(picture)
+            .action("save", Icon::ArrowDown, "Save as…")
+            .action("", Icon::Copy, "Ignored")
+            .action("copy", Icon::Copy, "Copy link")
+            .zoom_actions("out", "fit", "in")
+            .render();
+        let mut tree = UiTree::new(viewer);
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(WINDOW);
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        assert_eq!((node("save").role, node("save").name.as_str()), (Role::Button, "Save as…"));
+        assert!(node("save").actionable && !node("save").disabled);
+        assert!(!frame.access.iter().any(|node| node.name == "Ignored"));
+        let left = |id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect.x;
+        assert!(left("save") < left("copy") && left("copy") < left("out"));
+        assert_eq!(click(&mut tree, &frame, "save"), vec![UiAction::Clicked { id: "save".into() }]);
     }
 
     #[test]

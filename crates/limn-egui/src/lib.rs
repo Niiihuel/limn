@@ -553,11 +553,11 @@ struct SurfaceTexture {
 struct SurfaceCache {
     context: Option<egui::Context>,
     entries: HashMap<String, SurfaceTexture>,
+    /// Surfaces the host paints itself: the callback it gave, added in their place.
+    painted: HashMap<String, egui::PaintCallback>,
     /// Surfaces showing a texture the host registered with the renderer itself: its id,
     /// its size in pixels and the scale it was rendered for.
     textures: HashMap<String, (egui::TextureId, [usize; 2], f32)>,
-    /// Surfaces the host paints itself: the callback it gave, added in their place.
-    painted: HashMap<String, egui::PaintCallback>,
 }
 
 impl SurfaceCache {
@@ -811,6 +811,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Pin => include_str!("../assets/bootstrap/pin-angle.svg"),
         Icon::Archive => include_str!("../assets/bootstrap/archive.svg"),
         Icon::ArchiveUp => include_str!("../assets/bootstrap/box-arrow-up.svg"),
+        Icon::ExternalLink => include_str!("../assets/bootstrap/box-arrow-up-right.svg"),
         Icon::Trash => include_str!("../assets/bootstrap/trash3.svg"),
         Icon::Edit => include_str!("../assets/bootstrap/pencil.svg"),
         Icon::Copy => include_str!("../assets/bootstrap/copy.svg"),
@@ -1522,6 +1523,7 @@ pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
         ctx.set_cursor_icon(match cursor {
             limn::Cursor::ResizeColumn => egui::CursorIcon::ResizeColumn,
             limn::Cursor::ResizeRow => egui::CursorIcon::ResizeRow,
+            limn::Cursor::Hidden => egui::CursorIcon::None,
         });
     }
 }
@@ -2543,6 +2545,44 @@ const SANS_MEDIUM: &str = "limn-sans-medium";
 const SANS_BOLD: &str = "limn-sans-bold";
 const DISPLAY: &str = "limn-display";
 
+/// Faces of the host's choice for interface text, in place of the bundled
+/// Ubuntu: a font the person picked from the system's, say. A weight left
+/// out is drawn with the regular face.
+pub struct UiFaces {
+    /// The face of [`FontFamily::Sans`] and [`FontFamily::SansItalic`].
+    pub regular: egui::FontData,
+    /// The face of [`FontFamily::SansMedium`]; `None` uses `regular`.
+    pub medium: Option<egui::FontData>,
+    /// The face of [`FontFamily::SansBold`]; `None` uses `regular`.
+    pub bold: Option<egui::FontData>,
+}
+
+/// [`font_definitions`] with `faces` first in each interface family, so the
+/// bundled faces and every fallback behind them still draw what `faces`
+/// lacks. Monospace text keeps its own face. Install the result with
+/// `Context::set_fonts`, then call [`attach_fonts`] again so the tree
+/// measures with it.
+pub fn font_definitions_with(faces: UiFaces) -> egui::FontDefinitions {
+    let mut fonts = font_definitions();
+    let regular = "limn-ui-regular".to_owned();
+    fonts.font_data.insert(regular.clone(), faces.regular.into());
+    for (face, name, family) in [
+        (faces.medium, "limn-ui-medium", SANS_MEDIUM),
+        (faces.bold, "limn-ui-bold", SANS_BOLD),
+    ] {
+        let first = match face {
+            Some(face) => {
+                fonts.font_data.insert(name.to_owned(), face.into());
+                name.to_owned()
+            }
+            None => regular.clone(),
+        };
+        fonts.families.entry(egui::FontFamily::Name(family.into())).or_default().insert(0, first);
+    }
+    fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, regular);
+    fonts
+}
+
 /// The egui family a limn family is painted and measured with. A host that
 /// set its own fonts without the weighted faces gets the regular one.
 fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
@@ -3215,42 +3255,6 @@ mod tests {
     }
 
     #[test]
-    fn a_surface_shows_a_texture_of_the_host_s_in_place_of_its_own_until_a_frame_comes_again() {
-        let solid = |size: [usize; 2]| SurfaceFrame::from_rgb(size, &vec![9; size[0] * size[1] * 3], 2.0).unwrap();
-        let ctx = egui::Context::default();
-        let theirs = egui::TextureId::User(7);
-        // What a pass would draw, and the textures it freed.
-        let pass = |ctx: &egui::Context| {
-            let mut found = None;
-            let mut delta = ctx.run_ui(Default::default(), |ui| found = surface_texture(ui, "page")).textures_delta;
-            let free = delta.free.clone();
-            delta.clear();
-            (found, free)
-        };
-        let shown = |ctx: &egui::Context| pass(ctx).0;
-        assert!(present_surface(&ctx, "page", solid([64, 48])));
-        let own = shown(&ctx).unwrap().0;
-
-        // The host's texture is drawn, at its size and scale, and limn's is let go.
-        assert!(present_surface_texture(&ctx, "page", theirs, [800, 600], 2.0));
-        let (found, freed) = pass(&ctx);
-        assert_eq!(found, Some((theirs, [800, 600], 2.0)));
-        assert!(freed.contains(&own));
-        // A part has no texture of limn's to go into; a whole frame takes the surface back.
-        assert!(!present_surface(&ctx, "page", solid([4, 4]).within([800, 600], [0, 0]).unwrap()));
-        assert!(present_surface(&ctx, "page", solid([64, 48])));
-        assert_ne!(shown(&ctx).map(|(id, ..)| id), Some(theirs));
-
-        // Sizes and scales a frame could not have are refused, and the surface stays.
-        assert!(!present_surface_texture(&ctx, "page", theirs, [0, 600], 2.0));
-        assert!(!present_surface_texture(&ctx, "page", theirs, [800, 600], f32::NAN));
-        assert_ne!(shown(&ctx).map(|(id, ..)| id), Some(theirs));
-        present_surface_texture(&ctx, "page", theirs, [800, 600], 2.0);
-        forget_surface("page");
-        assert_eq!(shown(&ctx), None);
-    }
-
-    #[test]
     fn a_surface_the_host_paints_is_its_callback_on_the_pixel_grid_in_the_paint_order() {
         let scale = 2.0_f32;
         let ctx = egui::Context::default();
@@ -3295,6 +3299,42 @@ mod tests {
         present_surface_paint(&ctx, "page", egui::PaintCallback { rect: EguiRect::NOTHING, callback: marker });
         forget_surface("page");
         assert!(paint(&ctx).is_empty());
+    }
+
+    #[test]
+    fn a_surface_shows_a_texture_of_the_host_s_in_place_of_its_own_until_a_frame_comes_again() {
+        let solid = |size: [usize; 2]| SurfaceFrame::from_rgb(size, &vec![9; size[0] * size[1] * 3], 2.0).unwrap();
+        let ctx = egui::Context::default();
+        let theirs = egui::TextureId::User(7);
+        // What a pass would draw, and the textures it freed.
+        let pass = |ctx: &egui::Context| {
+            let mut found = None;
+            let mut delta = ctx.run_ui(Default::default(), |ui| found = surface_texture(ui, "page")).textures_delta;
+            let free = delta.free.clone();
+            delta.clear();
+            (found, free)
+        };
+        let shown = |ctx: &egui::Context| pass(ctx).0;
+        assert!(present_surface(&ctx, "page", solid([64, 48])));
+        let own = shown(&ctx).unwrap().0;
+
+        // The host's texture is drawn, at its size and scale, and limn's is let go.
+        assert!(present_surface_texture(&ctx, "page", theirs, [800, 600], 2.0));
+        let (found, freed) = pass(&ctx);
+        assert_eq!(found, Some((theirs, [800, 600], 2.0)));
+        assert!(freed.contains(&own));
+        // A part has no texture of limn's to go into; a whole frame takes the surface back.
+        assert!(!present_surface(&ctx, "page", solid([4, 4]).within([800, 600], [0, 0]).unwrap()));
+        assert!(present_surface(&ctx, "page", solid([64, 48])));
+        assert_ne!(shown(&ctx).map(|(id, ..)| id), Some(theirs));
+
+        // Sizes and scales a frame could not have are refused, and the surface stays.
+        assert!(!present_surface_texture(&ctx, "page", theirs, [0, 600], 2.0));
+        assert!(!present_surface_texture(&ctx, "page", theirs, [800, 600], f32::NAN));
+        assert_ne!(shown(&ctx).map(|(id, ..)| id), Some(theirs));
+        present_surface_texture(&ctx, "page", theirs, [800, 600], 2.0);
+        forget_surface("page");
+        assert_eq!(shown(&ctx), None);
     }
 
     #[test]
@@ -3441,6 +3481,7 @@ mod tests {
             Icon::Pin,
             Icon::Archive,
             Icon::ArchiveUp,
+            Icon::ExternalLink,
             Icon::Trash,
             Icon::Edit,
             Icon::Copy,

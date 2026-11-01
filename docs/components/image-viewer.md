@@ -85,6 +85,25 @@ header, to zoom out, to fit the window and to zoom in. The host owns the
 level and answers each control by passing another `zoom`. Zoom out and fit
 are disabled at 1, and zoom in at the maximum.
 
+## Host actions
+
+```rust
+viewer
+    .action("viewer-copy", Icon::Copy, "Copy image")
+    .action("viewer-save", Icon::ArrowDown, "Save as…")
+```
+
+Each `action` is a round icon button of the host's own, as large as the close
+button, with its label as name and tooltip, and it reports its ID with
+`UiAction::Clicked` when clicked or activated by the keyboard, for example to
+save the picture shown. Each call adds one, in order; an empty ID adds nothing.
+
+With `zoom_actions` the header is a toolbar, and the actions sit in it before
+the zoom controls. Otherwise the close button leads them in one column just
+outside the picture's top-right corner, 6 pixels from it. When the right of the
+picture has no room the column moves inside that corner instead. The column is
+a non-modal popover anchored to the picture, so it takes no backdrop of its own.
+
 ## Keyboard
 
 | Key | Does |
@@ -101,6 +120,7 @@ The close button has the focus when the viewer opens.
 | `UiAction::Clicked { id }` with the close ID | The close button, Escape, or a click on the scrim. |
 | `UiAction::Clicked { id }` with the previous or next ID | An arrow is clicked, or Left or Right is pressed. |
 | `UiAction::Clicked { id }` with a zoom ID | One of the three zoom controls is clicked. |
+| `UiAction::Clicked { id }` with a host action's ID | That control is clicked or activated. |
 
 ## Origin
 
@@ -114,21 +134,6 @@ pixels, and the scrim and the panel fade in; closing runs it back in 250 ms,
 and the viewer stays on screen until the picture has returned. Without an
 origin the viewer fades over 180 ms. Under reduced motion, as
 `UiTree::set_reduced_motion` sets it, both happen at once.
-
-## Actions
-
-```rust
-viewer
-    .action("viewer-copy", Icon::Copy, "Copy image")
-    .action("viewer-annotate", Icon::Edit, "Annotate image")
-```
-
-Each `action` is a round icon button, as large as the close button, with its
-label as name and tooltip, and it reports its ID with `UiAction::Clicked`.
-With actions the close button leads them in one column just outside the
-picture's top-right corner, 6 pixels from it. When the right of the picture
-has no room the column moves inside that corner instead. The column is a
-non-modal popover anchored to the picture, so it takes no backdrop of its own.
 
 ## Lightbox
 

@@ -50,6 +50,14 @@ every circle is empty.
 The circle, the label and the description are one click target. The empty
 circle lights while the pointer is anywhere on its option.
 
+```rust
+RadioGroup::new("theme", options, Some(&state.theme), palette).accent(blue)
+```
+
+`accent` fills the chosen circle with a color of the host's, such as an app's
+blue, in place of the text's; the labels keep the text's color and the dot the
+surface's.
+
 ## Description
 
 ```rust
@@ -68,6 +76,20 @@ RadioOption::new("kind:text", "Text").icon(Icon::Hash).description("Messages, im
 The icon stands between the circle and the label, in the label's color and
 at the 16 pixels of every icon in a control. It is clicked with the label, and
 a description starts under the label, past the icon.
+
+## Cards
+
+```rust
+RadioGroup::new("plan", options, Some(&state.plan), palette).variant(RadioVariant::Card)
+```
+
+Each option is a rounded card with its circle at the left, as a settings
+panel shows its choices: `raised`, with a 1 pixel `border`. The chosen card
+takes the palette's `selected` fill and its border turns `text`, so nothing moves.
+The whole card is the click target, and hover lights it. A disabled card is
+muted and takes no pointer. Horizontal, the cards share the row's width
+equally. Cards are 8 pixels apart; the keyboard and the accessibility tree are
+those of the plain group.
 
 ## Horizontal
 

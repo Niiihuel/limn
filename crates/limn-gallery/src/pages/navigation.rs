@@ -326,6 +326,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     (Icon::ChevronUp, "ChevronUp"),
                     (Icon::Invite, "Invite"),
                     (Icon::Leave, "Leave"),
+                    (Icon::ExternalLink, "ExternalLink"),
                     (Icon::DragHandle, "DragHandle"),
                 ]
                 .into_iter()

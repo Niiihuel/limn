@@ -48,6 +48,10 @@ pub enum Cursor {
     ResizeColumn,
     /// Two arrows pointing up and down: the boundary between two rows.
     ResizeRow,
+    /// No pointer at all, such as over a video playing full screen once the
+    /// pointer has rested on it a while. The pointer still moves and
+    /// presses; the host decides when it hides and shows it again.
+    Hidden,
 }
 
 /// Side of its target a coach mark sits on. The engine takes the opposite
@@ -375,6 +379,9 @@ pub enum Icon {
     Archive,
     /// A box with an arrow leaving it upwards.
     ArchiveUp,
+    /// A box with an arrow leaving it up and to the right: a link that
+    /// opens outside the application.
+    ExternalLink,
     /// A waste bin: delete.
     Trash,
     /// A pencil: edit or rename.
@@ -962,14 +969,14 @@ pub(crate) struct Kept {
     pub(crate) extend_pushes: bool,
     /// Painted only: no pointer target, focus stop or node inside it.
     pub(crate) inert: bool,
+    /// Set by [`Element::pulse_period`]: one cycle of a skeleton's pulse, in
+    /// milliseconds, in place of the skeleton's own.
+    pub(crate) pulse_ms: Option<u16>,
     /// Set by [`Element::focus_area`]: a clickable that only takes the focus.
     pub(crate) focus_area: bool,
     /// Set by [`Element::caret`]: the control whose focus shows the element,
     /// and where its caret is, which restarts the blink when it moves.
     pub(crate) caret: Option<(String, usize)>,
-    /// Set by [`Element::pulse_period`]: one cycle of a skeleton's pulse, in
-    /// milliseconds, in place of the skeleton's own.
-    pub(crate) pulse_ms: Option<u16>,
     /// Set by [`Sketch`](crate::Sketch): a press and drag over the element
     /// make marks instead of clicks.
     pub(crate) sketch: Option<crate::sketch::SketchStyle>,
