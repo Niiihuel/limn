@@ -11665,7 +11665,11 @@ impl LayoutBuilder<'_> {
                     );
                 }
             }
-            ElementKind::FadedText { text, fade_width } => {
+            ElementKind::FadedText {
+                text,
+                fade_width,
+                shimmer,
+            } => {
                 let y = content.y + (content.height - metrics.line_height) / 2.0;
                 let width = self.text_width(text, style);
                 let x = if style.center_content && width <= content.width {
@@ -11688,16 +11692,31 @@ impl LayoutBuilder<'_> {
                     0.0
                 };
                 let solid = (visible_width - fade).max(0.0);
+                // Where the highlight is, as `paint_shimmer_line` sweeps it over
+                // what shows of the line.
+                let sweep = shimmer
+                    .as_ref()
+                    .filter(|_| !self.reduced_motion && !text.is_empty())
+                    .map(|(id, highlight)| {
+                        self.observed_shimmers.insert(id.clone());
+                        let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
+                        let elapsed = self.now.saturating_duration_since(started).as_secs_f32();
+                        let reach = width.min(visible_width);
+                        (*highlight, (elapsed / 1.8).fract() * (reach + 100.0) - 50.0)
+                    });
                 // Reuse the same shaped line and native clip primitives as
                 // shimmer text. Alpha bands keep arbitrary hover/selection
-                // backgrounds correct without painting an opaque mask.
-                let bands = if fade > 0.0 { 16 } else { 0 };
-                for band in 0..=bands {
-                    let (left, right, opacity) = if band == 0 {
-                        (content.x, content.x + solid, 1.0)
+                // backgrounds correct without painting an opaque mask; a
+                // shimmer splits the solid part in bands of its own.
+                let solid_bands = if sweep.is_some() { 24 } else { 1 };
+                let fade_bands = if fade > 0.0 { 16 } else { 0 };
+                for band in 0..solid_bands + fade_bands {
+                    let (left, right, opacity) = if band < solid_bands {
+                        let share = |at: usize| solid * at as f32 / solid_bands as f32;
+                        (content.x + share(band), content.x + share(band + 1), 1.0)
                     } else {
-                        let start = (band - 1) as f32 / bands as f32;
-                        let end = band as f32 / bands as f32;
+                        let start = (band - solid_bands) as f32 / fade_bands as f32;
+                        let end = (band - solid_bands + 1) as f32 / fade_bands as f32;
                         (
                             content.x + solid + fade * start,
                             content.x + solid + fade * end,
@@ -11708,7 +11727,20 @@ impl LayoutBuilder<'_> {
                     let visible = clip.map_or(Some(area), |outer| area.intersection(outer));
                     if let Some(area) = visible.filter(|area| area.width > 0.0 && area.height > 0.0)
                     {
-                        let ink = style.foreground;
+                        let mut ink = style.foreground;
+                        if let Some((highlight, center)) = sweep {
+                            let distance = ((left + right) / 2.0 - x - center).abs();
+                            let mix = (1.0 - distance / 38.0).max(0.0).powi(2);
+                            let blend = |base: u8, bright: u8| {
+                                (base as f32 + (bright as f32 - base as f32) * mix).round() as u8
+                            };
+                            ink = Color::rgba(
+                                blend(ink.r, highlight.r),
+                                blend(ink.g, highlight.g),
+                                blend(ink.b, highlight.b),
+                                ink.a,
+                            );
+                        }
                         self.frame.commands.push(DrawCommand::PushClip(area));
                         self.frame.commands.push(DrawCommand::Text {
                             position: Point::new(x, y),
