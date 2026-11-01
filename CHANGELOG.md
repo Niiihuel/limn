@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- `RollingNumber`: a number whose digits roll to their new values, each a column of 0 to 9 behind a one-line window, known by its place from the right, over three `move_ms`; at once under reduced motion. `Element::animate_slide(id, y)` places an element `y` below its slot, sprung under `id`. See [RollingNumber](docs/components/rolling-number.md)
 - `Element::animate_move(id)`: an element its column or row lays out in another slot than on the last frame, as a list sorted again or a row above it that came or went, glides there from where it was shown over `move_ms`, easing out, with its pointer target and children; the parent's own moves carry it at once. See [Animation](docs/animation.md#a-list-that-reorders)
 - `Element::shimmer_faded_text(id, text, highlight, fade_width)`: one line of work under way with `shimmer_text`'s moving highlight that fades out at its end when it does not fit, never cut to an ellipsis as `shimmer_truncated_text` is. `ElementKind::FadedText` has a `shimmer` field. **Breaking** for `ElementKind::FadedText` patterns without `..`. See [Layout](docs/layout.md#text)
 - `CodeEditor::syntax_colors` paints the built-in syntax colors in the host's inks, as `Markdown::code_syntax_colors` does for fenced code; `CodeSyntaxColors` gains `types` and `properties` for what the tree-sitter grammars tell apart, and `CodeEditor::vim_mode_label(false)` leaves the Vim mode for the host to show, from `UiTree::code_editor_vim_mode`. See [CodeEditor](docs/components/code-editor.md#language-and-height)
