@@ -184,6 +184,28 @@ while its last paint fades, and the rows after it glide up. Each child's own
 ID names it, so it must stay the same across rebuilds. With reduced motion the
 row is gone at once.
 
+### A list that reorders
+
+```rust
+let rows = Element::column(
+    sessions
+        .iter()
+        .map(|session| row(session).animate_move(format!("session-{}", session.id)))
+        .collect(),
+);
+```
+
+An element with `animate_move` that its column or row lays out in another
+slot than on the last frame, because the list was sorted again or a row
+above it came or went, glides there from where it was shown over `move_ms`,
+easing out, instead of jumping. Its pointer target and what is inside it go
+with the paint, so a click lands on what is seen. The slot is measured from
+the parent's origin: a scroll, a resize or a parent that moves carries the
+element at once. The ID names the element across rebuilds; one seen for the
+first time rests where it lands, and with reduced motion every move is
+immediate. A row that leaves goes at once; pair the column with
+`keep_leaving` for that.
+
 ### A colour that carries a state
 
 ```rust

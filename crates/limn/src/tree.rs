@@ -40,6 +40,9 @@ mod pointer_blocking_tests;
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
+#[path = "animate_move_tests.rs"]
+mod animate_move_tests;
+#[cfg(test)]
 #[path = "stack_tests.rs"]
 mod stack_tests;
 #[cfg(test)]
@@ -1707,6 +1710,15 @@ struct AnimatedScalar {
 /// A value the tree follows for a slot of `LevelBars`.
 struct AnimatedSpring {
     value: ScalarSpring,
+    seen: Instant,
+}
+
+/// An `animate_move` element: its slot from its parent's origin, how far
+/// from it it is painted on its way there, and when it was seen.
+struct AnimatedMove {
+    slot: Point,
+    x: ScalarTransition,
+    y: ScalarTransition,
     seen: Instant,
 }
 
@@ -3551,6 +3563,7 @@ pub struct UiTree {
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
     scalars: RefCell<HashMap<String, AnimatedScalar>>,
     springs: RefCell<HashMap<String, AnimatedSpring>>,
+    moves: HashMap<String, AnimatedMove>,
     /// A pushing reach jumped while placed: the layout it was measured for is stale.
     pushes_moved: std::cell::Cell<bool>,
     /// The ink of each `animate_foreground` element and when it was seen.
@@ -3640,6 +3653,7 @@ impl UiTree {
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
             springs: RefCell::new(HashMap::new()),
+            moves: HashMap::new(),
             pushes_moved: std::cell::Cell::new(false),
             inks: RefCell::new(HashMap::new()),
             leaving: RefCell::new(HashMap::new()),
@@ -3968,6 +3982,7 @@ impl UiTree {
             self.flow_heights.get_mut().clear();
             self.scalars.get_mut().clear();
             self.springs.get_mut().clear();
+            self.moves.clear();
             self.inks.get_mut().clear();
             self.leaving.get_mut().clear();
             self.popover_view_transitions.clear();
@@ -4112,6 +4127,7 @@ impl UiTree {
                 .borrow()
                 .values()
                 .any(|state| state.value.is_active(now))
+            || self.moves.values().any(|state| state.x.is_active(now) || state.y.is_active(now))
             || self.inks.borrow().values().any(|(ink, _)| ink.is_active(now))
             || self
                 .popover_view_transitions
@@ -4361,6 +4377,8 @@ impl UiTree {
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
                 springs: &self.springs,
+                moves: &mut self.moves,
+                flow_origin: Point::default(),
                 pushes_moved: &self.pushes_moved,
                 inks: &self.inks,
                 leaving: &self.leaving,
@@ -4987,6 +5005,7 @@ impl UiTree {
         // that arrives in one seen empty is what `expand` opens.
         self.scalars.get_mut().retain(|_, state| state.seen == now);
         self.springs.get_mut().retain(|_, state| state.seen == now);
+        self.moves.retain(|_, state| state.seen == now);
         self.inks.get_mut().retain(|_, (_, seen)| *seen == now);
         self.leaving.get_mut().retain(|_, (_, seen)| *seen == now);
         self.flow_heights.get_mut().retain(|_, state| {
@@ -7439,6 +7458,10 @@ struct LayoutBuilder<'a> {
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
     springs: &'a RefCell<HashMap<String, AnimatedSpring>>,
+    moves: &'a mut HashMap<String, AnimatedMove>,
+    /// Where the column or row being placed starts its children, which an
+    /// `animate_move` slot is measured from.
+    flow_origin: Point,
     pushes_moved: &'a std::cell::Cell<bool>,
     inks: &'a RefCell<HashMap<String, (ColorTransition, Instant)>>,
     leaving: &'a RefCell<HashMap<String, (Vec<String>, Instant)>>,
@@ -10628,13 +10651,42 @@ impl LayoutBuilder<'_> {
     }
 
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
-        let mut rect = Self::translated_rect(element, rect);
+        let mut placed = Self::translated_rect(element, rect);
         if let Some((id, y)) = element.kept.as_ref().and_then(|kept| kept.slide.as_ref()) {
             // Three moves: long enough to see the rows go by, as a counter rolls.
             let pace = crate::tokens().motion.move_ms.saturating_mul(3);
-            rect.y += self.spring_paced(&format!("slide/{id}"), *y, pace, pace);
+            placed.y += self.spring_paced(&format!("slide/{id}"), *y, pace, pace);
         }
-        self.place_translated(element, rect, clip);
+        if let Some(id) = element.kept.as_ref().and_then(|kept| kept.moving.as_deref()) {
+            let offset = self.moved(id, rect);
+            placed = Rect::new(placed.x + offset.x, placed.y + offset.y, placed.width, placed.height);
+        }
+        self.place_translated(element, placed, clip);
+    }
+
+    /// How far from `rect` an `animate_move` element kept under `id` is
+    /// painted on this frame: from where it was shown when its slot changed,
+    /// easing to nothing over `move_ms`.
+    fn moved(&mut self, id: &str, rect: Rect) -> Point {
+        let now = self.now;
+        let slot = Point::new(rect.x - self.flow_origin.x, rect.y - self.flow_origin.y);
+        let state = self.moves.entry(id.to_owned()).or_insert_with(|| AnimatedMove {
+            slot,
+            x: ScalarTransition::new(0.0, now),
+            y: ScalarTransition::new(0.0, now),
+            seen: now,
+        });
+        state.seen = now;
+        if state.slot != slot {
+            let duration = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
+            // It sets off from where it is shown, as far from its new slot as that is.
+            for (axis, from) in [(&mut state.x, state.slot.x - slot.x), (&mut state.y, state.slot.y - slot.y)] {
+                axis.snap_to(axis.value(now) + from, now);
+                axis.retarget_with_motion(0.0, now, duration, self.reduced_motion);
+            }
+            state.slot = slot;
+        }
+        Point::new(state.x.value(now), state.y.value(now))
     }
 
     fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
@@ -11157,6 +11209,7 @@ impl LayoutBuilder<'_> {
         let mut pinned = Vec::new();
         match &element.kind {
             ElementKind::Column(children) => {
+                let outer = std::mem::replace(&mut self.flow_origin, Point::new(content.x, content.y));
                 let kept = self.with_leaving(element, children);
                 let previous_scope = matches!(&kept, Cow::Owned(_)).then(|| self.enter_measurement_scope());
                 let children = kept.as_ref();
@@ -11178,14 +11231,17 @@ impl LayoutBuilder<'_> {
                     }
                 }
                 if let Some(scope) = previous_scope { self.measurement_scope = scope; }
+                self.flow_origin = outer;
             }
             ElementKind::Row(children) => {
+                let outer = std::mem::replace(&mut self.flow_origin, Point::new(content.x, content.y));
                 for (child, rect) in children
                     .iter()
                     .zip(self.child_rects(element, children, content))
                 {
                     self.place(child, rect, clip);
                 }
+                self.flow_origin = outer;
             }
             ElementKind::TabStrip {
                 children,
@@ -11671,7 +11727,11 @@ impl LayoutBuilder<'_> {
                     );
                 }
             }
-            ElementKind::FadedText { text, fade_width } => {
+            ElementKind::FadedText {
+                text,
+                fade_width,
+                shimmer,
+            } => {
                 let y = content.y + (content.height - metrics.line_height) / 2.0;
                 let width = self.text_width(text, style);
                 let x = if style.center_content && width <= content.width {
@@ -11694,16 +11754,31 @@ impl LayoutBuilder<'_> {
                     0.0
                 };
                 let solid = (visible_width - fade).max(0.0);
+                // Where the highlight is, as `paint_shimmer_line` sweeps it over
+                // what shows of the line.
+                let sweep = shimmer
+                    .as_ref()
+                    .filter(|_| !self.reduced_motion && !text.is_empty())
+                    .map(|(id, highlight)| {
+                        self.observed_shimmers.insert(id.clone());
+                        let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
+                        let elapsed = self.now.saturating_duration_since(started).as_secs_f32();
+                        let reach = width.min(visible_width);
+                        (*highlight, (elapsed / 1.8).fract() * (reach + 100.0) - 50.0)
+                    });
                 // Reuse the same shaped line and native clip primitives as
                 // shimmer text. Alpha bands keep arbitrary hover/selection
-                // backgrounds correct without painting an opaque mask.
-                let bands = if fade > 0.0 { 16 } else { 0 };
-                for band in 0..=bands {
-                    let (left, right, opacity) = if band == 0 {
-                        (content.x, content.x + solid, 1.0)
+                // backgrounds correct without painting an opaque mask; a
+                // shimmer splits the solid part in bands of its own.
+                let solid_bands = if sweep.is_some() { 24 } else { 1 };
+                let fade_bands = if fade > 0.0 { 16 } else { 0 };
+                for band in 0..solid_bands + fade_bands {
+                    let (left, right, opacity) = if band < solid_bands {
+                        let share = |at: usize| solid * at as f32 / solid_bands as f32;
+                        (content.x + share(band), content.x + share(band + 1), 1.0)
                     } else {
-                        let start = (band - 1) as f32 / bands as f32;
-                        let end = band as f32 / bands as f32;
+                        let start = (band - solid_bands) as f32 / fade_bands as f32;
+                        let end = (band - solid_bands + 1) as f32 / fade_bands as f32;
                         (
                             content.x + solid + fade * start,
                             content.x + solid + fade * end,
@@ -11714,7 +11789,20 @@ impl LayoutBuilder<'_> {
                     let visible = clip.map_or(Some(area), |outer| area.intersection(outer));
                     if let Some(area) = visible.filter(|area| area.width > 0.0 && area.height > 0.0)
                     {
-                        let ink = style.foreground;
+                        let mut ink = style.foreground;
+                        if let Some((highlight, center)) = sweep {
+                            let distance = ((left + right) / 2.0 - x - center).abs();
+                            let mix = (1.0 - distance / 38.0).max(0.0).powi(2);
+                            let blend = |base: u8, bright: u8| {
+                                (base as f32 + (bright as f32 - base as f32) * mix).round() as u8
+                            };
+                            ink = Color::rgba(
+                                blend(ink.r, highlight.r),
+                                blend(ink.g, highlight.g),
+                                blend(ink.b, highlight.b),
+                                ink.a,
+                            );
+                        }
                         self.frame.commands.push(DrawCommand::PushClip(area));
                         self.frame.commands.push(DrawCommand::Text {
                             position: Point::new(x, y),
