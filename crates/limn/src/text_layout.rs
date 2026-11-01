@@ -742,8 +742,9 @@ fn rect(bounds: BoundingBox) -> Rect {
 }
 
 // The family each face is registered under, and what it is asked for with.
-const FAMILIES: [(FontFamily, &str, f32, FontStyle); 7] = [
+const FAMILIES: [(FontFamily, &str, f32, FontStyle); 8] = [
     (FontFamily::Monospace, "limn-mono", 400.0, FontStyle::Normal),
+    (FontFamily::MonospaceBold, "limn-mono-bold", 700.0, FontStyle::Normal),
     (FontFamily::Sans, "limn-sans", 400.0, FontStyle::Normal),
     (FontFamily::SansItalic, "limn-sans-italic", 400.0, FontStyle::Italic),
     (FontFamily::SansMedium, "limn-sans-medium", 500.0, FontStyle::Normal),
@@ -832,7 +833,11 @@ impl System {
             let own = FAMILIES[slot(family)].1;
             let mut names = vec![named(own)];
             match family {
-                FontFamily::Monospace => {
+                FontFamily::Monospace | FontFamily::MonospaceBold => {
+                    // Without a face of its own, a bold monospace is the regular one.
+                    if family == FontFamily::MonospaceBold {
+                        names.push(named("limn-mono"));
+                    }
                     names.push(named("limn-sans"));
                     names.extend(fallbacks.iter().map(|name| named(name)));
                 }

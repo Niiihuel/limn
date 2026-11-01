@@ -127,6 +127,18 @@ pub struct CodeDiagnostic {
     pub message: String,
 }
 
+/// A mark in the gutter for rows that changed, as against a saved or committed version. Rows
+/// are zero-based; an empty range marks lines removed before its row.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CodeChangeMark {
+    /// The rows the mark spans, end-exclusive. Empty for removed lines, drawn as a short
+    /// wedge on the line between the row before and this one.
+    pub rows: std::ops::Range<usize>,
+    /// The mark's color, the host's: often one for added rows, one for changed and one for
+    /// removed.
+    pub color: Color,
+}
+
 /// The shape of `CodeEditor`'s caret.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CaretStyle {
@@ -161,6 +173,9 @@ pub struct CodeEditor {
     pub read_only: bool,
     /// Native modal editing, independent of the workbench shortcut profile.
     pub vim_mode: bool,
+    /// Draw the Vim mode's badge in the editor's corner while it has focus. True by default;
+    /// a host that shows the mode itself, with `UiTree::code_editor_vim_mode`, turns it off.
+    pub vim_mode_label: bool,
     /// Show line numbers in the gutter. True by default.
     pub line_numbers: bool,
     /// Paint live cursor/selection and document metadata from this frame's snapshot.
@@ -241,6 +256,11 @@ pub struct CodeEditor {
     /// The document `highlights` were computed for. For any other, the built-in colours of
     /// `language` are used.
     pub highlight_document_id: Option<u64>,
+    /// The host's inks for the built-in syntax colours, as `Markdown::code_syntax_colors` takes
+    /// them: keywords, strings, numbers, comments and functions in the host's colours, and the
+    /// rest in `text` on a light palette. `None` keeps limn's. Set with `syntax_colors`;
+    /// `highlights` keep their own colours.
+    pub syntax_colors: Option<crate::CodeSyntaxColors>,
     /// The host's syntax colours, in place of the built-in ones. Give them sorted by start
     /// offset: unsorted, all of them are scanned for every row. Set with `highlights`.
     pub highlights: Arc<[CodeHighlight]>,
@@ -262,6 +282,16 @@ pub struct CodeEditor {
     /// The buttons of each hunk, at the same index. No hunk gets controls unless there is
     /// exactly one entry per hunk.
     pub review_actions: Arc<[CodeReviewHunkActions]>,
+    /// The document `change_marks` belong to. Set with `change_marks`.
+    pub change_marks_document_id: Option<u64>,
+    /// Marks of changed rows in the gutter, in ascending order of their rows; only the first
+    /// 4096 are looked at. They are drawn on every revision of their document, so the host
+    /// recomputes them when it has a new version to compare with.
+    pub change_marks: Arc<[CodeChangeMark]>,
+    /// Draw the vertical scrollbar as `ScrollArea` does with this appearance: in its own
+    /// rail beside the text when `Reserved`, with its arrows when `buttons`. `None`, the
+    /// default, keeps the editor's thin bar over the text. Set with `scrollbar_appearance`.
+    pub scrollbar_appearance: Option<crate::ScrollbarAppearance>,
 }
 
 impl CodeEditor {
@@ -278,6 +308,7 @@ impl CodeEditor {
             diff_backgrounds: true,
             read_only: false,
             vim_mode: false,
+            vim_mode_label: true,
             line_numbers: true,
             status_bar: false,
             tab_width: 4,
@@ -308,6 +339,7 @@ impl CodeEditor {
             search_matches: Arc::from([]),
             search_revision: None,
             context_actions: Vec::new(),
+            syntax_colors: None,
             highlight_revision: None,
             highlight_document_id: None,
             highlights: Arc::from([]),
@@ -319,6 +351,9 @@ impl CodeEditor {
             review_revision: None,
             review_hunks: Arc::from([]),
             review_actions: Arc::from([]),
+            change_marks_document_id: None,
+            change_marks: Arc::from([]),
+            scrollbar_appearance: None,
         }
     }
     /// Use this palette for the surface, the text and the editor's marks.
@@ -364,6 +399,23 @@ impl CodeEditor {
         self.review_actions = actions.into();
         self
     }
+    /// Mark changed rows of the document `document_id` in the gutter: a bar beside rows
+    /// that were added or changed, a wedge where lines were removed.
+    pub fn change_marks(
+        mut self,
+        document_id: u64,
+        marks: impl Into<Arc<[CodeChangeMark]>>,
+    ) -> Self {
+        self.change_marks_document_id = Some(document_id);
+        self.change_marks = marks.into();
+        self
+    }
+    /// Draw the vertical scrollbar as a `ScrollArea` with `appearance` draws its own, so an
+    /// editor matches the scroll surfaces around it.
+    pub fn scrollbar_appearance(mut self, appearance: crate::ScrollbarAppearance) -> Self {
+        self.scrollbar_appearance = Some(appearance);
+        self
+    }
     /// Set the height, in logical pixels, never below 24. A height that is
     /// not finite is ignored.
     pub fn height(mut self, height: f32) -> Self {
@@ -376,6 +428,16 @@ impl CodeEditor {
     /// The status bar, when shown, says the document is read-only.
     pub fn read_only(mut self, read_only: bool) -> Self {
         self.read_only = read_only;
+        self
+    }
+    /// Draw the Vim mode's badge, or leave the mode for the host to show.
+    pub fn vim_mode_label(mut self, shown: bool) -> Self {
+        self.vim_mode_label = shown;
+        self
+    }
+    /// Paint the built-in syntax colours in the host's inks.
+    pub fn syntax_colors(mut self, colors: crate::CodeSyntaxColors) -> Self {
+        self.syntax_colors = Some(colors);
         self
     }
     /// Turn modal editing on or off. Changing it puts the editor back in Normal mode.
@@ -604,9 +666,98 @@ pub(crate) struct CodeViewport {
     minimap: Option<minimap::Layout>,
     minimap_drag: bool,
     scrollbar_pointer: Option<Point>,
+    /// The vertical scrollbar as `ScrollArea` draws it, when the editor was given an
+    /// appearance: its look, its rail's width and the travel of one of its arrows.
+    rail: Option<(crate::ScrollbarAppearance, f32, f32)>,
+}
+
+/// The vertical scrollbar of an editor with a rail: the rail, its arrows and its track.
+#[derive(Clone, Copy, Debug)]
+struct RailGeometry {
+    rail: Rect,
+    up: Option<Rect>,
+    down: Option<Rect>,
+    track: Rect,
 }
 
 impl CodeViewport {
+    /// The rail's parts, beside the body, for an editor given an appearance.
+    fn rail_geometry(&self, vertical: bool) -> Option<RailGeometry> {
+        let (appearance, width, _) = self.rail?;
+        // The vertical rail runs beside the body at the editor's end, the horizontal one under
+        // the body, as long as it.
+        let rail = if vertical {
+            Rect::new(
+                self.rect.x + self.rect.width - width,
+                self.body.y,
+                width,
+                self.body.height,
+            )
+        } else {
+            Rect::new(
+                self.body.x,
+                self.rect.y + self.rect.height - width,
+                self.body.width,
+                width,
+            )
+        };
+        let length = if vertical { rail.height } else { rail.width };
+        // As ScrollArea: very short rails keep their thumb rather than two arrows.
+        let side = if appearance.buttons && length >= width * 4.0 {
+            width
+        } else {
+            0.0
+        };
+        let (up, down, track) = if vertical {
+            (
+                Rect::new(rail.x, rail.y, width, side),
+                Rect::new(rail.x, rail.y + rail.height - side, width, side),
+                Rect::new(rail.x, rail.y + side, width, (length - side * 2.0).max(0.0)),
+            )
+        } else {
+            (
+                Rect::new(rail.x, rail.y, side, width),
+                Rect::new(rail.x + rail.width - side, rail.y, side, width),
+                Rect::new(rail.x + side, rail.y, (length - side * 2.0).max(0.0), width),
+            )
+        };
+        Some(RailGeometry {
+            rail,
+            up: (side > 0.0).then_some(up),
+            down: (side > 0.0).then_some(down),
+            track,
+        })
+    }
+    /// Where a thumb travels along its axis: its rail's track, or beside the body.
+    fn track(&self, vertical: bool) -> (f32, f32) {
+        match (self.rail_geometry(vertical), vertical) {
+            (Some(rail), true) => (rail.track.y, rail.track.height),
+            (Some(rail), false) => (rail.track.x, rail.track.width),
+            (None, true) => (self.body.y, self.body.height),
+            (None, false) => (self.body.x, self.body.width),
+        }
+    }
+    /// A thumb's length on a track `length` long over `range` of scroll: the same for its
+    /// drawing and its dragging.
+    fn thumb_length(&self, length: f32, range: f32) -> f32 {
+        let minimum = self.rail.map_or(16.0, |(appearance, _, _)| {
+            appearance
+                .min_thumb_length
+                .max(1.0)
+                .min((length / 2.0).max(1.0))
+        });
+        (length * length / (length + range))
+            .max(minimum)
+            .min(length.max(minimum))
+    }
+    /// How far a scroll can go along an axis, and where it is.
+    fn range(&self, vertical: bool) -> (f32, f32) {
+        if vertical {
+            (self.max_y - self.min_y, self.scroll_y - self.min_y)
+        } else {
+            (self.max_x, self.scroll_x)
+        }
+    }
     pub(crate) fn set_hovered_point(&mut self, point: Option<Point>) {
         self.scrollbar_pointer = point;
     }
@@ -632,35 +783,40 @@ impl CodeViewport {
             self.drag_scrollbar(point, true);
             return true;
         }
+        for vertical in [true, false] {
+            let (Some(rail), Some((_, _, step))) = (self.rail_geometry(vertical), self.rail) else {
+                break;
+            };
+            let arrow = [(rail.up, -1.0), (rail.down, 1.0)]
+                .into_iter()
+                .find(|(button, _)| button.is_some_and(|b| b.contains(point)));
+            if let Some((_, direction)) = arrow.filter(|_| self.range(vertical).0 > 0.0) {
+                if vertical {
+                    self.scroll_y =
+                        (self.scroll_y + direction * step).clamp(self.min_y, self.max_y);
+                } else {
+                    self.scroll_x = (self.scroll_x + direction * step).clamp(0.0, self.max_x);
+                }
+                self.reveal_caret = false;
+                return true;
+            }
+        }
+        let lane = self.rail.map_or(8.0, |(_, width, _)| width);
         let vertical = self.max_y > self.min_y
-            && point.x >= self.rect.x + self.rect.width - 8.0
+            && point.x >= self.rect.x + self.rect.width - lane
             && point.y >= self.body.y
             && point.y <= self.body.y + self.body.height;
         let horizontal = self.max_x > 0.0
-            && point.y >= self.rect.y + self.rect.height - 8.0
+            && point.y >= self.rect.y + self.rect.height - lane
             && point.x >= self.body.x
             && point.x <= self.body.x + self.body.width;
         if !vertical && !horizontal {
             return false;
         }
-        let (start, length, maximum, offset, position) = if vertical {
-            (
-                self.body.y,
-                self.body.height,
-                self.max_y - self.min_y,
-                self.scroll_y - self.min_y,
-                point.y,
-            )
-        } else {
-            (
-                self.body.x,
-                self.body.width,
-                self.max_x,
-                self.scroll_x,
-                point.x,
-            )
-        };
-        let thumb = (length * length / (length + maximum)).max(16.0).min(length);
+        let (start, length) = self.track(vertical);
+        let (maximum, offset) = self.range(vertical);
+        let position = if vertical { point.y } else { point.x };
+        let thumb = self.thumb_length(length, maximum);
         let top = start + (length - thumb) * offset / maximum;
         let grab = if position >= top && position <= top + thumb {
             position - top
@@ -694,17 +850,10 @@ impl CodeViewport {
             return;
         }
         if let Some((vertical, grab)) = self.scrollbar_drag {
-            let (start, length, maximum, position) = if vertical {
-                (
-                    self.body.y,
-                    self.body.height,
-                    self.max_y - self.min_y,
-                    point.y,
-                )
-            } else {
-                (self.body.x, self.body.width, self.max_x, point.x)
-            };
-            let thumb = (length * length / (length + maximum)).max(16.0).min(length);
+            let (start, length) = self.track(vertical);
+            let maximum = self.range(vertical).0;
+            let position = if vertical { point.y } else { point.x };
+            let thumb = self.thumb_length(length, maximum);
             let offset = if length > thumb {
                 (position - start - grab) / (length - thumb) * maximum
             } else {
@@ -833,7 +982,19 @@ impl HighlightIndex {
             self.carried
                 .filter(|(revision, _)| *revision == snapshot.revision()),
         ) else {
-            return Cow::Borrowed(syntax.line(snapshot, editor.language, row));
+            let line = syntax.line(snapshot, editor.language, row);
+            let Some(colors) = editor.syntax_colors else {
+                return Cow::Borrowed(line);
+            };
+            let dark = editor.palette.is_dark();
+            return Cow::Owned(
+                line.iter()
+                    .map(|span| CodeHighlight {
+                        range: span.range.clone(),
+                        color: colors.ink(span.color, dark),
+                    })
+                    .collect(),
+            );
         };
         if row < prefix {
             return Cow::Borrowed(self.row(spans, range));
@@ -2139,11 +2300,28 @@ impl EditorView {
                 8.0
             };
         let minimap_width = minimap::reserved_width(self.editor.minimap, rect.width - gutter);
+        // A reserved rail takes its own width beside the text; else the bar's 8 px lane.
+        let rail = self.editor.scrollbar_appearance.map(|appearance| {
+            (
+                appearance,
+                appearance.effective_rail_width(rect.width),
+                self.editor.line_height() * 3.0,
+            )
+        });
+        let lane = match rail {
+            Some((appearance, width, _))
+                if appearance.placement == crate::ScrollbarPlacement::Reserved =>
+            {
+                width
+            }
+            _ => 8.0,
+        };
+        self.viewport.rail = rail;
         let body = Rect::new(
             rect.x + gutter,
             rect.y + 4.0,
-            (rect.width - gutter - 8.0 - minimap_width).max(0.0),
-            (code_rect.height - 12.0).max(0.0),
+            (rect.width - gutter - lane - minimap_width).max(0.0),
+            (code_rect.height - 4.0 - lane).max(0.0),
         );
         self.viewport.rect = code_rect;
         self.viewport.body = body;
@@ -2414,6 +2592,15 @@ impl EditorView {
                 continue;
             }
             commands.push(DrawCommand::PushClip(row_clip));
+            if self.editor.change_marks_document_id == Some(snapshot.document_id()) {
+                paint_change_marks(
+                    &mut commands,
+                    &self.editor.change_marks,
+                    row,
+                    continuation,
+                    Rect::new(rect.x, y, 3.0, self.editor.line_height()),
+                );
+            }
             if self.review_layout.added(row) {
                 if self.editor.diff_backgrounds {
                     commands.push(DrawCommand::FillRect {
@@ -2901,6 +3088,32 @@ fn unit_selection(snapshot: &BufferSnapshot, offset: usize, clicks: u8) -> Selec
 // Drawing boundary receives the same snapshot, geometry, palette and native
 // font metrics used by the editor body, without hidden layout state.
 #[allow(clippy::too_many_arguments)]
+/// The marks of `row` at `cell`, the gutter's first 3 px of that line: a bar for a range that
+/// holds the row, and, on its first line, a wedge for removed lines before it.
+fn paint_change_marks(
+    commands: &mut Vec<DrawCommand>,
+    marks: &[CodeChangeMark],
+    row: usize,
+    continuation: bool,
+    cell: Rect,
+) {
+    for mark in marks.iter().take(4096) {
+        if mark.rows.contains(&row) {
+            commands.push(DrawCommand::FillRect {
+                rect: cell,
+                color: mark.color,
+                radius: 0.0,
+            });
+        } else if mark.rows.is_empty() && mark.rows.start == row && !continuation {
+            commands.push(DrawCommand::FillRect {
+                rect: Rect::new(cell.x, cell.y - 3.0, 6.0, 6.0),
+                color: mark.color,
+                radius: 1.0,
+            });
+        }
+    }
+}
+
 fn paint_editor_status(
     commands: &mut Vec<DrawCommand>,
     font_size: f32,
@@ -3238,11 +3451,22 @@ fn visible_display_line(
                 .text_range(window.char_range.clone())
                 .unwrap_or_default()
         };
-        (
-            DisplayLine::new_at(&source, tabs, window.start_column, measure),
-            window.char_range,
-            window.truncated,
-        )
+        let mut display = DisplayLine::new_at(&source, tabs, window.start_column, measure);
+        // A line that goes on past the window is as wide as all its columns, not as what
+        // shows of it: else the horizontal extent grows, and the bar shrinks, as it scrolls.
+        // Past 100 000 characters each counts one column, rather than walk the line each frame.
+        let columns = window
+            .truncated
+            .then(|| snapshot.line_range(row).ok())
+            .flatten()
+            .and_then(|line| match line.len() {
+                len if len > 100_000 => Some(len),
+                _ => snapshot.display_column(line.end, tabs).ok(),
+            });
+        if let Some(columns) = columns {
+            display.width = display.width.max(columns as f32 * cell);
+        }
+        (display, window.char_range, window.truncated && columns.is_none())
     } else {
         (DisplayLine::new("", tabs, measure), 0..0, false)
     }
@@ -3267,6 +3491,17 @@ fn paint_scrollbars(commands: &mut Vec<DrawCommand>, viewport: &CodeViewport, co
     // eight-pixel pointer rail and proportional scroll/drag calculations.
     let appearance = crate::ScrollbarAppearance::overlay().buttons(false);
     let thickness = appearance.thumb_width.min(8.0);
+    let vertical_range = viewport.max_y - viewport.min_y;
+    let mut railed = [false; 2];
+    for (vertical, railed) in [true, false].into_iter().zip(&mut railed) {
+        if let (Some(rail), Some((look, _, _))) = (viewport.rail_geometry(vertical), viewport.rail)
+        {
+            if viewport.range(vertical).0 > 0.0 {
+                paint_rail(commands, viewport, vertical, rail, look, color);
+            }
+            *railed = true;
+        }
+    }
     let mut paint = |track: Rect, thumb: Rect, vertical: bool| {
         let hovered = viewport
             .scrollbar_pointer
@@ -3288,8 +3523,7 @@ fn paint_scrollbars(commands: &mut Vec<DrawCommand>, viewport: &CodeViewport, co
             radius: thickness / 2.0,
         });
     };
-    let vertical_range = viewport.max_y - viewport.min_y;
-    if vertical_range > 0.0 {
+    if !railed[0] && vertical_range > 0.0 {
         let h = (viewport.body.height * viewport.body.height
             / (viewport.body.height + vertical_range))
             .max(16.0)
@@ -3308,7 +3542,7 @@ fn paint_scrollbars(commands: &mut Vec<DrawCommand>, viewport: &CodeViewport, co
             true,
         );
     }
-    if viewport.max_x > 0.0 {
+    if !railed[1] && viewport.max_x > 0.0 {
         let w = (viewport.body.width * viewport.body.width
             / (viewport.body.width + viewport.max_x))
             .max(16.0)
@@ -3328,12 +3562,115 @@ fn paint_scrollbars(commands: &mut Vec<DrawCommand>, viewport: &CodeViewport, co
     }
 }
 
+/// A scrollbar in its rail, as `ScrollArea` paints its own: the track only under the pointer
+/// or while dragged, the thumb in the rail's middle, and its arrows, faint at an end.
+fn paint_rail(
+    commands: &mut Vec<DrawCommand>,
+    viewport: &CodeViewport,
+    vertical: bool,
+    rail: RailGeometry,
+    appearance: crate::ScrollbarAppearance,
+    color: Color,
+) {
+    let hovered = viewport
+        .scrollbar_pointer
+        .is_some_and(|point| rail.rail.contains(point));
+    let active = !viewport.minimap_drag
+        && viewport
+            .scrollbar_drag
+            .is_some_and(|(axis, _)| axis == vertical);
+    let track = rail.track;
+    let (across, along) = if vertical {
+        (track.width, track.height)
+    } else {
+        (track.height, track.width)
+    };
+    if hovered || active {
+        commands.push(DrawCommand::FillRect {
+            rect: track,
+            color: appearance.track_color(color),
+            radius: appearance.corner(across),
+        });
+    }
+    let (range, offset) = viewport.range(vertical);
+    let length = viewport.thumb_length(along, range);
+    let thickness = appearance.thumb_width.max(1.0).min((across - 2.0).max(1.0));
+    let from = (along - length) * offset / range;
+    let thumb = if vertical {
+        Rect::new(
+            track.x + (across - thickness) / 2.0,
+            track.y + from,
+            thickness,
+            length,
+        )
+    } else {
+        Rect::new(
+            track.x + from,
+            track.y + (across - thickness) / 2.0,
+            length,
+            thickness,
+        )
+    };
+    commands.push(DrawCommand::FillRect {
+        rect: thumb,
+        color: appearance.thumb_color(color, hovered, active),
+        radius: appearance.corner(thickness),
+    });
+    for (button, direction, enabled) in [
+        (rail.up, -1.0_f32, offset > 0.001),
+        (rail.down, 1.0, offset < range - 0.001),
+    ] {
+        let Some(button) = button else {
+            continue;
+        };
+        let over = enabled
+            && viewport
+                .scrollbar_pointer
+                .is_some_and(|point| button.contains(point));
+        let ink = appearance.thumb_color(color, over, false);
+        let ink = if enabled {
+            ink
+        } else {
+            Color {
+                a: ink.a / 3,
+                ..ink
+            }
+        };
+        let (x, y) = (
+            button.x + button.width / 2.0,
+            button.y + button.height / 2.0,
+        );
+        // A triangle pointing along the axis: `wide` across it, `deep` along it.
+        let (wide, deep) = (
+            (across * 0.25).min(3.5),
+            (button.width.min(button.height) * 0.15).min(2.0),
+        );
+        let points = if vertical {
+            [
+                Point::new(x - wide, y - direction * deep),
+                Point::new(x + wide, y - direction * deep),
+                Point::new(x, y + direction * deep),
+            ]
+        } else {
+            [
+                Point::new(x - direction * deep, y - wide),
+                Point::new(x - direction * deep, y + wide),
+                Point::new(x + direction * deep, y),
+            ]
+        };
+        commands.push(DrawCommand::FillTriangle { points, color: ink });
+    }
+}
+
 pub(crate) struct DiffView {
     pub viewport: CodeViewport,
     syntax: crate::code_syntax::SyntaxCache,
     identity: Option<Arc<[crate::CodeDiffLine]>>,
     digits: usize,
     single_gutter: bool,
+    /// The folded rows in view: their index, their rect and its clip, for the tree to lay
+    /// their controls over.
+    pub expand: Vec<(usize, Rect, Rect)>,
 }
 impl Default for DiffView {
     fn default() -> Self {
@@ -3343,6 +3680,7 @@ impl Default for DiffView {
             identity: None,
             digits: 1,
             single_gutter: false,
+            expand: Vec::new(),
         }
     }
 }
@@ -3350,6 +3688,12 @@ impl DiffView {
     /// True while syntax colours for the diff are still being computed.
     pub fn syntax_pending(&self) -> bool {
         self.syntax.pending()
+    }
+    /// True when `hit` names an expand control this diff, `id`, laid at `position`.
+    pub(crate) fn owns_expand_control(&self, id: &str, hit: &str, position: Point) -> bool {
+        self.expand.iter().any(|(row, rect, clip)| {
+            rect.contains(position) && clip.contains(position) && hit == format!("{id}:expand:{row}")
+        })
     }
 }
 
@@ -3467,22 +3811,36 @@ pub(crate) fn paint_diff(
         }
     }
     let mut commands = vec![DrawCommand::PushClip(clip)];
+    view.expand.clear();
+    let colors = diff.colors;
     for (row, display) in displays {
         let line = &diff.lines[row];
         let y = viewport.body.y + row as f32 * line_height - viewport.scroll_y;
         let text_y = centered_text_y(y, line_height, text_height);
         // Gutter density changes the line numbers, not the meaning of a row.
         // A created file still contains additions with a single number column.
-        let (marker, marker_color, fill) = match line.kind {
-            CodeDiffLineKind::Context => (" ", diff.palette.text, Color::TRANSPARENT),
-            CodeDiffLineKind::Added => {
-                ("+", Color::rgb(105, 185, 135), Color::rgba(72, 142, 92, 20))
-            }
-            CodeDiffLineKind::Removed => {
-                ("−", Color::rgb(210, 115, 122), Color::rgba(170, 76, 85, 20))
+        let (marker, marker_color, fill, word) = match line.kind {
+            CodeDiffLineKind::Context => (" ", diff.palette.text, Color::TRANSPARENT, Color::TRANSPARENT),
+            CodeDiffLineKind::Added => ("+", colors.add_bar, colors.add_row, colors.add_word),
+            CodeDiffLineKind::Removed => ("−", colors.del_bar, colors.del_row, colors.del_word),
+            CodeDiffLineKind::Folded => {
+                // The band only; the tree lays the row's label and control over it.
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(rect.x, y, rect.width, line_height),
+                    color: diff.palette.hover,
+                    radius: 0.0,
+                });
+                let rows = Rect::new(rect.x, viewport.body.y, rect.width, viewport.body.height);
+                if let Some(row_clip) = rows.intersection(clip) {
+                    // Short of the scrollbar, which keeps its own presses.
+                    let right = viewport.body.x + viewport.body.width;
+                    view.expand.push((row, Rect::new(rect.x, y, right - rect.x, line_height), row_clip));
+                }
+                continue;
             }
         };
-        if fill.a > 0 {
+        let changed = line.kind != CodeDiffLineKind::Context;
+        if changed {
             if diff.diff_backgrounds {
                 commands.push(DrawCommand::FillRect {
                     rect: Rect::new(rect.x, y, rect.width, line_height),
@@ -3490,11 +3848,13 @@ pub(crate) fn paint_diff(
                     radius: 0.0,
                 });
             }
-            commands.push(DrawCommand::FillRect {
-                rect: Rect::new(rect.x, y, 2.0, line_height),
-                color: marker_color,
-                radius: 0.0,
-            });
+            if diff.margin_bar {
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(rect.x, y, 2.0, line_height),
+                    color: marker_color,
+                    radius: 0.0,
+                });
+            }
         }
         let numbers = if diff.single_gutter {
             [(rect.x + 8.0, line.new_line.or(line.old_line)), (0.0, None)]
@@ -3530,6 +3890,16 @@ pub(crate) fn paint_diff(
                 0.0,
             )),
         ));
+        for range in diff.word_ranges.get(row).filter(|_| changed).into_iter().flatten() {
+            let (start, end) = (display.x_at(range.start), display.x_at(range.end));
+            if end > start {
+                commands.push(DrawCommand::FillRect {
+                    rect: Rect::new(viewport.body.x - viewport.scroll_x + start, y, end - start, line_height),
+                    color: word,
+                    radius: 0.0,
+                });
+            }
+        }
         display.paint(diff.font_size,
             &mut commands,
             Point::new(viewport.body.x - viewport.scroll_x, text_y),

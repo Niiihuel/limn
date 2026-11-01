@@ -47,7 +47,7 @@ own content, and how to switch movement off.
 | `Element::unit_grid`, the cells of a `ContextWindow` | Shown as given. A part's new count is moved to cell by cell, and the parts after it follow; a part in focus makes the others recede. | | three times `move_ms` |
 
 Continuous indicators run on fixed periods and are not transitions: `Spinner`,
-`Skeleton`, `TextShimmer` and the text caret.
+`Scribble`, `Skeleton`, `TextShimmer` and the text caret.
 
 ### Not animated
 
@@ -322,7 +322,7 @@ if self.panel_width.is_active(Instant::now()) {
 | Method | Effect |
 | --- | --- |
 | `ScalarTransition::new(value, now)` | Starts at rest at `value`. |
-| `.easing(Easing::InOutCubic)` | Chooses the curve; the default is `OutCubic`. |
+| `.easing(Easing::InOutCubic)` | Chooses the curve; the default is `OutCubic`. `Easing::CubicBezier(x1, y1, x2, y2)` is a CSS `cubic-bezier`. |
 | `.retarget(value, now, duration)` | Heads for a new value from wherever it is now, without a jump. |
 | `.retarget_with_motion(value, now, duration, reduced_motion)` | As above, or a snap when `reduced_motion` is true. |
 | `.snap_to(value, now)` | Jumps immediately. |

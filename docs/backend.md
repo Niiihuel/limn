@@ -167,12 +167,14 @@ The egui backend exposes:
 | Function | Purpose |
 | --- | --- |
 | `install_fonts(&ctx)` | Installs the UI font. Once, at window creation. |
+| `font_definitions_with(UiFaces)` | The bundled fonts with the host's faces first for interface text, to install with `Context::set_fonts`. See [A font of the person's choice](theming.md#a-font-of-the-persons-choice). |
 | `attach_fonts(&mut tree, &ctx)` | Makes a tree measure with egui's fonts. Once per tree. |
 | `normalize_keyboard_input(&ctx)` | Fixes key and text events on remapped layouts. Each frame, before `events`. |
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
 | `events_indexed(&ctx, origin)` | Unreleased indexed-input contract: input with its source index for an ordered host loop. See below. |
 | `paint(ui, &frame)`, `paint_at(ui, &frame, origin)` | Paints a frame. |
 | `report_ime(&ctx, &tree, origin)` | Tells the platform where an input method belongs: by the caret of the focused code editor or field, from `UiTree::ime_area()`. Each frame, after the layout. Without it egui turns input methods off. A password asks for no composition. |
+| `set_cursor(&ctx, tree.cursor())` | Gives the pointer the shape the element under it asks for with `Element::cursor`: a resize shape, or none at all with `Cursor::Hidden`, as over a video once the pointer rested on it. Each frame, after the layout; `None` leaves egui's own. |
 | `set_image_cache_entries(n)` | How many decoded images stay as textures; a screen of thumbnails needs more than the default 16. Native decoding uses two workers per UI thread, with at most 32 queued sources and 16 MiB of queued encoded data. A full queue retries on a later paint pass. |
 | `clear_image_cache()` | Release this UI thread's raster textures and queued sources, for example on sign-out. Up to two active decodes may finish; their old generation cannot publish a texture. Remove the old account's sources from the UI tree/model too, or the next paint requests them again. |
 
@@ -183,8 +185,11 @@ on source dimensions and decoder allocations are unchanged. Browsers retain
 the existing synchronous decode path because that backend has no native
 workers; clearing still releases its raster cache.
 | `SurfaceFrame::from_rgb(size, rgb, scale)`, `from_rgba` | One frame for a `Surface`, converted off the UI thread. |
+| `SurfaceFrame::from_image(image, scale)` | One frame already in egui's form (`ColorImage`), taken without converting it. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
+| `present_surface_paint(&ctx, id, paint)` | Has the host paint a surface itself: its `PaintCallback` is added in the surface's place in the paint order, on the pixel grid and clipped as a frame would be, until a `SurfaceFrame` is presented again. |
+| `present_surface_texture(&ctx, id, texture, size, scale)` | Shows a texture the host registered with the renderer (egui-wgpu's `register_native_texture`) on a surface, in place of its own until a `SurfaceFrame` is presented again; the host keeps the texture alive. |
 | `forget_surface(id)` | Frees a surface's texture. |
 
 ### Indexed input
@@ -258,6 +263,22 @@ the rest of the texture as it was. A part is refused, with `false` and no
 effect, when the surface shows no frame, a frame of another size or one at
 another scale; the host then sends a whole frame, which always replaces
 everything. Parts are applied in the order they are presented.
+
+A surface that takes input, such as an embedded page, sits in
+`Element::focus_area(id, surface)`: a press or Tab gives the region the focus
+and the tree reports nothing for it. While `tree.focused_id()` is `id` the host
+sends the keys, text and input method events it receives to its source
+instead of `handle_event`; wherever `tree.frame().press_region(point)` is the
+region it sends the pointer and the wheel, relative to the region's corner,
+and keeps sending moves to it until the button that pressed there is
+released. It still passes the press to the tree, which focuses the region.
+
+A host may instead put a native view of its own where the surface is laid out,
+such as an embedded browser's window, which limn cannot paint over. While
+`frame.drawn_over(id)` holds, something the tree paints after the surface
+lands on its visible part: a menu, a tooltip, a dialog, a panel sliding in.
+The host hides its view then and presents the view's last frame in the
+surface, and shows the view again once nothing covers it.
 
 ## See also
 

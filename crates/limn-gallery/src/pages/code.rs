@@ -1,6 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    Button, ButtonVariant, CodeDiff, CodeEditor, EditorController, CodeDiffLine, CodeDiffLineKind, CodeLanguage, Component, Element, RadiusRole,
+    Button, ButtonVariant, CodeDiff, CodeEditor, EditorController, CodeDiffLine, CodeDiffLineKind, CodeLanguage, Component, DiffFileHeader,
+    Element, RadiusRole,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -100,6 +101,42 @@ pub fn view(cx: &Cx) -> Vec<Section> {
     let tail = kept("tail", arrived, || {
         rows((0..arrived).map(|row| (' ', format!("test suite::case_{:04} ... ok", row + 1))), 1)
     });
+    // One changed word on each side, and the unchanged lines around them folded until asked for.
+    // A click flips the flag named by its ID: the folded row's, and the header's.
+    let unfolded = cx.state.flag("code-diff-fold:expand:0");
+    let review = kept(if unfolded { "review-open" } else { "review" }, if unfolded { 9 } else { 4 }, || {
+        let mut lines = rows(
+            [
+                ('-', "const GREETING: &str = \"Hello\";"),
+                ('+', "const GREETING: &str = \"Hi\";"),
+            ]
+            .map(|(mark, text)| (mark, text.to_owned())),
+            7,
+        );
+        let around = rows((1..7).map(|n| (' ', format!("// line {n}"))), 1);
+        if unfolded {
+            lines.splice(0..0, around);
+        } else {
+            lines.insert(0, CodeDiffLine {
+                kind: CodeDiffLineKind::Folded,
+                old_line: None,
+                new_line: None,
+                text: "Show 6 more lines".into(),
+            });
+        }
+        lines.push(rows([(' ', "fn main() {}".to_owned())], 8).remove(0));
+        lines
+    });
+    let words: Arc<[Vec<std::ops::Range<usize>>]> = review
+        .iter()
+        .map(|line| match line.kind {
+            CodeDiffLineKind::Removed => vec![24..29],
+            CodeDiffLineKind::Added => vec![24..26],
+            _ => Vec::new(),
+        })
+        .collect::<Vec<_>>()
+        .into();
+    let header_collapsed = cx.state.flag("code-diff-file");
     let outline = |id: String, label: &str| Button::new(id, label, palette).variant(ButtonVariant::Outline).render();
     vec![
         section(cx, "Code editor", vec![
@@ -131,6 +168,26 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 outline("code-diff-tail=6".to_owned(), "Reset"),
             ]),
             framed(CodeDiff::new("code-diff-tail", tail).single_gutter(true).follow_tail(true).height(height_of(5))),
+            caption(cx, "DiffFileHeader over a diff with word_ranges: the changed words take a stronger tint, and a Folded row asks the host for the lines it hides."),
+            Element::column(vec![
+                DiffFileHeader::new("code-diff-file", "src/greeting.rs", palette)
+                .stat(1, 1)
+                .collapsed(header_collapsed)
+                .render(),
+                if header_collapsed {
+                    Element::spacer().size(None, Some(0.0))
+                } else {
+                    CodeDiff::new("code-diff-fold", review.clone())
+                        .word_ranges(words)
+                        .palette(palette)
+                        .language(CodeLanguage::Rust)
+                        .height(height_of(review.len()))
+                        .render()
+                },
+            ])
+            .radius(RadiusRole::Surface.px())
+            .clip_children()
+            .size(Some(width), None),
             caption(cx, "No rows."),
             framed(CodeDiff::new("code-diff-empty", Vec::new()).height(height_of(2))),
         ]),

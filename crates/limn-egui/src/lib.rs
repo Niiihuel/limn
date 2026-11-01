@@ -494,6 +494,16 @@ impl SurfaceFrame {
         })
     }
 
+    /// Pixels already in egui's premultiplied form, taken as they are: no
+    /// conversion, for frames too large to convert again on the UI thread.
+    pub fn from_image(image: egui::ColorImage, pixels_per_point: f32) -> Option<Self> {
+        Self::bounded(image.size, image.pixels.len() * 4, 4, pixels_per_point).then_some(Self {
+            image,
+            pixels_per_point,
+            part: None,
+        })
+    }
+
     /// Rows of opaque RGB, as a JPEG decodes: no alpha channel is carried.
     pub fn from_rgb(size: [usize; 2], rgb: &[u8], pixels_per_point: f32) -> Option<Self> {
         Self::bounded(size, rgb.len(), 3, pixels_per_point).then(|| Self {
@@ -543,6 +553,24 @@ struct SurfaceTexture {
 struct SurfaceCache {
     context: Option<egui::Context>,
     entries: HashMap<String, SurfaceTexture>,
+    /// Surfaces the host paints itself: the callback it gave, added in their place.
+    painted: HashMap<String, egui::PaintCallback>,
+    /// Surfaces showing a texture the host registered with the renderer itself: its id,
+    /// its size in pixels and the scale it was rendered for.
+    textures: HashMap<String, (egui::TextureId, [usize; 2], f32)>,
+}
+
+impl SurfaceCache {
+    /// Textures of another context are not this one's.
+    fn of(&mut self, ctx: &egui::Context) -> &mut Self {
+        if self.context.as_ref() != Some(ctx) {
+            self.entries.clear();
+            self.textures.clear();
+            self.painted.clear();
+            self.context = Some(ctx.clone());
+        }
+        self
+    }
 }
 
 thread_local! {
@@ -564,11 +592,15 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
     }
     SURFACE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if cache.context.as_ref() != Some(ctx) {
-            cache.entries.clear();
-            cache.context = Some(ctx.clone());
-        }
+        let cache = cache.of(ctx);
         let SurfaceFrame { image, pixels_per_point, part } = frame;
+        // A part of a frame shown from a texture of the host's, or painted by the host, has
+        // nothing to be written into.
+        if part.is_some() && (cache.textures.contains_key(id) || cache.painted.contains_key(id)) {
+            return false;
+        }
+        cache.textures.remove(id);
+        cache.painted.remove(id);
         match (cache.entries.get_mut(id), part) {
             (Some(entry), Some((frame, at))) => {
                 if entry.texture.size() != frame || entry.pixels_per_point != pixels_per_point {
@@ -595,16 +627,73 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
     })
 }
 
+/// Show a texture the host registered with the renderer itself (egui-wgpu's
+/// `register_native_texture`), `size` pixels rendered for `pixels_per_point`,
+/// wherever a [`DrawCommand::Surface`] names `id`: a frame that is already on
+/// the GPU is drawn from there, never copied. It takes the place of the
+/// surface's own texture, which is freed, until a [`SurfaceFrame`] is presented
+/// again. The host keeps the texture alive while the surface shows it. A size
+/// or scale a [`SurfaceFrame`] could not have is refused: `false`, and the
+/// surface is left as it was.
+pub fn present_surface_texture(ctx: &egui::Context, id: &str, texture: egui::TextureId, size: [usize; 2], pixels_per_point: f32) -> bool {
+    if !SurfaceFrame::bounded(size, size[0].saturating_mul(size[1]).saturating_mul(4), 4, pixels_per_point) {
+        return false;
+    }
+    SURFACE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let cache = cache.of(ctx);
+        cache.entries.remove(id);
+        cache.painted.remove(id);
+        cache.textures.insert(id.to_owned(), (texture, size, pixels_per_point));
+    });
+    true
+}
+
+/// Have the host paint the surface `id` itself: wherever a
+/// [`DrawCommand::Surface`] names it, limn adds `paint` in its place in the
+/// paint order, its rectangle the surface's area snapped to the pixel grid as
+/// a frame's would be, clipped as the frame would be. What is painted after it
+/// is painted over it. A wgpu host can draw there directly, or clear the
+/// window to transparent for something presented beneath it. The surface's
+/// own texture is freed; a [`SurfaceFrame`] presented again takes the surface
+/// back. Opacity is the host's to apply.
+pub fn present_surface_paint(ctx: &egui::Context, id: &str, paint: egui::PaintCallback) {
+    SURFACE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let cache = cache.of(ctx);
+        cache.entries.remove(id);
+        cache.textures.remove(id);
+        cache.painted.insert(id.to_owned(), paint);
+    });
+}
+
 /// Free the texture of a surface the host no longer shows.
 pub fn forget_surface(id: &str) {
-    SURFACE_CACHE.with(|cache| cache.borrow_mut().entries.remove(id));
+    SURFACE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        cache.entries.remove(id);
+        cache.textures.remove(id);
+        cache.painted.remove(id);
+    });
+}
+
+fn surface_paint(ui: &egui::Ui, id: &str) -> Option<egui::PaintCallback> {
+    SURFACE_CACHE.with(|cache| {
+        let cache = cache.borrow();
+        cache.painted.get(id).filter(|_| cache.context.as_ref() == Some(ui.ctx())).cloned()
+    })
 }
 
 fn surface_texture(ui: &egui::Ui, id: &str) -> Option<(egui::TextureId, [usize; 2], f32)> {
     SURFACE_CACHE.with(|cache| {
         let cache = cache.borrow();
-        let entry = cache.entries.get(id).filter(|_| cache.context.as_ref() == Some(ui.ctx()))?;
-        Some((entry.texture.id(), entry.texture.size(), entry.pixels_per_point))
+        if cache.context.as_ref() != Some(ui.ctx()) {
+            return None;
+        }
+        cache.textures.get(id).copied().or_else(|| {
+            let entry = cache.entries.get(id)?;
+            Some((entry.texture.id(), entry.texture.size(), entry.pixels_per_point))
+        })
     })
 }
 
@@ -722,6 +811,7 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Pin => include_str!("../assets/bootstrap/pin-angle.svg"),
         Icon::Archive => include_str!("../assets/bootstrap/archive.svg"),
         Icon::ArchiveUp => include_str!("../assets/bootstrap/box-arrow-up.svg"),
+        Icon::ExternalLink => include_str!("../assets/bootstrap/box-arrow-up-right.svg"),
         Icon::Trash => include_str!("../assets/bootstrap/trash3.svg"),
         Icon::Edit => include_str!("../assets/bootstrap/pencil.svg"),
         Icon::Copy => include_str!("../assets/bootstrap/copy.svg"),
@@ -1015,7 +1105,49 @@ fn paint_spinner(
                 painter.circle_filled(to, width / 2.0, ink);
             }
         }
+        SpinnerVariant::Dots => {
+            for (offset, radius) in spinner_dots(angle, side) {
+                painter.circle_filled(area.center() + offset, radius, ink);
+            }
+        }
     }
+}
+
+/// The four dots of a `Dots` spinner, as offsets from its center and a
+/// radius. The angle runs a full turn per cycle: the first half lines the
+/// dots up on one diagonal, the second half on the other.
+fn spinner_dots(angle: f32, side: f32) -> [(egui::Vec2, f32); 4] {
+    let half = side * 0.31;
+    let radius = side * 0.11;
+    let turn = (angle / std::f32::consts::TAU).rem_euclid(1.0) * 2.0;
+    let phase = turn.fract();
+    let smooth = |t: f32| {
+        let t = t.clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    };
+    // Out over a fifth of the half, held, then back; at rest the rest of it.
+    let reach = smooth(phase / 0.2) - smooth((phase - 0.35) / 0.2);
+    let corner = |x: f32, y: f32| egui::vec2(x, y) * half;
+    let toward = |from: egui::Vec2, to: egui::Vec2| from + (to - from) * reach;
+    let third = 1.0 / 3.0;
+    let dots = if turn < 1.0 {
+        // "/": the top right and bottom left stay; the others slide inward.
+        [
+            corner(1.0, -1.0),
+            corner(-1.0, 1.0),
+            toward(corner(-1.0, -1.0), corner(third, -third)),
+            toward(corner(1.0, 1.0), corner(-third, third)),
+        ]
+    } else {
+        // "\": the top left and bottom right stay.
+        [
+            corner(-1.0, -1.0),
+            corner(1.0, 1.0),
+            toward(corner(1.0, -1.0), corner(-third, -third)),
+            toward(corner(-1.0, 1.0), corner(third, third)),
+        ]
+    };
+    dots.map(|offset| (offset, radius))
 }
 
 fn effort_color(r: u8, g: u8, b: u8, alpha: u8, opacity: f32) -> Color32 {
@@ -1391,6 +1523,7 @@ pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
         ctx.set_cursor_icon(match cursor {
             limn::Cursor::ResizeColumn => egui::CursorIcon::ResizeColumn,
             limn::Cursor::ResizeRow => egui::CursorIcon::ResizeRow,
+            limn::Cursor::Hidden => egui::CursorIcon::None,
         });
     }
 }
@@ -1767,7 +1900,7 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let font = match font_family {
                     FontFamily::Monospace => FontId::monospace(*font_size),
                     FontFamily::Sans => FontId::proportional(*font_size),
-                    FontFamily::SansMedium | FontFamily::SansBold | FontFamily::Display => {
+                    FontFamily::MonospaceBold | FontFamily::SansMedium | FontFamily::SansBold | FontFamily::Display => {
                         FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
                     }
                     FontFamily::SansItalic | FontFamily::SansBoldItalic => {
@@ -1896,7 +2029,15 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let painter = ui
                     .painter()
                     .with_clip_rect(clips.last().unwrap().intersect(area));
-                if let Some((texture, pixels, density)) = surface_texture(ui, id) {
+                if let Some(paint) = surface_paint(ui, id) {
+                    let ppp = ui.ctx().pixels_per_point();
+                    let snap = |value: f32| (value * ppp).round() / ppp;
+                    let rect = EguiRect::from_min_max(
+                        Pos2::new(snap(area.min.x), snap(area.min.y)),
+                        Pos2::new(snap(area.max.x), snap(area.max.y)),
+                    );
+                    painter.add(egui::PaintCallback { rect, ..paint });
+                } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
                     painter.image(
                         texture,
                         surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),
@@ -2363,6 +2504,7 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
         ("Sans-Medium", ui_face(FontFamily::SansMedium)),
         ("Sans-Bold", ui_face(FontFamily::SansBold)),
         ("Hack", face(FontFamily::Monospace)),
+        ("Hack-Bold", face(FontFamily::MonospaceBold)),
         ("NotoSansMath-Regular", math),
         ("NotoSansSymbols2-Regular", symbols),
         ("NotoEmoji", emoji),
@@ -2379,6 +2521,10 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
         egui::FontFamily::Monospace,
         chain(&["Hack", "Sans-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
     );
+    fonts.families.insert(
+        egui::FontFamily::Name(MONO_BOLD.into()),
+        chain(&["Hack-Bold", "Hack", "Sans-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
+    );
     for (family, face_name) in [(SANS_MEDIUM, "Sans-Medium"), (SANS_BOLD, "Sans-Bold")] {
         fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Sans-Regular"], &behind_sans));
     }
@@ -2394,15 +2540,55 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
     fonts
 }
 
+const MONO_BOLD: &str = "limn-mono-bold";
 const SANS_MEDIUM: &str = "limn-sans-medium";
 const SANS_BOLD: &str = "limn-sans-bold";
 const DISPLAY: &str = "limn-display";
+
+/// Faces of the host's choice for interface text, in place of the bundled
+/// Ubuntu: a font the person picked from the system's, say. A weight left
+/// out is drawn with the regular face.
+pub struct UiFaces {
+    /// The face of [`FontFamily::Sans`] and [`FontFamily::SansItalic`].
+    pub regular: egui::FontData,
+    /// The face of [`FontFamily::SansMedium`]; `None` uses `regular`.
+    pub medium: Option<egui::FontData>,
+    /// The face of [`FontFamily::SansBold`]; `None` uses `regular`.
+    pub bold: Option<egui::FontData>,
+}
+
+/// [`font_definitions`] with `faces` first in each interface family, so the
+/// bundled faces and every fallback behind them still draw what `faces`
+/// lacks. Monospace text keeps its own face. Install the result with
+/// `Context::set_fonts`, then call [`attach_fonts`] again so the tree
+/// measures with it.
+pub fn font_definitions_with(faces: UiFaces) -> egui::FontDefinitions {
+    let mut fonts = font_definitions();
+    let regular = "limn-ui-regular".to_owned();
+    fonts.font_data.insert(regular.clone(), faces.regular.into());
+    for (face, name, family) in [
+        (faces.medium, "limn-ui-medium", SANS_MEDIUM),
+        (faces.bold, "limn-ui-bold", SANS_BOLD),
+    ] {
+        let first = match face {
+            Some(face) => {
+                fonts.font_data.insert(name.to_owned(), face.into());
+                name.to_owned()
+            }
+            None => regular.clone(),
+        };
+        fonts.families.entry(egui::FontFamily::Name(family.into())).or_default().insert(0, first);
+    }
+    fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, regular);
+    fonts
+}
 
 /// The egui family a limn family is painted and measured with. A host that
 /// set its own fonts without the weighted faces gets the regular one.
 fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
     let weighted = match family {
         FontFamily::Monospace => return egui::FontFamily::Monospace,
+        FontFamily::MonospaceBold => MONO_BOLD,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
         FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
@@ -2411,6 +2597,8 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
     let named = egui::FontFamily::Name(weighted.into());
     if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {
         named
+    } else if family == FontFamily::MonospaceBold {
+        egui::FontFamily::Monospace
     } else {
         egui::FontFamily::Proportional
     }
@@ -3060,6 +3248,93 @@ mod tests {
         assert!(SurfaceFrame::from_rgb([0, 4], &[], 1.0).is_none());
         assert!(SurfaceFrame::from_rgb([MAX_SURFACE_SIDE + 1, 1], &[], 1.0).is_none());
         assert!(SurfaceFrame::from_rgb([1, 1], &[0; 3], f32::NAN).is_none());
+        let image = || egui::ColorImage::new([2, 1], vec![Color32::RED; 2]);
+        assert_eq!(SurfaceFrame::from_image(image(), 2.0).map(|f| f.size()), Some([2, 1]));
+        let short = egui::ColorImage { size: [2, 2], ..image() };
+        assert!(SurfaceFrame::from_image(short, 2.0).is_none());
+    }
+
+    #[test]
+    fn a_surface_the_host_paints_is_its_callback_on_the_pixel_grid_in_the_paint_order() {
+        let scale = 2.0_f32;
+        let ctx = egui::Context::default();
+        ctx.set_pixels_per_point(scale);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let root = limn::Element::column(vec![
+            limn::Element::spacer().size(None, Some(33.7)),
+            limn::Element::row(vec![
+                limn::Element::spacer().size(Some(10.3), None),
+                limn::Element::surface("page", "Página").size(Some(300.4), Some(200.2)),
+            ]),
+        ]);
+        let frame = limn::UiTree::new(root).layout(limn::Size::new(400.0, 300.0));
+        let marker: std::sync::Arc<dyn std::any::Any + Send + Sync> = std::sync::Arc::new(7_u8);
+        let paint = |ctx: &egui::Context| {
+            let mut output = ctx.run_ui(Default::default(), |ui| paint_at(ui, &frame, Pos2::ZERO));
+            output.textures_delta.clear();
+            output
+                .shapes
+                .into_iter()
+                .filter_map(|clipped| match clipped.shape {
+                    egui::Shape::Callback(callback) => Some((callback.rect, callback.callback)),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        };
+        present_surface(&ctx, "page", SurfaceFrame::from_rgb([4, 4], &[9; 48], scale).unwrap());
+        present_surface_paint(&ctx, "page", egui::PaintCallback { rect: EguiRect::NOTHING, callback: marker.clone() });
+        let painted = paint(&ctx);
+        let [(rect, callback)] = painted.as_slice() else {
+            panic!("one callback: {}", painted.len());
+        };
+        assert!(std::sync::Arc::ptr_eq(callback, &marker));
+        for edge in [rect.min.x, rect.min.y, rect.max.x, rect.max.y] {
+            assert!(((edge * scale) - (edge * scale).round()).abs() < 1e-3, "{edge} on the grid");
+        }
+        assert!((rect.min.x - 10.3).abs() <= 0.5 / scale && (rect.width() - 300.4).abs() <= 1.0 / scale);
+        // A part has nothing of limn's to go into; a whole frame takes the surface back.
+        assert!(!present_surface(&ctx, "page", SurfaceFrame::from_rgb([1, 1], &[9; 3], scale).unwrap().within([4, 4], [0, 0]).unwrap()));
+        assert!(present_surface(&ctx, "page", SurfaceFrame::from_rgb([4, 4], &[9; 48], scale).unwrap()));
+        assert!(paint(&ctx).is_empty());
+        present_surface_paint(&ctx, "page", egui::PaintCallback { rect: EguiRect::NOTHING, callback: marker });
+        forget_surface("page");
+        assert!(paint(&ctx).is_empty());
+    }
+
+    #[test]
+    fn a_surface_shows_a_texture_of_the_host_s_in_place_of_its_own_until_a_frame_comes_again() {
+        let solid = |size: [usize; 2]| SurfaceFrame::from_rgb(size, &vec![9; size[0] * size[1] * 3], 2.0).unwrap();
+        let ctx = egui::Context::default();
+        let theirs = egui::TextureId::User(7);
+        // What a pass would draw, and the textures it freed.
+        let pass = |ctx: &egui::Context| {
+            let mut found = None;
+            let mut delta = ctx.run_ui(Default::default(), |ui| found = surface_texture(ui, "page")).textures_delta;
+            let free = delta.free.clone();
+            delta.clear();
+            (found, free)
+        };
+        let shown = |ctx: &egui::Context| pass(ctx).0;
+        assert!(present_surface(&ctx, "page", solid([64, 48])));
+        let own = shown(&ctx).unwrap().0;
+
+        // The host's texture is drawn, at its size and scale, and limn's is let go.
+        assert!(present_surface_texture(&ctx, "page", theirs, [800, 600], 2.0));
+        let (found, freed) = pass(&ctx);
+        assert_eq!(found, Some((theirs, [800, 600], 2.0)));
+        assert!(freed.contains(&own));
+        // A part has no texture of limn's to go into; a whole frame takes the surface back.
+        assert!(!present_surface(&ctx, "page", solid([4, 4]).within([800, 600], [0, 0]).unwrap()));
+        assert!(present_surface(&ctx, "page", solid([64, 48])));
+        assert_ne!(shown(&ctx).map(|(id, ..)| id), Some(theirs));
+
+        // Sizes and scales a frame could not have are refused, and the surface stays.
+        assert!(!present_surface_texture(&ctx, "page", theirs, [0, 600], 2.0));
+        assert!(!present_surface_texture(&ctx, "page", theirs, [800, 600], f32::NAN));
+        assert_ne!(shown(&ctx).map(|(id, ..)| id), Some(theirs));
+        present_surface_texture(&ctx, "page", theirs, [800, 600], 2.0);
+        forget_surface("page");
+        assert_eq!(shown(&ctx), None);
     }
 
     #[test]
@@ -3206,6 +3481,7 @@ mod tests {
             Icon::Pin,
             Icon::Archive,
             Icon::ArchiveUp,
+            Icon::ExternalLink,
             Icon::Trash,
             Icon::Edit,
             Icon::Copy,
@@ -3553,5 +3829,30 @@ mod tests {
             assert!(point.x > area.left() && point.x < area.right());
             assert!(point.y > area.top() && point.y < area.bottom());
         }
+    }
+}
+
+#[cfg(test)]
+mod spinner_dots_tests {
+    use super::spinner_dots;
+    use std::f32::consts::TAU;
+
+    fn corners(angle: f32) -> Vec<(i32, i32)> {
+        let mut dots: Vec<_> = spinner_dots(angle, 16.0)
+            .iter()
+            .map(|(offset, _)| (offset.x.round() as i32, offset.y.round() as i32))
+            .collect();
+        dots.sort();
+        dots
+    }
+
+    #[test]
+    fn dots_rest_on_a_square_and_line_up_on_each_diagonal() {
+        let square = vec![(-5, -5), (-5, 5), (5, -5), (5, 5)];
+        assert_eq!(corners(0.0), square);
+        assert_eq!(corners(TAU * 0.4), square);
+        // A quarter into each half the moving dots sit on the other diagonal.
+        assert_eq!(corners(TAU * 0.14), vec![(-5, 5), (-2, 2), (2, -2), (5, -5)]);
+        assert_eq!(corners(TAU * 0.64), vec![(-5, -5), (-2, -2), (2, 2), (5, 5)]);
     }
 }

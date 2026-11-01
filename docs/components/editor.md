@@ -147,7 +147,8 @@ Composer::new("composer", &state.draft, "Message #general", width, palette)
 surface the host swaps for the full-width editor once a draft is entered.
 With `auto_grow` the row grows with the editor, and each control stays
 centered beside its first line, `auto_grow`'s least height, as a chat's
-composer keeps them while a message gets longer. A disabled composer's
+composer keeps them while a message gets longer. `controls_at_last_line(true)`
+keeps them beside its last line instead, at the bottom of the growing row. A disabled composer's
 placeholder wraps there too, so a long reason not to write stays whole.
 
 `editor_padding` is the room between the editor's edge and its text: 8 in

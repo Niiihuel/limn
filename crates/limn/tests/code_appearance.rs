@@ -64,15 +64,26 @@ fn markdown_code_size_and_wrapping_are_independent_of_body_and_cache() {
     let mut tree = tree(root(true));
     let wrapped = tree.layout(Size::new(150.0, 600.0));
     assert_eq!(text(&wrapped, "Body").1, 20.0);
-    let code = wrapped.text_layouts().into_iter().find(|layout| layout.source.contains("a_long_variable")).unwrap();
-    assert!(code.runs.len() > 1);
+    // Highlighted code is a run per colored span; rows tell wrapping apart.
+    let rows = |frame: &limn::Frame| {
+        let code = frame
+            .text_layouts()
+            .into_iter()
+            .find(|layout| layout.source.contains("a_long_variable"))
+            .unwrap();
+        code.runs
+            .iter()
+            .map(|run| run.rect.y.to_bits())
+            .collect::<std::collections::HashSet<_>>()
+            .len()
+    };
+    assert!(rows(&wrapped) > 1);
     assert!(wrapped.commands.iter().any(|command| matches!(command,
         DrawCommand::Text {font_size, font_family, text, ..}
         if *font_size == 24.0 && *font_family == FontFamily::Monospace && text.contains("let"))));
     tree.set_root(root(false));
     let unwrapped = tree.layout(Size::new(150.0, 600.0));
-    let code = unwrapped.text_layouts().into_iter().find(|layout| layout.source.contains("a_long_variable")).unwrap();
-    assert_eq!(code.runs.len(), 1);
+    assert_eq!(rows(&unwrapped), 1);
     assert_eq!(text(&unwrapped, "Body").1, 20.0);
 }
 
@@ -177,4 +188,70 @@ fn equal_code_blocks_and_cached_markdown_previews_have_independent_scrolls() {
     let ids = frame.regions.iter().filter(|region| region.kind == limn::HitKind::Scroll)
         .map(|region| &region.id).collect::<std::collections::HashSet<_>>();
     assert_eq!(ids.len(), 6, "anonymous instances never share mutable state");
+}
+
+#[test]
+fn an_editor_paints_its_built_in_syntax_in_the_hosts_inks() {
+    let controller = EditorController::new(TextBuffer::new("fn main() {}\n").unwrap());
+    let keyword = limn::Color::rgb(1, 2, 3);
+    let palette = ComponentPalette::neutral_dark();
+    let colors = limn::CodeSyntaxColors {
+        keyword,
+        ..limn::CodeSyntaxColors::for_palette(palette)
+    };
+    let root = CodeEditor::new("code", controller)
+        .palette(palette)
+        .language(limn::CodeLanguage::Rust)
+        .syntax_colors(colors)
+        .render();
+    let mut tree = tree(root);
+    // The colours are worked out beside the tree: lay it out until they come.
+    let inked = (0..400).any(|_| {
+        let frame = tree.layout(Size::new(400.0, 200.0));
+        let found = frame.commands.iter().any(|command| {
+            matches!(command, DrawCommand::Text { text, color, .. } if text == "fn" && *color == keyword)
+        });
+        if !found {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        found
+    });
+    assert!(inked, "the keyword is never painted in the host's ink");
+}
+
+#[test]
+fn change_marks_draw_bars_beside_their_rows_and_wedges_where_lines_went() {
+    let buffer = TextBuffer::new("a\nb\nc\nd\n").unwrap();
+    let document = buffer.document_id();
+    let controller = EditorController::new(buffer);
+    let (green, red) = (limn::Color::rgb(0, 200, 0), limn::Color::rgb(200, 0, 0));
+    let marks = vec![
+        limn::CodeChangeMark { rows: 1..3, color: green },
+        limn::CodeChangeMark { rows: 3..3, color: red },
+    ];
+    let editor = |document| {
+        CodeEditor::new("code", controller.clone())
+            .change_marks(document, marks.clone())
+            .render()
+    };
+    let fills = |frame: &limn::Frame, ink| {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *color == ink => Some(*rect),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+    };
+    let frame = tree(editor(document)).layout(Size::new(400.0, 200.0));
+    let bars = fills(&frame, green);
+    assert_eq!(bars.len(), 2);
+    assert!(bars.iter().all(|bar| bar.width == 3.0));
+    let wedge = fills(&frame, red);
+    assert_eq!(wedge.len(), 1);
+    assert_eq!(wedge[0].y + 3.0, bars[1].y + bars[1].height, "between the last bar and row 3");
+    // Marks of another document are not drawn.
+    let frame = tree(editor(document + 1)).layout(Size::new(400.0, 200.0));
+    assert!(fills(&frame, green).is_empty());
 }

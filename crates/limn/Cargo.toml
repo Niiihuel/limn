@@ -16,7 +16,7 @@ workspace = true
 [features]
 default = ["syntax", "bundled-fonts"]
 # The faces `Fonts::bundled` lays text out in: Ubuntu, Hack and three Noto
-# fallbacks, 4.6 MB. Without it the host gives its own with `set_fonts`.
+# fallbacks, 4.9 MB. Without it the host gives its own with `set_fonts`.
 bundled-fonts = []
 # Tree-sitter highlighting. Without it code views fall back to the line lexer.
 syntax = ["dep:limn-language"]

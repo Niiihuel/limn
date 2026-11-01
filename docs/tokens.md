@@ -90,7 +90,7 @@ or its own entrance duration, whichever is shorter.
 | What | Controlled by |
 | --- | --- |
 | Whether anything moves at all | `UiTree::set_reduced_motion(true)`. See [Animation](animation.md#switching-motion-off). |
-| Spinners, skeleton pulses, text shimmer, the caret | Fixed periods. Reduced motion stops them. |
+| Spinners, scribbles, skeleton pulses, text shimmer, the caret | Fixed periods. Reduced motion stops them. |
 | Scrolling | `ScrollMotion`, per scroll area. |
 | The crossfade when a popover changes content | Fixed. |
 | The delay before a tooltip appears | Fixed at 350 ms. |
@@ -120,6 +120,20 @@ set_tokens(Tokens {
 
 `None`, the default, leaves each palette its own. A tooltip given its own
 `background` keeps it.
+
+## Shortcuts
+
+`shortcut_style` says how keyboard shortcuts are drawn: `ShortcutStyle::Keycaps`,
+the default, puts each key in an outlined cap; `ShortcutStyle::Text` draws the
+whole combination as one line of muted text, such as "Ctrl+Shift+I", in every
+menu and `Kbd`, and in a tooltip in its style's `muted`. A text field's
+shortcut hint keeps its keycaps.
+
+```rust
+use limn::{set_tokens, ShortcutStyle, Tokens};
+
+set_tokens(Tokens { shortcut_style: ShortcutStyle::Text, ..Tokens::DEFAULT });
+```
 
 ## Per-component overrides
 

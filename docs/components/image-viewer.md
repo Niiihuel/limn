@@ -85,6 +85,25 @@ header, to zoom out, to fit the window and to zoom in. The host owns the
 level and answers each control by passing another `zoom`. Zoom out and fit
 are disabled at 1, and zoom in at the maximum.
 
+## Host actions
+
+```rust
+viewer
+    .action("viewer-copy", Icon::Copy, "Copy image")
+    .action("viewer-save", Icon::ArrowDown, "Save as…")
+```
+
+Each `action` is a round icon button of the host's own, as large as the close
+button, with its label as name and tooltip, and it reports its ID with
+`UiAction::Clicked` when clicked or activated by the keyboard, for example to
+save the picture shown. Each call adds one, in order; an empty ID adds nothing.
+
+With `zoom_actions` the header is a toolbar, and the actions sit in it before
+the zoom controls. Otherwise the close button leads them in one column just
+outside the picture's top-right corner, 6 pixels from it. When the right of the
+picture has no room the column moves inside that corner instead. The column is
+a non-modal popover anchored to the picture, so it takes no backdrop of its own.
+
 ## Keyboard
 
 | Key | Does |
@@ -101,6 +120,47 @@ The close button has the focus when the viewer opens.
 | `UiAction::Clicked { id }` with the close ID | The close button, Escape, or a click on the scrim. |
 | `UiAction::Clicked { id }` with the previous or next ID | An arrow is clicked, or Left or Right is pressed. |
 | `UiAction::Clicked { id }` with a zoom ID | One of the three zoom controls is clicked. |
+| `UiAction::Clicked { id }` with a host action's ID | That control is clicked or activated. |
+
+## Origin
+
+```rust
+viewer.origin(thumbnail_rect)
+```
+
+`origin` is the rectangle the picture comes from, in window coordinates. The
+picture grows from it to its place over 350 ms, its corner going from 8 to 6
+pixels, and the scrim and the panel fade in; closing runs it back in 250 ms,
+and the viewer stays on screen until the picture has returned. Without an
+origin the viewer fades over 180 ms. Under reduced motion, as
+`UiTree::set_reduced_motion` sets it, both happen at once.
+
+## Lightbox
+
+```rust
+viewer
+    .lightbox(true)
+    .natural_size(1200.0, 800.0)
+    .caption("dusk.png")
+```
+
+`lightbox(true)` shows the picture as a lightbox, as a pasted image is shown in
+a desktop chat app: the window dims behind it to 62.5 % black, and there is no
+panel, no header and no count for one picture. The picture keeps its aspect
+ratio, is at most 640 pixels wide and the window's height less 64, and is never
+enlarged past `natural_size`. Its close control and each `action` stand in a
+column just outside its top-right corner, 6 pixels from it, aligned with its
+top; when the window has no room to its right, the column moves inside that
+corner, 6 pixels in. `caption` is the white line under the picture, and a
+gallery of more than one adds its count under that. A click on the backdrop or
+on the picture closes, as Escape does. With `origin`, the picture grows from its
+thumbnail to its fitted place. Zoom is not offered in a lightbox.
+
+`natural_size(width, height)` is the picture's size in pixels, which the host
+knows: `RasterImage` does not carry it. Without it the picture's box is the
+whole of the room (640 wide, the window's height less 64) and the picture is
+fitted inside that. It is used only in lightbox mode; the panel already shows
+the picture whole at its own proportions.
 
 ## Accessibility
 

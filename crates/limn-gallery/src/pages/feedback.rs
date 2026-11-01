@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     Alert, AlertTone, Avatar, Chip, Collapse, Color, Component, ControlSize, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
-    Spinner, SpinnerVariant, Ticker,
+    Mark, RollingNumber, Scribble, Spinner, SpinnerVariant, StatusDot, Ticker,
 };
 
 const CHIP_TONES: [(AlertTone, &str); 5] = [
@@ -150,6 +150,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render()
                 .accessibility_label("Disk space used"),
             caption(cx, "Flat: square ends for a meter in a dense list."),
+            row(vec![
+                Progress::new(progress, palette).id("feedback-progress-ring").ring(16.0).render().accessibility_label("Context used").centered_y(),
+                Progress::new(progress, palette).id("feedback-progress-ring-large").ring(32.0).render().accessibility_label("Context used"),
+            ]),
+            caption(cx, "Ring: the share used of a budget, such as a model's context."),
         ]),
         section(cx, "Loading", vec![
             row(vec![
@@ -171,6 +176,45 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 SkeletonGroup::rows("feedback-skeleton-rows", palette, 4).icon(true).render(),
             )
             .size(Some(width.min(336.0)), None),
+        ]),
+        section(cx, "Status dot", {
+            // Status inks are the host's to choose; the gallery has no theme of its own.
+            let (green, amber, red) = (Color::rgb(64, 192, 87), Color::rgb(230, 162, 60), Color::rgb(230, 76, 60));
+            let pulsing = cx.state.text("feedback-dot-pulse") != "off";
+            let labelled = |dot: StatusDot, label: &str| {
+                Element::row(vec![dot.render().centered_y(), Element::text(label).font_family(FontFamily::Sans).foreground(palette.text)]).gap(8.0)
+            };
+            vec![
+                row(vec![
+                    labelled(StatusDot::new(green).pulse(pulsing).id("feedback-dot-running").description("Running"), "Running"),
+                    labelled(StatusDot::new(amber).id("feedback-dot-waiting").description("Waiting"), "Waiting"),
+                    labelled(StatusDot::new(red).id("feedback-dot-failed").description("Failed"), "Failed"),
+                    labelled(StatusDot::new(green).pulse(pulsing).size(10.0), "10 px"),
+                ]),
+                row(vec![Button::new(
+                    if pulsing { "feedback-dot-pulse=off" } else { "feedback-dot-pulse=on" },
+                    if pulsing { "Stop the pulse" } else { "Pulse" },
+                    palette,
+                )
+                .variant(ButtonVariant::Outline)
+                .render()]),
+                caption(cx, "A pulsing dot fades to 0.3 and back every 1.2 s, in step with every other; it holds still under reduced motion."),
+            ]
+        }),
+        section(cx, "Working", vec![
+            row(vec![Scribble::new("feedback-scribble", palette.text).size(56.0, 24.0).stroke(3.0).render()]),
+            caption(cx, "A pen writes the stroke, fades it, and starts again."),
+            row(vec![Scribble::new("feedback-scribble-pen", palette.text)
+                .size(56.0, 28.0)
+                .stroke(2.0)
+                .marks(vec![
+                    Mark::Line(vec![(4.0, 22.0), (14.0, 25.0), (24.0, 19.0), (32.0, 23.0), (40.0, 22.0)]),
+                    Mark::Dot { at: (46.0, 20.0), diameter: 4.0 },
+                ])
+                // A pencil: its point, the line where the wood ends, and its body.
+                .pen(vec![vec![(0.0, 0.0), (2.0, -6.0), (14.0, -18.0), (18.0, -14.0), (6.0, -2.0), (0.0, 0.0)], vec![(2.0, -6.0), (6.0, -2.0)]])
+                .render()]),
+            caption(cx, "Its own marks and a drawn pen, which comes down, writes, taps the dot and lifts away."),
         ]),
         section(cx, "Markers", vec![
             Marker::new("feedback-marker", "Branch created", palette).icon(Icon::GitBranch).render(),
@@ -203,6 +247,17 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render()]),
             caption(cx, "The slot always measures two lines: content below it stays in place."),
         ]),
+        section(cx, "Rolling number", {
+            let lines: u32 = cx.state.choice("feedback-rolling", "5318").parse().unwrap_or(5318);
+            vec![
+                RollingNumber::new("feedback-rolling-lines", format!("+{lines}"), palette).font_size(14.0).render(),
+                row(vec![
+                    Button::new(format!("feedback-rolling={}", lines + 7), "Add 7", palette).variant(ButtonVariant::Outline).render(),
+                    Button::new(format!("feedback-rolling={}", lines.saturating_sub(1250)), "Take 1,250", palette).variant(ButtonVariant::Outline).render(),
+                ]),
+                caption(cx, "Each digit rolls up to a greater value and down to a lesser one."),
+            ]
+        }),
         section(cx, "Closing slot", vec![
             // No gap around the slot: a gap would vanish in one frame at the end.
             Element::column(vec![

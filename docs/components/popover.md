@@ -52,7 +52,9 @@ Popover::new(anchor, content, open, "dismiss", palette)
 ```
 
 `BottomStart` unless set. The others are `BottomEnd`, `TopStart`, `TopEnd`,
-`RightStart`, `LeftStart`, `Center` and `Bottom`. Anchored surfaces flip
+`RightStart`, `LeftStart`, `RightCorner`, `Center` and `Bottom`. `RightCorner` is
+a column beside an anchor's top-right corner: outside it when the right has room,
+inside the corner when it has not. Anchored surfaces flip
 vertically when the preferred side would leave the window. `Center` and
 `Bottom` ignore the anchor and gap; `Bottom` meets the safe viewport's bottom
 edge, centers horizontally and can use its full width.

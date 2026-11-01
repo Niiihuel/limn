@@ -62,7 +62,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, MeasuredRows, UniformList};
 use crate::motion::{
-    skeleton_color, spinner_angle, ColorTransition, ScalarSpring, ScalarTransition,
+    skeleton_color, spinner_angle, SKELETON_PERIOD, ColorTransition, ScalarSpring, ScalarTransition,
 };
 use crate::shortcut;
 use crate::scroll_area::ScrollbarState;
@@ -88,7 +88,7 @@ mod captured_paste;
 pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
+    BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -286,8 +286,10 @@ fn layout_formatted(
     mut measure: impl FnMut(&str, &TextSpan) -> f32,
     mut line_height: impl FnMut(&TextSpan) -> f32,
 ) -> Vec<FormattedLine> {
+    // A hundredth past the width, as `TextLayout` allows: a box handed back the
+    // width it measured by sums can come out a rounding error short of it.
     let limit = if max_width.is_finite() {
-        max_width.max(0.0)
+        max_width.max(0.0) + 0.01
     } else {
         f32::INFINITY
     };
@@ -798,6 +800,61 @@ pub enum DrawCommand {
 }
 
 impl DrawCommand {
+    /// About where the command paints: its rectangle, the box around its
+    /// points, or the line box of its text. `None` for clips and for what is
+    /// fully transparent.
+    pub fn bounds(&self) -> Option<Rect> {
+        let around = |points: &[Point], pad: f32| {
+            let first = points.first()?;
+            let (mut left, mut top, mut right, mut bottom) = (first.x, first.y, first.x, first.y);
+            for point in points {
+                left = left.min(point.x);
+                top = top.min(point.y);
+                right = right.max(point.x);
+                bottom = bottom.max(point.y);
+            }
+            Some(Rect::new(left - pad, top - pad, right - left + pad * 2.0, bottom - top + pad * 2.0))
+        };
+        let seen = |color: &Color| color.a > 0;
+        match self {
+            Self::Shadow { rect, shadow, .. } => seen(&shadow.color).then(|| {
+                let grow = shadow.blur + shadow.spread;
+                Rect::new(rect.x + shadow.offset.x - grow, rect.y + shadow.offset.y - grow, rect.width + grow * 2.0, rect.height + grow * 2.0)
+            }),
+            Self::FillRect { rect, color, .. }
+            | Self::FillCornerRect { rect, color, .. }
+            | Self::CornerMask { rect, color, .. }
+            | Self::StrokeRect { rect, color, .. }
+            | Self::StrokeCornerRect { rect, color, .. }
+            | Self::Spinner { rect, color, .. }
+            | Self::Icon { rect, tint: color, .. } => seen(color).then_some(*rect),
+            Self::FillVerticalGradient { rect, top, bottom } => (seen(top) || seen(bottom)).then_some(*rect),
+            Self::FillHorizontalGradient { rect, left, right } => (seen(left) || seen(right)).then_some(*rect),
+            Self::RasterImage { rect, opacity, .. }
+            | Self::Record { rect, opacity, .. }
+            | Self::Surface { rect, opacity, .. }
+            | Self::EffortSlider { rect, opacity, .. } => (*opacity > 0.0).then_some(*rect),
+            Self::ProgressRing { rect, .. } => Some(*rect),
+            Self::SelectionContour { points, color } => seen(color).then(|| around(points, 0.0)).flatten(),
+            Self::FillTriangle { points, color } => seen(color).then(|| around(points, 0.0)).flatten(),
+            Self::Polyline { points, color, width, .. } => seen(color).then(|| around(points, width / 2.0)).flatten(),
+            Self::FillMesh { points, .. } => around(points, 0.0),
+            Self::Glyphs(run) => {
+                let glyphs: Vec<Point> = run.glyphs.iter().map(|glyph| Point::new(run.origin.x + glyph.x, run.origin.y + glyph.y)).collect();
+                // The glyphs' baselines, grown by about an ascent up, a descent down and the
+                // last glyph's width right.
+                let line = seen(&run.color).then(|| around(&glyphs, 0.0)).flatten()?;
+                Some(Rect::new(line.x, line.y - run.size * 0.8, line.width + run.size, line.height + run.size * 1.05))
+            }
+            // `position` is the line's top-left corner.
+            Self::Text { position, text, color, font_size, .. } => seen(color).then(|| {
+                let width = text.chars().count() as f32 * font_size * 0.6;
+                Rect::new(position.x, position.y, width, font_size * 1.3)
+            }),
+            Self::PushClip(_) | Self::RoundClip { .. } | Self::PopClip => None,
+        }
+    }
+
     /// A translated copy at `opacity` of its own: a drag preview, or a
     /// surface on its way to where it is laid out.
     fn moved(&self, dx: f32, dy: f32, opacity: f32) -> Self {
@@ -953,7 +1010,7 @@ fn paint_spinner(
     commands.push(DrawCommand::Spinner {
         rect,
         color,
-        angle: spinner_angle(started, now, reduced_motion),
+        angle: spinner_angle(started, now, reduced_motion, variant.period()),
         variant,
     });
 }
@@ -1190,6 +1247,24 @@ fn paint_dashed_corners(
 /// Move and fade a floating surface's paint only. Its layout, pointer regions,
 /// scroll geometry, and focus targets stay at their final coordinates, so a
 /// short entrance cannot make a menu's click target drift under the pointer.
+/// The curve a popover's pictures travel on from their origin, and back on close.
+const MORPH_CURVE: Easing = Easing::CubicBezier(0.32, 0.72, 0.0, 1.0);
+
+/// Moves a picture `t` of the way from `origin` to where it is laid out, its
+/// corner radius from `radius` to its own. Other commands are left alone.
+fn morph_picture(command: &mut DrawCommand, origin: Rect, radius: f32, t: f32) {
+    if let DrawCommand::RasterImage { rect, radius: corner, .. } = command {
+        let lerp = |from: f32, to: f32| from + (to - from) * t;
+        *rect = Rect::new(
+            lerp(origin.x, rect.x),
+            lerp(origin.y, rect.y),
+            lerp(origin.width, rect.width),
+            lerp(origin.height, rect.height),
+        );
+        *corner = lerp(radius, *corner);
+    }
+}
+
 fn animate_popover_command(
     command: &mut DrawCommand,
     opacity: f32,
@@ -1421,6 +1496,10 @@ pub enum HitKind {
     /// Anything pressable: a press and a release on it report
     /// `UiAction::Clicked`. A slider uses it too.
     Button,
+    /// A region that takes the keyboard focus on a press or Tab and reports
+    /// nothing, such as a `TerminalView`: the host reads the keys while it
+    /// has the focus. A press inside it still selects text.
+    Focus,
     /// Read-only pointer target, such as a chart observation's tooltip.
     Hover,
     /// A single-line text field: a press focuses it and places the caret.
@@ -1465,8 +1544,12 @@ pub struct Frame {
     /// and each thing a component described, in the order they were placed.
     pub access: Vec<crate::AccessNode>,
     action_menu_items: HashSet<String>,
+    /// The places in `regions` that are a popover's backdrop: under the pointer, they raise no
+    /// tooltip, though they answer to the id of a control (an image viewer's close).
+    backdrops: Vec<usize>,
     menu_secondary_actions: HashSet<String>,
     draggables: HashSet<String>,
+    sketches: HashMap<String, (Rect, crate::sketch::SketchStyle)>,
     cursors: HashMap<String, Cursor>,
     drop_targets: HashSet<String>,
     submenu_targets: HashMap<String, String>,
@@ -1508,6 +1591,40 @@ struct CoachMotion {
 }
 
 impl Frame {
+    /// Whether anything is painted over the host-fed surface `id` after it: a
+    /// menu, a tooltip, a dialog, a panel sliding in. A host that shows a
+    /// native view where the surface is laid out hides the view while this
+    /// holds and lets the surface show its last frame instead, since nothing
+    /// limn paints can cover a native view. Only what lands on the surface's
+    /// visible part counts; `false` when no surface `id` was painted.
+    pub fn drawn_over(&self, id: &str) -> bool {
+        // The clip in force: `None` outside every clip, `Some(None)` inside one that shows nothing.
+        let mut clips: Vec<Option<Rect>> = Vec::new();
+        let mut surface: Option<Rect> = None;
+        for command in &self.commands {
+            let within = |rect: Rect| match clips.last() {
+                None => Some(rect),
+                Some(clip) => clip.and_then(|clip| rect.intersection(clip)),
+            };
+            match command {
+                DrawCommand::PushClip(rect) | DrawCommand::RoundClip { rect, .. } => clips.push(within(*rect)),
+                DrawCommand::PopClip => {
+                    clips.pop();
+                }
+                DrawCommand::Surface { rect, id: drawn, opacity, .. } if drawn == id => {
+                    surface = (*opacity > 0.0).then(|| within(*rect)).flatten();
+                }
+                other => {
+                    let (Some(shown), Some(bounds)) = (surface, other.bounds()) else { continue };
+                    if within(bounds).and_then(|bounds| bounds.intersection(shown)).is_some() {
+                        return true;
+                    }
+                }
+            }
+        }
+        false
+    }
+
     /// The target of a coach mark that was rendered but could not be placed:
     /// no control with that ID is laid out in view, so nothing was painted.
     /// The host moves on to another step.
@@ -1682,6 +1799,7 @@ struct PopoverSnapshot {
     animation_ms: u16,
     close_animation_ms: Option<u16>,
     open_scale: f32,
+    morph: Option<(Rect, f32)>,
     view_key: Option<String>,
     rect: Rect,
     slide_sign: f32,
@@ -1848,7 +1966,7 @@ impl SelectableTextBlock {
             })
             .unwrap_or(row);
         let char_width = match run.font_family {
-            FontFamily::Monospace => metrics,
+            FontFamily::Monospace | FontFamily::MonospaceBold => metrics,
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
@@ -2727,6 +2845,16 @@ pub enum UiAction {
         /// leaves the window, and for a step from the keyboard.
         committed: bool,
     },
+    /// A press and drag over a [`Sketch`](crate::Sketch) ended: the mark it
+    /// made, in the sketch's own shares. Released where the press began it is
+    /// a dot or a zero-length line. Nothing is reported while the pointer is
+    /// down; the mark in progress is drawn by the tree.
+    Sketched {
+        /// ID of the sketch.
+        id: String,
+        /// The finished mark.
+        mark: crate::SketchMark,
+    },
     /// The text of a text input or text area changed.
     InputChanged {
         /// ID of the field.
@@ -3531,6 +3659,7 @@ pub struct UiTree {
     horizontal_pan: Option<HorizontalPan>,
     scroll_button_hold: Option<ScrollButtonHold>,
     slider_drag: Option<SliderDrag>,
+    sketch_draft: Option<crate::sketch::SketchDraft>,
     slider_motion: HashMap<String, SliderMotion>,
     hovered_scrollbar: Option<String>,
     focus_order: Vec<(String, HitKind)>,
@@ -3578,11 +3707,15 @@ pub struct UiTree {
     skeleton_started: HashMap<String, Instant>,
     shimmer_started: HashMap<String, Instant>,
     spinner_started: HashMap<String, Instant>,
+    /// Scribbles written once whose pen has gone: their start is kept, and they ask for no
+    /// frames.
+    settled_spinners: HashSet<String>,
     record_motion: HashMap<String, RecordMotion>,
     reduced_motion: bool,
     static_selection: Option<StaticSelection>,
     context_menu: Option<ContextMenuState>,
     context_menu_palette: crate::ComponentPalette,
+    context_menu_sizes: crate::context_menu::Sizes,
     context_menu_swallow_release: bool,
     ime_owner: Option<ime_tree::ImeOwner>,
     /// The field a held press extends the selection of, and whether it is
@@ -3625,6 +3758,7 @@ impl UiTree {
             horizontal_pan: None,
             scroll_button_hold: None,
             slider_drag: None,
+            sketch_draft: None,
             slider_motion: HashMap::new(),
             hovered_scrollbar: None,
             focus_order: Vec::new(),
@@ -3664,11 +3798,13 @@ impl UiTree {
             skeleton_started: HashMap::new(),
             shimmer_started: HashMap::new(),
             spinner_started: HashMap::new(),
+            settled_spinners: HashSet::new(),
             record_motion: HashMap::new(),
             reduced_motion: false,
             static_selection: None,
             context_menu: None,
             context_menu_palette: crate::ComponentPalette::neutral_dark(),
+            context_menu_sizes: crate::context_menu::Sizes::default(),
             context_menu_swallow_release: false,
             ime_owner: None,
             field_drag: None,
@@ -3946,7 +4082,7 @@ impl UiTree {
             candidate == id
                 && matches!(
                     kind,
-                    HitKind::Button | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
+                    HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
                 )
         }) {
             return false;
@@ -4093,7 +4229,7 @@ impl UiTree {
         let ambient = (!self.reduced_motion
             && (!self.skeleton_started.is_empty()
                 || !self.shimmer_started.is_empty()
-                || !self.spinner_started.is_empty()
+                || self.spinner_started.keys().any(|id| !self.settled_spinners.contains(id))
                 || self.record_motion.values().any(|record| record.is_moving(now))))
             || self.scroll_button_hold.is_some();
         let transition = (!self.reduced_motion
@@ -4339,6 +4475,7 @@ impl UiTree {
         let mut observed_skeletons = HashSet::new();
         let mut observed_shimmers = HashSet::new();
         let mut observed_spinners = HashSet::new();
+        let mut settled_spinners = HashSet::new();
         let mut observed_records = HashSet::new();
         let mut observed_sliders = HashSet::new();
         let viewport_rect = Rect::new(0.0, 0.0, viewport.width, viewport.height);
@@ -4407,6 +4544,7 @@ impl UiTree {
                 region_hovered: false,
                 access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
+                sketch_draft: self.sketch_draft.as_ref(),
                 slider_motion: &mut self.slider_motion,
                 focused: self.focused.as_deref(),
                 caret_blink: &mut self.caret_blink,
@@ -4445,6 +4583,7 @@ impl UiTree {
                 observed_skeletons: &mut observed_skeletons,
                 observed_shimmers: &mut observed_shimmers,
                 observed_spinners: &mut observed_spinners,
+                settled_spinners: &mut settled_spinners,
                 observed_sliders: &mut observed_sliders,
                 reduced_motion: self.reduced_motion,
                 locating: probe.is_some(),
@@ -4475,6 +4614,7 @@ impl UiTree {
                         animation_ms,
                         close_animation_ms,
                         open_scale,
+                        morph,
                         view_key,
                         backdrop,
                         focus_scope,
@@ -4529,6 +4669,7 @@ impl UiTree {
                             builder.frame.commands.len() - 1
                         });
                         if backdrop {
+                            builder.frame.backdrops.push(builder.frame.regions.len());
                             builder.frame.regions.push(HitRegion {
                                 id: dismiss_id.clone(),
                                 rect: viewport_rect,
@@ -4714,6 +4855,7 @@ impl UiTree {
                                 animation_ms,
                                 close_animation_ms,
                                 open_scale,
+                                morph,
                                 view_key: view_key.clone(),
                                 rect,
                                 slide_sign,
@@ -4795,6 +4937,11 @@ impl UiTree {
                                 // A coach mark's ring stays on its target.
                                 let slide = if command_start + index < bubble_start { 0.0 } else { slide };
                                 animate_popover_command(command, progress, slide, scale, origin);
+                            }
+                        }
+                        if let (Some((origin, radius)), true) = (morph, progress < 1.0) {
+                            for command in &mut builder.frame.commands[command_start..] {
+                                morph_picture(command, origin, radius, MORPH_CURVE.sample(progress));
                             }
                         }
                         if travel != (0.0, 0.0) {
@@ -4937,6 +5084,9 @@ impl UiTree {
                 }
                 for command in &exit.paint.commands {
                     let mut command = command.clone();
+                    if let Some((from, radius)) = exit.paint.morph {
+                        morph_picture(&mut command, from, radius, MORPH_CURVE.sample(opacity));
+                    }
                     animate_popover_command(&mut command, opacity, slide, scale, origin);
                     exit_commands.push(command);
                 }
@@ -5033,6 +5183,7 @@ impl UiTree {
             .retain(|id, _| observed_shimmers.contains(id));
         self.spinner_started
             .retain(|id, _| observed_spinners.contains(id));
+        self.settled_spinners = settled_spinners;
         self.record_motion
             .retain(|id, _| observed_records.contains(id));
         self.slider_motion
@@ -5091,7 +5242,13 @@ impl UiTree {
                     .cloned()
                     .or_else(|| self.focused.clone());
             }
-            if !self.focused.as_deref().is_some_and(modal_contains) {
+            // A press on blank space inside the open modal blurs; only focus
+            // that is outside it (or a modal that just opened) is moved in.
+            let blurred_inside = self.focused.is_none()
+                && previous_popovers
+                    .iter()
+                    .any(|previous| previous.modal && previous.dismiss_id == scope.dismiss_id);
+            if !blurred_inside && !self.focused.as_deref().is_some_and(modal_contains) {
                 let next_focus = scope
                     .initial_focus
                     .as_ref()
@@ -5099,6 +5256,9 @@ impl UiTree {
                     .cloned()
                     .or_else(|| scope.focusables.first().map(|(id, _)| id.clone()));
                 Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+                // A modal hands its first control the focus; its tooltip waits for the keyboard
+                // to move there, as a pointer that opened it never asked for one.
+                self.keyboard_tooltip_focus = false;
             }
         } else if had_modal {
             let next_focus = self.modal_return_focus.take().filter(|id| {
@@ -5142,6 +5302,8 @@ impl UiTree {
         if let Some(id) = initial_focus.filter(|id| self.focused.as_ref() != Some(id)) {
             let next_focus = Some(id.clone());
             Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+            // As a modal's, a surface's opening focus waits for the keyboard to show a tooltip.
+            self.keyboard_tooltip_focus = false;
             self.pending_scroll_focus = Some(id);
             self.caret_blink.reset();
             self.validate_ime_owner(now);
@@ -5717,6 +5879,14 @@ impl UiTree {
                         // Only controls emitted by this exact editor viewport
                         // forward the wheel. Never search through arbitrary
                         // menu, popover or other overlay hit regions.
+                        if let Some((_, view)) = self
+                            .code_diffs
+                            .iter_mut()
+                            .find(|(id, view)| view.owns_expand_control(id, &hit.id, *position))
+                        {
+                            view.viewport.scroll(x, y);
+                            return Some(Vec::new());
+                        }
                         let view = self
                             .code_editors
                             .values_mut()
@@ -6011,6 +6181,9 @@ impl UiTree {
                 unreachable!("external file events resolved before ordinary controls")
             }
             UiEvent::PointerMove(point) => {
+                if let Some(draft) = self.sketch_draft.as_mut() {
+                    draft.extend(point);
+                }
                 let moved = self.pointer != Some(point);
                 self.pointer = Some(point);
                 let target = self.frame.hit_test(point).map(str::to_owned);
@@ -6092,6 +6265,9 @@ impl UiTree {
                 }
             }
             UiEvent::PointerLeave => {
+                if let Some(draft) = self.sketch_draft.take() {
+                    actions.push(UiAction::Sketched { id: draft.id.clone(), mark: draft.mark() });
+                }
                 self.field_drag = None;
                 for editor in self.code_editors.values_mut() {
                     editor.viewport.cancel_pointer();
@@ -6157,6 +6333,13 @@ impl UiTree {
                     && dismiss_scope.is_some_and(|scope| scope.modal)
                 {
                     self.keyboard_focus = true;
+                    self.pressed = None;
+                    return actions;
+                }
+                if let Some((id, (rect, style))) = hit.as_ref().and_then(|region| {
+                    self.frame.sketches.get(&region.id).map(|sketch| (region.id.clone(), *sketch))
+                }) {
+                    self.sketch_draft = Some(crate::sketch::SketchDraft::new(id, rect, style, point));
                     self.pressed = None;
                     return actions;
                 }
@@ -6279,7 +6462,7 @@ impl UiTree {
                         .filter(|region| {
                             (matches!(
                                 region.kind,
-                                HitKind::Button | HitKind::TextInput | HitKind::TextArea
+                                HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea
                             ) || (region.kind == HitKind::CodeDiff
                                 && self.focus_order.iter().any(|(id, kind)| {
                                     id == &region.id && *kind == HitKind::CodeDiff
@@ -6306,6 +6489,10 @@ impl UiTree {
                 }
             }
             UiEvent::PointerUp(point) => {
+                if let Some(mut draft) = self.sketch_draft.take() {
+                    draft.extend(point);
+                    actions.push(UiAction::Sketched { id: draft.id.clone(), mark: draft.mark() });
+                }
                 self.field_drag = None;
                 self.pointer = Some(point);
                 self.set_hovered(self.frame.hit_test(point).map(str::to_owned), now);
@@ -7062,7 +7249,7 @@ fn collect_focus_order(
         }
         ElementKind::Clickable { id, child } => {
             if seen.insert(id.clone()) {
-                order.push((id.clone(), HitKind::Button));
+                order.push((id.clone(), clickable_kind(element)));
             }
             collect_focus_order(child, order, seen);
         }
@@ -7130,6 +7317,7 @@ fn collect_focus_order(
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
+        | ElementKind::Scribble { .. }
         | ElementKind::Record { .. }
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
@@ -7216,6 +7404,7 @@ fn collect_action_metadata(
         | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
+        | ElementKind::Scribble { .. }
         | ElementKind::Record { .. }
         | ElementKind::ProgressRing { .. }
         | ElementKind::RollingNumber { .. }
@@ -7229,6 +7418,16 @@ fn collect_action_metadata(
         | ElementKind::MarkRail(_)
         | ElementKind::Drawing(_)
         | ElementKind::Spacer => {}
+    }
+}
+
+/// A clickable's kind of region: a button, or a region that only takes the
+/// focus.
+fn clickable_kind(element: &Element) -> HitKind {
+    if element.kept.as_ref().is_some_and(|kept| kept.focus_area) {
+        HitKind::Focus
+    } else {
+        HitKind::Button
     }
 }
 
@@ -7254,6 +7453,7 @@ fn inferred_access(element: &Element) -> crate::Access {
         ElementKind::Button { label, .. } | ElementKind::IconButton { label, .. } => {
             Access { name: (!label.is_empty()).then(|| label.clone()), ..Access::new(Role::Button) }
         }
+        ElementKind::Clickable { .. } if element.kept.as_ref().is_some_and(|kept| kept.focus_area) => Access::new(Role::Group),
         ElementKind::Clickable { child, .. } => {
             let role = if element.slider.is_some() { Role::Slider } else { Role::Button };
             let name = spoken_text(child);
@@ -7487,6 +7687,7 @@ struct LayoutBuilder<'a> {
     /// What a wrapper said of the control inside it, until that control takes it.
     access_above: Option<crate::Access>,
     slider_drag: Option<&'a SliderDrag>,
+    sketch_draft: Option<&'a crate::sketch::SketchDraft>,
     slider_motion: &'a mut HashMap<String, SliderMotion>,
     focused: Option<&'a str>,
     caret_blink: &'a mut crate::caret_blink::CaretBlink,
@@ -7524,6 +7725,7 @@ struct LayoutBuilder<'a> {
     observed_skeletons: &'a mut HashSet<String>,
     observed_shimmers: &'a mut HashSet<String>,
     observed_spinners: &'a mut HashSet<String>,
+    settled_spinners: &'a mut HashSet<String>,
     observed_sliders: &'a mut HashSet<String>,
     reduced_motion: bool,
     /// A control is being scrolled into view, which needs the layout an
@@ -7548,6 +7750,7 @@ enum DeferredOverlay {
         animation_ms: u16,
         close_animation_ms: Option<u16>,
         open_scale: f32,
+        morph: Option<(Rect, f32)>,
         view_key: Option<String>,
         backdrop: bool,
         focus_scope: bool,
@@ -7606,13 +7809,21 @@ fn place_popover(
         placement,
         PopoverPlacement::BottomStart | PopoverPlacement::BottomEnd | PopoverPlacement::RightStart
     );
+    let right_has_room = anchor.x + anchor.width + gap + width <= viewport.x + viewport.width - inset;
     let x = match placement {
         PopoverPlacement::Center => viewport.x + (viewport.width - width) / 2.0,
         PopoverPlacement::RightStart => {
-            if anchor.x + anchor.width + gap + width <= viewport.x + viewport.width - inset {
+            if right_has_room {
                 anchor.x + anchor.width + gap
             } else {
                 anchor.x - gap - width
+            }
+        }
+        PopoverPlacement::RightCorner => {
+            if right_has_room {
+                anchor.x + anchor.width + gap
+            } else {
+                anchor.x + anchor.width - gap - width
             }
         }
         PopoverPlacement::LeftStart => {
@@ -7634,11 +7845,19 @@ fn place_popover(
     let available_above = (anchor.y - gap - viewport.y - inset).max(0.0);
     let y = if placement == PopoverPlacement::Center {
         viewport.y + (viewport.height - height) / 2.0
+    } else if placement == PopoverPlacement::RightCorner {
+        if right_has_room { anchor.y } else { anchor.y + gap }
     } else if matches!(
         placement,
         PopoverPlacement::RightStart | PopoverPlacement::LeftStart
     ) {
-        anchor.y
+        // With no room below it ends level with its anchor, as a submenu near
+        // the foot of the window does, instead of being pushed up by the edge.
+        if anchor.y + height > viewport.y + viewport.height - inset {
+            anchor.y + anchor.height - height
+        } else {
+            anchor.y
+        }
     } else {
         if available_below == 0.0 && available_above == 0.0 {
             // Container-wide anchors can legitimately occupy the viewport.
@@ -7973,6 +8192,7 @@ impl LayoutBuilder<'_> {
                 animation_ms: crate::tokens().motion.enter_ms,
                 close_animation_ms: None,
                 open_scale: 1.0,
+                morph: None,
                 view_key: None,
                 rect,
                 slide_sign,
@@ -8244,8 +8464,15 @@ impl LayoutBuilder<'_> {
         let shortcut = shortcut
             .map(shortcut::label)
             .filter(|value| !value.is_empty());
+        let plain = crate::tokens().shortcut_style == crate::ShortcutStyle::Text;
         let keycap_width = shortcut
-            .map(|value| self.shortcut_width(value))
+            .map(|value| {
+                if plain {
+                    self.menu_shortcut_width(value)
+                } else {
+                    self.shortcut_width(value)
+                }
+            })
             .filter(|width| content_max - width - 8.0 >= 24.0);
         let title_budget = content_max - keycap_width.map_or(0.0, |width| width + 8.0);
         let rich = !sections.is_empty() || title.contains('\n');
@@ -8471,7 +8698,11 @@ impl LayoutBuilder<'_> {
                 width,
                 shortcut::HEIGHT,
             );
-            self.paint_shortcut(keycap, shortcut, colors.keycap, colors.text);
+            if plain {
+                self.paint_menu_shortcut(keycap, shortcut, colors.muted);
+            } else {
+                self.paint_shortcut(keycap, shortcut, colors.keycap, colors.text);
+            }
         }
         let mut divided = false;
         let mut has_content = title_height > 0.0 || keycap_width.is_some();
@@ -8821,6 +9052,7 @@ impl LayoutBuilder<'_> {
         style: Style,
         clip: Option<Rect>,
         placeholder: &str,
+        persistent_placeholder: bool,
         initial_value: &str,
         highlights: &[crate::TextHighlight],
     ) {
@@ -8830,7 +9062,7 @@ impl LayoutBuilder<'_> {
             return;
         };
         let composed = state.composed().filter(|_| focused);
-        let is_placeholder = state.value.is_empty() && !focused;
+        let is_placeholder = state.value.is_empty() && composed.is_none() && (!focused || persistent_placeholder);
         // Highlights follow the host's text; a stale edit, or one being
         // composed, is laid out plain until the host catches up.
         let marked = !highlights.is_empty() && state.value == initial_value && composed.is_none();
@@ -9184,7 +9416,7 @@ impl LayoutBuilder<'_> {
 
     fn metrics_for(&self, style: Style) -> FontMetrics {
         match style.font_family {
-            FontFamily::Monospace => self.metrics,
+            FontFamily::Monospace | FontFamily::MonospaceBold => self.metrics,
             FontFamily::Sans
             | FontFamily::SansItalic
             | FontFamily::SansMedium
@@ -10450,6 +10682,7 @@ impl LayoutBuilder<'_> {
             // A rolling number was measured as its text above.
             ElementKind::Skeleton { .. }
             | ElementKind::Spinner { .. }
+            | ElementKind::Scribble { .. }
             | ElementKind::Record { .. }
             | ElementKind::RollingNumber { .. }
             | ElementKind::Spacer => Size::new(0.0, 0.0),
@@ -10652,6 +10885,11 @@ impl LayoutBuilder<'_> {
 
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let mut placed = Self::translated_rect(element, rect);
+        if let Some((id, y)) = element.kept.as_ref().and_then(|kept| kept.slide.as_ref()) {
+            // Three moves: long enough to see the rows go by, as a counter rolls.
+            let pace = crate::tokens().motion.move_ms.saturating_mul(3);
+            placed.y += self.spring_paced(&format!("slide/{id}"), *y, pace, pace);
+        }
         if let Some(id) = element.kept.as_ref().and_then(|kept| kept.moving.as_deref()) {
             let offset = self.moved(id, rect);
             placed = Rect::new(placed.x + offset.x, placed.y + offset.y, placed.width, placed.height);
@@ -10686,6 +10924,15 @@ impl LayoutBuilder<'_> {
 
     fn place_translated(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let rect = self.extended(element, rect, clip);
+        if let Some((id, offset)) = element.kept.as_ref().and_then(|kept| kept.caret.as_ref()) {
+            let location = crate::caret_blink::CaretLocation { document: 0, revision: 0, offset: *offset };
+            let shown = self.focused == Some(id.as_str())
+                && clip.is_none_or(|clip| rect.intersection(clip).is_some())
+                && self.caret_blink.observe(id, location, self.now, self.reduced_motion);
+            if !shown {
+                return;
+            }
+        }
         let dragged = element.draggable
             && !element.drag_in_place
             && self.drag_source.is_some()
@@ -10972,12 +11219,14 @@ impl LayoutBuilder<'_> {
                 self.observed_skeletons.insert(id.clone());
             }
             let started = self.skeleton_started.entry(id.clone()).or_insert(self.now);
+            let period = element.kept.as_ref().and_then(|kept| kept.pulse_ms);
             style.background = Some(skeleton_color(
                 *base,
                 *highlight,
                 *started,
                 self.now,
                 self.reduced_motion,
+                period.map_or(SKELETON_PERIOD, |ms| Duration::from_millis(u64::from(ms))),
             ));
         }
         let mut transition_id = None;
@@ -11289,14 +11538,17 @@ impl LayoutBuilder<'_> {
                             state.width.value(self.now),
                             target.height,
                         );
+                        let radius = selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0);
                         self.frame.commands.insert(
                             command_start,
-                            DrawCommand::FillRect {
-                                rect: indicator,
-                                color: selection.color,
-                                radius: selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0),
-                            },
+                            DrawCommand::FillRect { rect: indicator, color: selection.color, radius },
                         );
+                        if let Some(color) = selection.border {
+                            self.frame.commands.insert(
+                                command_start + 1,
+                                DrawCommand::StrokeRect { rect: indicator, color, radius, width: 1.0 },
+                            );
+                        }
                     }
                 }
                 self.frame.tab_focus.push(TabFocusScope {
@@ -11312,7 +11564,10 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::Clickable { id, child } => {
-                self.add_region(id, rect, HitKind::Button, clip);
+                self.add_region(id, rect, clickable_kind(element), clip);
+                if let Some(style) = element.kept.as_ref().and_then(|kept| kept.sketch) {
+                    self.frame.sketches.insert(id.clone(), (content, style));
+                }
                 if let Some(travel) = element.slider.as_deref() {
                     self.frame.sliders.insert(
                         id.clone(),
@@ -11331,6 +11586,11 @@ impl LayoutBuilder<'_> {
                 let first = self.frame.commands.len();
                 let first_block = self.frame.text_blocks.len();
                 self.place(child, content, clip);
+                if let Some(draft) = self.sketch_draft.filter(|draft| draft.id == *id) {
+                    self.frame.commands.push(DrawCommand::PushClip(content));
+                    self.frame.commands.extend(crate::sketch::mark_commands(&draft.mark(), content));
+                    self.frame.commands.push(DrawCommand::PopClip);
+                }
                 if style.underline_on_hover
                     && (self.hovered == Some(id.as_str())
                         || self.keyboard_focus && self.focused == Some(id.as_str()))
@@ -11363,6 +11623,7 @@ impl LayoutBuilder<'_> {
                 animation_ms,
                 close_animation_ms,
                 open_scale,
+                morph,
                 view_key,
                 hover_open,
                 backdrop,
@@ -11431,7 +11692,18 @@ impl LayoutBuilder<'_> {
                         || focusables.iter().any(|(id, _)| {
                             hovered == Some(id.as_str()) || focused == Some(id.as_str())
                         })
-                        || holds_submenu(floating, hovered, focused);
+                        || holds_submenu(floating, hovered, focused)
+                        // The pointer crossing the gap from the trigger's row towards the
+                        // surface, on either side, keeps it open on the way.
+                        || self.pointer.is_some_and(|point| {
+                            Rect::new(
+                                anchor_rect.x - *gap,
+                                anchor_rect.y,
+                                anchor_rect.width + *gap * 2.0,
+                                anchor_rect.height,
+                            )
+                            .contains(point)
+                        });
                     if !active {
                         return;
                     }
@@ -11447,6 +11719,7 @@ impl LayoutBuilder<'_> {
                     animation_ms: *animation_ms,
                     close_animation_ms: *close_animation_ms,
                     open_scale: *open_scale,
+                    morph: *morph,
                     view_key: view_key.clone(),
                     backdrop: *backdrop,
                     focus_scope: *focus_scope,
@@ -12780,12 +13053,22 @@ impl LayoutBuilder<'_> {
                         &measure,
                         text_height,
                     ));
+                    let indent = state.viewport.body.x - content.x;
+                    let expand = std::mem::take(&mut state.expand);
+                    for &(row, at, row_clip) in &expand {
+                        let control = crate::code_diff::expand_control(diff, row, indent, (at.width, at.height));
+                        self.place(&control, at, Some(row_clip));
+                    }
+                    if let Some(state) = self.code_diffs.get_mut(&diff.id) {
+                        state.expand = expand;
+                    }
                 }
             }
             ElementKind::TextArea {
                 id,
                 initial_value,
                 placeholder,
+                persistent_placeholder,
                 preserve_line_endings,
                 enter_submits,
                 highlights,
@@ -12835,7 +13118,17 @@ impl LayoutBuilder<'_> {
                     .floor()
                     .max(1.0) as usize;
                 if self.text_layout {
-                    self.paint_laid_out_area(id, rect, content, style, clip, placeholder, initial_value, highlights);
+                    self.paint_laid_out_area(
+                        id,
+                        rect,
+                        content,
+                        style,
+                        clip,
+                        placeholder,
+                        *persistent_placeholder,
+                        initial_value,
+                        highlights,
+                    );
                 } else {
                     state.laid_out = None;
                     state.ime = None;
@@ -12853,7 +13146,7 @@ impl LayoutBuilder<'_> {
                     }
 
                     let is_focused = self.focused == Some(id.as_str());
-                    let is_placeholder = state.value.is_empty() && !is_focused;
+                    let is_placeholder = state.value.is_empty() && (!is_focused || *persistent_placeholder);
                     let placeholder_lines;
                     let shown_lines = if is_placeholder {
                         placeholder_lines =
@@ -13321,6 +13614,25 @@ impl LayoutBuilder<'_> {
                     self.now,
                     self.reduced_motion,
                 );
+            }
+            ElementKind::Scribble { id, color, stroke, drawing } => {
+                let started = *self.spinner_started.entry(id.clone()).or_insert(self.now);
+                let (commands, moving) = crate::scribble::paint(
+                    rect,
+                    *color,
+                    *stroke,
+                    drawing.as_deref(),
+                    started,
+                    self.now,
+                    self.reduced_motion,
+                );
+                // A drawing written once stops asking for frames when its pen has gone; its
+                // start is still kept, so it is not written again.
+                self.observed_spinners.insert(id.clone());
+                if !moving {
+                    self.settled_spinners.insert(id.clone());
+                }
+                self.frame.commands.extend(commands);
             }
             ElementKind::EffortSlider {
                 id,
@@ -14160,7 +14472,14 @@ impl LayoutBuilder<'_> {
         if self.keyboard_tooltip_focus {
             return (self.focused == Some(anchor_id)).then_some(true);
         }
+        // A backdrop sharing the anchor's id is not the anchor.
+        let on_backdrop = self.pointer.is_some_and(|point| {
+            (self.frame.regions.iter().enumerate().rev())
+                .find(|(_, region)| region.rect.contains(point))
+                .is_some_and(|(index, _)| self.frame.backdrops.contains(&index))
+        });
         (self.hovered == Some(anchor_id)
+            && !on_backdrop
             && self.pressed != Some(anchor_id)
             && self.tooltip_hover_since.is_some_and(|(id, since)| {
                 id == anchor_id
@@ -15898,6 +16217,44 @@ mod tests {
             .any(|command| matches!(command,
                 DrawCommand::Text { text, .. } if text == "Placeholder"
             )));
+    }
+
+    #[test]
+    fn a_text_area_keeps_its_placeholder_while_focused_only_when_asked() {
+        use crate::{Component, ComponentPalette, TextArea};
+
+        let viewport = Size::new(240.0, 120.0);
+        for persistent in [false, true] {
+            let area = TextArea::new("notes", "", "Notes", ComponentPalette::neutral_dark())
+                .persistent_placeholder(persistent)
+                .render();
+            let mut tree = UiTree::new(area);
+            tree.set_reduced_motion(true);
+            tree.layout(viewport);
+            assert!(tree.focus("notes"));
+            let frame = tree.layout(viewport);
+            let placeholder = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, position, color, .. } if text == "Notes" => Some((*position, color.a)),
+                _ => None,
+            });
+            let caret = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, .. } if rect.width == 1.5 => Some(*rect),
+                _ => None,
+            });
+            match placeholder {
+                // Faint, with the caret before it, where the first key goes.
+                Some((at, alpha)) => {
+                    assert!(persistent, "a focused area hides its placeholder by default");
+                    assert_eq!(alpha, 110);
+                    assert_eq!(caret.map(|caret| (caret.x, caret.y)), Some((at.x, at.y)));
+                }
+                None => assert!(!persistent, "the focused empty area keeps its placeholder"),
+            }
+            tree.handle_event(UiEvent::Text("a".into()));
+            assert!(!tree.layout(viewport).commands.iter().any(|command| matches!(command,
+                DrawCommand::Text { text, .. } if text == "Notes"
+            )));
+        }
     }
 
     #[test]

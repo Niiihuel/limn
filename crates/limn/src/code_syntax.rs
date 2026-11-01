@@ -1,6 +1,6 @@
 //! Lazy, shared background syntax analysis. Buffers use native language parsers;
 //! diff fragments use a bounded lexer with independent old/new structural states.
-use crate::{CodeHighlight, Color};
+use crate::{CodeHighlight, Color, ComponentPalette, FontFamily, TextSpan};
 use limn_editor::BufferSnapshot;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Mutex, OnceLock, Weak};
@@ -39,9 +39,30 @@ pub enum CodeLanguage {
 
 #[cfg(not(feature = "syntax"))]
 impl CodeLanguage {
-    /// Without the `syntax` feature every code fence is plain text.
-    pub fn from_code_fence(_info: &str) -> Self {
-        Self::Plain
+    /// Common fenced-code aliases, the same ones `limn_language::Language::from_code_fence`
+    /// reads, and the file extensions of each language; an unknown label stays plain.
+    pub fn from_code_fence(info: &str) -> Self {
+        let label = info
+            .trim_start_matches('{')
+            .trim_start_matches('.')
+            .split(|ch: char| ch.is_whitespace() || ch == ',' || ch == '}')
+            .next()
+            .unwrap_or_default()
+            .to_ascii_lowercase();
+        // Keep in step with `limn_language::Language::{from_code_fence, from_extension}`.
+        match label.as_str() {
+            "rust" | "rs" => Self::Rust,
+            "json" | "jsonc" => Self::Json,
+            "javascript" | "node" | "nodejs" | "js" | "jsx" | "mjs" | "cjs" => Self::JavaScript,
+            "typescript" | "ts" => Self::TypeScript,
+            "tsx" => Self::Tsx,
+            "python" | "python3" | "py" | "pyi" => Self::Python,
+            "toml" => Self::Toml,
+            "css" | "scss" => Self::Css,
+            "html" | "htm" | "xml" | "svg" => Self::Html,
+            "md" | "markdown" | "mdown" | "mkd" | "mkdn" | "mdwn" => Self::Markdown,
+            _ => Self::Plain,
+        }
     }
 }
 #[derive(Clone, Copy, Debug, Default)]
@@ -56,6 +77,211 @@ const COMMENT: Color = Color::rgb(126, 151, 119);
 const STRING: Color = Color::rgb(206, 163, 127);
 const KEYWORD: Color = Color::rgb(184, 143, 216);
 const NUMBER: Color = Color::rgb(151, 193, 169);
+#[cfg_attr(not(feature = "syntax"), allow(dead_code))]
+const FUNCTION: Color = Color::rgb(143, 185, 218);
+#[cfg_attr(not(feature = "syntax"), allow(dead_code))]
+const TYPE: Color = Color::rgb(225, 196, 131);
+#[cfg_attr(not(feature = "syntax"), allow(dead_code))]
+const PROPERTY: Color = Color::rgb(160, 191, 217);
+// What `CodeSyntaxColors::for_palette` paints each lexer ink as on a dark palette and on a light
+// one: each above 4.5:1 on dark fills up to rgb(53, 53, 56) and light ones down to
+// rgb(220, 220, 220). Only the comment is lighter than the code views' own on dark.
+const SPAN_INKS: [(Color, Color, Color); 4] = [
+    (COMMENT, Color::rgb(140, 168, 132), Color::rgb(46, 104, 38)),
+    (STRING, STRING, Color::rgb(163, 21, 21)),
+    (KEYWORD, KEYWORD, Color::rgb(130, 45, 170)),
+    (NUMBER, NUMBER, Color::rgb(8, 106, 80)),
+];
+
+/// The inks of highlighted code in Markdown's fenced blocks.
+/// [`CodeSyntaxColors::for_palette`] is the default; a host passes its own
+/// with [`crate::Markdown::code_syntax_colors`].
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct CodeSyntaxColors {
+    /// Everything else: names, operators and punctuation.
+    pub text: Color,
+    /// Keywords, such as `def` or `fn`.
+    pub keyword: Color,
+    /// String literals, quotes included.
+    pub string: Color,
+    /// Number literals.
+    pub number: Color,
+    /// Comments.
+    pub comment: Color,
+    /// A name followed by `(`, such as `print` in `print(x)`; `None` leaves it
+    /// in `text`.
+    pub function: Option<Color>,
+    /// The braces of an interpolation, `{` `}` in a Python f-string and `${`
+    /// `}` in a JavaScript template, whose contents are then drawn in
+    /// `text`; `None` leaves the whole string in `string`.
+    pub interpolation: Option<Color>,
+    /// Type names, as `String` in `let s: String`, where the tree-sitter
+    /// grammars tell them apart; `None` leaves them to the rule for the inks
+    /// limn has no field for.
+    pub types: Option<Color>,
+    /// Fields and properties, as `len` in `v.len`, likewise.
+    pub properties: Option<Color>,
+}
+
+impl CodeSyntaxColors {
+    /// The host's ink for a built-in one. The inks limn has no field for are made for dark
+    /// fills: on light ones they are `text`.
+    pub(crate) fn ink(&self, built_in: Color, dark: bool) -> Color {
+        let host = match built_in {
+            COMMENT => Some(self.comment),
+            STRING => Some(self.string),
+            KEYWORD => Some(self.keyword),
+            NUMBER => Some(self.number),
+            FUNCTION => self.function,
+            TYPE => self.types,
+            PROPERTY => self.properties,
+            _ => None,
+        };
+        host.unwrap_or(if dark { built_in } else { self.text })
+    }
+
+    /// Inks that read on `palette`, dark or light, each at least 4.5:1 on its
+    /// raised fill; functions and interpolations are not told apart.
+    pub fn for_palette(palette: ComponentPalette) -> Self {
+        let ink = |index: usize| {
+            let (_, on_dark, on_light) = SPAN_INKS[index];
+            if palette.is_dark() { on_dark } else { on_light }
+        };
+        Self {
+            text: palette.text,
+            comment: ink(0),
+            string: ink(1),
+            keyword: ink(2),
+            number: ink(3),
+            function: None,
+            interpolation: None,
+            types: None,
+            properties: None,
+        }
+    }
+}
+
+/// Code longer than this many bytes is shown plain by [`highlight_spans`], which runs
+/// on the UI thread while a tree is built.
+pub(crate) const MAX_HIGHLIGHT_BYTES: usize = 64 * 1024;
+/// Code with more lines than this is shown plain by [`highlight_spans`].
+pub(crate) const MAX_HIGHLIGHT_LINES: usize = 2_000;
+
+/// `text` as monospaced spans of `size`, colored by the line lexer for `language` in
+/// `colors`; `dark` says how the Markdown lexer's other inks read. The spans' text is `text`
+/// exactly. `None`, for the caller to paint plain text, when the language is plain, nothing
+/// gets a color, or `text` is past the bounds above.
+pub(crate) fn highlight_spans(
+    text: &str,
+    language: CodeLanguage,
+    colors: CodeSyntaxColors,
+    dark: bool,
+    size: f32,
+) -> Option<Vec<TextSpan>> {
+    if language == CodeLanguage::Plain
+        || text.len() > MAX_HIGHLIGHT_BYTES
+        || text.bytes().filter(|byte| *byte == b'\n').count() >= MAX_HIGHLIGHT_LINES
+    {
+        return None;
+    }
+    let ink = |color: Color| colors.ink(color, dark);
+    let mut spans: Vec<TextSpan> = Vec::new();
+    // Neighbours of one color share a span: a string's quote and body are one run.
+    let mut push = |piece: &str, color: Color| match spans.last_mut() {
+        _ if piece.is_empty() => {}
+        Some(last) if last.color == color => last.text.push_str(piece),
+        _ => spans.push(TextSpan::new(piece, color, size, FontFamily::Monospace)),
+    };
+    // Between highlights: a name before `(` is a function's.
+    let plain = |piece: &str, push: &mut dyn FnMut(&str, Color)| {
+        let Some(function) = colors.function.filter(|_| language != CodeLanguage::Markdown) else {
+            return push(piece, colors.text);
+        };
+        let mut rest = piece;
+        while let Some(at) = rest.find(|c: char| c.is_alphabetic() || c == '_') {
+            push(&rest[..at], colors.text);
+            let end = rest[at..]
+                .find(|c: char| !(c.is_alphanumeric() || c == '_'))
+                .map_or(rest.len(), |end| at + end);
+            let called = rest[end..].trim_start_matches([' ', '\t']).starts_with('(');
+            push(&rest[at..end], if called { function } else { colors.text });
+            rest = &rest[end..];
+        }
+        push(rest, colors.text);
+    };
+    let (mut state, mut cursor, mut line_start) = (LexState::default(), 0, 0);
+    for line in text.split('\n') {
+        // Highlights count characters; the spans slice bytes of `text`.
+        let bytes: Vec<usize> = line
+            .char_indices()
+            .map(|(at, _)| line_start + at)
+            .chain([line_start + line.len()])
+            .collect();
+        let byte = |char_index: usize| bytes[char_index.min(bytes.len() - 1)];
+        let mut highlights = highlight_line(line, 0, language, &mut state);
+        // A string's opening quote and its body come as two: one string, for its prefix.
+        highlights.dedup_by(|next, kept| {
+            let joined = kept.color == next.color && kept.range.end == next.range.start;
+            if joined { kept.range.end = next.range.end; }
+            joined
+        });
+        for highlight in highlights {
+            let (start, end) = (byte(highlight.range.start), byte(highlight.range.end));
+            if start < cursor || end <= start {
+                continue;
+            }
+            plain(&text[cursor..start], &mut push);
+            let piece = &text[start..end];
+            match colors.interpolation.filter(|_| highlight.color == STRING) {
+                Some(braces) => interpolate(piece, &text[line_start..start], language, colors, braces, &mut push),
+                None => push(piece, ink(highlight.color)),
+            }
+            cursor = end;
+        }
+        line_start += line.len() + 1;
+    }
+    plain(&text[cursor..], &mut push);
+    spans.iter().any(|span| span.color != colors.text).then_some(spans)
+}
+
+/// A string's `piece` with its interpolations' braces in `braces` and their contents in text:
+/// a Python f-string's `{…}` (not `{{` or `}}`), a JavaScript template's `${…}`. `before` is
+/// its line up to the string, which holds a Python prefix.
+// shortcut: only a string that opens on its line and holds its whole interpolation on it;
+// a triple-quoted f-string's later lines stay one color. Lex across lines if that is met.
+fn interpolate(
+    piece: &str,
+    before: &str,
+    language: CodeLanguage,
+    colors: CodeSyntaxColors,
+    braces: Color,
+    push: &mut dyn FnMut(&str, Color),
+) {
+    let prefix = before.chars().rev().take_while(|c| c.is_ascii_alphabetic()).collect::<String>();
+    let open = match language {
+        CodeLanguage::Python if prefix.len() <= 2 && prefix.contains(['f', 'F']) => "{",
+        CodeLanguage::JavaScript | CodeLanguage::TypeScript | CodeLanguage::Tsx
+            if piece.starts_with('`') => "${",
+        _ => return push(piece, colors.string),
+    };
+    let mut rest = piece;
+    while let Some(at) = rest.find(open) {
+        let inner = at + open.len();
+        // `{{` is a brace, not an interpolation.
+        if open == "{" && rest[inner..].starts_with('{') {
+            push(&rest[..inner + 1], colors.string);
+            rest = &rest[inner + 1..];
+            continue;
+        }
+        let Some(close) = rest[inner..].find('}').map(|close| inner + close) else { break };
+        push(&rest[..at], colors.string);
+        push(&rest[at..inner], braces);
+        push(&rest[inner..close], colors.text);
+        push("}", braces);
+        rest = &rest[close + 1..];
+    }
+    push(rest, colors.string);
+}
 
 enum Source {
     Buffer(BufferSnapshot),
@@ -249,9 +475,9 @@ fn highlight_color(kind: limn_language::HighlightKind) -> Color {
         HighlightKind::String => STRING,
         HighlightKind::Keyword => KEYWORD,
         HighlightKind::Number => NUMBER,
-        HighlightKind::Function => Color::rgb(143, 185, 218),
-        HighlightKind::Type => Color::rgb(225, 196, 131),
-        HighlightKind::Property => Color::rgb(160, 191, 217),
+        HighlightKind::Function => FUNCTION,
+        HighlightKind::Type => TYPE,
+        HighlightKind::Property => PROPERTY,
         HighlightKind::Variable | HighlightKind::Operator => Color::rgb(205, 205, 205),
     }
 }
@@ -362,7 +588,9 @@ fn work(jobs: &Mutex<mpsc::Receiver<Job>>, wait: bool) {
                     Source::Diff(lines) => {
                         let line = &lines[row];
                         let text = line.text.trim_end_matches(['\r', '\n']);
-                        if line.old_line.is_none() && line.new_line.is_none() {
+                        if line.kind == crate::CodeDiffLineKind::Folded
+                            || (line.old_line.is_none() && line.new_line.is_none())
+                        {
                             state = LexState::default();
                             old_state = LexState::default();
                             rows.push(Vec::new());
@@ -376,7 +604,8 @@ fn work(jobs: &Mutex<mpsc::Receiver<Job>>, wait: bool) {
                             crate::CodeDiffLineKind::Removed => {
                                 highlight_line(text, 0, job.language, &mut old_state)
                             }
-                            crate::CodeDiffLineKind::Context => {
+                            // Folded rows restart the state above.
+                            crate::CodeDiffLineKind::Context | crate::CodeDiffLineKind::Folded => {
                                 let _ = highlight_line(
                                     text,
                                     0,
@@ -716,6 +945,32 @@ fn is_keyword(word: &str, language: CodeLanguage) -> bool {
 
 #[cfg(all(test, feature = "syntax"))]
 mod tests {
+    #[test]
+    fn a_hosts_inks_take_the_place_of_the_built_in_ones_it_names() {
+        let host = |n: u8| Color::rgb(n, n, n);
+        let colors = CodeSyntaxColors {
+            text: host(1),
+            keyword: host(2),
+            string: host(3),
+            number: host(4),
+            comment: host(5),
+            function: Some(host(6)),
+            interpolation: None,
+            types: Some(host(7)),
+            properties: None,
+        };
+        let pairs = [(KEYWORD, 2), (STRING, 3), (NUMBER, 4), (COMMENT, 5), (FUNCTION, 6), (TYPE, 7)];
+        for (built_in, expected) in pairs {
+            assert_eq!(colors.ink(built_in, false), host(expected));
+        }
+        let other = Color::rgb(205, 205, 205);
+        assert_eq!(colors.ink(other, false), host(1), "on light fills, text");
+        assert_eq!(colors.ink(other, true), other, "made for dark fills, kept on them");
+        let plain = CodeSyntaxColors { function: None, ..colors };
+        assert_eq!(plain.ink(FUNCTION, false), host(1));
+        assert_eq!(colors.ink(PROPERTY, false), host(1), "no ink for properties: text");
+    }
+
     use super::*;
     use limn_editor::{EditKind, Selection, TextBuffer};
     fn wait(cache: &mut SyntaxCache, snapshot: &BufferSnapshot, language: CodeLanguage) {

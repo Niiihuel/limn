@@ -621,3 +621,20 @@ fn joining_lines_invalidates_syntax_on_the_actual_preceding_row() {
         assert_eq!(comment[0].color, Color::rgb(126, 151, 119));
     }
 }
+
+#[test]
+fn a_long_line_keeps_its_whole_width_while_it_scrolls_sideways() {
+    let source = format!("{}\nshort", "x".repeat(400));
+    let controller = EditorController::new(TextBuffer::new(&source).unwrap());
+    let mut view = EditorView::new(CodeEditor::new("editor", controller), Instant::now());
+    paint(&mut view, 360.0);
+    let extent = view.viewport.max_x;
+    let whole = 400.0 * measure("x") - view.viewport.body.width;
+    assert!((extent - whole).abs() < 1.0, "{extent} for {whole}");
+    for step in 1..6 {
+        view.viewport.scroll(-300.0, 0.0);
+        paint(&mut view, 360.0);
+        assert_eq!(view.viewport.max_x, extent, "the extent holds at step {step}");
+    }
+    assert_eq!(view.viewport.scroll_x, 1500.0);
+}

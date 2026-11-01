@@ -44,8 +44,11 @@ mod preferences;
 mod radio;
 mod scheme;
 mod side_panels;
+mod sketch;
+mod split_view;
 mod surfaces;
 mod table;
+mod terminal;
 mod text_layout;
 mod toggle;
 mod tokens;
@@ -123,6 +126,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "text-layout", group: "System", title: "TextLayout", source: "text_layout", view: text_layout::view, sections: &[], since: "0.1.44" },
     Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
     Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"], since: "0.1.39" },
+    Page { id: "split-button", group: "Actions", title: "SplitButton", source: "buttons", view: buttons::view, sections: &["Split button"], since: "0.1.44" },
     Page { id: "toolbar", group: "Actions", title: "Toolbar", source: "toolbar", view: toolbar::view, sections: &[], since: "0.1.41" },
     Page { id: "clipboard", group: "Actions", title: "Clipboard", source: "buttons", view: buttons::view, sections: &["Clipboard"], since: "0.1.39" },
     Page { id: "link", group: "Actions", title: "Link", source: "navigation", view: navigation::view, sections: &["Links"], since: "0.1.39" },
@@ -169,6 +173,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "output-block", group: "Data", title: "OutputBlock", source: "blocks", view: blocks::view, sections: &["Output block"], since: "0.1.39" },
     Page { id: "code-editor", group: "Data", title: "CodeEditor", source: "code", view: code::view, sections: &["Code editor"], since: "0.1.39" },
     Page { id: "code-diff", group: "Data", title: "CodeDiff", source: "code", view: code::view, sections: &["Code diff"], since: "0.1.39" },
+    Page { id: "terminal-view", group: "Data", title: "TerminalView", source: "terminal", view: terminal::view, sections: &[], since: "0.1.44" },
     Page { id: "charts", group: "Data", title: "Charts", source: "charts", view: charts::view, sections: &[], since: "0.1.39" },
     Page { id: "attachment", group: "Data", title: "Attachment", source: "media", view: media::view, sections: &["Attachment"], since: "0.1.39" },
     Page { id: "card", group: "Layout", title: "Card", source: "blocks", view: blocks::view, sections: &["Card"], since: "0.1.39" },
@@ -183,6 +188,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "panel-header", group: "Layout", title: "PanelHeader", source: "panels", view: panels::view, sections: &["Panel header", "Back, close, and long title", "A field in place of the title", "A tint behind the header"], since: "0.1.39" },
     Page { id: "sidebar-panel", group: "Layout", title: "SidebarPanel", source: "panels", view: panels::view, sections: &["Sidebar panel"], since: "0.1.39" },
     Page { id: "resize-handle", group: "Layout", title: "ResizeHandle", source: "panels", view: panels::view, sections: &["Resize handle between panels"], since: "0.1.39" },
+    Page { id: "split-view", group: "Layout", title: "SplitView", source: "split_view", view: split_view::view, sections: &[], since: "0.1.44" },
     Page { id: "side-rail", group: "Layout", title: "SideRail", source: "side_panels", view: side_panels::view, sections: &["Folded library", "A long rail"], since: "0.1.43" },
     Page { id: "peek-panel", group: "Layout", title: "PeekPanel", source: "side_panels", view: side_panels::view, sections: &["Peek at the right edge", "Peek at the left edge"], since: "0.1.43" },
     Page { id: "preferences-group", group: "Layout", title: "PreferencesGroup", source: "preferences", view: preferences::view, sections: &[], since: "0.1.39" },
@@ -191,10 +197,13 @@ pub const PAGES: &[Page] = &[
     Page { id: "alert", group: "States", title: "Alert", source: "feedback", view: feedback::view, sections: &["Alerts", "Alerts with actions"], since: "0.1.39" },
     Page { id: "progress", group: "States", title: "Progress", source: "feedback", view: feedback::view, sections: &["Progress"], since: "0.1.39" },
     Page { id: "spinner", group: "States", title: "Spinner", source: "feedback", view: feedback::view, sections: &["Loading"], since: "0.1.39" },
+    Page { id: "status-dot", group: "States", title: "StatusDot", source: "feedback", view: feedback::view, sections: &["Status dot"], since: "0.1.44" },
+    Page { id: "scribble", group: "States", title: "Scribble", source: "feedback", view: feedback::view, sections: &["Working"], since: "0.1.44" },
     Page { id: "skeleton", group: "States", title: "Skeleton", source: "loading", view: loading::view, sections: &["Skeleton"], since: "0.1.39" },
     Page { id: "text-shimmer", group: "States", title: "TextShimmer", source: "loading", view: loading::view, sections: &["Text shimmer"], since: "0.1.39" },
     Page { id: "marker", group: "States", title: "Marker", source: "feedback", view: feedback::view, sections: &["Markers"], since: "0.1.39" },
     Page { id: "ticker", group: "States", title: "Ticker", source: "feedback", view: feedback::view, sections: &["Ticker"], since: "0.1.39" },
+    Page { id: "rolling-number", group: "States", title: "RollingNumber", source: "feedback", view: feedback::view, sections: &["Rolling number"], since: "0.1.44" },
     Page { id: "collapse", group: "States", title: "Collapse", source: "feedback", view: feedback::view, sections: &["Closing slot"], since: "0.1.39" },
     Page { id: "chip", group: "States", title: "Chip", source: "feedback", view: feedback::view, sections: &["Labels", "Wrapping"], since: "0.1.39" },
     Page { id: "badge", group: "States", title: "Badge", source: "badge", view: badge::view, sections: &[], since: "0.1.41" },
@@ -208,7 +217,8 @@ pub const PAGES: &[Page] = &[
     Page { id: "dialog", group: "Overlays", title: "Modal / AlertDialog", source: "overlays", view: overlays::view, sections: &["Dialogs"], since: "0.1.39" },
     Page { id: "bottom-sheet", group: "Overlays", title: "BottomSheet", source: "overlays", view: overlays::view, sections: &["Bottom sheet"], since: "0.1.44" },
     Page { id: "toast", group: "Overlays", title: "Toast", source: "overlays", view: overlays::view, sections: &["Toast"], since: "0.1.39" },
-    Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer"], since: "0.1.39" },
+    Page { id: "image-viewer", group: "Overlays", title: "ImageViewer", source: "media", view: media::view, sections: &["Image viewer", "Hidden pointer"], since: "0.1.39" },
+    Page { id: "sketch", group: "Overlays", title: "Sketch", source: "sketch", view: sketch::view, sections: &["Sketch"], since: "0.1.43" },
     Page { id: "picker", group: "Overlays", title: "Catalog menus", source: "menus", view: menus::view, sections: &["Select and catalog", "Menu rows", "Popover panel"], since: "0.1.39" },
     Page { id: "suggestion-list", group: "Overlays", title: "SuggestionList", source: "menus", view: menus::view, sections: &["Suggestion list"], since: "0.1.39" },
     Page { id: "tooltip", group: "Overlays", title: "Tooltip", source: "tooltip", view: tooltip::view, sections: &[], since: "0.1.39" },
@@ -283,6 +293,7 @@ pub fn update(state: &mut State, action: &UiAction) {
     inputs::update(state, action);
     colors::update(state, action);
     overlays::update(state, action);
+    split_view::update(state, action);
 }
 
 /// Answer a secondary click or the menu key a page opens its own menu for,

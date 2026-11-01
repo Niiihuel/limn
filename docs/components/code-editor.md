@@ -68,6 +68,25 @@ one.
 default, `CodeLanguage::Plain`, colors nothing. `height` is in logical
 pixels, never under 24, and 320 by default.
 
+`syntax_colors(CodeSyntaxColors)` paints those colors in the host's inks, as
+`Markdown::code_syntax_colors` does for fenced code: keywords, strings, numbers,
+comments and, when given, functions, types and properties (`types` and
+`properties`, which the tree-sitter grammars tell apart) take the host's
+colors, and the rest is drawn in `text` on a light palette and in limn's colors
+on a dark one. Colors
+the host gives with `highlights` keep their own.
+
+```rust
+CodeEditor::new("source", controller)
+    .language(CodeLanguage::Rust)
+    .syntax_colors(CodeSyntaxColors {
+        keyword: brand_orange,
+        function: Some(brand_blue),
+        ..CodeSyntaxColors::for_palette(palette)
+    })
+    .render()
+```
+
 ## Options
 
 ```rust
@@ -90,6 +109,8 @@ CodeEditor::new("source", controller)
 | `indent_style(IndentStyle)` | `IndentStyle::Spaces(4)` | Whether Tab indents with spaces or with tabs, and by how many columns |
 | `auto_pairs(bool)` | on | Typing an opening bracket or quote also inserts its closing one |
 | `vim_mode(bool)` | off | Modal editing with Vim's keys |
+| `vim_mode_label(bool)` | on | The Vim mode's badge in the editor's corner; a host that shows the mode itself, from `UiTree::code_editor_vim_mode`, turns it off |
+| `scrollbar_appearance(ScrollbarAppearance)` | the editor's thin bar over the text | Draws both scrollbars as a `ScrollArea` with that appearance draws its own: each in its own rail when `Reserved`, the vertical one beside the text and the horizontal one under it, the thumb in the rail's middle, and with `buttons` an arrow at each end that scrolls three lines' height. Thumb drags and track presses work as before |
 
 `IndentStyle` is in `limn_editor`.
 
@@ -98,6 +119,24 @@ Rows, scrolling, soft wrap, selections, the caret and pointer positioning use
 the same size. Invalid numbers and nonpositive sizes are ignored; valid sizes
 are kept within 1 to 96. `diff_backgrounds(false)` hides the row tints of review
 hunks while keeping their edge markers, removed lines and controls.
+
+## Change marks
+
+`change_marks(document_id, marks)` marks rows that changed against a version
+the host compares with, as a committed one, in the gutter: each
+`CodeChangeMark` spans `rows` in its `color`, a 3 px bar beside each of them,
+and an empty range is a wedge on the line before its row, where lines were
+removed. The marks are drawn on every revision of their document, so the host
+works them out again when it has a new version to compare with.
+
+```rust
+CodeEditor::new("source", controller)
+    .change_marks(document_id, vec![
+        CodeChangeMark { rows: 4..6, color: added },
+        CodeChangeMark { rows: 12..12, color: removed },
+    ])
+    .render()
+```
 
 ## Read-only
 

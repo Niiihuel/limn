@@ -99,7 +99,8 @@ impl Tooltip {
         }
     }
 
-    /// Show a keyboard shortcut in the hint, as key caps.
+    /// Show a keyboard shortcut in the hint, as key caps, or as muted text
+    /// under `ShortcutStyle::Text`.
     pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
         self.shortcut = Some(shortcut.into());
         self
@@ -464,7 +465,7 @@ impl ComponentPalette {
         }
     }
 
-    fn is_dark(self) -> bool {
+    pub(crate) fn is_dark(self) -> bool {
         u16::from(self.border.r) + u16::from(self.border.g) + u16::from(self.border.b) < 3 * 128
     }
 
@@ -935,7 +936,7 @@ impl Button {
         self
     }
 
-    fn colors(&self) -> (Color, Color, Color, Color, bool) {
+    pub(crate) fn colors(&self) -> (Color, Color, Color, Color, bool) {
         let palette = self.palette;
         let (base, hover, pressed, ink) = match self.variant {
             ButtonVariant::Default => (
@@ -944,10 +945,18 @@ impl Button {
                 darker(palette.text, 30),
                 palette.surface,
             ),
-            ButtonVariant::Secondary => (
+            // Hover and press step away from the surface: a lighter step on a
+            // light palette would fade the fill into the card.
+            ButtonVariant::Secondary if palette.is_dark() => (
                 palette.raised,
                 lighter(palette.raised, 10),
                 lighter(palette.raised, 18),
+                palette.text,
+            ),
+            ButtonVariant::Secondary => (
+                palette.raised,
+                darker(palette.raised, 10),
+                darker(palette.raised, 18),
                 palette.text,
             ),
             ButtonVariant::Destructive => (
@@ -1558,7 +1567,7 @@ impl Component for Kbd {
         if crate::shortcut::label(&self.keys).is_empty() {
             return Element::spacer().size(Some(0.0), Some(0.0));
         }
-        let element = if self.menu {
+        let element = if self.menu || crate::tokens().shortcut_style == crate::ShortcutStyle::Text {
             Element::menu_shortcut(self.keys, self.max_width)
                 .foreground(self.palette.muted)
                 .font_size(crate::shortcut::MENU_FONT_SIZE)
@@ -1821,6 +1830,7 @@ pub struct TextArea {
     state: ControlState,
     preserve_line_endings: bool,
     enter_submits: bool,
+    persistent_placeholder: bool,
     accessibility_label: Option<String>,
 }
 
@@ -1844,6 +1854,7 @@ impl TextArea {
             state: ControlState::Enabled,
             preserve_line_endings: false,
             enter_submits: false,
+            persistent_placeholder: false,
             accessibility_label: None,
         }
     }
@@ -1853,6 +1864,12 @@ impl TextArea {
     /// breaks the line.
     pub fn enter_submits(mut self, submits: bool) -> Self {
         self.enter_submits = submits;
+        self
+    }
+
+    /// Keep the placeholder visible while this area is focused and empty.
+    pub fn persistent_placeholder(mut self, visible: bool) -> Self {
+        self.persistent_placeholder = visible;
         self
     }
 
@@ -1939,6 +1956,7 @@ impl Component for TextArea {
             .accessible(access);
         }
         let area = Element::text_area(self.id, self.value, self.placeholder)
+            .persistent_placeholder(self.persistent_placeholder)
             .text_area_preserve_line_endings(self.preserve_line_endings)
             .text_area_enter_submits(self.enter_submits)
             .background(self.palette.raised)
@@ -2267,6 +2285,7 @@ pub struct Switch {
     track: Option<(f32, f32)>,
     variant: SwitchVariant,
     ink: Option<Color>,
+    off_ink: Option<Color>,
 }
 
 impl Switch {
@@ -2283,6 +2302,7 @@ impl Switch {
             track: None,
             variant: SwitchVariant::Default,
             ink: None,
+            off_ink: None,
         }
     }
 
@@ -2320,6 +2340,16 @@ impl Switch {
     /// darkens it where needed for its light thumb to read on it.
     pub fn ink(mut self, color: Color) -> Self {
         self.ink = Some(color);
+        self
+    }
+
+    /// The track's color while the switch is off, as given, in place of the
+    /// palette's selected fill, or of its muted color darkened for
+    /// `SwitchVariant::Accent`: a pale gray track under a white thumb, as a
+    /// desktop settings page draws it. The host answers for the thumb
+    /// reading on it; the state still shows in the thumb's place.
+    pub fn off_ink(mut self, color: Color) -> Self {
+        self.off_ink = Some(color);
         self
     }
 
@@ -2362,13 +2392,11 @@ impl Component for Switch {
         let (thumb_color, track_color) = match (self.variant, self.checked) {
             (SwitchVariant::Default, true) => (palette.surface, self.ink.unwrap_or(palette.text)),
             (SwitchVariant::Default, false) => (palette.text, palette.selected),
-            (SwitchVariant::Accent, checked) => {
-                // At full strength, and on a track darkened until it reads at 3:1, as state must.
-                let light = if palette.is_dark() { palette.text } else { palette.surface };
-                let light = Color::rgb(light.r, light.g, light.b);
-                let track = if checked { self.ink.unwrap_or_else(|| palette.link()) } else { palette.muted };
-                (light, crate::chip::readable_ink(track, light, 3.0))
-            }
+            (SwitchVariant::Accent, checked) => accent_switch_colors(palette, checked, self.ink),
+        };
+        let track_color = match self.off_ink {
+            Some(off) if !self.checked => off,
+            _ => track_color,
         };
         // The thumb is the strip's selection indicator: it slides between the
         // two slots when `checked` changes and keeps its place across rebuilds.
@@ -2418,6 +2446,20 @@ impl Component for Switch {
     }
 }
 
+/// The thumb and the track of a `SwitchVariant::Accent` switch. The thumb is
+/// light at full strength; the track is `on_ink` or the link color while on,
+/// the muted color while off, darkened until it reads at 3:1 against the thumb.
+pub(crate) fn accent_switch_colors(
+    palette: ComponentPalette,
+    checked: bool,
+    on_ink: Option<Color>,
+) -> (Color, Color) {
+    let light = if palette.is_dark() { palette.text } else { palette.surface };
+    let light = Color::rgb(light.r, light.g, light.b);
+    let track = if checked { on_ink.unwrap_or_else(|| palette.link()) } else { palette.muted };
+    (light, crate::chip::readable_ink(track, light, 3.0))
+}
+
 pub(crate) const fn lighter(color: Color, amount: u8) -> Color {
     Color::rgba(
         color.r.saturating_add(amount),
@@ -2450,8 +2492,8 @@ pub struct Tab {
     /// text color without one, and the sliding selection rests under it,
     /// unless it is disabled.
     pub active: bool,
-    /// Width in logical pixels. `new` keeps it at 40 or more and
-    /// `Tabs::fill_width` replaces it.
+    /// Width in logical pixels. `new` keeps it at 24 or more, the least
+    /// target a pointer is given, and `Tabs::fill_width` replaces it.
     pub width: f32,
     /// `Disabled` keeps the tab in its place, in the muted color, and it cannot
     /// be chosen.
@@ -2466,8 +2508,9 @@ impl Tab {
             label: label.into(),
             icon: None,
             active: false,
-            // Never under 40, and 40 when it is not a number.
-            width: if width.is_finite() { width.max(40.0) } else { 40.0 },
+            // Never under 24, the least pointer target (WCAG 2.5.8), so an
+            // icon alone can sit in a narrow segment; 40 when it is not a number.
+            width: if width.is_finite() { width.max(24.0) } else { 40.0 },
             state: ControlState::Enabled,
         }
     }
@@ -2551,6 +2594,9 @@ pub struct Tabs {
     pub radius: Option<f32>,
     /// Size of the labels in logical pixels, 11.5 by default.
     pub font_size: f32,
+    /// A one pixel outline round the segmented selection, as a raised chip
+    /// on its track. `None`, the default, draws none.
+    pub selection_border: Option<Color>,
 }
 
 impl Tabs {
@@ -2567,7 +2613,15 @@ impl Tabs {
             accent: None,
             radius: None,
             font_size: TAB_FONT_SIZE,
+            selection_border: None,
         }
+    }
+
+    /// Outline the segmented selection one pixel wide in this color, such as
+    /// a white chip that needs an edge to stand on a pale track.
+    pub fn selection_border(mut self, color: Color) -> Self {
+        self.selection_border = Some(color);
+        self
     }
 
     /// Round the selection by `radius` logical pixels and the segmented track
@@ -2650,7 +2704,7 @@ impl Tabs {
             let width = (total - TAB_TRACK_PADDING * 2.0 - self.gap * (count - 1.0)) / count;
             for item in &mut self.items {
                 // The same floor as `Tab::new`.
-                item.width = width.max(40.0);
+                item.width = width.max(24.0);
             }
         }
         self
@@ -2805,13 +2859,17 @@ impl Component for Tabs {
             .background(self.palette.surface)
             .radius(track_radius);
         if let Some(selected_id) = selected_id {
-            strip.tab_selection(
+            let strip = strip.tab_selection(
                 group_id,
                 selected_id,
                 self.palette.selected,
                 selection_radius,
                 self.animation_ms,
-            )
+            );
+            match self.selection_border {
+                Some(color) => strip.tab_selection_border(color),
+                None => strip,
+            }
         } else {
             strip
         }
@@ -2825,6 +2883,7 @@ pub struct SegmentedControl {
     items: Vec<Tab>,
     palette: ComponentPalette,
     height: f32,
+    selection_border: Option<Color>,
 }
 
 impl SegmentedControl {
@@ -2834,7 +2893,15 @@ impl SegmentedControl {
             items,
             palette,
             height: 28.0,
+            selection_border: None,
         }
+    }
+
+    /// Outline the chosen segment one pixel wide in this color: a white chip
+    /// on a pale track, as a desktop settings page draws a theme picker.
+    pub fn selection_border(mut self, color: Color) -> Self {
+        self.selection_border = Some(color);
+        self
     }
 
     /// Set the height, in logical pixels, never below 28. A height that is
@@ -2851,9 +2918,9 @@ impl Component for SegmentedControl {
     fn render(self) -> Element {
         let inner_width = self.items.iter().map(|item| item.width).sum::<f32>()
             + TAB_GAP * self.items.len().saturating_sub(1) as f32;
-        Tabs::new(self.items, self.palette)
-            .height(self.height - TAB_TRACK_PADDING * 2.0)
-            .render()
+        let mut tabs = Tabs::new(self.items, self.palette).height(self.height - TAB_TRACK_PADDING * 2.0);
+        tabs.selection_border = self.selection_border;
+        tabs.render()
             .size(
                 Some(inner_width + TAB_TRACK_PADDING * 2.0),
                 Some(self.height),
@@ -3812,6 +3879,30 @@ mod tests {
                     _ => unreachable!(),
                 })
             );
+        }
+    }
+
+    #[test]
+    fn secondary_hover_and_press_step_away_from_the_surface_on_light_and_dark_palettes() {
+        let dark = ComponentPalette::neutral_dark();
+        let light = ComponentPalette {
+            surface: Color::WHITE,
+            raised: Color::rgb(242, 242, 242),
+            border: Color::rgb(221, 221, 221),
+            text: Color::rgb(25, 25, 25),
+            ..dark
+        };
+        for (palette, hover, pressed) in [
+            (dark, Color::rgb(48, 48, 48), Color::rgb(56, 56, 56)),
+            (light, Color::rgb(232, 232, 232), Color::rgb(224, 224, 224)),
+        ] {
+            let style = Button::new("a", "A", palette)
+                .variant(ButtonVariant::Secondary)
+                .render()
+                .style;
+            assert_eq!(style.background, Some(palette.raised));
+            assert_eq!(style.hover_background, Some(hover));
+            assert_eq!(style.pressed_background, Some(pressed));
         }
     }
 
@@ -5372,6 +5463,40 @@ mod tests {
     }
 
     #[test]
+    fn icon_segments_can_be_narrow_and_the_chosen_one_outlined() {
+        let palette = ComponentPalette::neutral_dark();
+        let edge = Color::rgb(231, 231, 231);
+        let icons = || {
+            vec![
+                Tab::new("system", "", 26.0).icon(Icon::Hash).active(true),
+                Tab::new("light", "", 26.0).icon(Icon::Folder),
+                Tab::new("dark", "", 10.0).icon(Icon::Code),
+            ]
+        };
+        // Three 26 px segments, the last kept at the 24 px floor, on a 2 px track.
+        let segment = SegmentedControl::new(icons(), palette).selection_border(edge).render();
+        assert_eq!(segment.style.width, Some(26.0 + 26.0 + 24.0 + 2.0 * TAB_GAP + 2.0 * TAB_TRACK_PADDING));
+        let mut tree = UiTree::new(segment);
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(200.0, 28.0));
+        let chip = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, color, .. } if *color == palette.selected => Some(*rect),
+            _ => None,
+        });
+        let outline = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::StrokeRect { rect, color, width, .. } if *color == edge => Some((*rect, *width)),
+            _ => None,
+        });
+        assert_eq!(chip.map(|rect| rect.width), Some(26.0));
+        assert_eq!(outline, chip.map(|rect| (rect, 1.0)));
+        // Without it, no outline.
+        let mut plain = UiTree::new(SegmentedControl::new(icons(), palette).render());
+        plain.set_reduced_motion(true);
+        let plain = plain.layout(Size::new(200.0, 28.0));
+        assert!(!plain.commands.iter().any(|command| matches!(command, DrawCommand::StrokeRect { color, .. } if *color == edge)));
+    }
+
+    #[test]
     fn active_tab_hover_preserves_selected_treatment() {
         let palette = ComponentPalette::neutral_dark();
         let tabs = Tabs::new(
@@ -5787,6 +5912,10 @@ mod tests {
                 assert_eq!(paint(accent(checked).disabled()), paint(accent(checked)), "disabled, it keeps its paint");
             }
             assert_eq!(paint(accent(true).ink(ink)), (ink, thumb), "an ink that reads is kept");
+            // An off ink is the host's, kept as given, and leaves the switch on as it was.
+            let pale_gray = Color::rgb(206, 206, 206);
+            assert_eq!(paint(accent(false).off_ink(pale_gray)), (pale_gray, thumb));
+            assert_eq!(paint(accent(true).off_ink(pale_gray)), paint(accent(true)));
             assert_eq!(paint(accent(false).ink(ink)), paint(accent(false)));
         }
         // Where the link and muted colors already read, they are the track.
@@ -5995,7 +6124,7 @@ mod tests {
             let widths: Vec<_> = tabs(bad).items.iter().map(|item| item.width).collect();
             assert_eq!(widths, [50.0, 90.0, 70.0]);
         }
-        assert!(tabs(-10.0).items.iter().all(|item| item.width == 40.0));
+        assert!(tabs(-10.0).items.iter().all(|item| item.width == 24.0));
         assert!(Tabs::new(Vec::new(), palette).fill_width(200.0).items.is_empty());
     }
 

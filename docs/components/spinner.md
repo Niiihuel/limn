@@ -39,7 +39,9 @@ Spinner::new("loading", palette.text)
 ```
 
 `Circle`, the default, is an incomplete circular stroke. `Spokes` is eight
-short radial strokes.
+short radial strokes. `Dots` is four dots on a square: two opposite ones slide
+onto the other diagonal and back, one diagonal and then the other. `Circle`
+and `Spokes` turn every 0.9 s, `Dots` every 1.3 s.
 
 ## Motion
 

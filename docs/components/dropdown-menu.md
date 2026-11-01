@@ -58,7 +58,12 @@ DropdownMenuItem::new("pin", "Pin").icon(Icon::Pin).disabled().into()
 DropdownMenuItem::new("wrap", "Word wrap").selected(state.wrap).into()
 DropdownMenuItem::new("delete", "Delete").destructive(danger).into()
 DropdownMenuItem::new("sync", "Sync").annotation("2 pending").into()
+DropdownMenuItem::new("open:editor", "Editor").picture(app_icon).into()
 ```
+
+`picture(RasterImage)` puts a picture in its own colors in the icon's slot,
+such as the icon of the application an item opens: square, never tinted, in
+place of any `icon`, in plain and two-line rows alike.
 
 `shortcut` shows keycaps at the end of the row and `annotation` plain status
 text. `selected` checks the item, `disabled` (or `enabled(false)`) takes it
@@ -120,6 +125,11 @@ stays open while the pointer or the focus is in one nested in it. One the
 pointer opened closes when the pointer moves to another row of its parent;
 one the keyboard opened closes when the pointer moves to a row that opens a
 submenu, or to any row of a menu with `context_menu_style`.
+
+The submenu stands 3 px clear of its menu's edge, and the pointer crossing
+that gap from its row keeps it open. Near the foot of the window, with no
+room below its row, it ends level with the row instead of being pushed up by
+the edge.
 
 An item with a submenu can also have a `description`: it is a two-line row
 that ends with a chevron, such as a setting that shows its value under its
@@ -210,6 +220,10 @@ shows, always unless set. Submenus take both.
 [ContextMenu](context-menu.md). `hints_in_tooltips(true)` moves shortcuts and
 annotations into each row's hint, for a narrow menu. `inline(true)` renders
 the options in the layout under the trigger instead of floating them.
+`check_ink(color)` draws a selected row's check in that color, such as an
+accent blue, and `selected_fill(false)` leaves the row unfilled, marked by its
+check alone; submenus take both. Shortcuts are keycaps unless the
+[`shortcut_style` token](../tokens.md#shortcuts) is `ShortcutStyle::Text`.
 
 ## Keyboard
 

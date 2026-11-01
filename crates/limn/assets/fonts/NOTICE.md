@@ -1,6 +1,6 @@
 These are the faces `limn::Fonts::bundled()` lays text out in, behind the
 `bundled-fonts` feature: Ubuntu for `FontFamily::Sans` in three weights, Hack
-for `FontFamily::Monospace`, Noto Sans Math and Noto Sans Symbols 2 behind
+for `FontFamily::Monospace` in two, Noto Sans Math and Noto Sans Symbols 2 behind
 both for the characters those lack, and Noto Emoji, tried last. limn-egui
 gives egui the same bytes, and only these. Hosts distributing them must keep each font's copyright and license,
 independently of limn's code license.
@@ -114,12 +114,20 @@ MIT License; Bitstream Vera Sans Mono Copyright 2003 Bitstream Inc., under the
 Bitstream Vera License; DejaVu changes are in the public domain. The full
 notice is in Hack-Regular.txt.
 
+Hack-Bold.ttf is the bold face of the same release, Hack 3.003, distributed
+unmodified under the same notice in Hack-Regular.txt. It has the regular
+face's advance, so bold code stays on the grid.
+
 Upstream project: https://github.com/source-foundry/Hack
+
+Distribution source: https://github.com/source-foundry/Hack/releases/tag/v3.003
 
 SHA-256:
 
 - Hack-Regular.ttf `15f55cc0c85a2988d2b4b3a8cdb5d77fdfbaf319e1bb5309d725db9818fb7125`
+- Hack-Bold.ttf `5bbf531eff7f8a0c2559c9a0656718e2828a012a9b1f60b5f54006d59a4de8d4`
 - Hack-Regular.txt `47c0cccbeec7e8614548cc485588b28149e7874188df5f41b36efebcee285c87`
 
-limn uses it for `FontFamily::Monospace`, and behind the UI faces for the box
-drawing characters they lack.
+limn uses the Regular face for `FontFamily::Monospace`, and behind the UI
+faces for the box drawing characters they lack; the Bold face for
+`FontFamily::MonospaceBold`.

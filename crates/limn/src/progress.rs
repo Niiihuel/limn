@@ -11,6 +11,7 @@ pub struct Progress {
     width: Option<f32>,
     height: f32,
     flat: bool,
+    ring: Option<f32>,
 }
 
 impl Progress {
@@ -23,6 +24,7 @@ impl Progress {
             width: None,
             height: 4.0,
             flat: false,
+            ring: None,
         }
     }
 
@@ -61,6 +63,19 @@ impl Progress {
         self.flat = true;
         self
     }
+
+    /// Draw a ring `diameter` logical pixels across in place of the bar, its
+    /// arc covering the fraction clockwise from twelve o'clock: the gauge of
+    /// how much of a budget is used, such as a model's context. The arc takes
+    /// `palette.text` and the rest of the circle `palette.selected`; `width`,
+    /// `height` and `flat` do not apply. A diameter below 1 is 1, and one
+    /// that is not finite is ignored.
+    pub fn ring(mut self, diameter: f32) -> Self {
+        if diameter.is_finite() {
+            self.ring = Some(diameter.max(1.0));
+        }
+        self
+    }
 }
 
 impl Component for Progress {
@@ -70,6 +85,10 @@ impl Component for Progress {
             Some(said) => bar.accessible(said),
             None => bar,
         };
+        if let Some(diameter) = self.ring {
+            return say(Element::progress_ring(Some(self.fraction), self.palette.selected, self.palette.text)
+                .size(Some(diameter), Some(diameter)));
+        }
         if self.flat {
             let mut pieces = Vec::with_capacity(2);
             if self.fraction > 0.0 {
@@ -166,6 +185,33 @@ mod tests {
         assert_eq!(pieces(0.0), vec![(0.0, 200.0, palette.selected)]);
         assert_eq!(pieces(1.0), vec![(0.0, 200.0, palette.text)]);
         assert_eq!(pieces(f32::NAN), pieces(0.0));
+    }
+
+    #[test]
+    fn a_ring_draws_its_fraction_in_a_square_of_its_diameter() {
+        let palette = ComponentPalette::neutral_dark();
+        let ring = |progress: Progress| {
+            let root = Element::row(vec![progress.render(), Element::spacer().flex(1.0)]);
+            let frame = UiTree::new(root).layout(Size::new(400.0, 40.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::ProgressRing { rect, fraction, track, fill } => Some((rect.width, rect.height, *fraction, *track, *fill)),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            ring(Progress::new(0.25, palette).ring(16.0)),
+            Some((16.0, 16.0, Some(0.25), palette.selected, palette.text))
+        );
+        // The bar's builders do not reach it, and bad values are clamped or ignored.
+        assert_eq!(ring(Progress::new(0.25, palette).width(200.0).height(8.0).flat().ring(16.0)).unwrap().0, 16.0);
+        assert_eq!(ring(Progress::new(7.0, palette).ring(-3.0)).map(|ring| (ring.0, ring.2)), Some((1.0, Some(1.0))));
+        assert_eq!(ring(Progress::new(f32::NAN, palette).ring(16.0)).unwrap().2, Some(0.0));
+        assert_eq!(ring(Progress::new(0.25, palette).ring(f32::INFINITY)), None);
+
+        let root = Element::row(vec![Progress::new(0.4, palette).id("context").ring(16.0).render().accessibility_label("Context used")]);
+        let frame = UiTree::new(root).layout(Size::new(400.0, 40.0));
+        let node = frame.access.iter().find(|node| node.id == "context").unwrap();
+        assert_eq!((node.role, node.name.as_str(), node.value), (Role::ProgressIndicator, "Context used", Some(0.4)));
     }
 
     #[test]

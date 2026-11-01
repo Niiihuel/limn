@@ -106,13 +106,44 @@ SuggestionList::new(anchor, "options", Vec::new(), 0, open, "dismiss", palette)
 `empty` is what the list says in place of the options when there are none.
 The title, hints and note stay.
 
+## Matched text
+
+```rust
+SuggestionItem::new("complete=/plan", "/plan").matched(vec![1..3])
+```
+
+`matched` takes byte ranges of the label to draw in the bold sans, such as
+what the query matched. A range out of bounds or not on a character boundary
+is ignored.
+
+## Compact
+
+```rust
+SuggestionList::new(anchor, "options", items, selected, open, "dismiss", palette)
+    .compact(true)
+    .render()
+```
+
+A compact list is for a command or mention palette: one-line rows, 30 high,
+with the icon, the label and the `detail` at its end. Its items' descriptions
+are not drawn in the rows. The selected item's description shows in a box
+beside the list, on the palette's `raised` fill and `border` edge in its `text`
+ink, top-aligned with its row and 8 px from it, at most 320 wide and ten lines
+high. The box is not interactive and moves with `selected_index`. It is not
+drawn for an item without a description.
+
+`inline_details(true)` sets each `detail` right after its label, as a note on
+it (a session's folder), instead of at the row's end; the label gives way
+first, past three quarters of the row.
+
 ## Width and placement
 
 `width(available)` is the room the host can offer; the list is as wide as
-that allows, between 160 and 352. `placement` takes a `PopoverPlacement`; the
-list opens above the start of its anchor (`TopStart`) unless set. Rows are 42
-high and at most seven show; the rest scroll, and only the rows in view are
-built.
+that allows, between 160 and `max_width` (352 unless set). `max_width(px)`
+raises or lowers that cap. `placement` takes a `PopoverPlacement`; the list
+opens above the start of its anchor (`TopStart`) unless set. Rows are 42 high
+(30 when compact) and at most seven show; the rest scroll, and only the rows
+in view are built.
 
 ## Disabled
 

@@ -3,7 +3,7 @@
 use crate::components::{
     Component, ComponentPalette, ControlState, Kbd, Popover, Tooltip, lighter,
 };
-use crate::menu::{DetailRow, MenuCheck, action_style};
+use crate::menu::{DetailRow, MenuCheck, SWITCH_WIDTH, action_style};
 use crate::{
     Access, Color, Element, FontFamily, ICON_SIZE, Icon, MenuMotion, Point, PopoverPlacement, Role,
     ScrollArea, ScrollbarAppearance, ScrollbarVisibility, SelectorSizing, Separator, Skeleton, TooltipSpec,
@@ -25,6 +25,9 @@ pub struct DropdownMenuItem {
     pub label: String,
     /// A leading icon. `None` leaves the slot empty when another item has one.
     pub icon: Option<Icon>,
+    /// A leading picture in its own colors, such as an application's icon, drawn in the
+    /// icon's slot in place of `icon` and never tinted. Set with `picture`.
+    pub picture: Option<crate::RasterImage>,
     /// A keyboard shortcut drawn as keycaps at the trailing edge. The `shortcut`
     /// builder clears `annotation`; with both set, only the shortcut is drawn.
     pub shortcut: Option<String>,
@@ -40,6 +43,8 @@ pub struct DropdownMenuItem {
     /// The entries of a second menu that opens beside the row. `None` for an
     /// ordinary action.
     pub submenu: Option<Vec<DropdownMenuEntry>>,
+    /// The width of the submenu, in place of this menu's. Set with `submenu_width`.
+    submenu_width: Option<f32>,
     /// The ink of the label and the icon, in place of the palette's text. `None`
     /// for an ordinary action.
     pub destructive: Option<Color>,
@@ -61,11 +66,13 @@ impl DropdownMenuItem {
             action_id: action_id.into(),
             label: label.into(),
             icon: None,
+            picture: None,
             shortcut: None,
             annotation: None,
             selected: false,
             state: ControlState::Enabled,
             submenu: None,
+            submenu_width: None,
             destructive: None,
             description: None,
             detail_mono: false,
@@ -81,6 +88,14 @@ impl DropdownMenuItem {
     /// A leading icon, drawn in the item's ink, or muted while the item is disabled.
     pub fn icon(mut self, icon: Icon) -> Self {
         self.icon = Some(icon);
+        self
+    }
+
+    /// A leading picture in its own colors, such as the icon of the application the item
+    /// opens. It takes the icon's slot, square, and is drawn as it is: not tinted, not muted
+    /// while the item is disabled. It is drawn in place of any `icon`.
+    pub fn picture(mut self, picture: crate::RasterImage) -> Self {
+        self.picture = Some(picture);
         self
     }
 
@@ -182,6 +197,16 @@ impl DropdownMenuItem {
         self
     }
 
+    /// Gives the submenu its own width, for rows longer than this menu's: a
+    /// narrow menu whose submenu holds a longer action. Values that are not
+    /// finite are ignored; without it the submenu is as wide as this menu.
+    pub fn submenu_width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.submenu_width = Some(width.max(0.0));
+        }
+        self
+    }
+
     /// Draw the label and the icon in `ink`, for an action that destroys something. An item
     /// with a `description` ignores it.
     pub fn destructive(mut self, ink: Color) -> Self {
@@ -206,6 +231,17 @@ impl DropdownMenuItem {
     /// circle takes the place of the `selected` tick; `checkbox` replaces it.
     pub fn radio(mut self, checked: bool) -> Self {
         self.check = Some(MenuCheck::Radio(checked));
+        self
+    }
+
+    /// Make the item a switch, on while `on`, for a setting it turns on and
+    /// off. A small track at the end of the row shows it, with its thumb at
+    /// the end it is on at; the platform is told it is a check box in a menu
+    /// and whether it is on, and choosing it reports `action_id`: the host
+    /// flips its own value. The track takes the place of the `selected` tick;
+    /// `checkbox` and `radio` replace it, and it replaces them.
+    pub fn switch(mut self, on: bool) -> Self {
+        self.check = Some(MenuCheck::Switch(on));
         self
     }
 }
@@ -408,6 +444,9 @@ fn group_boundaries(entries: Vec<DropdownMenuEntry>) -> Vec<DropdownMenuEntry> {
     grouped
 }
 
+/// The space between a menu's edge and a submenu beside it.
+const SUBMENU_CLEARANCE: f32 = 3.0;
+
 /// Caller-owned open state with one retained, animated popover. Arrow keys,
 /// Home/End, Tab, Escape and viewport-aware placement come from `UiTree`.
 pub struct DropdownMenu {
@@ -431,6 +470,8 @@ pub struct DropdownMenu {
     inline: bool,
     context_menu_style: bool,
     hints_in_tooltips: bool,
+    check_ink: Option<Color>,
+    selected_fill: bool,
     // A submenu opens under the pointer: only the tree knows when.
     submenu: bool,
     at: Option<Point>,
@@ -469,6 +510,8 @@ impl DropdownMenu {
             inline: false,
             context_menu_style: false,
             hints_in_tooltips: false,
+            check_ink: None,
+            selected_fill: true,
             submenu: false,
             at: None,
         }
@@ -491,6 +534,22 @@ impl DropdownMenu {
     /// action IDs, enabled state and keyboard navigation are unchanged.
     pub fn hints_in_tooltips(mut self, enabled: bool) -> Self {
         self.hints_in_tooltips = enabled;
+        self
+    }
+
+    /// Draw the check of a selected row, and the track of a switch that is on,
+    /// in this color, such as an accent blue, rather than the row's ink or the
+    /// link color. A disabled row's stays muted.
+    pub fn check_ink(mut self, color: Color) -> Self {
+        self.check_ink = Some(color);
+        self
+    }
+
+    /// Whether a selected row is filled with the palette's `selected`; on by
+    /// default. Off, the check alone marks it, and it hovers as the others
+    /// do. A context menu style never fills it.
+    pub fn selected_fill(mut self, fill: bool) -> Self {
+        self.selected_fill = fill;
         self
     }
 
@@ -625,6 +684,7 @@ impl Component for DropdownMenu {
         // bounded and every option remains reachable.
         let row_count = self.entries.len();
         let contextual = self.context_menu_style;
+        let filled = self.selected_fill && !contextual;
         let row_gap = if contextual { 0.0 } else { 2.0 };
         let row_height = if contextual {
             action_style::ROW_HEIGHT
@@ -704,7 +764,7 @@ impl Component for DropdownMenu {
         let reserve_icon = self
             .entries
             .iter()
-            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some()));
+            .any(|entry| matches!(entry, DropdownMenuEntry::Item(item) if item.icon.is_some() || item.picture.is_some()));
         let choices = self
             .entries
             .iter()
@@ -713,6 +773,14 @@ impl Component for DropdownMenu {
             || self.entries.iter().any(
                 |entry| matches!(entry, DropdownMenuEntry::Item(item) if item.check.is_some()),
             );
+        // A menu with switches gives every row's check column a switch's width.
+        let check_width = if self.entries.iter().any(|entry| {
+            matches!(entry, DropdownMenuEntry::Item(item) if matches!(item.check, Some(MenuCheck::Switch(_))))
+        }) {
+            SWITCH_WIDTH
+        } else {
+            icon_size
+        };
         let reserve_submenu = contextual
             && self.entries.iter().any(
                 |entry| matches!(entry, DropdownMenuEntry::Item(item) if item.submenu.is_some()),
@@ -729,7 +797,7 @@ impl Component for DropdownMenu {
         let row_width = viewport_width - if scrolls { gutter } else { 0.0 };
         let palette = self.palette;
         // A row that opens a submenu floats it beside itself on hover.
-        let with_submenu = |row: Element, id: &str, entries: Option<Vec<DropdownMenuEntry>>| {
+        let with_submenu = |row: Element, id: &str, entries: Option<Vec<DropdownMenuEntry>>, width: Option<f32>| {
             let Some(entries) = entries else {
                 return row;
             };
@@ -747,15 +815,20 @@ impl Component for DropdownMenu {
             }
             submenu.submenu = true;
             submenu.scrollbar = self.scrollbar;
+            submenu.check_ink = self.check_ink;
             submenu
                 .scrollbar_visibility(self.scrollbar_visibility)
-                .width(self.width)
+                .width(width.unwrap_or(self.width))
                 .hints_in_tooltips(self.hints_in_tooltips)
+                .selected_fill(self.selected_fill)
                 .placement(PopoverPlacement::RightStart)
                 .motion(self.motion)
                 .max_visible_items(self.max_visible_items)
                 .render()
                 .popover_on_hover()
+                // Measured from the row, which sits `inset` inside the menu's edge:
+                // the submenu stands clear of the menu instead of overlapping it.
+                .popover_gap(inset + SUBMENU_CLEARANCE)
         };
         let rows = self
             .entries
@@ -838,12 +911,14 @@ impl Component for DropdownMenu {
                     let enabled = item.state == ControlState::Enabled;
                     let id = item.action_id.clone();
                     let submenu = if enabled { item.submenu } else { None };
+                    let submenu_width = item.submenu_width;
                     let leads = item.chevron || submenu.is_some();
                     let row = DetailRow {
                         action_id: item.action_id,
                         label: item.label,
                         description: item.description.unwrap_or_default(),
                         icon: item.icon,
+                        picture: item.picture,
                         mono: item.detail_mono,
                         status: item.status,
                         status_width: item.status_width,
@@ -855,6 +930,7 @@ impl Component for DropdownMenu {
                         selected: (reserve_check || !leads).then_some(item.selected),
                         choice: choices,
                         check: item.check,
+                        check_width,
                         enabled,
                         sizing: detail_sizing,
                     }
@@ -868,7 +944,7 @@ impl Component for DropdownMenu {
                         Some(tooltip) => tooltip.wrap(row, id.clone(), palette),
                         None => row,
                     };
-                    with_submenu(row, &id, submenu)
+                    with_submenu(row, &id, submenu, submenu_width)
                 }
                 DropdownMenuEntry::Item(mut item) => {
                     let tooltip_hint = if self.hints_in_tooltips
@@ -892,7 +968,8 @@ impl Component for DropdownMenu {
                         + usize::from(reserve_check)
                         + usize::from(reserve_submenu);
                     let inner_width = (row_width - 2.0 * horizontal_padding).max(0.0);
-                    let control_width = control_count as f32 * icon_size;
+                    let control_width = control_count as f32 * icon_size
+                        + if reserve_check { check_width - icon_size } else { 0.0 };
                     let gap = if control_count == 0 {
                         preferred_gap
                     } else {
@@ -925,11 +1002,14 @@ impl Component for DropdownMenu {
                     }
                     let submenu_id = item.action_id.clone();
                     let submenu = if enabled { item.submenu } else { None };
+                    let submenu_width = item.submenu_width;
                     let ink = item.destructive.unwrap_or(palette.text);
                     let mut children = Vec::with_capacity(5);
                     if reserve_icon {
                         children.push(
-                            if let Some(icon) = item.icon {
+                            if let Some(picture) = item.picture {
+                                crate::menu::picture_slot(picture, icon_size)
+                            } else if let Some(icon) = item.icon {
                                 Element::icon(icon).foreground(if enabled {
                                     ink
                                 } else {
@@ -1002,25 +1082,28 @@ impl Component for DropdownMenu {
                     }
                     if reserve_check {
                         let ink = if enabled { palette.text } else { palette.muted };
+                        // A switch is on in the menu's check ink; disabled, in the muted color, as the text is.
+                        let accent = if enabled { self.check_ink } else { Some(palette.muted) };
                         children.push(
                             if let Some(check) = item.check {
                                 check
-                                    .mark(icon_size.min(ICON_SIZE), ink, palette)
+                                    .mark(icon_size.min(ICON_SIZE), ink, accent, palette)
                                     .centered()
                             } else if item.selected {
-                                Element::icon(Icon::Check).foreground(ink)
+                                Element::icon(Icon::Check)
+                                    .foreground(if enabled { self.check_ink.unwrap_or(ink) } else { ink })
                             } else {
                                 Element::spacer()
                             }
                             .size(
-                                Some(icon_size),
+                                Some(check_width),
                                 if contextual {
                                     None
                                 } else {
                                     Some(content_height)
                                 },
                             )
-                            .min_size(icon_size, content_height),
+                            .min_size(check_width, content_height),
                         );
                     }
                     if reserve_submenu {
@@ -1070,19 +1153,19 @@ impl Component for DropdownMenu {
                     // The popover paints one continuous surface. Resting rows
                     // are transparent so their fills cannot stack with that
                     // surface while the whole menu fades in or out.
-                    let row = if item.selected && !contextual {
+                    let row = if item.selected && filled {
                         row.background(palette.selected)
                     } else {
                         row
                     };
                     let row = palette
                         .interactive_surface(row)
-                        .hover_background(if item.selected && !contextual {
+                        .hover_background(if item.selected && filled {
                             lighter(palette.selected, 8)
                         } else {
                             palette.hover
                         })
-                        .pressed_background(if item.selected && !contextual {
+                        .pressed_background(if item.selected && filled {
                             lighter(palette.selected, 14)
                         } else {
                             palette.selected
@@ -1111,7 +1194,7 @@ impl Component for DropdownMenu {
                     } else {
                         row
                     };
-                    with_submenu(row, &submenu_id, submenu)
+                    with_submenu(row, &submenu_id, submenu, submenu_width)
                 }
             })
             .collect();
@@ -1261,6 +1344,33 @@ mod tests {
 
     fn trigger() -> Element {
         Element::button("trigger", "Open").size(Some(80.0), Some(28.0))
+    }
+
+    #[test]
+    fn a_selector_can_mark_its_choice_with_an_accent_check_and_no_fill() {
+        let palette = ComponentPalette::neutral_dark();
+        let blue = Color::rgb(0x25, 0x7D, 0xE0);
+        let laid = |menu: &dyn Fn(DropdownMenu) -> DropdownMenu| {
+            let entries = vec![
+                DropdownMenuItem::new("opus", "Opus").selected(true).into(),
+                DropdownMenuItem::new("sonnet", "Sonnet").into(),
+            ];
+            let menu = menu(DropdownMenu::new(Element::button("model", "Model"), entries, true, "models", palette)
+                .sizing(SelectorSizing::COMPACT));
+            let mut tree = UiTree::new(menu.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(500.0, 400.0));
+            let row = frame.regions.iter().find(|region| region.id == "opus").unwrap().rect;
+            let filled = frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::FillRect { rect, color, .. } if *rect == row && *color == palette.selected));
+            let check = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Icon { icon: Icon::Check, tint, .. } => Some(*tint),
+                _ => None,
+            });
+            (filled, check)
+        };
+        assert_eq!(laid(&|menu| menu), (true, Some(palette.text)));
+        assert_eq!(laid(&|menu| menu.check_ink(blue).selected_fill(false)), (false, Some(blue)));
     }
 
     #[test]
@@ -2833,6 +2943,69 @@ mod tests {
     }
 
     #[test]
+    fn a_picture_takes_the_icon_slot_square_in_plain_and_detail_rows() {
+        let palette = ComponentPalette::neutral_dark();
+        let picture = |alt: &str| {
+            crate::RasterImage::new(
+                "a".repeat(64),
+                crate::RasterImageFormat::Png,
+                4,
+                std::sync::Arc::from("AAAA"),
+                alt,
+            )
+            .unwrap()
+        };
+        let menu = DropdownMenu::new(
+            Element::button("trigger", "Open in"),
+            vec![
+                DropdownMenuItem::new("editor", "Editor")
+                    .picture(picture("Editor"))
+                    .into(),
+                DropdownMenuItem::new("files", "File manager")
+                    .icon(Icon::Folder)
+                    .into(),
+                DropdownMenuItem::new("other", "Other")
+                    .description("With a line under it")
+                    .picture(picture("Other"))
+                    .into(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        )
+        .render();
+        let frame = UiTree::new(menu).layout(Size::new(360.0, 260.0));
+        let pictures: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::RasterImage { rect, image, .. } => Some((*rect, image.alt())),
+                _ => None,
+            })
+            .collect();
+        let side = SelectorSizing::COMPACT.icon_size;
+        assert_eq!(pictures.len(), 2, "one picture a row that has one");
+        for (rect, _) in &pictures {
+            assert_eq!((rect.width, rect.height), (side, side));
+        }
+        // In line with the icon of the row between them.
+        let folder = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Icon {
+                    icon: Icon::Folder,
+                    rect,
+                    ..
+                } => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        let center = |r: crate::Rect| r.x + r.width / 2.0;
+        assert!((center(pictures[0].0) - center(folder)).abs() < 1.0);
+    }
+
+    #[test]
     fn menu_shortcut_uses_shared_keycaps_and_annotation_stays_plain() {
         let palette = ComponentPalette::neutral_dark();
         let menu = DropdownMenu::new(
@@ -2961,6 +3134,79 @@ mod tests {
             ctrl: false,
         });
         assert_eq!(tree.focused_id(), Some("settings"));
+    }
+
+    #[test]
+    fn a_submenu_stands_clear_of_its_menu_and_ends_at_its_row_near_the_foot() {
+        let more: Vec<DropdownMenuEntry> = (0..8)
+            .map(|n| DropdownMenuItem::new(format!("model-{n}"), format!("Model {n}")).into())
+            .collect();
+        let menu = DropdownMenu::new(
+            Element::button("trigger", "Model"),
+            vec![
+                DropdownMenuItem::new("one", "One").into(),
+                DropdownMenuItem::new("more", "More models").submenu(more).into(),
+            ],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        )
+        .placement(PopoverPlacement::TopStart)
+        .render();
+        let size = Size::new(640.0, 400.0);
+        let mut tree = UiTree::new(Element::column(vec![Element::spacer().flex(1.0), menu]));
+        let frame = tree.layout(size);
+        let row = frame.regions.iter().find(|region| region.id == "more").unwrap().rect;
+        tree.handle_event(UiEvent::PointerMove(Point::new(row.x + 12.0, row.y + 12.0)));
+        let frame = tree.layout(size);
+        let first = frame.regions.iter().find(|region| region.id == "model-0").unwrap().rect;
+        let last = frame.regions.iter().find(|region| region.id == "model-7").unwrap().rect;
+        // The row sits 6 inside its menu, the submenu 3 beyond the menu, its rows 6 inside it.
+        assert_eq!(first.x, row.x + row.width + 6.0 + SUBMENU_CLEARANCE + 6.0);
+        // No room below the row: the submenu ends level with it instead.
+        assert!(last.y + last.height <= row.y + row.height, "{last:?} {row:?}");
+        assert!(last.y + last.height >= row.y + row.height - 12.0, "{last:?} {row:?}");
+        // Crossing the menu's padding and the gap on the way keeps it open.
+        let gap = Point::new(row.x + row.width + 6.0 + SUBMENU_CLEARANCE / 2.0, row.y + 12.0);
+        tree.handle_event(UiEvent::PointerMove(gap));
+        let frame = tree.layout(size);
+        let last = frame.regions.iter().find(|region| region.id == "model-7").unwrap().rect;
+        let inside = Point::new(last.x + 12.0, last.y + 12.0);
+        tree.handle_event(UiEvent::PointerMove(inside));
+        assert_eq!(tree.layout(size).hit_test(inside), Some("model-7"));
+    }
+
+    #[test]
+    fn a_submenu_takes_its_own_width_when_given_one() {
+        let rows = |width: Option<f32>| {
+            let item = DropdownMenuItem::new("view", "View").submenu(vec![
+                DropdownMenuItem::new("default", "Make this the default").into(),
+            ]);
+            let item = match width {
+                Some(width) => item.submenu_width(width),
+                None => item,
+            };
+            let menu = DropdownMenu::new(
+                Element::button("trigger", "Menu"),
+                vec![item.into()],
+                true,
+                "dismiss",
+                ComponentPalette::neutral_dark(),
+            )
+            .width(160.0)
+            .render();
+            let mut tree = UiTree::new(menu);
+            let frame = tree.layout(Size::new(800.0, 360.0));
+            let row = frame.regions.iter().find(|region| region.id == "view").unwrap().rect;
+            tree.handle_event(UiEvent::PointerMove(Point::new(row.x + 12.0, row.y + 12.0)));
+            let frame = tree.layout(Size::new(800.0, 360.0));
+            let child = frame.regions.iter().find(|region| region.id == "default").unwrap().rect;
+            (row.width, child.width)
+        };
+        let (parent, same) = rows(None);
+        assert_eq!(parent, same, "without a width the submenu is as wide as its menu");
+        let (_, wider) = rows(Some(240.0));
+        assert!(wider > same + 70.0, "{wider} vs {same}");
     }
 
     #[test]
@@ -3630,6 +3876,169 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// The switch's track inside `row`: a fill 28 wide and 16 high.
+    fn switch_track(frame: &crate::Frame, row: crate::Rect) -> Option<crate::Rect> {
+        frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, .. }
+                if rect.width == 28.0
+                    && rect.height == 16.0
+                    && rect.y >= row.y
+                    && rect.y + rect.height <= row.y + row.height =>
+            {
+                Some(*rect)
+            }
+            _ => None,
+        })
+    }
+
+    #[test]
+    fn a_switch_that_is_on_takes_the_menus_check_ink() {
+        let palette = ComponentPalette::neutral_dark();
+        let blue = Color::rgb(37, 125, 224);
+        let menu = DropdownMenu::new(
+            trigger(),
+            vec![
+                DropdownMenuItem::new("on", "On").switch(true).into(),
+                DropdownMenuItem::new("off", "Off").switch(false).into(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        )
+        .width(260.0)
+        .check_ink(blue);
+        let mut tree = open_menu(menu);
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        let fill = |id: &str| {
+            let track = switch_track(&frame, region(&frame, id)).expect("a track");
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. } if *rect == track => Some(*color),
+                _ => None,
+            })
+        };
+        assert_eq!(fill("on"), Some(crate::chip::readable_ink(blue, palette.text, 3.0)));
+        assert_ne!(fill("off"), fill("on"));
+    }
+
+    #[test]
+    fn switch_items_draw_a_track_at_the_end_report_their_action_and_say_what_they_are() {
+        let palette = ComponentPalette::neutral_dark();
+        for contextual in [false, true] {
+            let menu = DropdownMenu::new(
+                trigger(),
+                vec![
+                    DropdownMenuItem::new("sync", "Sync every hour")
+                        .switch(true)
+                        .into(),
+                    DropdownMenuItem::new("mirror", "Mirror changes")
+                        .switch(false)
+                        .into(),
+                    DropdownMenuItem::new("plain", "Mark as read").into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .width(260.0);
+            let mut tree = open_menu(if contextual {
+                menu.context_menu_style()
+            } else {
+                menu
+            });
+            let size = Size::new(640.0, 480.0);
+            let frame = tree.layout(size);
+            let node = |id: &str| {
+                frame
+                    .access
+                    .iter()
+                    .find(|node| node.id == id)
+                    .unwrap_or_else(|| panic!("no node {id}"))
+            };
+            for (id, on) in [("sync", true), ("mirror", false)] {
+                let item = node(id);
+                assert_eq!((item.role, item.toggled), (Role::MenuItemCheckBox, Some(on)), "{id}");
+            }
+            assert_eq!(node("plain").role, Role::MenuItem);
+            let inset = if contextual {
+                action_style::HORIZONTAL_PADDING
+            } else {
+                7.0
+            };
+            for id in ["sync", "mirror"] {
+                let row = region(&frame, id);
+                let track = switch_track(&frame, row).unwrap_or_else(|| panic!("no track in {id}"));
+                assert_eq!(
+                    track.x + track.width,
+                    row.x + row.width - inset,
+                    "{id} ends its row"
+                );
+                let plain = region(&frame, "plain");
+                assert_eq!(row.width, plain.width, "{id} is as wide as the menu's rows");
+                // The thumb is round, at the end the switch is on at.
+                let thumb = frame
+                    .commands
+                    .iter()
+                    .find_map(|command| match command {
+                        DrawCommand::FillRect { rect, radius, .. }
+                            if rect.width == 10.0
+                                && rect.height == 10.0
+                                && *radius == 5.0
+                                && rect.x >= track.x
+                                && rect.x + rect.width <= track.x + track.width
+                                && rect.y >= track.y
+                                && rect.y + rect.height <= track.y + track.height =>
+                        {
+                            Some(*rect)
+                        }
+                        _ => None,
+                    })
+                    .unwrap_or_else(|| panic!("no thumb in {id}"));
+                let on_end = thumb.x > track.x + track.width / 2.0;
+                assert_eq!(on_end, id == "sync", "{id}");
+                // Its label stays left of the track.
+                let label = if id == "sync" { "Sync every hour" } else { "Mirror changes" };
+                let (label_at, _, _) = text_of(&frame, label);
+                assert!(label_at.x < track.x, "{id}");
+            }
+            // Choosing a switch reports its action: the host flips the value.
+            for id in ["sync", "mirror"] {
+                let point = center(region(&tree.layout(size), id));
+                tree.handle_event(UiEvent::PointerDown(point));
+                assert_eq!(
+                    tree.handle_event(UiEvent::PointerUp(point)),
+                    vec![UiAction::Clicked { id: id.into() }]
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_two_line_switch_item_keeps_its_track_inside_its_row() {
+        let palette = ComponentPalette::neutral_dark();
+        let menu = DropdownMenu::new(
+            trigger(),
+            vec![
+                DropdownMenuItem::new("sync", "Sync")
+                    .description("Every hour")
+                    .switch(true)
+                    .into(),
+                DropdownMenuItem::new("mark", "Mark as read")
+                    .description("Hides the badge")
+                    .into(),
+            ],
+            true,
+            "dismiss",
+            palette,
+        )
+        .width(260.0);
+        let mut tree = open_menu(menu);
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        let row = region(&frame, "sync");
+        let track = switch_track(&frame, row).expect("no track in a two-line switch");
+        assert!(track.y >= row.y && track.y + track.height <= row.y + row.height);
+        assert!(track.x + track.width <= row.x + row.width);
     }
 
     #[test]

@@ -1,4 +1,4 @@
-use crate::{Color, DrawCommand, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, DrawCommand, Point, RasterImage, Rect, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -27,6 +27,10 @@ pub enum PopoverPlacement {
     /// To the left of the anchor, their tops aligned. It goes to the right
     /// instead when the left has no room.
     LeftStart,
+    /// To the right of the anchor, its top aligned, the gap away. When the right
+    /// has no room it sits inside the anchor's top-right corner, the gap in from
+    /// the top and from the right: a column of actions beside a picture.
+    RightCorner,
     /// Centered in the viewport, wherever the anchor is: a modal. The gap is
     /// not used.
     Center,
@@ -44,6 +48,10 @@ pub enum Cursor {
     ResizeColumn,
     /// Two arrows pointing up and down: the boundary between two rows.
     ResizeRow,
+    /// No pointer at all, such as over a video playing full screen once the
+    /// pointer has rested on it a while. The pointer still moves and
+    /// presses; the host decides when it hides and shows it again.
+    Hidden,
 }
 
 /// Side of its target a coach mark sits on. The engine takes the opposite
@@ -371,6 +379,9 @@ pub enum Icon {
     Archive,
     /// A box with an arrow leaving it upwards.
     ArchiveUp,
+    /// A box with an arrow leaving it up and to the right: a link that
+    /// opens outside the application.
+    ExternalLink,
     /// A waste bin: delete.
     Trash,
     /// A pencil: edit or rename.
@@ -549,6 +560,21 @@ pub enum SpinnerVariant {
     Circle,
     /// Eight short radial strokes, similar to a rotating Loader.
     Spokes,
+    /// Four dots on a square; two opposite ones slide onto the other
+    /// diagonal and back, one diagonal and then the other, as Claude
+    /// Desktop's running turn shows.
+    Dots,
+}
+
+impl SpinnerVariant {
+    /// Seconds for one full turn of the painted angle.
+    pub(crate) fn period(self) -> f32 {
+        match self {
+            Self::Circle | Self::Spokes => 0.9,
+            // Each diagonal comes about every 0.65 s, measured on Desktop.
+            Self::Dots => 1.3,
+        }
+    }
 }
 
 /// The face a text is measured and painted in. The host chooses the font
@@ -558,6 +584,10 @@ pub enum FontFamily {
     /// The host's fixed-width face.
     #[default]
     Monospace,
+    /// The bold face of the fixed-width family, as wide as `Monospace`: a
+    /// real face the host provides. A host without one paints
+    /// [`Self::Monospace`].
+    MonospaceBold,
     /// The host's proportional face, at its regular weight.
     Sans,
     /// Sans slanted by the host. It measures exactly as [`Self::Sans`].
@@ -847,6 +877,9 @@ pub struct TabSelection {
     pub selected_id: String,
     /// Fill of the indicator, painted under the tabs.
     pub color: Color,
+    /// A one pixel outline round the indicator, as a segmented control's
+    /// raised chip has. `None`, the default, draws none.
+    pub border: Option<Color>,
     /// Corner radius of the indicator, in logical pixels.
     pub radius: f32,
     /// Time the indicator takes to settle on a newly selected tab, in
@@ -905,6 +938,8 @@ pub(crate) struct Kept {
     /// The ID a paint scale is kept under, its factor, and the point it grows
     /// from as shares of the element's width and height.
     pub(crate) scale: Option<(String, f32, Point)>,
+    /// The ID a paint slide is kept under, and how far down it paints.
+    pub(crate) slide: Option<(String, f32)>,
     /// Set by [`Element::animate_move`]: the ID its place is kept under.
     pub(crate) moving: Option<String>,
     /// Set by [`Element::wrap`]: a row moves children onto more lines.
@@ -934,6 +969,17 @@ pub(crate) struct Kept {
     pub(crate) extend_pushes: bool,
     /// Painted only: no pointer target, focus stop or node inside it.
     pub(crate) inert: bool,
+    /// Set by [`Element::pulse_period`]: one cycle of a skeleton's pulse, in
+    /// milliseconds, in place of the skeleton's own.
+    pub(crate) pulse_ms: Option<u16>,
+    /// Set by [`Element::focus_area`]: a clickable that only takes the focus.
+    pub(crate) focus_area: bool,
+    /// Set by [`Element::caret`]: the control whose focus shows the element,
+    /// and where its caret is, which restarts the blink when it moves.
+    pub(crate) caret: Option<(String, usize)>,
+    /// Set by [`Sketch`](crate::Sketch): a press and drag over the element
+    /// make marks instead of clicks.
+    pub(crate) sketch: Option<crate::sketch::SketchStyle>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1510,6 +1556,9 @@ pub enum ElementKind {
         /// Scale the entrance starts from and the exit ends at; 1 does not
         /// scale. [`Element::popover_open_scale`] keeps it within 0.5..=1.25.
         open_scale: f32,
+        /// The rectangle and corner radius the pictures grow from; see
+        /// [`Element::popover_morph`].
+        morph: Option<(Rect, f32)>,
         /// Names the view the surface shows. When it changes under the same
         /// `dismiss_id`, the old content cross-fades into the new.
         view_key: Option<String>,
@@ -1737,6 +1786,8 @@ pub enum ElementKind {
         /// Shown while the value is empty and the editor does not have the
         /// focus.
         placeholder: String,
+        /// Keep the placeholder while the editor is focused and still empty.
+        persistent_placeholder: bool,
         /// Maximum outer height when content determines the editor's height.
         auto_grow: Option<f32>,
         /// Keep CRLF/CR bytes in editable values instead of normalizing to LF.
@@ -1766,6 +1817,18 @@ pub enum ElementKind {
         color: Color,
         /// Which outline is drawn.
         variant: SpinnerVariant,
+    },
+    /// Passive working indicator: a pen writes a stroke, which fades. Its phase
+    /// is retained by stable ID in UiTree, with the spinners'.
+    Scribble {
+        /// Stable ID under which the tree keeps when the pen began to write.
+        id: String,
+        /// Color of the stroke.
+        color: Color,
+        /// Width of the stroke in logical pixels.
+        stroke: f32,
+        /// What it writes and the pen it writes with, when not the default flourish.
+        drawing: Option<std::sync::Arc<crate::scribble::Drawing>>,
     },
     /// A record behind its sleeve. Its slide and its turn are retained by
     /// stable ID in UiTree.
@@ -2152,9 +2215,20 @@ impl Element {
                 group_id: group_id.into(),
                 selected_id: selected_id.into(),
                 color,
+                border: None,
                 radius: radius.max(0.0),
                 animation_ms,
             });
+        }
+        self
+    }
+
+    /// Outline a tab strip's selection, set with
+    /// [`tab_selection`](Self::tab_selection), one pixel wide in this color.
+    /// It does nothing before the selection is set or on another element.
+    pub fn tab_selection_border(mut self, color: Color) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            selection.border = Some(color);
         }
         self
     }
@@ -2259,6 +2333,20 @@ impl Element {
         self
     }
 
+    /// Place this element and what is inside it `y` logical pixels below its
+    /// slot, as [`Element::translate`] does; a negative `y` places it above.
+    /// Its siblings keep their places, so a parent that clips shows a window
+    /// onto a taller column, as [`crate::RollingNumber`] does. The offset is
+    /// kept under `id` and springs to a new one over three `move_ms`, long
+    /// enough to see what passes, or changes at once under reduced motion. An
+    /// offset that is not finite is ignored.
+    pub fn animate_slide(mut self, id: impl Into<String>, y: f32) -> Self {
+        if y.is_finite() {
+            self.kept.get_or_insert_default().slide = Some((id.into(), y));
+        }
+        self
+    }
+
     /// Glide to a new place in the parent's flow instead of jumping there.
     /// When the column or row holding this element lays it out somewhere
     /// else than on the last frame, as when a list reorders or a row above it
@@ -2349,6 +2437,13 @@ impl Element {
         if let Some(travel) = self.slider.as_mut() {
             travel.vertical = true;
         }
+        self
+    }
+
+    /// Make a clickable a sketch surface: a press and drag over it make a mark of
+    /// the style's tool instead of a click. See [`Sketch`](crate::Sketch).
+    pub(crate) fn sketch(mut self, style: crate::sketch::SketchStyle) -> Self {
+        self.kept.get_or_insert_default().sketch = Some(style);
         self
     }
 
@@ -2583,6 +2678,29 @@ impl Element {
         self
     }
 
+    /// A region that takes the keyboard focus under `id` on a press or Tab,
+    /// and reports nothing: the host reads the keys while it has the focus,
+    /// as for a terminal. A press inside it still selects text.
+    ///
+    /// Around a host-fed [`Element::surface`] it makes an input surface, such
+    /// as an embedded page: while [`crate::UiTree::focused_id`] is `id` the host
+    /// sends it the keys, text and input method events instead of the tree, and
+    /// wherever `frame.press_region(point)` is this region it sends it the
+    /// pointer, relative to the region's corner.
+    pub fn focus_area(id: impl Into<String>, child: Self) -> Self {
+        let mut element = Self::clickable(id, child);
+        element.kept.get_or_insert_default().focus_area = true;
+        element
+    }
+
+    /// Paint this element only while `id` has the focus, and then on the
+    /// caret clock fields share: blinking, steady under reduced motion, and
+    /// shown again at once when `offset` changes.
+    pub(crate) fn caret(mut self, id: impl Into<String>, offset: usize) -> Self {
+        self.kept.get_or_insert_default().caret = Some((id.into(), offset));
+        self
+    }
+
     /// The opposite of [`reveal_on_hover`](Self::reveal_on_hover): painted
     /// except while the pointer is over the
     /// [`hover_region`](Self::hover_region) around it, fading the same way.
@@ -2639,6 +2757,7 @@ impl Element {
                 animation_ms: crate::tokens().motion.enter_ms,
                 close_animation_ms: None,
                 open_scale: 1.0,
+                morph: None,
                 view_key: None,
                 hover_open: false,
                 backdrop: true,
@@ -2802,6 +2921,20 @@ impl Element {
         } = &mut self.kind
         {
             *close_animation_ms = Some(duration);
+        }
+        self
+    }
+
+    /// Grow the pictures the surface paints from `origin`, a rectangle in window
+    /// coordinates, and their corner radius from `radius` to their own, over the
+    /// entrance. The exit runs the same change backwards, so the surface stays
+    /// mounted until it has. A rectangle that is not finite is ignored.
+    pub fn popover_morph(mut self, origin: Rect, radius: f32) -> Self {
+        let finite = [origin.x, origin.y, origin.width, origin.height, radius].iter().all(|value| value.is_finite());
+        if let ElementKind::Popover { morph, .. } = &mut self.kind {
+            if finite {
+                *morph = Some((origin, radius.max(0.0)));
+            }
         }
         self
     }
@@ -3194,9 +3327,14 @@ impl Element {
         .padding(8.0)
     }
 
-    /// Keep a single-line input's placeholder visible while focused and empty.
+    /// Keep a text input's or a text area's placeholder visible while focused
+    /// and empty.
     pub fn persistent_placeholder(mut self, visible: bool) -> Self {
         if let ElementKind::TextInput {
+            persistent_placeholder,
+            ..
+        }
+        | ElementKind::TextArea {
             persistent_placeholder,
             ..
         } = &mut self.kind
@@ -3286,6 +3424,7 @@ impl Element {
             id: id.into(),
             initial_value: initial_value.into(),
             placeholder: placeholder.into(),
+            persistent_placeholder: false,
             auto_grow: None,
             preserve_line_endings: false,
             enter_submits: false,
@@ -3428,6 +3567,13 @@ impl Element {
         })
     }
 
+    /// One cycle of a [`skeleton`](Self::skeleton)'s pulse, from `base` to
+    /// `highlight` and back, in milliseconds.
+    pub(crate) fn pulse_period(mut self, ms: u16) -> Self {
+        self.kept.get_or_insert_default().pulse_ms = Some(ms);
+        self
+    }
+
     /// A passive spinner in `color`, whose phase UiTree keeps by `id`. It has
     /// no size of its own: give it one with `size`.
     pub fn spinner(id: impl Into<String>, color: Color, variant: SpinnerVariant) -> Self {
@@ -3435,6 +3581,26 @@ impl Element {
             id: id.into(),
             color,
             variant,
+        })
+    }
+
+    /// A passive scribble in `color`, a pen writing a stroke whose phase UiTree
+    /// keeps by `id`. It has no size of its own: give it one with `size`.
+    pub fn scribble(id: impl Into<String>, color: Color, stroke: f32) -> Self {
+        Self::scribble_drawing(id, color, stroke, None)
+    }
+
+    pub(crate) fn scribble_drawing(
+        id: impl Into<String>,
+        color: Color,
+        stroke: f32,
+        drawing: Option<std::sync::Arc<crate::scribble::Drawing>>,
+    ) -> Self {
+        Self::new(ElementKind::Scribble {
+            id: id.into(),
+            color,
+            stroke,
+            drawing,
         })
     }
 
@@ -4212,5 +4378,53 @@ mod surface_tests {
         // The frame carries the name only: new pixels never rebuild the tree.
         assert_eq!(surfaces, [(Rect::new(0.0, 20.0, 300.0, 200.0), "page-pixels", "Página", 1.0)]);
         assert!(frame.regions.iter().any(|region| region.id == "page" && region.rect == surfaces[0].0));
+    }
+
+    #[test]
+    fn a_surface_in_a_focus_area_takes_the_focus_and_leaves_input_to_the_host() {
+        use crate::{HitKind, Point, UiEvent};
+        let root = Element::column(vec![
+            Element::button("before", "Before"),
+            Element::focus_area("page", Element::surface("page-pixels", "Page")).flex(1.0),
+        ]);
+        let mut tree = UiTree::new(root);
+        let frame = tree.layout(Size::new(300.0, 220.0));
+        let inside = Point::new(150.0, 150.0);
+        let region = frame.press_region(inside).unwrap();
+        assert_eq!((region.id.as_str(), region.kind), ("page", HitKind::Focus));
+        // A press focuses it and reports nothing: what it means is the host's.
+        assert!(tree.handle_event(UiEvent::PointerDown(inside)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(inside)).is_empty());
+        assert_eq!(tree.focused_id(), Some("page"));
+        // Tab reaches it from the control before it.
+        tree.focus("before");
+        tree.handle_event(UiEvent::Key { key: crate::Key::Tab, shift: false, ctrl: false });
+        assert_eq!(tree.focused_id(), Some("page"));
+    }
+
+    #[test]
+    fn a_surface_is_drawn_over_only_by_what_lands_on_its_visible_part() {
+        use crate::Color;
+        let size = Size::new(300.0, 200.0);
+        let page = || Element::surface("page-pixels", "Page").size(Some(200.0), Some(200.0));
+        let card = |w: f32| Element::spacer().background(Color::rgb(200, 0, 0)).size(Some(w), Some(40.0));
+        // Beside it or under it, nothing covers it; a surface not drawn is not covered either.
+        let mut tree = UiTree::new(Element::row(vec![page(), card(100.0)]));
+        let frame = tree.layout(size);
+        assert!(!frame.drawn_over("page-pixels"));
+        assert!(!frame.drawn_over("elsewhere"));
+        let below = Element::column(vec![Element::surface("page-pixels", "Page").size(Some(200.0), Some(150.0)), Element::text("Couldn't open the page")]);
+        let mut tree = UiTree::new(below);
+        assert!(!tree.layout(size).drawn_over("page-pixels"));
+        // Stacked after it, a menu covers it.
+        let mut tree = UiTree::new(Element::stack(vec![page(), card(60.0)]));
+        assert!(tree.layout(size).drawn_over("page-pixels"));
+        // Painted before it, or clipped away from it, it does not.
+        let mut tree = UiTree::new(Element::stack(vec![card(60.0), page()]));
+        assert!(!tree.layout(size).drawn_over("page-pixels"));
+        // Moved out of a clip, it would land on the page; the clip keeps it off.
+        let hidden = Element::row(vec![card(60.0).translate(crate::Point::new(120.0, 0.0))]).size(Some(100.0), Some(40.0)).clip_children();
+        let mut tree = UiTree::new(Element::stack(vec![page(), Element::column(vec![hidden])]));
+        assert!(!tree.layout(size).drawn_over("page-pixels"));
     }
 }

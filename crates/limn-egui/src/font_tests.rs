@@ -56,6 +56,42 @@ fn a_hosts_ui_face_is_what_egui_measures_and_its_missing_weights_take_it() {
 }
 
 #[test]
+fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
+    let bundled = font_definitions();
+    let face = |name: &str| (*bundled.font_data[name]).clone();
+    let with = |medium: bool| {
+        font_definitions_with(UiFaces {
+            regular: face("Sans-Bold"),
+            medium: medium.then(|| face("Sans-Medium")),
+            bold: None,
+        })
+    };
+    let chosen = with(true);
+    let family = |definitions: &egui::FontDefinitions, family: egui::FontFamily| definitions.families[&family].clone();
+    let sans = family(&chosen, egui::FontFamily::Proportional);
+    assert_eq!(sans[0], "limn-ui-regular");
+    assert_eq!(sans[1..], family(&bundled, egui::FontFamily::Proportional));
+    let medium = family(&chosen, egui::FontFamily::Name(SANS_MEDIUM.into()));
+    assert_eq!(medium[0], "limn-ui-medium");
+    assert_eq!(medium[1..], family(&bundled, egui::FontFamily::Name(SANS_MEDIUM.into())));
+    let bold = family(&chosen, egui::FontFamily::Name(SANS_BOLD.into()));
+    assert_eq!(bold[0], "limn-ui-regular", "a weight left out is the regular face");
+    assert_eq!(
+        family(&chosen, egui::FontFamily::Monospace),
+        family(&bundled, egui::FontFamily::Monospace),
+        "code keeps its face"
+    );
+    assert!(!with(false).font_data.contains_key("limn-ui-medium"));
+    // Installed, a tree measures with the chosen face.
+    let ctx = egui::Context::default();
+    ctx.set_fonts(chosen);
+    let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
+    output.textures_delta.clear();
+    assert_eq!(egui_family(&ctx, FontFamily::SansBold), egui::FontFamily::Name(SANS_BOLD.into()));
+    assert!(covers(&ctx, &egui::FontFamily::Proportional, '𝓡'));
+}
+
+#[test]
 fn mathematical_names_have_real_glyphs_in_every_limn_family() {
     let baseline = context(false);
     let ctx = context(true);
@@ -75,6 +111,7 @@ fn mathematical_names_have_real_glyphs_in_every_limn_family() {
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
+        FontFamily::MonospaceBold,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
         for ch in sample.chars().filter(|ch| !ch.is_whitespace()).chain(
@@ -89,6 +126,18 @@ fn mathematical_names_have_real_glyphs_in_every_limn_family() {
             );
         }
     }
+}
+
+#[test]
+fn bold_code_is_hack_bold_and_as_wide_as_the_regular_face() {
+    let ctx = context(true);
+    let (regular, bold) = (egui_family(&ctx, FontFamily::Monospace), egui_family(&ctx, FontFamily::MonospaceBold));
+    ctx.fonts(|fonts| assert_eq!(fonts.definitions().families[&bold].first().map(String::as_str), Some("Hack-Bold")));
+    let ascii: String = (' '..='~').collect();
+    let width = |family| {
+        ctx.fonts_mut(|fonts| fonts.layout_no_wrap(ascii.clone(), egui::FontId::new(14.0, family), Color32::WHITE).size().x)
+    };
+    assert_eq!(width(bold), width(regular));
 }
 
 #[test]
@@ -129,6 +178,7 @@ fn decorative_symbols_have_real_glyphs_in_every_limn_family() {
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
+        FontFamily::MonospaceBold,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
         let names = &definitions.families[&font.family];
@@ -186,6 +236,7 @@ fn emoji_catalog_scalars_have_real_glyphs_in_every_family() {
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
+        FontFamily::MonospaceBold,
     ] {
         let names = &definitions.families[&egui_family(&ctx, family)];
         assert_eq!(names.last().map(String::as_str), Some("NotoEmoji"));
@@ -250,6 +301,7 @@ fn emoji_fallback_preserves_existing_text_metrics() {
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
+        FontFamily::MonospaceBold,
     ] {
         let font = egui::FontId::new(16.0, egui_family(&ctx, family));
         let faces: Vec<_> = previous.families[&font.family]
@@ -307,6 +359,7 @@ fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
         FontFamily::SansBold,
         FontFamily::SansBoldItalic,
         FontFamily::Monospace,
+        FontFamily::MonospaceBold,
     ] {
         let font = egui::FontId::new(24.0, egui_family(&ctx, family));
         let painted = |text: &str| {
