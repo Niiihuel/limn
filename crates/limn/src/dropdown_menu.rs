@@ -43,6 +43,8 @@ pub struct DropdownMenuItem {
     /// The entries of a second menu that opens beside the row. `None` for an
     /// ordinary action.
     pub submenu: Option<Vec<DropdownMenuEntry>>,
+    /// The width of the submenu, in place of this menu's. Set with `submenu_width`.
+    submenu_width: Option<f32>,
     /// The ink of the label and the icon, in place of the palette's text. `None`
     /// for an ordinary action.
     pub destructive: Option<Color>,
@@ -70,6 +72,7 @@ impl DropdownMenuItem {
             selected: false,
             state: ControlState::Enabled,
             submenu: None,
+            submenu_width: None,
             destructive: None,
             description: None,
             detail_mono: false,
@@ -191,6 +194,16 @@ impl DropdownMenuItem {
     /// Opens a second menu beside this row on pointer hover or keyboard focus.
     pub fn submenu(mut self, entries: Vec<DropdownMenuEntry>) -> Self {
         self.submenu = Some(entries);
+        self
+    }
+
+    /// Gives the submenu its own width, for rows longer than this menu's: a
+    /// narrow menu whose submenu holds a longer action. Values that are not
+    /// finite are ignored; without it the submenu is as wide as this menu.
+    pub fn submenu_width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.submenu_width = Some(width.max(0.0));
+        }
         self
     }
 
@@ -784,7 +797,7 @@ impl Component for DropdownMenu {
         let row_width = viewport_width - if scrolls { gutter } else { 0.0 };
         let palette = self.palette;
         // A row that opens a submenu floats it beside itself on hover.
-        let with_submenu = |row: Element, id: &str, entries: Option<Vec<DropdownMenuEntry>>| {
+        let with_submenu = |row: Element, id: &str, entries: Option<Vec<DropdownMenuEntry>>, width: Option<f32>| {
             let Some(entries) = entries else {
                 return row;
             };
@@ -805,7 +818,7 @@ impl Component for DropdownMenu {
             submenu.check_ink = self.check_ink;
             submenu
                 .scrollbar_visibility(self.scrollbar_visibility)
-                .width(self.width)
+                .width(width.unwrap_or(self.width))
                 .hints_in_tooltips(self.hints_in_tooltips)
                 .selected_fill(self.selected_fill)
                 .placement(PopoverPlacement::RightStart)
@@ -898,6 +911,7 @@ impl Component for DropdownMenu {
                     let enabled = item.state == ControlState::Enabled;
                     let id = item.action_id.clone();
                     let submenu = if enabled { item.submenu } else { None };
+                    let submenu_width = item.submenu_width;
                     let leads = item.chevron || submenu.is_some();
                     let row = DetailRow {
                         action_id: item.action_id,
@@ -930,7 +944,7 @@ impl Component for DropdownMenu {
                         Some(tooltip) => tooltip.wrap(row, id.clone(), palette),
                         None => row,
                     };
-                    with_submenu(row, &id, submenu)
+                    with_submenu(row, &id, submenu, submenu_width)
                 }
                 DropdownMenuEntry::Item(mut item) => {
                     let tooltip_hint = if self.hints_in_tooltips
@@ -988,6 +1002,7 @@ impl Component for DropdownMenu {
                     }
                     let submenu_id = item.action_id.clone();
                     let submenu = if enabled { item.submenu } else { None };
+                    let submenu_width = item.submenu_width;
                     let ink = item.destructive.unwrap_or(palette.text);
                     let mut children = Vec::with_capacity(5);
                     if reserve_icon {
@@ -1179,7 +1194,7 @@ impl Component for DropdownMenu {
                     } else {
                         row
                     };
-                    with_submenu(row, &submenu_id, submenu)
+                    with_submenu(row, &submenu_id, submenu, submenu_width)
                 }
             })
             .collect();
@@ -3159,6 +3174,39 @@ mod tests {
         let inside = Point::new(last.x + 12.0, last.y + 12.0);
         tree.handle_event(UiEvent::PointerMove(inside));
         assert_eq!(tree.layout(size).hit_test(inside), Some("model-7"));
+    }
+
+    #[test]
+    fn a_submenu_takes_its_own_width_when_given_one() {
+        let rows = |width: Option<f32>| {
+            let item = DropdownMenuItem::new("view", "View").submenu(vec![
+                DropdownMenuItem::new("default", "Make this the default").into(),
+            ]);
+            let item = match width {
+                Some(width) => item.submenu_width(width),
+                None => item,
+            };
+            let menu = DropdownMenu::new(
+                Element::button("trigger", "Menu"),
+                vec![item.into()],
+                true,
+                "dismiss",
+                ComponentPalette::neutral_dark(),
+            )
+            .width(160.0)
+            .render();
+            let mut tree = UiTree::new(menu);
+            let frame = tree.layout(Size::new(800.0, 360.0));
+            let row = frame.regions.iter().find(|region| region.id == "view").unwrap().rect;
+            tree.handle_event(UiEvent::PointerMove(Point::new(row.x + 12.0, row.y + 12.0)));
+            let frame = tree.layout(Size::new(800.0, 360.0));
+            let child = frame.regions.iter().find(|region| region.id == "default").unwrap().rect;
+            (row.width, child.width)
+        };
+        let (parent, same) = rows(None);
+        assert_eq!(parent, same, "without a width the submenu is as wide as its menu");
+        let (_, wider) = rows(Some(240.0));
+        assert!(wider > same + 70.0, "{wider} vs {same}");
     }
 
     #[test]
