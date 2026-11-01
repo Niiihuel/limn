@@ -555,6 +555,22 @@ struct SurfaceCache {
     entries: HashMap<String, SurfaceTexture>,
     /// Surfaces the host paints itself: the callback it gave, added in their place.
     painted: HashMap<String, egui::PaintCallback>,
+    /// Surfaces showing a texture the host registered with the renderer itself: its id,
+    /// its size in pixels and the scale it was rendered for.
+    textures: HashMap<String, (egui::TextureId, [usize; 2], f32)>,
+}
+
+impl SurfaceCache {
+    /// Textures of another context are not this one's.
+    fn of(&mut self, ctx: &egui::Context) -> &mut Self {
+        if self.context.as_ref() != Some(ctx) {
+            self.entries.clear();
+            self.textures.clear();
+            self.painted.clear();
+            self.context = Some(ctx.clone());
+        }
+        self
+    }
 }
 
 thread_local! {
@@ -576,16 +592,14 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
     }
     SURFACE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if cache.context.as_ref() != Some(ctx) {
-            cache.entries.clear();
-            cache.painted.clear();
-            cache.context = Some(ctx.clone());
-        }
+        let cache = cache.of(ctx);
         let SurfaceFrame { image, pixels_per_point, part } = frame;
-        // A part of a surface the host paints has no texture of limn's to go into.
-        if part.is_some() && cache.painted.contains_key(id) {
+        // A part of a frame shown from a texture of the host's, or painted by the host, has
+        // nothing to be written into.
+        if part.is_some() && (cache.textures.contains_key(id) || cache.painted.contains_key(id)) {
             return false;
         }
+        cache.textures.remove(id);
         cache.painted.remove(id);
         match (cache.entries.get_mut(id), part) {
             (Some(entry), Some((frame, at))) => {
@@ -613,6 +627,28 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
     })
 }
 
+/// Show a texture the host registered with the renderer itself (egui-wgpu's
+/// `register_native_texture`), `size` pixels rendered for `pixels_per_point`,
+/// wherever a [`DrawCommand::Surface`] names `id`: a frame that is already on
+/// the GPU is drawn from there, never copied. It takes the place of the
+/// surface's own texture, which is freed, until a [`SurfaceFrame`] is presented
+/// again. The host keeps the texture alive while the surface shows it. A size
+/// or scale a [`SurfaceFrame`] could not have is refused: `false`, and the
+/// surface is left as it was.
+pub fn present_surface_texture(ctx: &egui::Context, id: &str, texture: egui::TextureId, size: [usize; 2], pixels_per_point: f32) -> bool {
+    if !SurfaceFrame::bounded(size, size[0].saturating_mul(size[1]).saturating_mul(4), 4, pixels_per_point) {
+        return false;
+    }
+    SURFACE_CACHE.with(|cache| {
+        let mut cache = cache.borrow_mut();
+        let cache = cache.of(ctx);
+        cache.entries.remove(id);
+        cache.painted.remove(id);
+        cache.textures.insert(id.to_owned(), (texture, size, pixels_per_point));
+    });
+    true
+}
+
 /// Have the host paint the surface `id` itself: wherever a
 /// [`DrawCommand::Surface`] names it, limn adds `paint` in its place in the
 /// paint order, its rectangle the surface's area snapped to the pixel grid as
@@ -624,12 +660,9 @@ pub fn present_surface(ctx: &egui::Context, id: &str, frame: SurfaceFrame) -> bo
 pub fn present_surface_paint(ctx: &egui::Context, id: &str, paint: egui::PaintCallback) {
     SURFACE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
-        if cache.context.as_ref() != Some(ctx) {
-            cache.entries.clear();
-            cache.painted.clear();
-            cache.context = Some(ctx.clone());
-        }
+        let cache = cache.of(ctx);
         cache.entries.remove(id);
+        cache.textures.remove(id);
         cache.painted.insert(id.to_owned(), paint);
     });
 }
@@ -639,6 +672,7 @@ pub fn forget_surface(id: &str) {
     SURFACE_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         cache.entries.remove(id);
+        cache.textures.remove(id);
         cache.painted.remove(id);
     });
 }
@@ -653,8 +687,13 @@ fn surface_paint(ui: &egui::Ui, id: &str) -> Option<egui::PaintCallback> {
 fn surface_texture(ui: &egui::Ui, id: &str) -> Option<(egui::TextureId, [usize; 2], f32)> {
     SURFACE_CACHE.with(|cache| {
         let cache = cache.borrow();
-        let entry = cache.entries.get(id).filter(|_| cache.context.as_ref() == Some(ui.ctx()))?;
-        Some((entry.texture.id(), entry.texture.size(), entry.pixels_per_point))
+        if cache.context.as_ref() != Some(ui.ctx()) {
+            return None;
+        }
+        cache.textures.get(id).copied().or_else(|| {
+            let entry = cache.entries.get(id)?;
+            Some((entry.texture.id(), entry.texture.size(), entry.pixels_per_point))
+        })
     })
 }
 
@@ -3260,6 +3299,42 @@ mod tests {
         present_surface_paint(&ctx, "page", egui::PaintCallback { rect: EguiRect::NOTHING, callback: marker });
         forget_surface("page");
         assert!(paint(&ctx).is_empty());
+    }
+
+    #[test]
+    fn a_surface_shows_a_texture_of_the_host_s_in_place_of_its_own_until_a_frame_comes_again() {
+        let solid = |size: [usize; 2]| SurfaceFrame::from_rgb(size, &vec![9; size[0] * size[1] * 3], 2.0).unwrap();
+        let ctx = egui::Context::default();
+        let theirs = egui::TextureId::User(7);
+        // What a pass would draw, and the textures it freed.
+        let pass = |ctx: &egui::Context| {
+            let mut found = None;
+            let mut delta = ctx.run_ui(Default::default(), |ui| found = surface_texture(ui, "page")).textures_delta;
+            let free = delta.free.clone();
+            delta.clear();
+            (found, free)
+        };
+        let shown = |ctx: &egui::Context| pass(ctx).0;
+        assert!(present_surface(&ctx, "page", solid([64, 48])));
+        let own = shown(&ctx).unwrap().0;
+
+        // The host's texture is drawn, at its size and scale, and limn's is let go.
+        assert!(present_surface_texture(&ctx, "page", theirs, [800, 600], 2.0));
+        let (found, freed) = pass(&ctx);
+        assert_eq!(found, Some((theirs, [800, 600], 2.0)));
+        assert!(freed.contains(&own));
+        // A part has no texture of limn's to go into; a whole frame takes the surface back.
+        assert!(!present_surface(&ctx, "page", solid([4, 4]).within([800, 600], [0, 0]).unwrap()));
+        assert!(present_surface(&ctx, "page", solid([64, 48])));
+        assert_ne!(shown(&ctx).map(|(id, ..)| id), Some(theirs));
+
+        // Sizes and scales a frame could not have are refused, and the surface stays.
+        assert!(!present_surface_texture(&ctx, "page", theirs, [0, 600], 2.0));
+        assert!(!present_surface_texture(&ctx, "page", theirs, [800, 600], f32::NAN));
+        assert_ne!(shown(&ctx).map(|(id, ..)| id), Some(theirs));
+        present_surface_texture(&ctx, "page", theirs, [800, 600], 2.0);
+        forget_surface("page");
+        assert_eq!(shown(&ctx), None);
     }
 
     #[test]
