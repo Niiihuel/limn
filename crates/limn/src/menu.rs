@@ -147,7 +147,6 @@ impl MenuCheck {
 /// The two-line row shared by [`MenuItem`] and `DropdownMenuItem`: a label
 /// over a quiet detail, between a leading icon and a check or a chevron.
 /// Its metrics are its menu's, so it lines up with the menu's other rows.
-
 pub(crate) struct DetailRow {
     pub(crate) action_id: String,
     pub(crate) label: String,
