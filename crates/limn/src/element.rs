@@ -1644,6 +1644,9 @@ pub enum ElementKind {
         /// Width of the fade at the right edge in logical pixels, used only
         /// when the text overflows.
         fade_width: f32,
+        /// A moving highlight over the line, as [`ElementKind::ShimmerText`]
+        /// paints one: the ID its sweep is kept under and its color.
+        shimmer: Option<(String, Color)>,
     },
     /// Text with a paint-only moving highlight. Wrapped paragraphs remain
     /// selectable; a truncated label is passive and stays on one measured line.
@@ -3083,7 +3086,24 @@ impl Element {
             } else {
                 24.0
             },
+            shimmer: None,
         })
+    }
+
+    /// As [`Element::faded_text`], with the moving highlight of
+    /// [`Element::shimmer_text`]: one line of work under way that fades at
+    /// its end, never ends in an ellipsis, when it does not fit.
+    pub fn shimmer_faded_text(
+        id: impl Into<String>,
+        text: impl Into<String>,
+        highlight: Color,
+        fade_width: f32,
+    ) -> Self {
+        let mut element = Self::faded_text(text, fade_width);
+        if let ElementKind::FadedText { shimmer, .. } = &mut element.kind {
+            *shimmer = Some((id.into(), highlight));
+        }
+        element
     }
 
     /// A paragraph of inline style runs, with explicit line breaks.
@@ -4128,6 +4148,44 @@ mod faded_text_tests {
             })
             .collect::<Vec<_>>();
         assert_eq!(text, [("Task", u8::MAX)]);
+    }
+
+    #[test]
+    fn a_shimmering_line_fades_at_its_end_and_keeps_moving() {
+        let title = "Running agent with a long description";
+        let gray = crate::Color::rgb(120, 120, 120);
+        let element = Element::shimmer_faded_text("work", title, crate::Color::rgb(0, 0, 0), 24.0)
+            .foreground(gray)
+            .size(Some(80.0), Some(32.0));
+        let mut tree = UiTree::new(element);
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 8.0);
+        let start = web_time::Instant::now();
+        tree.layout_at(Size::new(80.0, 32.0), start);
+        // Half a second on, the highlight is over the line's start.
+        let later = start + web_time::Duration::from_millis(500);
+        let frame = tree.layout_at(Size::new(80.0, 32.0), later);
+        let mut clips = Vec::new();
+        let mut inks = Vec::new();
+        for command in &frame.commands {
+            match command {
+                DrawCommand::PushClip(rect) => clips.push(*rect),
+                DrawCommand::Text { text, color, .. } => {
+                    // The whole line, never cut to an ellipsis, inside the room it has.
+                    assert_eq!(text, title);
+                    let clip = clips.last().expect("a band is clipped");
+                    assert!(clip.x >= 0.0 && clip.x + clip.width <= 80.0);
+                    inks.push(*color);
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(inks.len(), 24 + 16);
+        // The highlight darkens some of the solid bands; the last band is almost gone.
+        assert!(inks[..24].iter().any(|ink| ink.r < gray.r));
+        assert!(inks[..24].iter().all(|ink| ink.a == u8::MAX));
+        assert!(inks.last().unwrap().a < 16);
+        // The sweep asks for frames while it shows.
+        assert!(tree.animation_repaint_after().is_some());
     }
 }
 
