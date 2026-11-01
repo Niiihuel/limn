@@ -43,6 +43,20 @@ fn update(state: &mut State, action: &UiAction) {
 }
 ```
 
+## Plain
+
+```rust
+Select::new("text-size", "Medium", options, open, "text-size:dismiss", palette)
+    .variant(SelectVariant::Plain)
+    .render()
+```
+
+`SelectVariant::Plain` draws the choice and a chevron with no outline or
+fill until the pointer is over it, as wide as they are unless `width` sets
+it: a choice at the end of a settings row, where a column of outlined
+buttons would be loud. The list opens under it as it does under the others,
+as wide as `menu_width`, or a compact selector's preferred width unless set.
+
 ## As a field
 
 ```rust
