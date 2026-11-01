@@ -5296,6 +5296,8 @@ impl UiTree {
                         coach,
                         arrows,
                         pointed,
+                        anchor_outset,
+                        clear_of,
                     } => {
                         let coach = coach.as_deref();
                         if let Some(coach) = coach {
@@ -5385,10 +5387,27 @@ impl UiTree {
                             Some(coach) => {
                                 place_coach(anchor, measured, viewport_rect, coach.side, coach.align)
                             }
-                            None => (
-                                place_popover(anchor, measured, viewport_rect, placement, gap),
-                                None,
-                            ),
+                            None => {
+                                let [left, top, right, bottom] = anchor_outset;
+                                // A parent surface, when one is open, sets the sides instead.
+                                let (x, width) = match clear_of
+                                    .as_deref()
+                                    .and_then(|id| surface_rect(&builder.frame, id))
+                                {
+                                    Some(surface) => (surface.x, surface.width),
+                                    None => (anchor.x - left, anchor.width + left + right),
+                                };
+                                let grown = Rect::new(
+                                    x,
+                                    anchor.y - top,
+                                    width,
+                                    anchor.height + top + bottom,
+                                );
+                                (
+                                    place_popover(grown, measured, viewport_rect, placement, gap),
+                                    None,
+                                )
+                            }
                         };
                         let rect = LayoutBuilder::translated_rect(&floating, rect);
                         builder.observed_popovers.insert(dismiss_id.clone());
@@ -8530,6 +8549,8 @@ enum DeferredOverlay {
         /// What the Left and Right arrow keys report inside the surface.
         arrows: Option<Box<(Option<String>, Option<String>)>>,
         pointed: bool,
+        anchor_outset: [f32; 4],
+        clear_of: Option<String>,
     },
     Tooltip {
         anchor: Rect,
@@ -8541,6 +8562,37 @@ enum DeferredOverlay {
         colors: TooltipStyle,
         options: TooltipOptions,
     },
+}
+
+/// Whether the pointer lies in the space a popover's trigger leaves beside its rows: the
+/// outset and the gap, or, when the popover stands beside its parent's `surface`, the gap
+/// on either side of that surface. A hover popover placed clear of its row holds while the
+/// pointer crosses that space to reach it.
+fn beside_trigger(
+    trigger: Rect,
+    outset: [f32; 4],
+    gap: f32,
+    surface: Option<Rect>,
+    pointer: Option<Point>,
+) -> bool {
+    let [left, _, right, _] = outset;
+    let (x, width) = match surface {
+        Some(surface) => (surface.x, surface.width),
+        None => (trigger.x - left, trigger.width + left + right),
+    };
+    let band = Rect::new(x - gap, trigger.y, width + gap * 2.0, trigger.height);
+    pointer.is_some_and(|point| band.contains(point) && !trigger.contains(point))
+}
+
+/// The rectangle of the surface of the popover `dismiss_id`, when it was placed in this frame.
+fn surface_rect(frame: &Frame, dismiss_id: &str) -> Option<Rect> {
+    let id = format!("popover_surface:{dismiss_id}");
+    frame
+        .regions
+        .iter()
+        .rev()
+        .find(|region| region.id == id)
+        .map(|region| region.rect)
 }
 
 fn place_popover(
@@ -12616,6 +12668,8 @@ impl LayoutBuilder<'_> {
                 coach,
                 arrows,
                 at,
+                anchor_outset,
+                clear_of,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -12677,17 +12731,15 @@ impl LayoutBuilder<'_> {
                         // hint's anchor in a row that opens a card on hover.
                         || holds_submenu(anchor, hovered, focused)
                         || holds_submenu(floating, hovered, focused)
-                        // The pointer crossing the gap from the trigger's row towards the
-                        // surface, on either side, keeps it open on the way.
-                        || self.pointer.is_some_and(|point| {
-                            Rect::new(
-                                anchor_rect.x - *gap,
-                                anchor_rect.y,
-                                anchor_rect.width + *gap * 2.0,
-                                anchor_rect.height,
-                            )
-                            .contains(point)
-                        });
+                        // The pointer crosses the space the trigger's outset and the gap leave
+                        // beside its rows, or beside the parent's surface, on the way in.
+                        || beside_trigger(
+                            anchor_rect,
+                            *anchor_outset,
+                            *gap,
+                            clear_of.as_deref().and_then(|id| surface_rect(&self.frame, id)),
+                            self.pointer,
+                        );
                     if !active {
                         return;
                     }
@@ -12714,6 +12766,8 @@ impl LayoutBuilder<'_> {
                     coach: coach.clone(),
                     arrows: arrows.clone(),
                     pointed: at.is_some(),
+                    anchor_outset: *anchor_outset,
+                    clear_of: clear_of.clone(),
                 });
             }
             ElementKind::Tooltip {
