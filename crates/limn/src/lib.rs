@@ -154,7 +154,7 @@ pub use chip::Chip;
 pub use code_block::{CodeBlock, CodeBlockSizing};
 pub use code_diff::{CodeDiff, CodeDiffLine, CodeDiffLineKind};
 pub use code_editor::{CaretStyle, CodeBreakpoint, CodeBreakpointState, CodeDiagnostic, CodeEditor, CodeExecutionLine, CodeFoldCandidate, CodeHighlight, CodeReviewHunk, CodeReviewHunkActions, CodeReviewPosition, CodeStickyScope, EditorController, VimMode};
-pub use code_syntax::CodeLanguage;
+pub use code_syntax::{CodeLanguage, CodeSyntaxColors};
 pub use collapse::Collapse;
 pub use collapsible::{collapse_footer, Collapsible};
 pub use color_picker::{ColorPicker, Hsv};

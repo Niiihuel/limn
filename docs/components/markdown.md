@@ -92,6 +92,9 @@ column, so an item's text always starts inside the column.
 `code_font_size(size)` sets fenced code independently of the body, in logical
 pixels. Without it, code keeps its existing proportion to the body. Invalid
 numbers and nonpositive sizes are ignored; valid sizes stay within 1 to 96.
+`inline_code_size(size)` sets inline `code` in body text, in logical pixels,
+such as 13 in a 16 px body; in a heading or a subtext line it keeps that
+proportion to the text around it.
 `code_word_wrap(false)` preserves each code source line in a horizontal
 viewport; prose continues to wrap. Both settings take effect in cached and
 streaming previews. A standalone `CodeBlock` offers the same controls as
@@ -139,8 +142,8 @@ Markdown::new(source, palette).labels(labels).render()
 
 `labels` replaces the renderer's own strings with the host's language:
 `code_fallback` labels a code block with no language and `truncated_note` is
-the line under a cut preview. The other fields label a drawn diagram and its
-actions.
+the line under a cut preview. `copy_code` is the hint of a code block's copy
+icon. The other fields label a drawn diagram and its actions.
 
 ## Limits
 
@@ -158,6 +161,61 @@ preview.
 
 `colors(MarkdownColors)` replaces the colors derived from the palette.
 `MarkdownColors::for_palette(palette)` is the default to start from.
+
+## Highlighted code
+
+````rust
+let source = "```rust\nfn main() {\n    println!(\"hi\"); // greet\n}\n```";
+Markdown::new(source, palette).render()
+````
+
+A fence in a language limn's line lexer knows, such as `rust`, `js`, `ts`,
+`py`, `json`, `toml`, `css`, `html` or `md`, has its comments, strings,
+keywords and numbers colored, with or without the `syntax` feature. The inks
+follow the palette, dark or light, not `MarkdownColors`. A fence with no
+language or another one stays plain, and so does code longer than 64 KiB or
+2,000 lines, so a long message is not held up. The full list of labels is in
+[Components](../components.md#highlighted-code).
+
+```rust
+Markdown::new(source, palette).code_syntax_colors(CodeSyntaxColors {
+    text: Color::rgb(0x19, 0x19, 0x19),
+    string: Color::rgb(0x1E, 0x9E, 0x3C),
+    function: Some(Color::rgb(0x00, 0x73, 0xE6)),
+    interpolation: Some(Color::rgb(0xCD, 0x20, 0x54)),
+    ..CodeSyntaxColors::for_palette(palette)
+})
+```
+
+`code_syntax_colors` replaces those inks: `text` (names, operators,
+punctuation, and plain code), `keyword`, `string`, `number` and `comment`.
+`function`, when set, colors a name followed by `(`, such as `print`;
+`interpolation`, when set, colors the braces of a Python f-string's `{…}` and a
+JavaScript template's `${…}` and draws what they hold in `text`. Both are
+`None` in `CodeSyntaxColors::for_palette`, which leaves those in `text` and in
+`string`. An interpolation is found only in a string that opens on its line.
+
+## Code blocks as a chat app draws them
+
+````rust
+let palette = ComponentPalette { raised: Color::WHITE, border: Color::rgb(0xE5, 0xE5, 0xE5), ..palette };
+Markdown::new("```python\nprint(\"hi\")\n```", palette)
+    .code_label(false)
+    .code_fit_content(true)
+    .code_copy_action_prefix("copy_code:")
+    .code_font_size(13.0)
+    .render()
+````
+
+A code block is a card on the palette's `raised` fill with a 1 px `border`, the
+card radius (8) and 12 px of padding; pass a palette with other `raised` and
+`border` to change them. `code_label(false)` drops the language line above the
+code. `code_fit_content(true)` makes each block as wide as its code and padding,
+up to the reading width, where longer code wraps. `code_copy_action_prefix(prefix)`
+puts a muted copy icon at the end of each block, hinted with `labels.copy_code`
+and centered against a one-line block; its action is the prefix followed by the
+code exactly, which the host puts on the clipboard. Inline `code` is drawn in
+`colors.code_ink` over `colors.code_fill`.
 
 ## Literal text with links
 
@@ -199,3 +257,4 @@ messages; see the notes on the cache in [Components](../components.md).
 | --- | --- |
 | `UiAction::Clicked { id }` with `id` = the link prefix, then the block hash, the run index and the URL, joined by colons | A link is activated. |
 | `UiAction::Clicked { id }` with `id` = the diagram prefix and sixteen hexadecimal digits | The switch on a diagram or on its source is activated. |
+| `UiAction::Clicked { id }` with `id` = the code copy prefix and the code | A code block's copy icon is activated. |
