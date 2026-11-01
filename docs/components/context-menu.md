@@ -59,6 +59,24 @@ ContextMenuItem::new("paste", "Paste").enabled(state.can_paste)
 `enabled(false)` draws the item muted and takes it out of reach. A long label
 wraps; in a very narrow window the shortcut is left out whole, never cut.
 
+## Measures
+
+A context menu is 352 logical pixels wide, with 26 pixel rows and 13 pixel labels.
+`UiTree::set_context_menu_sizing(SelectorSizing)` draws every context menu of the
+tree, the code editor's and the text's included, at the measures of the host's
+other menus: its width from `preferred_width`, and the rows' `row_height`,
+`label_size`, `icon_size`, `padding`, `gap` and `scrollbar_gutter`.
+`UiTree::set_context_menu_palette` matches their colors likewise.
+
+```rust
+tree.set_context_menu_sizing(SelectorSizing {
+    preferred_width: 240.0,
+    row_height: 28.0,
+    label_size: 14.0,
+    ..SelectorSizing::COMPACT
+});
+```
+
 ## Keyboard
 
 | Key | Effect |
