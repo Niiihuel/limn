@@ -1489,6 +1489,9 @@ pub struct Frame {
     /// and each thing a component described, in the order they were placed.
     pub access: Vec<crate::AccessNode>,
     action_menu_items: HashSet<String>,
+    /// The places in `regions` that are a popover's backdrop: under the pointer, they raise no
+    /// tooltip, though they answer to the id of a control (an image viewer's close).
+    backdrops: Vec<usize>,
     menu_secondary_actions: HashSet<String>,
     draggables: HashSet<String>,
     sketches: HashMap<String, (Rect, crate::sketch::SketchStyle)>,
@@ -4577,6 +4580,7 @@ impl UiTree {
                             builder.frame.commands.len() - 1
                         });
                         if backdrop {
+                            builder.frame.backdrops.push(builder.frame.regions.len());
                             builder.frame.regions.push(HitRegion {
                                 id: dismiss_id.clone(),
                                 rect: viewport_rect,
@@ -5163,6 +5167,9 @@ impl UiTree {
                     .cloned()
                     .or_else(|| scope.focusables.first().map(|(id, _)| id.clone()));
                 Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+                // A modal hands its first control the focus; its tooltip waits for the keyboard
+                // to move there, as a pointer that opened it never asked for one.
+                self.keyboard_tooltip_focus = false;
             }
         } else if had_modal {
             let next_focus = self.modal_return_focus.take().filter(|id| {
@@ -5206,6 +5213,8 @@ impl UiTree {
         if let Some(id) = initial_focus.filter(|id| self.focused.as_ref() != Some(id)) {
             let next_focus = Some(id.clone());
             Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+            // As a modal's, a surface's opening focus waits for the keyboard to show a tooltip.
+            self.keyboard_tooltip_focus = false;
             self.pending_scroll_focus = Some(id);
             self.caret_blink.reset();
             self.validate_ime_owner(now);
@@ -14374,7 +14383,14 @@ impl LayoutBuilder<'_> {
         if self.keyboard_tooltip_focus {
             return (self.focused == Some(anchor_id)).then_some(true);
         }
+        // A backdrop sharing the anchor's id is not the anchor.
+        let on_backdrop = self.pointer.is_some_and(|point| {
+            (self.frame.regions.iter().enumerate().rev())
+                .find(|(_, region)| region.rect.contains(point))
+                .is_some_and(|(index, _)| self.frame.backdrops.contains(&index))
+        });
         (self.hovered == Some(anchor_id)
+            && !on_backdrop
             && self.pressed != Some(anchor_id)
             && self.tooltip_hover_since.is_some_and(|(id, since)| {
                 id == anchor_id
