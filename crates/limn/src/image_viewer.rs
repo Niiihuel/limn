@@ -1637,7 +1637,7 @@ mod tests {
         }
 
         #[test]
-        fn the_actions_stand_in_a_column_under_the_close_button_just_outside_the_picture_corner() {
+        fn the_actions_stand_in_a_column_under_the_close_button_in_the_picture_corner() {
             let mut tree = UiTree::new(with_actions(None, true));
             tree.set_reduced_motion(true);
             let frame = tree.layout(WINDOW);
@@ -1645,11 +1645,14 @@ mod tests {
             // Close first, then each action below it.
             assert!(close.y < copy.y && copy.y < annotate.y, "{close:?} {copy:?} {annotate:?}");
             assert_eq!((copy.x, annotate.x), (close.x, close.x));
-            // The picture stops short of the next arrow, so the column fits to its right with a gap.
+            // The header layout's arrows lie over the picture, which spans the window, so the
+            // column stands inside its corner; a lightbox's stands outside it.
             let corner = picture(&frame);
-            assert_eq!(close.x, corner.x + corner.width + ACTION_GAP);
-            assert_eq!(close.y, corner.y);
+            assert_eq!(close.x, corner.x + corner.width - ACTION_GAP - close.width);
+            assert_eq!(close.y, corner.y + ACTION_GAP);
             assert!(close.x + close.width <= WINDOW.width - 8.0);
+            // No close in the header: it leads the column.
+            assert_eq!(frame.regions.iter().filter(|region| region.id == "close" && region.rect.width == close.width).count(), 1);
         }
 
         #[test]
@@ -1691,7 +1694,8 @@ mod tests {
 
             let done = tree.layout_at(WINDOW, start + Duration::from_millis(350));
             assert!(close_enough(picture(&done), end), "{:?} != {end:?}", picture(&done));
-            assert_eq!(radius(&done), PICTURE_RADIUS);
+            // The header layout's picture rests square-cornered.
+            assert_eq!(radius(&done), radius(&settled.layout(WINDOW)));
         }
 
         #[test]
@@ -1719,17 +1723,19 @@ mod tests {
             let fresh = plain.layout_at(WINDOW, start);
             let mut settled = UiTree::new(with_actions(None, false));
             settled.set_reduced_motion(true);
-            let end = picture(&settled.layout(WINDOW));
+            let settled_frame = settled.layout(WINDOW);
+            let end = picture(&settled_frame);
+            let rest = radius(&settled_frame);
             // The surface's own 4 px entrance slide is all that differs from the settled place.
             let slid = picture(&fresh);
             assert!(close_enough(Rect::new(slid.x, end.y, slid.width, slid.height), end) && (slid.y - end.y).abs() <= 4.0, "{slid:?} {end:?}");
-            assert_eq!(radius(&fresh), PICTURE_RADIUS);
+            assert_eq!(radius(&fresh), rest);
 
             let mut still = UiTree::new(with_actions(Some(Rect::new(40.0, 500.0, 120.0, 90.0)), false));
             still.set_reduced_motion(true);
             let frame = still.layout_at(WINDOW, start);
             assert!(close_enough(picture(&frame), end), "{:?}", picture(&frame));
-            assert_eq!(radius(&frame), PICTURE_RADIUS);
+            assert_eq!(radius(&frame), rest);
         }
 
         /// A lightbox of a picture `natural` pixels large in `window`, with a caption, two actions and an origin if given.
