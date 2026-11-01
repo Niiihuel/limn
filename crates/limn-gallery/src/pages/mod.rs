@@ -125,6 +125,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "text-layout", group: "System", title: "TextLayout", source: "text_layout", view: text_layout::view, sections: &[], since: "0.1.44" },
     Page { id: "button", group: "Actions", title: "Button", source: "buttons", view: buttons::view, sections: &["Variants", "Disabled", "Loading", "Sizes", "Application sizing", "With icon", "Toolbar", "Ink, spacing and radius", "Active"], since: "0.1.39" },
     Page { id: "button-group", group: "Actions", title: "ButtonGroup", source: "buttons", view: buttons::view, sections: &["Button group"], since: "0.1.39" },
+    Page { id: "split-button", group: "Actions", title: "SplitButton", source: "buttons", view: buttons::view, sections: &["Split button"], since: "0.1.44" },
     Page { id: "toolbar", group: "Actions", title: "Toolbar", source: "toolbar", view: toolbar::view, sections: &[], since: "0.1.41" },
     Page { id: "clipboard", group: "Actions", title: "Clipboard", source: "buttons", view: buttons::view, sections: &["Clipboard"], since: "0.1.39" },
     Page { id: "link", group: "Actions", title: "Link", source: "navigation", view: navigation::view, sections: &["Links"], since: "0.1.39" },
