@@ -108,7 +108,7 @@ impl std::error::Error for FontError {}
 ///
 /// A family without a face of its own takes the one it is a style of:
 /// `SansItalic`, `SansMedium` and `SansBold` take `Sans`, slanted or
-/// emboldened. Behind `Sans` comes every fallback, then `Monospace`, then
+/// emboldened, and `MonospaceBold` takes `Monospace`. Behind `Sans` comes every fallback, then `Monospace`, then
 /// the emoji face; behind `Monospace` comes `Sans`, every fallback, then the
 /// emoji face. The emoji face is last so it never takes a symbol a text face
 /// has.
@@ -127,9 +127,9 @@ impl Fonts {
     }
 
     /// limn's own faces: Ubuntu for `Sans` in regular, medium and bold, Hack
-    /// for `Monospace`, Noto Sans Math and Noto Sans Symbols 2 behind both,
-    /// and Noto Emoji for emoji. `SansItalic` is `Sans` slanted. Their
-    /// licenses are in `assets/fonts/NOTICE.md`.
+    /// for `Monospace` in regular and bold, Noto Sans Math and Noto Sans
+    /// Symbols 2 behind both, and Noto Emoji for emoji. `SansItalic` is
+    /// `Sans` slanted. Their licenses are in `assets/fonts/NOTICE.md`.
     #[cfg(feature = "bundled-fonts")]
     pub fn bundled() -> Self {
         let font = |bytes: &'static [u8]| Font::from_static(bytes).expect("a bundled face is a font");
@@ -138,6 +138,7 @@ impl Fonts {
             .face(FontFamily::SansMedium, font(include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")))
             .face(FontFamily::SansBold, font(include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")))
             .face(FontFamily::Monospace, font(include_bytes!("../assets/fonts/Hack-Regular.ttf")))
+            .face(FontFamily::MonospaceBold, font(include_bytes!("../assets/fonts/Hack-Bold.ttf")))
             .fallback(font(include_bytes!("../assets/fonts/NotoSansMath-Regular.ttf")))
             .fallback(font(include_bytes!("../assets/fonts/NotoSansSymbols2-Regular.otf")))
             .emoji(font(include_bytes!("../assets/fonts/NotoEmoji.ttf")))
