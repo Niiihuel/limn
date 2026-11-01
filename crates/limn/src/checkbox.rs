@@ -31,6 +31,7 @@ pub struct Checkbox {
     size: ControlSize,
     enabled: bool,
     accessibility_label: Option<String>,
+    accent: Option<Color>,
     palette: ComponentPalette,
 }
 
@@ -46,8 +47,16 @@ impl Checkbox {
             size: ControlSize::Regular,
             enabled: true,
             accessibility_label: None,
+            accent: None,
             palette,
         }
+    }
+
+    /// Fill a checked box with this color, such as an app's blue, in place of
+    /// the text's ink; the label keeps the text's ink.
+    pub fn accent(mut self, color: Color) -> Self {
+        self.accent = Some(color);
+        self
     }
 
     /// Text beside the box, which is clicked with it and names it to the
@@ -99,8 +108,9 @@ impl Component for Checkbox {
         let (side, font_size, line) = metrics(self.size);
         let filled = self.checked || self.indeterminate;
         let ink = if self.enabled { palette.text } else { palette.muted };
+        let accent = if self.enabled { self.accent.unwrap_or(ink) } else { ink };
         // A filled box has no border: a stroke of the fill's own color shows as a ring inside its edge.
-        let (fill, border) = if filled { (ink, 0.0) } else { (Color::TRANSPARENT, BORDER) };
+        let (fill, border) = if filled { (accent, 0.0) } else { (Color::TRANSPARENT, BORDER) };
         // The mark stays in the tree when the box is empty, so its ink fades
         // with the fill instead of appearing at once.
         let mark = Element::icon(if self.indeterminate { Icon::Minus } else { Icon::Check })
@@ -233,6 +243,16 @@ mod tests {
 
     fn key(key: Key) -> UiEvent {
         UiEvent::Key { key, shift: false, ctrl: false }
+    }
+
+    #[test]
+    fn an_accent_fills_the_checked_box_and_leaves_the_label_in_the_text_color() {
+        let blue = Color::rgb(0x25, 0x7d, 0xe0);
+        let frame = tree_of(Checkbox::new("box", true, palette()).label("Cat").accent(blue)).layout(window());
+        assert_eq!(square(&frame).1, blue);
+        assert_eq!(lines(&frame)[0].2, palette().text);
+        let empty = tree_of(Checkbox::new("box", false, palette()).accent(blue)).layout(window());
+        assert_eq!(square(&empty).1, Color::TRANSPARENT);
     }
 
     #[test]

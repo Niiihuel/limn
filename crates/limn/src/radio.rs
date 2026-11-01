@@ -88,6 +88,7 @@ pub struct RadioGroup {
     size: ControlSize,
     enabled: bool,
     accessibility_label: Option<String>,
+    accent: Option<Color>,
     palette: ComponentPalette,
 }
 
@@ -109,8 +110,16 @@ impl RadioGroup {
             size: ControlSize::Regular,
             enabled: true,
             accessibility_label: None,
+            accent: None,
             palette,
         }
+    }
+
+    /// Fill the chosen circle with this color, such as an app's blue, in
+    /// place of the text's ink; the labels keep the text's ink.
+    pub fn accent(mut self, color: Color) -> Self {
+        self.accent = Some(color);
+        self
     }
 
     /// Lay the options side by side, 16 pixels apart, instead of one under
@@ -169,7 +178,8 @@ impl Component for RadioGroup {
                 let enabled = self.enabled && option.enabled;
                 let chosen = self.selected.as_deref() == Some(option.value.as_str());
                 let ink = if enabled { palette.text } else { palette.muted };
-                let (fill, edge) = if chosen { (ink, ink) } else { (Color::TRANSPARENT, palette.muted) };
+                let accent = if enabled { self.accent.unwrap_or(ink) } else { ink };
+                let (fill, edge) = if chosen { (accent, accent) } else { (Color::TRANSPARENT, palette.muted) };
                 let key = format!("{}:{}", self.id, option.value);
                 // The dot stays in the tree when the circle is empty, and both
                 // are keyed, so the mark fades with the fill instead of
@@ -307,6 +317,16 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    #[test]
+    fn an_accent_fills_the_chosen_circle_and_leaves_the_labels_in_the_text_color() {
+        let blue = Color::rgb(0x25, 0x7d, 0xe0);
+        let frame = tree_of(group().accent(blue)).layout(window());
+        let fills = fills(&frame);
+        assert_eq!((fills[2].1, fills[3].1), (blue, palette().surface));
+        assert_eq!(fills[0].1, Color::TRANSPARENT);
+        assert!(texts(&frame).iter().any(|(text, _, color)| *text == "Team" && *color == palette().text));
     }
 
     #[test]
