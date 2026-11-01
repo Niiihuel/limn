@@ -188,6 +188,7 @@ workers; clearing still releases its raster cache.
 | `SurfaceFrame::from_image(image, scale)` | One frame already in egui's form (`ColorImage`), taken without converting it. |
 | `SurfaceFrame::within(frame, at)` | Makes those pixels the rectangle at `at` of a frame of `frame` pixels the surface already shows. |
 | `present_surface(&ctx, id, frame)` | Shows a frame on a surface. A frame of the size already shown is written into the same texture, and a part of one writes only its rectangle; a frame larger than the GPU's textures, or a part of a frame the surface does not show, is refused and returns `false`. |
+| `present_surface_paint(&ctx, id, paint)` | Has the host paint a surface itself: its `PaintCallback` is added in the surface's place in the paint order, on the pixel grid and clipped as a frame would be, until a `SurfaceFrame` is presented again. |
 | `forget_surface(id)` | Frees a surface's texture. |
 
 ### Indexed input
