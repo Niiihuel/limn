@@ -45,6 +45,18 @@ Progress::new(state.quota, status).flat().render()
 dense list, where a rounded cap would read as a control. The colors come from
 the palette, so name a status color as its `text`.
 
+## Ring
+
+```rust
+Progress::new(state.context_used, palette).ring(16.0).render()
+```
+
+`ring` draws a ring `diameter` pixels across in place of the bar: the gauge
+of how much of a budget is used, such as a model's context. The arc covers
+the fraction clockwise from twelve o'clock in `palette.text`, over the rest of
+the circle in `palette.selected`. `width`, `height` and `flat` do not apply to
+it. A diameter below 1 is 1.
+
 ## Motion
 
 A value that changes is not animated: the fill jumps to the new fraction.

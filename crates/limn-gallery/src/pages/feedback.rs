@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     Alert, AlertTone, Avatar, Chip, Collapse, Color, Component, ControlSize, Element, FontFamily, Icon, Kbd, Button, ButtonVariant, Marker, MarkerVariant, Progress, Skeleton, SkeletonGroup,
-    Spinner, SpinnerVariant, Ticker,
+    Spinner, SpinnerVariant, StatusDot, Ticker,
 };
 
 const CHIP_TONES: [(AlertTone, &str); 5] = [
@@ -150,6 +150,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .render()
                 .accessibility_label("Disk space used"),
             caption(cx, "Flat: square ends for a meter in a dense list."),
+            row(vec![
+                Progress::new(progress, palette).id("feedback-progress-ring").ring(16.0).render().accessibility_label("Context used").centered_y(),
+                Progress::new(progress, palette).id("feedback-progress-ring-large").ring(32.0).render().accessibility_label("Context used"),
+            ]),
+            caption(cx, "Ring: the share used of a budget, such as a model's context."),
         ]),
         section(cx, "Loading", vec![
             row(vec![
@@ -172,6 +177,30 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             )
             .size(Some(width.min(336.0)), None),
         ]),
+        section(cx, "Status dot", {
+            // Status inks are the host's to choose; the gallery has no theme of its own.
+            let (green, amber, red) = (Color::rgb(64, 192, 87), Color::rgb(230, 162, 60), Color::rgb(230, 76, 60));
+            let pulsing = cx.state.text("feedback-dot-pulse") != "off";
+            let labelled = |dot: StatusDot, label: &str| {
+                Element::row(vec![dot.render().centered_y(), Element::text(label).font_family(FontFamily::Sans).foreground(palette.text)]).gap(8.0)
+            };
+            vec![
+                row(vec![
+                    labelled(StatusDot::new(green).pulse(pulsing).id("feedback-dot-running").description("Running"), "Running"),
+                    labelled(StatusDot::new(amber).id("feedback-dot-waiting").description("Waiting"), "Waiting"),
+                    labelled(StatusDot::new(red).id("feedback-dot-failed").description("Failed"), "Failed"),
+                    labelled(StatusDot::new(green).pulse(pulsing).size(10.0), "10 px"),
+                ]),
+                row(vec![Button::new(
+                    if pulsing { "feedback-dot-pulse=off" } else { "feedback-dot-pulse=on" },
+                    if pulsing { "Stop the pulse" } else { "Pulse" },
+                    palette,
+                )
+                .variant(ButtonVariant::Outline)
+                .render()]),
+                caption(cx, "A pulsing dot fades to 0.3 and back every 1.2 s, in step with every other; it holds still under reduced motion."),
+            ]
+        }),
         section(cx, "Markers", vec![
             Marker::new("feedback-marker", "Branch created", palette).icon(Icon::GitBranch).render(),
             Marker::new("feedback-marker-loading", "Running tests", palette).loading(true).render(),
