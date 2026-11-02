@@ -250,6 +250,28 @@ The ID depends on the block's text and the link's position in it, so the same
 block rendered twice gives the same IDs. A host that shows a source more than
 once rewrites the span actions after rendering.
 
+### Selecting across blocks
+
+Each paragraph, heading, list item and code block is a text of its own, and a
+selection stays within one text. Wrap the rendered element, or a column of
+messages, in `Element::selection_scope()` to select it as a document:
+
+```rust
+let transcript = Element::column(messages).gap(24.0).selection_scope();
+```
+
+Inside a scope a drag runs from one text into the next ones, upwards or
+downwards; a point between two texts takes the nearest one. Shift and a press
+move the selection's end. Ctrl+A, with no field focused and once a press has
+landed on a text of the scope, selects every text in it. Ctrl+C and the
+context menu's Copy give the selected parts in the order they were laid out:
+texts on one line joined by a space (a list's marker and its item: `• one`,
+`1. first`), the lines of one text as they are (a code block's code, without
+its fence), a line break before the text just below, and a blank line where
+the gap between two texts is wider than a quarter of a line (between
+paragraphs and around headings and code, not between a list's items). A press
+on a link, a button or a field still clicks it rather than selecting.
+
 ### Measurements
 
 Body text is 14 on a 22 line; headings are 22, 18 and 16 at 1.4. A heading

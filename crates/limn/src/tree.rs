@@ -1973,6 +1973,9 @@ struct SelectableTextRun {
 #[derive(Clone, Debug, PartialEq)]
 struct SelectableTextBlock {
     source: String,
+    /// The innermost [`Element::selection_scope`] it is in, by the order the
+    /// scopes were laid out.
+    scope: Option<usize>,
     runs: Vec<SelectableTextRun>,
     region_layer: usize,
     /// Text laid out in a `TextLayout`, which a pointer is read back from.
@@ -2085,19 +2088,94 @@ fn nearest_source_grapheme_boundary(source: &str, char_offset: usize) -> usize {
     previous
 }
 
-#[derive(Clone, Debug)]
-struct StaticSelection {
+/// One end of a selection: a text block of the frame, its text when the end
+/// was placed, and a character offset in it.
+#[derive(Clone, Debug, PartialEq)]
+struct TextPoint {
     block: usize,
     source: String,
-    anchor: usize,
-    cursor: usize,
+    offset: usize,
+}
+
+impl TextPoint {
+    fn at(blocks: &[SelectableTextBlock], block: usize, offset: usize) -> Self {
+        Self { block, source: blocks[block].source.clone(), offset }
+    }
+}
+
+/// Text selected by a drag over static text: within one block, or, inside an
+/// [`Element::selection_scope`], from one block to another and every block of
+/// the scope between them.
+#[derive(Clone, Debug)]
+struct StaticSelection {
+    /// The selection scope both ends are in; `None` keeps them in one block.
+    scope: Option<usize>,
+    anchor: TextPoint,
+    cursor: TextPoint,
     dragging: bool,
 }
 
 impl StaticSelection {
-    fn range(&self) -> Option<(usize, usize)> {
-        (self.anchor != self.cursor)
-            .then_some((self.anchor.min(self.cursor), self.anchor.max(self.cursor)))
+    /// A selection collapsed at `offset` of `block`.
+    fn at(blocks: &[SelectableTextBlock], block: usize, offset: usize, dragging: bool) -> Self {
+        let point = TextPoint::at(blocks, block, offset);
+        Self { scope: blocks[block].scope, anchor: point.clone(), cursor: point, dragging }
+    }
+
+    /// The two ends in the order the blocks were laid out.
+    fn ordered(&self) -> (&TextPoint, &TextPoint) {
+        let (a, c) = (&self.anchor, &self.cursor);
+        if (a.block, a.offset) <= (c.block, c.offset) { (a, c) } else { (c, a) }
+    }
+
+    /// Whether both ends are still where they were placed in `blocks`.
+    fn holds_in(&self, blocks: &[SelectableTextBlock]) -> bool {
+        [&self.anchor, &self.cursor].into_iter().all(|end| {
+            blocks.get(end.block).is_some_and(|block| block.source == end.source && block.scope == self.scope)
+        })
+    }
+
+    /// The characters selected in block `index`, which holds `source` and is
+    /// in `scope`. `None` when it has none selected.
+    fn range_in(&self, index: usize, scope: Option<usize>, source: &str) -> Option<(usize, usize)> {
+        let (first, last) = self.ordered();
+        if first.block == last.block {
+            return (index == first.block && source == first.source && first.offset != last.offset)
+                .then_some((first.offset, last.offset));
+        }
+        if self.scope.is_none() || scope != self.scope || !(first.block..=last.block).contains(&index) {
+            return None;
+        }
+        let start = if index == first.block { first.offset } else { 0 };
+        let end = if index == last.block { last.offset } else { source.chars().count() };
+        let end_text = (index == first.block && source != first.source) || (index == last.block && source != last.source);
+        (start < end && !end_text).then_some((start, end))
+    }
+
+    /// Whether block `index` holds part of the selection or its caret.
+    fn touches(&self, index: usize, block: &SelectableTextBlock) -> bool {
+        let caret = |end: &TextPoint| end.block == index && end.source == block.source;
+        caret(&self.anchor) || caret(&self.cursor) || self.range_in(index, block.scope, &block.source).is_some()
+    }
+}
+
+/// What goes between two texts copied one after the other: a space when they
+/// share a line (a list's marker and its item), a line break when the next is
+/// just below, and a blank line when the gap between them is wider than a
+/// quarter of a line (between paragraphs).
+fn text_break(before: &SelectableTextBlock, after: &SelectableTextBlock) -> &'static str {
+    let (Some(above), Some(below)) = (before.runs.last(), after.runs.first()) else {
+        return "\n";
+    };
+    let (above, below) = (above.rect, below.rect);
+    let overlap = (above.y + above.height).min(below.y + below.height) - above.y.max(below.y);
+    let line = above.height.min(below.height);
+    if overlap > line / 2.0 {
+        " "
+    } else if below.y - (above.y + above.height) > line / 4.0 {
+        "\n\n"
+    } else {
+        "\n"
     }
 }
 
@@ -4551,12 +4629,105 @@ impl UiTree {
         }
     }
 
-    /// Text selected by dragging over one static text or formatted-text block.
-    /// The copied slice preserves source newlines and Unicode boundaries.
-    pub fn selected_text(&self) -> Option<&str> {
+    /// Text selected by dragging over static text: one text or formatted-text
+    /// block, or the blocks of an [`Element::selection_scope`] it runs over,
+    /// joined as that method says. Each block's slice preserves its source
+    /// newlines and Unicode boundaries.
+    pub fn selected_text(&self) -> Option<String> {
         let selection = self.static_selection.as_ref()?;
-        let (start, end) = selection.range()?;
-        Some(char_range(&selection.source, start, end))
+        let (first, last) = selection.ordered();
+        let mut text = String::new();
+        let mut previous: Option<&SelectableTextBlock> = None;
+        for (index, block) in self.frame.text_blocks.iter().enumerate().take(last.block + 1).skip(first.block) {
+            let Some((start, end)) = selection.range_in(index, block.scope, &block.source) else {
+                continue;
+            };
+            if let Some(previous) = previous {
+                text.push_str(text_break(previous, block));
+            }
+            text.push_str(char_range(&block.source, start, end));
+            previous = Some(block);
+        }
+        (!text.is_empty()).then_some(text)
+    }
+
+    /// Where `point` falls for `selection`'s moving end: in its block, or,
+    /// within a scope, in the scope's block under it or else nearest to it,
+    /// at the start of a block below the point and the end of one above it.
+    fn selection_point(&self, selection: &StaticSelection, point: Point) -> Option<(usize, usize)> {
+        let offset = |block: &SelectableTextBlock| {
+            block.offset_at(point, self.text_measurer.as_deref(), self.metrics, self.sans_metrics)
+        };
+        let Some(scope) = selection.scope else {
+            let end = &selection.cursor;
+            let block = self.frame.text_blocks.get(end.block).filter(|block| block.source == end.source)?;
+            return Some((end.block, offset(block)));
+        };
+        let (index, block) = self
+            .frame
+            .text_blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, block)| block.scope == Some(scope) && !block.runs.is_empty())
+            .min_by(|(_, left), (_, right)| {
+                let distance = |block: &SelectableTextBlock| {
+                    let rows = block.runs.iter().map(|run| (vertical_distance(run.rect, point.y), horizontal_distance(run.rect, point.x)));
+                    rows.fold((f32::INFINITY, f32::INFINITY), |best, row| if row < best { row } else { best })
+                };
+                distance(left).partial_cmp(&distance(right)).unwrap_or(std::cmp::Ordering::Equal)
+            })?;
+        let top = block.runs.first().map_or(0.0, |run| run.rect.y);
+        let bottom = block.runs.last().map_or(0.0, |run| run.rect.y + run.rect.height);
+        Some((
+            index,
+            if point.y < top {
+                0
+            } else if point.y > bottom {
+                block.source.chars().count()
+            } else {
+                offset(block)
+            },
+        ))
+    }
+
+    /// Move the dragged selection's end to `point`; `still` keeps the drag on.
+    fn drag_selection(&mut self, point: Point, still: bool) {
+        let Some(selection) = self.static_selection.as_ref().filter(|selection| selection.dragging) else {
+            return;
+        };
+        let end = self
+            .selection_point(selection, point)
+            .map(|(block, offset)| TextPoint::at(&self.frame.text_blocks, block, offset));
+        if let Some(selection) = self.static_selection.as_mut() {
+            if let Some(end) = end {
+                selection.cursor = end;
+            }
+            selection.dragging = still;
+        }
+    }
+
+    /// Select every text of the scope the selection is in, or all of its
+    /// one block. Whether there was a selection to grow.
+    fn select_all_text(&mut self) -> bool {
+        let Some(selection) = self.static_selection.as_mut() else {
+            return false;
+        };
+        let blocks = &self.frame.text_blocks;
+        let mut within = blocks.iter().enumerate().filter(|(_, block)| block.scope == selection.scope).map(|(index, _)| index);
+        let (first, last) = match selection.scope {
+            Some(_) => {
+                let Some(first) = within.next() else { return false };
+                (first, within.next_back().unwrap_or(first))
+            }
+            None => (selection.anchor.block, selection.anchor.block),
+        };
+        if last >= blocks.len() {
+            return false;
+        }
+        selection.anchor = TextPoint::at(blocks, first, 0);
+        selection.cursor = TextPoint::at(blocks, last, blocks[last].source.chars().count());
+        selection.dragging = false;
+        true
     }
 
     /// Replace the text of a field from the host. The caret goes to the end
@@ -5269,6 +5440,8 @@ impl UiTree {
                 keyboard_tooltip_focus: self.keyboard_tooltip_focus,
                 pressed: self.pressed.as_deref(),
                 selection: self.static_selection.as_ref(),
+                selection_scope: None,
+                next_selection_scope: 0,
                 transitions: &mut self.transitions,
                 popover_transitions: &mut self.popover_transitions,
                 popover_exits: &self.popover_exits,
@@ -6149,12 +6322,7 @@ impl UiTree {
                 }
             }
         }
-        if self.static_selection.as_ref().is_some_and(|selection| {
-            self.frame
-                .text_blocks
-                .get(selection.block)
-                .is_none_or(|block| block.source != selection.source)
-        }) {
+        if self.static_selection.as_ref().is_some_and(|selection| !selection.holds_in(&self.frame.text_blocks)) {
             self.static_selection = None;
         }
         if self
@@ -7031,18 +7199,7 @@ impl UiTree {
                         actions.push(slider_action(drag.id.clone(), fraction, y, false));
                     }
                 }
-                if let Some(selection) = self.static_selection.as_mut().filter(|s| s.dragging) {
-                    if let Some(block) = self.frame.text_blocks.get(selection.block) {
-                        if block.source == selection.source {
-                            selection.cursor = block.offset_at(
-                                point,
-                                self.text_measurer.as_deref(),
-                                self.metrics,
-                                self.sans_metrics,
-                            );
-                        }
-                    }
-                }
+                self.drag_selection(point, true);
                 if let Some((id, multiline)) = &self.field_drag {
                     if let Some(input) = self.inputs.get_mut(id) {
                         input.place_cursor_at(point, *multiline, true);
@@ -7111,7 +7268,7 @@ impl UiTree {
                         .find(|scope| scope.dismiss_id == region.id)
                 });
                 let dismiss_trigger = dismiss_scope.and_then(|scope| scope.trigger_id.clone());
-                self.static_selection = None;
+                let extended = self.static_selection.take().filter(|_| extend);
                 if hit
                     .as_ref()
                     .is_some_and(|region| region.kind == HitKind::Surface)
@@ -7228,13 +7385,17 @@ impl UiTree {
                             self.metrics,
                             self.sans_metrics,
                         );
-                        self.static_selection = Some(StaticSelection {
-                            block: index,
-                            source: block.source.clone(),
-                            anchor: offset,
-                            cursor: offset,
-                            dragging: true,
-                        });
+                        // Shift and a press in the same block, or scope, move
+                        // the selection's end there and drag it on.
+                        let mut selection = extended
+                            .filter(|selection| match selection.scope {
+                                Some(scope) => block.scope == Some(scope),
+                                None => selection.anchor.block == index && selection.anchor.source == block.source,
+                            })
+                            .unwrap_or_else(|| StaticSelection::at(&self.frame.text_blocks, index, offset, true));
+                        selection.cursor = TextPoint::at(&self.frame.text_blocks, index, offset);
+                        selection.dragging = true;
+                        self.static_selection = Some(selection);
                     }
                 }
                 self.pressed = hit
@@ -7304,19 +7465,7 @@ impl UiTree {
                     actions.push(slider_action(drag.id, snapped, y, true));
                     return actions;
                 }
-                if let Some(selection) = self.static_selection.as_mut().filter(|s| s.dragging) {
-                    if let Some(block) = self.frame.text_blocks.get(selection.block) {
-                        if block.source == selection.source {
-                            selection.cursor = block.offset_at(
-                                point,
-                                self.text_measurer.as_deref(),
-                                self.metrics,
-                                self.sans_metrics,
-                            );
-                        }
-                    }
-                    selection.dragging = false;
-                }
+                self.drag_selection(point, false);
                 if self.scroll_drag.take().is_some() {
                     return actions;
                 }
@@ -7387,9 +7536,7 @@ impl UiTree {
                         let (start, end) = input.selected_range()?;
                         Some(char_range(&input.value, start, end).to_owned())
                     });
-                    if let Some(text) =
-                        input_text.or_else(|| self.selected_text().map(str::to_owned))
-                    {
+                    if let Some(text) = input_text.or_else(|| self.selected_text()) {
                         actions.push(UiAction::CopyRequested { text });
                     }
                 } else if key == Key::X && ctrl {
@@ -7475,6 +7622,14 @@ impl UiTree {
                 {
                     self.keyboard_focus = true;
                     self.keyboard_tooltip_focus = true;
+                } else if key == Key::A
+                    && ctrl
+                    && !shift
+                    && !alt
+                    && !self.focused.as_ref().is_some_and(|id| self.inputs.contains_key(id))
+                    && self.select_all_text()
+                {
+                    // The texts of the scope a press landed in, as a page's Ctrl+A.
                 } else if let Some(id) = self.focused.as_ref() {
                     let kind = self
                         .focus_order
@@ -8531,6 +8686,9 @@ struct LayoutBuilder<'a> {
     pressed: Option<&'a str>,
     closed_submenu_triggers: &'a HashSet<String>,
     selection: Option<&'a StaticSelection>,
+    /// The innermost selection scope being laid out, and the next one's number.
+    selection_scope: Option<usize>,
+    next_selection_scope: usize,
     transitions: &'a mut HashMap<String, ColorTransition>,
     popover_transitions: &'a mut HashMap<String, ScalarTransition>,
     popover_exits: &'a HashMap<String, PopoverExit>,
@@ -10205,6 +10363,7 @@ impl LayoutBuilder<'_> {
         let runs = self.paint_layout(&layout, value, origin, style, clip, block_index);
         self.frame.text_blocks.push(SelectableTextBlock {
             source: value.to_owned(),
+            scope: self.selection_scope,
             runs,
             region_layer: self.frame.regions.len(),
             layout: Some(PlacedText { layout, origin }),
@@ -10319,6 +10478,7 @@ impl LayoutBuilder<'_> {
         }
         self.frame.text_blocks.push(SelectableTextBlock {
             source,
+            scope: self.selection_scope,
             runs,
             region_layer,
             layout: Some(PlacedText { layout, origin }),
@@ -10357,10 +10517,8 @@ impl LayoutBuilder<'_> {
             });
             start += held.chars().count();
         }
-        if let Some((from, to)) = self
-            .selection
-            .filter(|selection| selection.block == block_index && selection.source == source)
-            .and_then(|selection| selection.range())
+        if let Some((from, to)) =
+            self.selection.and_then(|selection| selection.range_in(block_index, self.selection_scope, source))
         {
             let byte = |offset: usize| source.char_indices().nth(offset).map_or(source.len(), |(byte, _)| byte);
             for rect in layout.selection(byte(from)..byte(to)) {
@@ -10387,11 +10545,8 @@ impl LayoutBuilder<'_> {
         run.visible = clip
             .and_then(|area| run.rect.intersection(area))
             .or_else(|| clip.is_none().then_some(run.rect));
-        if let Some(selection) = self
-            .selection
-            .filter(|selection| selection.block == block_index && selection.source == source)
-        {
-            if let Some((start, end)) = selection.range() {
+        if let Some(selection) = self.selection {
+            if let Some((start, end)) = selection.range_in(block_index, self.selection_scope, source) {
                 let start = start.max(run.start).min(run.end);
                 let end = end.max(run.start).min(run.end);
                 if end > start {
@@ -11951,6 +12106,18 @@ impl LayoutBuilder<'_> {
     }
 
     fn place(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
+        if element.kept.as_ref().is_some_and(|kept| kept.selection_scope) {
+            let scope = self.next_selection_scope;
+            self.next_selection_scope += 1;
+            let outer = self.selection_scope.replace(scope);
+            self.place_unscoped(element, rect, clip);
+            self.selection_scope = outer;
+        } else {
+            self.place_unscoped(element, rect, clip);
+        }
+    }
+
+    fn place_unscoped(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let mut placed = Self::translated_rect(element, rect);
         if let Some((id, y)) = element.kept.as_ref().and_then(|kept| kept.slide.as_ref()) {
             // Three moves: long enough to see the rows go by, as a counter rolls.
@@ -13289,6 +13456,7 @@ impl LayoutBuilder<'_> {
                 let block_index = self.frame.text_blocks.len();
                 self.frame.text_blocks.push(SelectableTextBlock {
                     source: value.clone(),
+                    scope: self.selection_scope,
                     runs: Vec::new(),
                     region_layer: self.frame.regions.len(),
                     layout: None,
@@ -13378,6 +13546,7 @@ impl LayoutBuilder<'_> {
                 let block_index = self.frame.text_blocks.len();
                 self.frame.text_blocks.push(SelectableTextBlock {
                     source: source.clone(),
+                    scope: self.selection_scope,
                     runs: Vec::new(),
                     region_layer: self.frame.regions.len(),
                     layout: None,
@@ -18338,9 +18507,9 @@ mod tests {
         // From the start of the text to a third into the 22 px square, at 8.
         tree.handle_event(UiEvent::PointerDown(Point::new(0.0, 4.0)));
         tree.handle_event(UiEvent::PointerMove(Point::new(15.0, 4.0)));
-        assert_eq!(tree.selected_text(), Some("ab"));
+        assert_eq!(tree.selected_text().as_deref(), Some("ab"));
         tree.handle_event(UiEvent::PointerMove(Point::new(21.0, 4.0)));
-        assert_eq!(tree.selected_text(), Some("ab:wave:"));
+        assert_eq!(tree.selected_text().as_deref(), Some("ab:wave:"));
         tree.handle_event(UiEvent::PointerUp(Point::new(21.0, 4.0)));
         let frame = tree.layout(Size::new(200.0, 100.0));
         let highlight = frame.commands.iter().find_map(|command| match command {
@@ -18446,7 +18615,7 @@ mod tests {
             regions[0].rect.x + regions[0].rect.width,
             2.0,
         )));
-        assert_eq!(tree.selected_text(), Some("ii WW ii"));
+        assert_eq!(tree.selected_text().as_deref(), Some("ii WW ii"));
     }
 
     #[test]
@@ -18659,7 +18828,7 @@ mod tests {
         tree.handle_event(UiEvent::PointerDown(Point::new(1.0, 5.0)));
         tree.handle_event(UiEvent::PointerMove(Point::new(43.0, 5.0)));
         tree.handle_event(UiEvent::PointerUp(Point::new(43.0, 5.0)));
-        assert_eq!(tree.selected_text(), Some("hi 👩‍💻"));
+        assert_eq!(tree.selected_text().as_deref(), Some("hi 👩‍💻"));
         let frame = tree.layout(Size::new(200.0, 40.0));
         assert!(frame.commands.iter().any(|command| matches!(
             command,
@@ -18687,12 +18856,12 @@ mod tests {
         tree.layout(Size::new(100.0, 30.0));
         tree.handle_event(UiEvent::PointerDown(Point::new(1.0, 5.0)));
         tree.handle_event(UiEvent::PointerMove(Point::new(18.0, 5.0)));
-        let before_leave = tree.selected_text().map(str::to_owned);
+        let before_leave = tree.selected_text();
         assert!(before_leave.is_some());
         tree.handle_event(UiEvent::PointerLeave);
         assert!(!tree.static_selection.as_ref().unwrap().dragging);
         tree.handle_event(UiEvent::PointerMove(Point::new(80.0, 5.0)));
-        assert_eq!(tree.selected_text(), before_leave.as_deref());
+        assert_eq!(tree.selected_text(), before_leave);
     }
 
     #[test]
@@ -18755,14 +18924,14 @@ mod tests {
         tree.layout(Size::new(100.0, 50.0));
         tree.handle_event(UiEvent::PointerDown(Point::new(1.0, 5.0)));
         tree.handle_event(UiEvent::PointerUp(Point::new(10.0, 23.0)));
-        assert_eq!(tree.selected_text(), Some("α\nβ"));
+        assert_eq!(tree.selected_text().as_deref(), Some("α\nβ"));
 
         tree.set_root(Element::text("abcd").size(Some(20.0), None));
         tree.layout(Size::new(20.0, 50.0));
         assert_eq!(tree.selected_text(), None);
         tree.handle_event(UiEvent::PointerDown(Point::new(1.0, 5.0)));
         tree.handle_event(UiEvent::PointerUp(Point::new(20.0, 23.0)));
-        assert_eq!(tree.selected_text(), Some("abcd"));
+        assert_eq!(tree.selected_text().as_deref(), Some("abcd"));
     }
 
     #[test]
@@ -18776,7 +18945,7 @@ mod tests {
         tree.layout(Size::new(100.0, 30.0));
         tree.handle_event(UiEvent::PointerDown(Point::new(1.0, 5.0)));
         tree.handle_event(UiEvent::PointerUp(Point::new(20.0, 5.0)));
-        assert_eq!(tree.selected_text(), Some("e\u{301}"));
+        assert_eq!(tree.selected_text().as_deref(), Some("e\u{301}"));
     }
 
     #[test]

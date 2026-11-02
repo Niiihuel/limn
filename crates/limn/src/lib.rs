@@ -139,6 +139,8 @@ mod raw_text_area_tests;
 #[cfg(test)]
 mod link_presentation_tests;
 #[cfg(test)]
+mod selection_scope_tests;
+#[cfg(test)]
 mod text_measurement_tests;
 #[cfg(test)]
 mod cursor_tests;

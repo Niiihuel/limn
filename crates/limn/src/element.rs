@@ -1052,6 +1052,8 @@ pub(crate) struct Kept {
     pub(crate) pulse_ms: Option<u16>,
     /// Set by [`Element::focus_area`]: a clickable that only takes the focus.
     pub(crate) focus_area: bool,
+    /// Set by [`Element::selection_scope`]: its texts select as one document.
+    pub(crate) selection_scope: bool,
     /// Set by [`Element::caret`]: the control whose focus shows the element,
     /// and where its caret is, which restarts the blink when it moves.
     pub(crate) caret: Option<(String, usize)>,
@@ -2855,6 +2857,21 @@ impl Element {
     /// glimpse of a panel that is not open.
     pub(crate) fn inert(mut self) -> Self {
         self.kept.get_or_insert_default().inert = true;
+        self
+    }
+
+    /// The texts inside select as one document, as a page's do: a drag from
+    /// one paragraph runs on into the next ones, Shift and a press extend
+    /// the selection to where it lands, and Ctrl+A, with no field focused,
+    /// selects every text inside once a press has landed on one of them.
+    /// Ctrl+C copies the selected parts in order: texts on one line joined
+    /// by a space (a list's marker and its item), the lines of one text as
+    /// they are, the next text below on its own line, and a blank line where
+    /// the gap between two texts is wider than a quarter of a line (between
+    /// paragraphs, not between a list's items). Without a scope a selection
+    /// stays within one text. Presses on links and buttons still click them.
+    pub fn selection_scope(mut self) -> Self {
+        self.kept.get_or_insert_default().selection_scope = true;
         self
     }
 
