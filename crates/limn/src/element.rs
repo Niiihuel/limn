@@ -3601,9 +3601,9 @@ impl Element {
     }
 
     /// On a zoom view: a click on the picture zooms in two and a half times about the point
-    /// clicked, and the next click fits it again, as a lightbox does; a drag still pans. The
-    /// mouse wheel then pans the picture instead of zooming it; with Ctrl it zooms. The zoom
-    /// a click makes is reported as [`UiAction::Zoomed`](crate::UiAction::Zoomed).
+    /// clicked, and the next click fits it again, as a lightbox does; a double click zooms it
+    /// once. A drag still pans and the wheel still zooms. The zoom a click makes is reported
+    /// as [`UiAction::Zoomed`](crate::UiAction::Zoomed).
     pub fn zoom_click_toggles(mut self) -> Self {
         if let ElementKind::ZoomView(view) = &mut self.kind {
             view.click_toggles = true;
