@@ -4221,6 +4221,9 @@ pub struct UiTree {
     focused: Option<String>,
     caret_blink: crate::caret_blink::CaretBlink,
     modal_return_focus: Option<String>,
+    /// Whether the focus a modal hands back came from the keyboard when the modal opened: the
+    /// key that closes it (Esc) does not make a pointer's focus the keyboard's.
+    modal_return_keyboard: bool,
     pending_scroll_focus: Option<String>,
     /// The control to bring into view, its margin, and whether it goes to
     /// the start of the viewport instead of just into it.
@@ -4328,6 +4331,7 @@ impl UiTree {
             focused: None,
             caret_blink: crate::caret_blink::CaretBlink::default(),
             modal_return_focus: None,
+            modal_return_keyboard: false,
             pending_scroll_focus: None,
             pending_reveal: None,
             pending_center: None,
@@ -5962,6 +5966,7 @@ impl UiTree {
                     .filter(|target| self.focus_order.iter().any(|(id, _)| id == *target))
                     .cloned()
                     .or_else(|| self.focused.clone());
+                self.modal_return_keyboard = self.keyboard_focus;
             }
             // A press on blank space inside the open modal blurs; only focus
             // that is outside it (or a modal that just opened) is moved in.
@@ -5988,6 +5993,8 @@ impl UiTree {
                     .any(|(candidate, _)| candidate == id)
             });
             Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+            self.keyboard_focus = self.modal_return_keyboard;
+            self.keyboard_tooltip_focus = self.modal_return_keyboard;
         }
         // A menu can be replaced by a floating form without a modal scrim.
         // Restore the departing scope first, then honor the new scope's
@@ -12731,17 +12738,21 @@ impl LayoutBuilder<'_> {
                     }
                     let hovered = self.hovered;
                     let focused = self.focused;
+                    // A trigger the pointer pressed keeps the focus, and gets it back from a
+                    // modal it opened: that focus opens nothing, only the keyboard's does; the
+                    // pointer opens the card by resting on the trigger.
+                    let trigger_focused = focused.filter(|_| self.keyboard_focus);
                     let surface_id = format!("popover_surface:{dismiss_id}");
                     let active = trigger_id
                         .as_deref()
-                        .is_some_and(|id| hovered == Some(id) || focused == Some(id))
+                        .is_some_and(|id| hovered == Some(id) || trigger_focused == Some(id))
                         || hovered == Some(surface_id.as_str())
                         || focusables.iter().any(|(id, _)| {
                             hovered == Some(id.as_str()) || focused == Some(id.as_str())
                         })
                         // What lies inside the trigger holds it too, such as a
                         // hint's anchor in a row that opens a card on hover.
-                        || holds_submenu(anchor, hovered, focused)
+                        || holds_submenu(anchor, hovered, trigger_focused)
                         || holds_submenu(floating, hovered, focused)
                         // The pointer crosses the space the trigger's outset and the gap leave
                         // beside its rows, or beside the parent's surface, on the way in.

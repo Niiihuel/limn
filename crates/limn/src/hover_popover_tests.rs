@@ -68,3 +68,23 @@ fn a_hint_inside_the_trigger_holds_a_popover_shown_on_hover() {
     tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 280.0)));
     assert!(!shown(&mut tree));
 }
+
+#[test]
+fn a_press_on_the_trigger_holds_nothing_once_the_pointer_leaves_and_the_keyboard_s_focus_does() {
+    let mut tree = tree();
+    let row = rect(&mut tree, "row");
+    let at = Point::new(row.x + 10.0, row.y + 10.0);
+    tree.handle_event(UiEvent::PointerMove(at));
+    tree.handle_event(UiEvent::PointerDown(at));
+    tree.handle_event(UiEvent::PointerUp(at));
+    assert_eq!(tree.focused_id(), Some("row"));
+    assert!(shown(&mut tree));
+    // As when a viewer the press opened closes and hands the row its focus back.
+    tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 280.0)));
+    assert!(!shown(&mut tree), "the pointer's focus holds nothing");
+    tree.handle_event(UiEvent::PointerMove(at));
+    assert!(shown(&mut tree), "a fresh rest shows it");
+    tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 280.0)));
+    assert!(tree.focus("row"));
+    assert!(shown(&mut tree), "the keyboard's focus shows it");
+}
