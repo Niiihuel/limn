@@ -25,26 +25,31 @@ pub struct Radius {
     pub surface: f32,
     /// Groups set into the page: alerts, preference groups, activity cards.
     pub card: f32,
+    /// Cards that stand on their own in a grid: a directory's entries, a feature's card.
+    pub tile: f32,
     /// The largest containers: dialogs, image previews, the composer.
     pub panel: f32,
 }
 
 impl Radius {
-    /// The library's radii: 4 for controls, 6 for surfaces, 8 for cards and 12 for panels.
+    /// The library's radii: 4 for controls, 6 for surfaces, 8 for cards, 16 for tiles and
+    /// 12 for panels.
     pub const DEFAULT: Self = Self {
         control: 4.0,
         surface: 6.0,
         card: 8.0,
+        tile: 16.0,
         panel: 12.0,
     };
 
     /// Controls as pills and everything else generously round: 16 for controls,
-    /// which is half the height of a regular one, 16 for surfaces, 20 for cards and
-    /// 28 for panels.
+    /// which is half the height of a regular one, 16 for surfaces, 20 for cards, 24 for
+    /// tiles and 28 for panels.
     pub const ROUND: Self = Self {
         control: 16.0,
         surface: 16.0,
         card: 20.0,
+        tile: 24.0,
         panel: 28.0,
     };
 
@@ -53,6 +58,7 @@ impl Radius {
         control: 0.0,
         surface: 0.0,
         card: 0.0,
+        tile: 0.0,
         panel: 0.0,
     };
 
@@ -66,6 +72,7 @@ impl Radius {
             control: self.control * factor,
             surface: self.surface * factor,
             card: self.card * factor,
+            tile: self.tile * factor,
             panel: self.panel * factor,
         }
     }
@@ -82,6 +89,7 @@ impl Radius {
             control: valid(self.control, Self::DEFAULT.control),
             surface: valid(self.surface, Self::DEFAULT.surface),
             card: valid(self.card, Self::DEFAULT.card),
+            tile: valid(self.tile, Self::DEFAULT.tile),
             panel: valid(self.panel, Self::DEFAULT.panel),
         }
     }
@@ -93,7 +101,7 @@ impl Default for Radius {
     }
 }
 
-/// Which of the four radii a component rounds with. A component that lets
+/// Which of the five radii a component rounds with. A component that lets
 /// its caller choose takes one of these, never a number of pixels.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum RadiusRole {
@@ -103,6 +111,8 @@ pub enum RadiusRole {
     Surface,
     /// `Radius::card`: 8 pixels by default.
     Card,
+    /// `Radius::tile`: 16 pixels by default.
+    Tile,
     /// `Radius::panel`: 12 pixels by default.
     Panel,
     /// No rounding, whatever the tokens: a cell that sits flush inside a row
@@ -118,6 +128,7 @@ impl RadiusRole {
             Self::Control => radius.control,
             Self::Surface => radius.surface,
             Self::Card => radius.card,
+            Self::Tile => radius.tile,
             Self::Panel => radius.panel,
             Self::Square => 0.0,
         }
@@ -260,6 +271,7 @@ mod tests {
         assert_eq!(RadiusRole::Control.px(), radius.control);
         assert_eq!(RadiusRole::Surface.px(), radius.surface);
         assert_eq!(RadiusRole::Card.px(), radius.card);
+        assert_eq!(RadiusRole::Tile.px(), radius.tile);
         assert_eq!(RadiusRole::Panel.px(), radius.panel);
         assert_eq!(RadiusRole::Square.px(), 0.0);
     }
@@ -270,6 +282,7 @@ mod tests {
             control: -3.0,
             surface: f32::NAN,
             card: 20.0,
+            tile: f32::NAN,
             panel: f32::INFINITY,
         }
         .sanitized();
