@@ -202,6 +202,10 @@ impl eframe::App for Host {
         }
         let frame = self.tree.layout(window);
         let animation_due = pages::present_animation(&ctx, &frame);
+        #[cfg(not(target_arch = "wasm32"))]
+        if self.screenshot.is_none() {
+            pages::present_videos(&ctx, &frame, &self.state);
+        }
         // A page embedded in a site is shown whole: while it scrolls, it asks for room.
         #[cfg(target_arch = "wasm32")]
         if self.state.flag("embed")

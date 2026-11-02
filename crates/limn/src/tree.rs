@@ -1661,6 +1661,34 @@ impl Frame {
         false
     }
 
+    /// Whether the host-fed surface `id` was painted with some of it in view:
+    /// laid out, not faded out, and not wholly clipped away by a scroll area
+    /// or a panel around it. A host that decodes the surface's pixels, such
+    /// as a video, decodes and repaints only while this holds.
+    pub fn surface_shown(&self, id: &str) -> bool {
+        let mut clips: Vec<Option<Rect>> = Vec::new();
+        self.commands.iter().any(|command| {
+            let within = |rect: Rect| match clips.last() {
+                None => Some(rect),
+                Some(clip) => clip.and_then(|clip| rect.intersection(clip)),
+            };
+            match command {
+                DrawCommand::PushClip(rect) | DrawCommand::RoundClip { rect, .. } => {
+                    let clip = within(*rect);
+                    clips.push(clip);
+                }
+                DrawCommand::PopClip => {
+                    clips.pop();
+                }
+                DrawCommand::Surface { rect, id: drawn, opacity, .. } if drawn == id => {
+                    return *opacity > 0.0 && within(*rect).is_some();
+                }
+                _ => {}
+            }
+            false
+        })
+    }
+
     /// The target of a coach mark that was rendered but could not be placed:
     /// no control with that ID is laid out in view, so nothing was painted.
     /// The host moves on to another step.

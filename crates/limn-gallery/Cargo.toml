@@ -33,6 +33,10 @@ image = { version = "0.25.10", default-features = false, features = ["png"] }
 base64 = "0.22"
 sha2 = "0.10"
 
+# Plays the Video page's clip; OpenH264 does not build for the browser.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+limn-video = { version = "0.1.43", path = "../limn-video" }
+
 [target.'cfg(target_os = "linux")'.dependencies]
 # The receive-only native demo shares the host window's Wayland connection.
 limn-dnd = { version = "0.1.43", path = "../limn-dnd" }

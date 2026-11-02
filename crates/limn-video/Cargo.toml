@@ -1,0 +1,31 @@
+[package]
+name = "limn-video"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Plays short muted H.264 clips on a limn-egui surface, decoded on a worker thread"
+
+[lints]
+workspace = true
+
+[dependencies]
+limn = { version = "0.1.43", path = "../limn", default-features = false }
+limn-egui = { version = "0.1.43", path = "../limn-egui", default-features = false }
+# The context frames are presented in: the egui that limn-egui's eframe re-exports.
+egui = { version = "0.37.0", default-features = false }
+# Decodes H.264 with Cisco's OpenH264 binary, which the host fetches from Cisco and this loads
+# at run time: nothing of OpenH264 is compiled in, so Cisco's patent license covers it.
+openh264 = { version = "0.9.9", default-features = false, features = ["libloading"] }
+# Pinned: its list of the Cisco libraries it loads is the release `cisco::VERSION` names.
+openh264-sys2 = { version = "=0.9.9", default-features = false }
+# Reads the samples, timing and parameter sets of an MP4's video track.
+mp4 = "0.14"
+
+[dev-dependencies]
+# The ignored download test checks Cisco's file against the release table; the tree builds it already.
+sha2 = "0.10"
