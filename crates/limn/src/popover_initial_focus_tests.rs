@@ -616,3 +616,51 @@ fn a_backdrop_that_answers_to_a_controls_id_raises_no_tooltip() {
     let shown = frame.commands.iter().any(|command| matches!(command, DrawCommand::FillTriangle { .. }));
     assert!(!shown, "the pointer on the backdrop is not on the close control");
 }
+
+/// A button behind a modal that `open` shows, which hands the button its focus back.
+fn modal_over_button(open: bool) -> Element {
+    use crate::{Component, ComponentPalette, Modal};
+    Modal::new(
+        Element::button("behind", "Background"),
+        open,
+        "Edit",
+        "",
+        "modal_dismiss",
+        ComponentPalette::neutral_dark(),
+    )
+    .width(320.0)
+    .height(200.0)
+    .body(Element::button("inside", "Inside"))
+    .return_focus("behind")
+    .render()
+}
+
+#[test]
+fn a_modal_hands_back_the_focus_as_the_pointer_or_the_keyboard_gave_it() {
+    // A press opened it: the Esc that closes it does not make that focus the keyboard's.
+    let mut tree = UiTree::new(modal_over_button(false));
+    tree.set_reduced_motion(true);
+    let frame = tree.layout(VIEWPORT);
+    let behind = frame.regions.iter().find(|r| r.id == "behind").expect("the button").rect;
+    let at = Point::new(behind.x + 4.0, behind.y + 4.0);
+    tree.handle_event(UiEvent::PointerDown(at));
+    tree.handle_event(UiEvent::PointerUp(at));
+    assert_eq!(tree.focused_id(), Some("behind"));
+    assert!(!tree.has_keyboard_focus());
+    tree.set_root(modal_over_button(true));
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.handle_event(key(Key::Escape)), [UiAction::Clicked { id: "modal_dismiss".into() }]);
+    tree.set_root(modal_over_button(false));
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("behind"));
+    assert!(!tree.has_keyboard_focus(), "the pointer's focus comes back as the pointer's");
+    // The keyboard gave it: it comes back as the keyboard's.
+    assert!(tree.focus("behind"));
+    tree.set_root(modal_over_button(true));
+    tree.layout(VIEWPORT);
+    tree.handle_event(key(Key::Escape));
+    tree.set_root(modal_over_button(false));
+    tree.layout(VIEWPORT);
+    assert_eq!(tree.focused_id(), Some("behind"));
+    assert!(tree.has_keyboard_focus(), "the keyboard's focus comes back as the keyboard's");
+}
