@@ -331,9 +331,10 @@ impl UiTree {
                             && block.region_layer <= end
                             && block.contains(position)
                     })?;
-            let preserved = self.static_selection.as_ref().is_some_and(|selection| {
-                selection.block == index && selection.source == block.source
-            });
+            let preserved = self
+                .static_selection
+                .as_ref()
+                .is_some_and(|selection| selection.touches(index, block));
             if !preserved {
                 let offset = block.offset_at(
                     position,
@@ -341,13 +342,8 @@ impl UiTree {
                     self.metrics,
                     self.sans_metrics,
                 );
-                self.static_selection = Some(StaticSelection {
-                    block: index,
-                    source: block.source.clone(),
-                    anchor: offset,
-                    cursor: offset,
-                    dragging: false,
-                });
+                self.static_selection =
+                    Some(StaticSelection::at(&self.frame.text_blocks, index, offset, false));
             } else if let Some(selection) = self.static_selection.as_mut() {
                 selection.dragging = false;
             }
@@ -482,22 +478,23 @@ impl UiTree {
                 .unwrap_or_default()
             }
             Target::Text { block, source } => {
-                let Some(selection) = self
-                    .static_selection
-                    .as_mut()
-                    .filter(|selection| selection.block == *block && selection.source == *source)
-                else {
+                let touched = self.static_selection.as_ref().is_some_and(|selection| {
+                    self.frame
+                        .text_blocks
+                        .get(*block)
+                        .is_some_and(|shown| shown.source == *source && selection.touches(*block, shown))
+                });
+                if !touched {
                     return Vec::new();
-                };
+                }
                 if item.action_id == "select_all" {
-                    selection.anchor = 0;
-                    selection.cursor = source.chars().count();
+                    self.select_all_text();
                     let next_focus = None;
                     Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
                     return Vec::new();
                 }
                 self.selected_text()
-                    .map(|text| vec![UiAction::CopyRequested { text: text.into() }])
+                    .map(|text| vec![UiAction::CopyRequested { text }])
                     .unwrap_or_default()
             }
             _ => Vec::new(),
@@ -551,7 +548,7 @@ impl UiTree {
                     .or_else(|| {
                         self.static_selection
                             .as_ref()
-                            .and_then(|selection| self.frame.text_blocks.get(selection.block))
+                            .and_then(|selection| self.frame.text_blocks.get(selection.ordered().0.block))
                             .and_then(|block| block.runs.iter().find_map(|run| run.visible))
                             .map(|rect| Point::new(rect.x + 1.0, rect.y + rect.height))
                     });
