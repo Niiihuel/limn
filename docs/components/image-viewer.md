@@ -164,7 +164,8 @@ The zoom toggle draws `Icon::ZoomIn` while the picture fits and
 `Icon::ZoomOut` while it is zoomed. It is drawn for a still picture only: a
 surface, such as an animation or a video, has none. A click on a still picture
 zooms it two and a half times about the point, and the next click fits it
-again, as the toggle does about the middle. A surface does not zoom on a click;
+again, as the toggle does about the middle; a double click counts as one click.
+A surface does not zoom on a click;
 its wheel, pinch, drag and keys still zoom and move it, as in a zoom view.
 While the picture is zoomed in, the arrows and the thumbnails hide; the group
 stays, so a keyboard user who reached its toggle can zoom back out, and close
@@ -318,9 +319,9 @@ opens fitted, and a view that is not laid out is forgotten.
   click beside the picture as that ID.
 - **Clicks.** `zoom_click_toggles()` makes a click on the picture zoom it two
   and a half times about the point, and the next click fit it again, as a
-  lightbox does. A drag still pans, and the wheel pans the picture instead of
-  zooming it; with Ctrl it zooms. Without the option a single click does
-  nothing, and a double click zooms.
+  lightbox does; a double click zooms it once, not in and back out. A drag
+  still pans, and the wheel zooms as it does without the option. Without the
+  option a single click does nothing, and a double click zooms.
 - **Shadow.** The element's `shadow` is cast by the picture, not by the box.
 - **Reading it.** `UiTree::zoom_scale(id)` gives the scale where it rests;
   `UiAction::Zoomed` reports each change; the scale shows as a percentage at
