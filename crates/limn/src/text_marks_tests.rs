@@ -103,7 +103,7 @@ fn a_run_with_a_hint_shows_it_once_the_pointer_rests_on_it() {
     // A press on it still starts a selection of the text.
     tree.handle_event(UiEvent::PointerDown(Point::new(42.0, 105.0)));
     tree.handle_event(UiEvent::PointerMove(Point::new(66.0, 105.0)));
-    assert_eq!(tree.selected_text(), Some("(ed"));
+    assert_eq!(tree.selected_text().as_deref(), Some("(ed"));
     tree.handle_event(UiEvent::PointerUp(Point::new(66.0, 105.0)));
     // Over the text before it, none.
     tree.handle_event(UiEvent::PointerMove(Point::new(8.0, 105.0)));

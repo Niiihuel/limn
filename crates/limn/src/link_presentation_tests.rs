@@ -44,7 +44,7 @@ fn decorative_link_icon_reserves_width_but_never_enters_selection_or_copy() {
     tree.handle_event(UiEvent::PointerDown(Point::new(0.0, 4.0)));
     tree.handle_event(UiEvent::PointerMove(Point::new(150.0, 4.0)));
     tree.handle_event(UiEvent::PointerUp(Point::new(150.0, 4.0)));
-    assert_eq!(tree.selected_text(), Some("á GitHub fin"));
+    assert_eq!(tree.selected_text().as_deref(), Some("á GitHub fin"));
     assert_eq!(
         tree.handle_event(UiEvent::Key {
             key: Key::C,

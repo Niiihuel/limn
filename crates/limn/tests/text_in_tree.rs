@@ -106,7 +106,7 @@ fn a_drag_across_text_selects_what_its_glyphs_show() {
     let (start, end) = (layout.caret(4), layout.caret(7));
     tree.handle_event(UiEvent::PointerDown(Point::new(start.x + 0.5, 9.0)));
     tree.handle_event(UiEvent::PointerUp(Point::new(end.x - 0.5, 9.0)));
-    assert_eq!(tree.selected_text(), Some("two"));
+    assert_eq!(tree.selected_text().as_deref(), Some("two"));
     // The selection is painted under the glyphs, over the same span.
     let frame_after = tree.layout(Size::new(300.0, 100.0));
     let fill = frame_after.commands.iter().find_map(|command| match command {
@@ -252,7 +252,7 @@ mod formatted {
         let (from, to) = (bold.caret(2), bold.caret(10));
         tree.handle_event(UiEvent::PointerDown(Point::new(from.x + 0.3, 9.0)));
         tree.handle_event(UiEvent::PointerUp(Point::new(to.x - 0.3, 9.0)));
-        assert_eq!(tree.selected_text(), Some("e two th"));
+        assert_eq!(tree.selected_text().as_deref(), Some("e two th"));
     }
 
     #[test]
