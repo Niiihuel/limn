@@ -12,7 +12,7 @@ use limn::{
     MessageAction, MessageActions, NavigationAction, NavigationBar, NavigationWorkspace, Pager, PanelHeader,
     PeekPanel, Point, RasterImage, RasterImageFormat, Rect, Role, SearchField, Side, SideRail, SideRailItem, SectionHeader, SplitButton, SegmentedControl, Select, SelectVariant, Size, StatusBar, StatusBarItem, Step, Stepper, SuggestionItem, SuggestionList, Switch, Tab,
     TabItem, TabStrip, Table, TableColumn, TableRow, Tabs, TabsVariant, TimePicker, Toast, TooltipSpec, TopBar, TreeGuides, TreeRow, UiAction, UiEvent,
-    UiTree,
+    UiTree, Video,
 };
 
 const WINDOW: Size = Size::new(480.0, 320.0);
@@ -112,6 +112,8 @@ fn controls() -> Vec<Control> {
             || IconButton::new("it", Icon::Search, palette()).accessibility_label("Search").render(),
             || IconButton::new("it", Icon::Search, palette()).accessibility_label("Search").disabled().render(),
         ),
+        always("Video, paused", "it:toggle", || Video::new("it", "Clip", false, palette()).width(320.0).render()),
+        always("Video, playing", "it:toggle", || Video::new("it", "Clip", true, palette()).width(320.0).render()),
         always("SplitButton action", "it", || {
             SplitButton::new("it", "Always allow", "it:menu", palette()).keys(&["Ctrl", "Enter"]).render()
         }),

@@ -59,6 +59,9 @@ mod tooltip;
 mod tour;
 mod typography;
 pub use typography::demo_emoji;
+mod video;
+#[cfg(not(target_arch = "wasm32"))]
+pub use video::present_videos;
 
 /// One page for each component. `title` is the name of its type, and `id`
 /// that name in kebab-case: the address of its page on the site and the name
@@ -182,6 +185,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "framed-card", group: "Layout", title: "FramedCard", source: "surfaces", view: surfaces::view, sections: &["Framed card"], since: "0.1.39" },
     Page { id: "scroll-area", group: "Layout", title: "ScrollArea", source: "surfaces", view: surfaces::view, sections: &["Scroll area", "Column height budgets"], since: "0.1.39" },
     Page { id: "media-tile", group: "Layout", title: "MediaTile", source: "blocks", view: blocks::view, sections: &["Media tile"], since: "0.1.39" },
+    Page { id: "video", group: "Layout", title: "Video", source: "video", view: video::view, sections: &[], since: "0.1.44" },
     Page { id: "carousel", group: "Layout", title: "Carousel", source: "carousel", view: carousel::view, sections: &[], since: "0.1.43" },
     Page { id: "media-card", group: "Layout", title: "MediaCard", source: "blocks", view: blocks::view, sections: &["Track card"], since: "0.1.39" },
     Page { id: "page-header", group: "Layout", title: "PageHeader", source: "page", view: page::view, sections: &["Page header"], since: "0.1.39" },

@@ -333,6 +333,11 @@ one-to-one placement above.
 as a camera's preview is shown to the person in front of it. Only the painting
 changes: the host presents the frames as they are, and sends them on unflipped.
 
+`frame.surface_shown(id)` says whether the surface was painted with some of
+it in view: still in the tree, not faded out, not clipped away by a scroll
+area. A host that decodes the pixels, as for a video, decodes and repaints
+only while it holds; `limn-video` does so for a `Video`.
+
 An animation converts each frame once, into a `SurfaceFrame` it keeps, and
 presents a clone of the one that is due: a clone shares the pixels, so
 looping copies nothing more on the host side.
