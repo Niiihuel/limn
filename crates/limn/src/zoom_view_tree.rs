@@ -31,7 +31,8 @@ pub(super) struct ZoomPress {
     samples: VecDeque<(Instant, Point)>,
     dragging: bool,
     beside: bool,
-    /// It was the second press of a double click, which zoomed.
+    /// It was the second press of a double click on the picture: it zoomed, or, on a view
+    /// that toggles on clicks, its release leaves the first click's zoom alone.
     toggled: bool,
 }
 
@@ -245,10 +246,8 @@ impl UiTree {
         let anchor = Point::new(position.x - frame.room.x, position.y - frame.room.y);
         let delta = if dy != 0.0 { dy } else { dx };
         // A mouse wheel zooms, notch by notch; a touchpad moves the picture,
-        // and zooms with Ctrl, following the fingers. A view that toggles on
-        // clicks has its wheel pan the picture, as a touchpad does.
-        let pans = direct || (frame.click_toggles && !ctrl);
-        let changed = if !pans {
+        // and zooms with Ctrl, following the fingers.
+        let changed = if !direct {
             state.zoom_at(anchor, ZoomState::wheel_factor(delta), now, true, reduced)
         } else if ctrl {
             state.zoom_at(anchor, ZoomState::pixel_factor(delta), now, false, reduced)
@@ -270,8 +269,8 @@ impl UiTree {
         let on_picture = frame.picture.contains(position);
         let mut actions = Vec::new();
         // A click on a view that toggles on clicks is a release, not a press.
-        let toggled = clicks >= 2 && on_picture && !frame.click_toggles;
-        if toggled {
+        let double = clicks >= 2 && on_picture;
+        if double && !frame.click_toggles {
             let anchor = Point::new(position.x - frame.room.x, position.y - frame.room.y);
             if state.toggle_at(anchor, now, reduced) {
                 actions.push(zoomed(&frame.id, state));
@@ -286,7 +285,7 @@ impl UiTree {
             samples: VecDeque::from([(now, position)]),
             dragging: false,
             beside: !on_picture,
-            toggled,
+            toggled: double,
         });
         self.pressed = None;
         self.keyboard_focus = false;
@@ -339,8 +338,12 @@ impl UiTree {
         }
         let frame = self.frame.zoom_views.iter().find(|frame| frame.id == press.id);
         // A click on the picture of a view that toggles on clicks zooms it
-        // about the point let go on, as a lightbox does.
+        // about the point let go on, as a lightbox does; a double click zooms
+        // it once, not in and back out.
         if let Some(frame) = frame.filter(|frame| frame.click_toggles && !press.beside) {
+            if press.toggled {
+                return Some(Vec::new());
+            }
             let anchor = Point::new(position.x - frame.room.x, position.y - frame.room.y);
             let state = self.zoom_views.get_mut(&press.id)?;
             let changed = state.toggle_at(anchor, now, reduced);
@@ -422,7 +425,7 @@ impl UiTree {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, Frame, Modifiers, RasterImage, RasterImageFormat};
+    use crate::{DrawCommand, Frame, RasterImage, RasterImageFormat};
     use std::sync::Arc;
 
     const WINDOW: Size = Size::new(900.0, 620.0);
@@ -508,21 +511,38 @@ mod tests {
     }
 
     #[test]
-    fn the_wheel_pans_a_zoomed_picture_and_with_ctrl_zooms_it() {
+    fn the_wheel_zooms_a_zoomed_picture_and_a_touchpad_pans_it() {
         let mut tree = view(true);
         let at = middle();
         click(&mut tree, at);
         let scale = tree.zoom_scale("view").unwrap();
+        let (zoomed_scale, _) = zoomed(&tree.handle_event(UiEvent::Scroll { position: at, delta_y: 30.0 }))
+            .expect("the wheel zooms");
+        assert!((zoomed_scale - scale * 1.3).abs() < 0.001);
+        // A touchpad's scroll shows what is above: the picture moves down, its scale kept.
         let before = picture(&tree.layout(WINDOW));
-        // A wheel notch up shows what is above: the picture moves down, its scale kept.
-        assert!(zoomed(&tree.handle_event(UiEvent::Scroll { position: at, delta_y: 30.0 })).is_none());
-        assert_eq!(tree.zoom_scale("view"), Some(scale));
+        assert!(zoomed(&tree.handle_event(UiEvent::ScrollDirect { position: at, delta_y: 30.0 })).is_none());
+        assert_eq!(tree.zoom_scale("view"), Some(zoomed_scale));
         let panned = picture(&tree.layout(WINDOW));
         assert!((panned.y - before.y - 30.0).abs() < 0.5 && (panned.x - before.x).abs() < 0.5);
-        tree.handle_event(UiEvent::ModifiersChanged(Modifiers { shift: false, ctrl: true, alt: false }));
-        let (zoomed_scale, _) = zoomed(&tree.handle_event(UiEvent::Scroll { position: at, delta_y: 30.0 }))
-            .expect("Ctrl with the wheel zooms");
-        assert!((zoomed_scale - scale * 1.3).abs() < 0.001);
+    }
+
+    #[test]
+    fn a_double_click_zooms_once_and_the_next_double_click_fits_again() {
+        let mut tree = view(true);
+        let at = middle();
+        let double = |tree: &mut UiTree| {
+            let mut actions = click(tree, at);
+            let second = UiEvent::PointerDownEditor { position: at, shift: false, alt: false, ctrl: false, click_count: 2 };
+            actions.extend(tree.handle_event(second));
+            actions.extend(tree.handle_event(UiEvent::PointerUp(at)));
+            actions
+        };
+        let (scale, fitted) = zoomed(&double(&mut tree)).expect("a double click zooms");
+        assert!((scale - FIT * 2.5).abs() < 0.001 && !fitted);
+        assert_eq!(tree.zoom_scale("view"), Some(scale));
+        double(&mut tree);
+        assert!((tree.zoom_scale("view").unwrap() - FIT).abs() < 0.001);
     }
 
     #[test]
