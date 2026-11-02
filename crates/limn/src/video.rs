@@ -31,6 +31,7 @@ pub struct Video {
     width: Option<f32>,
     play_label: String,
     pause_label: String,
+    controls: bool,
 }
 
 impl Video {
@@ -47,6 +48,7 @@ impl Video {
             width: None,
             play_label: "Play video".into(),
             pause_label: "Pause video".into(),
+            controls: true,
         }
     }
 
@@ -81,6 +83,14 @@ impl Video {
         if width.is_finite() && width > 0.0 {
             self.width = Some(width);
         }
+        self
+    }
+
+    /// Whether the play and pause button is there: `true` unless set. Without
+    /// it the video is a picture that may move, for a host that cannot play
+    /// the clip, as without a codec, and shows only its poster.
+    pub fn controls(mut self, controls: bool) -> Self {
+        self.controls = controls;
         self
     }
 
@@ -130,7 +140,9 @@ impl Component for Video {
             layers.push(Element::raster_image(poster.cover()).radius(radius).inert());
         }
         layers.push(Element::surface(self.id, self.label).surface_fit(SurfaceFit::Cover).radius(radius));
-        layers.push(corner);
+        if self.controls {
+            layers.push(corner);
+        }
         let video = Element::stack(layers).hover_region().radius(radius);
         match self.width {
             Some(width) => video.size(Some(width), Some(width * 9.0 / 16.0)),
@@ -256,6 +268,14 @@ mod tests {
         assert!(!UiTree::new(Element::column(vec![below])).layout(size).surface_shown("clip"));
         // Gone from the tree, as a closed dialog's.
         assert!(!UiTree::new(Element::spacer()).layout(size).surface_shown("clip"));
+    }
+
+    #[test]
+    fn without_controls_it_is_a_picture_with_no_button() {
+        let palette = ComponentPalette::neutral_dark();
+        let frame = tree(Video::new("clip", "Clip", false, palette).poster(poster()).controls(false)).layout(Size::new(640.0, 400.0));
+        assert!(frame.regions.iter().all(|region| region.id != "clip:toggle"));
+        assert!(frame.surface_shown("clip"));
     }
 
     #[test]
