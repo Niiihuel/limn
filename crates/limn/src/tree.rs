@@ -13917,8 +13917,10 @@ impl LayoutBuilder<'_> {
                 } else {
                     content
                 };
-                // The line sits in the middle of a field taller than its text.
-                let slack = (content.height - metrics.line_height).max(0.0);
+                // The line sits in the middle of the field: of a taller one, and of a compact
+                // one whose padding leaves less than a line, which it then takes from the
+                // padding rather than be cut at the top and bottom.
+                let slack = content.height - metrics.line_height;
                 let content = Rect::new(
                     content.x,
                     content.y + slack / 2.0,
