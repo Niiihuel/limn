@@ -4221,6 +4221,9 @@ pub struct UiTree {
     focused: Option<String>,
     caret_blink: crate::caret_blink::CaretBlink,
     modal_return_focus: Option<String>,
+    /// Whether the focus a modal hands back came from the keyboard when the modal opened: the
+    /// key that closes it (Esc) does not make a pointer's focus the keyboard's.
+    modal_return_keyboard: bool,
     pending_scroll_focus: Option<String>,
     /// The control to bring into view, its margin, and whether it goes to
     /// the start of the viewport instead of just into it.
@@ -4328,6 +4331,7 @@ impl UiTree {
             focused: None,
             caret_blink: crate::caret_blink::CaretBlink::default(),
             modal_return_focus: None,
+            modal_return_keyboard: false,
             pending_scroll_focus: None,
             pending_reveal: None,
             pending_center: None,
@@ -5962,6 +5966,7 @@ impl UiTree {
                     .filter(|target| self.focus_order.iter().any(|(id, _)| id == *target))
                     .cloned()
                     .or_else(|| self.focused.clone());
+                self.modal_return_keyboard = self.keyboard_focus;
             }
             // A press on blank space inside the open modal blurs; only focus
             // that is outside it (or a modal that just opened) is moved in.
@@ -5988,6 +5993,8 @@ impl UiTree {
                     .any(|(candidate, _)| candidate == id)
             });
             Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
+            self.keyboard_focus = self.modal_return_keyboard;
+            self.keyboard_tooltip_focus = self.modal_return_keyboard;
         }
         // A menu can be replaced by a floating form without a modal scrim.
         // Restore the departing scope first, then honor the new scope's
