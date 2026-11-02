@@ -31,9 +31,9 @@ set_tokens(Tokens {
 set_tokens(Tokens { radius: Radius::SQUARE, ..Tokens::DEFAULT });
 ```
 
-A `Radius` has four fields in logical pixels: `control` (4), `surface` (6),
-`card` (8) and `panel` (12). `Radius::SQUARE` is zero everywhere, and
-`scaled(factor)` multiplies all four. A radius that is negative or not finite
+A `Radius` has five fields in logical pixels: `control` (4), `surface` (6),
+`card` (8), `tile` (16) and `panel` (12). `Radius::SQUARE` is zero everywhere,
+and `scaled(factor)` multiplies all five. A radius that is negative or not finite
 falls back to its default when the tokens are set.
 
 ## Motion
