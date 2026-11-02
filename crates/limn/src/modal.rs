@@ -127,6 +127,7 @@ pub struct Modal {
     outline: Option<Color>,
     title_gap: f32,
     flush: bool,
+    headless: bool,
     animation_ms: u16,
     role: Role,
     spoken_description: String,
@@ -165,6 +166,7 @@ impl Modal {
             outline: None,
             title_gap: 10.0,
             flush: false,
+            headless: false,
             animation_ms: crate::tokens().motion.enter_ms,
             role: Role::Dialog,
             spoken_description: String::new(),
@@ -306,6 +308,19 @@ impl Modal {
         self.flush = flush;
         self
     }
+
+    /// Leave the title row out: the body starts at the card's top edge and
+    /// reaches its sides inside the one pixel outline, for a card that opens
+    /// on a picture, as an announcement does. The title and the description
+    /// still name and describe the dialog to assistive technology, Escape
+    /// still reports `close_id`, and the host places its own close, such as
+    /// a [`DismissButton`] over the picture. The body is as tall as its
+    /// content, or takes what a [`height`](Self::height) leaves; it is not
+    /// put in a scroll area. The footer keeps its padding.
+    pub fn headless(mut self, headless: bool) -> Self {
+        self.headless = headless;
+        self
+    }
 }
 
 impl Component for Modal {
@@ -374,10 +389,10 @@ impl Component for Modal {
             }
             Element::row(row).gap(8.0).min_size(0.0, 24.0)
         };
-        let mut sections = vec![header];
+        let mut sections = if self.headless { vec![] } else { vec![header] };
         let mut body = self.body;
 
-        if !self.description.is_empty() {
+        if !self.description.is_empty() && !self.headless {
             let description = Element::text(self.description)
                     .foreground(self.palette.muted)
                     .font_family(FontFamily::Sans)
@@ -389,9 +404,11 @@ impl Component for Modal {
             } else if self.flush { sections.push(description.padding(PADDING)); } else { sections.push(description); }
         }
 
-        if self.flush {
+        if self.flush || self.headless {
             if let Some(body) = body.take() {
-                sections.push(body.flex(1.0));
+                // Headless and as tall as its content, the body has no height to fill.
+                let fills = !self.headless || self.height.is_some();
+                sections.push(if fills { body.flex(1.0) } else { body });
             }
         }
         if let Some(body) = body {
@@ -412,12 +429,12 @@ impl Component for Modal {
         }
 
         if let Some(footer) = self.footer {
-            sections.push(if self.flush { footer.padding(PADDING) } else { footer });
+            sections.push(if self.flush || self.headless { footer.padding(PADDING) } else { footer });
         }
 
         let mut spaced = Vec::with_capacity(sections.len() * 2);
         for (index, section) in sections.into_iter().enumerate() {
-            if index > 0 && !self.flush {
+            if index > 0 && !self.flush && !self.headless {
                 let gap = if index == 1 { self.title_gap } else { 10.0 };
                 spaced.push(Element::spacer().size(None, Some(gap)));
             }
@@ -434,7 +451,7 @@ impl Component for Modal {
         }
         let mut card = Element::panel(content)
             // Flush, the body stops inside the outline, so its own fills never cover it.
-            .padding(if self.flush { OUTLINE } else { PADDING })
+            .padding(if self.flush || self.headless { OUTLINE } else { PADDING })
             .size(Some(self.width), self.height)
             .background(self.palette.surface)
             .border(self.outline.unwrap_or(self.palette.border), OUTLINE)
@@ -519,6 +536,42 @@ mod tests {
         assert_eq!(body.y, card.y + 1.0 + FLUSH_HEADER + 1.0);
         assert_eq!(body.y + body.height, card.y + card.height - 1.0);
         assert!(!frame.regions.iter().any(|r| r.id.starts_with("modal_body:")));
+    }
+
+    #[test]
+    fn a_headless_card_opens_on_its_body_named_by_its_title_and_escape_still_closes() {
+        let palette = ComponentPalette::neutral_dark();
+        let picture = Element::clickable("picture", Element::spacer().size(None, Some(180.0)));
+        let mut tree = UiTree::new(
+            Modal::new(Element::spacer(), true, "A browser beside the chat", "Hidden words", "news", palette)
+                .width(400.0)
+                .headless(true)
+                .body(picture)
+                .footer(Element::button("ok", "Got it"))
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let dialog = frame.access.iter().find(|n| n.id == "news:dialog").unwrap();
+        assert_eq!(dialog.name, "A browser beside the chat");
+        assert_eq!(dialog.description.as_deref(), Some("Hidden words"));
+        let card = dialog.rect;
+        let picture = frame.regions.iter().find(|r| r.id == "picture").unwrap().rect;
+        // At the top edge and the sides, inside the outline; no title, close or description drawn.
+        assert_eq!((picture.x, picture.y, picture.width), (card.x + 1.0, card.y + 1.0, card.width - 2.0));
+        assert!(!frame.regions.iter().any(|r| r.id == "news:close" || r.id.starts_with("modal_body:")));
+        assert!(!frame.commands.iter().any(|c| matches!(c,
+            crate::DrawCommand::Text { text, .. } if text.contains("browser") || text.contains("Hidden"))));
+        // As tall as what it holds: the picture, then the footer in its padding.
+        let ok = frame.regions.iter().find(|r| r.id == "ok").unwrap().rect;
+        assert_eq!(ok.y, picture.y + picture.height);
+        assert!(ok.height > 2.0 * PADDING);
+        assert_eq!(card.y + card.height, ok.y + ok.height + 1.0);
+        assert_eq!(
+            tree.handle_event(UiEvent::Key { key: Key::Escape, shift: false, ctrl: false, alt: false }),
+            vec![UiAction::Clicked { id: "news".into() }]
+        );
     }
 
     #[test]
