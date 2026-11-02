@@ -4,14 +4,15 @@ A short muted clip that plays in place and loops, such as a feature shown in
 a "what's new" dialog, with a round play and pause button over its
 bottom-right corner. limn draws it and reports the button; the host decodes
 the clip and presents its frames. For a `limn-egui` host the `limn-video`
-crate does that part.
+crate does that part, with Cisco's OpenH264 library, which the host fetches
+from Cisco onto the person's machine: see [The codec](#the-codec).
 
 ## Import
 
 ```rust
 use limn::{Component, Video};
 // The host's side, in a limn-egui window:
-use limn_video::{Clip, VideoPlayer};
+use limn_video::{cisco, Clip, Codec, Status, VideoPlayer};
 ```
 
 ## Usage
@@ -22,13 +23,17 @@ and flips it when the button reports `Video::toggle_id(id)`. A
 frames with two calls.
 
 ```rust
-// Once, where the clip is loaded. Under reduced motion it waits on its poster.
+// Once, away from the UI thread. The codec is Cisco's library, fetched and
+// checked by the host, or None while the person has not allowed it.
 let clip = Clip::from_mp4(&bytes)?;
-let mut player = VideoPlayer::new("whats-new:clip", clip, !reduced_motion);
+let codec = codec_path.and_then(|path| Codec::load(path).ok());
+// Under reduced motion it waits on its poster.
+let mut player = VideoPlayer::new("whats-new:clip", clip, !reduced_motion, codec);
 
-// The view.
+// The view. Without a codec nothing can play: the poster stands alone.
 Video::new("whats-new:clip", "The new sidebar", player.is_playing(), palette)
     .poster(poster)
+    .controls(player.status() != Status::NoCodec)
     .width(Modal::body_width(modal_width))
     .render()
 
@@ -55,6 +60,16 @@ frame is presented, while the clip loads, and for as long as it never plays,
 as under reduced motion. Make it from the clip's first frame (see
 [Clips](#clips)) so nothing jumps when the clip starts. It is not named to
 the platform; the video's `label` is.
+
+## Without controls
+
+```rust
+video.controls(false)
+```
+
+No play and pause button: the video is its poster, and whatever frames the
+host presents. A host that cannot play the clip, as without a codec, shows
+it so rather than with a button that does nothing.
 
 ## Size and corners
 
@@ -91,8 +106,8 @@ While the clip plays, the button shows only while the pointer is over the
 video or the button has the focus, fading in over `enter_ms` and out over
 `exit_ms`; paused, it stays, so a paused clip does not pass for a picture.
 Under reduced motion the fade is a switch, and a host should start the clip
-paused: `VideoPlayer::new(id, clip, !reduced_motion)` never decodes a clip
-that is not played.
+paused: `VideoPlayer::new(id, clip, !reduced_motion, codec)` never decodes
+a clip that is not played.
 
 ## Actions
 
@@ -114,6 +129,66 @@ skipping frames.
 
 `player.tick(now, shown)` is the same step without egui: it returns the
 frame due, with its index in the clip, and when to look again.
+
+`player.status()` says where it stands: `NoCodec` (it never decodes),
+`Waiting` (it has not played in view yet), `Decoding`, or `Stopped` (the
+codec or the clip failed; it holds its last frame or the poster).
+
+## The codec
+
+`limn-video` compiles in nothing of OpenH264. It loads Cisco's own build at
+run time, the way Firefox does, because Cisco pays the H.264 patent
+royalties only for the binaries it distributes, under conditions the host
+must meet. `limn-video` does no downloading, no caching and no settings: the
+host does, and passes the path of the library to `Codec::load`.
+
+`cisco::VERSION` is the release the bindings load, 2.6.0.
+`cisco::current()` (or `cisco::release_for(os, arch)`) gives the host the
+file to fetch for this platform:
+
+| Platform | `file_name` (decompressed) | SHA-256 of the decompressed file |
+| --- | --- | --- |
+| Linux x86-64 | `libopenh264-2.6.0-linux64.8.so` | `2f0cde7c6a6abcf5cae76942894ea42897fa677bce4ed6c91a24dd1b041d5f04` |
+| Linux Arm64 | `libopenh264-2.6.0-linux-arm64.8.so` | `12e7b33623667cdab0e575170c147b1b36eadb77d0d2aa7ceb5afd3e58902140` |
+| Windows x86-64 | `openh264-2.6.0-win64.dll` | `2076cb5675ec6c1a4c70e7a2a322552f547b6eeed649d6dfcd9e02a543b24691` |
+| macOS x86-64 | `libopenh264-2.6.0-mac-x64.dylib` | `e3dc8bc01fe69363f61fd3c02fd27798537a585eadd38cd808f303d1ee505a19` |
+| macOS Arm64 | `libopenh264-2.6.0-mac-arm64.dylib` | `052e98bfcf7a9167d22f3bbb3f5988ef79065591f36af8b52924b22b13624551` |
+
+`url` is `https://ciscobinary.openh264.org/<file_name>.bz2`. Cisco publishes
+an MD5 beside each file, as `<file_name>.signed.md5.txt`, not a SHA-256: the
+SHA-256s above were computed from Cisco's downloads, which match those MD5s,
+and are the ones the `openh264` crate accepts. The host:
+
+1. asks the person, and fetches nothing until they agree;
+2. downloads `url` from Cisco onto their machine, decompresses it (bzip2),
+   checks its SHA-256, and keeps it in the application's data directory;
+3. calls `Codec::load(path)` away from the UI thread, which checks the
+   SHA-256 again, against the releases the bindings load, before loading it.
+
+`Codec::load` refuses any other file. Each `VideoPlayer` loads the library
+again on its own decoding thread. On Linux, Cisco's library needs the
+system's `libstdc++.so.6`, present on desktop distributions; where it is
+missing, `Codec::load` fails and the video keeps its poster.
+
+### Cisco's conditions
+
+Cisco's binary license (`cisco::LICENSE_URL`,
+https://www.openh264.org/BINARY_LICENSE.txt) covers the H.264 patents only
+if the application meets these conditions. They bind the host, not limn:
+
+- The library is downloaded from Cisco onto the person's device, separately
+  from the application: never bundled with it, mirrored or sent along with
+  an update.
+- The person can enable, disable and enable again the use of the library,
+  such as with a switch in the settings.
+- Where that switch is, the application shows `cisco::NOTICE`:
+  "OpenH264 Video Codec provided by Cisco Systems, Inc."
+- The application reproduces the text of Cisco's binary license, including
+  those conditions, where it presents licensing information, such as an
+  "About" or "Licenses" page.
+
+Cisco's FAQ adds that every past release stays available for download, so a
+host can stay on 2.6.0 until `limn-video` moves to another.
 
 ## Clips
 
@@ -137,13 +212,10 @@ pixels a side, 16 megapixels).
 
 ## Limits
 
-- `limn-video` compiles OpenH264 from the source it vendors with the C++
-  compiler `cc` finds: MSVC on Windows, Clang on macOS, GCC or Clang on
-  Linux. It does not build for the browser, where the video shows its
+- Cisco builds the library for Linux, Windows and macOS on x86-64 and
+  Arm64, except Windows on Arm, which this crate does not list. Elsewhere,
+  and in the browser, where `limn-video` does not build, the video shows its
   poster.
-- Without `nasm` on the build machine OpenH264 is built without its x86
-  assembly; it still decodes 720p at 30 frames a second on one core.
-- Building OpenH264 from source is not covered by Cisco's H.264 patent
-  license, which covers only the binaries Cisco distributes. An application
-  that ships the decoder answers for its own H.264 licensing.
+- Until the person agrees to the download, and while it runs, there is no
+  codec: the video shows its poster.
 - There is no sound, seeking or progress bar: a clip plays, pauses and loops.

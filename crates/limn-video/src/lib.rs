@@ -1,10 +1,14 @@
 //! Plays a short muted clip on a [`limn::Video`] in a `limn-egui` window.
 //!
 //! A [`Clip`] is an MP4 file with one H.264 video track, read into memory.
-//! A [`VideoPlayer`] decodes it on a thread of its own, a few frames ahead,
+//! A [`Codec`] is Cisco's OpenH264 library, which the host fetches from Cisco
+//! onto the person's machine (see [`cisco`]); nothing of OpenH264 is built
+//! into this crate. A [`VideoPlayer`] decodes the clip with it on a thread of
+//! its own, a few frames ahead,
 //! loops it without a gap, and presents each frame on the video's surface
 //! when it falls due. It decodes and asks for repaints only while the video
 //! plays and its surface is in view; paused or hidden, it costs nothing.
+//! Without a codec it never decodes, and the video shows its poster.
 //!
 //! ```no_run
 //! # fn view(playing: bool) -> limn::Element { limn::Element::spacer() }
@@ -12,9 +16,12 @@
 //! # let mut tree = limn::UiTree::new(limn::Element::spacer());
 //! # let bytes: Vec<u8> = Vec::new();
 //! # let reduced_motion = false;
+//! # let codec_path: Option<std::path::PathBuf> = None;
 //! let clip = limn_video::Clip::from_mp4(&bytes).expect("a clip");
+//! // The library the host fetched from Cisco and checked, if the person allowed it.
+//! let codec = codec_path.and_then(|path| limn_video::Codec::load(path).ok());
 //! // Under reduced motion it waits on its poster for the person to press play.
-//! let mut player = limn_video::VideoPlayer::new("whats-new:clip", clip, !reduced_motion);
+//! let mut player = limn_video::VideoPlayer::new("whats-new:clip", clip, !reduced_motion, codec);
 //! // Each frame: lay the tree out, let the player answer its button, present.
 //! tree.set_root(view(player.is_playing()));
 //! let frame = tree.layout(limn::Size::new(800.0, 600.0));
@@ -30,9 +37,14 @@
 
 #![warn(missing_docs)]
 
+pub mod cisco;
+
 use limn_egui::SurfaceFrame;
+use openh264::decoder::{Decoder, DecoderConfig};
 use openh264::formats::YUVSource;
+use openh264::OpenH264API;
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, SyncSender, TryRecvError};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -71,6 +83,48 @@ impl fmt::Display for ClipError {
 }
 
 impl std::error::Error for ClipError {}
+
+/// Why a file is not a codec this crate loads.
+#[derive(Debug)]
+pub struct CodecError(String);
+
+impl fmt::Display for CodecError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "the OpenH264 library could not be loaded: {}", self.0)
+    }
+}
+
+impl std::error::Error for CodecError {}
+
+/// Cisco's OpenH264 library, loaded from a file the host fetched from Cisco
+/// and checked; see [`cisco`]. Cloning it shares the path: each player
+/// loads the library again on its decoding thread, checking it again.
+#[derive(Clone, Debug)]
+pub struct Codec {
+    path: Arc<Path>,
+}
+
+impl Codec {
+    /// Load the library at `path` and make a decoder with it, to be sure it
+    /// works. A file whose SHA-256 is not one of a release the `openh264`
+    /// crate's bindings load ([`cisco::VERSION`]) is refused before it is
+    /// loaded. It reads the file: call it away from the UI thread.
+    pub fn load(path: impl Into<PathBuf>) -> Result<Self, CodecError> {
+        let codec = Self { path: Arc::from(path.into()) };
+        codec.decoder()?;
+        Ok(codec)
+    }
+
+    /// The library's path.
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn decoder(&self) -> Result<Decoder, CodecError> {
+        let api = OpenH264API::from_blob_path(&*self.path).map_err(|error| CodecError(error.to_string()))?;
+        Decoder::with_api_config(api, DecoderConfig::new()).map_err(|error| CodecError(error.to_string()))
+    }
+}
 
 /// One sample of the track, as start-coded NAL units OpenH264 reads, and
 /// when it is shown from the start of the clip.
@@ -185,7 +239,7 @@ impl Clip {
 /// `false`, when `frame` returns `false`. A sample that does not decode is
 /// skipped; `None` when no sample decodes at all.
 fn decode_lap(
-    decoder: &mut openh264::decoder::Decoder,
+    decoder: &mut Decoder,
     track: &Track,
     rgb: &mut Vec<u8>,
     mut frame: impl FnMut(usize, [usize; 2], &[u8]) -> bool,
@@ -214,8 +268,8 @@ struct Decoded {
 
 /// Decode lap after lap into `frames` until the player hangs up or the clip
 /// stops decoding. The queue being full is what holds it back.
-fn decode(track: Arc<Track>, frames: SyncSender<Decoded>) {
-    let Ok(mut decoder) = openh264::decoder::Decoder::new() else { return };
+fn decode(track: Arc<Track>, codec: Codec, frames: SyncSender<Decoded>) {
+    let Ok(mut decoder) = codec.decoder() else { return };
     let mut rgb = Vec::new();
     for lap in 0u32.. {
         let start = track.length * lap;
@@ -241,16 +295,34 @@ pub struct Tick {
     pub repaint_after: Option<Duration>,
 }
 
+/// What a [`VideoPlayer`] is doing about decoding.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Status {
+    /// It has no [`Codec`]: it never decodes, and the video shows its
+    /// poster. Pass the `Video` `controls(false)` then, as nothing can play.
+    NoCodec,
+    /// It has not played in view yet, so it has decoded nothing.
+    Waiting,
+    /// Its decoding thread runs, or waits for room in the queue.
+    Decoding,
+    /// The codec or the clip failed while decoding: it holds its last frame,
+    /// or the poster.
+    Stopped,
+}
+
 /// Plays a [`Clip`] on the surface of a [`limn::Video`] with the same ID:
 /// decodes it on a thread of its own, loops it, and presents each frame as
 /// it falls due. Its clock runs only while it plays and the surface is in
 /// view; the decoding thread starts the first time it does, so a clip that
-/// never plays, as under reduced motion, is never decoded. Dropping the
+/// never plays, as under reduced motion, is never decoded, and nor is one
+/// without a [`Codec`]. Dropping the
 /// player stops the thread and frees the surface's texture.
 pub struct VideoPlayer {
     id: String,
     clip: Clip,
     playing: bool,
+    codec: Option<Codec>,
+    stopped: bool,
     frames: Option<Receiver<Decoded>>,
     /// The next frame, taken from the queue before it is due.
     next: Option<Decoded>,
@@ -274,9 +346,20 @@ impl fmt::Debug for VideoPlayer {
 
 impl VideoPlayer {
     /// A player for the video `id`, playing from the start once it is in
-    /// view if `playing`, or waiting to be played.
-    pub fn new(id: impl Into<String>, clip: Clip, playing: bool) -> Self {
-        Self { id: id.into(), clip, playing, frames: None, next: None, position: Duration::ZERO, resumed: None }
+    /// view if `playing`, or waiting to be played. Without a `codec` it
+    /// never plays: the video shows its poster.
+    pub fn new(id: impl Into<String>, clip: Clip, playing: bool, codec: Option<Codec>) -> Self {
+        Self {
+            id: id.into(),
+            clip,
+            playing,
+            codec,
+            stopped: false,
+            frames: None,
+            next: None,
+            position: Duration::ZERO,
+            resumed: None,
+        }
     }
 
     /// The surface it presents on: the [`limn::Video`]'s ID.
@@ -284,9 +367,10 @@ impl VideoPlayer {
         &self.id
     }
 
-    /// Whether it plays: what the [`limn::Video`] is built with.
+    /// Whether it plays: what the [`limn::Video`] is built with. Never
+    /// without a codec.
     pub fn is_playing(&self) -> bool {
-        self.playing
+        self.playing && self.codec.is_some()
     }
 
     /// Play or pause. A paused clip holds its frame and resumes from it.
@@ -294,10 +378,15 @@ impl VideoPlayer {
         self.playing = playing;
     }
 
-    /// Whether the decoding thread has started: not before the clip first
-    /// plays in view.
-    pub fn is_decoding(&self) -> bool {
-        self.frames.is_some()
+    /// What it is doing about decoding: nothing before the clip first
+    /// plays in view, nor ever without a codec.
+    pub fn status(&self) -> Status {
+        match (&self.codec, &self.frames) {
+            (None, _) => Status::NoCodec,
+            (Some(_), None) => Status::Waiting,
+            (Some(_), Some(_)) if self.stopped => Status::Stopped,
+            (Some(_), Some(_)) => Status::Decoding,
+        }
     }
 
     /// Answer an action of the tree: a click on the video's play and pause
@@ -317,16 +406,16 @@ impl VideoPlayer {
     /// to keep pace; after a longer gap between ticks (over 250 ms) it goes on
     /// from the frame it stopped at.
     pub fn tick(&mut self, now: Instant, shown: bool) -> Tick {
-        if !(self.playing && shown) {
+        let Some(codec) = self.codec.as_ref().filter(|_| self.playing && shown && !self.stopped) else {
             self.stop_clock(now);
             return Tick::default();
-        }
+        };
         let frames = self.frames.get_or_insert_with(|| {
             let (sender, receiver) = mpsc::sync_channel(QUEUE);
-            let track = self.clip.0.clone();
+            let (track, codec) = (self.clip.0.clone(), codec.clone());
             // The thread ends when the receiver is dropped, at its next frame.
             // A thread that cannot start drops the sender: the player then holds its poster.
-            std::thread::Builder::new().name("limn-video".into()).spawn(move || decode(track, sender)).ok();
+            std::thread::Builder::new().name("limn-video".into()).spawn(move || decode(track, codec, sender)).ok();
             receiver
         });
         let mut clock = self.position + self.resumed.map_or(Duration::ZERO, |at| now.saturating_duration_since(at));
@@ -339,6 +428,7 @@ impl VideoPlayer {
                     Err(TryRecvError::Empty) => break,
                     // The clip stopped decoding: hold the last frame.
                     Err(TryRecvError::Disconnected) => {
+                        self.stopped = true;
                         self.stop_clock(now);
                         return Tick { frame: due.map(|due: Decoded| (due.index, due.frame)), repaint_after: None };
                     }
@@ -402,8 +492,27 @@ mod tests {
     /// see `assets/README.md`.
     const PATTERN: &[u8] = include_bytes!("../assets/pattern.mp4");
 
+    /// The path of a Cisco OpenH264 library to decode with; tests that decode
+    /// are skipped without it. `downloads_ciscos_library_and_decodes_the_pattern`
+    /// fetches one and prints its path.
+    const CODEC_VARIABLE: &str = "LIMN_VIDEO_OPENH264";
+
     fn clip() -> Clip {
         Clip::from_mp4(PATTERN).expect("the pattern is a clip")
+    }
+
+    fn codec() -> Option<Codec> {
+        let Some(path) = std::env::var_os(CODEC_VARIABLE) else {
+            eprintln!("skipped: set {CODEC_VARIABLE} to the path of Cisco's OpenH264 {}", cisco::VERSION);
+            return None;
+        };
+        Some(Codec::load(path).expect("the library in LIMN_VIDEO_OPENH264 loads"))
+    }
+
+    /// A codec whose library is missing: it loads nothing, and fails only
+    /// once a player starts decoding with it.
+    fn missing_codec() -> Codec {
+        Codec { path: Arc::from(Path::new("/nonexistent/libopenh264.so")) }
     }
 
     /// Tick until `count` frames were presented, letting exactly the time
@@ -429,19 +538,11 @@ mod tests {
         shown
     }
 
-    #[test]
-    fn the_pattern_reads_as_two_seconds_of_320_by_180_at_30_frames() {
-        let clip = clip();
-        assert_eq!((clip.size(), clip.frame_count(), clip.duration()), ([320, 180], 60, Duration::from_secs(2)));
-        assert_eq!(clip.interval(), Duration::from_nanos(33_333_333));
-    }
-
-    #[test]
-    fn the_decoder_decodes_every_frame_of_the_pattern_at_its_size() {
-        let clip = clip();
-        let mut decoder = openh264::decoder::Decoder::new().unwrap();
+    /// Decode one lap of the pattern with `codec`, checking each frame.
+    fn decode_pattern(codec: &Codec) {
+        let mut decoder = codec.decoder().expect("a decoder");
         let mut decoded = Vec::new();
-        let finished = decode_lap(&mut decoder, &clip.0, &mut Vec::new(), |index, size, pixels| {
+        let finished = decode_lap(&mut decoder, &clip().0, &mut Vec::new(), |index, size, pixels| {
             assert_eq!(pixels.len(), size[0] * size[1] * 3);
             decoded.push((index, size));
             true
@@ -451,41 +552,89 @@ mod tests {
     }
 
     #[test]
+    fn the_pattern_reads_as_two_seconds_of_320_by_180_at_30_frames() {
+        let clip = clip();
+        assert_eq!((clip.size(), clip.frame_count(), clip.duration()), ([320, 180], 60, Duration::from_secs(2)));
+        assert_eq!(clip.interval(), Duration::from_nanos(33_333_333));
+    }
+
+    #[test]
     fn what_is_not_a_clip_is_refused() {
         assert!(matches!(Clip::from_mp4(b"not an mp4"), Err(ClipError::Unreadable(_))));
         assert!(Clip::from_mp4(&PATTERN[..PATTERN.len() / 2]).is_err());
     }
 
     #[test]
-    fn frames_arrive_in_order_and_loop() {
-        let mut player = VideoPlayer::new("clip", clip(), true);
-        let shown = play(&mut player, 150);
-        assert_eq!(shown, (0..150).map(|at| at % 60).collect::<Vec<_>>());
+    fn what_is_not_ciscos_library_is_not_loaded() {
+        assert!(Codec::load("/nonexistent/libopenh264.so").is_err());
+        // A file that exists but is not a known release is refused before it is loaded.
+        assert!(Codec::load(file!()).is_err());
+    }
+
+    #[test]
+    fn without_a_codec_the_poster_stays_and_nothing_is_decoded() {
+        let mut player = VideoPlayer::new("clip", clip(), true, None);
+        assert_eq!(player.status(), Status::NoCodec);
+        assert!(!player.is_playing(), "the video is built paused");
+        for step in 0..5 {
+            let tick = player.tick(Instant::now() + Duration::from_millis(step * 40), true);
+            assert!(tick.frame.is_none() && tick.repaint_after.is_none());
+        }
+        assert_eq!(player.status(), Status::NoCodec);
     }
 
     #[test]
     fn a_clip_that_never_plays_is_never_decoded_and_asks_for_nothing() {
         // As under reduced motion: the poster shows until the person presses play.
-        let mut player = VideoPlayer::new("clip", clip(), false);
+        let mut player = VideoPlayer::new("clip", clip(), false, Some(missing_codec()));
         let now = Instant::now();
         for step in 0..5 {
             let tick = player.tick(now + Duration::from_millis(step * 40), true);
             assert!(tick.frame.is_none() && tick.repaint_after.is_none());
         }
-        assert!(!player.is_decoding());
+        assert_eq!(player.status(), Status::Waiting);
     }
 
     #[test]
     fn a_hidden_clip_is_never_decoded() {
-        let mut player = VideoPlayer::new("clip", clip(), true);
+        let mut player = VideoPlayer::new("clip", clip(), true, Some(missing_codec()));
         let tick = player.tick(Instant::now(), false);
         assert!(tick.frame.is_none() && tick.repaint_after.is_none());
-        assert!(!player.is_decoding());
+        assert_eq!(player.status(), Status::Waiting);
+    }
+
+    #[test]
+    fn a_codec_that_fails_stops_on_the_poster_and_asks_for_nothing_more() {
+        let mut player = VideoPlayer::new("clip", clip(), true, Some(missing_codec()));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while player.status() != Status::Stopped {
+            assert!(Instant::now() < deadline, "the player never noticed");
+            assert!(player.tick(Instant::now(), true).frame.is_none());
+            std::thread::sleep(Duration::from_millis(2));
+        }
+        assert!(player.tick(Instant::now(), true).repaint_after.is_none());
+    }
+
+    #[test]
+    fn the_decoder_decodes_every_frame_of_the_pattern_at_its_size() {
+        if let Some(codec) = codec() {
+            decode_pattern(&codec);
+        }
+    }
+
+    #[test]
+    fn frames_arrive_in_order_and_loop() {
+        let Some(codec) = codec() else { return };
+        let mut player = VideoPlayer::new("clip", clip(), true, Some(codec));
+        let shown = play(&mut player, 150);
+        assert_eq!(shown, (0..150).map(|at| at % 60).collect::<Vec<_>>());
+        assert_eq!(player.status(), Status::Decoding);
     }
 
     #[test]
     fn the_button_pauses_and_resumes_where_it_stopped() {
-        let mut player = VideoPlayer::new("clip", clip(), true);
+        let Some(codec) = codec() else { return };
+        let mut player = VideoPlayer::new("clip", clip(), true, Some(codec));
         play(&mut player, 10);
         let toggle = limn::UiAction::Clicked { id: limn::Video::toggle_id("clip") };
         assert!(player.handle(&toggle));
@@ -506,9 +655,9 @@ mod tests {
     /// Run `player` in passes of a window until its surface has a texture
     /// or `passes` ran out: whether one did, and the repaint delay egui was
     /// last asked for.
-    fn run(player: &mut VideoPlayer, playing: bool, passes: usize) -> (bool, Duration) {
+    fn run(player: &mut VideoPlayer, passes: usize) -> (bool, Duration) {
         let ctx = egui::Context::default();
-        let video = limn::Video::new("clip", "Pattern", playing, limn::ComponentPalette::neutral_dark()).render();
+        let video = limn::Video::new("clip", "Pattern", player.is_playing(), limn::ComponentPalette::neutral_dark()).render();
         let frame = limn::UiTree::new(video).layout(limn::Size::new(320.0, 180.0));
         let mut delay = Duration::MAX;
         for _ in 0..passes {
@@ -528,15 +677,42 @@ mod tests {
 
     #[test]
     fn a_frame_reaches_the_surface_and_the_window_repaints_at_the_frame_rate() {
-        let (presented, delay) = run(&mut VideoPlayer::new("clip", clip(), true), true, 2000);
+        let Some(codec) = codec() else { return };
+        let (presented, delay) = run(&mut VideoPlayer::new("clip", clip(), true, Some(codec)), 2000);
         assert!(presented, "no frame reached the surface in 10 s");
         assert!(delay <= Duration::from_millis(34), "{delay:?}");
     }
 
     #[test]
     fn a_paused_clip_presents_nothing_and_asks_for_no_repaint() {
-        let (presented, delay) = run(&mut VideoPlayer::new("clip", clip(), false), false, 3);
-        assert!(!presented);
-        assert_eq!(delay, Duration::MAX);
+        for codec in [None, Some(missing_codec())] {
+            let (presented, delay) = run(&mut VideoPlayer::new("clip", clip(), false, codec), 3);
+            assert!(!presented);
+            assert_eq!(delay, Duration::MAX);
+        }
+    }
+
+    /// Fetches Cisco's library for this platform with `curl` and `bunzip2`,
+    /// as a host would, checks it against [`cisco::current`], and decodes the
+    /// pattern with it. Ignored: it downloads. Its path, printed, is what
+    /// `LIMN_VIDEO_OPENH264` takes for the other tests.
+    #[test]
+    #[ignore = "downloads Cisco's OpenH264 library"]
+    fn downloads_ciscos_library_and_decodes_the_pattern() {
+        use sha2::Digest as _;
+        use std::process::Command;
+        let release = cisco::current().expect("Cisco has a release for this platform");
+        let dir = std::env::temp_dir().join(format!("limn-video-openh264-{}", cisco::VERSION));
+        std::fs::create_dir_all(&dir).unwrap();
+        let library = dir.join(release.file_name);
+        let compressed = dir.join(format!("{}.bz2", release.file_name));
+        let fetched = Command::new("curl").args(["-sfSL", "-o"]).arg(&compressed).arg(release.url).status().unwrap();
+        assert!(fetched.success(), "curl {}", release.url);
+        let unpacked = Command::new("bunzip2").arg("-kf").arg(&compressed).status().unwrap();
+        assert!(unpacked.success());
+        let sha256: String = sha2::Sha256::digest(std::fs::read(&library).unwrap()).iter().map(|byte| format!("{byte:02x}")).collect();
+        assert_eq!(sha256, release.sha256, "{} is not the file the table names", library.display());
+        decode_pattern(&Codec::load(&library).expect("Cisco's library loads"));
+        println!("{CODEC_VARIABLE}={}", library.display());
     }
 }

@@ -32,6 +32,24 @@ fn poster() -> RasterImage {
         .clone()
 }
 
+/// Cisco's OpenH264 library at the path in `LIMN_VIDEO_OPENH264`, loaded
+/// once. The gallery fetches nothing: without it the videos show their
+/// posters. A host loads it away from the UI thread; a demo need not.
+#[cfg(not(target_arch = "wasm32"))]
+fn codec() -> Option<limn_video::Codec> {
+    static CODEC: OnceLock<Option<limn_video::Codec>> = OnceLock::new();
+    CODEC.get_or_init(|| std::env::var_os("LIMN_VIDEO_OPENH264").and_then(|path| limn_video::Codec::load(path).ok())).clone()
+}
+
+/// Whether the clips can play here: not in a browser, nor without a codec.
+fn can_play() -> bool {
+    #[cfg(not(target_arch = "wasm32"))]
+    let playable = codec().is_some();
+    #[cfg(target_arch = "wasm32")]
+    let playable = false;
+    playable
+}
+
 /// Whether `id` plays: the first one unless the person asked for less
 /// motion, each until its button is clicked, which flips the flag of the
 /// button's ID.
@@ -43,11 +61,13 @@ fn playing(state: &State, id: &str) -> bool {
 
 pub fn view(cx: &Cx) -> Vec<Section> {
     let width = cx.width.min(480.0);
-    let video = |id: &str, label: &str| Video::new(id, label, playing(cx.state, id), cx.palette).poster(poster()).width(width);
+    let video = |id: &str, label: &str| {
+        Video::new(id, label, can_play() && playing(cx.state, id), cx.palette).poster(poster()).width(width).controls(can_play())
+    };
     vec![
         section(cx, "Video", vec![
             video(PLAYING, "A test pattern that loops").render(),
-            caption(cx, "Muted, looping, playing as it comes into view. The button shows under the pointer or the focus."),
+            caption(cx, "Muted, looping, playing as it comes into view. The button shows under the pointer or the focus. It plays with Cisco's OpenH264 library at the path in LIMN_VIDEO_OPENH264; without one, the poster stands alone."),
         ]),
         section(cx, "Waiting on its poster", vec![
             video(WAITING, "A test pattern, paused").render(),
@@ -69,7 +89,7 @@ pub fn present_videos(ctx: &eframe::egui::Context, frame: &limn::Frame, state: &
         if players.is_empty() {
             let clip = limn_video::Clip::from_mp4(CLIP).expect("the sample clip is an MP4");
             for id in [PLAYING, WAITING] {
-                players.push(limn_video::VideoPlayer::new(id, clip.clone(), playing(state, id)));
+                players.push(limn_video::VideoPlayer::new(id, clip.clone(), playing(state, id), codec()));
             }
         }
         for player in players.iter_mut() {

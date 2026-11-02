@@ -75,7 +75,7 @@ Rust: `cd site && vercel build --prod && vercel deploy --prebuilt --prod`.
 | `limn` | The library: elements, layout, events, animation and components. No backend dependency. |
 | `limn-egui` | Backend: paints a frame with egui and wgpu and translates its input. |
 | `limn-editor` | The text document behind the code editor: rope, selection, search. |
-| `limn-video` | Plays short muted H.264 clips on a `Video`'s surface in a `limn-egui` window, decoded on a worker thread by OpenH264 built from vendored source. [Video](docs/components/video.md). |
+| `limn-video` | Plays short muted H.264 clips on a `Video`'s surface in a `limn-egui` window, decoded on a worker thread by Cisco's OpenH264 library, which the host fetches from Cisco. [Video](docs/components/video.md). |
 | `limn-language` | Syntax highlighting with tree-sitter and an LSP client. Optional, behind the `syntax` feature. |
 | `limn-dnd` | Receive-only Copy drops and opt-in Selection text on Linux/Wayland, sharing a bounded owner; legacy outgoing drags. Default attachment stays DnD-only; stock-SDK clipboard backend wiring is pending. [Safety and lifecycle](docs/file-drop.md). |
 | `limn-gallery` | The component gallery. Not published. |
