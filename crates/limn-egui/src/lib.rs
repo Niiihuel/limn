@@ -407,8 +407,10 @@ fn full_resolution_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -
     if magnification >= NEAREST_FROM {
         return raster_texture_keyed(ui, image, raster_key(image, true, 0, true));
     }
-    let side = thumbnail_side(target, ppp);
-    if magnification < 0.5 && side as f32 >= shown.ceil() {
+    if magnification < 0.5 {
+        // Stepped as a thumbnail is, but not held to a thumbnail's cap: a large picture shown
+        // larger than the cap is smoothed too, not sampled from the whole one.
+        let side = (shown.ceil().max(1.0) as u32).div_ceil(IMAGE_THUMBNAIL_STEP) * IMAGE_THUMBNAIL_STEP;
         return raster_texture_keyed(ui, image, raster_key(image, false, side, false));
     }
     whole
@@ -3637,12 +3639,12 @@ mod tests {
     #[test]
     fn a_whole_picture_is_sharp_magnified_and_smoothed_shrunk() {
         let ctx = egui::Context::default();
-        let image = raster(png_with_alpha(256, 128, 255), RasterImageFormat::Png).full_resolution();
-        let paint = |side: f32| {
+        let small = raster(png_with_alpha(256, 128, 255), RasterImageFormat::Png).full_resolution();
+        let paint = |image: &RasterImage, side: f32| {
             let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(side * 2.0, side));
             let mut texture = RasterTexture::Unavailable;
             for _ in 0..400 {
-                ctx.run_ui(Default::default(), |ui| texture = full_resolution_texture(ui, &image, area))
+                ctx.run_ui(Default::default(), |ui| texture = full_resolution_texture(ui, image, area))
                     .textures_delta
                     .clear();
                 let keys: Vec<RasterKey> = RASTER_CACHE.with(|cache| cache.borrow().entries.keys().cloned().collect());
@@ -3658,12 +3660,19 @@ mod tests {
         };
         clear_image_cache();
         // Three times its pixels: a copy with sharp pixels besides the whole one.
-        let keys = paint(384.0);
+        let keys = paint(&small, 384.0);
         assert!(keys.iter().any(|key| key.2 && key.4), "{keys:?}");
         clear_image_cache();
         // A third of its size: a copy decoded at the size it is drawn.
-        let keys = paint(42.0);
+        let keys = paint(&small, 42.0);
         assert!(keys.iter().any(|key| !key.2 && key.3 == IMAGE_THUMBNAIL_STEP), "{keys:?}");
+        clear_image_cache();
+        // Shown larger than a thumbnail's cap, it still has its copy at the size it is drawn.
+        let large = raster(png_with_alpha(1024, 512, 255), RasterImageFormat::Png).full_resolution();
+        set_image_thumbnail_side(IMAGE_THUMBNAIL_STEP);
+        let keys = paint(&large, 100.0);
+        set_image_thumbnail_side(IMAGE_THUMBNAIL_SIDE);
+        assert!(keys.iter().any(|key| !key.2 && key.3 == 2 * IMAGE_THUMBNAIL_STEP), "{keys:?}");
         assert_eq!(turned([3, 2], 1), [2, 3]);
         assert_eq!(turned([3, 2], 2), [3, 2]);
         clear_image_cache();
