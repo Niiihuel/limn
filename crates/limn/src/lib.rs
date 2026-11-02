@@ -130,6 +130,7 @@ mod tokens;
 mod tree;
 mod tree_view;
 mod typography;
+mod video;
 
 #[cfg(test)]
 mod code_view_lifecycle_tests;
@@ -292,6 +293,7 @@ pub use tree::{
     TextLayoutBlock, TextLayoutRun, UiAction, UiEvent, UiTree, RECORD_REACH, RECORD_SHARE,
 };
 pub use tree_view::{guides_for_depths, TreeGuides, TreeRow};
+pub use video::Video;
 pub use typography::{truncate_measured, wrap_measured, TextRole};
 
 // Names these types had before each was called after its component.
