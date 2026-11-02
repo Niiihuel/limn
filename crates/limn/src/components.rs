@@ -6797,7 +6797,9 @@ mod tests {
     fn a_compact_field_shows_its_whole_line_in_its_middle() {
         let palette = ComponentPalette::neutral_dark();
         let value = "https://example.com/docs/en/overview";
-        for laid_out in [false, true] {
+        // Without the bundled faces limn lays no text out itself: only egui's path is drawn.
+        let modes: &[bool] = if cfg!(feature = "bundled-fonts") { &[false, true] } else { &[false] };
+        for &laid_out in modes {
             for field in [
                 TextField::new("url", value, "", palette).size(ControlSize::Compact).width(300.0).render(),
                 SearchField::new("url", value, "", palette).size(ControlSize::Compact).width(300.0).render(),
