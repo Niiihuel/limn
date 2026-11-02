@@ -99,6 +99,23 @@ scrolls what it wants itself. The title row and the footer keep their
 padding. `.outline(color)` draws the outline in a color of its own, quieter
 than the hairline, as a dark settings window does.
 
+A card that opens on a picture, as an announcement of something new does,
+has no title row: `headless(true)` starts the body at the card's top edge,
+across its width inside the outline, as tall as its content (or what a
+`height` leaves), with no scroll area round it. The title and description
+still name and describe the dialog to assistive technology and Escape still
+reports the close ID; the host places its own close, such as a
+`DismissButton` over the picture. The footer keeps its padding.
+
+```rust
+Modal::new(root, open, "A browser beside the chat", "", "news", palette)
+    .width(Modal::fit_width(window_width, 640.0))
+    .headless(true)
+    .body(Element::column(vec![picture, words]))
+    .footer(buttons)
+    .render()
+```
+
 ## AlertDialog
 
 `AlertDialog::new(base, open, title, description, confirm_id, cancel_id,
