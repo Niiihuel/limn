@@ -12731,17 +12731,21 @@ impl LayoutBuilder<'_> {
                     }
                     let hovered = self.hovered;
                     let focused = self.focused;
+                    // A trigger the pointer pressed keeps the focus, and gets it back from a
+                    // modal it opened: that focus opens nothing, only the keyboard's does; the
+                    // pointer opens the card by resting on the trigger.
+                    let trigger_focused = focused.filter(|_| self.keyboard_focus);
                     let surface_id = format!("popover_surface:{dismiss_id}");
                     let active = trigger_id
                         .as_deref()
-                        .is_some_and(|id| hovered == Some(id) || focused == Some(id))
+                        .is_some_and(|id| hovered == Some(id) || trigger_focused == Some(id))
                         || hovered == Some(surface_id.as_str())
                         || focusables.iter().any(|(id, _)| {
                             hovered == Some(id.as_str()) || focused == Some(id.as_str())
                         })
                         // What lies inside the trigger holds it too, such as a
                         // hint's anchor in a row that opens a card on hover.
-                        || holds_submenu(anchor, hovered, focused)
+                        || holds_submenu(anchor, hovered, trigger_focused)
                         || holds_submenu(floating, hovered, focused)
                         // The pointer crosses the space the trigger's outset and the gap leave
                         // beside its rows, or beside the parent's surface, on the way in.

@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- A popover shown on hover (`Element::popover_on_hover`) opens from its trigger's focus only when the keyboard gave it: a trigger the pointer pressed, or that a modal it opened hands the focus back to, holds the card no longer once the pointer leaves, and the card shows again on a fresh rest
 - `RollingNumber`: a number whose digits roll to their new values, each a column of 0 to 9 behind a one-line window, known by its place from the right, over three `move_ms`; at once under reduced motion. `Element::animate_slide(id, y)` places an element `y` below its slot, sprung under `id`. See [RollingNumber](docs/components/rolling-number.md)
 - `Element::animate_move(id)`: an element its column or row lays out in another slot than on the last frame, as a list sorted again or a row above it that came or went, glides there from where it was shown over `move_ms`, easing out, with its pointer target and children; the parent's own moves carry it at once. See [Animation](docs/animation.md#a-list-that-reorders)
 - `Element::shimmer_faded_text(id, text, highlight, fade_width)`: one line of work under way with `shimmer_text`'s moving highlight that fades out at its end when it does not fit, never cut to an ellipsis as `shimmer_truncated_text` is. `ElementKind::FadedText` has a `shimmer` field. **Breaking** for `ElementKind::FadedText` patterns without `..`. See [Layout](docs/layout.md#text)
