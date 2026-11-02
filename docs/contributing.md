@@ -73,6 +73,7 @@ height is a shape, not a token.
 | A control | `tokens().radius.control` |
 | A floating surface | `tokens().radius.surface` |
 | A group set into the page | `tokens().radius.card` |
+| A card standing alone in a grid | `tokens().radius.tile` |
 | A large container | `tokens().radius.panel` |
 | A hover or press fill | `tokens().motion.hover_ms` |
 | Something arriving or leaving | `tokens().motion.enter_ms`, `exit_ms` |

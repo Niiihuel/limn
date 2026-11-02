@@ -37,20 +37,21 @@ Corner radii in logical pixels, named for what they round.
 | `control` | 4 | Buttons, inputs, menu rows, keycaps, tooltips. |
 | `surface` | 6 | Surfaces that float: popovers, menus, toasts, the segmented track. |
 | `card` | 8 | Groups set into the page: alerts, preference groups, activity cards, the calendar. |
+| `tile` | 16 | Cards that stand on their own in a grid: a directory's entries, a feature's card. |
 | `panel` | 12 | The largest containers: dialogs, image previews, the composer. |
 
 | Constructor | Result |
 | --- | --- |
 | `Radius::DEFAULT` | The table above. |
 | `Radius::SQUARE` | Every radius zero. |
-| `Radius::ROUND` | Controls as pills: 16, 16, 20 and 28. |
+| `Radius::ROUND` | Controls as pills: 16, 16, 20, 24 and 28. |
 | `radius.scaled(factor)` | Every radius multiplied by `factor`. A factor that is negative or not finite leaves it unchanged. |
 
 A radius that is negative or not finite is replaced by its default when the
 tokens are set.
 
 A component that lets its caller choose a radius takes a `RadiusRole`
-(`Control`, `Surface`, `Card` or `Panel`), never a number. `role.px()` reads
+(`Control`, `Surface`, `Card`, `Tile` or `Panel`), never a number. `role.px()` reads
 the radius in force for that role. `RadiusRole::Square` is always zero: a
 cell that sits flush inside a row or a bar that paints the surface.
 

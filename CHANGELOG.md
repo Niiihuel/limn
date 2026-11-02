@@ -6,6 +6,7 @@ in any release.
 ## Unreleased
 
 - `Modal::headless(true)`: a card with no title row, whose body starts at its top edge across its width inside the outline, as tall as its content, as an announcement that opens on a picture is; the title and description still name and describe the dialog and Escape still reports the close ID. See [Dialog](docs/components/dialog.md)
+- `Radius::tile` and `RadiusRole::Tile`: the corner of a card that stands on its own in a grid, as a directory's entries or a feature's card, 16 by default (24 in `Radius::ROUND`, 0 in `Radius::SQUARE`). **Breaking** for `Radius` initializers and patterns without `..`. See [Tokens](docs/tokens.md#radius)
 - A popover shown on hover (`Element::popover_on_hover`) opens from its trigger's focus only when the keyboard gave it: a trigger the pointer pressed, or that a modal it opened hands the focus back to, holds the card no longer once the pointer leaves, and the card shows again on a fresh rest
 - A text input whose padding leaves less than a line, as a `ControlSize::Compact` `TextField` or `SearchField` (28 px, 12 px inside), shows its whole line in its middle instead of cut at the top and bottom: the line takes what it lacks from the padding
 - A zoom view that toggles on clicks (`zoom_click_toggles`, as `ViewerLayout::Lightbox` draws a still picture) zooms with the mouse wheel as any zoom view does, rather than panning; a touchpad still pans and zooms with Ctrl. A double click on its picture zooms it once rather than in and back out. See [ImageViewer](docs/components/image-viewer.md#zoom-view)
