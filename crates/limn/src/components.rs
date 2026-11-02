@@ -6793,6 +6793,53 @@ mod tests {
     }
 
     #[test]
+    // A 28 px field leaves 12 px inside its padding, less than a 13 px line.
+    fn a_compact_field_shows_its_whole_line_in_its_middle() {
+        let palette = ComponentPalette::neutral_dark();
+        let value = "https://example.com/docs/en/overview";
+        for laid_out in [false, true] {
+            for field in [
+                TextField::new("url", value, "", palette).size(ControlSize::Compact).width(300.0).render(),
+                SearchField::new("url", value, "", palette).size(ControlSize::Compact).width(300.0).render(),
+            ] {
+                let mut tree = UiTree::new(Element::column(vec![field]));
+                tree.set_text_layout(laid_out);
+                let frame = tree.layout(Size::new(400.0, 100.0));
+                let field = frame.regions.iter().find(|region| region.id == "url").expect("field").rect;
+                assert_eq!(field.height, 28.0);
+                let mut clips = vec![];
+                let mut drawn = vec![];
+                for command in &frame.commands {
+                    match command {
+                        DrawCommand::PushClip(rect) => clips.push(*rect),
+                        DrawCommand::PopClip => {
+                            clips.pop();
+                        }
+                        DrawCommand::Text { text, position, font_size, .. } if text.contains("example.com") => {
+                            drawn.push((*clips.last().expect("clipped to the field"), position.y, *font_size));
+                        }
+                        DrawCommand::Glyphs(run) if run.text.contains("example.com") => {
+                            drawn.push((*clips.last().expect("clipped to the field"), run.origin.y, run.size));
+                        }
+                        _ => {}
+                    }
+                }
+                assert!(!drawn.is_empty(), "{laid_out}: no text drawn");
+                for (clip, top, size) in drawn {
+                    let line = 18.0 * size / 14.0;
+                    assert!(clip.height >= line - 0.5, "{laid_out}: a line of {line} in {clip:?}");
+                    assert!(
+                        clip.y >= field.y && clip.y + clip.height <= field.y + field.height,
+                        "{laid_out}: {clip:?} out of {field:?}"
+                    );
+                    let middle = top + line / 2.0 - field.y;
+                    assert!((middle - field.height / 2.0).abs() < 1.0, "{laid_out}: line at {middle}");
+                }
+            }
+        }
+    }
+
+    #[test]
     fn a_text_field_takes_a_height_of_the_host_and_never_less_than_its_size() {
         let palette = ComponentPalette::neutral_dark();
         for enabled in [true, false] {
