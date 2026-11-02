@@ -15,7 +15,8 @@ const BUTTON: f32 = 36.0;
 const INSET: f32 = 12.0;
 
 /// A clip the host decodes and presents on the surface `id`, as
-/// [`Element::surface`] describes, laid over its still poster and under a
+/// [`Element::surface`] describes, filling its box and cropped around the
+/// center ([`SurfaceFit::Cover`]), laid over its still poster and under a
 /// round play and pause button at its bottom-right corner. The host owns
 /// whether it plays: it passes `playing` on every rebuild and flips it when
 /// [`Video::toggle_id`] is reported. The component decodes nothing; the
@@ -26,7 +27,6 @@ pub struct Video {
     playing: bool,
     palette: ComponentPalette,
     poster: Option<RasterImage>,
-    fit: SurfaceFit,
     radius: Option<f32>,
     width: Option<f32>,
     play_label: String,
@@ -43,7 +43,6 @@ impl Video {
             playing,
             palette,
             poster: None,
-            fit: SurfaceFit::Cover,
             radius: None,
             width: None,
             play_label: "Play video".into(),
@@ -62,13 +61,6 @@ impl Video {
     /// reduced motion. Give it the clip's size, usually its first frame.
     pub fn poster(mut self, poster: RasterImage) -> Self {
         self.poster = Some(poster);
-        self
-    }
-
-    /// How the clip and the poster fill the box; [`SurfaceFit::Cover`], the
-    /// default, fills it and crops around the center.
-    pub fn fit(mut self, fit: SurfaceFit) -> Self {
-        self.fit = fit;
         self
     }
 
@@ -134,11 +126,10 @@ impl Component for Video {
 
         let mut layers = Vec::with_capacity(3);
         if let Some(poster) = self.poster {
-            let poster = if self.fit == SurfaceFit::Cover { poster.cover() } else { poster };
             // The surface already names the video to the platform.
-            layers.push(Element::raster_image(poster).radius(radius).inert());
+            layers.push(Element::raster_image(poster.cover()).radius(radius).inert());
         }
-        layers.push(Element::surface(self.id, self.label).surface_fit(self.fit).radius(radius));
+        layers.push(Element::surface(self.id, self.label).surface_fit(SurfaceFit::Cover).radius(radius));
         layers.push(corner);
         let video = Element::stack(layers).hover_region().radius(radius);
         match self.width {

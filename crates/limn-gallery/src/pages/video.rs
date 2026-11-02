@@ -1,6 +1,6 @@
 use super::{caption, section, Cx, Section};
 use crate::app::State;
-use limn::{Component, RasterImage, RasterImageFormat, SurfaceFit, Video};
+use limn::{Component, RasterImage, RasterImageFormat, Video};
 use std::sync::{Arc, OnceLock};
 
 /// The clip's first frame; the clip itself is played only where
@@ -50,7 +50,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             caption(cx, "Muted, looping, playing as it comes into view. The button shows under the pointer or the focus."),
         ]),
         section(cx, "Waiting on its poster", vec![
-            video(WAITING, "A test pattern, paused").fit(SurfaceFit::Contain).radius(0.0).render(),
+            video(WAITING, "A test pattern, paused").render(),
             caption(cx, "As under reduced motion: nothing is decoded until the play button is pressed."),
         ]),
     ]

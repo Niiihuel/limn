@@ -59,13 +59,13 @@ the platform; the video's `label` is.
 ## Size and corners
 
 ```rust
-video.width(480.0).radius(12.0).fit(SurfaceFit::Contain)
+video.width(480.0).radius(12.0)
 ```
 
 `width(px)` lays the video out that wide and 9/16 of that high. Without it
-the video fills the box its parent gives it. `fit` is
-`SurfaceFit::Cover` unless set: the clip fills the box and is cropped around
-its center, and the poster with it. `radius(px)` rounds the clip, the poster
+the video fills the box its parent gives it. The clip and the poster fill
+the box and are cropped around the center, as `SurfaceFit::Cover` does, so
+a clip of another shape loses its edges rather than leaving bars. `radius(px)` rounds the clip, the poster
 and the box, such as to the inner radius of the card it sits in;
 `tokens().radius.card` unless set.
 
