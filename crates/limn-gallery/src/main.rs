@@ -34,6 +34,8 @@ struct Host {
     scroll_end: bool,
     opened: Instant,
     requested: bool,
+    /// Filled by the screenshot callback; `capture` saves it.
+    shot: std::sync::Arc<std::sync::Mutex<Option<std::sync::Arc<egui::ColorImage>>>>,
     /// The shape of the state when this run began, to notice a patch that changes it.
     launched: limn::hot::Shape,
 }
@@ -78,14 +80,12 @@ impl Host {
         // Long enough for fonts and icons to settle and a tooltip to open.
         if !self.requested && self.opened.elapsed() > Duration::from_millis(900) {
             self.requested = true;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::UserData::default()));
+            let shot = self.shot.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Screenshot(egui::ScreenshotCallback::new(
+                move |image| *shot.lock().expect("screenshot slot") = Some(image),
+            )));
         }
-        let image = ctx.input(|input| {
-            input.events.iter().find_map(|event| match event {
-                egui::Event::Screenshot { image, .. } => Some(image.clone()),
-                _ => None,
-            })
-        });
+        let image = self.shot.lock().expect("screenshot slot").take();
         if let Some(image) = image {
             let [width, height] = image.size;
             let saved = image::save_buffer(
@@ -135,6 +135,10 @@ impl eframe::App for Host {
             let hovered = self.tree.hovered_id().unwrap_or_default().to_owned();
             if self.state.text("hovered") != hovered {
                 self.state.set("hovered", &hovered);
+            }
+            let region = self.tree.hovered_region().unwrap_or_default().to_owned();
+            if self.state.text("hovered-region") != region {
+                self.state.set("hovered-region", &region);
             }
         }
         self.tree.set_root(hot(|| app::view(&self.state, window)));
@@ -197,6 +201,7 @@ impl eframe::App for Host {
             }
         }
         let frame = self.tree.layout(window);
+        let animation_due = pages::present_animation(&ctx, &frame);
         // A page embedded in a site is shown whole: while it scrolls, it asks for room.
         #[cfg(target_arch = "wasm32")]
         if self.state.flag("embed")
@@ -216,6 +221,9 @@ impl eframe::App for Host {
         if let Some(path) = self.screenshot.clone() {
             self.capture(&ctx, &path);
         } else if let Some(after) = self.tree.animation_repaint_after() {
+            ctx.request_repaint_after(after);
+        }
+        if let Some(after) = animation_due.filter(|_| self.screenshot.is_none()) {
             ctx.request_repaint_after(after);
         }
     }
@@ -274,6 +282,7 @@ fn main() {
                 eframe::WebOptions::default(),
                 Box::new(move |creation| {
                     limn_egui::install_fonts(&creation.egui_ctx);
+                    limn_egui::set_color_emoji(Some(pages::demo_emoji));
                     Ok(Box::new(Host {
                         tree: UiTree::new(Element::spacer()),
                         state,
@@ -283,6 +292,7 @@ fn main() {
                         scroll_end: false,
                         opened: Instant::now(),
                         requested: false,
+                        shot: Default::default(),
                         launched: limn::hot_shape!(app::State),
                     }))
                 }),
@@ -352,6 +362,7 @@ fn main() -> eframe::Result {
         options,
         Box::new(move |creation| {
             limn_egui::install_fonts(&creation.egui_ctx);
+            limn_egui::set_color_emoji(Some(pages::demo_emoji));
             Ok(Box::new(Host {
                 tree: UiTree::new(Element::spacer()),
                 state,
@@ -361,6 +372,7 @@ fn main() -> eframe::Result {
                 scroll_end,
                 opened: Instant::now(),
                 requested: false,
+                shot: Default::default(),
                 launched: limn::hot_shape!(app::State),
             }))
         }),

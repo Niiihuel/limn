@@ -137,7 +137,8 @@ fn scroll_top_fade_requires_hidden_content_and_leaves_headers_and_scrollbars_cle
                 tree.handle_event(UiEvent::Key {
                     key: Key::Enter,
                     shift: false,
-                    ctrl: false
+                    ctrl: false,
+                    alt: false
                 }),
                 vec![UiAction::Clicked { id: id.into() }]
             );
@@ -246,7 +247,8 @@ fn scroll_bottom_fade_overlays_only_hidden_content_without_intercepting_input() 
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "row:19".into()

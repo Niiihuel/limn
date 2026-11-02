@@ -108,7 +108,7 @@ impl std::error::Error for FontError {}
 ///
 /// A family without a face of its own takes the one it is a style of:
 /// `SansItalic`, `SansMedium` and `SansBold` take `Sans`, slanted or
-/// emboldened, and `MonospaceBold` takes `Monospace`. Behind `Sans` comes every fallback, then `Monospace`, then
+/// emboldened, `SansSemibold` takes `SansBold`, then `SansMedium`, then `Sans`, and `MonospaceBold` takes `Monospace`. Behind `Sans` comes every fallback, then `Monospace`, then
 /// the emoji face; behind `Monospace` comes `Sans`, every fallback, then the
 /// emoji face. The emoji face is last so it never takes a symbol a text face
 /// has.
@@ -126,7 +126,8 @@ impl Fonts {
         Self::default()
     }
 
-    /// limn's own faces: Ubuntu for `Sans` in regular, medium and bold, Hack
+    /// limn's own faces: Ubuntu for `Sans` in regular, medium and bold, Ubuntu
+    /// Sans SemiBold for `SansSemibold`, Hack
     /// for `Monospace` in regular and bold, Noto Sans Math and Noto Sans
     /// Symbols 2 behind both, and Noto Emoji for emoji. `SansItalic` is
     /// `Sans` slanted. Their licenses are in `assets/fonts/NOTICE.md`.
@@ -136,6 +137,8 @@ impl Fonts {
         Self::new()
             .face(FontFamily::Sans, font(include_bytes!("../assets/fonts/Ubuntu-Regular.ttf")))
             .face(FontFamily::SansMedium, font(include_bytes!("../assets/fonts/Ubuntu-Medium.ttf")))
+            // Ubuntu has no semibold: Ubuntu Sans, its successor under the same licence, does.
+            .face(FontFamily::SansSemibold, font(include_bytes!("../assets/fonts/UbuntuSans-SemiBold.ttf")))
             .face(FontFamily::SansBold, font(include_bytes!("../assets/fonts/Ubuntu-Bold.ttf")))
             .face(FontFamily::Monospace, font(include_bytes!("../assets/fonts/Hack-Regular.ttf")))
             .face(FontFamily::MonospaceBold, font(include_bytes!("../assets/fonts/Hack-Bold.ttf")))

@@ -134,6 +134,18 @@ pub enum TooltipSection {
     /// A hairline in the border color before the next block. A repeated or
     /// trailing one is ignored.
     Separator,
+    /// An optional icon, then people's faces as one group: round pictures
+    /// [`TOOLTIP_FACE`] wide that overlap by [`TOOLTIP_FACE_OVERLAP`], each
+    /// cut from the one before by a ring of the tooltip's fill, and «+N»
+    /// for `more` not shown. Without faces nothing is drawn.
+    Faces {
+        /// Drawn before the faces, [`TOOLTIP_FACE_ICON`] wide.
+        icon: Option<Icon>,
+        /// In order; the ones that do not fit the row join `more`.
+        faces: Vec<TooltipFace>,
+        /// People not among `faces`, said as «+N»; 0 says nothing.
+        more: usize,
+    },
     /// A wrapped paragraph in the muted color, slightly smaller. Blank text
     /// is left out.
     Footer(String),
@@ -178,7 +190,43 @@ impl TooltipItem {
     }
 }
 
-/// The colors a tooltip is painted with.
+/// The side of a face in a tooltip's row of faces.
+pub const TOOLTIP_FACE: f32 = 24.0;
+/// How far a face of that row overlaps the one before it.
+pub const TOOLTIP_FACE_OVERLAP: f32 = 6.0;
+/// The side of the icon that leads that row; 8 more stand before the faces.
+pub const TOOLTIP_FACE_ICON: f32 = 20.0;
+
+/// Someone in a tooltip's row of faces: their picture or, while it loads or
+/// when they have none, their initial on their color.
+#[derive(Clone, Debug, PartialEq)]
+pub struct TooltipFace {
+    /// Who they are. Its first letter stands in for the picture.
+    pub name: String,
+    /// Their picture, drawn round. A host passes it already fitted (cover).
+    pub image: Option<RasterImage>,
+    /// The ground of their initial.
+    pub color: Color,
+}
+
+impl TooltipFace {
+    /// Someone shown by their initial on `color`.
+    pub fn new(name: impl Into<String>, color: Color) -> Self {
+        Self {
+            name: name.into(),
+            image: None,
+            color,
+        }
+    }
+
+    /// Show their picture instead of the initial.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(image);
+        self
+    }
+}
+
+/// The colors a tooltip is painted with, and the face of its title.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TooltipStyle {
     /// Fill of the body and of its pointer.
@@ -250,6 +298,10 @@ pub enum Icon {
     Add,
     /// A horizontal dash: remove, collapse or unstage.
     Minus,
+    /// A magnifying glass with a plus: zoom in.
+    ZoomIn,
+    /// A magnifying glass with a minus: zoom out.
+    ZoomOut,
     /// A microphone: voice input.
     Microphone,
     /// A card with lines of text: plain text.
@@ -344,10 +396,11 @@ pub enum Icon {
     /// shows [`Self::ChevronDown`]. A section that opens in place shows
     /// [`Self::ChevronDown`] when open and [`Self::ChevronRight`] when closed.
     ChevronUp,
+    /// A chevron pointing left: a panel that opens towards the left, or the
+    /// previous picture.
+    ChevronLeft,
     /// A chevron pointing right.
     ChevronRight,
-    /// A chevron pointing left: a panel that opens towards the left.
-    ChevronLeft,
     /// A magnifying glass: search.
     Search,
     /// An outlined square: stop.
@@ -505,6 +558,9 @@ pub enum Icon {
     Leave,
     /// Two columns of dots: a handle to drag an item by.
     DragHandle,
+    /// An empty ring: an option not chosen, as an unselected radio or check
+    /// mark in a menu, beside [`Self::CheckCircle`] for the chosen one.
+    Circle,
     /// A tree: nature, such as a category of emoji.
     Tree,
     /// A fried egg: food and drink.
@@ -517,6 +573,8 @@ pub enum Icon {
     Lightbulb,
     /// A flag on its pole: flags, or marking something.
     Flag,
+    /// An arrow going on: forwarding a message or a picture to someone else.
+    Forward,
 }
 
 impl Icon {
@@ -595,6 +653,10 @@ pub enum FontFamily {
     /// The medium and bold faces of the sans family: real faces the host
     /// provides, each measured as itself. A host without one paints Sans.
     SansMedium,
+    /// The semibold face of the sans family, between medium and bold: for a
+    /// title that should stand out from medium text without the weight of
+    /// bold. See [`Self::SansMedium`].
+    SansSemibold,
     /// The bold face of the sans family; see [`Self::SansMedium`].
     SansBold,
     /// [`Self::SansBold`] slanted by the host. It measures exactly as
@@ -656,8 +718,19 @@ pub enum InlineImage {
     Raster(RasterImage),
     /// A surface the host feeds by this ID, such as the current frame of an
     /// animation, painted with [`DrawCommand::Surface`](crate::DrawCommand::Surface)
-    /// in its square; the host presents frames of the square's size.
+    /// and fitted inside its square ([`SurfaceFit::Contain`]).
     Surface(String),
+}
+
+impl InlineImage {
+    /// The picture as an element of its own, fitted inside its box: a
+    /// button's or a menu row's leading picture. `label` names a surface.
+    pub(crate) fn element(&self, label: &str) -> Element {
+        match self {
+            Self::Raster(image) => Element::raster_image(image.clone()),
+            Self::Surface(id) => Element::surface(id.clone(), label).surface_fit(SurfaceFit::Contain),
+        }
+    }
 }
 
 /// The side of an inline picture, as a multiple of its span's text size:
@@ -712,9 +785,28 @@ impl TextSpan {
         self
     }
 
+    /// Paint `image` in place of the text: a square [`INLINE_IMAGE_SCALE`]
+    /// times `font_size` on a side, centered on its line and never split
+    /// across lines. The text, such as `:name:` for an emoji, is still what
+    /// a selection copies and what accessibility reads; it is not painted.
+    /// `background` and `icon` are not painted on such a run. A span with
+    /// no text shows nothing.
+    pub fn image(mut self, image: RasterImage) -> Self {
+        self.image = Some(InlineImage::Raster(image));
+        self
+    }
+
+    /// Paint the host-fed surface `id` in place of the text, as
+    /// [`Self::image`] paints a picture: for an animation the host presents
+    /// on that surface. The surface is fitted inside the square.
+    pub fn surface(mut self, id: impl Into<String>) -> Self {
+        self.image = Some(InlineImage::Surface(id.into()));
+        self
+    }
+
     /// Draw a line under the text, in its ink, one pixel thick for every
     /// 14 of `font_size`. It follows the text across wrapped lines and is
-    /// not drawn under an icon.
+    /// not drawn under a picture or an icon.
     pub fn underline(mut self) -> Self {
         self.underline = true;
         self
@@ -738,25 +830,6 @@ impl TextSpan {
             title,
             colors: palette.tooltip_style(),
         });
-        self
-    }
-
-    /// Paint `image` in place of the text: a square [`INLINE_IMAGE_SCALE`]
-    /// times `font_size` on a side, centered on its line and never split
-    /// across lines. The text, such as `:name:` for an emoji, is still what
-    /// a selection copies and what accessibility reads; it is not painted.
-    /// `background` and `icon` are not painted on such a run. A span with
-    /// no text shows nothing.
-    pub fn image(mut self, image: RasterImage) -> Self {
-        self.image = Some(InlineImage::Raster(image));
-        self
-    }
-
-    /// Paint the host-fed surface `id` in place of the text, as
-    /// [`Self::image`] paints a picture: for an animation the host presents
-    /// on that surface, at the square's size.
-    pub fn surface(mut self, id: impl Into<String>) -> Self {
-        self.image = Some(InlineImage::Surface(id.into()));
         self
     }
 }
@@ -956,9 +1029,14 @@ pub(crate) struct Kept {
     /// Set by [`Element::floating_label`]: a text input's name, and the
     /// colour around the field that parts its edge behind the name risen.
     pub(crate) floating_label: Option<(String, Color)>,
+    /// A picture an icon button draws in its icon's place.
+    pub(crate) leading_image: Option<InlineImage>,
     /// Evenly spaced colors painted across the element, and whether they run
     /// down it rather than across.
     pub(crate) gradient: Option<(Arc<[Color]>, bool)>,
+    /// Set by [`Element::foreground_gradient`]: colors a text's ink runs
+    /// through from the left of each line to its right.
+    pub(crate) ink_gradient: Option<Arc<[Color]>>,
     pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
     pub(crate) translation: Option<Point>,
     pub(crate) pointer_blocker: Option<String>,
@@ -980,6 +1058,12 @@ pub(crate) struct Kept {
     /// Set by [`Sketch`](crate::Sketch): a press and drag over the element
     /// make marks instead of clicks.
     pub(crate) sketch: Option<crate::sketch::SketchStyle>,
+    /// Set by [`Element::dim_on_hover`]: the opacity a concealed element
+    /// fades to instead of away.
+    pub(crate) dim: Option<f32>,
+    /// Set by [`Element::hover_region_id`]: the name
+    /// [`UiTree::hovered_region`](crate::UiTree::hovered_region) reports.
+    pub(crate) hover_name: Option<String>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -1483,6 +1567,27 @@ impl MarkRail {
     }
 }
 
+/// How a surface's pixels fill the rectangle laid out for it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum SurfaceFit {
+    /// At the density they were rendered for, from the top-left corner,
+    /// clipped to the rectangle and never scaled: a remote screen, a page.
+    #[default]
+    Native,
+    /// Scaled up or down to fit inside the rectangle, centered, keeping its
+    /// proportions: as large as a picture is shown in the same rectangle.
+    Contain,
+    /// Filling the rectangle, cropped around the center, as a cover picture
+    /// ([`RasterImage::cover`](crate::RasterImage::cover)) is.
+    Cover,
+    /// As [`Self::Contain`], but never larger than one logical pixel for each
+    /// of its pixels: smaller than the rectangle, it keeps its own size,
+    /// centered. A [`RasterImage`](crate::RasterImage) that is not a cover
+    /// is shown so, so an animation drawn this way takes exactly the place
+    /// of its still first frame, however small.
+    ScaleDown,
+}
+
 /// What an element is: a container, a control or passive content. The
 /// constructors of [`Element`] build each kind.
 #[derive(Clone, Debug)]
@@ -1590,6 +1695,12 @@ pub enum ElementKind {
         /// A point of the window the surface is placed against instead of
         /// the anchor's box; set by [`Element::popover_at`].
         at: Option<Point>,
+        /// Left, top, right and bottom growth of the anchor's box before the
+        /// surface is placed; see [`Element::popover_anchor_outset`].
+        anchor_outset: [f32; 4],
+        /// The dismiss ID of the popover whose surface this one is placed beside;
+        /// see [`Element::popover_clear_of`].
+        clear_of: Option<String>,
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -1721,6 +1832,11 @@ pub enum ElementKind {
         id: String,
         /// Names the surface for assistive technology.
         label: String,
+        /// How the pixels fill the rectangle; see [`Element::surface_fit`].
+        fit: SurfaceFit,
+        /// The pixels are shown flipped left to right; see
+        /// [`Element::surface_mirrored`].
+        mirrored: bool,
     },
     /// An icon centered in the element's box, [`ICON_SIZE`] on a side unless
     /// [`Style::icon_side`] says otherwise.
@@ -1899,6 +2015,57 @@ pub enum ElementKind {
     /// Nothing of its own to draw and no natural size; see
     /// [`Element::spacer`].
     Spacer,
+    /// A picture the person zooms and pans; see [`Element::zoom_view`].
+    ZoomView(Box<ZoomView>),
+}
+
+/// What [`Element::zoom_view`] shows and how it answers. Built with that
+/// function and the `zoom_*` methods of [`Element`]; the tree keeps where
+/// the picture is under its ID.
+#[derive(Clone, Debug)]
+pub struct ZoomView {
+    pub(crate) id: String,
+    pub(crate) picture: Element,
+    pub(crate) content: Option<Size>,
+    pub(crate) upscale: f32,
+    pub(crate) controls: Vec<(String, ZoomControl)>,
+    pub(crate) dismiss: Option<String>,
+    pub(crate) opened_from: Option<String>,
+    pub(crate) click_toggles: bool,
+}
+
+impl ZoomView {
+    /// The ID the tree keeps the view under and reports with
+    /// [`UiAction::Zoomed`](crate::UiAction::Zoomed).
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    /// The picture's own size in pixels, when the host gave it.
+    pub fn content_size(&self) -> Option<Size> {
+        self.content
+    }
+}
+
+/// What a control of a zoom view does to it; see [`Element::zoom_control`].
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+pub enum ZoomControl {
+    /// Larger by a step, about the middle.
+    In,
+    /// Smaller by a step, about the middle, down to the fit.
+    Out,
+    /// The whole picture, centered.
+    Fit,
+    /// One pixel of the picture for each logical pixel, about the middle.
+    Actual,
+    /// Fitted, two and a half times the fit; otherwise fitted, as a double
+    /// click does.
+    Toggle,
+    /// A quarter turn clockwise, fitted again. Only a raster picture turns.
+    RotateClockwise,
+    /// A quarter turn counterclockwise, fitted again. Only a raster picture
+    /// turns.
+    RotateCounterclockwise,
 }
 
 /// How a `sticky_top` child of a column sits while pinned. Whole pixels, so
@@ -2611,6 +2778,19 @@ impl Element {
         self
     }
 
+    /// A [`hover_region`](Self::hover_region) with a name: while the pointer
+    /// is over it, and over nothing floating above it,
+    /// [`UiTree::hovered_region`](crate::UiTree::hovered_region) reports `id`,
+    /// so the host can tell which row the pointer is on (a message, whose
+    /// text is no control) without asking where its rows are. Regions inside
+    /// it with names of their own take precedence. `id` must be unique in the
+    /// window.
+    pub fn hover_region_id(mut self, id: impl Into<String>) -> Self {
+        self.hover_reveal = HoverReveal::Region;
+        self.kept.get_or_insert_default().hover_name = Some(id.into());
+        self
+    }
+
     /// Paint this element only while the pointer is over the
     /// [`hover_region`](Self::hover_region) around it, while one of its
     /// controls has keyboard focus, or while a popover inside it is open.
@@ -2712,6 +2892,21 @@ impl Element {
         self
     }
 
+    /// Like [`conceal_on_hover`](Self::conceal_on_hover), but fading only
+    /// down to `opacity` while the pointer is over the
+    /// [`hover_region`](Self::hover_region) around it, so what it lies over
+    /// reads through it, such as a decoration over a card. `opacity` is
+    /// clamped to `0.0..=1.0`; a value that is not finite leaves the element
+    /// as it was. `id` must be unique in the window.
+    pub fn dim_on_hover(self, id: impl Into<String>, opacity: f32) -> Self {
+        if !opacity.is_finite() {
+            return self;
+        }
+        let mut dimmed = self.conceal_on_hover(id);
+        dimmed.kept.get_or_insert_default().dim = Some(opacity.clamp(0.0, 1.0));
+        dimmed
+    }
+
     /// Accept drops. Applies to buttons, clickables and scroll surfaces
     /// (including virtual lists), which are the elements with a pointer region.
     pub fn drop_target(mut self) -> Self {
@@ -2769,6 +2964,8 @@ impl Element {
                 coach: None,
                 arrows: None,
                 at: None,
+                anchor_outset: [0.0; 4],
+                clear_of: None,
             },
             layout,
         )
@@ -2825,7 +3022,13 @@ impl Element {
     }
 
     /// Show a submenu while its trigger or content is hovered or focused,
-    /// or a submenu nested in it is.
+    /// or a submenu nested in it is. Anything inside the trigger with a
+    /// pointer region of its own, such as a hint's anchor, holds it as the
+    /// trigger does, so a row can open a card on hover that stays while the
+    /// pointer crosses the row's marks on its way to the card. The space that
+    /// [`Element::popover_gap`] and [`Element::popover_anchor_outset`] leave beside
+    /// the trigger's rows holds it too, and so does the space beside the surface
+    /// that [`Element::popover_clear_of`] names: the pointer can cross a gap.
     pub fn popover_on_hover(mut self) -> Self {
         if let ElementKind::Popover {
             anchor,
@@ -2880,6 +3083,35 @@ impl Element {
             if value.is_finite() && value >= 0.0 {
                 *gap = value;
             }
+        }
+        self
+    }
+
+    /// Grow the anchor's rectangle by these amounts, in logical pixels, before placing the
+    /// surface against it, as if the anchor were that much larger on each side: a row inside a
+    /// padded panel can float its surface clear of the panel's edge instead of its own. A value
+    /// that is not finite, or negative, counts as zero.
+    pub fn popover_anchor_outset(mut self, left: f32, top: f32, right: f32, bottom: f32) -> Self {
+        if let ElementKind::Popover { anchor_outset, .. } = &mut self.kind {
+            *anchor_outset = [left, top, right, bottom].map(|value| {
+                if value.is_finite() {
+                    value.max(0.0)
+                } else {
+                    0.0
+                }
+            });
+        }
+        self
+    }
+
+    /// Place the surface beside the whole of another open popover's surface, the one whose
+    /// dismiss ID is `surface`, instead of beside the anchor's own sides: a submenu stands
+    /// clear of its parent menu's edge however its rows sit inside it (the menu's padding, a
+    /// scrollbar's rail). Only the left and right sides come from that surface; the top and
+    /// the bottom stay the anchor's, with any outset. Ignored while no such surface is open.
+    pub fn popover_clear_of(mut self, surface: impl Into<String>) -> Self {
+        if let ElementKind::Popover { clear_of, .. } = &mut self.kind {
+            *clear_of = Some(surface.into());
         }
         self
     }
@@ -3257,7 +3489,139 @@ impl Element {
         Self::new(ElementKind::Surface {
             id: id.into(),
             label: label.into(),
+            fit: SurfaceFit::Native,
+            mirrored: false,
         })
+    }
+
+    /// Show a surface's pixels flipped left to right, as a camera's preview
+    /// is shown to the person in front of it, who sees themselves as in a
+    /// mirror. Only the painting changes: the host presents its pixels as
+    /// they are. Has no effect on an element that is not a surface.
+    pub fn surface_mirrored(mut self, mirrored: bool) -> Self {
+        if let ElementKind::Surface { mirrored: own, .. } = &mut self.kind {
+            *own = mirrored;
+        }
+        self
+    }
+
+    /// A picture the person zooms and pans, in a box that fills this
+    /// element. `picture` is an [`Element::raster_image`] (pass it
+    /// [`RasterImage::full_resolution`](crate::RasterImage::full_resolution)
+    /// to zoom into its pixels) or an [`Element::surface`]; it is drawn
+    /// filling the rectangle the zoom gives it. The tree keeps the zoom under
+    /// `id`, which also names a picture of its own: a new picture under a new
+    /// ID opens fitted.
+    ///
+    /// Fitted, the whole picture shows, centered, never enlarged past its
+    /// own size unless [`Element::zoom_upscale`] allows it; give that size
+    /// in pixels with [`Element::zoom_content`], or the picture fills the
+    /// box at its proportions. A mouse wheel notch zooms by 1.3 about the
+    /// pointer, as Ctrl with a touchpad's scroll and a pinch
+    /// ([`UiEvent::Zoom`](crate::UiEvent::Zoom)) do; a touchpad's scroll and
+    /// a drag move a picture larger than the box, and a released drag
+    /// glides on; a double click zooms to two and a half times the fit about
+    /// the pointer, and back. `+` and `-` step by 1.5, `0` fits, `1`, `2` and
+    /// `3` show 100, 200 and 300 %, Ctrl with an arrow moves the picture and
+    /// Ctrl+R turns it, on the last zoom view laid out, unless a text field
+    /// has the focus. The picture never leaves an edge of the box bare, and
+    /// zooms from the fit (or its own size, when that is smaller) to
+    /// [`ZOOM_VIEW_MAX_SCALE`](crate::ZOOM_VIEW_MAX_SCALE). Each change of
+    /// scale is reported as [`UiAction::Zoomed`](crate::UiAction::Zoomed)
+    /// and shown as a percentage for a moment. Zooms take 200 ms, except
+    /// under reduced motion; the element's [`shadow`](Element::shadow) is
+    /// cast by the picture, not the box.
+    pub fn zoom_view(id: impl Into<String>, picture: Element) -> Self {
+        Self::new(ElementKind::ZoomView(Box::new(ZoomView {
+            id: id.into(),
+            picture,
+            content: None,
+            upscale: 1.0,
+            controls: Vec::new(),
+            dismiss: None,
+            opened_from: None,
+            click_toggles: false,
+        })))
+    }
+
+    /// On a zoom view: the picture's size in pixels. One pixel of it is one
+    /// logical pixel at 100 %. A size with a side that is not finite or not
+    /// above zero is ignored.
+    pub fn zoom_content(mut self, size: Size) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            let valid = |side: f32| side.is_finite() && side > 0.0;
+            if valid(size.width) && valid(size.height) {
+                view.content = Some(size);
+            }
+        }
+        self
+    }
+
+    /// On a zoom view: how many times its own size a picture smaller than
+    /// the box is enlarged to fit, 1 (the default) keeping it at its size.
+    /// Values below 1 or not finite count as 1.
+    pub fn zoom_upscale(mut self, most: f32) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            view.upscale = if most.is_finite() { most.max(1.0) } else { 1.0 };
+        }
+        self
+    }
+
+    /// On a zoom view: when a control reports `id` as clicked (a header's
+    /// zoom button, say), the view does `control` too. The click is still
+    /// reported. Each call adds one; an empty `id` adds nothing.
+    pub fn zoom_control(mut self, id: impl Into<String>, control: ZoomControl) -> Self {
+        let id = id.into();
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            if !id.is_empty() {
+                view.controls.push((id, control));
+            }
+        }
+        self
+    }
+
+    /// On a zoom view: a click on the box beside the picture, not a drag,
+    /// reports `id` as clicked, such as a viewer's close action.
+    pub fn zoom_dismiss(mut self, id: impl Into<String>) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            view.dismiss = Some(id.into());
+        }
+        self
+    }
+
+    /// On a zoom view: the control the picture was opened from, such as its
+    /// thumbnail. The first time the view is laid out, the picture grows
+    /// from that control's place to its fit, unless motion is reduced or the
+    /// control is not on screen.
+    pub fn zoom_opened_from(mut self, id: impl Into<String>) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            view.opened_from = Some(id.into());
+        }
+        self
+    }
+
+    /// On a zoom view: a click on the picture zooms in two and a half times about the point
+    /// clicked, and the next click fits it again, as a lightbox does; a drag still pans. The
+    /// mouse wheel then pans the picture instead of zooming it; with Ctrl it zooms. The zoom
+    /// a click makes is reported as [`UiAction::Zoomed`](crate::UiAction::Zoomed).
+    pub fn zoom_click_toggles(mut self) -> Self {
+        if let ElementKind::ZoomView(view) = &mut self.kind {
+            view.click_toggles = true;
+        }
+        self
+    }
+
+    /// How a surface's pixels fill its rectangle: [`SurfaceFit::Contain`],
+    /// [`SurfaceFit::ScaleDown`] and [`SurfaceFit::Cover`] scale them as a
+    /// raster image is scaled, so an animation can take the place of its
+    /// still first frame. Its
+    /// [`radius`](Self::radius) rounds the corners of the pixels shown. Has
+    /// no effect on an element that is not a surface.
+    pub fn surface_fit(mut self, fit: SurfaceFit) -> Self {
+        if let ElementKind::Surface { fit: own, .. } = &mut self.kind {
+            *own = fit;
+        }
+        self
     }
 
     /// An icon on its own, [`ICON_SIZE`] on a side unless `large_icon` says
@@ -3369,6 +3733,15 @@ impl Element {
         } = &mut self.kind
         {
             *leading_icon_tint = Some(color);
+        }
+        self
+    }
+
+    /// Draw `image` in an icon button's icon slot, [`ICON_SIZE`] on a side,
+    /// in place of its icon. Other elements ignore it.
+    pub(crate) fn leading_image(mut self, image: InlineImage) -> Self {
+        if matches!(self.kind, ElementKind::IconButton { .. }) {
+            self.kept.get_or_insert_default().leading_image = Some(image);
         }
         self
     }
@@ -3890,6 +4263,18 @@ impl Element {
         self
     }
 
+    /// Ink a text with `stops` spread evenly from the left of each painted
+    /// line to its right, blending from each to the next: a name in the
+    /// colors of a role. For [`Element::text`] and
+    /// [`Element::truncated_text`]; the alpha of the foreground scales each
+    /// stop's. Fewer than two stops paint the plain foreground. Measuring,
+    /// wrapping, truncation and selection are those of the plain text.
+    pub fn foreground_gradient(mut self, stops: impl Into<Arc<[Color]>>) -> Self {
+        let stops = stops.into();
+        self.kept.get_or_insert_default().ink_gradient = (stops.len() > 1).then_some(stops);
+        self
+    }
+
     /// Center the text, or a button's content, across the element's width
     /// instead of starting it at the edge.
     /// Single-line inputs center values that fit, with matching caret,
@@ -4371,7 +4756,7 @@ mod surface_tests {
             .commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::Surface { rect, id, label, opacity } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
+                DrawCommand::Surface { rect, id, label, opacity, .. } => Some((*rect, id.as_str(), label.as_str(), *opacity)),
                 _ => None,
             })
             .collect();
@@ -4398,7 +4783,7 @@ mod surface_tests {
         assert_eq!(tree.focused_id(), Some("page"));
         // Tab reaches it from the control before it.
         tree.focus("before");
-        tree.handle_event(UiEvent::Key { key: crate::Key::Tab, shift: false, ctrl: false });
+        tree.handle_event(UiEvent::Key { key: crate::Key::Tab, shift: false, ctrl: false, alt: false });
         assert_eq!(tree.focused_id(), Some("page"));
     }
 
@@ -4426,5 +4811,61 @@ mod surface_tests {
         let hidden = Element::row(vec![card(60.0).translate(crate::Point::new(120.0, 0.0))]).size(Some(100.0), Some(40.0)).clip_children();
         let mut tree = UiTree::new(Element::stack(vec![page(), Element::column(vec![hidden])]));
         assert!(!tree.layout(size).drawn_over("page-pixels"));
+    }
+
+    #[test]
+    fn a_surface_carries_its_fit_and_radius_and_other_elements_ignore_the_fit() {
+        let shown = |element: Element| {
+            let frame = UiTree::new(element).layout(Size::new(120.0, 80.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Surface { fit, radius, .. } => Some((*fit, *radius)),
+                _ => None,
+            })
+        };
+        assert_eq!(shown(Element::surface("a", "A")), Some((SurfaceFit::Native, 0.0)));
+        let covered = Element::surface("a", "A").surface_fit(SurfaceFit::Cover).radius(8.0);
+        assert_eq!(shown(covered), Some((SurfaceFit::Cover, 8.0)));
+        assert!(shown(Element::spacer().surface_fit(SurfaceFit::Cover)).is_none());
+    }
+
+    #[test]
+    fn a_surface_is_mirrored_only_when_asked_and_other_elements_ignore_it() {
+        let mirrored = |element: Element| {
+            let frame = UiTree::new(element).layout(Size::new(120.0, 80.0));
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Surface { mirrored, .. } => Some(*mirrored),
+                _ => None,
+            })
+        };
+        assert_eq!(mirrored(Element::surface("camera", "Camera")), Some(false));
+        let shown = Element::surface("camera", "Camera").surface_fit(SurfaceFit::Cover).surface_mirrored(true);
+        assert_eq!(mirrored(shown), Some(true));
+        assert_eq!(mirrored(Element::surface("camera", "Camera").surface_mirrored(true).surface_mirrored(false)), Some(false));
+        assert!(mirrored(Element::spacer().surface_mirrored(true)).is_none());
+    }
+}
+
+#[cfg(test)]
+mod popover_outset_tests {
+    use super::*;
+
+    #[test]
+    fn an_outset_side_that_is_not_finite_or_negative_counts_as_zero() {
+        let outset = |left: f32| match Element::popover(
+            Element::spacer(),
+            Element::spacer(),
+            "dismiss",
+            PopoverPlacement::RightStart,
+        )
+        .popover_anchor_outset(left, 1.0, 2.0, 3.0)
+        .kind
+        {
+            ElementKind::Popover { anchor_outset, .. } => anchor_outset,
+            _ => unreachable!("a popover"),
+        };
+        assert_eq!(outset(5.0), [5.0, 1.0, 2.0, 3.0]);
+        for bad in [f32::NAN, f32::INFINITY, -4.0] {
+            assert_eq!(outset(bad), [0.0, 1.0, 2.0, 3.0], "{bad}");
+        }
     }
 }

@@ -53,7 +53,7 @@ fn movement_end_cancel_and_scrolling_cancel_a_pending_hold() {
         vec![touch(egui::TouchPhase::Move, 28.0), egui::Event::PointerMoved(egui::pos2(28.0, 20.0))],
         vec![touch(egui::TouchPhase::End, 20.0), button(false)],
         vec![touch(egui::TouchPhase::Cancel, 20.0)],
-        vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, 40.0), phase: egui::TouchPhase::Move, modifiers: Default::default() }],
+        vec![egui::Event::MouseWheel { unit: egui::MouseWheelUnit::Point, delta: egui::vec2(0.0, 40.0), phase: egui::TouchPhase::Move, source: egui::MouseWheelSource::Unknown, modifiers: Default::default() }],
         vec![egui::Event::WindowFocused(false)],
     ] {
         let ctx = egui::Context::default();

@@ -11,6 +11,8 @@ pub struct RasterImage {
     alt: String,
     full_resolution: bool,
     cover: bool,
+    checkerboard: bool,
+    quarter_turns: u8,
 }
 
 impl std::fmt::Debug for RasterImage {
@@ -23,6 +25,8 @@ impl std::fmt::Debug for RasterImage {
             .field("alt", &self.alt)
             .field("full_resolution", &self.full_resolution)
             .field("cover", &self.cover)
+            .field("checkerboard", &self.checkerboard)
+            .field("quarter_turns", &self.quarter_turns)
             .finish()
     }
 }
@@ -71,6 +75,8 @@ impl RasterImage {
             alt,
             full_resolution: false,
             cover: false,
+            checkerboard: false,
+            quarter_turns: 0,
         })
     }
 
@@ -100,6 +106,10 @@ impl RasterImage {
     }
 
     /// Request the host's bounded full image decoder for a detail viewer.
+    /// The picture is then shown filling its box at its own proportions,
+    /// enlarged past its pixels when the box is larger, as a zoom does; the
+    /// egui backend smooths it with mipmaps when it is shown smaller and
+    /// draws its pixels sharp from two pixels of the screen for each of them.
     pub fn full_resolution(mut self) -> Self {
         self.full_resolution = true;
         self
@@ -121,6 +131,32 @@ impl RasterImage {
     /// Whether [`cover`](Self::cover) was requested.
     pub fn is_cover(&self) -> bool {
         self.cover
+    }
+
+    /// Paint a checkerboard of 8 logical pixels behind the picture where it
+    /// is transparent, if it has transparent pixels at all: a dark logo then
+    /// shows on a dark backdrop. The squares stay their size whatever the
+    /// picture's.
+    pub fn checkerboard(mut self) -> Self {
+        self.checkerboard = true;
+        self
+    }
+
+    /// Whether [`checkerboard`](Self::checkerboard) was requested.
+    pub fn is_checkerboard(&self) -> bool {
+        self.checkerboard
+    }
+
+    /// Show the picture turned `turns` quarters clockwise, counted modulo
+    /// four. Its box should have the turned proportions.
+    pub fn rotated(mut self, turns: u8) -> Self {
+        self.quarter_turns = turns % 4;
+        self
+    }
+
+    /// Quarter turns clockwise, from 0 to 3; see [`rotated`](Self::rotated).
+    pub fn quarter_turns(&self) -> u8 {
+        self.quarter_turns
     }
 }
 

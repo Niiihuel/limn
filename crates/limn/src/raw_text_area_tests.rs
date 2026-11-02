@@ -1,7 +1,7 @@
 use crate::*;
 
 fn key(tree: &mut UiTree, key: Key, shift: bool, ctrl: bool) -> Vec<UiAction> {
-    tree.handle_event(UiEvent::Key { key, shift, ctrl })
+    tree.handle_event(UiEvent::Key { key, shift, ctrl, alt: false })
 }
 
 fn editor(value: &str, preserve: bool) -> Element {

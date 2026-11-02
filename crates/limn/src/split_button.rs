@@ -176,8 +176,8 @@ mod tests {
     #[test]
     fn tab_reaches_each_half_and_enter_reports_it() {
         let mut tree = tree(allow(false));
-        let tab = UiEvent::Key { key: Key::Tab, shift: false, ctrl: false };
-        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        let tab = UiEvent::Key { key: Key::Tab, shift: false, ctrl: false, alt: false };
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false };
         for id in ["allow", "allow:menu"] {
             tree.handle_event(tab.clone());
             tree.layout(WINDOW);

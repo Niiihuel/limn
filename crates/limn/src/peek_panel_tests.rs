@@ -72,7 +72,7 @@ fn chevron(frame: &Frame) -> Vec<(Rect, Icon, Color)> {
 }
 
 fn key(key: Key) -> UiEvent {
-    UiEvent::Key { key, shift: false, ctrl: false }
+    UiEvent::Key { key, shift: false, ctrl: false, alt: false }
 }
 
 fn middle(rect: Rect) -> Point {

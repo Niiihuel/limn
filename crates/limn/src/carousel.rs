@@ -370,7 +370,7 @@ mod tests {
         tree.layout(SIZE);
         assert!(tree.focus("album:0"));
         for _ in 0..4 {
-            tree.handle_event(UiEvent::Key { key: Key::Tab, ctrl: false, shift: false });
+            tree.handle_event(UiEvent::Key { key: Key::Tab, ctrl: false, shift: false, alt: false });
         }
         assert_eq!(tree.focused_id(), Some("album:4"));
         let frame = tree.layout(SIZE);

@@ -1,8 +1,9 @@
 use super::{caption, row, section, Cx, Section};
 use crate::app::State;
 use limn::{
-    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, PopoverPlacement, RadiusRole,
-    SearchField, Select, SelectVariant, SelectorSizing, Slider, Switch, SwitchVariant, TextArea, TextField, TextRole, UiAction,
+    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, MarkStyle, PopoverPlacement,
+    RadiusRole, SearchField, Select, SelectVariant, SelectorSizing, Size, Slider, Switch, SwitchVariant, TextArea, TextField,
+    TextRole, UiAction,
 };
 
 /// The search fields with a clear button, and the query each starts with.
@@ -51,10 +52,38 @@ fn shell_select(cx: &Cx, group: &str) -> Select {
         .map(|(id, label)| {
             let option = DropdownOption::new(format!("{group}={id}&{group}-open=no"), *label)
                 .selected(*id == chosen);
+            // A hint on an option says what its label cannot.
+            let option = if *id == "fish" { option.tooltip("The friendly interactive shell") } else { option };
             if *id == "nu" {
                 option.disabled()
             } else {
                 option
+            }
+        })
+        .collect();
+    Select::new(
+        format!("{group}-open=yes"),
+        label,
+        options,
+        cx.state.text(&format!("{group}-open")) == "yes",
+        format!("{group}-open=no"),
+        cx.palette,
+    )
+}
+
+/// A choice of pictures: two still, one the host animates on a surface.
+fn picture_select(cx: &Cx, group: &str) -> Select {
+    let choices = [("dusk", "Dusk"), ("tide", "Tide"), ("forest", "Forest")];
+    let chosen = cx.state.choice(group, choices[0].0);
+    let label = choices.iter().find(|(id, _)| *id == chosen).map_or(choices[0].1, |(_, label)| label);
+    let options = choices
+        .iter()
+        .enumerate()
+        .map(|(index, (id, label))| {
+            let option = DropdownOption::new(format!("{group}={id}&{group}-open=no"), *label).selected(*id == chosen);
+            match index {
+                1 => option.surface(super::media::ANIMATION),
+                index => option.image(super::media::picture(index)),
             }
         })
         .collect();
@@ -98,6 +127,13 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .height(40.0)
                 .render(),
             caption(cx, "Form height: 40 px on a compact control."),
+            TextField::new("input-outline", state.text("input-outline"), "Server name", palette)
+                .outline(palette.border, cx.state.theme().accent)
+                .radius(8.0)
+                .height(40.0)
+                .width(width)
+                .render(),
+            caption(cx, ".outline(border, focus) and .radius(8.0): a settings field with its own outline and corners."),
             Element::column(vec![
                 TextField::new("input-channel", state.text("input-channel"), "new-channel", palette)
                     .icon(Icon::Hash)
@@ -188,7 +224,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 shell_select(cx, "select-plain").render(),
                 shell_select(cx, "select-off").enabled(false).render(),
             ]),
-            caption(cx, "The list matches the button width. When disabled, it cannot open or receive focus."),
+            caption(cx, "The list matches the button width. When disabled, it cannot open or receive focus. Fish has a hint of its own under the pointer."),
             row(vec![shell_select(cx, "select-compact")
                 .sizing(SelectorSizing::COMPACT)
                 .icon(Icon::Terminal)
@@ -267,6 +303,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ])
             .size(Some(width), None),
             caption(cx, "Plain: the choice and its chevron, filled only under the pointer, at the end of a settings row."),
+            row(vec![picture_select(cx, "select-pictures").placement(PopoverPlacement::BottomStart).render()]),
+            caption(cx, "Options with a picture in the icon's place, such as custom emoji, or a surface the host plays, such as an animated one."),
         ]),
         section(cx, "Search", vec![
             SearchField::new("input-search", state.choice(CLEARABLE[0].0, CLEARABLE[0].1), "Search", palette)
@@ -288,6 +326,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ])
             .gap(8.0),
             caption(cx, "With a query, and disabled: the button stays in its place and cannot be used."),
+            SearchField::new("input-search-tall", "", "Search", palette)
+                .height(40.0)
+                .persistent_placeholder(true)
+                .width(width)
+                .render(),
+            caption(cx, ".height(40.0) and .persistent_placeholder(true), as a settings page's search: the placeholder stays while focused."),
         ]),
         section(cx, "Text area", vec![
             TextArea::new("input-notes", state.text("input-notes"), "Notes", palette)
@@ -381,8 +425,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     .track_size(50.0, 26.0)
                     .accessibility_label("Streamer mode")
                     .render(),
+                Switch::new("input-switch-inset", state.flag("input-switch-inset"), palette)
+                    .track_size(40.0, 24.0)
+                    .thumb_inset(4.0)
+                    .off_track(Color::rgba(255, 255, 255, 40), palette.border)
+                    .accessibility_label("Compact layout")
+                    .render(),
             ]),
-            caption(cx, ".track_size(50.0, 26.0): a track of the host's own size, the thumb 3 px inside it."),
+            caption(cx, ".track_size(50.0, 26.0): a track of the host's own size, the thumb 3 px inside it. The last one has .thumb_inset(4.0) and a translucent .off_track."),
         ]),
         section(cx, "Slider", vec![
             Slider::new("input-slider", fraction(cx, "input-slider", 0.35), palette)
@@ -409,6 +459,22 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .width(280.0)
                 .render(),
             caption(cx, ".marks(): a hairline at each stop, behind the thumb."),
+            Slider::new("input-slider-discord", fraction(cx, "input-slider-discord", 0.6), palette)
+                .thumb(16.0, 20.0)
+                .bar(4.0, 6.0)
+                .steps(5)
+                .marks()
+                .mark_style(MarkStyle {
+                    dash: Size::new(2.0, 24.0),
+                    label_size: 12.0,
+                    label_weight_medium: true,
+                    default_mark_ink: Some(cx.state.theme().accent),
+                })
+                .default_stop(2)
+                .accessibility_label("Opacity")
+                .width(280.0)
+                .render(),
+            caption(cx, ".thumb(16, 20), .bar(4, 6) and .mark_style(..): the thumb and the bar grow over the pointer; the default stop's mark is the accent."),
             Slider::new("input-slider-sizes", fraction(cx, "input-slider-sizes", 0.5), palette)
                 .steps(7)
                 .mark_labels(["12px", "14px", "15px", "16px", "18px", "20px", "24px"])

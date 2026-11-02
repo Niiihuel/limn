@@ -10,7 +10,7 @@ use eframe::egui::{
 };
 use limn::{
     Color, DrawCommand, FontFamily, Frame, Icon, Key, Point, RasterImage, RasterImageFormat, Rect,
-    SpinnerVariant, UiEvent,
+    OtherButton, SpinnerVariant, UiEvent,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -168,6 +168,11 @@ mod selection_contour_render;
 mod keyboard_input;
 pub use keyboard_input::normalize_keyboard_input;
 
+mod color_emoji;
+pub use color_emoji::{set_color_emoji, ColorEmoji};
+#[cfg(test)]
+mod color_emoji_tests;
+
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct IconKey {
@@ -210,9 +215,11 @@ thread_local! {
         const { std::cell::Cell::new(IMAGE_THUMBNAIL_SIDE) };
 }
 
-/// How many decoded images stay on the GPU at once. The default suits a
-/// conversation with a few attachments; a host showing a grid of thumbnails
-/// raises it so scrolling does not decode the same images again and again.
+/// How many decoded images stay on the GPU at once, besides those drawn in
+/// the current or the previous paint pass, which always stay. The default
+/// suits a conversation with a few attachments; a host showing a grid of
+/// thumbnails raises it so scrolling does not decode the same images again
+/// and again.
 pub fn set_image_cache_entries(entries: usize) {
     IMAGE_CACHE_ENTRIES.with(|cell| cell.set(entries.clamp(1, 1024)));
 }
@@ -250,16 +257,21 @@ pub fn clear_image_cache() {
     RASTER_CACHE.with(|cache| cache.borrow_mut().clear());
 }
 
+/// A decoded image, and whether any of its pixels is transparent (looked
+/// for only where a checkerboard was asked for).
+type Decoded = (egui::ColorImage, bool);
+
 enum RasterCacheEntry {
-    Decoding(std::sync::mpsc::Receiver<Option<egui::ColorImage>>),
-    Ready(egui::TextureHandle),
+    Decoding(std::sync::mpsc::Receiver<Option<Decoded>>),
+    Ready(egui::TextureHandle, bool),
     Unavailable,
 }
 
-/// What a paint pass has of an image.
+/// What a paint pass has of an image: its texture, its size in pixels and
+/// whether it has transparent pixels.
 #[derive(Debug, PartialEq)]
 enum RasterTexture {
-    Ready(egui::TextureId, [usize; 2]),
+    Ready(egui::TextureId, [usize; 2], bool),
     /// Still being decoded; a repaint is asked for when it lands.
     Decoding,
     Unavailable,
@@ -269,7 +281,11 @@ enum RasterTexture {
 struct RasterCache {
     context: Option<egui::Context>,
     entries: HashMap<RasterKey, RasterCacheEntry>,
-    order: VecDeque<RasterKey>,
+    /// The paint pass each entry was last drawn in. The limit evicts the
+    /// least recently drawn first and never one drawn in this pass or the
+    /// one before: a screen with more pictures than the limit would evict
+    /// what it is drawing, decode it again and flicker without end.
+    used: HashMap<RasterKey, u64>,
     generation: std::sync::Arc<()>,
     #[cfg(not(target_arch = "wasm32"))]
     workers: Option<image_workers::ImageWorkers>,
@@ -279,7 +295,7 @@ impl RasterCache {
     fn clear(&mut self) {
         self.generation = std::sync::Arc::new(());
         self.entries.clear();
-        self.order.clear();
+        self.used.clear();
         #[cfg(not(target_arch = "wasm32"))]
         if let Some(workers) = &self.workers {
             workers.clear();
@@ -299,7 +315,14 @@ fn raster_format(format: RasterImageFormat) -> image::ImageFormat {
 /// Only this path may turn journal image bytes into pixels. It verifies the
 /// digest and declared format again at the render boundary, then checks
 /// dimensions before asking a decoder to allocate the full image.
+#[cfg(test)]
 fn decode_raster_thumbnail(source: &RasterImage, side: u32) -> Option<egui::ColorImage> {
+    decode_raster(source, side, source.is_full_resolution()).map(|(image, _)| image)
+}
+
+/// [`decode_raster_thumbnail`], whole when `full`, with whether the image has
+/// transparent pixels when its checkerboard was asked for.
+fn decode_raster(source: &RasterImage, side: u32, full: bool) -> Option<Decoded> {
     use base64::Engine as _;
     use sha2::Digest as _;
     let size = source.size_bytes() as usize;
@@ -333,31 +356,77 @@ fn decode_raster_thumbnail(source: &RasterImage, side: u32) -> Option<egui::Colo
     // A cover is cropped to its box: its shorter side has to fill the side.
     let scale = f64::from(side.max(1))
         / f64::from(if source.is_cover() { width.min(height) } else { width.max(height) });
-    let thumbnail = if source.is_full_resolution() || scale >= 1.0 {
+    let thumbnail = if full || scale >= 1.0 {
         decoded.to_rgba8()
     } else {
         let fit = |length: u32| ((f64::from(length) * scale).round() as u32).max(1);
         decoded.thumbnail(fit(width), fit(height)).to_rgba8()
     };
-    Some(egui::ColorImage::from_rgba_unmultiplied(
-        [thumbnail.width() as usize, thumbnail.height() as usize],
-        thumbnail.as_raw(),
+    let transparent = source.is_checkerboard() && thumbnail.pixels().any(|pixel| pixel[3] < 255);
+    Some((
+        egui::ColorImage::from_rgba_unmultiplied(
+            [thumbnail.width() as usize, thumbnail.height() as usize],
+            thumbnail.as_raw(),
+        ),
+        transparent,
     ))
 }
 
-/// An image's digest, format, whether it is full resolution, and the side
-/// its thumbnail is decoded at (zero at full resolution).
-type RasterKey = (String, RasterImageFormat, bool, u32);
+/// An image's digest, format, whether it is decoded whole, the side its
+/// thumbnail is decoded at (zero when whole), and whether a whole one is
+/// magnified with its pixels sharp.
+type RasterKey = (String, RasterImageFormat, bool, u32, bool);
 
 fn raster_cache_key(image: &RasterImage, side: u32) -> RasterKey {
-    let full = image.is_full_resolution();
-    (image.sha256().to_owned(), image.format(), full, if full { 0 } else { side })
+    raster_key(image, image.is_full_resolution(), side, false)
+}
+
+fn raster_key(image: &RasterImage, full: bool, side: u32, nearest: bool) -> RasterKey {
+    (image.sha256().to_owned(), image.format(), full, if full { 0 } else { side }, full && nearest)
+}
+
+/// From this many pixels of the screen for each of its own, a whole picture
+/// is drawn with its pixels sharp (nearest) instead of smoothed: below it a
+/// photo at 150 % would show uneven pixels; past it they are what one zooms
+/// in to see, as in GNOME's Loupe and Oculante.
+const NEAREST_FROM: f32 = 2.0;
+
+/// The texture of a [`RasterImage::full_resolution`] picture drawn over
+/// `area`: the whole picture, its sharp-pixelled copy past
+/// [`NEAREST_FROM`], or, shown at less than half its size, a copy decoded at
+/// the size it is drawn, which smooths it as mipmaps would.
+fn full_resolution_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterTexture {
+    let whole = raster_texture_keyed(ui, image, raster_key(image, true, 0, false));
+    let RasterTexture::Ready(_, pixels, _) = whole else {
+        return whole;
+    };
+    let ppp = ui.ctx().pixels_per_point();
+    let target = contain(area, turned(pixels, image.quarter_turns()));
+    let shown = target.width().max(target.height()) * ppp;
+    let magnification = shown / pixels[0].max(pixels[1]).max(1) as f32;
+    if magnification >= NEAREST_FROM {
+        return raster_texture_keyed(ui, image, raster_key(image, true, 0, true));
+    }
+    let side = thumbnail_side(target, ppp);
+    if magnification < 0.5 && side as f32 >= shown.ceil() {
+        return raster_texture_keyed(ui, image, raster_key(image, false, side, false));
+    }
+    whole
+}
+
+/// A size in pixels after `turns` quarter turns.
+fn turned(pixels: [usize; 2], turns: u8) -> [usize; 2] {
+    if turns % 2 == 1 {
+        [pixels[1], pixels[0]]
+    } else {
+        pixels
+    }
 }
 
 fn decode_current_image(
     generation: std::sync::Weak<()>,
-    decode: impl FnOnce() -> Option<egui::ColorImage>,
-    landed: std::sync::mpsc::Sender<Option<egui::ColorImage>>,
+    decode: impl FnOnce() -> Option<Decoded>,
+    landed: std::sync::mpsc::Sender<Option<Decoded>>,
 ) {
     if generation.strong_count() != 0 {
         let bitmap = decode();
@@ -370,18 +439,30 @@ fn decode_current_image(
 /// The texture of `image` drawn over `area`, decoded for that size.
 fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterTexture {
     let side = thumbnail_side(area, ui.ctx().pixels_per_point());
+    raster_texture_keyed(ui, image, raster_cache_key(image, side))
+}
+
+/// The texture of `image` decoded as `key` says, or another of the same
+/// picture while it decodes.
+fn raster_texture_keyed(ui: &egui::Ui, image: &RasterImage, key: RasterKey) -> RasterTexture {
+    let (full, side, nearest) = (key.2, key.3, key.4);
     RASTER_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
             cache.clear();
             cache.context = Some(ui.ctx().clone());
         }
-        let key = raster_cache_key(image, side);
-        // Another size of the same picture, shown while this one decodes.
+        // One count for every viewport: each viewport has its own.
+        let pass = ui.ctx().cumulative_pass_nr_for(egui::ViewportId::ROOT);
+        if let Some(used) = cache.used.get_mut(&key) {
+            *used = pass;
+        }
+        // Another size of the same picture, shown while this one decodes: a
+        // thumbnail already on screen stands in for the whole picture.
         let other_size = |cache: &RasterCache| {
             cache.entries.iter().find_map(|(other, entry)| match entry {
-                RasterCacheEntry::Ready(texture) if other.0 == key.0 && other.1 == key.1 && other.2 == key.2 => {
-                    Some(RasterTexture::Ready(texture.id(), texture.size()))
+                RasterCacheEntry::Ready(texture, transparent) if other.0 == key.0 && other.1 == key.1 => {
+                    Some(RasterTexture::Ready(texture.id(), texture.size(), *transparent))
                 }
                 _ => None,
             })
@@ -389,12 +470,16 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
         if let Some(entry) = cache.entries.get_mut(&key) {
             if let RasterCacheEntry::Decoding(decoded) = entry {
                 match decoded.try_recv() {
-                    Ok(Some(bitmap)) => {
-                        *entry = RasterCacheEntry::Ready(ui.ctx().load_texture(
-                            format!("user-image:{}", image.sha256()),
-                            bitmap,
-                            egui::TextureOptions::LINEAR,
-                        ));
+                    Ok(Some((bitmap, transparent))) => {
+                        let options = if nearest {
+                            egui::TextureOptions { magnification: egui::TextureFilter::Nearest, ..egui::TextureOptions::LINEAR }
+                        } else {
+                            egui::TextureOptions::LINEAR
+                        };
+                        *entry = RasterCacheEntry::Ready(
+                            ui.ctx().load_texture(format!("user-image:{}", image.sha256()), bitmap, options),
+                            transparent,
+                        );
                     }
                     Ok(None) | Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                         *entry = RasterCacheEntry::Unavailable;
@@ -403,8 +488,8 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
                 }
             }
             return match entry {
-                RasterCacheEntry::Ready(texture) => {
-                    RasterTexture::Ready(texture.id(), texture.size())
+                RasterCacheEntry::Ready(texture, transparent) => {
+                    RasterTexture::Ready(texture.id(), texture.size(), *transparent)
                 }
                 RasterCacheEntry::Decoding(_) => other_size(&cache).unwrap_or(RasterTexture::Decoding),
                 RasterCacheEntry::Unavailable => RasterTexture::Unavailable,
@@ -416,7 +501,7 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
         let (source, ctx) = (image.clone(), ui.ctx().clone());
         let generation = std::sync::Arc::downgrade(&cache.generation);
         let decode = move || {
-            decode_current_image(generation, || decode_raster_thumbnail(&source, side), landed);
+            decode_current_image(generation, || decode_raster(&source, side, full), landed);
             ctx.request_repaint();
         };
         #[cfg(not(target_arch = "wasm32"))]
@@ -440,18 +525,25 @@ fn raster_texture(ui: &egui::Ui, image: &RasterImage, area: EguiRect) -> RasterT
         cache
             .entries
             .insert(key.clone(), RasterCacheEntry::Decoding(decoded));
-        cache.order.push_back(key.clone());
-        let full = image.is_full_resolution();
+        cache.used.insert(key.clone(), pass);
         let limit = if full {
             FULL_IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         } else {
             IMAGE_CACHE_ENTRIES.with(std::cell::Cell::get)
         };
-        while cache.order.iter().filter(|key| key.2 == full).count() > limit {
-            if let Some(index) = cache.order.iter().position(|key| key.2 == full) {
-                let oldest = cache.order.remove(index).expect("cache entry index");
-                cache.entries.remove(&oldest);
-            }
+        while cache.used.keys().filter(|key| key.2 == full).count() > limit {
+            // What is on screen stays past the limit until it leaves.
+            let Some(oldest) = cache
+                .used
+                .iter()
+                .filter(|(key, used)| key.2 == full && **used + 1 < pass)
+                .min_by_key(|(_, used)| **used)
+                .map(|(key, _)| key.clone())
+            else {
+                break;
+            };
+            cache.used.remove(&oldest);
+            cache.entries.remove(&oldest);
         }
         other_size(&cache).unwrap_or(RasterTexture::Decoding)
     })
@@ -463,9 +555,11 @@ const SURFACE_TEXTURE: egui::TextureOptions = egui::TextureOptions::LINEAR;
 
 /// One frame of a [`DrawCommand::Surface`], or the part of one that changed.
 /// Build it where the pixels are decoded, away from the UI thread: converting
-/// them is the costly part.
+/// them is the costly part. A clone shares the converted pixels, so the
+/// frames of an animation are built once and presented again as it loops.
+#[derive(Clone)]
 pub struct SurfaceFrame {
-    image: egui::ColorImage,
+    image: std::sync::Arc<egui::ColorImage>,
     pixels_per_point: f32,
     /// The size of the frame these pixels are a part of and where they go in
     /// it, when they are not all of it.
@@ -488,7 +582,7 @@ impl SurfaceFrame {
     /// display scale the pixels were rendered for.
     pub fn from_rgba(size: [usize; 2], rgba: &[u8], pixels_per_point: f32) -> Option<Self> {
         Self::bounded(size, rgba.len(), 4, pixels_per_point).then(|| Self {
-            image: egui::ColorImage::from_rgba_unmultiplied(size, rgba),
+            image: std::sync::Arc::new(egui::ColorImage::from_rgba_unmultiplied(size, rgba)),
             pixels_per_point,
             part: None,
         })
@@ -498,7 +592,7 @@ impl SurfaceFrame {
     /// conversion, for frames too large to convert again on the UI thread.
     pub fn from_image(image: egui::ColorImage, pixels_per_point: f32) -> Option<Self> {
         Self::bounded(image.size, image.pixels.len() * 4, 4, pixels_per_point).then_some(Self {
-            image,
+            image: std::sync::Arc::new(image),
             pixels_per_point,
             part: None,
         })
@@ -507,7 +601,7 @@ impl SurfaceFrame {
     /// Rows of opaque RGB, as a JPEG decodes: no alpha channel is carried.
     pub fn from_rgb(size: [usize; 2], rgb: &[u8], pixels_per_point: f32) -> Option<Self> {
         Self::bounded(size, rgb.len(), 3, pixels_per_point).then(|| Self {
-            image: egui::ColorImage::from_rgb(size, rgb),
+            image: std::sync::Arc::new(egui::ColorImage::from_rgb(size, rgb)),
             pixels_per_point,
             part: None,
         })
@@ -715,12 +809,111 @@ fn surface_rect(area: EguiRect, pixels: [usize; 2], density: f32, pixels_per_poi
     )
 }
 
+/// Paint `texture` over `target`, showing the `uv` part of it, rounded to
+/// `radius` and cut to the rounded clip in force. `exact` paints a square,
+/// unclipped one as a bare quad, without the anti-aliased fringe a rounded
+/// shape has, so a surface's texels stay on the pixel grid.
+fn paint_texture(
+    painter: &egui::Painter,
+    texture: egui::TextureId,
+    (target, uv): (EguiRect, EguiRect),
+    radius: f32,
+    round: RoundedClip,
+    opacity: f32,
+    exact: bool,
+) {
+    let (shown, radii) = under_rounded_clip(target, limn::CornerRadii::same(radius), round);
+    if exact && shown == target && radii == limn::CornerRadii::same(0.0) {
+        painter.image(texture, target, uv, Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8));
+        return;
+    }
+    // The texture coordinates of the part still shown.
+    let at = |point: Pos2| {
+        Pos2::new(
+            uv.min.x + (point.x - target.min.x) / target.width() * uv.width(),
+            uv.min.y + (point.y - target.min.y) / target.height() * uv.height(),
+        )
+    };
+    let uv = if shown == target { uv } else { EguiRect::from_min_max(at(shown.min), at(shown.max)) };
+    painter.add(
+        egui::epaint::RectShape::filled(
+            shown,
+            corners(radii, shown),
+            Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
+        )
+        .with_texture(texture, uv),
+    );
+}
+
+/// The largest rectangle with the proportions of `pixels` centered in `area`.
+fn contain(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
+    let size = egui::vec2(pixels[0] as f32, pixels[1] as f32);
+    // A frame is never empty: `SurfaceFrame` refuses a side of 0.
+    let scale = (area.width() / size.x).min(area.height() / size.y);
+    EguiRect::from_center_size(area.center(), size * scale)
+}
+
 fn fit_image(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
     let width = pixels[0] as f32;
     let height = pixels[1] as f32;
     let scale = (area.width() / width).min(area.height() / height).min(1.0);
     let size = egui::vec2(width * scale, height * scale);
     EguiRect::from_center_size(area.center(), size)
+}
+
+thread_local! {
+    /// The two squares of the checkerboard, tiled across the screen.
+    static CHECKERBOARD: RefCell<Option<(egui::Context, egui::TextureHandle)>> = const { RefCell::new(None) };
+}
+
+/// A checkerboard's square, in logical pixels.
+const CHECKER: f32 = 8.0;
+
+/// A checkerboard of [`CHECKER`] squares over `target`, fixed to the screen
+/// so its squares keep their size whatever the picture's, behind a picture
+/// with transparent pixels (as Telegram's viewer does).
+fn paint_checkerboard(ctx: &egui::Context, painter: &egui::Painter, target: EguiRect, radius: f32, round: RoundedClip, opacity: f32) {
+    let texture = CHECKERBOARD.with(|cell| {
+        let mut cell = cell.borrow_mut();
+        if let Some((owner, texture)) = cell.as_ref().filter(|(owner, _)| owner == ctx) {
+            let _ = owner;
+            return texture.id();
+        }
+        let (light, dark) = (Color32::from_rgb(74, 74, 79), Color32::from_rgb(51, 51, 55));
+        let image = egui::ColorImage::new([2, 2], vec![light, dark, dark, light]);
+        let options = egui::TextureOptions {
+            magnification: egui::TextureFilter::Nearest,
+            minification: egui::TextureFilter::Nearest,
+            wrap_mode: egui::TextureWrapMode::Repeat,
+            mipmap_mode: None,
+        };
+        let texture = ctx.load_texture("limn-checkerboard", image, options);
+        let id = texture.id();
+        *cell = Some((ctx.clone(), texture));
+        id
+    });
+    let tile = 2.0 * CHECKER;
+    let uv = EguiRect::from_min_max(
+        Pos2::new(target.min.x / tile, target.min.y / tile),
+        Pos2::new(target.max.x / tile, target.max.y / tile),
+    );
+    paint_texture(painter, texture, (target, uv), radius, round, opacity, false);
+}
+
+/// `texture` over `target` turned `turns` quarters clockwise: the corner of
+/// the screen each corner of the picture lands on. Square corners only.
+fn paint_turned(painter: &egui::Painter, texture: egui::TextureId, (target, uv): (EguiRect, EguiRect), turns: u8, opacity: f32) {
+    let tint = Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8);
+    let corners = [target.left_top(), target.right_top(), target.right_bottom(), target.left_bottom()];
+    let coords = [uv.left_top(), uv.right_top(), uv.right_bottom(), uv.left_bottom()];
+    let mut mesh = egui::Mesh::with_texture(texture);
+    for (at, corner) in corners.iter().enumerate() {
+        // Turned clockwise, the picture's top-left corner is at the top right.
+        let from = (at + 4 - usize::from(turns % 4)) % 4;
+        mesh.vertices.push(egui::epaint::Vertex { pos: *corner, uv: coords[from], color: tint });
+    }
+    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+    painter.add(egui::Shape::mesh(mesh));
 }
 
 /// The centered part of an image that fills `area` without distortion, as
@@ -749,6 +942,8 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::PanelRightClose => include_str!("../assets/bootstrap/layout-sidebar-inset-reverse.svg"),
         Icon::Add => include_str!("../assets/bootstrap/plus-lg.svg"),
         Icon::Minus => include_str!("../assets/bootstrap/dash.svg"),
+        Icon::ZoomIn => include_str!("../assets/bootstrap/zoom-in.svg"),
+        Icon::ZoomOut => include_str!("../assets/bootstrap/zoom-out.svg"),
         Icon::Microphone => include_str!("../assets/bootstrap/mic.svg"),
         Icon::Text => include_str!("../assets/bootstrap/card-text.svg"),
         Icon::Image => include_str!("../assets/bootstrap/image.svg"),
@@ -793,8 +988,8 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::ArrowRight => include_str!("../assets/bootstrap/arrow-right.svg"),
         Icon::ChevronDown => include_str!("../assets/bootstrap/chevron-down.svg"),
         Icon::ChevronUp => include_str!("../assets/bootstrap/chevron-up.svg"),
-        Icon::ChevronRight => include_str!("../assets/bootstrap/chevron-right.svg"),
         Icon::ChevronLeft => include_str!("../assets/bootstrap/chevron-left.svg"),
+        Icon::ChevronRight => include_str!("../assets/bootstrap/chevron-right.svg"),
         Icon::Search => include_str!("../assets/bootstrap/search.svg"),
         Icon::Stop => include_str!("../assets/bootstrap/stop.svg"),
         Icon::StopFill => include_str!("../assets/bootstrap/stop-fill.svg"),
@@ -856,12 +1051,14 @@ fn icon_svg(icon: Icon) -> &'static str {
         Icon::Invite => include_str!("../assets/bootstrap/person-plus.svg"),
         Icon::Leave => include_str!("../assets/bootstrap/box-arrow-left.svg"),
         Icon::DragHandle => include_str!("../assets/bootstrap/grip-vertical.svg"),
+        Icon::Circle => include_str!("../assets/bootstrap/circle.svg"),
         Icon::Tree => include_str!("../assets/bootstrap/tree.svg"),
         Icon::FriedEgg => include_str!("../assets/bootstrap/egg-fried.svg"),
         Icon::Gamepad => include_str!("../assets/bootstrap/controller.svg"),
         Icon::Car => include_str!("../assets/bootstrap/car-front.svg"),
         Icon::Lightbulb => include_str!("../assets/bootstrap/lightbulb.svg"),
         Icon::Flag => include_str!("../assets/bootstrap/flag.svg"),
+        Icon::Forward => include_str!("../assets/bootstrap/forward.svg"),
         Icon::FolderFill => include_str!("../assets/bootstrap/folder-fill.svg"),
         Icon::PlayFill => include_str!("../assets/bootstrap/play-fill.svg"),
         Icon::GridFill => include_str!("../assets/bootstrap/grid-fill.svg"),
@@ -1530,7 +1727,7 @@ pub fn set_cursor(ctx: &egui::Context, cursor: Option<limn::Cursor>) {
 
 /// The ID a limn control has in the platform's accessibility tree.
 fn access_id(id: &str) -> egui::Id {
-    egui::Id::new(("limn-access", id))
+    egui::Id::unique(("limn-access", id))
 }
 
 /// Tell the platform what is in the frame: each control with its role, its
@@ -1569,6 +1766,7 @@ fn publish_access(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 Role::Image => Platform::Image,
                 Role::Heading => Platform::Heading,
                 Role::Label => Platform::Label,
+                Role::Region => Platform::Region,
                 // A role this backend does not know yet is still a thing with a name.
                 _ => Platform::Group,
             });
@@ -1897,37 +2095,35 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 font_family,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let font = match font_family {
-                    FontFamily::Monospace => FontId::monospace(*font_size),
-                    FontFamily::Sans => FontId::proportional(*font_size),
-                    FontFamily::MonospaceBold | FontFamily::SansMedium | FontFamily::SansBold | FontFamily::Display => {
-                        FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
-                    }
-                    FontFamily::SansItalic | FontFamily::SansBoldItalic => {
-                        // egui slants the regular face, or the bold one, so
-                        // advances match Sans or SansBold.
-                        let format = egui::TextFormat {
-                            font_id: if *font_family == FontFamily::SansItalic {
-                                FontId::proportional(*font_size)
-                            } else {
-                                FontId::new(*font_size, egui_family(ui.ctx(), *font_family))
-                            },
-                            color: color(*ink),
-                            italics: true,
-                            ..Default::default()
-                        };
-                        let job = egui::text::LayoutJob::single_section(text.clone(), format);
-                        painter.galley(pos(origin, *position), painter.layout_job(job), color(*ink));
-                        continue;
-                    }
+                let (font, italics) = match font_family {
+                    FontFamily::Monospace => (FontId::monospace(*font_size), false),
+                    FontFamily::Sans => (FontId::proportional(*font_size), false),
+                    FontFamily::MonospaceBold
+                    | FontFamily::SansMedium
+                    | FontFamily::SansSemibold
+                    | FontFamily::SansBold
+                    | FontFamily::Display => (FontId::new(*font_size, egui_family(ui.ctx(), *font_family)), false),
+                    // egui slants the regular face, so advances match Sans.
+                    FontFamily::SansItalic => (FontId::proportional(*font_size), true),
+                    // The bold face slanted, as SansItalic slants the regular one.
+                    FontFamily::SansBoldItalic => (FontId::new(*font_size, egui_family(ui.ctx(), *font_family)), true),
                 };
-                painter.text(
-                    pos(origin, *position),
-                    Align2::LEFT_TOP,
-                    text,
-                    font,
-                    color(*ink),
-                );
+                let at = pos(origin, *position);
+                if color_emoji::paint(&painter, at, text, &font, italics, color(*ink)) {
+                    continue;
+                }
+                if italics {
+                    let format = egui::TextFormat {
+                        font_id: font,
+                        color: color(*ink),
+                        italics: true,
+                        ..Default::default()
+                    };
+                    let job = egui::text::LayoutJob::single_section(text.clone(), format);
+                    painter.galley(at, painter.layout_job(job), color(*ink));
+                } else {
+                    painter.text(at, Align2::LEFT_TOP, text, font, color(*ink));
+                }
             }
             DrawCommand::Glyphs(run) => {
                 glyph_atlas::paint(&ui.painter().with_clip_rect(*clips.last().unwrap()), run, origin, display);
@@ -1964,7 +2160,7 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let area = rect(origin, *area);
                 let response = ui.interact(
                     area,
-                    egui::Id::new((
+                    egui::Id::unique((
                         "limn-raster-image",
                         image.sha256(),
                         area.min.x.to_bits(),
@@ -1973,33 +2169,33 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     egui::Sense::hover(),
                 );
                 response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Image, true, image.alt())
+                    egui::WidgetInfo::labeled(egui::Role::Image, true, image.alt())
                 });
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let texture = raster_texture(ui, image, area);
-                if let RasterTexture::Ready(texture, pixels) = texture {
+                let texture = if image.is_full_resolution() {
+                    full_resolution_texture(ui, image, area)
+                } else {
+                    raster_texture(ui, image, area)
+                };
+                if let RasterTexture::Ready(texture, pixels, transparent) = texture {
+                    let turns = image.quarter_turns();
+                    let whole = EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
                     let (target, uv) = if image.is_cover() {
-                        (area, cover_uv(area, pixels))
+                        (area, cover_uv(area, turned(pixels, turns)))
+                    } else if image.is_full_resolution() {
+                        // Enlarged as a zoom asks; its rectangle has its proportions.
+                        (contain(area, turned(pixels, turns)), whole)
                     } else {
-                        (fit_image(area, pixels), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)))
+                        (fit_image(area, turned(pixels, turns)), whole)
                     };
-                    let (shown, radii) = under_rounded_clip(target, limn::CornerRadii::same(*radius), round);
-                    // The texture coordinates of the part still shown.
-                    let at = |point: Pos2| {
-                        Pos2::new(
-                            uv.min.x + (point.x - target.min.x) / target.width() * uv.width(),
-                            uv.min.y + (point.y - target.min.y) / target.height() * uv.height(),
-                        )
-                    };
-                    let uv = if shown == target { uv } else { EguiRect::from_min_max(at(shown.min), at(shown.max)) };
-                    painter.add(
-                        egui::epaint::RectShape::filled(
-                            shown,
-                            corners(radii, shown),
-                            Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
-                        )
-                        .with_texture(texture, uv),
-                    );
+                    if transparent {
+                        paint_checkerboard(ui.ctx(), &painter, target, *radius, round, *opacity);
+                    }
+                    if turns == 0 {
+                        paint_texture(&painter, texture, (target, uv), *radius, round, *opacity, false);
+                    } else {
+                        paint_turned(&painter, texture, (target, uv), turns, *opacity);
+                    }
                 } else if texture == RasterTexture::Unavailable {
                     painter.rect_filled(area, CornerRadius::same(6), Color32::from_gray(37));
                     painter.text(
@@ -2016,19 +2212,31 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 id,
                 label,
                 opacity,
+                fit,
+                radius,
+                mirrored,
             } => {
                 let area = rect(origin, *area);
                 let response = ui.interact(
                     area,
-                    egui::Id::new(("limn-surface", id)),
+                    egui::Id::unique(("limn-surface", id)),
                     egui::Sense::hover(),
                 );
                 response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Image, true, label)
+                    egui::WidgetInfo::labeled(egui::Role::Image, true, label)
                 });
                 let painter = ui
                     .painter()
                     .with_clip_rect(clips.last().unwrap().intersect(area));
+                let whole = EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+                // A mirror reads the texture from its right edge to its left.
+                let mirror = |uv: EguiRect| {
+                    if *mirrored {
+                        EguiRect::from_min_max(Pos2::new(uv.max.x, uv.min.y), Pos2::new(uv.min.x, uv.max.y))
+                    } else {
+                        uv
+                    }
+                };
                 if let Some(paint) = surface_paint(ui, id) {
                     let ppp = ui.ctx().pixels_per_point();
                     let snap = |value: f32| (value * ppp).round() / ppp;
@@ -2038,12 +2246,13 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     );
                     painter.add(egui::PaintCallback { rect, ..paint });
                 } else if let Some((texture, pixels, density)) = surface_texture(ui, id) {
-                    painter.image(
-                        texture,
-                        surface_rect(area, pixels, density, ui.ctx().pixels_per_point()),
-                        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                        Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8),
-                    );
+                    let (target, uv) = match fit {
+                        limn::SurfaceFit::Contain => (contain(area, pixels), whole),
+                        limn::SurfaceFit::ScaleDown => (fit_image(area, pixels), whole),
+                        limn::SurfaceFit::Cover => (area, cover_uv(area, pixels)),
+                        limn::SurfaceFit::Native => (surface_rect(area, pixels, density, ui.ctx().pixels_per_point()), whole),
+                    };
+                    paint_texture(&painter, texture, (target, mirror(uv)), *radius, round, *opacity, true);
                 }
             }
             DrawCommand::ProgressRing {
@@ -2078,7 +2287,7 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 let alpha = (opacity.clamp(0.0, 1.0) * 255.0) as u8;
                 let corner = corner(*radius, sleeve);
                 match image.as_ref().map(|image| raster_texture(ui, image, sleeve)) {
-                    Some(RasterTexture::Ready(texture, pixels)) => {
+                    Some(RasterTexture::Ready(texture, pixels, _)) => {
                         painter.add(
                             egui::epaint::RectShape::filled(sleeve, corner, Color32::from_white_alpha(alpha))
                                 .with_texture(texture, cover_uv(sleeve, pixels)),
@@ -2144,7 +2353,9 @@ pub struct IndexedUiEvent {
 /// Translate this frame's egui input into limn events, with pointer positions made
 /// relative to `origin`. A primary press with Alt, Ctrl or Command held, or a double or
 /// triple click, becomes `PointerDownEditor`; wheel input is dropped while the pointer is
-/// outside the window; only the keys limn knows are forwarded, with Command counted as Ctrl.
+/// outside the window; only the keys limn knows are forwarded, with Command counted as Ctrl,
+/// each press as `Key` and each release as `KeyReleased`. egui's own keys for the modifiers
+/// are not forwarded: a change of the modifiers held becomes `ModifiersChanged`.
 /// This is the event-only projection of [`events_indexed`].
 pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
     events_indexed(ctx, origin)
@@ -2156,8 +2367,8 @@ pub fn events(ctx: &egui::Context, origin: Pos2) -> Vec<UiEvent> {
 /// Translate input while retaining each event's index in the current viewport.
 /// Call [`normalize_keyboard_input`] first and keep the same input snapshot while
 /// consuming the result. This function neither normalizes nor consumes input.
-/// Frame-derived file metadata comes last, after every indexed event, with no
-/// source index, as in [`events`]. Unknown native events have no translation: hosts that handle them must visit every source
+/// Frame-derived file metadata comes first, with no source index. Unknown native
+/// events have no translation: hosts that handle them must visit every source
 /// index, applying translations at their corresponding positions.
 /// Only adjacent forward Enter/newline, Ctrl/Command C/Copy, X/Cut and V/Paste
 /// pairs collapse; reversed pairs and intervening events remain independent.
@@ -2173,6 +2384,24 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
             })
         };
         let mut pointer = input.pointer.hover_pos();
+        // RUNE integration: frame-derived files come first, with no source
+        // index, as the ordered RUNE host consumes them before native input.
+        // The OS owns the pointer during an external drag, so the position is
+        // the last one egui saw; it can lag until the drop on some platforms.
+        if let Some(position) = input.pointer.latest_pos().map(|pos| relative(origin, pos)) {
+            let paths: Vec<_> = input
+                .raw
+                .dropped_files
+                .iter()
+                .map(|file| file.path().to_path_buf())
+                .filter(|path| !path.as_os_str().is_empty())
+                .collect();
+            if !paths.is_empty() {
+                emit(None, UiEvent::FilesDropped { position, paths });
+            } else if !input.raw.hovered_files.is_empty() {
+                emit(None, UiEvent::FilesHovered { position });
+            }
+        }
         let mut source = input.events.iter().enumerate().peekable();
         while let Some((index, event)) = source.next() {
             // Only recognized forward neighbours are deduplicated.
@@ -2238,6 +2467,41 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                 } => {
                     pointer = Some(*pos);
                     emit(UiEvent::ContextMenu {
+                        position: relative(origin, *pos),
+                    });
+                }
+                egui::Event::PointerButton {
+                    pos,
+                    button: button @ (egui::PointerButton::Extra1 | egui::PointerButton::Extra2),
+                    pressed,
+                    ..
+                } => {
+                    pointer = Some(*pos);
+                    let position = relative(origin, *pos);
+                    let back = *button == egui::PointerButton::Extra1;
+                    if *pressed {
+                        emit(if back {
+                            UiEvent::PointerBack(position)
+                        } else {
+                            UiEvent::PointerForward(position)
+                        });
+                    }
+                    emit(UiEvent::OtherButton {
+                        button: if back { OtherButton::Back } else { OtherButton::Forward },
+                        pressed: *pressed,
+                        position,
+                    });
+                }
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Middle,
+                    pressed,
+                    ..
+                } => {
+                    pointer = Some(*pos);
+                    emit(UiEvent::OtherButton {
+                        button: OtherButton::Middle,
+                        pressed: *pressed,
                         position: relative(origin, *pos),
                     });
                 }
@@ -2321,6 +2585,15 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                         });
                     }
                 }
+                // A pinch: macOS's touchpad and touch screens send it.
+                egui::Event::Zoom(factor) => {
+                    if let Some(pos) = pointer {
+                        emit(UiEvent::Zoom {
+                            position: relative(origin, pos),
+                            factor: *factor,
+                        });
+                    }
+                }
                 egui::Event::Text(value) => {
                     emit(UiEvent::Text(value.clone()));
                 }
@@ -2344,15 +2617,27 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                 egui::Event::Paste(value) => {
                     emit(UiEvent::Paste(value.clone()));
                 }
+                // egui keeps premultiplied pixels; the host gets plain RGBA.
+                egui::Event::PasteImage(image) => emit(UiEvent::PasteImage {
+                    width: image.size[0],
+                    height: image.size[1],
+                    rgba: image
+                        .pixels
+                        .iter()
+                        .flat_map(|pixel| pixel.to_srgba_unmultiplied())
+                        .collect(),
+                }),
                 egui::Event::Copy => emit(UiEvent::Key {
                     key: Key::C,
                     shift: input.modifiers.shift,
                     ctrl: true,
+                    alt: false,
                 }),
                 egui::Event::Cut => emit(UiEvent::Key {
                     key: Key::X,
                     shift: input.modifiers.shift,
                     ctrl: true,
+                    alt: false,
                 }),
                 egui::Event::Key {
                     key: egui::Key::F10,
@@ -2368,86 +2653,149 @@ pub fn events_indexed(ctx: &egui::Context, origin: Pos2) -> Vec<IndexedUiEvent> 
                     modifiers,
                     ..
                 } => {
-                    let mapped = match key {
-                        egui::Key::Escape => Some(Key::Escape),
-                        egui::Key::F2 => Some(Key::F2),
-                        egui::Key::F5 => Some(Key::F5),
-                        egui::Key::F9 => Some(Key::F9),
-                        egui::Key::F10 => Some(Key::F10),
-                        egui::Key::F11 => Some(Key::F11),
-                        egui::Key::F12 => Some(Key::F12),
-                        egui::Key::ArrowLeft => Some(Key::ArrowLeft),
-                        egui::Key::ArrowRight => Some(Key::ArrowRight),
-                        egui::Key::ArrowUp => Some(Key::ArrowUp),
-                        egui::Key::ArrowDown => Some(Key::ArrowDown),
-                        egui::Key::Home => Some(Key::Home),
-                        egui::Key::End => Some(Key::End),
-                        egui::Key::PageUp => Some(Key::PageUp),
-                        egui::Key::PageDown => Some(Key::PageDown),
-                        egui::Key::Backspace => Some(Key::Backspace),
-                        egui::Key::Delete => Some(Key::Delete),
-                        egui::Key::Enter => Some(Key::Enter),
-                        egui::Key::Tab => Some(Key::Tab),
-                        egui::Key::Space => Some(Key::Space),
-                        egui::Key::A => Some(Key::A),
-                        egui::Key::B => Some(Key::B),
-                        egui::Key::C => Some(Key::C),
-                        egui::Key::D => Some(Key::D),
-                        egui::Key::E => Some(Key::E),
-                        egui::Key::F => Some(Key::F),
-                        egui::Key::G => Some(Key::G),
-                        egui::Key::H => Some(Key::H),
-                        egui::Key::I => Some(Key::I),
-                        egui::Key::J => Some(Key::J),
-                        egui::Key::K => Some(Key::K),
-                        egui::Key::L => Some(Key::L),
-                        egui::Key::M => Some(Key::M),
-                        egui::Key::N => Some(Key::N),
-                        egui::Key::O => Some(Key::O),
-                        egui::Key::P => Some(Key::P),
-                        egui::Key::Q => Some(Key::Q),
-                        egui::Key::R => Some(Key::R),
-                        egui::Key::S => Some(Key::S),
-                        egui::Key::T => Some(Key::T),
-                        egui::Key::U => Some(Key::U),
-                        egui::Key::V => Some(Key::V),
-                        egui::Key::W => Some(Key::W),
-                        egui::Key::X => Some(Key::X),
-                        egui::Key::Y => Some(Key::Y),
-                        egui::Key::Z => Some(Key::Z),
-                        _ => None,
-                    };
-                    if let Some(key) = mapped {
+                    if let Some(key) = limn_key(*key) {
                         emit(UiEvent::Key {
                             key,
                             shift: modifiers.shift,
                             ctrl: modifiers.ctrl || modifiers.command,
+                            alt: modifiers.alt,
                         });
                     }
+                }
+                egui::Event::Key {
+                    key,
+                    pressed: false,
+                    ..
+                } => {
+                    if let Some(key) = limn_key(*key) {
+                        emit(UiEvent::KeyReleased { key });
+                    }
+                }
+                egui::Event::ModifiersChanged(modifiers) => {
+                    emit(UiEvent::ModifiersChanged(limn::Modifiers {
+                        shift: modifiers.shift,
+                        ctrl: modifiers.ctrl || modifiers.command,
+                        alt: modifiers.alt,
+                    }));
                 }
                 _ => {}
             }
         }
-        // egui groups native files separately from ordinary events, with no
-        // source index. Deliver them last so a host can apply this frame's
-        // input and revalidate its current editor/modal before admitting files,
-        // and so the drop follows the pointer moves that reached its position.
-        // The OS owns the pointer during external drags; it can still lag.
-        if let Some(position) = input.pointer.latest_pos().map(|pos| relative(origin, pos)) {
-            let paths: Vec<_> = input
-                .raw
-                .dropped_files
-                .iter()
-                .map(|file| file.path().to_path_buf())
-                .filter(|path| !path.as_os_str().is_empty())
-                .collect();
-            if !paths.is_empty() {
-                emit(None, UiEvent::FilesDropped { position, paths });
-            } else if !input.raw.hovered_files.is_empty() {
-                emit(None, UiEvent::FilesHovered { position });
-            }
-        }
         events
+    })
+}
+
+/// The limn key for an egui key; `None` for the modifiers, which arrive as
+/// `ModifiersChanged`, and for the keys limn has no name for.
+fn limn_key(key: egui::Key) -> Option<Key> {
+    use egui::Key as E;
+    Some(match key {
+        E::ArrowDown => Key::ArrowDown,
+        E::ArrowLeft => Key::ArrowLeft,
+        E::ArrowRight => Key::ArrowRight,
+        E::ArrowUp => Key::ArrowUp,
+        E::Escape => Key::Escape,
+        E::Tab => Key::Tab,
+        E::Backspace => Key::Backspace,
+        E::Enter => Key::Enter,
+        E::Space => Key::Space,
+        E::Insert => Key::Insert,
+        E::Delete => Key::Delete,
+        E::Home => Key::Home,
+        E::End => Key::End,
+        E::PageUp => Key::PageUp,
+        E::PageDown => Key::PageDown,
+        E::Colon => Key::Colon,
+        E::Comma => Key::Comma,
+        E::Backslash => Key::Backslash,
+        E::Slash => Key::Slash,
+        E::Pipe => Key::Pipe,
+        E::Questionmark => Key::Questionmark,
+        E::Exclamationmark => Key::Exclamationmark,
+        E::OpenBracket => Key::OpenBracket,
+        E::CloseBracket => Key::CloseBracket,
+        E::OpenCurlyBracket => Key::OpenCurlyBracket,
+        E::CloseCurlyBracket => Key::CloseCurlyBracket,
+        E::Backtick => Key::Backtick,
+        E::Minus => Key::Minus,
+        E::Period => Key::Period,
+        E::Plus => Key::Plus,
+        E::Equals => Key::Equals,
+        E::Semicolon => Key::Semicolon,
+        E::Quote => Key::Quote,
+        E::Num0 => Key::Num0,
+        E::Num1 => Key::Num1,
+        E::Num2 => Key::Num2,
+        E::Num3 => Key::Num3,
+        E::Num4 => Key::Num4,
+        E::Num5 => Key::Num5,
+        E::Num6 => Key::Num6,
+        E::Num7 => Key::Num7,
+        E::Num8 => Key::Num8,
+        E::Num9 => Key::Num9,
+        E::A => Key::A,
+        E::B => Key::B,
+        E::C => Key::C,
+        E::D => Key::D,
+        E::E => Key::E,
+        E::F => Key::F,
+        E::G => Key::G,
+        E::H => Key::H,
+        E::I => Key::I,
+        E::J => Key::J,
+        E::K => Key::K,
+        E::L => Key::L,
+        E::M => Key::M,
+        E::N => Key::N,
+        E::O => Key::O,
+        E::P => Key::P,
+        E::Q => Key::Q,
+        E::R => Key::R,
+        E::S => Key::S,
+        E::T => Key::T,
+        E::U => Key::U,
+        E::V => Key::V,
+        E::W => Key::W,
+        E::X => Key::X,
+        E::Y => Key::Y,
+        E::Z => Key::Z,
+        E::F1 => Key::F1,
+        E::F2 => Key::F2,
+        E::F3 => Key::F3,
+        E::F4 => Key::F4,
+        E::F5 => Key::F5,
+        E::F6 => Key::F6,
+        E::F7 => Key::F7,
+        E::F8 => Key::F8,
+        E::F9 => Key::F9,
+        E::F10 => Key::F10,
+        E::F11 => Key::F11,
+        E::F12 => Key::F12,
+        E::F13 => Key::F13,
+        E::F14 => Key::F14,
+        E::F15 => Key::F15,
+        E::F16 => Key::F16,
+        E::F17 => Key::F17,
+        E::F18 => Key::F18,
+        E::F19 => Key::F19,
+        E::F20 => Key::F20,
+        E::F21 => Key::F21,
+        E::F22 => Key::F22,
+        E::F23 => Key::F23,
+        E::F24 => Key::F24,
+        E::F25 => Key::F25,
+        E::F26 => Key::F26,
+        E::F27 => Key::F27,
+        E::F28 => Key::F28,
+        E::F29 => Key::F29,
+        E::F30 => Key::F30,
+        E::F31 => Key::F31,
+        E::F32 => Key::F32,
+        E::F33 => Key::F33,
+        E::F34 => Key::F34,
+        E::F35 => Key::F35,
+        E::IntlBackslash => Key::IntlBackslash,
+        _ => return None,
     })
 }
 
@@ -2493,6 +2841,11 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
     let face = |family| bundled.face_of(family).expect("limn bundles a face for it");
     // A weight the host gave no face of its own is its regular one, as limn lays it out.
     let ui_face = |family| current.face_of(family).or(current.face_of(FontFamily::Sans)).unwrap_or_else(|| face(family));
+    // A semibold the host left out is its nearest weight, heavier first, as CSS chooses one.
+    let semibold = [FontFamily::SansSemibold, FontFamily::SansBold, FontFamily::SansMedium]
+        .into_iter()
+        .find_map(|family| current.face_of(family))
+        .unwrap_or_else(|| ui_face(FontFamily::SansSemibold));
     let [math, symbols] = bundled.fallbacks() else {
         unreachable!("limn bundles two fallbacks: math and symbols");
     };
@@ -2502,6 +2855,7 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
     for (name, font) in [
         ("Sans-Regular", ui_face(FontFamily::Sans)),
         ("Sans-Medium", ui_face(FontFamily::SansMedium)),
+        ("Sans-Semibold", semibold),
         ("Sans-Bold", ui_face(FontFamily::SansBold)),
         ("Hack", face(FontFamily::Monospace)),
         ("Hack-Bold", face(FontFamily::MonospaceBold)),
@@ -2525,7 +2879,7 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
         egui::FontFamily::Name(MONO_BOLD.into()),
         chain(&["Hack-Bold", "Hack", "Sans-Regular"], &["NotoSansMath-Regular", "NotoSansSymbols2-Regular", "NotoEmoji"]),
     );
-    for (family, face_name) in [(SANS_MEDIUM, "Sans-Medium"), (SANS_BOLD, "Sans-Bold")] {
+    for (family, face_name) in [(SANS_MEDIUM, "Sans-Medium"), (SANS_SEMIBOLD, "Sans-Semibold"), (SANS_BOLD, "Sans-Bold")] {
         fonts.families.insert(egui::FontFamily::Name(family.into()), chain(&[face_name, "Sans-Regular"], &behind_sans));
     }
     // A display face only when the host gave one; without it the bold face stands in.
@@ -2542,6 +2896,7 @@ fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
 
 const MONO_BOLD: &str = "limn-mono-bold";
 const SANS_MEDIUM: &str = "limn-sans-medium";
+const SANS_SEMIBOLD: &str = "limn-sans-semibold";
 const SANS_BOLD: &str = "limn-sans-bold";
 const DISPLAY: &str = "limn-display";
 
@@ -2553,7 +2908,12 @@ pub struct UiFaces {
     pub regular: egui::FontData,
     /// The face of [`FontFamily::SansMedium`]; `None` uses `regular`.
     pub medium: Option<egui::FontData>,
-    /// The face of [`FontFamily::SansBold`]; `None` uses `regular`.
+    /// The face of [`FontFamily::SansSemibold`]; `None` uses `bold`, then
+    /// `medium`, then `regular`: the nearest weight the family has, heavier
+    /// first, as CSS chooses one.
+    pub semibold: Option<egui::FontData>,
+    /// The face of [`FontFamily::SansBold`] and [`FontFamily::SansBoldItalic`];
+    /// `None` uses `regular`.
     pub bold: Option<egui::FontData>,
 }
 
@@ -2566,17 +2926,20 @@ pub fn font_definitions_with(faces: UiFaces) -> egui::FontDefinitions {
     let mut fonts = font_definitions();
     let regular = "limn-ui-regular".to_owned();
     fonts.font_data.insert(regular.clone(), faces.regular.into());
-    for (face, name, family) in [
-        (faces.medium, "limn-ui-medium", SANS_MEDIUM),
-        (faces.bold, "limn-ui-bold", SANS_BOLD),
-    ] {
-        let first = match face {
-            Some(face) => {
-                fonts.font_data.insert(name.to_owned(), face.into());
-                name.to_owned()
-            }
-            None => regular.clone(),
-        };
+    let mut first = |face: Option<egui::FontData>, name: &str| match face {
+        Some(face) => {
+            fonts.font_data.insert(name.to_owned(), face.into());
+            Some(name.to_owned())
+        }
+        None => None,
+    };
+    let medium = first(faces.medium, "limn-ui-medium");
+    let bold = first(faces.bold, "limn-ui-bold");
+    let semibold = first(faces.semibold, "limn-ui-semibold")
+        .or_else(|| bold.clone())
+        .or_else(|| medium.clone());
+    for (first, family) in [(medium, SANS_MEDIUM), (semibold, SANS_SEMIBOLD), (bold, SANS_BOLD)] {
+        let first = first.unwrap_or_else(|| regular.clone());
         fonts.families.entry(egui::FontFamily::Name(family.into())).or_default().insert(0, first);
     }
     fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, regular);
@@ -2591,6 +2954,7 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
         FontFamily::MonospaceBold => MONO_BOLD,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
+        FontFamily::SansSemibold => SANS_SEMIBOLD,
         FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
         FontFamily::Display => DISPLAY,
     };
@@ -2777,9 +3141,9 @@ mod tests {
             output.textures_delta.clear();
             assert_eq!(forwarded, if pointer {
                 vec![
-                    UiEvent::PointerMove(Point::new(50.0, 40.0)),
-                    UiEvent::Key { key: Key::Escape, shift: false, ctrl: false },
                     UiEvent::FilesDropped { position: Point::new(50.0, 40.0), paths },
+                    UiEvent::PointerMove(Point::new(50.0, 40.0)),
+                    UiEvent::Key { key: Key::Escape, shift: false, ctrl: false, alt: false },
                 ]
             } else { Vec::new() });
         }
@@ -2801,6 +3165,93 @@ mod tests {
     use std::sync::Arc;
 
     #[test]
+    fn region_and_shortcut_keys_carry_alt_and_side_buttons_are_history() {
+        let ctx = egui::Context::default();
+        let mut forwarded = Vec::new();
+        let key = |key, modifiers| egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers };
+        let side = |button, pressed| egui::Event::PointerButton {
+            pos: egui::pos2(30.0, 20.0), button, pressed, modifiers: egui::Modifiers::default(),
+        };
+        let mut output = ctx.run_ui(egui::RawInput {
+            events: vec![
+                key(egui::Key::F6, egui::Modifiers::SHIFT),
+                key(egui::Key::Slash, egui::Modifiers::CTRL),
+                key(egui::Key::ArrowLeft, egui::Modifiers::ALT),
+                side(egui::PointerButton::Extra1, true),
+                side(egui::PointerButton::Extra2, true),
+                // A release is not a second history press, but it is a release.
+                side(egui::PointerButton::Extra1, false),
+            ],
+            ..Default::default()
+        }, |ui| forwarded = events(ui.ctx(), Pos2::new(10.0, 10.0)));
+        output.textures_delta.clear();
+        assert_eq!(forwarded, vec![
+            UiEvent::Key { key: Key::F6, shift: true, ctrl: false, alt: false },
+            UiEvent::Key { key: Key::Slash, shift: false, ctrl: true, alt: false },
+            UiEvent::Key { key: Key::ArrowLeft, shift: false, ctrl: false, alt: true },
+            UiEvent::PointerBack(Point::new(20.0, 10.0)),
+            UiEvent::OtherButton { button: OtherButton::Back, pressed: true, position: Point::new(20.0, 10.0) },
+            UiEvent::PointerForward(Point::new(20.0, 10.0)),
+            UiEvent::OtherButton { button: OtherButton::Forward, pressed: true, position: Point::new(20.0, 10.0) },
+            UiEvent::OtherButton { button: OtherButton::Back, pressed: false, position: Point::new(20.0, 10.0) },
+        ]);
+    }
+
+    #[test]
+    fn middle_button_is_reported_on_press_and_release() {
+        let ctx = egui::Context::default();
+        let mut forwarded = Vec::new();
+        let middle = |pressed| egui::Event::PointerButton {
+            pos: egui::pos2(30.0, 20.0), button: egui::PointerButton::Middle, pressed, modifiers: egui::Modifiers::default(),
+        };
+        let mut output = ctx.run_ui(egui::RawInput {
+            events: vec![middle(true), middle(false)],
+            ..Default::default()
+        }, |ui| forwarded = events(ui.ctx(), Pos2::new(10.0, 10.0)));
+        output.textures_delta.clear();
+        assert_eq!(forwarded, vec![
+            UiEvent::OtherButton { button: OtherButton::Middle, pressed: true, position: Point::new(20.0, 10.0) },
+            UiEvent::OtherButton { button: OtherButton::Middle, pressed: false, position: Point::new(20.0, 10.0) },
+        ]);
+    }
+
+    #[test]
+    fn every_limn_key_has_its_egui_key_and_name_and_releases_and_modifiers_are_forwarded() {
+        for &key in Key::ALL {
+            let native = egui::Key::from_name(key.name()).unwrap_or_else(|| panic!("egui knows {key:?}"));
+            assert_eq!(native.name(), key.name(), "the same name as egui's");
+            assert_eq!(limn_key(native), Some(key));
+        }
+        let ctx = egui::Context::default();
+        let mut forwarded = Vec::new();
+        let key = |key, pressed, modifiers| egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers };
+        let mut output = ctx.run_ui(egui::RawInput {
+            events: vec![
+                egui::Event::ModifiersChanged(egui::Modifiers::SHIFT),
+                // A modifier's own key is said by the change above.
+                key(egui::Key::ShiftLeft, true, egui::Modifiers::SHIFT),
+                key(egui::Key::Num1, true, egui::Modifiers::SHIFT),
+                key(egui::Key::F13, true, egui::Modifiers::default()),
+                key(egui::Key::IntlBackslash, true, egui::Modifiers::default()),
+                key(egui::Key::Num1, false, egui::Modifiers::SHIFT),
+                key(egui::Key::ShiftLeft, false, egui::Modifiers::default()),
+                egui::Event::ModifiersChanged(egui::Modifiers::COMMAND),
+            ],
+            ..Default::default()
+        }, |ui| forwarded = events(ui.ctx(), Pos2::ZERO));
+        output.textures_delta.clear();
+        assert_eq!(forwarded, vec![
+            UiEvent::ModifiersChanged(limn::Modifiers { shift: true, ..Default::default() }),
+            UiEvent::Key { key: Key::Num1, shift: true, ctrl: false, alt: false },
+            UiEvent::Key { key: Key::F13, shift: false, ctrl: false, alt: false },
+            UiEvent::Key { key: Key::IntlBackslash, shift: false, ctrl: false, alt: false },
+            UiEvent::KeyReleased { key: Key::Num1 },
+            // Command counts as Ctrl, as in a key's own modifiers.
+            UiEvent::ModifiersChanged(limn::Modifiers { ctrl: true, ..Default::default() }),
+        ]);
+    }
+
+    #[test]
     fn debugger_function_keys_keep_shift_f10_as_the_context_menu_shortcut() {
         let ctx = egui::Context::default();
         let mut forwarded = Vec::new();
@@ -2812,10 +3263,10 @@ mod tests {
                 }).collect(), ..Default::default()
         }, |ui| forwarded = events(ui.ctx(), Pos2::ZERO));
         output.textures_delta.clear();
-        assert_eq!(forwarded, vec![UiEvent::Key {key: Key::F5, ctrl: false, shift: false},
-            UiEvent::Key {key: Key::F10, ctrl: false, shift: false},
-            UiEvent::Key {key: Key::F11, ctrl: false, shift: false},
-            UiEvent::Key {key: Key::F11, ctrl: false, shift: true}, UiEvent::ContextMenuKeyboard]);
+        assert_eq!(forwarded, vec![UiEvent::Key {key: Key::F5, ctrl: false, shift: false, alt: false},
+            UiEvent::Key {key: Key::F10, ctrl: false, shift: false, alt: false},
+            UiEvent::Key {key: Key::F11, ctrl: false, shift: false, alt: false},
+            UiEvent::Key {key: Key::F11, ctrl: false, shift: true, alt: false}, UiEvent::ContextMenuKeyboard]);
     }
 
     #[test]
@@ -2864,12 +3315,14 @@ mod tests {
                 UiEvent::Key {
                     key: Key::C,
                     ctrl: true,
-                    shift: false
+                    shift: false,
+                    alt: false
                 },
                 UiEvent::Key {
                     key: Key::X,
                     ctrl: true,
-                    shift: false
+                    shift: false,
+                    alt: false
                 },
                 UiEvent::ContextMenuKeyboard,
             ]
@@ -2912,15 +3365,46 @@ mod tests {
                 UiEvent::Key {
                     key: Key::C,
                     ctrl: true,
-                    shift: true
+                    shift: true,
+                    alt: false
                 },
                 UiEvent::Key {
                     key: Key::X,
                     ctrl: true,
-                    shift: false
+                    shift: false,
+                    alt: false
                 },
                 UiEvent::Paste("ñ 東京".into()),
             ]
+        );
+    }
+
+    #[test]
+    fn pasted_picture_reaches_the_host_as_plain_rgba() {
+        let ctx = egui::Context::default();
+        let mut forwarded = Vec::new();
+        let image = egui::ColorImage::new(
+            [2, 1],
+            vec![
+                egui::Color32::from_rgba_premultiplied(10, 20, 30, 255),
+                egui::Color32::TRANSPARENT,
+            ],
+        );
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                events: vec![egui::Event::PasteImage(std::sync::Arc::new(image))],
+                ..Default::default()
+            },
+            |ui| forwarded = events(ui.ctx(), Pos2::ZERO),
+        );
+        output.textures_delta.clear();
+        assert_eq!(
+            forwarded,
+            vec![UiEvent::PasteImage {
+                width: 2,
+                height: 1,
+                rgba: std::sync::Arc::from([10, 20, 30, 255, 0, 0, 0, 0]),
+            }]
         );
     }
 
@@ -2937,18 +3421,21 @@ mod tests {
                         unit: egui::MouseWheelUnit::Point,
                         delta: egui::vec2(0.0, -2.5),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::default(),
                     },
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Line,
                         delta: egui::vec2(0.0, -2.0),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::default(),
                     },
                     egui::Event::MouseWheel {
                         unit: egui::MouseWheelUnit::Page,
                         delta: egui::vec2(0.0, 1.0),
                         phase: egui::TouchPhase::Move,
+                        source: egui::MouseWheelSource::Unknown,
                         modifiers: egui::Modifiers::default(),
                     },
                 ],
@@ -3070,21 +3557,116 @@ mod tests {
             }
             RasterTexture::Decoding
         };
-        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1], _)));
         assert_eq!(settled(&broken), RasterTexture::Unavailable);
         // Drawn larger, it shows the size it has while the new one decodes.
         let large = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(400.0, 400.0));
         let mut texture = RasterTexture::Unavailable;
         ctx.run_ui(Default::default(), |ui| texture = raster_texture(ui, &image, large)).textures_delta.clear();
-        assert!(matches!(texture, RasterTexture::Ready(_, [2, 1])), "{texture:?}");
+        assert!(matches!(texture, RasterTexture::Ready(_, [2, 1], _)), "{texture:?}");
         clear_image_cache();
         RASTER_CACHE.with(|cache| {
             let cache = cache.borrow();
             assert!(cache.entries.is_empty());
-            assert!(cache.order.is_empty());
+            assert!(cache.used.is_empty());
         });
         assert_eq!(paint(&image), RasterTexture::Decoding, "cleared textures are not reused");
-        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1])));
+        assert!(matches!(settled(&image), RasterTexture::Ready(_, [2, 1], _)));
+    }
+
+    #[test]
+    fn more_pictures_on_screen_than_the_limit_settle_and_leave_once_off_screen() {
+        set_image_cache_entries(2);
+        let ctx = egui::Context::default();
+        let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(40.0, 40.0));
+        let paint = |images: &[RasterImage]| {
+            let mut textures = Vec::new();
+            ctx.run_ui(Default::default(), |ui| {
+                textures = images.iter().map(|image| raster_texture(ui, image, area)).collect();
+            })
+            .textures_delta
+            .clear();
+            textures
+        };
+        let ready = |textures: &[RasterTexture]| textures.iter().all(|texture| matches!(texture, RasterTexture::Ready(..)));
+        // Five pictures drawn on every pass, against a limit of two.
+        let screen: Vec<_> = (1..=5).map(|width| raster(test_png(width, 1), RasterImageFormat::Png)).collect();
+        let mut settled = false;
+        for _ in 0..400 {
+            if ready(&paint(&screen)) {
+                settled = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        assert!(settled, "the pictures on screen evict each other and decode again");
+        for _ in 0..3 {
+            assert!(ready(&paint(&screen)), "a settled screen decodes nothing again");
+        }
+        // Off screen, they go as the next pictures come, down to the limit.
+        let others: Vec<_> = (6..=7).map(|width| raster(test_png(width, 1), RasterImageFormat::Png)).collect();
+        paint(&others[..1]);
+        paint(&others);
+        RASTER_CACHE.with(|cache| {
+            let cache = cache.borrow();
+            assert_eq!(cache.entries.len(), 2);
+            assert_eq!(cache.used.len(), 2);
+        });
+        set_image_cache_entries(IMAGE_TEXTURE_CACHE_ENTRIES);
+    }
+
+    fn png_with_alpha(width: u32, height: u32, alpha: u8) -> Vec<u8> {
+        let mut png = Vec::new();
+        let rgba: Vec<u8> = (0..width * height).flat_map(|_| [200, 120, 40, alpha]).collect();
+        image::codecs::png::PngEncoder::new(&mut png)
+            .write_image(&rgba, width, height, image::ExtendedColorType::Rgba8)
+            .unwrap();
+        png
+    }
+
+    #[test]
+    fn a_checkerboard_is_asked_for_only_behind_transparent_pixels() {
+        let transparent = raster(png_with_alpha(4, 4, 120), RasterImageFormat::Png);
+        let opaque = raster(png_with_alpha(4, 4, 255), RasterImageFormat::Png);
+        let seen = |image: &RasterImage| decode_raster(image, 128, true).unwrap().1;
+        assert!(seen(&transparent.clone().checkerboard()));
+        assert!(!seen(&opaque.checkerboard()), "an opaque picture covers it whole");
+        assert!(!seen(&transparent), "not asked for: not looked for");
+    }
+
+    #[test]
+    fn a_whole_picture_is_sharp_magnified_and_smoothed_shrunk() {
+        let ctx = egui::Context::default();
+        let image = raster(png_with_alpha(256, 128, 255), RasterImageFormat::Png).full_resolution();
+        let paint = |side: f32| {
+            let area = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(side * 2.0, side));
+            let mut texture = RasterTexture::Unavailable;
+            for _ in 0..400 {
+                ctx.run_ui(Default::default(), |ui| texture = full_resolution_texture(ui, &image, area))
+                    .textures_delta
+                    .clear();
+                let keys: Vec<RasterKey> = RASTER_CACHE.with(|cache| cache.borrow().entries.keys().cloned().collect());
+                let settled = RASTER_CACHE.with(|cache| {
+                    cache.borrow().entries.values().all(|entry| !matches!(entry, RasterCacheEntry::Decoding(_)))
+                });
+                if settled && matches!(texture, RasterTexture::Ready(..)) && keys.len() > 1 {
+                    return keys;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            RASTER_CACHE.with(|cache| cache.borrow().entries.keys().cloned().collect())
+        };
+        clear_image_cache();
+        // Three times its pixels: a copy with sharp pixels besides the whole one.
+        let keys = paint(384.0);
+        assert!(keys.iter().any(|key| key.2 && key.4), "{keys:?}");
+        clear_image_cache();
+        // A third of its size: a copy decoded at the size it is drawn.
+        let keys = paint(42.0);
+        assert!(keys.iter().any(|key| !key.2 && key.3 == IMAGE_THUMBNAIL_STEP), "{keys:?}");
+        assert_eq!(turned([3, 2], 1), [2, 3]);
+        assert_eq!(turned([3, 2], 2), [3, 2]);
+        clear_image_cache();
     }
 
     #[test]
@@ -3101,15 +3683,15 @@ mod tests {
         decode_current_image(running, || {
             // Model a clear that happens after decoding started, before completion.
             cache.clear();
-            Some(egui::ColorImage::new([1, 1], vec![Color32::WHITE]))
+            Some((egui::ColorImage::new([1, 1], vec![Color32::WHITE]), false))
         }, landed);
         assert!(matches!(decoded.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)));
 
         let (landed, decoded) = std::sync::mpsc::channel();
         decode_current_image(Arc::downgrade(&cache.generation), || {
-            Some(egui::ColorImage::new([1, 1], vec![Color32::WHITE]))
+            Some((egui::ColorImage::new([1, 1], vec![Color32::WHITE]), false))
         }, landed);
-        assert_eq!(decoded.try_recv().unwrap().unwrap().size, [1, 1]);
+        assert_eq!(decoded.try_recv().unwrap().unwrap().0.size, [1, 1]);
     }
 
     #[test]
@@ -3196,6 +3778,94 @@ mod tests {
             assert!(clip.width() <= 300.4 + 1e-3 && clip.height() <= 200.2 + 1e-3);
             forget_surface("page");
             ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        }
+    }
+
+    #[test]
+    fn a_fitted_surface_is_placed_as_a_picture_and_rounded_and_its_frames_are_shared() {
+        // 200 by 100 pixels in a 100 by 100 box at the origin.
+        let mesh_of = |fit: limn::SurfaceFit, radius: f32| {
+            let ctx = egui::Context::default();
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+            let root = limn::Element::surface("loop", "Loop").surface_fit(fit).radius(radius).size(Some(100.0), Some(100.0));
+            let frame = limn::UiTree::new(root).layout(limn::Size::new(100.0, 100.0));
+            let first = SurfaceFrame::from_rgba([200, 100], &[90; 200 * 100 * 4], 1.0).unwrap();
+            let mut texture = None;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                // A clone shares the pixels: presenting it again copies none.
+                assert!(present_surface(ui.ctx(), "loop", first.clone()));
+                assert!(present_surface(ui.ctx(), "loop", first.clone()));
+                texture = surface_texture(ui, "loop").map(|(id, ..)| id);
+                paint_at(ui, &frame, Pos2::ZERO);
+            });
+            output.textures_delta.clear();
+            forget_surface("loop");
+            ctx.tessellate(output.shapes, output.pixels_per_point)
+                .into_iter()
+                .find_map(|clipped| match clipped.primitive {
+                    egui::epaint::Primitive::Mesh(mesh) if Some(mesh.texture_id) == texture => Some(mesh),
+                    _ => None,
+                })
+                .expect("the surface is painted")
+        };
+        let uv_of = |mesh: &egui::epaint::Mesh| {
+            mesh.vertices.iter().fold(EguiRect::NOTHING, |seen, vertex| seen.union(EguiRect::from_min_max(vertex.uv, vertex.uv)))
+        };
+        let square = EguiRect::from_min_size(Pos2::ZERO, egui::vec2(100.0, 100.0));
+        let contained = mesh_of(limn::SurfaceFit::Contain, 0.0);
+        assert_eq!(contained.calc_bounds(), EguiRect::from_min_max(Pos2::new(0.0, 25.0), Pos2::new(100.0, 75.0)), "fitted inside, centered");
+        // A frame smaller than its box is enlarged to fit it, so a zoomed viewer zooms it.
+        assert_eq!(contain(square, [20, 10]), contain(square, [200, 100]));
+        // Scaled down, a large frame fits as contained; a small one keeps its
+        // pixels, as a picture in the same box does.
+        assert_eq!(mesh_of(limn::SurfaceFit::ScaleDown, 0.0).calc_bounds(), contained.calc_bounds());
+        assert_eq!(fit_image(square, [20, 10]), EguiRect::from_center_size(square.center(), egui::vec2(20.0, 10.0)));
+        assert_eq!(uv_of(&contained), EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)));
+        let covered = mesh_of(limn::SurfaceFit::Cover, 0.0);
+        assert_eq!(covered.calc_bounds(), square, "filling the box");
+        assert_eq!(uv_of(&covered), cover_uv(square, [200, 100]), "cropped at the sides");
+        // Rounded corners are more than the four vertices of a rectangle.
+        assert!(mesh_of(limn::SurfaceFit::Cover, 12.0).vertices.len() > covered.vertices.len());
+    }
+
+    #[test]
+    fn a_mirrored_surface_reads_its_pixels_from_right_to_left() {
+        // Each vertex's texture column against its place, across the box.
+        let columns = |fit: limn::SurfaceFit, radius: f32, mirrored: bool| {
+            let ctx = egui::Context::default();
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+            let root = limn::Element::surface("camera", "Camera")
+                .surface_fit(fit)
+                .surface_mirrored(mirrored)
+                .radius(radius)
+                .size(Some(100.0), Some(100.0));
+            let frame = limn::UiTree::new(root).layout(limn::Size::new(100.0, 100.0));
+            let mut texture = None;
+            let mut output = ctx.run_ui(Default::default(), |ui| {
+                let pixels = SurfaceFrame::from_rgba([100, 100], &[90; 100 * 100 * 4], 1.0).unwrap();
+                assert!(present_surface(ui.ctx(), "camera", pixels));
+                texture = surface_texture(ui, "camera").map(|(id, ..)| id);
+                paint_at(ui, &frame, Pos2::ZERO);
+            });
+            output.textures_delta.clear();
+            forget_surface("camera");
+            let mesh = ctx
+                .tessellate(output.shapes, output.pixels_per_point)
+                .into_iter()
+                .find_map(|clipped| match clipped.primitive {
+                    egui::epaint::Primitive::Mesh(mesh) if Some(mesh.texture_id) == texture => Some(mesh),
+                    _ => None,
+                })
+                .expect("the surface is painted");
+            mesh.vertices.iter().map(|vertex| (vertex.pos.x, vertex.uv.x)).collect::<Vec<_>>()
+        };
+        for (fit, radius) in [(limn::SurfaceFit::Native, 0.0), (limn::SurfaceFit::Cover, 0.0), (limn::SurfaceFit::Contain, 12.0)] {
+            for (x, u) in columns(fit, radius, true) {
+                assert!((u - (1.0 - x / 100.0)).abs() < 0.02, "{fit:?}: column {u} at {x}");
+            }
+            for (x, u) in columns(fit, radius, false) {
+                assert!((u - x / 100.0).abs() < 0.02, "{fit:?}: column {u} at {x}");
+            }
         }
     }
 
@@ -3445,6 +4115,8 @@ mod tests {
             Icon::PanelRightClose,
             Icon::Add,
             Icon::Minus,
+            Icon::ZoomIn,
+            Icon::ZoomOut,
             Icon::Check,
             Icon::InfoCircle,
             Icon::CheckCircle,
@@ -3464,8 +4136,8 @@ mod tests {
             Icon::ArrowRight,
             Icon::ChevronDown,
             Icon::ChevronUp,
-            Icon::ChevronRight,
             Icon::ChevronLeft,
+            Icon::ChevronRight,
             Icon::Search,
             Icon::Stop,
             Icon::StopFill,
@@ -3526,12 +4198,14 @@ mod tests {
             Icon::Invite,
             Icon::Leave,
             Icon::DragHandle,
+            Icon::Circle,
             Icon::Tree,
             Icon::FriedEgg,
             Icon::Gamepad,
             Icon::Car,
             Icon::Lightbulb,
             Icon::Flag,
+            Icon::Forward,
             Icon::FolderFill,
             Icon::PlayFill,
             Icon::GridFill,

@@ -532,6 +532,7 @@ mod tests {
             key,
             shift: false,
             ctrl: false,
+            alt: false,
         };
         assert!(tree.focus("desktop:workspace:workspace-2"));
         assert_eq!(
@@ -597,7 +598,8 @@ mod tests {
             tree.handle_event(UiEvent::Key {
                 key: Key::Enter,
                 shift: false,
-                ctrl: false
+                ctrl: false,
+                alt: false
             }),
             vec![UiAction::Clicked {
                 id: "settings".into()

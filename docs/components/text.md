@@ -87,8 +87,10 @@ Element::text("175.6K of 200K tokens")
     .foreground(palette.text)
 ```
 
-`FontFamily::SansMedium` and `FontFamily::SansBold` are faces the host
-provides; a host without one paints `Sans`.
+`FontFamily::SansMedium`, `FontFamily::SansSemibold` and `FontFamily::SansBold`
+are faces the host provides; a host without one paints `Sans`. Semibold sits
+between the other two, for a title that should stand out from medium text
+without the weight of bold.
 
 ## Out of focus
 
