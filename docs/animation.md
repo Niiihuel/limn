@@ -34,6 +34,8 @@ own content, and how to switch movement off.
 | An element with `reveal_on_hover`, such as a `MessageActions` row | Fades in where it already is. | Fades out. Its place in the layout is kept. | `enter_ms`, `exit_ms` |
 | An element with `conceal_on_hover` | Fades in when the pointer leaves the region. | Fades out when it comes over it. | `enter_ms`, `exit_ms` |
 | An element with `dim_on_hover` | Fades back in when the pointer leaves the region. | Fades down to its opacity when it comes over it. | `enter_ms`, `exit_ms` |
+| An element with `grow_from` or `enter_from` beside one of those, `animate_enter` or `animate_presence` | Its fills grow about their middle from the height given, and its paint travels from the offset given. | Shrinks and travels back the same way, with a hover reveal. | as the presence it goes with |
+| The icons of an element with `hover_motion` | Under the pointer they play the motion's keyframes and hold the last. | They ease back to rest. | the keyframes' own times, `move_ms` back unless `return_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `NavigationBar` | The workspace capsule springs to the selected workspace; control fills cross-fade and tooltips fade. | | `move_ms`, `hover_ms`, tooltip tokens |
@@ -256,6 +258,56 @@ let card = Element::overlay(content, decoration.dim_on_hover("card-7-effect", 0.
     .hover_region();
 ```
 
+### Icons that move under the pointer
+
+```rust
+use limn::{IconKeyframe, IconMotion};
+
+let gear = IconMotion::new()
+    .keyframe(IconKeyframe::at(120))
+    .keyframe(IconKeyframe::at(1070).turn(180.0));
+let settings = IconButton::new("settings", Icon::Settings, "Settings", palette)
+    .render()
+    .hover_motion("settings-gear", gear);
+```
+
+While the pointer is over the element's own visible box, the icons it
+paints play the motion: from where they are at 0 ms, through each keyframe at
+its time, holding the last. When the pointer leaves they ease back to rest
+over `move_ms`, or the motion's `return_ms`; coming back before they are
+home plays again from where they are, so nothing jumps. Only icons move:
+fills, text, layout, hit targets and the accessibility tree stay where they
+are. A keyframe turns clockwise in degrees, stretches across and down and
+moves in logical pixels, all about the icon's middle; the way to it follows
+`Easing::InOutSine`, close to CSS `ease-in-out`, unless it is given another.
+Nothing moves under reduced motion.
+
+| Method | Effect |
+| --- | --- |
+| `IconKeyframe::at(ms)` | The icon at rest at `ms` after the pointer came. |
+| `.turn(degrees)` | Turned clockwise; negative is anticlockwise. |
+| `.scale(x, y)` | Stretched across and down, each clamped to 0–4. |
+| `.offset(point)` | Moved in logical pixels. |
+| `.easing(easing)` | The curve from the keyframe before. |
+| `IconMotion::return_ms(ms)` | How long the way back to rest takes; 0 is at once. |
+
+### A bar that grows into place
+
+```rust
+let hovered = pill(20.0).reveal_on_hover("server-7:hover").grow_from(8.0);
+let chosen = pill(40.0).animate_enter("server-7:chosen").grow_from(20.0);
+let arriving = pill(20.0).reveal_on_hover("server-8:hover").enter_from(Point::new(-4.0, 0.0));
+```
+
+Beside `reveal_on_hover`, `conceal_on_hover`, `dim_on_hover`,
+`animate_enter` or `animate_presence`, `grow_from(height)` has the filled
+rectangles the element paints grow about their middle from `height` to their
+own height while it fades in, and shrink back while a hover reveal fades
+out. Their corners stay no rounder than half the height they have, so a pill
+keeps round ends. `enter_from(offset)` moves the paint from `offset` to its
+place the same way. Either replaces the 4 px settle of an entering element.
+Both are paint only, and do nothing under reduced motion.
+
 ### Which row the pointer is on
 
 ```rust
@@ -307,7 +359,7 @@ if self.panel_width.is_active(Instant::now()) {
 | Method | Effect |
 | --- | --- |
 | `ScalarTransition::new(value, now)` | Starts at rest at `value`. |
-| `.easing(Easing::InOutCubic)` | Chooses the curve; the default is `OutCubic`. |
+| `.easing(Easing::InOutCubic)` | Chooses the curve: `OutCubic` (the default), `InOutCubic`, `InOutSine` or `Linear`. |
 | `.retarget(value, now, duration)` | Heads for a new value from wherever it is now, without a jump. |
 | `.retarget_with_motion(value, now, duration, reduced_motion)` | As above, or a snap when `reduced_motion` is true. |
 | `.snap_to(value, now)` | Jumps immediately. |

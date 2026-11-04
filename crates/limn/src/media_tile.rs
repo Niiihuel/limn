@@ -245,7 +245,7 @@ mod tests {
         });
         assert_eq!(fill, Some((Rect::new(0.0, 0.0, DEFAULT_WIDTH, DEFAULT_WIDTH), RADIUS.px())));
         let note = frame.commands.iter().find_map(|command| match command {
-            DrawCommand::Icon { rect, icon, tint } => Some((*rect, *icon, *tint)),
+            DrawCommand::Icon { rect, icon, tint, .. } => Some((*rect, *icon, *tint)),
             _ => None,
         });
         let (rect, icon, tint) = note.expect("a placeholder glyph");

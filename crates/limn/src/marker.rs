@@ -275,6 +275,7 @@ mod tests {
                         rect,
                         icon: Icon::Brain,
                         tint,
+                        ..
                     } => Some((*rect, *tint)),
                     _ => None,
                 })

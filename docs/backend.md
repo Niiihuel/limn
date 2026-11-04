@@ -144,7 +144,7 @@ stamps, single-use semantics and the limits of tree observation.
 | `Polyline { points, color, width, dashed }` | An open stroked path centered on its points, dashed in short marks when asked: the connectors and the decision outline of a `Flowchart`, the lifelines and messages of a `SequenceDiagram`. |
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
-| `Icon { icon, rect, tint }` | A semantic icon. The backend chooses the artwork. |
+| `Icon { icon, rect, tint, transform }` | A semantic icon. The backend chooses the artwork, and turns and stretches it about the middle of `rect` as `transform` says: identity at rest, otherwise while a `hover_motion` plays. |
 | `RasterImage { .. }` | A decoded image: a cover fills the rectangle and is cropped, a full-resolution picture fills it at its proportions, enlarged if need be, and any other is fitted inside it, never past its pixels. `image.quarter_turns()` turns it; `image.is_checkerboard()` asks for a checkerboard behind its transparent pixels. |
 | `Surface { rect, id, label, opacity }` | Pixels the host hands to the backend under `id`, outside the frame. They start at the rectangle's top-left corner, one pixel per physical pixel when rendered for this display, and are clipped to the rectangle, never stretched to it. |
 | `Spinner { .. }`, `ProgressRing { .. }` | Vector progress indicators. |

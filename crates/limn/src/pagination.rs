@@ -360,7 +360,7 @@ mod tests {
             .commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::Icon { rect, icon: Icon::More, tint } => Some((*rect, *tint)),
+                DrawCommand::Icon { rect, icon: Icon::More, tint, .. } => Some((*rect, *tint)),
                 _ => None,
             })
             .collect();

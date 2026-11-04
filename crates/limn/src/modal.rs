@@ -480,7 +480,7 @@ mod tests {
         };
         let icon = |frame: &crate::Frame| {
             frame.commands.iter().find_map(|command| match command {
-                crate::DrawCommand::Icon { rect, icon: Icon::Close, tint } => Some((*rect, *tint)),
+                crate::DrawCommand::Icon { rect, icon: Icon::Close, tint, .. } => Some((*rect, *tint)),
                 _ => None,
             })
         };

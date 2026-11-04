@@ -57,6 +57,9 @@ mod keyboard_tests;
 #[path = "soft_focus_tests.rs"]
 mod soft_focus_tests;
 #[cfg(test)]
+#[path = "hover_motion_tests.rs"]
+mod hover_motion_tests;
+#[cfg(test)]
 #[path = "stack_tests.rs"]
 mod stack_tests;
 #[cfg(test)]
@@ -693,6 +696,11 @@ pub enum DrawCommand {
         icon: Icon,
         /// Color the icon's shape is drawn in.
         tint: Color,
+        /// How the icon is turned and stretched about the middle of `rect`:
+        /// [`IconTransform::IDENTITY`](crate::IconTransform::IDENTITY) unless
+        /// an [`Element::hover_motion`](crate::Element::hover_motion) is
+        /// moving it.
+        transform: crate::IconTransform,
     },
     /// A picture. A cover image fills `rect` and is cropped; any other is
     /// fitted inside it.
@@ -1742,6 +1750,24 @@ struct AnimatedScalar {
 struct AnimatedSpring {
     value: ScalarSpring,
     seen: Instant,
+}
+
+/// Where an element's hover motion stands: since `since` it has played from
+/// `from` while hovered, or returned from it to rest while not.
+struct IconMotionState {
+    hovered: bool,
+    since: Instant,
+    from: crate::motion::IconPose,
+    /// When it comes to rest or to its last keyframe.
+    settles: Instant,
+    seen: Instant,
+}
+
+impl IconMotionState {
+    fn pose(&self, motion: &crate::IconMotion, now: Instant) -> crate::motion::IconPose {
+        let elapsed = now.saturating_duration_since(self.since).as_secs_f32() * 1000.0;
+        motion.pose(self.from, self.hovered, elapsed)
+    }
 }
 
 /// The most slots a `LevelBars` draws, whatever width it is given.
@@ -3787,6 +3813,8 @@ pub struct UiTree {
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
     scalars: RefCell<HashMap<String, AnimatedScalar>>,
     springs: RefCell<HashMap<String, AnimatedSpring>>,
+    /// Each `hover_motion` element's playing, by its ID.
+    icon_motions: HashMap<String, IconMotionState>,
     /// The ink of each `animate_foreground` element and when it was seen.
     inks: RefCell<HashMap<String, (ColorTransition, Instant)>>,
     /// The slots each `keep_leaving` column last laid out, in order.
@@ -3876,6 +3904,7 @@ impl UiTree {
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
             springs: RefCell::new(HashMap::new()),
+            icon_motions: HashMap::new(),
             inks: RefCell::new(HashMap::new()),
             leaving: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
@@ -4231,6 +4260,7 @@ impl UiTree {
             self.flow_heights.get_mut().clear();
             self.scalars.get_mut().clear();
             self.springs.get_mut().clear();
+            self.icon_motions.clear();
             self.inks.get_mut().clear();
             self.leaving.get_mut().clear();
             self.popover_view_transitions.clear();
@@ -4425,6 +4455,7 @@ impl UiTree {
                 .borrow()
                 .values()
                 .any(|state| state.value.is_active(now))
+            || self.icon_motions.values().any(|state| now < state.settles)
             || self.inks.borrow().values().any(|(ink, _)| ink.is_active(now))
             || self
                 .popover_view_transitions
@@ -4670,6 +4701,7 @@ impl UiTree {
                 flow_heights: &self.flow_heights,
                 scalars: &self.scalars,
                 springs: &self.springs,
+                icon_motions: &mut self.icon_motions,
                 inks: &self.inks,
                 leaving: &self.leaving,
                 measurement_scope: 0,
@@ -5334,6 +5366,7 @@ impl UiTree {
         // that arrives in one seen empty is what `expand` opens.
         self.scalars.get_mut().retain(|_, state| state.seen == now);
         self.springs.get_mut().retain(|_, state| state.seen == now);
+        self.icon_motions.retain(|_, state| state.seen == now);
         self.inks.get_mut().retain(|_, (_, seen)| *seen == now);
         self.leaving.get_mut().retain(|_, (_, seen)| *seen == now);
         self.flow_heights.get_mut().retain(|_, state| {
@@ -7789,6 +7822,7 @@ struct LayoutBuilder<'a> {
     flow_heights: &'a RefCell<HashMap<String, FlowHeight>>,
     scalars: &'a RefCell<HashMap<String, AnimatedScalar>>,
     springs: &'a RefCell<HashMap<String, AnimatedSpring>>,
+    icon_motions: &'a mut HashMap<String, IconMotionState>,
     inks: &'a RefCell<HashMap<String, (ColorTransition, Instant)>>,
     leaving: &'a RefCell<HashMap<String, (Vec<String>, Instant)>>,
     measurement_scope: u64,
@@ -8350,6 +8384,7 @@ impl LayoutBuilder<'_> {
                 rect: Rect::new(x, y + (side - icon_side) / 2.0, icon_side, icon_side),
                 icon,
                 tint: colors.text,
+                transform: crate::IconTransform::IDENTITY,
             });
             x += icon_side + 8.0;
         }
@@ -8425,9 +8460,10 @@ impl LayoutBuilder<'_> {
     /// if it `leaves`, keep its paint to fade out once it stops being painted.
     /// Used by everything that is not a popover: tooltips, context menus and
     /// elements with [`Element::animate_enter`] or `animate_presence`.
-    fn animate_surface(&mut self, id: &str, start: usize, rect: Rect, slide_sign: f32, leaves: bool) {
+    /// Returns how far it has come in, from 0 to 1.
+    fn animate_surface(&mut self, id: &str, start: usize, rect: Rect, slide_sign: f32, leaves: bool) -> f32 {
         if self.reduced_motion || self.frame.commands.len() == start {
-            return;
+            return 1.0;
         }
         let now = self.now;
         self.observed_popovers.insert(id.to_owned());
@@ -8470,6 +8506,7 @@ impl LayoutBuilder<'_> {
                 animate_popover_command(command, progress, slide, 1.0, origin);
             }
         }
+        progress
     }
 
     /// The innermost named hover region under the pointer that nothing laid
@@ -8487,8 +8524,9 @@ impl LayoutBuilder<'_> {
 
     /// Paint only: fade what was painted since command `start` in or out
     /// with the hover of the region around it. Layout, hit regions and the
-    /// focus order are the same either way.
-    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize, concealed: bool) {
+    /// focus order are the same either way. Returns how far it is shown,
+    /// from 0 hidden or dimmed to 1.
+    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize, concealed: bool) -> f32 {
         let shown = if concealed {
             !self.region_hovered
         } else {
@@ -8514,6 +8552,79 @@ impl LayoutBuilder<'_> {
         if opacity < 1.0 {
             for command in &mut self.frame.commands[start..] {
                 animate_popover_command(command, opacity, 0.0, 1.0, Point::new(0.0, 0.0));
+            }
+        }
+        if hidden < 1.0 { ((opacity - hidden) / (1.0 - hidden)).clamp(0.0, 1.0) } else { 1.0 }
+    }
+
+    /// Paint only: an element `shown` of the way in, from 0 to 1, has the
+    /// fills painted since command `start` grown from its `grow_from` height
+    /// and everything moved by what is left of its `enter_from` offset.
+    fn grow_and_travel(&mut self, element: &Element, start: usize, shown: f32) {
+        let Some(kept) = element.kept.as_ref().filter(|_| shown < 1.0 && !self.reduced_motion) else {
+            return;
+        };
+        let away = 1.0 - shown;
+        for command in &mut self.frame.commands[start..] {
+            if let Some(from) = kept.grow_from {
+                let grow = |rect: &mut Rect| {
+                    let height = rect.height + (from - rect.height) * away;
+                    rect.y += (rect.height - height) / 2.0;
+                    rect.height = height;
+                    height / 2.0
+                };
+                match command {
+                    DrawCommand::FillRect { rect, radius, .. } => *radius = radius.min(grow(rect)),
+                    DrawCommand::FillCornerRect { rect, radii, .. } => {
+                        let half = grow(rect);
+                        for radius in [&mut radii.top_left, &mut radii.top_right, &mut radii.bottom_right, &mut radii.bottom_left] {
+                            *radius = radius.min(half);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(offset) = kept.enter_from {
+                *command = command.moved(offset.x * away, offset.y * away, 1.0);
+            }
+        }
+    }
+
+    /// Paint only: turn, stretch and move the icons painted since command
+    /// `start` as `motion` has them, playing while `hovered` and returning
+    /// to rest after.
+    fn move_icons(&mut self, id: &str, motion: &crate::IconMotion, hovered: bool, start: usize) {
+        if self.reduced_motion {
+            return;
+        }
+        let now = self.now;
+        let rest = crate::motion::IconPose::REST;
+        let state = self.icon_motions.entry(id.to_owned()).or_insert(IconMotionState {
+            hovered: false,
+            since: now,
+            from: rest,
+            settles: now,
+            seen: now,
+        });
+        state.seen = now;
+        if state.hovered != hovered {
+            state.from = state.pose(motion, now);
+            state.hovered = hovered;
+            state.since = now;
+            let length = if hovered { motion.play_ms() } else { motion.rest_ms() };
+            state.settles = now + Duration::from_millis(u64::from(length));
+        }
+        let pose = state.pose(motion, now);
+        if pose == rest {
+            return;
+        }
+        for command in &mut self.frame.commands[start..] {
+            if let DrawCommand::Icon { rect, transform, .. } = command {
+                rect.x += pose.offset.x;
+                rect.y += pose.offset.y;
+                transform.angle += pose.turn.to_radians();
+                transform.scale_x *= pose.scale_x;
+                transform.scale_y *= pose.scale_y;
             }
         }
     }
@@ -9048,6 +9159,7 @@ impl LayoutBuilder<'_> {
                                 rect: Rect::new(rect.x + 4.0, rect.y + 4.0, ICON_SIZE, ICON_SIZE),
                                 icon,
                                 tint: colors.text,
+                                transform: crate::IconTransform::IDENTITY,
                             });
                             rect.x + 4.0 + ICON_SIZE + 4.0
                         } else {
@@ -9197,6 +9309,7 @@ impl LayoutBuilder<'_> {
                     ),
                     icon,
                     tint: ink,
+                    transform: crate::IconTransform::IDENTITY,
                 });
             } else {
                 self.frame.commands.push(DrawCommand::Text {
@@ -9545,6 +9658,7 @@ impl LayoutBuilder<'_> {
             rect,
             icon,
             tint: style.foreground,
+            transform: crate::IconTransform::IDENTITY,
         });
     }
 
@@ -10779,6 +10893,11 @@ impl LayoutBuilder<'_> {
         if let Some((id, radius)) = element.kept.as_ref().and_then(|kept| kept.soft.as_ref()) {
             self.soften(id, *radius, start);
         }
+        if let Some((id, motion)) = element.kept.as_ref().and_then(|kept| kept.icon_motion.as_ref()) {
+            let visible = clip.map_or(Some(rect), |clip| rect.intersection(clip));
+            let hovered = self.pointer.zip(visible).is_some_and(|(point, visible)| visible.contains(point));
+            self.move_icons(id, motion, hovered, start);
+        }
         if let Some((id, factor, anchor)) = element.kept.as_ref().and_then(|kept| kept.scale.as_ref()) {
             let scale = self.spring(&format!("scale/{id}"), *factor);
             if scale != 1.0 {
@@ -10788,15 +10907,19 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
-        match &element.presence {
+        let shown = match &element.presence {
             Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed) => {
                 self.reveal_on_hover(element, id, start, reveal == HoverReveal::Concealed)
             }
             Some((id, leaves)) if element.animate_height.is_none() => {
-                self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);
+                // Growing or travelling takes the place of the settle.
+                let reshaped = element.kept.as_ref().is_some_and(|kept| kept.grow_from.is_some() || kept.enter_from.is_some());
+                let sign = if reshaped { 0.0 } else if *leaves { 1.0 } else { -1.0 };
+                self.animate_surface(id, start, rect, sign, *leaves)
             }
-            _ => {}
-        }
+            _ => 1.0,
+        };
+        self.grow_and_travel(element, start, shown);
         if let Some(replacement) = &element.replacement {
             self.animate_replacement(&replacement.0, &replacement.1, start, rect);
         }
@@ -12119,6 +12242,7 @@ impl LayoutBuilder<'_> {
                                     ),
                                     icon,
                                     tint: fragment.color,
+                                    transform: crate::IconTransform::IDENTITY,
                                 });
                                 self.frame.commands.push(DrawCommand::PopClip);
                             }

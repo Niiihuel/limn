@@ -4442,6 +4442,7 @@ mod tests {
                     rect,
                     icon: Icon::Hash,
                     tint,
+                    ..
                 } => Some((*rect, *tint)),
                 _ => None,
             });
@@ -4544,7 +4545,7 @@ mod tests {
         assert_eq!(input.x + input.width - (clear.x + clear.width), 4.0);
         assert_eq!(clear.y + clear.height / 2.0, input.y + input.height / 2.0);
         assert!(frame.commands.iter().any(|command| matches!(command,
-            DrawCommand::Icon { icon: Icon::CloseCircle, rect, tint }
+            DrawCommand::Icon { icon: Icon::CloseCircle, rect, tint, .. }
                 if *tint == palette.muted && rect.x + rect.width == input.x + input.width - 8.0)));
         // The text, its caret and its selection are drawn before the button.
         let text = frame
@@ -4878,7 +4879,7 @@ mod tests {
                 _ => None,
             }).collect();
             let icons: Vec<_> = frame.commands.iter().filter_map(|command| match command {
-                DrawCommand::Icon { icon, rect, tint } => {
+                DrawCommand::Icon { icon, rect, tint, .. } => {
                     assert_eq!(*tint, palette.text);
                     let cap = caps.iter().find(|cap| {
                         rect.x >= cap.x && rect.x + rect.width <= cap.x + cap.width

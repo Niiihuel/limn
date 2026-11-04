@@ -1054,6 +1054,7 @@ mod tests {
                         icon: Icon::ChevronRight,
                         rect,
                         tint,
+                        ..
                     } => {
                         assert_eq!((rect.width, rect.height), (14.0, 14.0));
                         assert_eq!(*tint, palette.muted);
