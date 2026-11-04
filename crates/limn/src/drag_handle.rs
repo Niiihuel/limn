@@ -1,6 +1,6 @@
 //! The grip on an item the pointer drags to move it among its siblings.
 
-use crate::{Access, Component, ComponentPalette, Cursor, Element, Icon, Role};
+use crate::{Access, Component, ComponentPalette, Cursor, Element, Icon, Role, ICON_SIZE};
 
 const DEFAULT_SIDE: f32 = 24.0;
 const MIN_SIDE: f32 = 16.0;
@@ -26,6 +26,7 @@ const MIN_SIDE: f32 = 16.0;
 /// while it is dragged; it keeps its place, so nothing moves when it appears.
 pub struct DragHandle {
     id: String,
+    icon: Icon,
     side: f32,
     dragging: bool,
     on_hover: bool,
@@ -39,6 +40,7 @@ impl DragHandle {
     pub fn new(id: impl Into<String>, palette: ComponentPalette) -> Self {
         Self {
             id: id.into(),
+            icon: Icon::DragHandle,
             side: DEFAULT_SIDE,
             dragging: false,
             on_hover: false,
@@ -48,8 +50,16 @@ impl DragHandle {
         }
     }
 
+    /// The grip's icon: [`Icon::DragHandle`] unless set, for a host that
+    /// draws its own icons.
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = icon;
+        self
+    }
+
     /// Its side, which is also its pointer target: 24 unless set and never
-    /// under 16. Values that are not finite are ignored.
+    /// under 16. The icon keeps its canonical size inside it. Values that are
+    /// not finite are ignored.
     pub fn size(mut self, side: f32) -> Self {
         if side.is_finite() {
             self.side = side.max(MIN_SIDE);
@@ -99,7 +109,10 @@ impl Component for DragHandle {
             return Element::spacer().size(side, side).accessible(said.id(self.id).disabled(true));
         }
         let reveal = format!("{}:reveal", self.id);
-        let button = Element::icon_button(self.id, Icon::DragHandle, "").accessible(said);
+        // The icon at its own size whatever the side: squeezed, a grip's dots run together.
+        let button = Element::icon_button(self.id, self.icon, "")
+            .accessible(said)
+            .padding(((self.side - ICON_SIZE) / 2.0).max(0.0));
         let mut handle = self
             .palette
             .interactive_surface(button)
@@ -162,6 +175,19 @@ mod tests {
             assert_eq!((node.disabled, node.actionable), (!enabled, enabled));
             assert_eq!((node.rect.width, node.rect.height), (24.0, 24.0));
         }
+    }
+
+    #[test]
+    fn its_icon_keeps_its_size_in_a_small_handle_and_can_be_the_hosts() {
+        let mut tree = cards(|id| handle(id).size(20.0).icon(Icon::Menu));
+        let frame = tree.layout(WINDOW);
+        let icons: Vec<_> = (frame.commands.iter())
+            .filter_map(|c| match c {
+                DrawCommand::Icon { icon, rect, .. } => Some((*icon, rect.width, rect.height)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(icons, [(Icon::Menu, ICON_SIZE, ICON_SIZE); 2]);
     }
 
     #[test]

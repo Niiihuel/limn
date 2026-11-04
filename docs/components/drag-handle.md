@@ -75,7 +75,8 @@ fn update(state: &mut State, action: &UiAction) {
 |---|---|
 | `.on_hover(bool)` | Shown only while the pointer is over the `hover_region` around it (its item), while it has the focus or while it is dragged. It keeps its place, so nothing moves when it appears. |
 | `.dragging(bool)` | The host says a drag from it is under way: the closed hand, the `selected` fill, always shown. |
-| `.size(px)` | Its side and pointer target: 24, never under 16. |
+| `.icon(icon)` | The grip's icon, `Icon::DragHandle` unless set: for a host that draws its own icons. |
+| `.size(px)` | Its side and pointer target: 24, never under 16. The icon keeps its canonical 16 inside it. |
 | `.accessibility_label(name)` | What the platform calls it, such as "Move Context". It shows no text. |
 | `.enabled(bool)`, `.disabled()` | A disabled handle keeps its place, draws nothing and cannot be dragged or focused. |
 
