@@ -7825,8 +7825,12 @@ impl UiTree {
         let Some(geometry) = self.frame.sliders.get(id) else {
             return false;
         };
+        // Under a remote, an arrow that would not move a slider at its end moves the focus on
+        // instead: otherwise the focus could never leave it that way.
+        let stays = |changed: bool| self.spatial_focus && !changed && matches!(key, Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown);
         // An area slider: Left and Right move across, Up and Down up and down.
         if let Some(y) = geometry.y {
+            let (from_x, from_y) = (geometry.fraction, y);
             let x = geometry.fraction;
             let step = CONTINUOUS_SLIDER_KEY_STEP;
             let (x, y) = match key {
@@ -7838,6 +7842,7 @@ impl UiTree {
                 Key::End => (1.0, y),
                 _ => return false,
             };
+            if stays(x != from_x || y != from_y) { return false; }
             actions.push(UiAction::AreaSliderChanged {
                 id: id.clone(),
                 x,
@@ -7861,6 +7866,7 @@ impl UiTree {
                 Key::End => 1.0,
                 _ => return false,
             };
+            if stays(fraction != current) { return false; }
             actions.push(UiAction::SliderChanged {
                 id: id.clone(),
                 fraction,
@@ -7877,6 +7883,7 @@ impl UiTree {
             Key::End => intervals,
             _ => return false,
         };
+        if stays(next != current) { return false; }
         actions.push(UiAction::SliderChanged {
             id: id.clone(),
             fraction: next as f32 / intervals as f32,
