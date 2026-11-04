@@ -44,7 +44,9 @@ Element::icon(Icon::Folder).large_icon(48.0)
 ```
 
 `large_icon(px)` draws a standalone icon larger than 16 px, up to 128, for
-thumbnails and empty states. Icons inside controls keep 16 px.
+thumbnails and empty states. On an `Element::icon_button` it sizes the
+leading glyph, as a `ButtonSizing`'s `icon_size` does; other controls keep
+16 px.
 
 ## Smaller
 

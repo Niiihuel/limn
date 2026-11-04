@@ -1,4 +1,4 @@
-use crate::{Color, DrawCommand, Point, RasterImage, Rect, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, DrawCommand, Easing, Point, RasterImage, Rect, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -246,7 +246,8 @@ pub struct TooltipStyle {
 
 /// When a tooltip opens and how its title and pointer are drawn. The
 /// default is every hint's: 350 ms, a 12 px title in the regular face, and
-/// a pointer.
+/// a pointer. [`Tokens::tooltip_options`](crate::Tokens::tooltip_options)
+/// sets the options every tooltip starts from.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TooltipOptions {
     /// How long the pointer rests on the anchor before the hint shows, in
@@ -260,15 +261,103 @@ pub struct TooltipOptions {
     pub title_font_family: FontFamily,
     /// Whether a small pointer joins the hint to its anchor.
     pub arrow: bool,
+    /// The body and pointer drawn to the host's measures; `None` draws the
+    /// library's: the control radius, 8 px at the sides, one line in 24 px,
+    /// a shadow 2 px below blurred 6 and an outlined 10 by 5 px pointer.
+    pub shape: Option<TooltipShape>,
+    /// The scale the hint grows from while it fades in, about the tip of
+    /// its pointer, within 0.5..=1; 1 does not scale.
+    pub open_scale: f32,
+    /// How long the hint takes to fade in, in milliseconds; `None` takes
+    /// [`Motion::enter_ms`](crate::Motion::enter_ms).
+    pub enter_ms: Option<u16>,
+    /// The curve it fades in and grows on over `enter_ms`;
+    /// `Easing::OutCubic` by default. [`Easing::Spring`](crate::Easing::Spring)
+    /// grows it past full size and back while its opacity stops at full,
+    /// so its fade is over in about a quarter of `enter_ms`.
+    pub enter_easing: Easing,
+}
+
+impl TooltipOptions {
+    /// The library's hints: 350 ms, a 12 px regular title, the outlined
+    /// pointer and the library's shape, fading in over `Motion::enter_ms`.
+    pub const DEFAULT: Self = Self {
+        delay_ms: 350,
+        title_font_size: 12.0,
+        title_font_family: FontFamily::Sans,
+        arrow: true,
+        shape: None,
+        open_scale: 1.0,
+        enter_ms: None,
+        enter_easing: Easing::OutCubic,
+    };
+
+    /// The options with numbers safe to paint: a title size that is not
+    /// finite or not above zero is the default's, the scale is clamped to
+    /// 0.5..=1 (1 when not finite) and the shape's measures are never
+    /// negative.
+    pub(crate) fn sanitized(self) -> Self {
+        let title_font_size = if self.title_font_size.is_finite() && self.title_font_size > 0.0 {
+            self.title_font_size
+        } else {
+            Self::DEFAULT.title_font_size
+        };
+        let open_scale = if self.open_scale.is_finite() {
+            self.open_scale.clamp(0.5, 1.0)
+        } else {
+            1.0
+        };
+        Self {
+            title_font_size,
+            open_scale,
+            shape: self.shape.map(TooltipShape::sanitized),
+            ..self
+        }
+    }
 }
 
 impl Default for TooltipOptions {
     fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+/// A tooltip's body and pointer to the host's measures, in logical pixels,
+/// as [`TooltipOptions::shape`] takes them. The colors stay the
+/// [`TooltipStyle`]'s.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TooltipShape {
+    /// The body's corner radius.
+    pub radius: f32,
+    /// Space between the body's sides and its text.
+    pub padding_x: f32,
+    /// Space above and below the text: a one-line hint is its title's line
+    /// height and twice this.
+    pub padding_y: f32,
+    /// How far the shadow is moved from the body; its color is the style's
+    /// `shadow`.
+    pub shadow_offset: Point,
+    /// The shadow's blur, within 0..=64.
+    pub shadow_blur: f32,
+    /// The pointer's width along the body and its depth away from it, a
+    /// triangle with a rounded tip painted in the body's fill. The style's
+    /// `border` goes on round its sides and tip from the body's outline, as
+    /// one, and not across its base. The hint stands that depth and 2 px off
+    /// its anchor.
+    pub caret: Size,
+}
+
+impl TooltipShape {
+    fn sanitized(self) -> Self {
+        let px = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        let offset = |value: f32| if value.is_finite() { value } else { 0.0 };
         Self {
-            delay_ms: 350,
-            title_font_size: 12.0,
-            title_font_family: FontFamily::Sans,
-            arrow: true,
+            radius: px(self.radius),
+            padding_x: px(self.padding_x),
+            padding_y: px(self.padding_y),
+            shadow_offset: Point::new(offset(self.shadow_offset.x), offset(self.shadow_offset.y)),
+            shadow_blur: px(self.shadow_blur).min(64.0),
+            caret: Size::new(px(self.caret.width), px(self.caret.height)),
         }
     }
 }
@@ -1066,6 +1155,15 @@ pub(crate) struct Kept {
     /// Set by [`Element::hover_region_id`]: the name
     /// [`UiTree::hovered_region`](crate::UiTree::hovered_region) reports.
     pub(crate) hover_name: Option<String>,
+    /// Set by [`Element::hover_motion`]: the ID its playing is kept under,
+    /// and the keyframes its icons follow.
+    pub(crate) icon_motion: Option<(String, crate::IconMotion)>,
+    /// Set by [`Element::grow_from`]: the height its fills grow from while
+    /// its presence animates.
+    pub(crate) grow_from: Option<f32>,
+    /// Set by [`Element::enter_from`]: the offset its paint travels from
+    /// while its presence animates.
+    pub(crate) enter_from: Option<Point>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2194,7 +2292,8 @@ pub struct Style {
     /// Minimum line box for formatted paragraphs, in logical pixels. Glyphs
     /// retain their natural metrics; controls and editors are unaffected.
     pub line_height: Option<f32>,
-    /// Side of a standalone icon; `None` is the standard 16 px.
+    /// Side of a standalone icon, or of an icon button's leading glyph;
+    /// `None` is the standard 16 px.
     pub icon_side: Option<f32>,
     /// Most lines a formatted text shows; set by [`Element::max_lines`].
     /// `None` shows them all.
@@ -2924,6 +3023,51 @@ impl Element {
         dimmed
     }
 
+    /// Move the icons this element paints along `motion` while the pointer
+    /// is over this element's own visible box, whatever region it is in.
+    /// When the pointer comes over it they play from where they are, through
+    /// the keyframes, and hold the last one; when it leaves they ease back to
+    /// rest over the motion's `return_ms`. Coming back before they are home
+    /// plays again from where they are, so nothing jumps. Only icons move:
+    /// backgrounds, text, layout, hit targets and accessibility stay put.
+    /// Under reduced motion nothing moves. `id` must be unique in the window.
+    pub fn hover_motion(mut self, id: impl Into<String>, motion: crate::IconMotion) -> Self {
+        self.kept.get_or_insert_default().icon_motion = Some((id.into(), motion));
+        self
+    }
+
+    /// With [`reveal_on_hover`](Self::reveal_on_hover),
+    /// [`rise_on_hover`](Self::rise_on_hover),
+    /// [`conceal_on_hover`](Self::conceal_on_hover) or
+    /// [`dim_on_hover`](Self::dim_on_hover), while it fades in or out; with
+    /// [`animate_enter`](Self::animate_enter) or
+    /// [`animate_presence`](Self::animate_presence), while it enters: the
+    /// filled rectangles it paints grow about their middle from `height`
+    /// logical pixels to their own height as it comes in, and shrink back as
+    /// it goes. Their corners are kept no rounder than half the height they
+    /// have, so a pill keeps round ends; widths, text and icons are as they
+    /// are. On an entering element it replaces the 4 px settle. Paint only,
+    /// and nothing grows under reduced motion. A height that is not finite or
+    /// below zero is ignored.
+    pub fn grow_from(mut self, height: f32) -> Self {
+        if height.is_finite() && height >= 0.0 {
+            self.kept.get_or_insert_default().grow_from = Some(height);
+        }
+        self
+    }
+
+    /// With the same presence animations as [`grow_from`](Self::grow_from):
+    /// what this element paints travels from `offset` logical pixels away to
+    /// its place as it comes in, and back as it goes. On an entering element
+    /// it replaces the 4 px settle. Paint only, and nothing travels under
+    /// reduced motion. An offset that is not finite is ignored.
+    pub fn enter_from(mut self, offset: Point) -> Self {
+        if offset.x.is_finite() && offset.y.is_finite() {
+            self.kept.get_or_insert_default().enter_from = Some(offset);
+        }
+        self
+    }
+
     /// Accept drops. Applies to buttons, clickables and scroll surfaces
     /// (including virtual lists), which are the elements with a pointer region.
     pub fn drop_target(mut self) -> Self {
@@ -3235,7 +3379,7 @@ impl Element {
                 max_width: 360.0,
                 placement,
                 colors,
-                options: TooltipOptions::default(),
+                options: crate::tokens().tooltip_options,
             },
             layout,
         )
@@ -4424,7 +4568,8 @@ impl Element {
     }
 
     /// Kept for source compatibility while callers migrate to [`ICON_SIZE`].
-    /// Icons inside controls use one size; this request is ignored.
+    /// This request is ignored: an icon button's glyph takes its side from
+    /// [`Element::large_icon`] or [`Element::small_icon`].
     pub fn icon_size(self, _size: f32) -> Self {
         self
     }
@@ -4432,7 +4577,8 @@ impl Element {
     /// Draw a standalone [`Element::icon`] smaller than the control size,
     /// such as a mark over a corner of another icon or a glyph inside a
     /// small badge: `side` is clamped to 8 to 16 logical pixels. A value
-    /// that is not finite is ignored. Controls keep the standard 16 px.
+    /// that is not finite is ignored. On an [`Element::icon_button`] it is
+    /// the side of the leading glyph; other controls keep the standard 16 px.
     pub fn small_icon(mut self, side: f32) -> Self {
         if side.is_finite() {
             self.style.icon_side = Some(side.clamp(SMALL_ICON_SIZE, ICON_SIZE));
@@ -4441,7 +4587,9 @@ impl Element {
     }
 
     /// Draw a standalone [`Element::icon`] larger than the control size, for
-    /// thumbnails and empty states. Controls keep the standard 16 px.
+    /// thumbnails and empty states. On an [`Element::icon_button`] it is the
+    /// side of the leading glyph, as [`crate::ButtonSizing::icon_size`] sets
+    /// it; other controls keep the standard 16 px.
     pub fn large_icon(mut self, side: f32) -> Self {
         if side.is_finite() {
             self.style.icon_side = Some(side.clamp(ICON_SIZE, 128.0));

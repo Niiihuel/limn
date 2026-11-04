@@ -60,6 +60,9 @@ mod soft_focus_tests;
 #[path = "animate_move_tests.rs"]
 mod animate_move_tests;
 #[cfg(test)]
+#[path = "hover_motion_tests.rs"]
+mod hover_motion_tests;
+#[cfg(test)]
 #[path = "stack_tests.rs"]
 mod stack_tests;
 #[cfg(test)]
@@ -114,6 +117,8 @@ const TOOLTIP_HEIGHT: f32 = 24.0;
 const TOOLTIP_PADDING: f32 = 8.0;
 /// How far a [`Element::rise_on_hover`] element travels up as it appears.
 const REVEAL_RISE: f32 = 8.0;
+/// Between a library-shaped hint and its anchor: its 5 px pointer and 2 px.
+const TOOLTIP_GAP: f32 = 7.0;
 pub(crate) const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
 /// The start of the hover target of a text run's hint that has no action;
 /// the index of its text in the frame and the hint's title follow.
@@ -692,6 +697,11 @@ pub enum DrawCommand {
         icon: Icon,
         /// Color the icon's shape is drawn in.
         tint: Color,
+        /// How the icon is turned and stretched about the middle of `rect`:
+        /// [`IconTransform::IDENTITY`](crate::IconTransform::IDENTITY) unless
+        /// an [`Element::hover_motion`](crate::Element::hover_motion) is
+        /// moving it.
+        transform: crate::IconTransform,
     },
     /// A picture. A cover image fills `rect` and is cropped; any other is
     /// fitted inside it.
@@ -1287,6 +1297,28 @@ fn morph_picture(command: &mut DrawCommand, origin: Rect, radius: f32, t: f32) {
             lerp(origin.height, rect.height),
         );
         *corner = lerp(radius, *corner);
+    }
+}
+
+/// How a surface the engine paints itself comes in: the scale it grows from about
+/// `origin` (the middle of its anchor's bottom unless set) and how long it takes, the
+/// tokens' `enter_ms` unless set.
+#[derive(Clone, Copy)]
+struct SurfaceEntrance {
+    scale: f32,
+    ms: Option<u16>,
+    origin: Option<Point>,
+    easing: Easing,
+}
+
+impl Default for SurfaceEntrance {
+    fn default() -> Self {
+        Self {
+            scale: 1.0,
+            ms: None,
+            origin: None,
+            easing: Easing::default(),
+        }
     }
 }
 
@@ -1902,6 +1934,24 @@ struct AnimatedMove {
     x: ScalarTransition,
     y: ScalarTransition,
     seen: Instant,
+}
+
+/// Where an element's hover motion stands: since `since` it has played from
+/// `from` while hovered, or returned from it to rest while not.
+struct IconMotionState {
+    hovered: bool,
+    since: Instant,
+    from: crate::motion::IconPose,
+    /// When it comes to rest or to its last keyframe.
+    settles: Instant,
+    seen: Instant,
+}
+
+impl IconMotionState {
+    fn pose(&self, motion: &crate::IconMotion, now: Instant) -> crate::motion::IconPose {
+        let elapsed = now.saturating_duration_since(self.since).as_secs_f32() * 1000.0;
+        motion.pose(self.from, self.hovered, elapsed)
+    }
 }
 
 /// The most slots a `LevelBars` draws, whatever width it is given.
@@ -4360,6 +4410,8 @@ pub struct UiTree {
     moves: HashMap<String, AnimatedMove>,
     /// A pushing reach jumped while placed: the layout it was measured for is stale.
     pushes_moved: std::cell::Cell<bool>,
+    /// Each `hover_motion` element's playing, by its ID.
+    icon_motions: HashMap<String, IconMotionState>,
     /// The ink of each `animate_foreground` element and when it was seen.
     inks: RefCell<HashMap<String, (ColorTransition, Instant)>>,
     /// The slots each `keep_leaving` column last laid out, in order.
@@ -4462,6 +4514,7 @@ impl UiTree {
             springs: RefCell::new(HashMap::new()),
             moves: HashMap::new(),
             pushes_moved: std::cell::Cell::new(false),
+            icon_motions: HashMap::new(),
             inks: RefCell::new(HashMap::new()),
             leaving: RefCell::new(HashMap::new()),
             popover_view_transitions: HashMap::new(),
@@ -4949,6 +5002,7 @@ impl UiTree {
             self.scalars.get_mut().clear();
             self.springs.get_mut().clear();
             self.moves.clear();
+            self.icon_motions.clear();
             self.inks.get_mut().clear();
             self.leaving.get_mut().clear();
             self.popover_view_transitions.clear();
@@ -5144,6 +5198,7 @@ impl UiTree {
                 .values()
                 .any(|state| state.value.is_active(now))
             || self.moves.values().any(|state| state.x.is_active(now) || state.y.is_active(now))
+            || self.icon_motions.values().any(|state| now < state.settles)
             || self.inks.borrow().values().any(|(ink, _)| ink.is_active(now))
             || self
                 .popover_view_transitions
@@ -5397,6 +5452,7 @@ impl UiTree {
                 moves: &mut self.moves,
                 flow_origin: Point::default(),
                 pushes_moved: &self.pushes_moved,
+                icon_motions: &mut self.icon_motions,
                 inks: &self.inks,
                 leaving: &self.leaving,
                 measurement_scope: 0,
@@ -5868,7 +5924,7 @@ impl UiTree {
                         options,
                     } => {
                         let start = builder.frame.commands.len();
-                        builder.paint_tooltip(
+                        let origin = builder.paint_tooltip(
                             anchor,
                             &title,
                             shortcut.as_deref(),
@@ -5881,7 +5937,19 @@ impl UiTree {
                         );
                         // One hint shows at a time, so they share one fade:
                         // moving between neighbours does not blink.
-                        builder.animate_surface("__tooltip", start, anchor, 0.0, true);
+                        builder.animate_surface(
+                            "__tooltip",
+                            start,
+                            anchor,
+                            0.0,
+                            true,
+                            SurfaceEntrance {
+                                scale: options.open_scale,
+                                ms: options.enter_ms,
+                                origin,
+                                easing: options.enter_easing,
+                            },
+                        );
                     }
                 }
                 builder.measurement_scope = previous_scope;
@@ -5909,7 +5977,7 @@ impl UiTree {
                 });
                 let start = builder.frame.commands.len();
                 builder.place(menu, *rect, Some(viewport_rect));
-                builder.animate_surface("__context_menu", start, *rect, 1.0, true);
+                builder.animate_surface("__context_menu", start, *rect, 1.0, true, SurfaceEntrance::default());
                 builder.focused = old_focus;
                 builder.pressed = old_pressed;
                 builder.hovered = old_hovered;
@@ -6082,6 +6150,7 @@ impl UiTree {
         self.scalars.get_mut().retain(|_, state| state.seen == now);
         self.springs.get_mut().retain(|_, state| state.seen == now);
         self.moves.retain(|_, state| state.seen == now);
+        self.icon_motions.retain(|_, state| state.seen == now);
         self.inks.get_mut().retain(|_, (_, seen)| *seen == now);
         self.leaving.get_mut().retain(|_, (_, seen)| *seen == now);
         self.flow_heights.get_mut().retain(|_, state| {
@@ -8648,6 +8717,7 @@ struct LayoutBuilder<'a> {
     /// `animate_move` slot is measured from.
     flow_origin: Point,
     pushes_moved: &'a std::cell::Cell<bool>,
+    icon_motions: &'a mut HashMap<String, IconMotionState>,
     inks: &'a RefCell<HashMap<String, (ColorTransition, Instant)>>,
     leaving: &'a RefCell<HashMap<String, (Vec<String>, Instant)>>,
     measurement_scope: u64,
@@ -9046,14 +9116,98 @@ fn find_radius(element: &Element, id: &str) -> Option<f32> {
     }
 }
 
+/// A tooltip's pointer `size` wide along the body and deep away from it, from the body's
+/// `edge` toward `outward` (a unit vector), its tip rounded: two triangles up to where the
+/// rounding starts and a circle tangent to both sides. Its sides meet 1 px inside the body
+/// and go on 1 px further, so its fill covers the body's outline where they meet wherever
+/// the edge falls on the pixels. A visible `ring`, the body's 1 px
+/// inset outline, goes on around its sides and tip as one stroke joined to the body's on
+/// both sides of the base, and not across it.
+fn rounded_caret(edge: Point, outward: Point, size: Size, color: Color, ring: Color) -> Vec<DrawCommand> {
+    let half = size.width / 2.0;
+    let depth = size.height + 1.0;
+    if half <= 0.0 || size.height <= 0.0 {
+        return Vec::new();
+    }
+    let along = Point::new(-outward.y, outward.x);
+    let at = |base: Point, sideways: f32, out: f32| {
+        Point::new(
+            base.x + along.x * sideways + outward.x * out,
+            base.y + along.y * sideways + outward.y * out,
+        )
+    };
+    let base = at(edge, 0.0, -1.0);
+    // The tip's half angle, and a rounding a fifth of the pointer's smaller side, at most 3.
+    let slant = (half * half + depth * depth).sqrt();
+    let (sin, cos) = (half / slant, depth / slant);
+    let round = (size.width.min(size.height) * 0.2).min(3.0);
+    // Where the circle meets the sides, measured from the tip along them and outward.
+    let along_side = round * cos / sin;
+    let tangent_depth = depth - along_side * cos;
+    let tangent_half = along_side * sin;
+    let center_depth = depth - round / sin;
+    let left = at(base, -half * (1.0 + 1.0 / depth), -1.0);
+    let right = at(base, half * (1.0 + 1.0 / depth), -1.0);
+    let tip_right = at(base, tangent_half, tangent_depth);
+    let tip_left = at(base, -tangent_half, tangent_depth);
+    let center = at(base, 0.0, center_depth);
+    let mut commands = vec![
+        DrawCommand::FillTriangle {
+            points: [left, right, tip_right],
+            color,
+        },
+        DrawCommand::FillTriangle {
+            points: [left, tip_right, tip_left],
+            color,
+        },
+        DrawCommand::FillRect {
+            rect: Rect::new(center.x - round, center.y - round, round * 2.0, round * 2.0),
+            color,
+            radius: round,
+        },
+    ];
+    if ring.a > 0 {
+        // The outline's middle line, half a pixel in from the pointer's sides and round its
+        // tip, from the body's outline (0.5 out from `base`) on one side to it on the other.
+        // In the color it shows over the fill, so where it overlaps the body's it adds nothing.
+        let side = |sign: f32| {
+            let outer = half * (1.0 - 0.5 / depth);
+            [
+                at(base, sign * (outer + 1.0), 0.5),
+                at(base, sign * (outer - 0.5 * slant / depth), 0.5),
+            ]
+        };
+        let inner = round - 0.5;
+        let turn = sin.atan2(cos);
+        let tip: Vec<Point> = if inner > 0.0 {
+            (0..=8)
+                .map(|step| {
+                    let angle = turn + (std::f32::consts::PI - 2.0 * turn) * step as f32 / 8.0;
+                    at(base, inner * angle.cos(), center_depth + inner * angle.sin())
+                })
+                .collect()
+        } else {
+            vec![center]
+        };
+        let [far, near] = side(-1.0);
+        commands.push(DrawCommand::Polyline {
+            points: side(1.0).into_iter().chain(tip).chain([near, far]).collect(),
+            color: mix(color, Color { a: color.a, ..ring }, f32::from(ring.a) / 255.0),
+            width: 1.0,
+            dashed: false,
+        });
+    }
+    commands
+}
+
 fn place_tooltip(
     anchor: Rect,
     desired: Size,
     viewport: Rect,
     preferred: TooltipPlacement,
+    gap: f32,
 ) -> (Rect, TooltipPlacement) {
     let inset = 8.0;
-    let gap = 7.0;
     let width = desired.width.min((viewport.width - inset * 2.0).max(0.0));
     let height = desired.height.min((viewport.height - inset * 2.0).max(0.0));
     let left_room = (anchor.x - viewport.x - inset - gap).max(0.0);
@@ -9078,6 +9232,7 @@ fn place_tooltip(
             } else {
                 TooltipPlacement::Below
             },
+            gap,
         );
     }
     if !lateral
@@ -9094,6 +9249,7 @@ fn place_tooltip(
             } else {
                 TooltipPlacement::Right
             },
+            gap,
         );
     }
     if matches!(preferred, TooltipPlacement::Left | TooltipPlacement::Right) {
@@ -9231,6 +9387,7 @@ impl LayoutBuilder<'_> {
                 rect: Rect::new(x, y + (side - icon_side) / 2.0, icon_side, icon_side),
                 icon,
                 tint: colors.text,
+                transform: crate::IconTransform::IDENTITY,
             });
             x += icon_side + 8.0;
         }
@@ -9306,10 +9463,20 @@ impl LayoutBuilder<'_> {
     /// if it `leaves`, keep its paint to fade out once it stops being painted.
     /// Used by everything that is not a popover: tooltips, context menus and
     /// elements with [`Element::animate_enter`] or `animate_presence`.
-    fn animate_surface(&mut self, id: &str, start: usize, rect: Rect, slide_sign: f32, leaves: bool) {
+    /// Returns how far it has come in, from 0 to 1.
+    fn animate_surface(
+        &mut self,
+        id: &str,
+        start: usize,
+        rect: Rect,
+        slide_sign: f32,
+        leaves: bool,
+        entrance: SurfaceEntrance,
+    ) -> f32 {
         if self.reduced_motion || self.frame.commands.len() == start {
-            return;
+            return 1.0;
         }
+        let enter_ms = entrance.ms.unwrap_or(crate::tokens().motion.enter_ms);
         let now = self.now;
         self.observed_popovers.insert(id.to_owned());
         let exits = self.popover_exits;
@@ -9322,19 +9489,16 @@ impl LayoutBuilder<'_> {
                     exits.get(id).map_or(0.0, |exit| exit.opacity.value(now)),
                     now,
                 )
+                .easing(entrance.easing)
             });
-        transition.retarget(
-            1.0,
-            now,
-            Duration::from_millis(u64::from(crate::tokens().motion.enter_ms)),
-        );
+        transition.retarget(1.0, now, Duration::from_millis(u64::from(enter_ms)));
         let progress = transition.value(now);
         if leaves {
             self.popover_snapshots.insert(
             id.to_owned(),
             PopoverSnapshot {
                 commands: self.frame.commands[start..].to_vec(),
-                animation_ms: crate::tokens().motion.enter_ms,
+                animation_ms: enter_ms,
                 close_animation_ms: None,
                 open_scale: 1.0,
                 morph: None,
@@ -9345,13 +9509,18 @@ impl LayoutBuilder<'_> {
             },
             );
         }
-        if progress < 1.0 {
-            let origin = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height);
+        // A spring passes 1 on its way: the scale overshoots, the fade clamps.
+        if progress != 1.0 {
+            let origin = entrance
+                .origin
+                .unwrap_or(Point::new(rect.x + rect.width / 2.0, rect.y + rect.height));
             let slide = (1.0 - progress) * slide_sign * 4.0;
+            let scale = entrance.scale + (1.0 - entrance.scale) * progress;
             for command in &mut self.frame.commands[start..] {
-                animate_popover_command(command, progress, slide, 1.0, origin);
+                animate_popover_command(command, progress, slide, scale, origin);
             }
         }
+        progress
     }
 
     /// The innermost named hover region under the pointer that nothing laid
@@ -9369,8 +9538,9 @@ impl LayoutBuilder<'_> {
 
     /// Paint only: fade what was painted since command `start` in or out
     /// with the hover of the region around it. Layout, hit regions and the
-    /// focus order are the same either way.
-    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize, reveal: HoverReveal) {
+    /// focus order are the same either way. Returns how far it is shown,
+    /// from 0 hidden or dimmed to 1.
+    fn reveal_on_hover(&mut self, element: &Element, id: &str, start: usize, reveal: HoverReveal) -> f32 {
         let concealed = reveal == HoverReveal::Concealed;
         let shown = if concealed {
             !self.region_hovered
@@ -9398,6 +9568,79 @@ impl LayoutBuilder<'_> {
         if opacity < 1.0 {
             for command in &mut self.frame.commands[start..] {
                 animate_popover_command(command, opacity, rise, 1.0, Point::new(0.0, 0.0));
+            }
+        }
+        if hidden < 1.0 { ((opacity - hidden) / (1.0 - hidden)).clamp(0.0, 1.0) } else { 1.0 }
+    }
+
+    /// Paint only: an element `shown` of the way in, from 0 to 1, has the
+    /// fills painted since command `start` grown from its `grow_from` height
+    /// and everything moved by what is left of its `enter_from` offset.
+    fn grow_and_travel(&mut self, element: &Element, start: usize, shown: f32) {
+        let Some(kept) = element.kept.as_ref().filter(|_| shown < 1.0 && !self.reduced_motion) else {
+            return;
+        };
+        let away = 1.0 - shown;
+        for command in &mut self.frame.commands[start..] {
+            if let Some(from) = kept.grow_from {
+                let grow = |rect: &mut Rect| {
+                    let height = rect.height + (from - rect.height) * away;
+                    rect.y += (rect.height - height) / 2.0;
+                    rect.height = height;
+                    height / 2.0
+                };
+                match command {
+                    DrawCommand::FillRect { rect, radius, .. } => *radius = radius.min(grow(rect)),
+                    DrawCommand::FillCornerRect { rect, radii, .. } => {
+                        let half = grow(rect);
+                        for radius in [&mut radii.top_left, &mut radii.top_right, &mut radii.bottom_right, &mut radii.bottom_left] {
+                            *radius = radius.min(half);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            if let Some(offset) = kept.enter_from {
+                *command = command.moved(offset.x * away, offset.y * away, 1.0);
+            }
+        }
+    }
+
+    /// Paint only: turn, stretch and move the icons painted since command
+    /// `start` as `motion` has them, playing while `hovered` and returning
+    /// to rest after.
+    fn move_icons(&mut self, id: &str, motion: &crate::IconMotion, hovered: bool, start: usize) {
+        if self.reduced_motion {
+            return;
+        }
+        let now = self.now;
+        let rest = crate::motion::IconPose::REST;
+        let state = self.icon_motions.entry(id.to_owned()).or_insert(IconMotionState {
+            hovered: false,
+            since: now,
+            from: rest,
+            settles: now,
+            seen: now,
+        });
+        state.seen = now;
+        if state.hovered != hovered {
+            state.from = state.pose(motion, now);
+            state.hovered = hovered;
+            state.since = now;
+            let length = if hovered { motion.play_ms() } else { motion.rest_ms() };
+            state.settles = now + Duration::from_millis(u64::from(length));
+        }
+        let pose = state.pose(motion, now);
+        if pose == rest {
+            return;
+        }
+        for command in &mut self.frame.commands[start..] {
+            if let DrawCommand::Icon { rect, transform, .. } = command {
+                rect.x += pose.offset.x;
+                rect.y += pose.offset.y;
+                transform.angle += pose.turn.to_radians();
+                transform.scale_x *= pose.scale_x;
+                transform.scale_y *= pose.scale_y;
             }
         }
     }
@@ -9564,7 +9807,7 @@ impl LayoutBuilder<'_> {
         colors: TooltipStyle,
         options: TooltipOptions,
         viewport: Rect,
-    ) {
+    ) -> Option<Point> {
         // A hint for a menu row must sit outside the entire menu, including
         // its padding and scrollbar. The vertical anchor remains the row.
         let row_anchor = anchor;
@@ -9602,8 +9845,10 @@ impl LayoutBuilder<'_> {
             }
         }
         if max_width < 32.0 || viewport.height < 32.0 {
-            return;
+            return None;
         }
+        let shape = options.shape;
+        let padding_x = shape.map_or(TOOLTIP_PADDING, |shape| shape.padding_x);
         let title_style = Style {
             font_size: options.title_font_size,
             font_family: options.title_font_family,
@@ -9619,7 +9864,7 @@ impl LayoutBuilder<'_> {
                 })
                 .line_height)
             .max(0.0);
-        let content_max = max_width - TOOLTIP_PADDING * 2.0;
+        let content_max = max_width - padding_x * 2.0;
         let shortcut = shortcut
             .map(shortcut::label)
             .filter(|value| !value.is_empty());
@@ -9747,32 +9992,46 @@ impl LayoutBuilder<'_> {
             content_height += size.height;
             blocks.push(block);
         }
-        let body_width = (TOOLTIP_PADDING * 2.0 + content_width)
+        let body_width = (padding_x * 2.0 + content_width)
             .max(TOOLTIP_HEIGHT)
             .min(max_width);
-        let body_height = if rich {
-            (content_height + 12.0).max(TOOLTIP_HEIGHT)
-        } else {
-            TOOLTIP_HEIGHT + title_growth
+        let body_height = match shape {
+            Some(shape) => content_height + shape.padding_y * 2.0,
+            None if rich => (content_height + 12.0).max(TOOLTIP_HEIGHT),
+            None => TOOLTIP_HEIGHT + title_growth,
+        };
+        let gap = match shape {
+            Some(shape) if options.arrow => shape.caret.height + 2.0,
+            _ => TOOLTIP_GAP,
         };
         let (body, placement) = place_tooltip(
             anchor,
             Size::new(body_width, body_height),
             viewport,
             preferred,
+            gap,
         );
         if body.width < TOOLTIP_HEIGHT || body.height < TOOLTIP_HEIGHT {
-            return;
+            return None;
         }
-        // A small pointer names the element the hint belongs to.
+        // A small pointer names the element the hint belongs to; a wide one
+        // keeps clear of the rounded corners.
+        let tip_margin = shape.map_or(TOOLTIP_PADDING, |shape| shape.radius + shape.caret.width / 2.0);
         let tip_x = (anchor.x + anchor.width / 2.0).clamp(
-            body.x + TOOLTIP_PADDING,
-            (body.x + body.width - TOOLTIP_PADDING).max(body.x + TOOLTIP_PADDING),
+            body.x + tip_margin,
+            (body.x + body.width - tip_margin).max(body.x + tip_margin),
         );
         let tip_y = (anchor.y + anchor.height / 2.0).clamp(
-            body.y + TOOLTIP_PADDING,
-            (body.y + body.height - TOOLTIP_PADDING).max(body.y + TOOLTIP_PADDING),
+            body.y + tip_margin,
+            (body.y + body.height - tip_margin).max(body.y + tip_margin),
         );
+        // Where the hint grows from: the side that faces its anchor.
+        let origin = match placement {
+            TooltipPlacement::Above => Point::new(tip_x, body.y + body.height),
+            TooltipPlacement::Below => Point::new(tip_x, body.y),
+            TooltipPlacement::Left => Point::new(body.x + body.width, tip_y),
+            TooltipPlacement::Right => Point::new(body.x, tip_y),
+        };
         let vertical = |base: f32, away: f32| {
             (
                 [
@@ -9807,25 +10066,45 @@ impl LayoutBuilder<'_> {
             TooltipPlacement::Left => horizontal(body.x + body.width - 1.0, 1.0),
             TooltipPlacement::Right => horizontal(body.x + 1.0, -1.0),
         };
+        let (radius, shadow) = match shape {
+            Some(shape) => (
+                shape.radius,
+                BoxShadow::new(colors.shadow, shape.shadow_offset, shape.shadow_blur, 0.0),
+            ),
+            None => (
+                crate::tokens().radius.control,
+                BoxShadow::new(colors.shadow, Point::new(0.0, 2.0), 6.0, 0.0),
+            ),
+        };
         self.frame.commands.push(DrawCommand::Shadow {
             rect: body,
-            shadow: BoxShadow::new(colors.shadow, Point::new(0.0, 2.0), 6.0, 0.0),
-            radius: crate::tokens().radius.control,
+            shadow,
+            radius,
         });
         self.frame.commands.push(DrawCommand::FillRect {
             rect: body,
             color: colors.background,
-            radius: crate::tokens().radius.control,
+            radius,
         });
         self.frame.commands.push(DrawCommand::StrokeRect {
             rect: body,
             color: colors.border,
             width: 1.0,
-            radius: crate::tokens().radius.control,
+            radius,
         });
         // Painted last so its fill covers the body border at the join; the
         // nested triangles leave a one-pixel outline.
-        if options.arrow {
+        if let (true, Some(shape)) = (options.arrow, shape) {
+            let (edge, outward) = match placement {
+                TooltipPlacement::Above => (Point::new(tip_x, body.y + body.height), Point::new(0.0, 1.0)),
+                TooltipPlacement::Below => (Point::new(tip_x, body.y), Point::new(0.0, -1.0)),
+                TooltipPlacement::Left => (Point::new(body.x + body.width, tip_y), Point::new(1.0, 0.0)),
+                TooltipPlacement::Right => (Point::new(body.x, tip_y), Point::new(-1.0, 0.0)),
+            };
+            self.frame
+                .commands
+                .extend(rounded_caret(edge, outward, shape.caret, colors.background, colors.border));
+        } else if options.arrow {
             self.frame.commands.push(DrawCommand::FillTriangle {
                 points: outline,
                 color: colors.border,
@@ -9835,11 +10114,12 @@ impl LayoutBuilder<'_> {
                 color: colors.background,
             });
         }
+        let padding_y = shape.map_or(if rich { 6.0 } else { 1.0 }, |shape| shape.padding_y);
         let content = Rect::new(
-            body.x + TOOLTIP_PADDING,
-            body.y + if rich { 6.0 } else { 1.0 },
-            (body.width - TOOLTIP_PADDING * 2.0).max(0.0),
-            (body.height - if rich { 12.0 } else { 2.0 }).max(0.0),
+            body.x + padding_x,
+            body.y + padding_y,
+            (body.width - padding_x * 2.0).max(0.0),
+            (body.height - padding_y * 2.0).max(0.0),
         );
         self.frame.commands.push(DrawCommand::PushClip(content));
         let mut text_y = if rich {
@@ -9862,7 +10142,7 @@ impl LayoutBuilder<'_> {
         }
         if let (Some(shortcut), Some(width)) = (shortcut, keycap_width) {
             let keycap = Rect::new(
-                body.x + body.width - TOOLTIP_PADDING - width,
+                body.x + body.width - padding_x - width,
                 if rich {
                     content.y
                 } else {
@@ -9943,6 +10223,7 @@ impl LayoutBuilder<'_> {
                                 rect: Rect::new(rect.x + 4.0, rect.y + 4.0, ICON_SIZE, ICON_SIZE),
                                 icon,
                                 tint: colors.text,
+                                transform: crate::IconTransform::IDENTITY,
                             });
                             rect.x + 4.0 + ICON_SIZE + 4.0
                         } else {
@@ -9973,6 +10254,7 @@ impl LayoutBuilder<'_> {
             }
         }
         self.frame.commands.push(DrawCommand::PopClip);
+        Some(origin)
     }
 
     fn shortcut_width(&self, label: &str) -> f32 {
@@ -10092,6 +10374,7 @@ impl LayoutBuilder<'_> {
                     ),
                     icon,
                     tint: ink,
+                    transform: crate::IconTransform::IDENTITY,
                 });
             } else {
                 self.frame.commands.push(DrawCommand::Text {
@@ -10405,7 +10688,7 @@ impl LayoutBuilder<'_> {
                 max_width: 360.0,
                 placement: TooltipPlacement::Above,
                 colors: hint.colors,
-                options: TooltipOptions::default(),
+                options: crate::tokens().tooltip_options,
             });
         }
     }
@@ -10878,6 +11161,7 @@ impl LayoutBuilder<'_> {
             rect,
             icon,
             tint: style.foreground,
+            transform: crate::IconTransform::IDENTITY,
         });
     }
 
@@ -11788,7 +12072,7 @@ impl LayoutBuilder<'_> {
                 trailing_icon,
                 ..
             } => Size::new(
-                ICON_SIZE
+                style.icon_side.unwrap_or(ICON_SIZE)
                     + if label.is_empty() {
                         0.0
                     } else {
@@ -11800,7 +12084,11 @@ impl LayoutBuilder<'_> {
                         0.0
                     }
                     + padding,
-                ICON_SIZE.max(metrics.line_height) + padding,
+                style
+                    .icon_side
+                    .unwrap_or(ICON_SIZE)
+                    .max(metrics.line_height)
+                    + padding,
             ),
             ElementKind::TextInput { .. } => Size::new(
                 if available.width.is_finite() {
@@ -12227,6 +12515,11 @@ impl LayoutBuilder<'_> {
         if let Some((id, radius)) = element.kept.as_ref().and_then(|kept| kept.soft.as_ref()) {
             self.soften(id, *radius, start);
         }
+        if let Some((id, motion)) = element.kept.as_ref().and_then(|kept| kept.icon_motion.as_ref()) {
+            let visible = clip.map_or(Some(rect), |clip| rect.intersection(clip));
+            let hovered = self.pointer.zip(visible).is_some_and(|(point, visible)| visible.contains(point));
+            self.move_icons(id, motion, hovered, start);
+        }
         if let Some((id, factor, anchor)) = element.kept.as_ref().and_then(|kept| kept.scale.as_ref()) {
             let scale = self.spring(&format!("scale/{id}"), *factor);
             if scale != 1.0 {
@@ -12236,15 +12529,19 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
-        match &element.presence {
+        let shown = match &element.presence {
             Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed | HoverReveal::Rising) => {
                 self.reveal_on_hover(element, id, start, reveal)
             }
             Some((id, leaves)) if element.animate_height.is_none() => {
-                self.animate_surface(id, start, rect, if *leaves { 1.0 } else { -1.0 }, *leaves);
+                // Growing or travelling takes the place of the settle.
+                let reshaped = element.kept.as_ref().is_some_and(|kept| kept.grow_from.is_some() || kept.enter_from.is_some());
+                let sign = if reshaped { 0.0 } else if *leaves { 1.0 } else { -1.0 };
+                self.animate_surface(id, start, rect, sign, *leaves, SurfaceEntrance::default())
             }
-            _ => {}
-        }
+            _ => 1.0,
+        };
+        self.grow_and_travel(element, start, shown);
         if let Some(replacement) = &element.replacement {
             self.animate_replacement(&replacement.0, &replacement.1, start, rect);
         }
@@ -13674,6 +13971,7 @@ impl LayoutBuilder<'_> {
                                     ),
                                     icon,
                                     tint: fragment.color,
+                                    transform: crate::IconTransform::IDENTITY,
                                 });
                                 self.frame.commands.push(DrawCommand::PopClip);
                             }
@@ -13908,7 +14206,12 @@ impl LayoutBuilder<'_> {
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
                     self.draw_focus_ring(rect, style);
                 }
-                let side = ICON_SIZE.min(content.width).min(content.height).max(0.0);
+                let side = style
+                    .icon_side
+                    .unwrap_or(ICON_SIZE)
+                    .min(content.width)
+                    .min(content.height)
+                    .max(0.0);
                 let trailing_side = if trailing_icon.is_some() {
                     ICON_SIZE
                         .min((content.width - side - style.gap).max(0.0))
@@ -14329,7 +14632,7 @@ impl LayoutBuilder<'_> {
                             max_width: 420.0,
                             placement: TooltipPlacement::Above,
                             colors: editor.palette.tooltip_style(),
-                            options: TooltipOptions::default(),
+                            options: crate::tokens().tooltip_options,
                         });
                     }
                     for control in controls {
@@ -14868,7 +15171,7 @@ impl LayoutBuilder<'_> {
                         max_width: 320.0,
                         placement: TooltipPlacement::Right,
                         colors: rail.tooltip,
-                        options: TooltipOptions::default(),
+                        options: crate::tokens().tooltip_options,
                     });
                 }
                 self.frame.tab_focus.push(TabFocusScope {
@@ -17611,6 +17914,11 @@ mod tests {
                 .count(),
             2,
         );
+        // The library's pointer is the outlined pair of triangles, with no stroke round it.
+        assert!(!focused
+            .commands
+            .iter()
+            .any(|command| matches!(command, DrawCommand::Polyline { .. })));
         assert!(focused.commands.iter().any(|command| matches!(
             command,
             DrawCommand::Text { text, .. } if text == "Toggle sidebar"
@@ -17759,6 +18067,282 @@ mod tests {
     }
 
     #[test]
+    fn a_shaped_hint_takes_its_radius_padding_shadow_rounded_pointer_and_entrance() {
+        let palette = ComponentPalette::neutral_dark();
+        let style = palette.tooltip_style();
+        let shape = crate::TooltipShape {
+            radius: 8.0,
+            padding_x: 12.0,
+            padding_y: 8.0,
+            shadow_offset: Point::new(0.0, 12.0),
+            shadow_blur: 24.0,
+            caret: Size::new(16.0, 10.0),
+        };
+        let view = Size::new(320.0, 160.0);
+        let tree = |reduced: bool| {
+            let mut element = Tooltip::new(
+                Element::icon_button("mark", Icon::PanelLeft, "").size(Some(32.0), Some(32.0)),
+                "mark",
+                "Server",
+                palette,
+            )
+            .placement(TooltipPlacement::Below)
+            .delay_ms(0)
+            .render();
+            let ElementKind::Tooltip { options, .. } = &mut element.kind else {
+                unreachable!()
+            };
+            options.shape = Some(shape);
+            options.open_scale = 0.9;
+            options.enter_ms = Some(100);
+            let mut tree = UiTree::new(Element::column(vec![
+                Element::row(vec![Element::spacer().flex(1.0), element, Element::spacer().flex(1.0)]),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(reduced);
+            tree
+        };
+        let body = |frame: &Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, radius }
+                    if Color { a: style.background.a, ..*color } == style.background && rect.height > 20.0 =>
+                {
+                    Some((*rect, *radius))
+                }
+                _ => None,
+            })
+        };
+        let mut settled = tree(true);
+        settled.layout(view);
+        assert!(settled.focus("mark"));
+        let frame = settled.layout(view);
+        let anchor = frame.regions.iter().find(|region| region.id == "mark").unwrap().rect;
+        let (rect, radius) = body(&frame).expect("the body");
+        // One line and 8 above and below; rounded 8; the pointer's depth and 2 from the anchor.
+        let line = FontMetrics::default().at_size(12.0).line_height;
+        assert!((rect.height - (line + 16.0)).abs() < 0.01, "{rect:?}");
+        assert_eq!(radius, 8.0);
+        assert!((rect.y - (anchor.y + anchor.height + 12.0)).abs() < 0.01, "{rect:?} {anchor:?}");
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, position, .. } if text == "Server" && (position.x - (rect.x + 12.0)).abs() < 0.01
+        )));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Shadow { shadow, .. } if shadow.offset == Point::new(0.0, 12.0) && shadow.blur == 24.0
+        )));
+        // The pointer: two triangles and a round tip, all in the fill, the outline round it.
+        let pointer: Vec<_> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::FillTriangle { points, color } => Some((points.to_vec(), *color)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(pointer.len(), 2);
+        assert!(pointer.iter().all(|(_, color)| *color == style.background));
+        let points: Vec<Point> = pointer.iter().flat_map(|(points, _)| points.clone()).collect();
+        let (low, high) = points.iter().fold((f32::MAX, f32::MIN), |(low, high), point| {
+            (low.min(point.x), high.max(point.x))
+        });
+        // 16 wide 1 px inside the body, its sides going on 1 px further in.
+        assert!((high - low - 16.0 * 12.0 / 11.0).abs() < 0.01, "16 wide: {points:?}");
+        let tip = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect: tip, color, radius } if *color == style.background && *radius > 0.0 && tip.height < 8.0 => Some(*tip),
+            _ => None,
+        });
+        let tip = tip.expect("a rounded tip");
+        assert!(tip.y >= anchor.y + anchor.height + 1.0 && tip.y < rect.y, "{tip:?} {rect:?}");
+        // Coming in: smaller and faded, about the pointer's tip, for its own duration.
+        let mut moving = tree(false);
+        let start = Instant::now();
+        moving.layout_at(view, start);
+        assert!(moving.focus("mark"));
+        let early = moving.layout_at(view, start + Duration::from_millis(20));
+        let (small, _) = body(&early).expect("the body, coming in");
+        assert!(small.width < rect.width && small.height < rect.height, "{small:?} {rect:?}");
+        // It began on the frame it was first painted in, 20 ms in.
+        let done = moving.layout_at(view, start + Duration::from_millis(120));
+        let (whole, _) = body(&done).expect("the body, in");
+        assert!((whole.width - rect.width).abs() < 0.01 && (whole.height - rect.height).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_shaped_hints_outline_goes_on_round_its_pointer_on_every_side() {
+        let palette = ComponentPalette::neutral_dark();
+        let shape = crate::TooltipShape {
+            radius: 8.0,
+            padding_x: 12.0,
+            padding_y: 8.0,
+            shadow_offset: Point::new(0.0, 12.0),
+            shadow_blur: 24.0,
+            caret: Size::new(16.0, 10.0),
+        };
+        let view = Size::new(400.0, 300.0);
+        let hint = |placement: TooltipPlacement, border: Option<Color>| {
+            let mut element = Tooltip::new(
+                Element::icon_button("mark", Icon::PanelLeft, "").size(Some(32.0), Some(32.0)),
+                "mark",
+                "Server",
+                palette,
+            )
+            .placement(placement)
+            .delay_ms(0)
+            .render();
+            let ElementKind::Tooltip { options, colors, .. } = &mut element.kind else {
+                unreachable!()
+            };
+            options.shape = Some(shape);
+            if let Some(border) = border {
+                colors.border = border;
+            }
+            let style = *colors;
+            let row = Element::row(vec![Element::spacer().flex(1.0), element, Element::spacer().flex(1.0)]);
+            let spacer = || Element::spacer().flex(1.0);
+            let mut tree = UiTree::new(Element::column(vec![spacer(), row, spacer()]));
+            tree.set_reduced_motion(true);
+            tree.layout(view);
+            assert!(tree.focus("mark"));
+            (tree.layout(view), style)
+        };
+        let ring = Color::rgba(149, 149, 162, 51);
+        for placement in [
+            TooltipPlacement::Above,
+            TooltipPlacement::Below,
+            TooltipPlacement::Left,
+            TooltipPlacement::Right,
+        ] {
+            let (frame, style) = hint(placement, Some(ring));
+            let index = |find: &dyn Fn(&DrawCommand) -> bool| frame.commands.iter().position(find).unwrap();
+            let outline = index(&|command| matches!(command, DrawCommand::StrokeRect { color, .. } if *color == ring));
+            let DrawCommand::StrokeRect { rect: body, .. } = frame.commands[outline] else { unreachable!() };
+            let fill = index(&|command| matches!(command, DrawCommand::FillTriangle { .. }));
+            let stroke = index(&|command| matches!(command, DrawCommand::Polyline { .. }));
+            let DrawCommand::Polyline { points, color, width, dashed } = &frame.commands[stroke] else { unreachable!() };
+            // The outline as it shows over the fill, so it adds nothing where it meets the body's.
+            assert_eq!(*color, mix(style.background, Color { a: style.background.a, ..ring }, 51.0 / 255.0));
+            assert_eq!((*width, *dashed), (1.0, false));
+            // The body and its outline first, the pointer's fill over the outline at the join,
+            // then the pointer's outline.
+            assert!(outline < fill && fill < stroke, "{placement:?}");
+            // Each point as (along the facing side, out from it).
+            let local = |point: Point| match placement {
+                TooltipPlacement::Above => (point.x, point.y - (body.y + body.height)),
+                TooltipPlacement::Below => (point.x, body.y - point.y),
+                TooltipPlacement::Left => (point.y, point.x - (body.x + body.width)),
+                TooltipPlacement::Right => (point.y, body.x - point.x),
+            };
+            let tip = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, radius, .. } if *radius > 0.0 && rect.height < 8.0 => Some(*rect),
+                _ => None,
+            });
+            let tip = tip.expect("the rounded tip");
+            let (axis, _) = local(Point::new(tip.x + tip.width / 2.0, tip.y + tip.height / 2.0));
+            let far = [Point::new(tip.x, tip.y), Point::new(tip.x + tip.width, tip.y + tip.height)]
+                .map(|corner| local(corner).1)
+                .into_iter()
+                .fold(f32::MIN, f32::max);
+            let path: Vec<(f32, f32)> = points.iter().map(|point| local(*point)).collect();
+            // The pointer's fill starts 2 px inside the body, over all of its outline's pixels
+            // across the base: its sides, 16 apart 1 px in, go on 1 px further.
+            let DrawCommand::FillTriangle { points: base, .. } = frame.commands[fill] else { unreachable!() };
+            let base: Vec<_> = base.iter().map(|point| local(*point)).filter(|(_, out)| (out + 2.0).abs() < 0.01).collect();
+            assert_eq!(base.len(), 2, "{placement:?}");
+            assert!(((base[0].0 - base[1].0).abs() - 16.0 * 12.0 / 11.0).abs() < 0.01, "{placement:?}");
+            // It starts and ends on the middle of the body's outline, beyond the pointer's
+            // base on either side, so the two outlines overlap and join.
+            let (first, last) = (path[0], path[path.len() - 1]);
+            for (along, out) in [first, last] {
+                assert!((out + 0.5).abs() < 0.01, "{placement:?} {path:?}");
+                assert!((along - axis).abs() > 8.0, "{placement:?} {path:?}");
+            }
+            assert!((first.0 - axis).signum() != (last.0 - axis).signum(), "{placement:?}");
+            // Never deeper in the body than that line; out to half a pixel inside the tip.
+            assert!(path.iter().all(|(_, out)| *out > -0.51), "{placement:?} {path:?}");
+            let deepest = path.iter().map(|(_, out)| *out).fold(f32::MIN, f32::max);
+            assert!((deepest - (far - 0.5)).abs() < 0.01, "{placement:?} {deepest} {far}");
+            // No stroke across the base: the line crosses the pointer's middle only at its tip.
+            for pair in path.windows(2) {
+                let ((a, a_out), (b, b_out)) = (pair[0], pair[1]);
+                if (a - axis) * (b - axis) <= 0.0 {
+                    assert!(a_out > deepest - 1.0 && b_out > deepest - 1.0, "{placement:?} {path:?}");
+                }
+            }
+            // The two sides mirror each other about the pointer's middle.
+            for (left, right) in path.iter().zip(path.iter().rev()) {
+                assert!((left.0 - axis + (right.0 - axis)).abs() < 0.01 && (left.1 - right.1).abs() < 0.01);
+            }
+            // Without an outline, the pointer has none either.
+            let (bare, _) = hint(placement, Some(Color::TRANSPARENT));
+            assert!(!bare.commands.iter().any(|command| matches!(command, DrawCommand::Polyline { .. })));
+        }
+    }
+
+    #[test]
+    fn a_hint_on_a_spring_grows_past_full_size_and_back_its_fade_over_early() {
+        let palette = ComponentPalette::neutral_dark();
+        let style = palette.tooltip_style();
+        let view = Size::new(320.0, 160.0);
+        // The body's width and opacity on each frame, from the first it is painted in.
+        let frames = |easing: Easing, reduced: bool| {
+            let mut element = Tooltip::new(
+                Element::icon_button("mark", Icon::PanelLeft, "").size(Some(32.0), Some(32.0)),
+                "mark",
+                "Server",
+                palette,
+            )
+            .placement(TooltipPlacement::Below)
+            .delay_ms(0)
+            .render();
+            let ElementKind::Tooltip { options, .. } = &mut element.kind else {
+                unreachable!()
+            };
+            options.open_scale = 0.95;
+            options.enter_ms = Some(200);
+            options.enter_easing = easing;
+            let mut tree = UiTree::new(Element::column(vec![
+                Element::row(vec![Element::spacer().flex(1.0), element, Element::spacer().flex(1.0)]),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(reduced);
+            let start = Instant::now();
+            tree.layout_at(view, start);
+            assert!(tree.focus("mark"));
+            [0, 60, 75, 150, 200, 260].map(|ms| {
+                let frame = tree.layout_at(view, start + Duration::from_millis(ms));
+                frame
+                    .commands
+                    .iter()
+                    .find_map(|command| match command {
+                        DrawCommand::FillRect { rect, color, .. }
+                            if Color { a: style.background.a, ..*color } == style.background
+                                && rect.height > 20.0 =>
+                        {
+                            Some((rect.width, color.a))
+                        }
+                        _ => None,
+                    })
+                    .expect("the body")
+            })
+        };
+        let full = style.background.a;
+        let [_, _, _, _, _, (width, _)] = frames(Easing::OutCubic, true);
+        // At once under reduced motion, whichever the curve.
+        assert!(frames(Easing::Spring, true).iter().all(|&frame| frame == (width, full)));
+        // The default curve grows to full size and stops there, its fade still going at 60 ms.
+        assert_eq!(TooltipOptions::DEFAULT.enter_easing, Easing::OutCubic);
+        let eased = frames(Easing::OutCubic, false);
+        assert!(eased.iter().all(|&(w, _)| w <= width + 0.001), "{eased:?}");
+        assert!(eased[1].1 < full && eased[5] == (width, full), "{eased:?}");
+        // The spring: opaque by 60 ms, past full size at 75, a little short at 150, settled at 200.
+        let sprung = frames(Easing::Spring, false);
+        assert!(sprung[0].0 < width && sprung[0].1 < full, "{sprung:?}");
+        assert_eq!((sprung[1].1, sprung[2].1), (full, full), "{sprung:?}");
+        assert!(sprung[2].0 > width * 1.005, "{sprung:?} {width}");
+        assert!(sprung[3].0 < width - 0.01, "{sprung:?} {width}");
+        assert_eq!(&sprung[4..], &[(width, full); 2], "{sprung:?}");
+    }
+
+    #[test]
     fn a_small_icon_is_drawn_and_measured_at_its_side_between_8_and_16() {
         for (asked, side) in [(12.0, 12.0), (4.0, crate::SMALL_ICON_SIZE), (30.0, ICON_SIZE), (f32::NAN, ICON_SIZE)] {
             let icon = Element::icon(Icon::Volume).small_icon(asked);
@@ -17875,6 +18459,7 @@ mod tests {
             Size::new(140.0, 32.0),
             viewport,
             TooltipPlacement::Above,
+            TOOLTIP_GAP,
         );
         assert_eq!(actual, TooltipPlacement::Below);
         assert!(body.x >= 8.0);
@@ -17922,7 +18507,7 @@ mod tests {
                 TooltipPlacement::Above,
             ),
         ] {
-            let (body, actual) = place_tooltip(anchor, desired, viewport, preferred);
+            let (body, actual) = place_tooltip(anchor, desired, viewport, preferred, TOOLTIP_GAP);
             assert_eq!(actual, expected);
             assert!(
                 body.intersection(anchor).is_none(),

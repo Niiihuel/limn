@@ -6,7 +6,7 @@ use crate::components::{
 use crate::menu::{DetailRow, MenuCheck, SWITCH_WIDTH, action_style};
 use crate::page::px;
 use crate::{
-    Access, Color, Element, FontFamily, ICON_SIZE, Icon, InlineImage, MenuMotion, Point, PopoverPlacement, RasterImage,
+    Access, BoxShadow, Color, Element, FontFamily, ICON_SIZE, Icon, InlineImage, MenuMotion, Point, PopoverPlacement, RasterImage,
     Role, ScrollArea, ScrollbarAppearance, ScrollbarVisibility, SelectorSizing, Separator, Skeleton, TooltipSpec,
 };
 
@@ -490,15 +490,17 @@ fn group_boundaries(entries: Vec<DropdownMenuEntry>) -> Vec<DropdownMenuEntry> {
 }
 
 /// The density of a menu in `context_menu_style`, in logical pixels: its rows,
-/// labels, insets and separator. `Default` is the editor's context menu, which the
-/// style draws when no metrics are given. A number that is not finite, or is below
-/// zero, counts as zero.
+/// labels, insets and separator, and the edge of its surface. `Default` is the
+/// editor's context menu, which the style draws when no metrics are given. A
+/// number that is not finite, or is below zero, counts as zero.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ContextMenuMetrics {
     /// Height of a one-line row. A label that wraps makes its row taller.
     pub row_height: f32,
     /// Font size of a row's label.
     pub label_size: f32,
+    /// The face of a one-line row's label.
+    pub label_font_family: FontFamily,
     /// Font size of a heading and of a two-line row's second line.
     pub detail_size: f32,
     /// Space between the menu's surface and its rows, on every side.
@@ -516,6 +518,18 @@ pub struct ContextMenuMetrics {
     /// The tallest the menu gets before its rows scroll, surface included; a
     /// host can follow the window, as a menu that never leaves it.
     pub max_height: f32,
+    /// Corner radius of a row's hover and press fill; `None` takes the
+    /// control radius, and 0 keeps rows square inside a menu whose `inset` is
+    /// 0, so the surface's corners clip them.
+    pub row_radius: Option<f32>,
+    /// The surface's one-pixel outline and its separators; `None` is the
+    /// palette's `border`. A translucent color, such as a grey at 20 %,
+    /// lies over the surface's fill.
+    pub border: Option<Color>,
+    /// The surface's shadow, its color included; `None` is the palette's
+    /// `shadow` 6 px below, blurred 18. Kept within [`BoxShadow::new`]'s
+    /// bounds.
+    pub shadow: Option<BoxShadow>,
 }
 
 impl Default for ContextMenuMetrics {
@@ -523,6 +537,7 @@ impl Default for ContextMenuMetrics {
         Self {
             row_height: action_style::ROW_HEIGHT,
             label_size: action_style::LABEL_FONT_SIZE,
+            label_font_family: FontFamily::Sans,
             detail_size: action_style::SHORTCUT_FONT_SIZE,
             inset: action_style::INSET,
             horizontal_padding: action_style::HORIZONTAL_PADDING,
@@ -531,6 +546,9 @@ impl Default for ContextMenuMetrics {
             scrollbar_gutter: action_style::SCROLLBAR_GUTTER,
             header_height: action_style::HEADER_HEIGHT,
             max_height: action_style::MAX_HEIGHT,
+            row_radius: None,
+            border: None,
+            shadow: None,
         }
     }
 }
@@ -540,6 +558,7 @@ impl ContextMenuMetrics {
         Self {
             row_height: px(self.row_height),
             label_size: px(self.label_size),
+            label_font_family: self.label_font_family,
             detail_size: px(self.detail_size),
             inset: px(self.inset),
             horizontal_padding: px(self.horizontal_padding),
@@ -548,6 +567,11 @@ impl ContextMenuMetrics {
             scrollbar_gutter: px(self.scrollbar_gutter),
             header_height: px(self.header_height),
             max_height: px(self.max_height),
+            row_radius: self.row_radius.map(px),
+            border: self.border,
+            shadow: self
+                .shadow
+                .map(|shadow| BoxShadow::new(shadow.color, shadow.offset, shadow.blur, shadow.spread)),
         }
     }
 }
@@ -575,6 +599,7 @@ pub struct DropdownMenu {
     inline: bool,
     context_menu_style: bool,
     context_metrics: ContextMenuMetrics,
+    filled_choice: Option<(Color, Color)>,
     hints_in_tooltips: bool,
     check_ink: Option<Color>,
     selected_fill: bool,
@@ -616,6 +641,7 @@ impl DropdownMenu {
             inline: false,
             context_menu_style: false,
             context_metrics: ContextMenuMetrics::default(),
+            filled_choice: None,
             hints_in_tooltips: false,
             check_ink: None,
             selected_fill: true,
@@ -644,6 +670,16 @@ impl DropdownMenu {
         self
     }
 
+    /// In `context_menu_style`, mark the chosen row as a settings list does:
+    /// it keeps the palette's `selected` fill and its label the palette's
+    /// text, the other labels take the muted ink, and its check is a round
+    /// `mark` with a `tick` in it. Without it the chosen row shows only its
+    /// check. Its submenus take the same.
+    pub fn filled_choice(mut self, mark: Color, tick: Color) -> Self {
+        self.filled_choice = Some((mark, tick));
+        self
+    }
+
     /// Keep action labels readable in a deliberately narrow menu. Keyboard
     /// shortcuts and status annotations remain available in the row tooltip;
     /// action IDs, enabled state and keyboard navigation are unchanged.
@@ -662,7 +698,8 @@ impl DropdownMenu {
 
     /// Whether a selected row is filled with the palette's `selected`; on by
     /// default. Off, the check alone marks it, and it hovers as the others
-    /// do. A context menu style never fills it.
+    /// do. A context menu style fills it only with a
+    /// [`filled_choice`](Self::filled_choice).
     pub fn selected_fill(mut self, fill: bool) -> Self {
         self.selected_fill = fill;
         self
@@ -934,6 +971,7 @@ impl Component for DropdownMenu {
             );
             if contextual {
                 submenu = submenu.context_menu_style().context_metrics(metrics);
+                submenu.filled_choice = self.filled_choice;
             } else if let Some(sizing) = self.sizing {
                 submenu = submenu.sizing(sizing);
             }
@@ -983,7 +1021,7 @@ impl Component for DropdownMenu {
                     ),
                 DropdownMenuEntry::Separator if contextual => Element::panel(
                     Element::spacer()
-                        .background(palette.border)
+                        .background(metrics.border.unwrap_or(palette.border))
                         .size(None, Some(1.0)),
                 )
                 .padding(((metrics.separator_height - 1.0) / 2.0).max(0.0))
@@ -1139,7 +1177,12 @@ impl Component for DropdownMenu {
                     let submenu_id = item.action_id.clone();
                     let submenu = if enabled { item.submenu } else { None };
                     let submenu_width = item.submenu_width;
-                    let ink = item.destructive.unwrap_or(palette.text);
+                    // A filled choice is the only row in the text's ink.
+                    let marked = item.selected && (filled || self.filled_choice.is_some());
+                    let quiet = choices && !item.selected && self.filled_choice.is_some();
+                    let ink = item
+                        .destructive
+                        .unwrap_or(if quiet { palette.muted } else { palette.text });
                     let mut children = Vec::with_capacity(5);
                     if reserve_icon {
                         let fitted = icon_size.min(ICON_SIZE);
@@ -1171,7 +1214,7 @@ impl Component for DropdownMenu {
                         Element::truncated_text(item.label)
                     })
                     .foreground(if enabled { ink } else { palette.muted })
-                    .font_family(FontFamily::Sans)
+                    .font_family(if contextual { metrics.label_font_family } else { FontFamily::Sans })
                     .font_size(label_size);
                     children.push(if contextual {
                         // Center the measured text block, including a single
@@ -1225,6 +1268,18 @@ impl Component for DropdownMenu {
                                 check
                                     .mark(icon_size.min(ICON_SIZE), ink, accent, palette)
                                     .centered()
+                            } else if let (true, Some((mark, tick))) =
+                                (item.selected, self.filled_choice)
+                            {
+                                let side = icon_size.min(ICON_SIZE);
+                                Element::panel(
+                                    Element::icon(Icon::Check).small_icon(side - 4.0).foreground(tick),
+                                )
+                                .padding(2.0)
+                                .background(mark)
+                                .radius(side / 2.0)
+                                .size(Some(side), Some(side))
+                                .centered()
                             } else if item.selected {
                                 Element::icon(Icon::Check)
                                     .foreground(if enabled { self.check_ink.unwrap_or(ink) } else { ink })
@@ -1289,19 +1344,19 @@ impl Component for DropdownMenu {
                     // The popover paints one continuous surface. Resting rows
                     // are transparent so their fills cannot stack with that
                     // surface while the whole menu fades in or out.
-                    let row = if item.selected && filled {
+                    let row = if marked {
                         row.background(palette.selected)
                     } else {
                         row
                     };
                     let row = palette
                         .interactive_surface(row)
-                        .hover_background(if item.selected && filled {
+                        .hover_background(if marked {
                             lighter(palette.selected, 8)
                         } else {
                             palette.hover
                         })
-                        .pressed_background(if item.selected && filled {
+                        .pressed_background(if marked {
                             lighter(palette.selected, 14)
                         } else {
                             palette.selected
@@ -1313,7 +1368,7 @@ impl Component for DropdownMenu {
                         let row = row
                             .size(None, None)
                             .min_size(0.0, row_height)
-                            .radius(action_style::row_radius())
+                            .radius(metrics.row_radius.unwrap_or_else(action_style::row_radius))
                             .transition_ms(0);
                         if enabled { row.action_menu_item() } else { row }
                     } else {
@@ -1379,7 +1434,15 @@ impl Component for DropdownMenu {
             content
         };
         if contextual {
-            let surface = action_style::surface(content, palette, self.width, None, metrics.inset);
+            let surface = action_style::surface(
+                content,
+                palette,
+                self.width,
+                None,
+                metrics.inset,
+                metrics.border,
+                metrics.shadow,
+            );
             if self.inline {
                 return Element::column(vec![self.anchor, surface])
                     .gap(4.0)
@@ -1794,7 +1857,7 @@ mod tests {
                     .commands
                     .iter()
                     .filter_map(|command| match command {
-                        DrawCommand::Icon { icon, rect, tint } if *icon == kind => {
+                        DrawCommand::Icon { icon, rect, tint, .. } if *icon == kind => {
                             Some((*rect, *tint))
                         }
                         _ => None,
@@ -1862,7 +1925,7 @@ mod tests {
         assert!((detail.y - label.y - sizing.row_height / 2.0).abs() < 1.0);
         let ends = |kind: Icon| {
             frame.commands.iter().find_map(|command| match command {
-                DrawCommand::Icon { icon, rect, tint } if *icon == kind => {
+                DrawCommand::Icon { icon, rect, tint, .. } if *icon == kind => {
                     Some((rect.x + rect.width, *tint))
                 }
                 _ => None,
@@ -2829,9 +2892,12 @@ mod tests {
 
     #[test]
     fn a_context_menu_takes_its_metrics_and_so_do_its_submenus() {
+        let ring = Color::rgba(149, 149, 162, 51);
+        let shadow = BoxShadow::new(Color::rgba(0, 0, 0, 61), Point::new(0.0, 12.0), 24.0, 0.0);
         let metrics = ContextMenuMetrics {
             row_height: 32.0,
             label_size: 14.0,
+            label_font_family: FontFamily::SansMedium,
             detail_size: 12.0,
             inset: 8.0,
             horizontal_padding: 8.0,
@@ -2840,6 +2906,9 @@ mod tests {
             scrollbar_gutter: 14.0,
             header_height: 24.0,
             max_height: 480.0,
+            row_radius: Some(0.0),
+            border: Some(ring),
+            shadow: Some(shadow),
         };
         let mut tree = open_menu(
             DropdownMenu::new(
@@ -2876,6 +2945,26 @@ mod tests {
         assert_eq!(settings.y - (rename.y + rename.height), 17.0);
         assert_eq!(settings.height, 32.0);
         assert_eq!(font_size(&frame, "Renombrar"), Some(14.0));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, font_family: FontFamily::SansMedium, .. } if text == "Renombrar"
+        )));
+        // Its edge: the outline and the separator in the host's ring, its shadow.
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::StrokeRect { rect, color, .. } if *rect == surface && *color == ring
+        )));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { rect, color, .. } if *color == ring && rect.height == 1.0
+        )));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Shadow { shadow: drawn, .. } if *drawn == shadow
+        )));
+        // Square rows under the pointer.
+        tree.handle_event(UiEvent::PointerMove(Point::new(rename.x + 20.0, rename.y + 10.0)));
+        let hovered = tree.layout(viewport);
+        assert!(hovered.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { rect, color, radius }
+                if *rect == rename && *color == ComponentPalette::neutral_dark().hover && *radius == 0.0
+        )));
         assert!(tree.focus("settings"));
         tree.handle_event(UiEvent::Key {
             key: Key::ArrowRight,
@@ -2889,6 +2978,56 @@ mod tests {
         assert_eq!(account.height, 32.0);
         assert_eq!(account.y - nested_surface.y, 8.0);
         assert_eq!(font_size(&nested, "Cuenta"), Some(14.0));
+    }
+
+    #[test]
+    fn a_filled_choice_fills_the_chosen_row_mutes_the_others_and_rounds_its_check() {
+        let palette = ComponentPalette::neutral_dark();
+        let (mark, tick) = (Color::rgb(88, 101, 242), Color::WHITE);
+        let menu = |filled: bool| {
+            let menu = DropdownMenu::new(
+                Element::button("trigger", "Micrófono"),
+                vec![
+                    DropdownMenuItem::new("default", "Predeterminado").selected(true).into(),
+                    DropdownMenuItem::new("usb", "USB").into(),
+                ],
+                true,
+                "dismiss",
+                palette,
+            )
+            .context_menu_style();
+            open_menu(if filled { menu.filled_choice(mark, tick) } else { menu })
+        };
+        let ink = |frame: &crate::Frame, label: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, color, .. } if text == label => Some(*color),
+                _ => None,
+            })
+        };
+        let viewport = Size::new(500.0, 300.0);
+        let frame = menu(true).layout(viewport);
+        let chosen = region(&frame, "default");
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { rect, color, .. } if *rect == chosen && *color == palette.selected
+        )));
+        assert_eq!(ink(&frame, "Predeterminado"), Some(palette.text));
+        assert_eq!(ink(&frame, "USB"), Some(palette.muted));
+        let disc = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { rect, color, radius } if *color == mark => Some((*rect, *radius)),
+            _ => None,
+        });
+        let (disc, radius) = disc.expect("a round check");
+        assert_eq!(radius, disc.width / 2.0);
+        assert!(chosen.contains(Point::new(disc.x + disc.width / 2.0, disc.y + disc.height / 2.0)));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Icon { icon: Icon::Check, tint, rect, .. } if *tint == tick && rect.width < ICON_SIZE
+        )));
+        // Without it, the chosen row shows only its check, every label in the text's ink.
+        let plain = menu(false).layout(viewport);
+        assert!(!plain.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { color, .. } if *color == palette.selected || *color == mark
+        )));
+        assert_eq!(ink(&plain, "USB"), Some(palette.text));
     }
 
     #[test]
@@ -4421,7 +4560,7 @@ mod tests {
             let (ticked, fill, _) = mark("mute");
             assert_eq!(fill, Some(palette.text));
             assert!(frame.commands.iter().any(|command| matches!(command,
-                DrawCommand::Icon { icon: Icon::Check, tint, rect } if *tint == palette.surface && rect.x >= ticked.x)));
+                DrawCommand::Icon { icon: Icon::Check, tint, rect, .. } if *tint == palette.surface && rect.x >= ticked.x)));
             assert_eq!(mark("hide").1, None, "an empty box is an outline");
             assert_eq!(mark("hide").2, Some(palette.muted));
             let (chosen, fill, _) = mark("all");
@@ -4729,7 +4868,7 @@ mod tests {
             let row = region(&frame, "notify");
             assert_eq!(row.height, SelectorSizing::COMPACT.detail_row_height);
             assert!(frame.commands.iter().any(|command| matches!(command,
-                DrawCommand::Icon { icon: Icon::ChevronRight, rect, tint }
+                DrawCommand::Icon { icon: Icon::ChevronRight, rect, tint, .. }
                     if *tint == palette.muted && rect.y >= row.y && rect.y + rect.height <= row.y + row.height)));
             let node = frame
                 .access

@@ -78,7 +78,7 @@ struct Upload {
 
 fn texture(ctx: &egui::Context, key: IconKey) -> Upload {
     let mut id = None;
-    let mut output = ctx.run_ui(Default::default(), |ui| id = icon_texture(ui, key));
+    let mut output = ctx.run_ui(Default::default(), |ui| id = icon_texture(ui, key, false));
     let id = id.unwrap();
     let image = output.textures_delta.set.get(&id).and_then(|deltas| deltas.last()).map(|delta| match &delta.image {
         egui::ImageData::Color(image) => image.as_ref().clone(),

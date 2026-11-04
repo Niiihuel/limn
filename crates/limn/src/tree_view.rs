@@ -482,7 +482,7 @@ mod tests {
                 .commands
                 .iter()
                 .filter_map(|command| match command {
-                    DrawCommand::Icon { rect, icon, tint } => Some((*rect, *icon, *tint)),
+                    DrawCommand::Icon { rect, icon, tint, .. } => Some((*rect, *icon, *tint)),
                     _ => None,
                 })
                 .collect()

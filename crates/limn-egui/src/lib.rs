@@ -183,8 +183,9 @@ struct IconKey {
 #[derive(Default)]
 struct IconCache {
     context: Option<egui::Context>,
-    textures: HashMap<IconKey, egui::TextureHandle>,
-    order: VecDeque<IconKey>,
+    /// Each icon's texture, and whether it is sampled linearly.
+    textures: HashMap<(IconKey, bool), egui::TextureHandle>,
+    order: VecDeque<(IconKey, bool)>,
 }
 
 const ICON_TEXTURE_CACHE_ENTRIES: usize = 512;
@@ -1134,7 +1135,9 @@ fn raster_icon(key: IconKey) -> Option<egui::ColorImage> {
     ))
 }
 
-fn icon_texture(ui: &egui::Ui, key: IconKey) -> Option<egui::TextureId> {
+/// The texture of `key`, sampled linearly when `smooth`, for an icon drawn
+/// turned or stretched, and at its nearest pixel otherwise.
+fn icon_texture(ui: &egui::Ui, key: IconKey, smooth: bool) -> Option<egui::TextureId> {
     ICON_CACHE.with(|cache| {
         let mut cache = cache.borrow_mut();
         if cache.context.as_ref() != Some(ui.ctx()) {
@@ -1142,18 +1145,18 @@ fn icon_texture(ui: &egui::Ui, key: IconKey) -> Option<egui::TextureId> {
             cache.order.clear();
             cache.context = Some(ui.ctx().clone());
         }
-        if let Some(texture) = cache.textures.get(&key) {
+        if let Some(texture) = cache.textures.get(&(key, smooth)) {
             return Some(texture.id());
         }
         let image = raster_icon(key)?;
         let texture = ui.ctx().load_texture(
-            format!("limn-icon:{:?}:{}", key.icon, key.pixels),
+            format!("limn-icon:{:?}:{}:{smooth}", key.icon, key.pixels),
             image,
-            egui::TextureOptions::NEAREST,
+            if smooth { egui::TextureOptions::LINEAR } else { egui::TextureOptions::NEAREST },
         );
         let id = texture.id();
-        cache.textures.insert(key, texture);
-        cache.order.push_back(key);
+        cache.textures.insert((key, smooth), texture);
+        cache.order.push_back((key, smooth));
         while cache.order.len() > ICON_TEXTURE_CACHE_ENTRIES {
             if let Some(oldest) = cache.order.pop_front() {
                 cache.textures.remove(&oldest);
@@ -1161,6 +1164,20 @@ fn icon_texture(ui: &egui::Ui, key: IconKey) -> Option<egui::TextureId> {
         }
         Some(id)
     })
+}
+
+/// The icon's quad over `area`, stretched and then turned clockwise about
+/// its middle as `transform` says.
+fn transformed_icon(texture: egui::TextureId, area: EguiRect, transform: limn::IconTransform, tint: Color32) -> egui::Mesh {
+    let stretched = egui::vec2(area.width() * transform.scale_x, area.height() * transform.scale_y);
+    let mut mesh = egui::Mesh::with_texture(texture);
+    mesh.add_rect_with_uv(
+        EguiRect::from_center_size(area.center(), stretched),
+        EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+        tint,
+    );
+    mesh.rotate(egui::emath::Rot2::from_angle(transform.angle), area.center());
+    mesh
 }
 
 fn icon_tint(icon: Icon, tint: Color) -> Color32 {
@@ -2134,22 +2151,29 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 rect: area,
                 icon,
                 tint,
+                transform,
             } => {
                 if let Some((aligned, pixels)) =
                     aligned_icon_rect(rect(origin, *area), ui.ctx().pixels_per_point())
                 {
+                    // A turned or stretched icon is sampled between its pixels.
+                    let smooth = *transform != limn::IconTransform::IDENTITY;
                     let key = IconKey {
                         icon: *icon,
                         pixels,
                     };
-                    if let Some(texture) = icon_texture(ui, key) {
+                    if let Some(texture) = icon_texture(ui, key, smooth) {
                         let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                        painter.image(
-                            texture,
-                            aligned,
-                            EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                            icon_tint(*icon, *tint),
-                        );
+                        if smooth {
+                            painter.add(egui::Shape::mesh(transformed_icon(texture, aligned, *transform, icon_tint(*icon, *tint))));
+                        } else {
+                            painter.image(
+                                texture,
+                                aligned,
+                                EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                                icon_tint(*icon, *tint),
+                            );
+                        }
                     }
                 }
             }
@@ -4481,6 +4505,42 @@ mod tests {
         assert!((aligned.center().x - area.center().x).abs() <= 0.8);
         assert!((aligned.center().y - area.center().y).abs() <= 0.8);
         assert!(aligned_icon_rect(area, 0.0).is_none());
+    }
+
+    #[test]
+    fn a_transformed_icon_is_its_quad_stretched_then_turned_clockwise_about_its_middle() {
+        let quad = |transform: limn::IconTransform| {
+            let ctx = egui::Context::default();
+            ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+            let mut frame = Frame::default();
+            frame.commands.push(DrawCommand::Icon {
+                rect: limn::Rect::new(10.0, 10.0, 20.0, 20.0),
+                icon: Icon::Settings,
+                tint: Color::rgb(255, 255, 255),
+                transform,
+            });
+            let mut output = ctx.run_ui(Default::default(), |ui| paint_at(ui, &frame, Pos2::ZERO));
+            output.textures_delta.clear();
+            ctx.tessellate(output.shapes, output.pixels_per_point)
+                .into_iter()
+                .find_map(|clipped| match clipped.primitive {
+                    egui::epaint::Primitive::Mesh(mesh) if mesh.texture_id != egui::TextureId::default() => Some(mesh),
+                    _ => None,
+                })
+                .expect("the icon is painted")
+        };
+        let rest = limn::IconTransform::IDENTITY;
+        let center = Pos2::new(20.0, 20.0);
+        assert_eq!(quad(rest).calc_bounds(), EguiRect::from_center_size(center, egui::Vec2::splat(20.0)));
+        let turned = quad(limn::IconTransform { angle: std::f32::consts::FRAC_PI_4, ..rest });
+        let reach = 200.0_f32.sqrt();
+        assert_eq!(turned.vertices.len(), 4);
+        assert!(turned.vertices.iter().all(|vertex| (vertex.pos.distance(center) - reach).abs() < 1e-3));
+        // Turned clockwise, the picture's top-left corner comes to the top.
+        let top_left = turned.vertices.iter().find(|vertex| vertex.uv == Pos2::ZERO).unwrap().pos;
+        assert!(top_left.distance(Pos2::new(20.0, 20.0 - reach)) < 1e-3, "{top_left:?}");
+        let stretched = quad(limn::IconTransform { scale_x: 1.5, scale_y: 0.5, ..rest });
+        assert_eq!(stretched.calc_bounds(), EguiRect::from_center_size(center, egui::vec2(30.0, 10.0)));
     }
 
     #[test]

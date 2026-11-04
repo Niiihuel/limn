@@ -69,6 +69,10 @@ Button::new("open", "Open", palette)
 `IconButton` is the button whose icon is mandatory; without a label it is
 square.
 
+The leading icon is drawn at the sizing's `icon_size`, 16 px in every
+`ButtonSize` and `ControlSize`; a `ButtonSizing` with 20 draws it at 20,
+enabled or disabled. The trailing icon keeps 16 px.
+
 ## Picture
 
 ```rust

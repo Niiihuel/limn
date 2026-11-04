@@ -2,8 +2,8 @@
 
 use crate::components::{control_radius, input_surface, lighter};
 use crate::{
-    Access, Button, ButtonVariant, Color, Component, ComponentPalette, ControlSize,
-    DropdownMenu, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,
+    Access, Button, ButtonVariant, Color, Component, ComponentPalette, ContextMenuMetrics,
+    ControlSize, DropdownMenu, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,
     Role, SelectorSizing, ICON_SIZE,
 };
 
@@ -51,6 +51,9 @@ pub struct Select {
     ink: Option<Color>,
     outline: Option<(Color, Color)>,
     radius: Option<f32>,
+    menu_metrics: Option<ContextMenuMetrics>,
+    menu_gap: Option<f32>,
+    filled_choice: Option<(Color, Color)>,
 }
 
 impl Select {
@@ -87,6 +90,9 @@ impl Select {
             ink: None,
             outline: None,
             radius: None,
+            menu_metrics: None,
+            menu_gap: None,
+            filled_choice: None,
         }
     }
 
@@ -219,6 +225,33 @@ impl Select {
         self
     }
 
+    /// The list's rows, labels, inset and surface, as
+    /// [`DropdownMenu::context_metrics`] takes them, in place of the editor's
+    /// compact menu: such as 44 px options of 16 px text, flush with a list
+    /// whose `inset` and `row_radius` are 0.
+    pub fn menu_metrics(mut self, metrics: ContextMenuMetrics) -> Self {
+        self.menu_metrics = Some(metrics);
+        self
+    }
+
+    /// The space between the trigger and its open list, in logical pixels,
+    /// 5 unless set. A value that is not finite or below zero is ignored.
+    pub fn menu_gap(mut self, gap: f32) -> Self {
+        if gap.is_finite() && gap >= 0.0 {
+            self.menu_gap = Some(gap);
+        }
+        self
+    }
+
+    /// Mark the chosen option in the list as a settings page does, as
+    /// [`DropdownMenu::filled_choice`] does: the list palette's `selected`
+    /// fill behind it, the other options muted and a round `mark` with a
+    /// `tick` for its check.
+    pub fn filled_choice(mut self, mark: Color, tick: Color) -> Self {
+        self.filled_choice = Some((mark, tick));
+        self
+    }
+
     /// A disabled select shows its value, stays closed and cannot be focused.
     pub fn enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
@@ -331,7 +364,18 @@ impl Component for Select {
         if let Some(header) = self.header {
             menu = menu.header(*header);
         }
-        menu.render().size(width, Some(height))
+        if let Some(metrics) = self.menu_metrics {
+            menu = menu.context_metrics(metrics);
+        }
+        if let Some((mark, tick)) = self.filled_choice {
+            menu = menu.filled_choice(mark, tick);
+        }
+        let menu = menu.render();
+        match self.menu_gap {
+            Some(gap) => menu.popover_gap(gap),
+            None => menu,
+        }
+        .size(width, Some(height))
     }
 }
 
@@ -415,7 +459,7 @@ impl Select {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Key, Point, Size, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, Key, Point, Size, UiAction, UiEvent, UiTree};
 
     fn select(open: bool) -> Select {
         Select::new(
@@ -455,6 +499,66 @@ mod tests {
         assert_eq!(trigger.height, ControlSize::Compact.height());
         let open = tree(select(true).variant(SelectVariant::Plain)).layout(VIEWPORT);
         assert!(rect(&open, "shell:zsh").is_some());
+    }
+
+    #[test]
+    fn its_list_takes_the_host_metrics_gap_and_filled_choice() {
+        let palette = ComponentPalette::neutral_dark();
+        let (mark, tick) = (Color::rgb(88, 101, 242), Color::WHITE);
+        let list = |gap: f32| {
+            select(true)
+                .variant(SelectVariant::Field)
+                .width(240.0)
+                .menu_width(240.0)
+                .menu_metrics(ContextMenuMetrics {
+                    row_height: 44.0,
+                    label_size: 16.0,
+                    inset: 0.0,
+                    horizontal_padding: 12.0,
+                    row_radius: Some(0.0),
+                    ..ContextMenuMetrics::default()
+                })
+                .menu_gap(gap)
+                .filled_choice(mark, tick)
+        };
+        let frame = tree(list(8.0).menu_gap(f32::NAN).menu_gap(-1.0)).layout(VIEWPORT);
+        let trigger = rect(&frame, "toggle").unwrap();
+        let surface = rect(&frame, "popover_surface:dismiss").unwrap();
+        let bash = rect(&frame, "shell:bash").unwrap();
+        assert_eq!(surface.y - (trigger.y + trigger.height), 8.0);
+        assert_eq!((bash.x, bash.y, bash.width, bash.height), (surface.x, surface.y, surface.width, 44.0));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::Text { text, font_size, .. } if text == "Zsh" && *font_size == 16.0
+        )));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { rect, color, .. } if *rect == bash && *color == palette.selected
+        )));
+        assert!(frame.commands.iter().any(|command| matches!(command,
+            DrawCommand::FillRect { color, .. } if *color == mark
+        )));
+        // A long option wraps unless it is cut on one line.
+        let long = "Ryzen HD Audio Controller Analog Stereo Speakers";
+        let lines = |truncate: bool| {
+            let option = DropdownOption::new("long", long);
+            let option = if truncate { option.truncate() } else { option };
+            let list = Select::new("toggle", "—", vec![option], true, "dismiss", palette)
+                .width(160.0)
+                .menu_width(160.0);
+            tree(list)
+                .layout(VIEWPORT)
+                .commands
+                .iter()
+                .filter(|command| matches!(command, DrawCommand::Text { text, .. }
+                    if !text.is_empty() && long.contains(text.trim_end_matches('…').trim())))
+                .count()
+        };
+        assert!(lines(false) > 1);
+        assert_eq!(lines(true), 1);
+        // Unless set, the list stands 5 below.
+        let frame = tree(select(true).variant(SelectVariant::Field).width(240.0)).layout(VIEWPORT);
+        let trigger = rect(&frame, "toggle").unwrap();
+        let surface = rect(&frame, "popover_surface:dismiss").unwrap();
+        assert_eq!(surface.y - (trigger.y + trigger.height), 5.0);
     }
 
     #[test]
