@@ -1119,8 +1119,10 @@ impl Component for DropdownMenu {
                         .annotation
                         .as_ref()
                         .map(|value| {
+                            // At least 28 px, so "LF" or "On" has its room; less is only left
+                            // where the row has no more.
                             (value.chars().count() as f32 * 7.0 + 12.0)
-                                .min(140.0)
+                                .clamp(28.0, 140.0)
                                 .min((main_width - 40.0 - gap).max(0.0))
                         })
                         .filter(|width| *width >= 28.0);
@@ -4110,6 +4112,28 @@ mod tests {
         assert!(frame.commands.iter().any(|command| matches!(command,
             DrawCommand::Text { text, .. } if text == "En tu cuenta"
         )));
+    }
+
+    #[test]
+    fn a_short_annotation_is_shown_too() {
+        let menu = DropdownMenu::new(
+            Element::button("trigger", "File"),
+            vec![
+                DropdownMenuItem::new("endings", "Line endings").annotation("LF").into(),
+                DropdownMenuItem::new("wrap", "Wrap").annotation("On").disabled().into(),
+            ],
+            true,
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        )
+        .width(225.0)
+        .render();
+        let frame = UiTree::new(menu).layout(Size::new(400.0, 260.0));
+        for short in ["LF", "On"] {
+            assert!(frame.commands.iter().any(|command| matches!(command,
+                DrawCommand::Text { text, .. } if text == short
+            )), "{short}");
+        }
     }
 
     #[test]

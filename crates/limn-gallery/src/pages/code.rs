@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
-    Button, ButtonVariant, CodeDiff, CodeEditor, EditorController, CodeDiffLine, CodeDiffLineKind, CodeLanguage, Component, DiffFileHeader,
-    Element, RadiusRole,
+    Button, ButtonVariant, CodeDiff, CodeEditor, EditorController, CodeDiffLine, CodeDiffLineKind, CodeFoldCandidate, CodeLanguage, CodeStickyScope, CodeSyntaxColors, Color,
+    Component, DiffColors, DiffFileHeader, Element, RadiusRole,
 };
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -121,7 +121,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 kind: CodeDiffLineKind::Folded,
                 old_line: None,
                 new_line: None,
-                text: "Show 6 more lines".into(),
+                text: "Show more lines".into(),
             });
         }
         lines.push(rows([(' ', "fn main() {}".to_owned())], 8).remove(0));
@@ -137,6 +137,27 @@ pub fn view(cx: &Cx) -> Vec<Section> {
         .collect::<Vec<_>>()
         .into();
     let header_collapsed = cx.state.flag("code-diff-file");
+    // Warm tints and inks a host might choose: sage and clay changes, clay keywords, sage strings.
+    let rgb = |hex: u32| Color::rgb((hex >> 16) as u8, (hex >> 8) as u8, hex as u8);
+    let host = DiffColors {
+        add_row: Color::rgba(0xa9, 0xbf, 0x84, 22),
+        add_word: Color::rgba(0xa9, 0xbf, 0x84, 62),
+        del_row: Color::rgba(0xe0, 0x8b, 0x6a, 22),
+        del_word: Color::rgba(0xe0, 0x8b, 0x6a, 62),
+        add_bar: rgb(0xa9bf84),
+        del_bar: rgb(0xe08b6a),
+    };
+    let inks = CodeSyntaxColors {
+        text: rgb(0xe8e3da),
+        keyword: rgb(0xe0876a),
+        string: rgb(0xb3c48d),
+        number: rgb(0xe6b673),
+        comment: rgb(0x8b857c),
+        function: Some(rgb(0x9cbad6)),
+        interpolation: Some(rgb(0xd77d78)),
+        types: Some(rgb(0xc7a6dd)),
+        properties: Some(rgb(0x8cbfb3)),
+    };
     let outline = |id: String, label: &str| Button::new(id, label, palette).variant(ButtonVariant::Outline).render();
     vec![
         section(cx, "Code editor", vec![
@@ -148,6 +169,26 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .height(220.0)
                 .render()
                 .accessibility_label("greet.rs"),
+            caption(cx, "structure() with the blocks it may fold: their chevrons show while the pointer is over the gutter, and a folded block's always. A click folds or opens one."),
+            {
+                // greet, its if, and main, by zero-based rows; a click flips the flag named by its ID.
+                let fold = |row: usize| format!("code-editor-fold:{row}");
+                let blocks = [(1, 8), (3, 6), (9, 12)];
+                let candidates: Vec<_> = blocks
+                    .iter()
+                    .map(|&(start_row, end_row)| CodeFoldCandidate { start_row, end_row, action_id: fold(start_row) })
+                    .collect();
+                let folded: Vec<_> = blocks.iter().filter(|(start, _)| cx.state.flag(&fold(*start))).map(|&(start, end)| start..end).collect();
+                let (document, revision) = editor().snapshot().map_or((0, 0), |s| (s.document_id(), s.revision()));
+                CodeEditor::new("code-editor-structure", editor())
+                    .palette(palette)
+                    .language(CodeLanguage::Rust)
+                    .structure(document, revision, candidates, Vec::<CodeStickyScope>::new())
+                    .folds(folded)
+                    .height(220.0)
+                    .render()
+                    .accessibility_label("greet.rs")
+            },
         ]),
         section(cx, "Code diff", vec![
             caption(cx, "The rows the host gives it, with the old and the new line number and a column of marks. The language colors comments, strings, numbers and keywords."),
@@ -184,6 +225,20 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                         .height(height_of(review.len()))
                         .render()
                 },
+            ])
+            .radius(RadiusRole::Surface.px())
+            .clip_children()
+            .size(Some(width), None),
+            caption(cx, "colors() and syntax_colors(): a host's own tints, marks and inks, the header's counts with them."),
+            Element::column(vec![
+                DiffFileHeader::new("code-diff-host-file", "src/total.rs", palette).stat(2, 8).colors(host).render(),
+                CodeDiff::new("code-diff-host", patch())
+                    .palette(palette)
+                    .language(CodeLanguage::Rust)
+                    .colors(host)
+                    .syntax_colors(inks)
+                    .height(height_of(PATCH.len()))
+                    .render(),
             ])
             .radius(RadiusRole::Surface.px())
             .clip_children()
