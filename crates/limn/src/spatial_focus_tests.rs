@@ -84,3 +84,22 @@ fn a_fields_caret_keeps_left_and_right_but_up_and_down_leave_it() {
     press(&mut tree, Key::ArrowDown);
     assert_eq!(tree.focused_id(), Some("below"));
 }
+
+#[test]
+fn a_rows_end_stops_left_and_right_but_up_and_down_reach_a_short_row() {
+    // A bar of three over one card at the far left.
+    let page = Element::column(vec![
+        Element::row(vec![Element::spacer().flex(1.0), button("home"), button("library"), button("settings")]).gap(20.0),
+        Element::row(vec![button("card"), Element::spacer().flex(1.0)]),
+    ])
+    .gap(60.0);
+    let mut tree = UiTree::new(page);
+    tree.set_spatial_focus(true);
+    tree.layout(VIEWPORT);
+    assert!(tree.focus("home"));
+    press(&mut tree, Key::ArrowLeft);
+    assert_eq!(tree.focused_id(), Some("home"), "nothing in its row to the left: it stays rather than drop to the card");
+    assert!(tree.focus("settings"));
+    press(&mut tree, Key::ArrowDown);
+    assert_eq!(tree.focused_id(), Some("card"), "down reaches the row below, short as it is");
+}

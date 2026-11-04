@@ -4140,15 +4140,19 @@ fn gradient_bands(rect: Rect, stops: &[Color], opacity: f32, clip: Option<Rect>)
 }
 
 /// Of `candidates`, the one a press of `key` moves the focus to from `from`,
-/// as a remote's arrows do: one ahead of it in that direction, the nearest by
-/// how far ahead it is and twice how far it stands to the side, the one most
-/// in line with it among equals.
+/// as a remote's arrows do: one ahead of it in that direction, those in its
+/// lane first (overlapping it across the direction), then the nearest by how
+/// far ahead it is and twice how far it stands to the side, the most in line
+/// among equals. Out of its lane Up and Down still reach the nearest, as from
+/// a bar down into a short shelf, but Left and Right only what stands less
+/// than its own height off, so the end of a row does not drop into the next.
 fn nearest_in_direction<'a>(from: Rect, key: Key, candidates: impl Iterator<Item = (&'a str, Rect)>) -> Option<&'a str> {
     // How far apart two spans are along one axis; 0 where they overlap.
     let apart = |a: (f32, f32), b: (f32, f32)| (b.0 - a.1).max(a.0 - b.1).max(0.0);
     let (across_x, across_y) = ((from.x, from.x + from.width), (from.y, from.y + from.height));
     let centre = |rect: Rect| (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
     let (fx, fy) = centre(from);
+    let sideways = matches!(key, Key::ArrowLeft | Key::ArrowRight);
     candidates
         .filter_map(|(id, to)| {
             let (tx, ty) = centre(to);
@@ -4160,10 +4164,12 @@ fn nearest_in_direction<'a>(from: Rect, key: Key, candidates: impl Iterator<Item
                 _ => return None,
             };
             // Past its edge, give or take a hairline of overlap.
-            (ahead >= -1.0).then_some((id, ahead.max(0.0) + 2.0 * aside + 0.01 * offset))
+            let ahead_of_it = ahead >= -1.0;
+            let reachable = aside == 0.0 || !sideways || aside < from.height;
+            (ahead_of_it && reachable).then_some((id, aside > 0.0, ahead.max(0.0) + 2.0 * aside + 0.01 * offset))
         })
-        .min_by(|a, b| a.1.total_cmp(&b.1))
-        .map(|(id, _)| id)
+        .min_by(|a, b| a.1.cmp(&b.1).then(a.2.total_cmp(&b.2)))
+        .map(|(id, ..)| id)
 }
 
 fn char_range(value: &str, start: usize, end: usize) -> &str {
