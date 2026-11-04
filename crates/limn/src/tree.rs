@@ -4178,6 +4178,29 @@ fn byte_index(value: &str, char_index: usize) -> usize {
         .map_or(value.len(), |(index, _)| index)
 }
 
+/// The bands a gradient ink is painted in across `rect`: two dozen slices of it, each inside
+/// `clip`, in its colour blended from `stops` spread evenly from the left to the right, its
+/// alpha scaled by `opacity`.
+fn gradient_bands(rect: Rect, stops: &[Color], opacity: f32, clip: Option<Rect>) -> Vec<(Rect, Color)> {
+    const BANDS: usize = 24;
+    let last = (stops.len() - 1) as f32;
+    (0..BANDS)
+        .filter_map(|band| {
+            let left = rect.x + rect.width * band as f32 / BANDS as f32;
+            let right = rect.x + rect.width * (band + 1) as f32 / BANDS as f32;
+            let area = Rect::new(left, rect.y, right - left, rect.height);
+            let area = clip.map_or(Some(area), |outer| area.intersection(outer)).filter(|area| area.width > 0.0 && area.height > 0.0)?;
+            let at = (band as f32 + 0.5) / BANDS as f32 * last;
+            let from = stops[at.floor() as usize];
+            let to = stops[(at.ceil() as usize).min(stops.len() - 1)];
+            let mix = at.fract();
+            let blend = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * mix).round() as u8;
+            let color = Color::rgba(blend(from.r, to.r), blend(from.g, to.g), blend(from.b, to.b), (f32::from(blend(from.a, to.a)) * opacity).round() as u8);
+            Some((area, color))
+        })
+        .collect()
+}
+
 fn char_range(value: &str, start: usize, end: usize) -> &str {
     &value[byte_index(value, start)..byte_index(value, end)]
 }
@@ -10674,11 +10697,11 @@ impl LayoutBuilder<'_> {
 
     /// Paint text laid out in a `TextLayout`: its selection, its glyphs, and
     /// the selectable block a pointer reads it back from.
-    fn paint_laid_out_text(&mut self, value: &str, content: Rect, style: Style, clip: Option<Rect>) {
+    fn paint_laid_out_text(&mut self, value: &str, content: Rect, style: Style, clip: Option<Rect>, ink: Option<&[Color]>) {
         let layout = self.laid_out_text(value, style, content.width, style.center_content);
         let origin = Point::new(content.x, content.y);
         let block_index = self.frame.text_blocks.len();
-        let runs = self.paint_layout(&layout, value, origin, style, clip, block_index);
+        let runs = self.paint_layout(&layout, value, origin, style, clip, block_index, ink);
         self.frame.text_blocks.push(SelectableTextBlock {
             source: value.to_owned(),
             scope: self.selection_scope,
@@ -10771,7 +10794,7 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
-        let runs = self.paint_layout(&layout, &source, origin, style, clip, block_index);
+        let runs = self.paint_layout(&layout, &source, origin, style, clip, block_index, None);
         for (index, span) in spans.iter().enumerate() {
             let Some(id) = span.action.as_deref() else {
                 continue;
@@ -10807,6 +10830,9 @@ impl LayoutBuilder<'_> {
     /// What every text laid out in a `TextLayout` paints: its selection under
     /// it, then what the layout draws. Gives its lines as selectable runs of
     /// `source`.
+    /// Paint `layout` from `origin`, in the foreground or, given `ink` of two stops or more,
+    /// in them across each of its lines as `foreground_gradient` says.
+    #[allow(clippy::too_many_arguments)]
     fn paint_layout(
         &mut self,
         layout: &crate::TextLayout,
@@ -10815,6 +10841,7 @@ impl LayoutBuilder<'_> {
         style: Style,
         clip: Option<Rect>,
         block_index: usize,
+        ink: Option<&[Color]>,
     ) -> Vec<SelectableTextRun> {
         let mut runs = Vec::new();
         let mut start = 0;
@@ -10847,7 +10874,20 @@ impl LayoutBuilder<'_> {
                 });
             }
         }
-        self.frame.commands.extend(layout.draw(origin, style.foreground));
+        match ink.filter(|stops| stops.len() > 1) {
+            // As the measured path paints a gradient: the same glyphs in each band of each line.
+            Some(stops) => {
+                let opacity = f32::from(style.foreground.a) / 255.0;
+                for run in &runs {
+                    for (area, color) in gradient_bands(run.rect, stops, opacity, clip) {
+                        self.frame.commands.push(DrawCommand::PushClip(area));
+                        self.frame.commands.extend(layout.draw(origin, color));
+                        self.frame.commands.push(DrawCommand::PopClip);
+                    }
+                }
+            }
+            None => self.frame.commands.extend(layout.draw(origin, style.foreground)),
+        }
         runs
     }
 
@@ -11071,30 +11111,8 @@ impl LayoutBuilder<'_> {
         stops: &[Color],
         clip: Option<Rect>,
     ) {
-        const BANDS: usize = 24;
-        let last = (stops.len() - 1) as f32;
         let opacity = f32::from(style.foreground.a) / 255.0;
-        for band in 0..BANDS {
-            let left = rect.x + rect.width * band as f32 / BANDS as f32;
-            let right = rect.x + rect.width * (band + 1) as f32 / BANDS as f32;
-            let area = Rect::new(left, rect.y, right - left, rect.height);
-            let visible = clip.map_or(Some(area), |outer| area.intersection(outer));
-            let Some(area) = visible.filter(|area| area.width > 0.0 && area.height > 0.0) else {
-                continue;
-            };
-            let at = (band as f32 + 0.5) / BANDS as f32 * last;
-            let from = stops[at.floor() as usize];
-            let to = stops[(at.ceil() as usize).min(stops.len() - 1)];
-            let mix = at.fract();
-            let blend = |a: u8, b: u8| {
-                (f32::from(a) + (f32::from(b) - f32::from(a)) * mix).round() as u8
-            };
-            let color = Color::rgba(
-                blend(from.r, to.r),
-                blend(from.g, to.g),
-                blend(from.b, to.b),
-                (f32::from(blend(from.a, to.a)) * opacity).round() as u8,
-            );
+        for (area, color) in gradient_bands(rect, stops, opacity, clip) {
             self.frame.commands.push(DrawCommand::PushClip(area));
             self.frame.commands.push(DrawCommand::Text {
                 position: Point::new(rect.x, rect.y),
@@ -13762,7 +13780,8 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::Text(value) if self.text_layout => {
-                self.paint_laid_out_text(value, content, style, clip);
+                let ink = element.kept.as_ref().and_then(|kept| kept.ink_gradient.clone());
+                self.paint_laid_out_text(value, content, style, clip, ink.as_deref());
             }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
