@@ -193,6 +193,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "page", group: "Layout", title: "PageColumn / CardGrid", source: "page", view: page::view, sections: &["Card grid", "Page column"], since: "0.1.39" },
     Page { id: "panel-header", group: "Layout", title: "PanelHeader", source: "panels", view: panels::view, sections: &["Panel header", "Back, close, and long title", "A field in place of the title", "A tint behind the header"], since: "0.1.39" },
     Page { id: "sidebar-panel", group: "Layout", title: "SidebarPanel", source: "panels", view: panels::view, sections: &["Sidebar panel"], since: "0.1.39" },
+    Page { id: "drag-handle", group: "Layout", title: "DragHandle", source: "panels", view: panels::view, sections: &["Drag handle on cards"], since: "0.1.44" },
     Page { id: "resize-handle", group: "Layout", title: "ResizeHandle", source: "panels", view: panels::view, sections: &["Resize handle between panels"], since: "0.1.39" },
     Page { id: "split-view", group: "Layout", title: "SplitView", source: "split_view", view: split_view::view, sections: &[], since: "0.1.44" },
     Page { id: "side-rail", group: "Layout", title: "SideRail", source: "side_panels", view: side_panels::view, sections: &["Folded library", "A long rail"], since: "0.1.43" },

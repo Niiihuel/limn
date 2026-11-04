@@ -48,6 +48,11 @@ pub enum Cursor {
     ResizeColumn,
     /// Two arrows pointing up and down: the boundary between two rows.
     ResizeRow,
+    /// An open hand: something the pointer can pick up and move, as a
+    /// [`DragHandle`](crate::DragHandle). The platform's own, as every shape.
+    Grab,
+    /// A closed hand: something the pointer is moving.
+    Grabbing,
     /// No pointer at all, such as over a video playing full screen once the
     /// pointer has rested on it a while. The pointer still moves and
     /// presses; the host decides when it hides and shows it again.

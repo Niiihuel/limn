@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use limn::{
     AlertColors, AlertTone, ButtonVariant, Component, ControlSize, Element, PanelHeaderSizing, Icon, IconButton, ListRow, Pager,
-    PagerSizing, PanelHeader, RadiusRole, ResizeHandle, SearchField, Separator, SidebarPanel, Text, TextField,
+    PagerSizing, PanelHeader, RadiusRole, ResizeHandle, DragHandle, SearchField, Separator, SidebarPanel, Text, TextField,
     TextRole, TooltipPlacement, TooltipSpec,
 };
 
@@ -145,6 +145,28 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                     ResizeHandle::vertical("panel-resize-demo", palette).render(),
                     pane("Content"),
                 ])])
+            },
+        ]),
+        section(cx, "Drag handle on cards", vec![
+            caption(cx, "Over a card its grip shows; the pointer takes the system's open hand over it and its closed hand while the host moves the card."),
+            {
+                let card = |name: &str| {
+                    let head = Element::row(vec![
+                        caption(cx, name).flex(1.0).centered_y(),
+                        DragHandle::new(format!("panel-drag-{name}"), palette)
+                            .on_hover(true)
+                            .size(20.0)
+                            .accessibility_label(format!("Move {name}"))
+                            .render(),
+                    ]);
+                    Element::panel(Element::clickable(format!("panel-drag-card-{name}"), head).drop_target())
+                        .padding(12.0)
+                        .background(palette.surface)
+                        .radius(RadiusRole::Surface.px())
+                        .size(Some(220.0), None)
+                        .hover_region()
+                };
+                row(vec![Element::column(vec![card("Environment"), card("Context"), card("Usage")]).gap(8.0)])
             },
         ]),
         section(cx, "Pager", vec![
