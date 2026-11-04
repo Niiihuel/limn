@@ -26,7 +26,7 @@ own content, and how to switch movement off.
 | --- | --- | --- | --- |
 | `Popover`, `DropdownMenu`, `DropdownList`, `Modal`, `AlertDialog` | Fades in and settles 4 px into place. | Fades out. | `enter_ms`, `exit_ms` |
 | The dimmed backdrop of `Modal` and `AlertDialog` | Fades in with the dialog. | Fades out with it. | `enter_ms`, `exit_ms` |
-| Tooltip | Fades in. | Fades out. Moving between neighbouring controls does not blink. | `enter_ms`, `exit_ms` |
+| Tooltip | Fades in, growing from `open_scale` on `enter_easing`, which may be a spring. | Fades out. Moving between neighbouring controls does not blink. | `enter_ms`, `exit_ms` |
 | Context menu | Fades in and settles. | Fades out. | `enter_ms`, `exit_ms` |
 | `Toast` | Fades in and settles. | Fades out where it was. | `enter_ms`, `exit_ms` |
 | `CoachMark`, `Tour` | Fades in and settles; its ring fades in on the target. On a new step both spring from the last target to the new one. | Fades out. | `enter_ms`, `exit_ms`, `move_ms` |
@@ -359,7 +359,7 @@ if self.panel_width.is_active(Instant::now()) {
 | Method | Effect |
 | --- | --- |
 | `ScalarTransition::new(value, now)` | Starts at rest at `value`. |
-| `.easing(Easing::InOutCubic)` | Chooses the curve: `OutCubic` (the default), `InOutCubic`, `InOutSine` or `Linear`. |
+| `.easing(Easing::InOutCubic)` | Chooses the curve: `OutCubic` (the default), `InOutCubic`, `InOutSine`, `Linear` or `Spring`, which passes the target by 14 % of the way and comes back to rest on it at the end of the duration. |
 | `.retarget(value, now, duration)` | Heads for a new value from wherever it is now, without a jump. |
 | `.retarget_with_motion(value, now, duration, reduced_motion)` | As above, or a snap when `reduced_motion` is true. |
 | `.snap_to(value, now)` | Jumps immediately. |

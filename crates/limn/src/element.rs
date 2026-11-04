@@ -1,4 +1,4 @@
-use crate::{Color, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{Color, Easing, GlassMaterial, Point, RasterImage, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -267,6 +267,11 @@ pub struct TooltipOptions {
     /// How long the hint takes to fade in, in milliseconds; `None` takes
     /// [`Motion::enter_ms`](crate::Motion::enter_ms).
     pub enter_ms: Option<u16>,
+    /// The curve it fades in and grows on over `enter_ms`;
+    /// `Easing::OutCubic` by default. [`Easing::Spring`](crate::Easing::Spring)
+    /// grows it past full size and back while its opacity stops at full,
+    /// so its fade is over in about a quarter of `enter_ms`.
+    pub enter_easing: Easing,
 }
 
 impl TooltipOptions {
@@ -280,6 +285,7 @@ impl TooltipOptions {
         shape: None,
         open_scale: 1.0,
         enter_ms: None,
+        enter_easing: Easing::OutCubic,
     };
 
     /// The options with numbers safe to paint: a title size that is not
