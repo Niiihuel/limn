@@ -336,8 +336,10 @@ pub struct TooltipShape {
     /// The shadow's blur, within 0..=64.
     pub shadow_blur: f32,
     /// The pointer's width along the body and its depth away from it, a
-    /// triangle with a rounded tip painted in the body's fill, without an
-    /// outline. The hint stands that depth and 2 px off its anchor.
+    /// triangle with a rounded tip painted in the body's fill. The style's
+    /// `border` goes on round its sides and tip from the body's outline, as
+    /// one, and not across its base. The hint stands that depth and 2 px off
+    /// its anchor.
     pub caret: Size,
 }
 

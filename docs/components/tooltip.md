@@ -115,7 +115,9 @@ defaults of all of them, the engine's own hints included, in one place; see
 The tokens' `tooltip_options.shape`, a `TooltipShape`, draws every hint to
 the host's measures: its radius, its padding, its shadow and a pointer with a
 rounded tip in the body's fill, such as a body rounded 8 with 8 by 12 of
-padding and a pointer 16 wide and 10 deep. `open_scale` grows it from that
+padding and a pointer 16 wide and 10 deep. The body's 1 px outline goes on
+round the pointer's sides and tip as one line, with none across its base, as
+Discord draws its hints; a transparent `border` draws neither. `open_scale` grows it from that
 scale about the pointer's tip as it fades in, over `enter_ms` when set, on
 `enter_easing`: `Easing::Spring` grows it a little past full size and back
 as a spring does. See [Tokens](../tokens.md#tooltip).
