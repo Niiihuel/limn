@@ -65,7 +65,7 @@ fn chevron(frame: &Frame) -> Vec<(Rect, Icon, Color)> {
         .iter()
         .filter_map(|command| match command {
             // A chevron faded out is painted, transparent.
-            DrawCommand::Icon { rect, icon, tint } if tint.a > 0 => Some((*rect, *icon, *tint)),
+            DrawCommand::Icon { rect, icon, tint, .. } if tint.a > 0 => Some((*rect, *icon, *tint)),
             _ => None,
         })
         .collect()

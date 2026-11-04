@@ -127,7 +127,7 @@ fn an_icon_stands_before_its_text() {
     let iconned = TextLayout::formatted(&[span("Done").icon(Icon::Check)], paragraph());
     let commands = drawn(&iconned);
     let icon = commands.iter().find_map(|command| match command {
-        DrawCommand::Icon { rect, icon: Icon::Check, tint } => Some((*rect, *tint)),
+        DrawCommand::Icon { rect, icon: Icon::Check, tint, .. } => Some((*rect, *tint)),
         _ => None,
     });
     let (rect, tint) = icon.expect("the icon");

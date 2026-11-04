@@ -368,7 +368,7 @@ mod tests {
             .commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::Icon { icon, rect, tint } if *tint == palette().muted => Some((*icon, *rect)),
+                DrawCommand::Icon { icon, rect, tint, .. } if *tint == palette().muted => Some((*icon, *rect)),
                 _ => None,
             })
             .collect();

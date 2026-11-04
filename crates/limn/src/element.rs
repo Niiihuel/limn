@@ -1066,6 +1066,15 @@ pub(crate) struct Kept {
     /// Set by [`Element::hover_region_id`]: the name
     /// [`UiTree::hovered_region`](crate::UiTree::hovered_region) reports.
     pub(crate) hover_name: Option<String>,
+    /// Set by [`Element::hover_motion`]: the ID its playing is kept under,
+    /// and the keyframes its icons follow.
+    pub(crate) icon_motion: Option<(String, crate::IconMotion)>,
+    /// Set by [`Element::grow_from`]: the height its fills grow from while
+    /// its presence animates.
+    pub(crate) grow_from: Option<f32>,
+    /// Set by [`Element::enter_from`]: the offset its paint travels from
+    /// while its presence animates.
+    pub(crate) enter_from: Option<Point>,
 }
 
 /// Where a slider's value sits and how the pointer maps onto it.
@@ -2922,6 +2931,51 @@ impl Element {
         let mut dimmed = self.conceal_on_hover(id);
         dimmed.kept.get_or_insert_default().dim = Some(opacity.clamp(0.0, 1.0));
         dimmed
+    }
+
+    /// Move the icons this element paints along `motion` while the pointer
+    /// is over this element's own visible box, whatever region it is in.
+    /// When the pointer comes over it they play from where they are, through
+    /// the keyframes, and hold the last one; when it leaves they ease back to
+    /// rest over the motion's `return_ms`. Coming back before they are home
+    /// plays again from where they are, so nothing jumps. Only icons move:
+    /// backgrounds, text, layout, hit targets and accessibility stay put.
+    /// Under reduced motion nothing moves. `id` must be unique in the window.
+    pub fn hover_motion(mut self, id: impl Into<String>, motion: crate::IconMotion) -> Self {
+        self.kept.get_or_insert_default().icon_motion = Some((id.into(), motion));
+        self
+    }
+
+    /// With [`reveal_on_hover`](Self::reveal_on_hover),
+    /// [`rise_on_hover`](Self::rise_on_hover),
+    /// [`conceal_on_hover`](Self::conceal_on_hover) or
+    /// [`dim_on_hover`](Self::dim_on_hover), while it fades in or out; with
+    /// [`animate_enter`](Self::animate_enter) or
+    /// [`animate_presence`](Self::animate_presence), while it enters: the
+    /// filled rectangles it paints grow about their middle from `height`
+    /// logical pixels to their own height as it comes in, and shrink back as
+    /// it goes. Their corners are kept no rounder than half the height they
+    /// have, so a pill keeps round ends; widths, text and icons are as they
+    /// are. On an entering element it replaces the 4 px settle. Paint only,
+    /// and nothing grows under reduced motion. A height that is not finite or
+    /// below zero is ignored.
+    pub fn grow_from(mut self, height: f32) -> Self {
+        if height.is_finite() && height >= 0.0 {
+            self.kept.get_or_insert_default().grow_from = Some(height);
+        }
+        self
+    }
+
+    /// With the same presence animations as [`grow_from`](Self::grow_from):
+    /// what this element paints travels from `offset` logical pixels away to
+    /// its place as it comes in, and back as it goes. On an entering element
+    /// it replaces the 4 px settle. Paint only, and nothing travels under
+    /// reduced motion. An offset that is not finite is ignored.
+    pub fn enter_from(mut self, offset: Point) -> Self {
+        if offset.x.is_finite() && offset.y.is_finite() {
+            self.kept.get_or_insert_default().enter_from = Some(offset);
+        }
+        self
     }
 
     /// Accept drops. Applies to buttons, clickables and scroll surfaces

@@ -617,7 +617,7 @@ mod tests {
             .commands
             .iter()
             .filter_map(|command| match command {
-                DrawCommand::Icon { rect, icon, tint } if wanted.contains(icon) => Some((*icon, *rect, *tint)),
+                DrawCommand::Icon { rect, icon, tint, .. } if wanted.contains(icon) => Some((*icon, *rect, *tint)),
                 _ => None,
             })
             .collect()

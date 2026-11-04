@@ -58,6 +58,11 @@ pub enum Easing {
     /// A CSS `cubic-bezier(x1, y1, x2, y2)` curve from (0, 0) to (1, 1). The x
     /// values are clamped to 0..=1, as CSS requires, and y may overshoot.
     CubicBezier(f32, f32, f32, f32),
+    /// A softer start and finish than `InOutCubic`, within two hundredths of
+    /// CSS `ease-in-out` all the way.
+    InOutSine,
+    /// The same speed all the way.
+    Linear,
 }
 
 impl Easing {
@@ -70,6 +75,8 @@ impl Easing {
             Self::InOutCubic if progress < 0.5 => 4.0 * progress.powi(3),
             Self::InOutCubic => 1.0 - (-2.0 * progress + 2.0).powi(3) / 2.0,
             Self::CubicBezier(x1, y1, x2, y2) => cubic_bezier(x1.clamp(0.0, 1.0), y1, x2.clamp(0.0, 1.0), y2, progress),
+            Self::InOutSine => (1.0 - (std::f32::consts::PI * progress).cos()) / 2.0,
+            Self::Linear => progress,
         }
     }
 }
@@ -110,6 +117,168 @@ fn cubic_bezier(x1: f32, y1: f32, x2: f32, y2: f32, t: f32) -> f32 {
         }
     }
     coordinate(y1, y2, s)
+}
+
+/// How an icon is turned and stretched about the middle of the rectangle it
+/// is drawn in, as [`DrawCommand::Icon`](crate::DrawCommand::Icon) carries it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IconTransform {
+    /// Clockwise turn in radians.
+    pub angle: f32,
+    /// Stretch across: 1 is the icon's own width.
+    pub scale_x: f32,
+    /// Stretch down: 1 is the icon's own height.
+    pub scale_y: f32,
+}
+
+impl IconTransform {
+    /// No turn and no stretch: the icon as it is drawn at rest.
+    pub const IDENTITY: Self = Self { angle: 0.0, scale_x: 1.0, scale_y: 1.0 };
+}
+
+impl Default for IconTransform {
+    fn default() -> Self {
+        Self::IDENTITY
+    }
+}
+
+/// Where an icon is in an [`IconMotion`]: a clockwise turn in degrees, a
+/// stretch across and down, and an offset in logical pixels.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct IconPose {
+    pub(crate) turn: f32,
+    pub(crate) scale_x: f32,
+    pub(crate) scale_y: f32,
+    pub(crate) offset: crate::Point,
+}
+
+impl IconPose {
+    pub(crate) const REST: Self = Self { turn: 0.0, scale_x: 1.0, scale_y: 1.0, offset: crate::Point { x: 0.0, y: 0.0 } };
+
+    fn toward(self, to: Self, share: f32) -> Self {
+        let mix = |from: f32, to: f32| from + (to - from) * share;
+        Self {
+            turn: mix(self.turn, to.turn),
+            scale_x: mix(self.scale_x, to.scale_x),
+            scale_y: mix(self.scale_y, to.scale_y),
+            offset: crate::Point::new(mix(self.offset.x, to.offset.x), mix(self.offset.y, to.offset.y)),
+        }
+    }
+}
+
+/// One pose of an [`IconMotion`], and when it is reached.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct IconKeyframe {
+    at_ms: u16,
+    pose: IconPose,
+    easing: Easing,
+}
+
+impl IconKeyframe {
+    /// The icon at rest, reached `ms` milliseconds after the pointer came
+    /// over the element, from the keyframe before it on
+    /// [`Easing::InOutSine`]. Set what differs from rest with the methods
+    /// below.
+    pub fn at(ms: u16) -> Self {
+        Self { at_ms: ms, pose: IconPose::REST, easing: Easing::InOutSine }
+    }
+
+    /// Turned `degrees` clockwise about the icon's middle; a negative turn
+    /// is anticlockwise. A value that is not finite is ignored.
+    pub fn turn(mut self, degrees: f32) -> Self {
+        if degrees.is_finite() {
+            self.pose.turn = degrees;
+        }
+        self
+    }
+
+    /// Stretched `x` times across and `y` times down about the icon's
+    /// middle; 1 is its own size. Each is clamped to `0.0..=4.0`; a pair
+    /// with a value that is not finite is ignored.
+    pub fn scale(mut self, x: f32, y: f32) -> Self {
+        if x.is_finite() && y.is_finite() {
+            self.pose.scale_x = x.clamp(0.0, 4.0);
+            self.pose.scale_y = y.clamp(0.0, 4.0);
+        }
+        self
+    }
+
+    /// Moved by `offset` logical pixels. An offset that is not finite is
+    /// ignored.
+    pub fn offset(mut self, offset: crate::Point) -> Self {
+        if offset.x.is_finite() && offset.y.is_finite() {
+            self.pose.offset = offset;
+        }
+        self
+    }
+
+    /// The curve the way from the keyframe before follows.
+    pub fn easing(mut self, easing: Easing) -> Self {
+        self.easing = easing;
+        self
+    }
+}
+
+/// The keyframes the icons inside an element follow while the pointer is
+/// over it: see [`Element::hover_motion`](crate::Element::hover_motion).
+/// It starts from rest at 0 ms, passes through each keyframe in the order of
+/// their times and holds the last one.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct IconMotion {
+    keyframes: Vec<IconKeyframe>,
+    return_ms: Option<u16>,
+}
+
+impl IconMotion {
+    /// No keyframes yet: the icons stay at rest.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Add `keyframe`. Keyframes are kept in the order of their times; one at
+    /// the same time as another comes after it, so the way between them
+    /// is a jump.
+    pub fn keyframe(mut self, keyframe: IconKeyframe) -> Self {
+        let at = self.keyframes.partition_point(|key| key.at_ms <= keyframe.at_ms);
+        self.keyframes.insert(at, keyframe);
+        self
+    }
+
+    /// How long the icons take to ease back to rest once the pointer has
+    /// left, in milliseconds. `move_ms` by default; 0 puts them back at once.
+    pub fn return_ms(mut self, ms: u16) -> Self {
+        self.return_ms = Some(ms);
+        self
+    }
+
+    /// How long playing lasts before the last keyframe is held, in ms.
+    pub(crate) fn play_ms(&self) -> u16 {
+        self.keyframes.last().map_or(0, |key| key.at_ms)
+    }
+
+    /// How long the return to rest lasts, in ms.
+    pub(crate) fn rest_ms(&self) -> u16 {
+        self.return_ms.unwrap_or(crate::tokens().motion.move_ms)
+    }
+
+    /// The pose `elapsed_ms` into playing from `from`, or into returning
+    /// from it when `hovered` is false.
+    pub(crate) fn pose(&self, from: IconPose, hovered: bool, elapsed_ms: f32) -> IconPose {
+        if !hovered {
+            let length = f32::from(self.rest_ms());
+            let share = if length > 0.0 { Easing::OutCubic.sample(elapsed_ms / length) } else { 1.0 };
+            return from.toward(IconPose::REST, share);
+        }
+        let (mut at, mut pose) = (0.0, from);
+        for key in &self.keyframes {
+            let next = f32::from(key.at_ms);
+            if elapsed_ms < next {
+                return pose.toward(key.pose, key.easing.sample((elapsed_ms - at) / (next - at)));
+            }
+            (at, pose) = (next, key.pose);
+        }
+        pose
+    }
 }
 
 /// Retargetable animation of one logical-pixel value or opacity. A host owns
@@ -862,5 +1031,56 @@ mod color_transition_tests {
         let mut opaque = ColorTransition::new(Color::rgb(0, 0, 0), started);
         opaque.retarget(Color::rgb(200, 100, 50), started, Duration::from_millis(100));
         assert_eq!(opaque.color(started + Duration::from_millis(100)), Color::rgb(200, 100, 50));
+    }
+}
+
+#[cfg(test)]
+mod icon_motion_tests {
+    use super::*;
+
+    fn gear() -> IconMotion {
+        IconMotion::new().keyframe(IconKeyframe::at(1070).turn(180.0)).keyframe(IconKeyframe::at(120))
+    }
+
+    #[test]
+    fn keyframes_play_in_the_order_of_their_times_eased_and_hold_the_last() {
+        let gear = gear();
+        let turn = |ms: f32| gear.pose(IconPose::REST, true, ms).turn;
+        assert_eq!((turn(0.0), turn(100.0), turn(120.0)), (0.0, 0.0, 0.0), "held still for 120 ms");
+        assert!((turn(595.0) - 90.0).abs() < 0.01, "half way at the middle of an in-out curve");
+        assert!(turn(240.0) < 180.0 * (120.0 / 950.0), "a gentle start: {}", turn(240.0));
+        assert_eq!((turn(1070.0), turn(5000.0)), (180.0, 180.0), "the last keyframe is held");
+        assert_eq!(gear.play_ms(), 1070);
+
+        let mic = IconMotion::new()
+            .keyframe(IconKeyframe::at(160).turn(-5.0))
+            .keyframe(IconKeyframe::at(400).turn(5.0))
+            .keyframe(IconKeyframe::at(650));
+        let turns: Vec<f32> = [160.0, 280.0, 400.0, 650.0].map(|ms| mic.pose(IconPose::REST, true, ms).turn).into();
+        assert_eq!(turns, [-5.0, 0.0, 5.0, 0.0]);
+
+        let linear = IconMotion::new().keyframe(IconKeyframe::at(100).scale(1.06, 0.88).offset(crate::Point::new(0.0, 2.0)).easing(Easing::Linear));
+        let pose = linear.pose(IconPose::REST, true, 50.0);
+        assert!((pose.scale_x - 1.03).abs() < 1e-5 && (pose.scale_y - 0.94).abs() < 1e-5 && (pose.offset.y - 1.0).abs() < 1e-5, "{pose:?}");
+    }
+
+    #[test]
+    fn it_plays_from_where_it_is_and_returns_from_there_to_rest() {
+        let gear = gear().return_ms(200);
+        let turned = gear.pose(IconPose::REST, true, 2000.0);
+        assert_eq!(gear.pose(turned, false, 0.0), turned, "no jump on leaving");
+        let halfway = gear.pose(turned, false, 100.0).turn;
+        assert!(halfway > 0.0 && halfway < 180.0, "{halfway}");
+        assert_eq!(gear.pose(turned, false, 200.0), IconPose::REST);
+        assert_eq!(gear.pose(turned, true, 0.0), turned, "no jump on coming back");
+        assert_eq!(gear.clone().return_ms(0).pose(turned, false, 0.0), IconPose::REST, "a return of 0 ms is at once");
+        assert_eq!(IconMotion::new().pose(turned, true, 10.0), turned, "no keyframes: it stays");
+    }
+
+    #[test]
+    fn bad_numbers_are_ignored_or_clamped() {
+        let key = IconKeyframe::at(10).turn(f32::NAN).scale(f32::INFINITY, 1.0).offset(crate::Point::new(f32::NAN, 0.0));
+        assert_eq!(key, IconKeyframe::at(10));
+        assert_eq!(IconKeyframe::at(10).scale(-1.0, 9.0).pose, IconPose { scale_x: 0.0, scale_y: 4.0, ..IconPose::REST });
     }
 }

@@ -1794,7 +1794,7 @@ mod tests {
                     .commands
                     .iter()
                     .filter_map(|command| match command {
-                        DrawCommand::Icon { icon, rect, tint } if *icon == kind => {
+                        DrawCommand::Icon { icon, rect, tint, .. } if *icon == kind => {
                             Some((*rect, *tint))
                         }
                         _ => None,
@@ -1862,7 +1862,7 @@ mod tests {
         assert!((detail.y - label.y - sizing.row_height / 2.0).abs() < 1.0);
         let ends = |kind: Icon| {
             frame.commands.iter().find_map(|command| match command {
-                DrawCommand::Icon { icon, rect, tint } if *icon == kind => {
+                DrawCommand::Icon { icon, rect, tint, .. } if *icon == kind => {
                     Some((rect.x + rect.width, *tint))
                 }
                 _ => None,
@@ -4421,7 +4421,7 @@ mod tests {
             let (ticked, fill, _) = mark("mute");
             assert_eq!(fill, Some(palette.text));
             assert!(frame.commands.iter().any(|command| matches!(command,
-                DrawCommand::Icon { icon: Icon::Check, tint, rect } if *tint == palette.surface && rect.x >= ticked.x)));
+                DrawCommand::Icon { icon: Icon::Check, tint, rect, .. } if *tint == palette.surface && rect.x >= ticked.x)));
             assert_eq!(mark("hide").1, None, "an empty box is an outline");
             assert_eq!(mark("hide").2, Some(palette.muted));
             let (chosen, fill, _) = mark("all");
@@ -4729,7 +4729,7 @@ mod tests {
             let row = region(&frame, "notify");
             assert_eq!(row.height, SelectorSizing::COMPACT.detail_row_height);
             assert!(frame.commands.iter().any(|command| matches!(command,
-                DrawCommand::Icon { icon: Icon::ChevronRight, rect, tint }
+                DrawCommand::Icon { icon: Icon::ChevronRight, rect, tint, .. }
                     if *tint == palette.muted && rect.y >= row.y && rect.y + rect.height <= row.y + row.height)));
             let node = frame
                 .access

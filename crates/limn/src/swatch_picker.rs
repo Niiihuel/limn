@@ -506,6 +506,7 @@ mod tests {
                 icon: Icon::Edit,
                 tint,
                 rect,
+                ..
             } => Some((*tint, *rect)),
             _ => None,
         });

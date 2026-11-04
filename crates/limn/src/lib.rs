@@ -228,7 +228,7 @@ pub use window_controls::WindowControls;
 pub use menu_header::MenuHeader;
 pub use modal::{DismissButton, Modal};
 pub use motion::{
-    Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
+    Easing, IconKeyframe, IconMotion, IconTransform, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
 pub use notice::{Notice, NoticeSizing};
 pub use number_input::{NumberInput, NumberInputButtonPlacement};
