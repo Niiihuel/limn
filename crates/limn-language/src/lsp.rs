@@ -331,7 +331,7 @@ impl Wire {
         let len = bytes.len();
         if self
             .bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current
                     .checked_add(len)
                     .filter(|next| *next <= MAX_QUEUED_BYTES)
@@ -362,7 +362,7 @@ impl Wire {
         let charge = snapshot.byte_count().saturating_add(2048);
         if self
             .bytes
-            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |current| {
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |current| {
                 current
                     .checked_add(charge)
                     .filter(|next| *next <= MAX_QUEUED_BYTES)

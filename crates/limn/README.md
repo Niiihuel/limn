@@ -27,7 +27,7 @@ state, and paint the resulting `Frame`.
 ## Getting started
 
 The [getting started guide](https://limn-omega.vercel.app/docs/getting-started/)
-walks through a complete counter application. Rust 1.95 or later is required.
+walks through a complete counter application. Rust 1.99 or later is required.
 From a repository checkout, run `cargo run -p limn-egui --example counter`.
 
 ## Language

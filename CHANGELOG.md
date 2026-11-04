@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- **Breaking**: the minimum supported Rust version is 1.99, up from 1.95. CI and the site build use Rust 1.99.1
 - `limn_egui`: a picture or fill rounded enough of its own to lie inside a rounded clip's arc keeps its own corners, as a 40 thumbnail rounded by 8 near the end of a 56 pill does; it took the clip's concentric corner (20 there), which no longer met its own rim and left the rim standing out
 - `RasterImage::dissolve_bottom(fraction)`: the bottom `fraction` of a picture's box dissolves into what is behind it along smootherstep, so it ends without an edge, as a cover run edge to edge at the top of a player fades into the page under it; `dissolved()` reads it back, in hundredths. `limn_egui` paints it as one mesh whose rows carry the opacity, with square corners, unturned. See [Backend](docs/backend.md#draw-commands)
 - `Markdown` draws pipe tables: a header row over a delimiter row (`---`, `:--`, `--:`, `:-:` line its column up), rows to the next line without `|`, `\|` for a pipe in a cell. The header is bold over the panel's fill, columns take the width their cells ask and share it when they do not fit, wrapping inside; a table wider than that scrolls sideways. See [Markdown](docs/components/markdown.md#tables)
