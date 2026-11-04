@@ -10659,7 +10659,7 @@ impl LayoutBuilder<'_> {
                 trailing_icon,
                 ..
             } => Size::new(
-                ICON_SIZE
+                style.icon_side.unwrap_or(ICON_SIZE)
                     + if label.is_empty() {
                         0.0
                     } else {
@@ -10671,7 +10671,11 @@ impl LayoutBuilder<'_> {
                         0.0
                     }
                     + padding,
-                ICON_SIZE.max(metrics.line_height) + padding,
+                style
+                    .icon_side
+                    .unwrap_or(ICON_SIZE)
+                    .max(metrics.line_height)
+                    + padding,
             ),
             ElementKind::TextInput { .. } => Size::new(
                 if available.width.is_finite() {
@@ -12642,7 +12646,12 @@ impl LayoutBuilder<'_> {
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
                     self.draw_focus_ring(rect, style);
                 }
-                let side = ICON_SIZE.min(content.width).min(content.height).max(0.0);
+                let side = style
+                    .icon_side
+                    .unwrap_or(ICON_SIZE)
+                    .min(content.width)
+                    .min(content.height)
+                    .max(0.0);
                 let trailing_side = if trailing_icon.is_some() {
                     ICON_SIZE
                         .min((content.width - side - style.gap).max(0.0))

@@ -1094,6 +1094,15 @@ impl Button {
     }
 }
 
+/// The sizing's icon side is the glyph's, not only its box's.
+fn icon_side(glyph: Element, side: f32) -> Element {
+    if side > ICON_SIZE {
+        glyph.large_icon(side)
+    } else {
+        glyph.small_icon(side)
+    }
+}
+
 impl Component for Button {
     fn render(self) -> Element {
         let (base, hover, pressed, ink, outline) = self.colors();
@@ -1160,13 +1169,7 @@ impl Component for Button {
                 Some(center_icon(image.element(name).size(Some(ICON_SIZE), Some(ICON_SIZE)).centered_x()))
             } else {
                 icon.map(|icon| {
-                    // The sizing's icon side is the glyph's, not only its box's.
-                    let glyph = Element::icon(icon).foreground(ink);
-                    let glyph = if sizing.icon_size > ICON_SIZE {
-                        glyph.large_icon(sizing.icon_size)
-                    } else {
-                        glyph.small_icon(sizing.icon_size)
-                    };
+                    let glyph = icon_side(Element::icon(icon).foreground(ink), sizing.icon_size);
                     center_icon(glyph.size(Some(sizing.icon_size), Some(sizing.icon_size)))
                 })
             };
@@ -1222,7 +1225,10 @@ impl Component for Button {
             // The icon is never drawn: the picture takes its slot.
             Element::icon_button(self.action_id.clone(), icon.unwrap_or(Icon::Add), label).leading_image(image)
         } else if let Some(icon) = icon {
-            Element::icon_button(self.action_id.clone(), icon, label)
+            icon_side(
+                Element::icon_button(self.action_id.clone(), icon, label),
+                sizing.icon_size,
+            )
         } else {
             Element::button(self.action_id.clone(), label)
         };
@@ -4197,6 +4203,49 @@ mod tests {
             let inset = (side - ICON_SIZE) / 2.0;
             assert_eq!((icon.x - region.x, icon.y - region.y), (inset, inset));
         }
+    }
+
+    #[test]
+    fn an_icon_button_draws_its_glyph_at_the_sizing_side_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let glyph = |button: IconButton| {
+            let frame =
+                UiTree::new(Element::row(vec![button.render()])).layout(Size::new(100.0, 32.0));
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Icon { rect, .. } => Some(*rect),
+                    _ => None,
+                })
+                .expect("glyph")
+        };
+        for (asked, drawn) in [(20.0, 20.0), (ICON_SIZE, ICON_SIZE), (12.0, 12.0)] {
+            let button = || {
+                IconButton::new("action", Icon::Add, palette)
+                    .variant(ButtonVariant::Ghost)
+                    .sizing(ButtonSizing {
+                        height: 32.0,
+                        font_size: 14.0,
+                        icon_size: asked,
+                        horizontal_padding: 9.0,
+                        inner_spacing: 6.0,
+                    })
+            };
+            let (enabled, disabled) = (glyph(button()), glyph(button().disabled()));
+            assert_eq!(
+                (enabled.width, enabled.height),
+                (drawn, drawn),
+                "asked {asked}"
+            );
+            assert_eq!(enabled, disabled, "asked {asked}");
+            let inset = (32.0 - drawn) / 2.0;
+            assert_eq!((enabled.x, enabled.y), (inset, inset));
+        }
+        // A preset keeps the standard glyph.
+        let preset =
+            glyph(IconButton::new("action", Icon::Add, palette).button_size(ButtonSize::IconSmall));
+        assert_eq!((preset.width, preset.height), (ICON_SIZE, ICON_SIZE));
     }
 
     #[test]

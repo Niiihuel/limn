@@ -2173,7 +2173,8 @@ pub struct Style {
     /// Minimum line box for formatted paragraphs, in logical pixels. Glyphs
     /// retain their natural metrics; controls and editors are unaffected.
     pub line_height: Option<f32>,
-    /// Side of a standalone icon; `None` is the standard 16 px.
+    /// Side of a standalone icon, or of an icon button's leading glyph;
+    /// `None` is the standard 16 px.
     pub icon_side: Option<f32>,
     /// Most lines a formatted text shows; set by [`Element::max_lines`].
     /// `None` shows them all.
@@ -4177,7 +4178,8 @@ impl Element {
     }
 
     /// Kept for source compatibility while callers migrate to [`ICON_SIZE`].
-    /// Icons inside controls use one size; this request is ignored.
+    /// This request is ignored: an icon button's glyph takes its side from
+    /// [`Element::large_icon`] or [`Element::small_icon`].
     pub fn icon_size(self, _size: f32) -> Self {
         self
     }
@@ -4185,7 +4187,8 @@ impl Element {
     /// Draw a standalone [`Element::icon`] smaller than the control size,
     /// such as a mark over a corner of another icon or a glyph inside a
     /// small badge: `side` is clamped to 8 to 16 logical pixels. A value
-    /// that is not finite is ignored. Controls keep the standard 16 px.
+    /// that is not finite is ignored. On an [`Element::icon_button`] it is
+    /// the side of the leading glyph; other controls keep the standard 16 px.
     pub fn small_icon(mut self, side: f32) -> Self {
         if side.is_finite() {
             self.style.icon_side = Some(side.clamp(SMALL_ICON_SIZE, ICON_SIZE));
@@ -4194,7 +4197,9 @@ impl Element {
     }
 
     /// Draw a standalone [`Element::icon`] larger than the control size, for
-    /// thumbnails and empty states. Controls keep the standard 16 px.
+    /// thumbnails and empty states. On an [`Element::icon_button`] it is the
+    /// side of the leading glyph, as [`crate::ButtonSizing::icon_size`] sets
+    /// it; other controls keep the standard 16 px.
     pub fn large_icon(mut self, side: f32) -> Self {
         if side.is_finite() {
             self.style.icon_side = Some(side.clamp(ICON_SIZE, 128.0));
