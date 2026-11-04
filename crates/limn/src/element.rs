@@ -246,7 +246,8 @@ pub struct TooltipStyle {
 
 /// When a tooltip opens and how its title and pointer are drawn. The
 /// default is every hint's: 350 ms, a 12 px title in the regular face, and
-/// a pointer.
+/// a pointer. [`Tokens::tooltip_options`](crate::Tokens::tooltip_options)
+/// sets the options every tooltip starts from.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TooltipOptions {
     /// How long the pointer rests on the anchor before the hint shows, in
@@ -260,15 +261,95 @@ pub struct TooltipOptions {
     pub title_font_family: FontFamily,
     /// Whether a small pointer joins the hint to its anchor.
     pub arrow: bool,
+    /// The body and pointer drawn to the host's measures; `None` draws the
+    /// library's: the control radius, 8 px at the sides, one line in 24 px,
+    /// a shadow 2 px below blurred 6 and an outlined 10 by 5 px pointer.
+    pub shape: Option<TooltipShape>,
+    /// The scale the hint grows from while it fades in, about the tip of
+    /// its pointer, within 0.5..=1; 1 does not scale.
+    pub open_scale: f32,
+    /// How long the hint takes to fade in, in milliseconds; `None` takes
+    /// [`Motion::enter_ms`](crate::Motion::enter_ms).
+    pub enter_ms: Option<u16>,
+}
+
+impl TooltipOptions {
+    /// The library's hints: 350 ms, a 12 px regular title, the outlined
+    /// pointer and the library's shape, fading in over `Motion::enter_ms`.
+    pub const DEFAULT: Self = Self {
+        delay_ms: 350,
+        title_font_size: 12.0,
+        title_font_family: FontFamily::Sans,
+        arrow: true,
+        shape: None,
+        open_scale: 1.0,
+        enter_ms: None,
+    };
+
+    /// The options with numbers safe to paint: a title size that is not
+    /// finite or not above zero is the default's, the scale is clamped to
+    /// 0.5..=1 (1 when not finite) and the shape's measures are never
+    /// negative.
+    pub(crate) fn sanitized(self) -> Self {
+        let title_font_size = if self.title_font_size.is_finite() && self.title_font_size > 0.0 {
+            self.title_font_size
+        } else {
+            Self::DEFAULT.title_font_size
+        };
+        let open_scale = if self.open_scale.is_finite() {
+            self.open_scale.clamp(0.5, 1.0)
+        } else {
+            1.0
+        };
+        Self {
+            title_font_size,
+            open_scale,
+            shape: self.shape.map(TooltipShape::sanitized),
+            ..self
+        }
+    }
 }
 
 impl Default for TooltipOptions {
     fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+/// A tooltip's body and pointer to the host's measures, in logical pixels,
+/// as [`TooltipOptions::shape`] takes them. The colors stay the
+/// [`TooltipStyle`]'s.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TooltipShape {
+    /// The body's corner radius.
+    pub radius: f32,
+    /// Space between the body's sides and its text.
+    pub padding_x: f32,
+    /// Space above and below the text: a one-line hint is its title's line
+    /// height and twice this.
+    pub padding_y: f32,
+    /// How far the shadow is moved from the body; its color is the style's
+    /// `shadow`.
+    pub shadow_offset: Point,
+    /// The shadow's blur, within 0..=64.
+    pub shadow_blur: f32,
+    /// The pointer's width along the body and its depth away from it, a
+    /// triangle with a rounded tip painted in the body's fill, without an
+    /// outline. The hint stands that depth and 2 px off its anchor.
+    pub caret: Size,
+}
+
+impl TooltipShape {
+    fn sanitized(self) -> Self {
+        let px = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        let offset = |value: f32| if value.is_finite() { value } else { 0.0 };
         Self {
-            delay_ms: 350,
-            title_font_size: 12.0,
-            title_font_family: FontFamily::Sans,
-            arrow: true,
+            radius: px(self.radius),
+            padding_x: px(self.padding_x),
+            padding_y: px(self.padding_y),
+            shadow_offset: Point::new(offset(self.shadow_offset.x), offset(self.shadow_offset.y)),
+            shadow_blur: px(self.shadow_blur).min(64.0),
+            caret: Size::new(px(self.caret.width), px(self.caret.height)),
         }
     }
 }
@@ -3289,7 +3370,7 @@ impl Element {
                 max_width: 360.0,
                 placement,
                 colors,
-                options: TooltipOptions::default(),
+                options: crate::tokens().tooltip_options,
             },
             layout,
         )

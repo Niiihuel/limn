@@ -5,7 +5,8 @@
 
 use limn::{
     set_tokens, tokens, Button, Color, Component, ComponentPalette, DrawCommand, Element, ElementKind, Empty,
-    Frame, Markdown, Modal, Motion, Radius, Size, Toast, Tokens, Tooltip, TooltipStyle, UiTree,
+    FontFamily, Frame, Markdown, Modal, Motion, Point, Radius, Size, Toast, Tokens, Tooltip, TooltipOptions,
+    TooltipShape, TooltipStyle, UiTree,
 };
 use web_time::{Duration, Instant};
 
@@ -173,6 +174,60 @@ fn tokens_reshape_and_repace_every_component_built_after_they_change() {
         .expect("the hint's body");
     assert!(frame.commands.iter().all(|command| !matches!(command,
         DrawCommand::StrokeRect { rect, color, .. } if *rect == body && color.a > 0)));
+
+    // And the options every hint starts from, the engine's own included.
+    let options_of = |element: Element| match element.kind {
+        ElementKind::Tooltip { options, .. } => options,
+        _ => panic!("a hint"),
+    };
+    assert_eq!(options_of(Button::new("b", "B", palette).tooltip("Guardar").render()), TooltipOptions::DEFAULT);
+    let options = TooltipOptions {
+        delay_ms: 70,
+        title_font_size: 14.0,
+        title_font_family: FontFamily::SansMedium,
+        shape: Some(TooltipShape {
+            radius: 8.0,
+            padding_x: 12.0,
+            padding_y: 8.0,
+            shadow_offset: Point::new(0.0, 12.0),
+            shadow_blur: 24.0,
+            caret: Size::new(16.0, 10.0),
+        }),
+        open_scale: 0.95,
+        enter_ms: Some(70),
+        ..TooltipOptions::DEFAULT
+    };
+    set_tokens(Tokens { tooltip: Some(own), tooltip_options: options, ..Tokens::DEFAULT });
+    for palette in [palette, light] {
+        assert_eq!(options_of(Button::new("b", "B", palette).tooltip("Guardar").render()), options);
+        let kept = options_of(Tooltip::new(Element::spacer(), "a", "A", palette).delay_ms(0).render());
+        assert_eq!(kept, TooltipOptions { delay_ms: 0, ..options });
+    }
+    // Its body is painted in the host's shape.
+    let mut tree = UiTree::new(Button::new("b", "B", light).tooltip("Guardar").render());
+    tree.set_reduced_motion(true);
+    tree.layout(WINDOW);
+    assert!(tree.focus("b"));
+    let frame = tree.layout(WINDOW);
+    assert!(frame.commands.iter().any(|command| matches!(command,
+        DrawCommand::FillRect { color, radius, .. } if *color == own.background && *radius == 8.0
+    )));
+    assert!(frame.commands.iter().any(|command| matches!(command,
+        DrawCommand::Text { text, font_size, font_family: FontFamily::SansMedium, .. } if text == "Guardar" && *font_size == 14.0
+    )));
+    // Numbers that cannot be painted are made safe.
+    set_tokens(Tokens {
+        tooltip_options: TooltipOptions {
+            title_font_size: f32::NAN,
+            open_scale: 0.1,
+            shape: Some(TooltipShape { radius: -4.0, padding_x: f32::INFINITY, ..options.shape.unwrap() }),
+            ..options
+        },
+        ..Tokens::DEFAULT
+    });
+    let safe = tokens().tooltip_options;
+    assert_eq!((safe.title_font_size, safe.open_scale), (12.0, 0.5));
+    assert_eq!(safe.shape.map(|shape| (shape.radius, shape.padding_x)), Some((0.0, 0.0)));
 
     set_tokens(Tokens::DEFAULT);
     assert_eq!(tokens(), Tokens::DEFAULT);

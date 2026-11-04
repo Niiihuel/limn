@@ -1,7 +1,7 @@
 use super::{caption, row, section, Cx, Section};
 use crate::app::State;
 use limn::{
-    Color, Component, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, MarkStyle, PopoverPlacement,
+    Color, Component, ContextMenuMetrics, ControlSize, DropdownOption, Element, FormField, FormFieldSizing, Icon, MarkStyle, PopoverPlacement,
     RadiusRole, SearchField, Select, SelectVariant, SelectorSizing, Size, Slider, Switch, SwitchVariant, TextArea, TextField,
     TextRole, UiAction,
 };
@@ -303,6 +303,27 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             ])
             .size(Some(width), None),
             caption(cx, "Plain: the choice and its chevron, filled only under the pointer, at the end of a settings row."),
+            shell_select(cx, "select-field-list")
+                .variant(SelectVariant::Field)
+                .accessibility_label("Shell")
+                .font_size(16.0)
+                .height(40.0)
+                .radius(8.0)
+                .width(width)
+                .menu_width(width)
+                .placement(PopoverPlacement::BottomStart)
+                .menu_metrics(ContextMenuMetrics {
+                    row_height: 44.0,
+                    label_size: 16.0,
+                    horizontal_padding: 12.0,
+                    inset: 0.0,
+                    row_radius: Some(0.0),
+                    ..ContextMenuMetrics::default()
+                })
+                .menu_gap(8.0)
+                .filled_choice(cx.state.theme().accent, Color::WHITE)
+                .render(),
+            caption(cx, ".menu_metrics, .menu_gap(8.0) and .filled_choice(accent, white): a settings list, its 44 px options flush with its corners, 8 below, the choice filled and checked in the accent."),
             row(vec![picture_select(cx, "select-pictures").placement(PopoverPlacement::BottomStart).render()]),
             caption(cx, "Options with a picture in the icon's place, such as custom emoji, or a surface the host plays, such as an animated one."),
         ]),

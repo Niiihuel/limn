@@ -50,7 +50,8 @@ pub struct Tooltip {
 impl Tooltip {
     /// A hint on `anchor` with this title. `anchor_id` is the ID of the control
     /// the anchor is, or the one a passive anchor's hover region takes. It
-    /// opens above the anchor and is at most 360 pixels wide.
+    /// opens above the anchor, is at most 360 pixels wide and starts from
+    /// the tokens' `tooltip_options`.
     pub fn new(
         anchor: Element,
         anchor_id: impl Into<String>,
@@ -67,7 +68,7 @@ impl Tooltip {
             placement: TooltipPlacement::Above,
             palette,
             described: true,
-            options: TooltipOptions::default(),
+            options: crate::tokens().tooltip_options,
             background: None,
         }
     }
@@ -185,15 +186,17 @@ impl Tooltip {
     }
 
     /// How long the pointer rests on the anchor before the hint shows, in
-    /// milliseconds: 350 unless set, and 0 shows it as soon as the pointer
-    /// is over it, for a strip of marks read by moving along it. Keyboard
-    /// focus shows it at once either way.
+    /// milliseconds: the tokens' `tooltip_options` unless set (350 by
+    /// default), and 0 shows it as soon as the pointer is over it, for a
+    /// strip of marks read by moving along it. Keyboard focus shows it at
+    /// once either way.
     pub fn delay_ms(mut self, delay: u16) -> Self {
         self.options.delay_ms = delay;
         self
     }
 
-    /// The title's text size in logical pixels, 12 unless set. A one-line
+    /// The title's text size in logical pixels, the tokens' unless set (12
+    /// by default). A one-line
     /// hint grows by what a larger title adds. A size that is not finite or
     /// not above zero is ignored.
     pub fn title_font_size(mut self, size: f32) -> Self {
@@ -203,13 +206,15 @@ impl Tooltip {
         self
     }
 
-    /// The title's face, the regular one unless set.
+    /// The title's face, the tokens' unless set (the regular one by
+    /// default).
     pub fn title_font_family(mut self, family: FontFamily) -> Self {
         self.options.title_font_family = family;
         self
     }
 
-    /// Whether a small pointer joins the hint to its anchor. On unless set.
+    /// Whether a small pointer joins the hint to its anchor: the tokens'
+    /// unless set, on by default.
     pub fn arrow(mut self, arrow: bool) -> Self {
         self.options.arrow = arrow;
         self
@@ -623,8 +628,8 @@ impl ButtonContent {
     }
 }
 
-/// Shared button geometry in logical pixels. The current renderer uses one
-/// canonical 16 px icon size, while density controls the hit box and type.
+/// Shared button geometry in logical pixels: the hit box, the type and the
+/// side its glyph is drawn at.
 /// The radius is not part of it: it is a token, chosen with
 /// [`Button::radius`]. A host keeps its own densities as consts of this type
 /// and passes one with [`Button::sizing`].
@@ -634,7 +639,7 @@ pub struct ButtonSizing {
     pub height: f32,
     /// Size of the label.
     pub font_size: f32,
-    /// Room kept for a glyph; the glyph itself is drawn at 16 px.
+    /// Room kept for a glyph and the side it is drawn at, from 8 to 128.
     pub icon_size: f32,
     /// Space between the button's edge and its content.
     pub horizontal_padding: f32,
@@ -1173,11 +1178,14 @@ impl Component for Button {
                 Some(center_icon(image.element(name).size(Some(ICON_SIZE), Some(ICON_SIZE)).centered_x()))
             } else {
                 icon.map(|icon| {
-                    center_icon(
-                        Element::icon(icon)
-                            .foreground(ink)
-                            .size(Some(sizing.icon_size), Some(sizing.icon_size)),
-                    )
+                    // The sizing's icon side is the glyph's, not only its box's.
+                    let glyph = Element::icon(icon).foreground(ink);
+                    let glyph = if sizing.icon_size > ICON_SIZE {
+                        glyph.large_icon(sizing.icon_size)
+                    } else {
+                        glyph.small_icon(sizing.icon_size)
+                    };
+                    center_icon(glyph.size(Some(sizing.icon_size), Some(sizing.icon_size)))
                 })
             };
             let label = Element::truncated_text(label)
@@ -3229,6 +3237,10 @@ pub struct DropdownOption {
     /// A picture in the icon's place, such as a custom emoji. `None` by
     /// default.
     pub picture: Option<InlineImage>,
+    /// Whether a long label is cut with an ellipsis on one line, as in
+    /// [`DropdownMenuItem::truncate`], instead of wrapping. `false` by
+    /// default.
+    pub truncate: bool,
 }
 
 impl DropdownOption {
@@ -3242,7 +3254,16 @@ impl DropdownOption {
             state: ControlState::Enabled,
             tooltip: None,
             picture: None,
+            truncate: false,
         }
+    }
+
+    /// Cut a long label with an ellipsis on one line instead of wrapping it,
+    /// as a list of device names does; pair it with a `tooltip` that says
+    /// the rest.
+    pub fn truncate(mut self) -> Self {
+        self.truncate = true;
+        self
     }
 
     /// A hint for the option, for what its label cannot say: the whole of a
@@ -3282,6 +3303,9 @@ impl DropdownOption {
         }
         if let Some(hint) = self.tooltip {
             item = item.tooltip_with(TooltipSpec::new(hint));
+        }
+        if self.truncate {
+            item = item.truncate();
         }
         match self.picture {
             Some(InlineImage::Raster(image)) => item.image(image),
