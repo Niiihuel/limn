@@ -16,6 +16,9 @@ mod coach_mark_tests;
 #[cfg(test)]
 #[path = "region_focus_tests.rs"]
 mod region_focus_tests;
+#[cfg(test)]
+#[path = "spatial_focus_tests.rs"]
+mod spatial_focus_tests;
 
 #[cfg(test)]
 #[path = "drag_drop_tests.rs"]
@@ -4136,6 +4139,33 @@ fn gradient_bands(rect: Rect, stops: &[Color], opacity: f32, clip: Option<Rect>)
         .collect()
 }
 
+/// Of `candidates`, the one a press of `key` moves the focus to from `from`,
+/// as a remote's arrows do: one ahead of it in that direction, the nearest by
+/// how far ahead it is and twice how far it stands to the side, the one most
+/// in line with it among equals.
+fn nearest_in_direction<'a>(from: Rect, key: Key, candidates: impl Iterator<Item = (&'a str, Rect)>) -> Option<&'a str> {
+    // How far apart two spans are along one axis; 0 where they overlap.
+    let apart = |a: (f32, f32), b: (f32, f32)| (b.0 - a.1).max(a.0 - b.1).max(0.0);
+    let (across_x, across_y) = ((from.x, from.x + from.width), (from.y, from.y + from.height));
+    let centre = |rect: Rect| (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+    let (fx, fy) = centre(from);
+    candidates
+        .filter_map(|(id, to)| {
+            let (tx, ty) = centre(to);
+            let (ahead, aside, offset) = match key {
+                Key::ArrowDown => (to.y - (from.y + from.height), apart(across_x, (to.x, to.x + to.width)), (tx - fx).abs()),
+                Key::ArrowUp => (from.y - (to.y + to.height), apart(across_x, (to.x, to.x + to.width)), (tx - fx).abs()),
+                Key::ArrowRight => (to.x - (from.x + from.width), apart(across_y, (to.y, to.y + to.height)), (ty - fy).abs()),
+                Key::ArrowLeft => (from.x - (to.x + to.width), apart(across_y, (to.y, to.y + to.height)), (ty - fy).abs()),
+                _ => return None,
+            };
+            // Past its edge, give or take a hairline of overlap.
+            (ahead >= -1.0).then_some((id, ahead.max(0.0) + 2.0 * aside + 0.01 * offset))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(id, _)| id)
+}
+
 fn char_range(value: &str, start: usize, end: usize) -> &str {
     &value[byte_index(value, start)..byte_index(value, end)]
 }
@@ -4365,6 +4395,9 @@ pub struct UiTree {
     tooltip_hover_since: Option<(String, Instant)>,
     keyboard_focus: bool,
     keyboard_tooltip_focus: bool,
+    /// The arrow keys move the focus to the nearest control their way; see
+    /// [`UiTree::set_spatial_focus`].
+    spatial_focus: bool,
     closed_submenu_triggers: HashSet<String>,
     /// The anchors of the last layout's hints, with how long each waits.
     tooltip_triggers: HashMap<String, Duration>,
@@ -4470,6 +4503,7 @@ impl UiTree {
             tooltip_hover_since: None,
             keyboard_focus: false,
             keyboard_tooltip_focus: false,
+            spatial_focus: false,
             closed_submenu_triggers: HashSet::new(),
             tooltip_triggers: HashMap::new(),
             pressed: None,
@@ -4915,6 +4949,16 @@ impl UiTree {
         let (region, members) = &self.focus_regions[reachable[next]];
         let (region, first) = (region.clone(), members[0].clone());
         self.focus(&first).then_some(region)
+    }
+
+    /// Let the arrow keys move the focus to the nearest control in their
+    /// direction, as a television's remote moves it, when the focused control
+    /// does not take them itself: a slider, a tab strip, a menu and a text
+    /// field's caret still do, but Up and Down leave a single-line field. With
+    /// nothing focused, an arrow focuses the first control. Off by default,
+    /// where the arrows only reach the focused control.
+    pub fn set_spatial_focus(&mut self, enabled: bool) {
+        self.spatial_focus = enabled;
     }
 
     /// Focus an interactive element after layout. Returns false for an unknown ID.
@@ -7638,10 +7682,18 @@ impl UiTree {
                     // its trigger or one of its buttons owns focus.
                     self.keyboard_focus = true;
                     self.keyboard_tooltip_focus = true;
-                } else if !shift
+                } else if (!shift
                     && !ctrl
                     && matches!(key, Key::ArrowDown | Key::ArrowUp | Key::Home | Key::End)
-                    && self.step_inline_menu_option(key)
+                    && self.step_inline_menu_option(key))
+                    // Past what the focused control takes, a remote's arrows move the focus.
+                    || (self.spatial_focus
+                        && !shift
+                        && !ctrl
+                        && !alt
+                        && matches!(key, Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight)
+                        && !self.arrow_is_the_focused_controls(key)
+                        && self.step_spatial(key))
                 {
                     self.keyboard_focus = true;
                     self.keyboard_tooltip_focus = true;
@@ -7833,6 +7885,57 @@ impl UiTree {
         } else {
             self.pending_scroll_focus = Some(id.to_owned());
         }
+    }
+
+    /// Whether the focused control moves its own caret with `key`: Left and
+    /// Right in a text field, and every arrow in a text area or code editor.
+    fn arrow_is_the_focused_controls(&self, key: Key) -> bool {
+        let Some(id) = self.focused.as_ref() else { return false };
+        let kind = self.focus_order.iter().find(|(candidate, _)| candidate == id).map(|(_, kind)| *kind);
+        match kind {
+            Some(HitKind::TextInput) => matches!(key, Key::ArrowLeft | Key::ArrowRight),
+            Some(HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff) => true,
+            _ => false,
+        }
+    }
+
+    /// Focus the control nearest the focused one in `key`'s direction and
+    /// bring it into view, within the open popover when one holds the focus.
+    /// With nothing focused, the first control takes it. Says whether the
+    /// focus moved.
+    fn step_spatial(&mut self, key: Key) -> bool {
+        let candidates: Vec<String> = match self.active_popover_scope().cloned() {
+            Some(scope) => self.reachable_popover_focusables(&scope).into_iter().map(|(id, _)| id).collect(),
+            None => self
+                .focus_order
+                .iter()
+                .filter(|(_, kind)| matches!(kind, HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea))
+                .map(|(id, _)| id.clone())
+                .collect(),
+        };
+        // Where each is laid out, scrolled out of sight or not.
+        let rect = |id: &str| {
+            self.frame
+                .scroll_focus_targets
+                .get(id)
+                .map(|target| target.rect)
+                .or_else(|| self.frame.regions.iter().find(|region| region.id == id).map(|region| region.rect))
+                .filter(|rect| rect.width > 0.0 && rect.height > 0.0)
+        };
+        let next = match self.focused.as_deref().and_then(rect) {
+            Some(from) => {
+                let others = candidates
+                    .iter()
+                    .filter(|id| Some(id.as_str()) != self.focused.as_deref())
+                    .filter_map(|id| rect(id).map(|to| (id.as_str(), to)));
+                nearest_in_direction(from, key, others).map(str::to_owned)
+            }
+            None => candidates.iter().find(|id| rect(id).is_some()).cloned(),
+        };
+        let Some(id) = next else { return false };
+        self.request_scroll_focus(&id);
+        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, Some(id));
+        true
     }
 
     fn step_focus(&mut self, reverse: bool) {
