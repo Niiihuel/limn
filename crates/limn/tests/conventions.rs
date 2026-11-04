@@ -205,6 +205,7 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
                 .variant(limn::SelectVariant::Field)
                 .width(bad)
                 .height(bad)
+                .menu_gap(bad)
                 .render(),
         );
         lays_out_with_real_numbers("ColorPicker::width", ColorPicker::new("c", Hsv::new(bad, bad, bad), palette).width(bad).render());
@@ -222,6 +223,15 @@ fn a_size_that_is_not_a_number_never_reaches_the_layout() {
             scrollbar_gutter: bad,
             header_height: bad,
             max_height: bad,
+            label_font_family: limn::FontFamily::SansMedium,
+            row_radius: Some(bad),
+            border: None,
+            shadow: Some(limn::BoxShadow {
+                color: limn::Color::rgb(0, 0, 0),
+                offset: Point::new(bad, bad),
+                blur: bad,
+                spread: bad,
+            }),
         };
         lays_out_with_real_numbers(
             "DropdownMenu::context_metrics",

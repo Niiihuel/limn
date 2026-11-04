@@ -224,7 +224,13 @@ shared profile for width, row density and scroll budget.
 gives that style another density, in logical pixels: the row height, the label
 and detail sizes, the inset, the padding, the gap, the separator, the heading
 height and the tallest the menu gets before it scrolls (`max_height`, 480 by
-default; a host can pass its window's height). Submenus take the same. Set the fields you change and take the rest
+default; a host can pass its window's height). They also set the label's face
+(`label_font_family`, `Sans`), the corners of a row's hover fill
+(`row_radius`, the control radius unless set; 0 keeps rows square in a menu
+whose `inset` is 0, so the surface's corners clip them), the surface's outline
+and separators (`border`, the palette's unless set; a translucent color lies
+over the fill) and its shadow (`shadow`, the palette's 6 below blurred 18
+unless set). Submenus take the same. Set the fields you change and take the rest
 from `ContextMenuMetrics::default()`, the editor's values. Two-line rows,
 sections and loading rows keep their own heights.
 
@@ -240,6 +246,11 @@ DropdownMenu::new(row, entries, open, "row:dismiss", palette)
     })
     .render()
 ```
+
+`filled_choice(mark, tick)` marks the chosen row of a style menu as a settings
+list does: it keeps the palette's `selected` fill and the text's ink, the
+other labels are muted, and its check is a round `mark` with a `tick` in it.
+Without it the chosen row shows only its check. Submenus take the same.
 
 `hints_in_tooltips(true)` moves shortcuts and annotations into each row's
 hint, for a narrow menu. `inline(true)` renders the options in the layout

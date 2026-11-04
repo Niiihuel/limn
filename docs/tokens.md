@@ -1,7 +1,7 @@
 # Tokens
 
-Reference for the values that define the library's shape and pace. For color,
-see [Theming](theming.md).
+Reference for the values that define the library's shape and pace, and the
+one look a host may give every tooltip. For color, see [Theming](theming.md).
 
 ## Setting tokens
 
@@ -11,6 +11,7 @@ use limn::{set_tokens, tokens, Motion, Radius, Tokens};
 set_tokens(Tokens {
     radius: Radius::DEFAULT.scaled(1.5),
     motion: Motion::DEFAULT,
+    ..Tokens::DEFAULT
 });
 
 let current = tokens(); // read them back
@@ -92,8 +93,63 @@ or its own entrance duration, whichever is shorter.
 | Spinners, skeleton pulses, text shimmer, the caret | Fixed periods. Reduced motion stops them. |
 | Scrolling | `ScrollMotion`, per scroll area. |
 | The crossfade when a popover changes content | Fixed. |
-| The delay before a tooltip appears | Fixed at 350 ms. |
+| The delay before a tooltip appears | `tooltip_options.delay_ms`, 350 ms; see [Tooltip](#tooltip). |
 | Easing curves | Fixed. |
+
+## Tooltip
+
+Each palette derives its tooltips' colors. `tooltip: Some(style)` paints
+every tooltip with one `TooltipStyle` instead, whichever palette its control
+was built with; a transparent `border` draws no outline. A tooltip given its
+own `background` keeps it.
+
+`tooltip_options` are the `TooltipOptions` every tooltip starts from: its
+delay, its title's size and face, its pointer, its shape and its entrance. A
+`Tooltip`'s builders change them for that one hint; the hints the engine draws
+itself, such as a menu row's, take them as they are. `TooltipOptions::DEFAULT`
+is the library's hint.
+
+```rust
+use limn::{set_tokens, Color, FontFamily, Point, Size, Tokens, TooltipOptions, TooltipShape, TooltipStyle};
+
+set_tokens(Tokens {
+    tooltip: Some(TooltipStyle {
+        background: Color::rgb(10, 10, 12),
+        border: Color::rgba(149, 149, 162, 51), // a grey at 20 %
+        keycap: Color::rgb(36, 36, 38),
+        text: Color::rgb(220, 220, 223),
+        muted: Color::rgb(150, 151, 158),
+        shadow: Color::rgba(0, 0, 0, 61),
+    }),
+    tooltip_options: TooltipOptions {
+        delay_ms: 70,
+        title_font_size: 14.0,
+        title_font_family: FontFamily::SansMedium,
+        shape: Some(TooltipShape {
+            radius: 8.0,
+            padding_x: 12.0,
+            padding_y: 8.0,
+            shadow_offset: Point::new(0.0, 12.0),
+            shadow_blur: 24.0,
+            caret: Size::new(16.0, 10.0),
+        }),
+        open_scale: 0.95,
+        enter_ms: Some(70),
+        ..TooltipOptions::DEFAULT
+    },
+    ..Tokens::DEFAULT
+});
+```
+
+| Field | Default | What it changes |
+| --- | --- | --- |
+| `shape` | `None` | The body's radius, the padding at its sides and above and below its text (a one-line hint is its title's line and twice that), its shadow's offset and blur, and the pointer's width and depth, a triangle with a rounded tip in the body's fill. The hint stands the pointer's depth and 2 px off its anchor. `None` is the control radius, 8 at the sides, one line in 24, a shadow 2 below blurred 6 and an outlined 10 by 5 pointer. |
+| `open_scale` | 1 | The scale the hint grows from about its pointer's tip while it fades in, within 0.5 to 1. |
+| `enter_ms` | `None` | How long it fades in, in place of `Motion::enter_ms`. |
+
+`set_tokens` makes the options' numbers safe: a title size that is not a
+positive number is 12, the scale is clamped and the shape's measures are
+never negative.
 
 ## Per-component overrides
 

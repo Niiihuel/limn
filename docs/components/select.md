@@ -83,6 +83,32 @@ focus color while the trigger has the focus or its list is open, where `ink`
 still wins, and the radius in place of the control's. The button variant
 ignores both.
 
+## The list
+
+```rust
+Select::new("mic", label, options, open, "mic:dismiss", palette)
+    .variant(SelectVariant::Field)
+    .menu_metrics(ContextMenuMetrics {
+        row_height: 44.0,
+        label_size: 16.0,
+        horizontal_padding: 12.0,
+        inset: 0.0,
+        row_radius: Some(0.0),
+        ..ContextMenuMetrics::default()
+    })
+    .menu_gap(8.0)
+    .filled_choice(accent, Color::WHITE)
+    .render()
+```
+
+The open list is a [DropdownMenu](dropdown-menu.md#style) in its context
+style. `menu_metrics` gives it another density and edge, as
+`context_metrics` does, such as 44 px options of 16 px text flush with a list
+whose corners clip them. `menu_gap` is the space between the trigger and the
+list, 5 unless set. `filled_choice(mark, tick)` fills the chosen option with
+the list palette's `selected` color, mutes the others and draws its check as a
+round `mark` with a `tick`.
+
 ## Size
 
 ```rust

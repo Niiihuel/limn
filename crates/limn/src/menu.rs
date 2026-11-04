@@ -24,7 +24,7 @@ pub(crate) fn named_by_hint(element: Element) -> Element {
 /// The editor's context menu defines the visual standard for action menus.
 /// Selector menus can keep their own density and richer option content.
 pub(crate) mod action_style {
-    use crate::{ComponentPalette, Element, Point};
+    use crate::{BoxShadow, Color, ComponentPalette, Element, Point};
 
     pub(crate) const ROW_HEIGHT: f32 = 26.0;
     pub(crate) const INSET: f32 = 4.0;
@@ -47,13 +47,17 @@ pub(crate) mod action_style {
         width: f32,
         height: Option<f32>,
         inset: f32,
+        border: Option<Color>,
+        shadow: Option<BoxShadow>,
     ) -> Element {
+        let shadow =
+            shadow.unwrap_or_else(|| BoxShadow::new(palette.shadow, Point::new(0.0, 6.0), 18.0, 0.0));
         Element::panel(content)
             .padding(inset)
             .background(palette.surface)
-            .border(palette.border, 1.0)
+            .border(border.unwrap_or(palette.border), 1.0)
             .radius(crate::components::surface_radius())
-            .shadow(palette.shadow, Point::new(0.0, 6.0), 18.0, 0.0)
+            .shadow(shadow.color, shadow.offset, shadow.blur, shadow.spread)
             .size(Some(width), height)
             .clip_children()
     }

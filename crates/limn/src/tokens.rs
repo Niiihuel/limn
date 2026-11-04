@@ -5,9 +5,12 @@
 //! the engine paints tooltips, menus, scrollbars and focus rings itself,
 //! without ever seeing a palette, and an application has one shape and one
 //! pace. They are therefore set once for the process with [`set_tokens`] and
-//! read where they are used, like variables on a style sheet's root.
+//! read where they are used, like variables on a style sheet's root. So is
+//! a host's one look for every tooltip, when it wants one.
 
 use std::sync::{PoisonError, RwLock};
+
+use crate::{TooltipOptions, TooltipStyle};
 
 /// Corner radii in logical pixels, by what is being rounded.
 ///
@@ -172,20 +175,34 @@ impl Default for Motion {
     }
 }
 
-/// Everything about the library's look that is not a color.
+/// Everything about the library's look that is not a palette's color.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Tokens {
     /// The corner radii, by what is being rounded.
     pub radius: Radius,
     /// The four durations every animation is built from.
     pub motion: Motion,
+    /// The colors every tooltip is painted with, whichever palette its
+    /// control was built with, such as a body of #282828 with white text and
+    /// a transparent `border`, which draws no outline. Unless set, each
+    /// palette derives its own. A tooltip given its own `background` keeps it.
+    pub tooltip: Option<TooltipStyle>,
+    /// The options every tooltip starts from: its delay, its title's size
+    /// and face, its pointer, its [`TooltipShape`](crate::TooltipShape) and
+    /// its entrance. A [`Tooltip`](crate::Tooltip)'s builders change them
+    /// for that one hint; the hints the engine draws itself, such as a menu
+    /// row's, take them as they are.
+    pub tooltip_options: TooltipOptions,
 }
 
 impl Tokens {
-    /// The default radii and durations.
+    /// The default radii and durations, each palette's own tooltips and the
+    /// library's hints.
     pub const DEFAULT: Self = Self {
         radius: Radius::DEFAULT,
         motion: Motion::DEFAULT,
+        tooltip: None,
+        tooltip_options: TooltipOptions::DEFAULT,
     };
 }
 
@@ -199,11 +216,13 @@ pub fn tokens() -> Tokens {
 /// Replace the tokens for the whole process. Elements built from here on use
 /// them, so an application that rebuilds its tree every frame changes shape
 /// and pace on the next one. A radius that is negative or not finite falls
-/// back to its default.
+/// back to its default, and the tooltip options' numbers are made safe as
+/// [`TooltipOptions`] documents them.
 pub fn set_tokens(tokens: Tokens) {
     *CURRENT.write().unwrap_or_else(PoisonError::into_inner) = Tokens {
         radius: tokens.radius.sanitized(),
-        motion: tokens.motion,
+        tooltip_options: tokens.tooltip_options.sanitized(),
+        ..tokens
     };
 }
 

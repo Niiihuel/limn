@@ -4,8 +4,9 @@
 //! the changes in order.
 
 use limn::{
-    set_tokens, tokens, Button, Component, ComponentPalette, DrawCommand, Element, Empty, Frame,
-    Markdown, Modal, Motion, Radius, Size, Toast, Tokens, UiTree,
+    set_tokens, tokens, Button, Color, Component, ComponentPalette, DrawCommand, Element,
+    ElementKind, Empty, FontFamily, Frame, Markdown, Modal, Motion, Point, Radius, Size, Toast,
+    Tokens, Tooltip, TooltipOptions, TooltipShape, TooltipStyle, UiTree,
 };
 use web_time::{Duration, Instant};
 
@@ -134,6 +135,73 @@ fn tokens_reshape_and_repace_every_component_built_after_they_change() {
         })
         .expect("toast surface");
     assert!(opacity > 0 && opacity < 255, "{opacity}");
+
+    // One look for every tooltip, whichever palette its control was built with.
+    set_tokens(Tokens::DEFAULT);
+    let light = ComponentPalette { raised: Color::WHITE, border: Color::rgb(220, 220, 220), ..palette };
+    let hint_of = |element: Element| match element.kind {
+        ElementKind::Tooltip { colors, options, .. } => (colors, options),
+        _ => panic!("a hint"),
+    };
+    let hint = |palette| hint_of(Button::new("b", "B", palette).tooltip("Guardar").render());
+    assert_ne!(hint(palette).0, hint(light).0, "each palette derives its own");
+    assert_eq!(hint(palette).1, TooltipOptions::DEFAULT);
+    let own = TooltipStyle {
+        background: Color::rgb(10, 10, 12),
+        border: Color::rgba(149, 149, 162, 51),
+        keycap: Color::rgb(36, 36, 38),
+        text: Color::rgb(220, 220, 223),
+        muted: Color::rgb(150, 151, 158),
+        shadow: Color::rgba(0, 0, 0, 61),
+    };
+    // And the options every hint starts from, the engine's own included.
+    let options = TooltipOptions {
+        delay_ms: 70,
+        title_font_size: 14.0,
+        title_font_family: FontFamily::SansMedium,
+        shape: Some(TooltipShape {
+            radius: 8.0,
+            padding_x: 12.0,
+            padding_y: 8.0,
+            shadow_offset: Point::new(0.0, 12.0),
+            shadow_blur: 24.0,
+            caret: Size::new(16.0, 10.0),
+        }),
+        open_scale: 0.95,
+        enter_ms: Some(70),
+        ..TooltipOptions::DEFAULT
+    };
+    set_tokens(Tokens { tooltip: Some(own), tooltip_options: options, ..Tokens::DEFAULT });
+    for palette in [palette, light] {
+        assert_eq!(hint(palette), (own, options));
+        let (colors, kept) = hint_of(Tooltip::new(Element::spacer(), "a", "A", palette).delay_ms(0).render());
+        assert_eq!((colors, kept), (own, TooltipOptions { delay_ms: 0, ..options }));
+    }
+    // Its body is painted in the host's fill and shape.
+    let mut tree = UiTree::new(Button::new("b", "B", light).tooltip("Guardar").render());
+    tree.set_reduced_motion(true);
+    tree.layout(WINDOW);
+    assert!(tree.focus("b"));
+    let frame = tree.layout(WINDOW);
+    assert!(frame.commands.iter().any(|command| matches!(command,
+        DrawCommand::FillRect { color, radius, .. } if *color == own.background && *radius == 8.0
+    )));
+    assert!(frame.commands.iter().any(|command| matches!(command,
+        DrawCommand::Text { text, font_size, font_family: FontFamily::SansMedium, .. } if text == "Guardar" && *font_size == 14.0
+    )));
+    // Numbers that cannot be painted are made safe.
+    set_tokens(Tokens {
+        tooltip_options: TooltipOptions {
+            title_font_size: f32::NAN,
+            open_scale: 0.1,
+            shape: Some(TooltipShape { radius: -4.0, padding_x: f32::INFINITY, ..options.shape.unwrap() }),
+            ..options
+        },
+        ..Tokens::DEFAULT
+    });
+    let safe = tokens().tooltip_options;
+    assert_eq!((safe.title_font_size, safe.open_scale), (12.0, 0.5));
+    assert_eq!(safe.shape.map(|shape| (shape.radius, shape.padding_x)), Some((0.0, 0.0)));
 
     set_tokens(Tokens::DEFAULT);
     assert_eq!(tokens(), Tokens::DEFAULT);
