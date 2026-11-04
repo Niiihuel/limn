@@ -103,3 +103,28 @@ fn a_rows_end_stops_left_and_right_but_up_and_down_reach_a_short_row() {
     press(&mut tree, Key::ArrowDown);
     assert_eq!(tree.focused_id(), Some("card"), "down reaches the row below, short as it is");
 }
+
+#[test]
+fn down_reaches_a_shelf_below_the_view_whose_cards_scroll_sideways() {
+    // A television's page: shelves one under the other, each a strip that scrolls sideways.
+    let shelf = |shelf: usize| {
+        let cards = (0..8).map(|card| Element::button(format!("{shelf}:{card}"), "card").size(Some(100.0), Some(120.0))).collect();
+        Element::horizontal_scroll(format!("shelf:{shelf}"), Element::row(cards).gap(16.0))
+    };
+    let page = Element::scroll("page", Element::column((0..4).map(shelf).collect()).gap(20.0)).size(None, Some(300.0));
+    let mut tree = UiTree::new(Element::column(vec![page, Element::spacer().flex(1.0)]));
+    tree.set_spatial_focus(true);
+    tree.layout(VIEWPORT);
+    assert!(tree.focus("1:0"));
+    tree.layout(VIEWPORT);
+    press(&mut tree, Key::ArrowDown);
+    assert_eq!(tree.focused_id(), Some("2:0"), "into the shelf under the view");
+    press(&mut tree, Key::ArrowDown);
+    assert_eq!(tree.focused_id(), Some("3:0"));
+    assert!(tree.scroll_offset("page") > 0.0, "and the page scrolled to it");
+    press(&mut tree, Key::ArrowRight);
+    press(&mut tree, Key::ArrowUp);
+    press(&mut tree, Key::ArrowUp);
+    press(&mut tree, Key::ArrowUp);
+    assert_eq!(tree.focused_id(), Some("0:1"), "up the same column, to the shelf above the view");
+}

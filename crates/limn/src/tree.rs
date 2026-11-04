@@ -5449,6 +5449,7 @@ impl UiTree {
                 translated_overflow: HashMap::new(),
                 focus_path,
                 focus_probe: probe,
+                spatial_focus: self.spatial_focus,
                 drag_source: self
                     .pointer_drag
                     .as_ref()
@@ -8760,6 +8761,9 @@ struct LayoutBuilder<'a> {
     translated_overflow: HashMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
+    /// Whether the arrows move the focus, which needs the bounds of the
+    /// controls held out of sight.
+    spatial_focus: bool,
     /// Source of the active pointer drag and the commands it painted.
     drag_source: Option<&'a str>,
     drag_ghost: Option<std::ops::Range<usize>>,
@@ -12510,17 +12514,22 @@ impl LayoutBuilder<'_> {
         self.record_scroll_focus_target(element, rect);
         if clip.is_some_and(|clip| rect.intersection(clip).is_none())
             && !self.has_translated_overflow(element) {
+            let mut held = false;
             if !self.scroll_focus_context.is_empty() {
                 // Composite menu rows can be skipped before their controls
                 // receive geometry. Keep only their IDs reachable; selecting
                 // one uses the existing targeted probe to reveal its bounds.
                 let mut focusables = Vec::new();
                 collect_focus_order(element, &mut focusables, &mut HashSet::new());
+                held = focusable_id(element).is_none() && !focusables.is_empty();
                 self.frame
                     .scroll_focus_candidates
                     .extend(focusables.into_iter().map(|(id, _)| id));
             }
-            if self.focus_path.contains(&(element as *const Element as usize)) {
+            // A remote's arrows go to the nearest control their way, so the
+            // ones held out of sight need their bounds too, not only the one
+            // being revealed.
+            if (held && self.spatial_focus) || self.focus_path.contains(&(element as *const Element as usize)) {
                 self.probe_scroll_focus_translated(element, rect, clip);
             }
             return;
@@ -15352,10 +15361,7 @@ impl LayoutBuilder<'_> {
                     .iter()
                     .zip(self.child_rects(element, children, content))
                 {
-                    if self
-                        .focus_path
-                        .contains(&(child as *const Element as usize))
-                    {
+                    if self.probes(child) {
                         self.probe_scroll_focus(child, child_rect, clip);
                     }
                 }
@@ -15367,7 +15373,7 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::Stack(children) => {
                 for child in children {
-                    if self.focus_path.contains(&(child as *const Element as usize)) {
+                    if self.probes(child) {
                         self.probe_scroll_focus(child, content, clip);
                     }
                 }
@@ -15410,22 +15416,35 @@ impl LayoutBuilder<'_> {
                 self.probe_scroll_focus(child, child_rect, new_clip.or(clip));
                 self.scroll_focus_context.pop();
             }
-            ElementKind::Overlay { base, .. }
-                if self
-                    .focus_path
-                    .contains(&(base.as_ref() as *const Element as usize)) =>
-            {
+            // A strip that scrolls sideways holds its cards where it last
+            // showed them.
+            ElementKind::HorizontalScroll { id, child, .. } => {
+                let width = self
+                    .measure(child, Size::new(f32::INFINITY, content.height))
+                    .width
+                    .max(content.width);
+                let offset = self
+                    .horizontal_scrolls
+                    .get(id.as_str())
+                    .map_or(0.0_f32, HorizontalScrollState::offset)
+                    .clamp(0.0, width - content.width);
+                self.probe_scroll_focus(child, Rect::new(content.x - offset, content.y, width, content.height), clip);
+            }
+            ElementKind::Overlay { base, .. } if self.probes(base) => {
                 self.probe_scroll_focus(base, content, clip);
             }
-            ElementKind::Popover { anchor, .. }
-                if self
-                    .focus_path
-                    .contains(&(anchor.as_ref() as *const Element as usize)) =>
-            {
+            ElementKind::Popover { anchor, .. } if self.probes(anchor) => {
                 self.probe_scroll_focus(anchor, content, clip);
             }
             _ => {}
         }
+    }
+
+    /// Whether a probe of a branch held out of sight goes into `child`: the
+    /// one on the way to the control being revealed, or every one while a
+    /// remote's arrows move the focus.
+    fn probes(&self, child: &Element) -> bool {
+        self.spatial_focus || self.focus_path.contains(&(child as *const Element as usize))
     }
 
     fn place_flex(
