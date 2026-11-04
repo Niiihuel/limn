@@ -235,6 +235,14 @@ Tab order, so nothing moves when they appear and Tab reaches them. The
 region is passive and the host mirrors no hover state. A pinned
 `sticky_top` child is a region where it is drawn.
 
+What a floating surface covers is not under the pointer: where a popover (a
+part of it drawn past its box and the popovers opened from it too), its
+backdrop, a dialog, a context menu or an `Element::overlay` layer has a
+pointer region, a region beneath it is not hovered, as a press there does not
+reach it. Its reveals, moving icons and lit gaps stay at rest, as its
+controls are not `hovered_id`. A popover without a backdrop, such as
+`popover_non_modal` or `popover_on_hover`, leaves the rows beside it hovered.
+
 `conceal_on_hover(id)` is the opposite: painted except while the pointer is
 over the region. Put one of each in an `Element::stack` and the two give way
 to each other, such as a mark over a picture that turns into what a click
@@ -271,8 +279,8 @@ let settings = IconButton::new("settings", Icon::Settings, "Settings", palette)
     .hover_motion("settings-gear", gear);
 ```
 
-While the pointer is over the element's own visible box, the icons it
-paints play the motion: from where they are at 0 ms, through each keyframe at
+While the pointer is over the element's own visible box, and no floating
+surface over it, the icons it paints play the motion: from where they are at 0 ms, through each keyframe at
 its time, holding the last. When the pointer leaves they ease back to rest
 over `move_ms`, or the motion's `return_ms`; coming back before they are
 home plays again from where they are, so nothing jumps. Only icons move:

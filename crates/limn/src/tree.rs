@@ -63,6 +63,9 @@ mod hover_motion_tests;
 #[path = "stack_tests.rs"]
 mod stack_tests;
 #[cfg(test)]
+#[path = "hover_layer_tests.rs"]
+mod hover_layer_tests;
+#[cfg(test)]
 #[path = "wrap_tests.rs"]
 mod wrap_tests;
 #[cfg(test)]
@@ -1551,6 +1554,9 @@ pub struct Frame {
     /// The zoom views laid out, in order, and the controls that move them.
     zoom_views: Vec<zoom_view_tree::ZoomFrame>,
     zoom_controls: HashMap<String, (String, crate::ZoomControl)>,
+    /// Where each floating layer's regions begin, in paint order: a popover,
+    /// a free overlay, a context menu. The base tree is layer 0.
+    layers: Vec<usize>,
 }
 
 /// The coach mark rendered this frame, laid out or not.
@@ -2411,6 +2417,15 @@ impl Frame {
     /// reach the control it sits on.
     pub fn press_region(&self, point: Point) -> Option<&HitRegion> {
         self.region_at(point, true)
+    }
+
+    /// The layer of the topmost region at `point`, 0 for the base tree or
+    /// none: the layers under it do not see the pointer.
+    fn layer_at(&self, point: Point) -> usize {
+        self.regions
+            .iter()
+            .rposition(|region| region.rect.contains(point))
+            .map_or(0, |index| self.layers.partition_point(|&start| start <= index))
     }
 
     fn region_at(&self, point: Point, pressing: bool) -> Option<&HitRegion> {
@@ -4693,6 +4708,9 @@ impl UiTree {
         let mut observed_sliders = HashSet::new();
         let viewport_rect = Rect::new(0.0, 0.0, viewport.width, viewport.height);
         let context_menu_paint = self.context_menu_paint(viewport_rect);
+        // Paint sees the pointer only on the layer that held it in the last
+        // frame and those above: a floating surface hides it from what is under.
+        let pointer_layer = self.pointer.map_or(0, |point| self.frame.layer_at(point));
         self.measurement_cache.get_mut().clear();
         let ghost_range;
         let (mut frame, overlay_start) = {
@@ -4744,7 +4762,8 @@ impl UiTree {
                 dragging_scrollbar: self.scroll_drag.as_ref().map(|drag| drag.id.as_str()),
                 dragging_horizontal: self.horizontal_pan.as_ref().map(|(id, _)| id.as_str()),
                 scroll_button_hold: self.scroll_button_hold.as_ref(),
-                pointer: self.pointer,
+                pointer: self.pointer.filter(|_| pointer_layer == 0),
+                pointer_layer,
                 region_hovered: false,
                 hovered_regions: Vec::new(),
                 access_above: None,
@@ -4803,6 +4822,7 @@ impl UiTree {
             // their anchor lives inside a clipped scroll container. Nested
             // overlays are appended and painted above their parent overlay.
             while let Some(overlay) = builder.overlays.pop_front() {
+                builder.enter_layer(self.pointer);
                 let previous_scope = builder.enter_measurement_scope();
                 match overlay {
                     DeferredOverlay::Free { floating, area } => {
@@ -5226,6 +5246,7 @@ impl UiTree {
                     .as_deref()
                     .filter(|id| id.starts_with("__context_menu:item:"));
                 builder.keyboard_focus = focused.is_some();
+                builder.enter_layer(self.pointer);
                 builder.frame.regions.push(HitRegion {
                     id: "__context_menu:surface".into(),
                     rect: *rect,
@@ -5240,6 +5261,7 @@ impl UiTree {
                 builder.keyboard_focus = old_keyboard;
             }
             ghost_range = builder.drag_ghost.take();
+            builder.pointer = self.pointer;
             self.hovered_region = builder.hovered_region(base_regions);
             (builder.frame, overlay_start)
         };
@@ -5624,7 +5646,8 @@ impl UiTree {
         // or popover can move the target without any physical pointer motion.
         if let Some(point) = self.pointer {
             let target = self.frame.hit_test(point).map(str::to_owned);
-            if target != self.hovered {
+            // A surface that came or went under the pointer repaints what it covers.
+            if target != self.hovered || self.frame.layer_at(point) != pointer_layer {
                 self.set_hovered(target, now);
                 if refresh_hover_paint {
                     return self.layout_at_with_hover_refresh(viewport, now, false);
@@ -7877,7 +7900,11 @@ struct LayoutBuilder<'a> {
     dragging_scrollbar: Option<&'a str>,
     dragging_horizontal: Option<&'a str>,
     scroll_button_hold: Option<&'a ScrollButtonHold>,
+    /// The pointer as the layer being placed sees it: `None` while a layer
+    /// above it holds the pointer.
     pointer: Option<Point>,
+    /// The layer that held the pointer in the last frame.
+    pointer_layer: usize,
     /// The pointer is over the `hover_region` being placed.
     region_hovered: bool,
     /// The named hover regions the pointer is over, outermost and earliest
@@ -8639,6 +8666,13 @@ impl LayoutBuilder<'_> {
             }
         }
         progress
+    }
+
+    /// Start the next floating layer, which sees `pointer` unless a layer
+    /// above it held the pointer in the last frame.
+    fn enter_layer(&mut self, pointer: Option<Point>) {
+        self.frame.layers.push(self.frame.regions.len());
+        self.pointer = pointer.filter(|_| self.frame.layers.len() >= self.pointer_layer);
     }
 
     /// The innermost named hover region under the pointer that nothing laid

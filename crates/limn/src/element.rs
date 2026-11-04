@@ -2694,7 +2694,9 @@ impl Element {
     /// Make this element the area whose hover reveals the
     /// [`reveal_on_hover`](Self::reveal_on_hover) elements inside it: a
     /// message around its row of actions. It is passive: it adds no pointer
-    /// target, no focus stop and no paint, and the host mirrors nothing.
+    /// target, no focus stop and no paint, and the host mirrors nothing. A
+    /// floating surface over it with a pointer region there, such as a
+    /// popover or its backdrop, takes the hover from it.
     pub fn hover_region(mut self) -> Self {
         self.hover_reveal = HoverReveal::Region;
         self
