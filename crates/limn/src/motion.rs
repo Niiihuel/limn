@@ -63,11 +63,16 @@ pub enum Easing {
     InOutSine,
     /// The same speed all the way.
     Linear,
+    /// An under-damped spring set off from rest, as a hint grows in: it
+    /// reaches the end at a quarter of the time, passes it by 14 % of the
+    /// way at 0.37, comes back 2 % short at 0.74 and rests on it at 1. Its
+    /// share goes above 1 on the way, so a value it drives overshoots.
+    Spring,
 }
 
 impl Easing {
-    /// The eased share of the way, from 0 to 1, for a linear `progress`.
-    /// `progress` is clamped to 0..=1.
+    /// The eased share of the way, from 0 to 1, for a linear `progress`;
+    /// `Spring` passes 1 on its way there. `progress` is clamped to 0..=1.
     pub fn sample(self, progress: f32) -> f32 {
         let progress = progress.clamp(0.0, 1.0);
         match self {
@@ -77,6 +82,16 @@ impl Easing {
             Self::CubicBezier(x1, y1, x2, y2) => cubic_bezier(x1.clamp(0.0, 1.0), y1, x2.clamp(0.0, 1.0), y2, progress),
             Self::InOutSine => (1.0 - (std::f32::consts::PI * progress).cos()) / 2.0,
             Self::Linear => progress,
+            Self::Spring if progress == 1.0 => 1.0,
+            Self::Spring => {
+                // Damping ratio 0.535 turned 10 radians by the end, within
+                // 0.02 % of rest there: a hint's measured spring over 200 ms.
+                const ZETA: f32 = 0.535;
+                const TURN: f32 = 10.0;
+                let damped = TURN * (1.0 - ZETA * ZETA).sqrt();
+                let (sin, cos) = (damped * progress).sin_cos();
+                1.0 - (-ZETA * TURN * progress).exp() * (cos + ZETA * TURN / damped * sin)
+            }
         }
     }
 }
@@ -779,6 +794,19 @@ mod tests {
         scalar.retarget(f32::NAN, start, Duration::from_millis(100));
         assert_eq!(scalar.target(), 300.0);
         assert_eq!(Easing::InOutCubic.sample(0.5), 0.5);
+    }
+
+    #[test]
+    fn a_spring_curve_overshoots_dips_back_and_rests_on_the_end() {
+        let curve: Vec<f32> = (0..=100).map(|step| Easing::Spring.sample(step as f32 / 100.0)).collect();
+        assert_eq!((curve[0], curve[100], Easing::Spring.sample(2.0)), (0.0, 1.0, 1.0));
+        // It starts at standstill, as a spring from rest.
+        assert!(curve[1] < 0.01, "{}", curve[1]);
+        let (peak, at) = curve.iter().zip(0..).fold((0.0_f32, 0), |best, (&v, i)| if v > best.0 { (v, i) } else { best });
+        assert!((1.12..1.16).contains(&peak) && (35..=39).contains(&at), "{peak} at {at}");
+        let dip = curve[at..].iter().copied().fold(f32::MAX, f32::min);
+        assert!((0.97..0.99).contains(&dip), "{dip}");
+        assert!(curve[90..].iter().all(|v| (v - 1.0).abs() < 0.01), "{:?}", &curve[90..]);
     }
 
     #[test]

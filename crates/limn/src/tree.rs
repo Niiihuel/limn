@@ -1308,6 +1308,7 @@ struct SurfaceEntrance {
     scale: f32,
     ms: Option<u16>,
     origin: Option<Point>,
+    easing: Easing,
 }
 
 impl Default for SurfaceEntrance {
@@ -1316,6 +1317,7 @@ impl Default for SurfaceEntrance {
             scale: 1.0,
             ms: None,
             origin: None,
+            easing: Easing::default(),
         }
     }
 }
@@ -5945,6 +5947,7 @@ impl UiTree {
                                 scale: options.open_scale,
                                 ms: options.enter_ms,
                                 origin,
+                                easing: options.enter_easing,
                             },
                         );
                     }
@@ -9451,6 +9454,7 @@ impl LayoutBuilder<'_> {
                     exits.get(id).map_or(0.0, |exit| exit.opacity.value(now)),
                     now,
                 )
+                .easing(entrance.easing)
             });
         transition.retarget(1.0, now, Duration::from_millis(u64::from(enter_ms)));
         let progress = transition.value(now);
@@ -9470,7 +9474,8 @@ impl LayoutBuilder<'_> {
             },
             );
         }
-        if progress < 1.0 {
+        // A spring passes 1 on its way: the scale overshoots, the fade clamps.
+        if progress != 1.0 {
             let origin = entrance
                 .origin
                 .unwrap_or(Point::new(rect.x + rect.width / 2.0, rect.y + rect.height));
@@ -18118,6 +18123,71 @@ mod tests {
         let done = moving.layout_at(view, start + Duration::from_millis(120));
         let (whole, _) = body(&done).expect("the body, in");
         assert!((whole.width - rect.width).abs() < 0.01 && (whole.height - rect.height).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_hint_on_a_spring_grows_past_full_size_and_back_its_fade_over_early() {
+        let palette = ComponentPalette::neutral_dark();
+        let style = palette.tooltip_style();
+        let view = Size::new(320.0, 160.0);
+        // The body's width and opacity on each frame, from the first it is painted in.
+        let frames = |easing: Easing, reduced: bool| {
+            let mut element = Tooltip::new(
+                Element::icon_button("mark", Icon::PanelLeft, "").size(Some(32.0), Some(32.0)),
+                "mark",
+                "Server",
+                palette,
+            )
+            .placement(TooltipPlacement::Below)
+            .delay_ms(0)
+            .render();
+            let ElementKind::Tooltip { options, .. } = &mut element.kind else {
+                unreachable!()
+            };
+            options.open_scale = 0.95;
+            options.enter_ms = Some(200);
+            options.enter_easing = easing;
+            let mut tree = UiTree::new(Element::column(vec![
+                Element::row(vec![Element::spacer().flex(1.0), element, Element::spacer().flex(1.0)]),
+                Element::spacer().flex(1.0),
+            ]));
+            tree.set_reduced_motion(reduced);
+            let start = Instant::now();
+            tree.layout_at(view, start);
+            assert!(tree.focus("mark"));
+            [0, 60, 75, 150, 200, 260].map(|ms| {
+                let frame = tree.layout_at(view, start + Duration::from_millis(ms));
+                frame
+                    .commands
+                    .iter()
+                    .find_map(|command| match command {
+                        DrawCommand::FillRect { rect, color, .. }
+                            if Color { a: style.background.a, ..*color } == style.background
+                                && rect.height > 20.0 =>
+                        {
+                            Some((rect.width, color.a))
+                        }
+                        _ => None,
+                    })
+                    .expect("the body")
+            })
+        };
+        let full = style.background.a;
+        let [_, _, _, _, _, (width, _)] = frames(Easing::OutCubic, true);
+        // At once under reduced motion, whichever the curve.
+        assert!(frames(Easing::Spring, true).iter().all(|&frame| frame == (width, full)));
+        // The default curve grows to full size and stops there, its fade still going at 60 ms.
+        assert_eq!(TooltipOptions::DEFAULT.enter_easing, Easing::OutCubic);
+        let eased = frames(Easing::OutCubic, false);
+        assert!(eased.iter().all(|&(w, _)| w <= width + 0.001), "{eased:?}");
+        assert!(eased[1].1 < full && eased[5] == (width, full), "{eased:?}");
+        // The spring: opaque by 60 ms, past full size at 75, a little short at 150, settled at 200.
+        let sprung = frames(Easing::Spring, false);
+        assert!(sprung[0].0 < width && sprung[0].1 < full, "{sprung:?}");
+        assert_eq!((sprung[1].1, sprung[2].1), (full, full), "{sprung:?}");
+        assert!(sprung[2].0 > width * 1.005, "{sprung:?} {width}");
+        assert!(sprung[3].0 < width - 0.01, "{sprung:?} {width}");
+        assert_eq!(&sprung[4..], &[(width, full); 2], "{sprung:?}");
     }
 
     #[test]
