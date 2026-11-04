@@ -39,4 +39,4 @@ X11. The browser build works through WebAssembly with WebGL 2 or WebGPU.
 ## Stability
 
 - The API changes without notice until 1.0. Each release lists its changes.
-- A minimum supported Rust version below the current 1.95, if nothing needs it.
+- A minimum supported Rust version below the current 1.99, if nothing needs it.

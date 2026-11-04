@@ -151,7 +151,7 @@ mod tests {
             }
         }
         xs.sort_by(f32::total_cmp);
-        xs.chunks_exact(2).map(|pair| (pair[0], pair[1])).collect()
+        xs.as_chunks::<2>().0.iter().map(|&[a, b]| (a, b)).collect()
     }
     #[test]
     fn connected_rows_have_one_contour_with_flat_joins_and_soft_inner_and_outer_steps() {

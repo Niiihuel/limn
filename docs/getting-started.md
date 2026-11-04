@@ -14,7 +14,7 @@ cargo run -p limn-egui --example counter
 
 ## Before you begin
 
-You need Rust 1.95 or later, a C compiler, and the windowing libraries of your
+You need Rust 1.99 or later, a C compiler, and the windowing libraries of your
 platform. On NixOS, `nix-shell` at the repository root provides all of them.
 
 ## 1. Add the dependencies
