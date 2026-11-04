@@ -273,9 +273,12 @@ fn control(
     }
 }
 
+/// A block's chevron: an open block's shows while the pointer is over the gutter (`shown`), as
+/// an editor's do; a folded one's always, so what is hidden stays in sight.
 pub(super) fn fold_control(
     candidate: &CodeFoldCandidate,
     folded: bool,
+    shown: bool,
     rect: Rect,
     clip: Rect,
     palette: ComponentPalette,
@@ -287,7 +290,7 @@ pub(super) fn fold_control(
         } else {
             Icon::ChevronDown
         })
-        .foreground(palette.muted)
+        .foreground(if folded || shown { palette.muted } else { Color::TRANSPARENT })
         .size(Some(12.0), Some(12.0))
         .padding(3.0),
         if folded {

@@ -592,6 +592,47 @@ fn empty_breakpoint_hover_previews_a_centered_point_without_shifting_source_or_e
 }
 
 #[test]
+fn an_open_blocks_chevron_shows_while_the_pointer_is_over_the_gutter() {
+    let (_, editor) = fixture();
+    let size = Size::new(320.0, 300.0);
+    let mut tree = UiTree::new(editor.clone().render());
+    tree.set_reduced_motion(true);
+    tree.layout(size);
+    let ink = |tree: &UiTree, id: &str| {
+        let at = hit(tree, id);
+        tree.frame()
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::Icon { rect, tint, .. } if at.contains(middle(*rect)) => Some(*tint),
+                _ => None,
+            })
+            .unwrap()
+    };
+    let palette = ComponentPalette::neutral_dark();
+    let at = hit(&tree, "fold:3");
+    // Over the text the chevrons stay hidden, yet still there to be reached and named.
+    for point in [None, Some(Point::new(250.0, 100.0))] {
+        if let Some(point) = point {
+            tree.handle_event(UiEvent::PointerMove(point));
+            tree.layout(size);
+        }
+        assert_eq!((ink(&tree, "fold:0").a, ink(&tree, "fold:3").a), (0, 0));
+    }
+    // Over the gutter by a row of no block, or over a chevron itself, all show.
+    for point in [Point::new(middle(at).x, 200.0), middle(at)] {
+        tree.handle_event(UiEvent::PointerMove(point));
+        tree.layout(size);
+        assert_eq!((ink(&tree, "fold:0"), ink(&tree, "fold:3")), (palette.muted, palette.muted));
+    }
+    // A folded block's shows wherever the pointer is.
+    tree.set_root(editor.folds(vec![3..100]).render());
+    tree.handle_event(UiEvent::PointerMove(Point::new(250.0, 100.0)));
+    tree.layout(size);
+    assert_eq!((ink(&tree, "fold:0").a, ink(&tree, "fold:3")), (0, palette.muted));
+}
+
+#[test]
 fn breakpoint_preview_follows_visible_rows_and_is_hidden_under_an_overlay() {
     let (_, editor) = fixture();
     let mut tree = UiTree::new(editor.clone().render());
