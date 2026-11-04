@@ -7573,7 +7573,14 @@ impl UiTree {
                         .iter()
                         .any(|(candidate, kind)| candidate == id && *kind == HitKind::TextArea);
                     if let Some(input) = self.inputs.get_mut(id) {
-                        if input.insert(&text, multiline) {
+                        // A soft keyboard's Return can come as a line break alone, with no
+                        // Enter key, as iOS's does: a single-line field submits on it.
+                        if !multiline && matches!(text.as_str(), "\n" | "\r" | "\r\n") {
+                            actions.push(UiAction::Submitted {
+                                id: id.clone(),
+                                value: input.value.clone(),
+                            });
+                        } else if input.insert(&text, multiline) {
                             actions.push(UiAction::InputChanged {
                                 id: id.clone(),
                                 value: input.value.clone(),
