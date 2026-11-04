@@ -9118,9 +9118,12 @@ fn find_radius(element: &Element, id: &str) -> Option<f32> {
 
 /// A tooltip's pointer `size` wide along the body and deep away from it, from the body's
 /// `edge` toward `outward` (a unit vector), its tip rounded: two triangles up to where the
-/// rounding starts and a circle tangent to both sides. It starts 1 px inside the body, so
-/// its fill covers the body's outline where they meet.
-fn rounded_caret(edge: Point, outward: Point, size: Size, color: Color) -> Vec<DrawCommand> {
+/// rounding starts and a circle tangent to both sides. Its sides meet 1 px inside the body
+/// and go on 1 px further, so its fill covers the body's outline where they meet wherever
+/// the edge falls on the pixels. A visible `ring`, the body's 1 px
+/// inset outline, goes on around its sides and tip as one stroke joined to the body's on
+/// both sides of the base, and not across it.
+fn rounded_caret(edge: Point, outward: Point, size: Size, color: Color, ring: Color) -> Vec<DrawCommand> {
     let half = size.width / 2.0;
     let depth = size.height + 1.0;
     if half <= 0.0 || size.height <= 0.0 {
@@ -9143,12 +9146,12 @@ fn rounded_caret(edge: Point, outward: Point, size: Size, color: Color) -> Vec<D
     let tangent_depth = depth - along_side * cos;
     let tangent_half = along_side * sin;
     let center_depth = depth - round / sin;
-    let left = at(base, -half, 0.0);
-    let right = at(base, half, 0.0);
+    let left = at(base, -half * (1.0 + 1.0 / depth), -1.0);
+    let right = at(base, half * (1.0 + 1.0 / depth), -1.0);
     let tip_right = at(base, tangent_half, tangent_depth);
     let tip_left = at(base, -tangent_half, tangent_depth);
     let center = at(base, 0.0, center_depth);
-    vec![
+    let mut commands = vec![
         DrawCommand::FillTriangle {
             points: [left, right, tip_right],
             color,
@@ -9162,7 +9165,39 @@ fn rounded_caret(edge: Point, outward: Point, size: Size, color: Color) -> Vec<D
             color,
             radius: round,
         },
-    ]
+    ];
+    if ring.a > 0 {
+        // The outline's middle line, half a pixel in from the pointer's sides and round its
+        // tip, from the body's outline (0.5 out from `base`) on one side to it on the other.
+        // In the color it shows over the fill, so where it overlaps the body's it adds nothing.
+        let side = |sign: f32| {
+            let outer = half * (1.0 - 0.5 / depth);
+            [
+                at(base, sign * (outer + 1.0), 0.5),
+                at(base, sign * (outer - 0.5 * slant / depth), 0.5),
+            ]
+        };
+        let inner = round - 0.5;
+        let turn = sin.atan2(cos);
+        let tip: Vec<Point> = if inner > 0.0 {
+            (0..=8)
+                .map(|step| {
+                    let angle = turn + (std::f32::consts::PI - 2.0 * turn) * step as f32 / 8.0;
+                    at(base, inner * angle.cos(), center_depth + inner * angle.sin())
+                })
+                .collect()
+        } else {
+            vec![center]
+        };
+        let [far, near] = side(-1.0);
+        commands.push(DrawCommand::Polyline {
+            points: side(1.0).into_iter().chain(tip).chain([near, far]).collect(),
+            color: mix(color, Color { a: color.a, ..ring }, f32::from(ring.a) / 255.0),
+            width: 1.0,
+            dashed: false,
+        });
+    }
+    commands
 }
 
 fn place_tooltip(
@@ -10068,7 +10103,7 @@ impl LayoutBuilder<'_> {
             };
             self.frame
                 .commands
-                .extend(rounded_caret(edge, outward, shape.caret, colors.background));
+                .extend(rounded_caret(edge, outward, shape.caret, colors.background, colors.border));
         } else if options.arrow {
             self.frame.commands.push(DrawCommand::FillTriangle {
                 points: outline,
@@ -17879,6 +17914,11 @@ mod tests {
                 .count(),
             2,
         );
+        // The library's pointer is the outlined pair of triangles, with no stroke round it.
+        assert!(!focused
+            .commands
+            .iter()
+            .any(|command| matches!(command, DrawCommand::Polyline { .. })));
         assert!(focused.commands.iter().any(|command| matches!(
             command,
             DrawCommand::Text { text, .. } if text == "Toggle sidebar"
@@ -18089,7 +18129,7 @@ mod tests {
         assert!(frame.commands.iter().any(|command| matches!(command,
             DrawCommand::Shadow { shadow, .. } if shadow.offset == Point::new(0.0, 12.0) && shadow.blur == 24.0
         )));
-        // The pointer: two triangles and a round tip, all in the fill, none in the outline.
+        // The pointer: two triangles and a round tip, all in the fill, the outline round it.
         let pointer: Vec<_> = frame
             .commands
             .iter()
@@ -18104,7 +18144,8 @@ mod tests {
         let (low, high) = points.iter().fold((f32::MAX, f32::MIN), |(low, high), point| {
             (low.min(point.x), high.max(point.x))
         });
-        assert!((high - low - 16.0).abs() < 0.01, "16 wide: {points:?}");
+        // 16 wide 1 px inside the body, its sides going on 1 px further in.
+        assert!((high - low - 16.0 * 12.0 / 11.0).abs() < 0.01, "16 wide: {points:?}");
         let tip = frame.commands.iter().find_map(|command| match command {
             DrawCommand::FillRect { rect: tip, color, radius } if *color == style.background && *radius > 0.0 && tip.height < 8.0 => Some(*tip),
             _ => None,
@@ -18123,6 +18164,117 @@ mod tests {
         let done = moving.layout_at(view, start + Duration::from_millis(120));
         let (whole, _) = body(&done).expect("the body, in");
         assert!((whole.width - rect.width).abs() < 0.01 && (whole.height - rect.height).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_shaped_hints_outline_goes_on_round_its_pointer_on_every_side() {
+        let palette = ComponentPalette::neutral_dark();
+        let shape = crate::TooltipShape {
+            radius: 8.0,
+            padding_x: 12.0,
+            padding_y: 8.0,
+            shadow_offset: Point::new(0.0, 12.0),
+            shadow_blur: 24.0,
+            caret: Size::new(16.0, 10.0),
+        };
+        let view = Size::new(400.0, 300.0);
+        let hint = |placement: TooltipPlacement, border: Option<Color>| {
+            let mut element = Tooltip::new(
+                Element::icon_button("mark", Icon::PanelLeft, "").size(Some(32.0), Some(32.0)),
+                "mark",
+                "Server",
+                palette,
+            )
+            .placement(placement)
+            .delay_ms(0)
+            .render();
+            let ElementKind::Tooltip { options, colors, .. } = &mut element.kind else {
+                unreachable!()
+            };
+            options.shape = Some(shape);
+            if let Some(border) = border {
+                colors.border = border;
+            }
+            let style = *colors;
+            let row = Element::row(vec![Element::spacer().flex(1.0), element, Element::spacer().flex(1.0)]);
+            let spacer = || Element::spacer().flex(1.0);
+            let mut tree = UiTree::new(Element::column(vec![spacer(), row, spacer()]));
+            tree.set_reduced_motion(true);
+            tree.layout(view);
+            assert!(tree.focus("mark"));
+            (tree.layout(view), style)
+        };
+        let ring = Color::rgba(149, 149, 162, 51);
+        for placement in [
+            TooltipPlacement::Above,
+            TooltipPlacement::Below,
+            TooltipPlacement::Left,
+            TooltipPlacement::Right,
+        ] {
+            let (frame, style) = hint(placement, Some(ring));
+            let index = |find: &dyn Fn(&DrawCommand) -> bool| frame.commands.iter().position(find).unwrap();
+            let outline = index(&|command| matches!(command, DrawCommand::StrokeRect { color, .. } if *color == ring));
+            let DrawCommand::StrokeRect { rect: body, .. } = frame.commands[outline] else { unreachable!() };
+            let fill = index(&|command| matches!(command, DrawCommand::FillTriangle { .. }));
+            let stroke = index(&|command| matches!(command, DrawCommand::Polyline { .. }));
+            let DrawCommand::Polyline { points, color, width, dashed } = &frame.commands[stroke] else { unreachable!() };
+            // The outline as it shows over the fill, so it adds nothing where it meets the body's.
+            assert_eq!(*color, mix(style.background, Color { a: style.background.a, ..ring }, 51.0 / 255.0));
+            assert_eq!((*width, *dashed), (1.0, false));
+            // The body and its outline first, the pointer's fill over the outline at the join,
+            // then the pointer's outline.
+            assert!(outline < fill && fill < stroke, "{placement:?}");
+            // Each point as (along the facing side, out from it).
+            let local = |point: Point| match placement {
+                TooltipPlacement::Above => (point.x, point.y - (body.y + body.height)),
+                TooltipPlacement::Below => (point.x, body.y - point.y),
+                TooltipPlacement::Left => (point.y, point.x - (body.x + body.width)),
+                TooltipPlacement::Right => (point.y, body.x - point.x),
+            };
+            let tip = frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { rect, radius, .. } if *radius > 0.0 && rect.height < 8.0 => Some(*rect),
+                _ => None,
+            });
+            let tip = tip.expect("the rounded tip");
+            let (axis, _) = local(Point::new(tip.x + tip.width / 2.0, tip.y + tip.height / 2.0));
+            let far = [Point::new(tip.x, tip.y), Point::new(tip.x + tip.width, tip.y + tip.height)]
+                .map(|corner| local(corner).1)
+                .into_iter()
+                .fold(f32::MIN, f32::max);
+            let path: Vec<(f32, f32)> = points.iter().map(|point| local(*point)).collect();
+            // The pointer's fill starts 2 px inside the body, over all of its outline's pixels
+            // across the base: its sides, 16 apart 1 px in, go on 1 px further.
+            let DrawCommand::FillTriangle { points: base, .. } = frame.commands[fill] else { unreachable!() };
+            let base: Vec<_> = base.iter().map(|point| local(*point)).filter(|(_, out)| (out + 2.0).abs() < 0.01).collect();
+            assert_eq!(base.len(), 2, "{placement:?}");
+            assert!(((base[0].0 - base[1].0).abs() - 16.0 * 12.0 / 11.0).abs() < 0.01, "{placement:?}");
+            // It starts and ends on the middle of the body's outline, beyond the pointer's
+            // base on either side, so the two outlines overlap and join.
+            let (first, last) = (path[0], path[path.len() - 1]);
+            for (along, out) in [first, last] {
+                assert!((out + 0.5).abs() < 0.01, "{placement:?} {path:?}");
+                assert!((along - axis).abs() > 8.0, "{placement:?} {path:?}");
+            }
+            assert!((first.0 - axis).signum() != (last.0 - axis).signum(), "{placement:?}");
+            // Never deeper in the body than that line; out to half a pixel inside the tip.
+            assert!(path.iter().all(|(_, out)| *out > -0.51), "{placement:?} {path:?}");
+            let deepest = path.iter().map(|(_, out)| *out).fold(f32::MIN, f32::max);
+            assert!((deepest - (far - 0.5)).abs() < 0.01, "{placement:?} {deepest} {far}");
+            // No stroke across the base: the line crosses the pointer's middle only at its tip.
+            for pair in path.windows(2) {
+                let ((a, a_out), (b, b_out)) = (pair[0], pair[1]);
+                if (a - axis) * (b - axis) <= 0.0 {
+                    assert!(a_out > deepest - 1.0 && b_out > deepest - 1.0, "{placement:?} {path:?}");
+                }
+            }
+            // The two sides mirror each other about the pointer's middle.
+            for (left, right) in path.iter().zip(path.iter().rev()) {
+                assert!((left.0 - axis + (right.0 - axis)).abs() < 0.01 && (left.1 - right.1).abs() < 0.01);
+            }
+            // Without an outline, the pointer has none either.
+            let (bare, _) = hint(placement, Some(Color::TRANSPARENT));
+            assert!(!bare.commands.iter().any(|command| matches!(command, DrawCommand::Polyline { .. })));
+        }
     }
 
     #[test]

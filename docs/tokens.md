@@ -154,7 +154,7 @@ set_tokens(Tokens {
 
 | Field | Default | What it changes |
 | --- | --- | --- |
-| `shape` | `None` | The body's radius, the padding at its sides and above and below its text (a one-line hint is its title's line and twice that), its shadow's offset and blur, and the pointer's width and depth, a triangle with a rounded tip in the body's fill. The hint stands the pointer's depth and 2 px off its anchor. `None` is the control radius, 8 at the sides, one line in 24, a shadow 2 below blurred 6 and an outlined 10 by 5 pointer. |
+| `shape` | `None` | The body's radius, the padding at its sides and above and below its text (a one-line hint is its title's line and twice that), its shadow's offset and blur, and the pointer's width and depth, a triangle with a rounded tip in the body's fill, the body's outline going on round its sides and tip, joined to it and not across its base. The hint stands the pointer's depth and 2 px off its anchor. `None` is the control radius, 8 at the sides, one line in 24, a shadow 2 below blurred 6 and an outlined 10 by 5 pointer. |
 | `open_scale` | 1 | The scale the hint grows from about its pointer's tip while it fades in, within 0.5 to 1. |
 | `enter_ms` | `None` | How long it fades in, in place of `Motion::enter_ms`. |
 | `enter_easing` | `Easing::OutCubic` | The curve it fades in and grows on. `Easing::Spring` grows it past full size and back, settling at the end of `enter_ms`, while its fade is over in about a quarter of it: with `open_scale` 0.95 and `enter_ms` 200, it is opaque by 55 ms, 0.7 % past full size at 75 and settled at 200. |
