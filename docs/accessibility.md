@@ -100,6 +100,20 @@ host that moves the focus itself:
 | `tree.focus_next_region(reverse)` | What F6 does. Returns the ID of the region reached, so the host can land on another of its controls, such as the chosen row. |
 | `tree.focusables_within(id)` | The region's controls in focus order, as of the last layout. |
 
+**Move the focus with a remote.** On a television the arrow keys move the
+focus to the nearest control in their direction: `tree.set_spatial_focus(true)`
+turns that on. Of the controls ahead of the focused one, those in its lane
+(overlapping it across the direction) come first, then the nearest by how
+far ahead it is and twice how far it stands to the side. Out of its lane Up
+and Down still reach the nearest, as from a bar down into a short shelf, but
+Left and Right only what stands less than its own height off, so the end of
+a row stays put rather than drop into the next. The control reached is
+scrolled into view, even from out of sight in a scroll area, and an open
+popover keeps the focus among its own. A slider, a tab strip, a menu and a
+field's caret still take the arrows they use, and Up and Down leave a
+single-line field. With nothing focused, an arrow focuses the first control.
+Off by default, where the arrows reach only the focused control.
+
 ## Testing it
 
 `Frame::access` is plain data, so a test reads it like any other part of a
