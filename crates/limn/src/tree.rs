@@ -16,6 +16,9 @@ mod coach_mark_tests;
 #[cfg(test)]
 #[path = "region_focus_tests.rs"]
 mod region_focus_tests;
+#[cfg(test)]
+#[path = "spatial_focus_tests.rs"]
+mod spatial_focus_tests;
 
 #[cfg(test)]
 #[path = "drag_drop_tests.rs"]
@@ -4113,6 +4116,62 @@ fn byte_index(value: &str, char_index: usize) -> usize {
         .map_or(value.len(), |(index, _)| index)
 }
 
+/// The bands a gradient ink is painted in across `rect`: two dozen slices of it, each inside
+/// `clip`, in its colour blended from `stops` spread evenly from the left to the right, its
+/// alpha scaled by `opacity`.
+fn gradient_bands(rect: Rect, stops: &[Color], opacity: f32, clip: Option<Rect>) -> Vec<(Rect, Color)> {
+    const BANDS: usize = 24;
+    let last = (stops.len() - 1) as f32;
+    (0..BANDS)
+        .filter_map(|band| {
+            let left = rect.x + rect.width * band as f32 / BANDS as f32;
+            let right = rect.x + rect.width * (band + 1) as f32 / BANDS as f32;
+            let area = Rect::new(left, rect.y, right - left, rect.height);
+            let area = clip.map_or(Some(area), |outer| area.intersection(outer)).filter(|area| area.width > 0.0 && area.height > 0.0)?;
+            let at = (band as f32 + 0.5) / BANDS as f32 * last;
+            let from = stops[at.floor() as usize];
+            let to = stops[(at.ceil() as usize).min(stops.len() - 1)];
+            let mix = at.fract();
+            let blend = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * mix).round() as u8;
+            let color = Color::rgba(blend(from.r, to.r), blend(from.g, to.g), blend(from.b, to.b), (f32::from(blend(from.a, to.a)) * opacity).round() as u8);
+            Some((area, color))
+        })
+        .collect()
+}
+
+/// Of `candidates`, the one a press of `key` moves the focus to from `from`,
+/// as a remote's arrows do: one ahead of it in that direction, those in its
+/// lane first (overlapping it across the direction), then the nearest by how
+/// far ahead it is and twice how far it stands to the side, the most in line
+/// among equals. Out of its lane Up and Down still reach the nearest, as from
+/// a bar down into a short shelf, but Left and Right only what stands less
+/// than its own height off, so the end of a row does not drop into the next.
+fn nearest_in_direction<'a>(from: Rect, key: Key, candidates: impl Iterator<Item = (&'a str, Rect)>) -> Option<&'a str> {
+    // How far apart two spans are along one axis; 0 where they overlap.
+    let apart = |a: (f32, f32), b: (f32, f32)| (b.0 - a.1).max(a.0 - b.1).max(0.0);
+    let (across_x, across_y) = ((from.x, from.x + from.width), (from.y, from.y + from.height));
+    let centre = |rect: Rect| (rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+    let (fx, fy) = centre(from);
+    let sideways = matches!(key, Key::ArrowLeft | Key::ArrowRight);
+    candidates
+        .filter_map(|(id, to)| {
+            let (tx, ty) = centre(to);
+            let (ahead, aside, offset) = match key {
+                Key::ArrowDown => (to.y - (from.y + from.height), apart(across_x, (to.x, to.x + to.width)), (tx - fx).abs()),
+                Key::ArrowUp => (from.y - (to.y + to.height), apart(across_x, (to.x, to.x + to.width)), (tx - fx).abs()),
+                Key::ArrowRight => (to.x - (from.x + from.width), apart(across_y, (to.y, to.y + to.height)), (ty - fy).abs()),
+                Key::ArrowLeft => (from.x - (to.x + to.width), apart(across_y, (to.y, to.y + to.height)), (ty - fy).abs()),
+                _ => return None,
+            };
+            // Past its edge, give or take a hairline of overlap.
+            let ahead_of_it = ahead >= -1.0;
+            let reachable = aside == 0.0 || !sideways || aside < from.height;
+            (ahead_of_it && reachable).then_some((id, aside > 0.0, ahead.max(0.0) + 2.0 * aside + 0.01 * offset))
+        })
+        .min_by(|a, b| a.1.cmp(&b.1).then(a.2.total_cmp(&b.2)))
+        .map(|(id, ..)| id)
+}
+
 fn char_range(value: &str, start: usize, end: usize) -> &str {
     &value[byte_index(value, start)..byte_index(value, end)]
 }
@@ -4342,6 +4401,9 @@ pub struct UiTree {
     tooltip_hover_since: Option<(String, Instant)>,
     keyboard_focus: bool,
     keyboard_tooltip_focus: bool,
+    /// The arrow keys move the focus to the nearest control their way; see
+    /// [`UiTree::set_spatial_focus`].
+    spatial_focus: bool,
     closed_submenu_triggers: HashSet<String>,
     /// The anchors of the last layout's hints, with how long each waits.
     tooltip_triggers: HashMap<String, Duration>,
@@ -4447,6 +4509,7 @@ impl UiTree {
             tooltip_hover_since: None,
             keyboard_focus: false,
             keyboard_tooltip_focus: false,
+            spatial_focus: false,
             closed_submenu_triggers: HashSet::new(),
             tooltip_triggers: HashMap::new(),
             pressed: None,
@@ -4892,6 +4955,16 @@ impl UiTree {
         let (region, members) = &self.focus_regions[reachable[next]];
         let (region, first) = (region.clone(), members[0].clone());
         self.focus(&first).then_some(region)
+    }
+
+    /// Let the arrow keys move the focus to the nearest control in their
+    /// direction, as a television's remote moves it, when the focused control
+    /// does not take them itself: a slider, a tab strip, a menu and a text
+    /// field's caret still do, but Up and Down leave a single-line field. With
+    /// nothing focused, an arrow focuses the first control. Off by default,
+    /// where the arrows only reach the focused control.
+    pub fn set_spatial_focus(&mut self, enabled: bool) {
+        self.spatial_focus = enabled;
     }
 
     /// Focus an interactive element after layout. Returns false for an unknown ID.
@@ -5376,6 +5449,7 @@ impl UiTree {
                 translated_overflow: HashMap::new(),
                 focus_path,
                 focus_probe: probe,
+                spatial_focus: self.spatial_focus,
                 drag_source: self
                     .pointer_drag
                     .as_ref()
@@ -7499,7 +7573,14 @@ impl UiTree {
                         .iter()
                         .any(|(candidate, kind)| candidate == id && *kind == HitKind::TextArea);
                     if let Some(input) = self.inputs.get_mut(id) {
-                        if input.insert(&text, multiline) {
+                        // A soft keyboard's Return can come as a line break alone, with no
+                        // Enter key, as iOS's does: a single-line field submits on it.
+                        if !multiline && matches!(text.as_str(), "\n" | "\r" | "\r\n") {
+                            actions.push(UiAction::Submitted {
+                                id: id.clone(),
+                                value: input.value.clone(),
+                            });
+                        } else if input.insert(&text, multiline) {
                             actions.push(UiAction::InputChanged {
                                 id: id.clone(),
                                 value: input.value.clone(),
@@ -7615,10 +7696,18 @@ impl UiTree {
                     // its trigger or one of its buttons owns focus.
                     self.keyboard_focus = true;
                     self.keyboard_tooltip_focus = true;
-                } else if !shift
+                } else if (!shift
                     && !ctrl
                     && matches!(key, Key::ArrowDown | Key::ArrowUp | Key::Home | Key::End)
-                    && self.step_inline_menu_option(key)
+                    && self.step_inline_menu_option(key))
+                    // Past what the focused control takes, a remote's arrows move the focus.
+                    || (self.spatial_focus
+                        && !shift
+                        && !ctrl
+                        && !alt
+                        && matches!(key, Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight)
+                        && !self.arrow_is_the_focused_controls(key)
+                        && self.step_spatial(key))
                 {
                     self.keyboard_focus = true;
                     self.keyboard_tooltip_focus = true;
@@ -7743,8 +7832,12 @@ impl UiTree {
         let Some(geometry) = self.frame.sliders.get(id) else {
             return false;
         };
+        // Under a remote, an arrow that would not move a slider at its end moves the focus on
+        // instead: otherwise the focus could never leave it that way.
+        let stays = |changed: bool| self.spatial_focus && !changed && matches!(key, Key::ArrowLeft | Key::ArrowRight | Key::ArrowUp | Key::ArrowDown);
         // An area slider: Left and Right move across, Up and Down up and down.
         if let Some(y) = geometry.y {
+            let (from_x, from_y) = (geometry.fraction, y);
             let x = geometry.fraction;
             let step = CONTINUOUS_SLIDER_KEY_STEP;
             let (x, y) = match key {
@@ -7756,6 +7849,7 @@ impl UiTree {
                 Key::End => (1.0, y),
                 _ => return false,
             };
+            if stays(x != from_x || y != from_y) { return false; }
             actions.push(UiAction::AreaSliderChanged {
                 id: id.clone(),
                 x,
@@ -7779,6 +7873,7 @@ impl UiTree {
                 Key::End => 1.0,
                 _ => return false,
             };
+            if stays(fraction != current) { return false; }
             actions.push(UiAction::SliderChanged {
                 id: id.clone(),
                 fraction,
@@ -7795,6 +7890,7 @@ impl UiTree {
             Key::End => intervals,
             _ => return false,
         };
+        if stays(next != current) { return false; }
         actions.push(UiAction::SliderChanged {
             id: id.clone(),
             fraction: next as f32 / intervals as f32,
@@ -7810,6 +7906,57 @@ impl UiTree {
         } else {
             self.pending_scroll_focus = Some(id.to_owned());
         }
+    }
+
+    /// Whether the focused control moves its own caret with `key`: Left and
+    /// Right in a text field, and every arrow in a text area or code editor.
+    fn arrow_is_the_focused_controls(&self, key: Key) -> bool {
+        let Some(id) = self.focused.as_ref() else { return false };
+        let kind = self.focus_order.iter().find(|(candidate, _)| candidate == id).map(|(_, kind)| *kind);
+        match kind {
+            Some(HitKind::TextInput) => matches!(key, Key::ArrowLeft | Key::ArrowRight),
+            Some(HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff) => true,
+            _ => false,
+        }
+    }
+
+    /// Focus the control nearest the focused one in `key`'s direction and
+    /// bring it into view, within the open popover when one holds the focus.
+    /// With nothing focused, the first control takes it. Says whether the
+    /// focus moved.
+    fn step_spatial(&mut self, key: Key) -> bool {
+        let candidates: Vec<String> = match self.active_popover_scope().cloned() {
+            Some(scope) => self.reachable_popover_focusables(&scope).into_iter().map(|(id, _)| id).collect(),
+            None => self
+                .focus_order
+                .iter()
+                .filter(|(_, kind)| matches!(kind, HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea))
+                .map(|(id, _)| id.clone())
+                .collect(),
+        };
+        // Where each is laid out, scrolled out of sight or not.
+        let rect = |id: &str| {
+            self.frame
+                .scroll_focus_targets
+                .get(id)
+                .map(|target| target.rect)
+                .or_else(|| self.frame.regions.iter().find(|region| region.id == id).map(|region| region.rect))
+                .filter(|rect| rect.width > 0.0 && rect.height > 0.0)
+        };
+        let next = match self.focused.as_deref().and_then(rect) {
+            Some(from) => {
+                let others = candidates
+                    .iter()
+                    .filter(|id| Some(id.as_str()) != self.focused.as_deref())
+                    .filter_map(|id| rect(id).map(|to| (id.as_str(), to)));
+                nearest_in_direction(from, key, others).map(str::to_owned)
+            }
+            None => candidates.iter().find(|id| rect(id).is_some()).cloned(),
+        };
+        let Some(id) = next else { return false };
+        self.request_scroll_focus(&id);
+        Self::replace_focused(&mut self.focused, &mut self.paste_epoch, Some(id));
+        true
     }
 
     fn step_focus(&mut self, reverse: bool) {
@@ -8628,6 +8775,9 @@ struct LayoutBuilder<'a> {
     translated_overflow: HashMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
+    /// Whether the arrows move the focus, which needs the bounds of the
+    /// controls held out of sight.
+    spatial_focus: bool,
     /// Source of the active pointer drag and the commands it painted.
     drag_source: Option<&'a str>,
     drag_ghost: Option<std::ops::Range<usize>>,
@@ -10356,11 +10506,11 @@ impl LayoutBuilder<'_> {
 
     /// Paint text laid out in a `TextLayout`: its selection, its glyphs, and
     /// the selectable block a pointer reads it back from.
-    fn paint_laid_out_text(&mut self, value: &str, content: Rect, style: Style, clip: Option<Rect>) {
+    fn paint_laid_out_text(&mut self, value: &str, content: Rect, style: Style, clip: Option<Rect>, ink: Option<&[Color]>) {
         let layout = self.laid_out_text(value, style, content.width, style.center_content);
         let origin = Point::new(content.x, content.y);
         let block_index = self.frame.text_blocks.len();
-        let runs = self.paint_layout(&layout, value, origin, style, clip, block_index);
+        let runs = self.paint_layout(&layout, value, origin, style, clip, block_index, ink);
         self.frame.text_blocks.push(SelectableTextBlock {
             source: value.to_owned(),
             scope: self.selection_scope,
@@ -10453,7 +10603,7 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
-        let runs = self.paint_layout(&layout, &source, origin, style, clip, block_index);
+        let runs = self.paint_layout(&layout, &source, origin, style, clip, block_index, None);
         for (index, span) in spans.iter().enumerate() {
             let Some(id) = span.action.as_deref() else {
                 continue;
@@ -10489,6 +10639,9 @@ impl LayoutBuilder<'_> {
     /// What every text laid out in a `TextLayout` paints: its selection under
     /// it, then what the layout draws. Gives its lines as selectable runs of
     /// `source`.
+    /// Paint `layout` from `origin`, in the foreground or, given `ink` of two stops or more,
+    /// in them across each of its lines as `foreground_gradient` says.
+    #[allow(clippy::too_many_arguments)]
     fn paint_layout(
         &mut self,
         layout: &crate::TextLayout,
@@ -10497,6 +10650,7 @@ impl LayoutBuilder<'_> {
         style: Style,
         clip: Option<Rect>,
         block_index: usize,
+        ink: Option<&[Color]>,
     ) -> Vec<SelectableTextRun> {
         let mut runs = Vec::new();
         let mut start = 0;
@@ -10529,7 +10683,20 @@ impl LayoutBuilder<'_> {
                 });
             }
         }
-        self.frame.commands.extend(layout.draw(origin, style.foreground));
+        match ink.filter(|stops| stops.len() > 1) {
+            // As the measured path paints a gradient: the same glyphs in each band of each line.
+            Some(stops) => {
+                let opacity = f32::from(style.foreground.a) / 255.0;
+                for run in &runs {
+                    for (area, color) in gradient_bands(run.rect, stops, opacity, clip) {
+                        self.frame.commands.push(DrawCommand::PushClip(area));
+                        self.frame.commands.extend(layout.draw(origin, color));
+                        self.frame.commands.push(DrawCommand::PopClip);
+                    }
+                }
+            }
+            None => self.frame.commands.extend(layout.draw(origin, style.foreground)),
+        }
         runs
     }
 
@@ -10753,30 +10920,8 @@ impl LayoutBuilder<'_> {
         stops: &[Color],
         clip: Option<Rect>,
     ) {
-        const BANDS: usize = 24;
-        let last = (stops.len() - 1) as f32;
         let opacity = f32::from(style.foreground.a) / 255.0;
-        for band in 0..BANDS {
-            let left = rect.x + rect.width * band as f32 / BANDS as f32;
-            let right = rect.x + rect.width * (band + 1) as f32 / BANDS as f32;
-            let area = Rect::new(left, rect.y, right - left, rect.height);
-            let visible = clip.map_or(Some(area), |outer| area.intersection(outer));
-            let Some(area) = visible.filter(|area| area.width > 0.0 && area.height > 0.0) else {
-                continue;
-            };
-            let at = (band as f32 + 0.5) / BANDS as f32 * last;
-            let from = stops[at.floor() as usize];
-            let to = stops[(at.ceil() as usize).min(stops.len() - 1)];
-            let mix = at.fract();
-            let blend = |a: u8, b: u8| {
-                (f32::from(a) + (f32::from(b) - f32::from(a)) * mix).round() as u8
-            };
-            let color = Color::rgba(
-                blend(from.r, to.r),
-                blend(from.g, to.g),
-                blend(from.b, to.b),
-                (f32::from(blend(from.a, to.a)) * opacity).round() as u8,
-            );
+        for (area, color) in gradient_bands(rect, stops, opacity, clip) {
             self.frame.commands.push(DrawCommand::PushClip(area));
             self.frame.commands.push(DrawCommand::Text {
                 position: Point::new(rect.x, rect.y),
@@ -12383,17 +12528,22 @@ impl LayoutBuilder<'_> {
         self.record_scroll_focus_target(element, rect);
         if clip.is_some_and(|clip| rect.intersection(clip).is_none())
             && !self.has_translated_overflow(element) {
+            let mut held = false;
             if !self.scroll_focus_context.is_empty() {
                 // Composite menu rows can be skipped before their controls
                 // receive geometry. Keep only their IDs reachable; selecting
                 // one uses the existing targeted probe to reveal its bounds.
                 let mut focusables = Vec::new();
                 collect_focus_order(element, &mut focusables, &mut HashSet::new());
+                held = focusable_id(element).is_none() && !focusables.is_empty();
                 self.frame
                     .scroll_focus_candidates
                     .extend(focusables.into_iter().map(|(id, _)| id));
             }
-            if self.focus_path.contains(&(element as *const Element as usize)) {
+            // A remote's arrows go to the nearest control their way, so the
+            // ones held out of sight need their bounds too, not only the one
+            // being revealed.
+            if (held && self.spatial_focus) || self.focus_path.contains(&(element as *const Element as usize)) {
                 self.probe_scroll_focus_translated(element, rect, clip);
             }
             return;
@@ -13430,7 +13580,8 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::Text(value) if self.text_layout => {
-                self.paint_laid_out_text(value, content, style, clip);
+                let ink = element.kept.as_ref().and_then(|kept| kept.ink_gradient.clone());
+                self.paint_laid_out_text(value, content, style, clip, ink.as_deref());
             }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
@@ -15224,10 +15375,7 @@ impl LayoutBuilder<'_> {
                     .iter()
                     .zip(self.child_rects(element, children, content))
                 {
-                    if self
-                        .focus_path
-                        .contains(&(child as *const Element as usize))
-                    {
+                    if self.probes(child) {
                         self.probe_scroll_focus(child, child_rect, clip);
                     }
                 }
@@ -15239,7 +15387,7 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::Stack(children) => {
                 for child in children {
-                    if self.focus_path.contains(&(child as *const Element as usize)) {
+                    if self.probes(child) {
                         self.probe_scroll_focus(child, content, clip);
                     }
                 }
@@ -15282,22 +15430,35 @@ impl LayoutBuilder<'_> {
                 self.probe_scroll_focus(child, child_rect, new_clip.or(clip));
                 self.scroll_focus_context.pop();
             }
-            ElementKind::Overlay { base, .. }
-                if self
-                    .focus_path
-                    .contains(&(base.as_ref() as *const Element as usize)) =>
-            {
+            // A strip that scrolls sideways holds its cards where it last
+            // showed them.
+            ElementKind::HorizontalScroll { id, child, .. } => {
+                let width = self
+                    .measure(child, Size::new(f32::INFINITY, content.height))
+                    .width
+                    .max(content.width);
+                let offset = self
+                    .horizontal_scrolls
+                    .get(id.as_str())
+                    .map_or(0.0_f32, HorizontalScrollState::offset)
+                    .clamp(0.0, width - content.width);
+                self.probe_scroll_focus(child, Rect::new(content.x - offset, content.y, width, content.height), clip);
+            }
+            ElementKind::Overlay { base, .. } if self.probes(base) => {
                 self.probe_scroll_focus(base, content, clip);
             }
-            ElementKind::Popover { anchor, .. }
-                if self
-                    .focus_path
-                    .contains(&(anchor.as_ref() as *const Element as usize)) =>
-            {
+            ElementKind::Popover { anchor, .. } if self.probes(anchor) => {
                 self.probe_scroll_focus(anchor, content, clip);
             }
             _ => {}
         }
+    }
+
+    /// Whether a probe of a branch held out of sight goes into `child`: the
+    /// one on the way to the control being revealed, or every one while a
+    /// remote's arrows move the focus.
+    fn probes(&self, child: &Element) -> bool {
+        self.spatial_focus || self.focus_path.contains(&(child as *const Element as usize))
     }
 
     fn place_flex(

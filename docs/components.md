@@ -353,7 +353,8 @@ code as written.
   A new scope or width empties the cache.
 - Labels and the link prefix are `&'static str`.
 - There is no bold or italic face: strong and emphasis are colors.
-- Tables, images, HTML and nested quotes are not supported and stay text.
+- Pipe tables are drawn ([Markdown](components/markdown.md#tables)); images, HTML and nested
+  quotes are not supported and stay text.
 
 ## Layout and grouping
 

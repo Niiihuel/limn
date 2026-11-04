@@ -40,9 +40,9 @@ fn update(state: &mut State, action: &UiAction) {
 ```
 
 The subset is headings of three levels, paragraphs, bulleted, numbered and
-checked lists, quotes, subtext lines, fenced code and rules, with strong,
-emphasis, bold italic, underline, strikethrough, inline code and web links.
-Tables, images, HTML and nested quotes stay text.
+checked lists, quotes, subtext lines, fenced code, rules and pipe tables, with
+strong, emphasis, bold italic, underline, strikethrough, inline code and web
+links. Images, HTML and nested quotes stay text.
 [Components](../components.md) has the full reference.
 
 ## Marks
@@ -64,6 +64,30 @@ closes inside a `<…>` without spaces, such as an autolink or a chat
 client's `<:emoji_name:id>`. `\~` writes a tilde, as
 `\*` and `\_` write theirs. A web address stops before a `|` at its end,
 which closes a table cell or a `||spoiler||` around it.
+
+## Tables
+
+```markdown
+| Name | Total |
+| :--- | ----: |
+| Ana  |     1 |
+```
+
+A line of cells over a delimiter row with as many is a table's header; its
+rows go on to a line with no `|` or one that starts a heading, a quote or a
+fence. A delimiter cell is dashes, with a colon at the start (left, the
+default), at the end (right) or at both (center). The outer pipes are
+optional, `\|` writes a pipe in a cell, and a row with fewer cells than the
+header gets empty ones; one with more loses the rest. Cells hold marks and
+links, never blocks.
+
+The header is bold over `colors.panel`, with a line in `colors.border` between
+rows and around the table. Each column is as wide as its longest cell asks,
+up to 360 px at a 14 px body, and its cells wrap inside it. When the columns
+do not fit the width, the narrow ones keep theirs and the wide ones share what
+is left, each at least 96 px; past that the table scrolls sideways, keeping
+its offset under a stable `.id` as a code block does. A table is one block for
+`limits`.
 
 ## Width
 

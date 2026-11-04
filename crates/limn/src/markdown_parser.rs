@@ -30,6 +30,18 @@ pub(crate) enum Block {
     /// A fence the source has not closed: its content can still grow.
     OpenCode(String, String),
     Rule,
+    /// A pipe table: how each column lines up, then its rows, the header
+    /// first, each with as many cells as there are columns.
+    Table(Vec<ColumnAlign>, Vec<Vec<String>>),
+}
+
+/// How a table's column lines up its cells, as its delimiter row says
+/// (`---` or `:--`, `:-:`, `--:`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum ColumnAlign {
+    Left,
+    Center,
+    Right,
 }
 
 impl Block {
@@ -50,6 +62,14 @@ impl Block {
                 language.capacity() + content.capacity()
             }
             Self::Rule => 0,
+            Self::Table(align, rows) => {
+                align.capacity() * std::mem::size_of::<ColumnAlign>()
+                    + rows
+                        .iter()
+                        .flatten()
+                        .map(|cell| cell.capacity() + std::mem::size_of::<String>())
+                        .sum::<usize>()
+            }
         }
     }
 }
@@ -209,6 +229,52 @@ pub(crate) fn list_item(line: &str) -> Option<(usize, ListMarker, &str)> {
     None
 }
 
+/// The cells of a table's line, or `None` for a line with no `|`: split at
+/// each `|` that is not escaped, without the outer ones, `\|` read as `|`.
+pub(crate) fn table_cells(line: &str) -> Option<Vec<String>> {
+    let line = line.trim();
+    if !line.contains('|') {
+        return None;
+    }
+    let line = line.strip_prefix('|').unwrap_or(line);
+    let line = match line.strip_suffix('|') {
+        Some(inner) if !inner.ends_with('\\') => inner,
+        _ => line,
+    };
+    let (mut cells, mut cell) = (vec![], String::new());
+    let mut characters = line.chars().peekable();
+    while let Some(character) = characters.next() {
+        match character {
+            '\\' if characters.peek() == Some(&'|') => {
+                cell.push('|');
+                characters.next();
+            }
+            '|' => cells.push(std::mem::take(&mut cell).trim().to_owned()),
+            character => cell.push(character),
+        }
+    }
+    cells.push(cell.trim().to_owned());
+    Some(cells)
+}
+
+/// The alignments of a table's delimiter row, `| --- | :-: | --: |`, or
+/// `None` for a line that is not one.
+pub(crate) fn table_delimiter(line: &str) -> Option<Vec<ColumnAlign>> {
+    table_cells(line)?
+        .iter()
+        .map(|cell| {
+            let dashes = cell.trim_start_matches(':').trim_end_matches(':');
+            (!dashes.is_empty() && dashes.bytes().all(|byte| byte == b'-')).then(|| {
+                match (cell.starts_with(':'), cell.ends_with(':')) {
+                    (true, true) => ColumnAlign::Center,
+                    (false, true) => ColumnAlign::Right,
+                    _ => ColumnAlign::Left,
+                }
+            })
+        })
+        .collect()
+}
+
 pub(crate) fn bounded_source(source: &str, max_chars: usize) -> (&str, bool) {
     match source.char_indices().nth(max_chars) {
         Some((end, _)) => (&source[..end], true),
@@ -333,6 +399,32 @@ pub(crate) fn parse_bounded_mode(
         } else if matches!(trimmed.trim(), "---" | "***" | "___") {
             flush_paragraph(&mut blocks, &mut paragraph);
             blocks.push(Block::Rule);
+        } else if let Some(header) = table_cells(trimmed).filter(|header| {
+            // A table starts where a line of cells has a delimiter row under
+            // it with as many; the line may end a paragraph above it.
+            (lines.peek().and_then(|next| table_delimiter(next)))
+                .is_some_and(|align| align.len() == header.len())
+        }) {
+            flush_paragraph(&mut blocks, &mut paragraph);
+            let align = lines.next().and_then(table_delimiter).unwrap_or_default();
+            let mut rows = vec![header];
+            // Its rows go on to a line with no `|`, or one that starts
+            // another block; each has the header's number of cells.
+            while let Some(mut row) = lines
+                .peek()
+                .filter(|next| {
+                    let next = next.trim_end();
+                    heading(next).is_none()
+                        && fence_line(next).is_none()
+                        && !next.trim_start().starts_with("> ")
+                })
+                .and_then(|next| table_cells(next))
+            {
+                lines.next();
+                row.resize(align.len(), String::new());
+                rows.push(row);
+            }
+            blocks.push(Block::Table(align, rows));
         } else if let (true, Some(Block::ListItem(_, _, item))) = (continues, blocks.last_mut()) {
             item.push(' ');
             item.push_str(trimmed.trim());

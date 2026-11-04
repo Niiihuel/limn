@@ -26,6 +26,11 @@ pub(super) struct HorizontalScrollState {
 }
 
 impl HorizontalScrollState {
+    /// How far the strip has scrolled along, as last shown.
+    pub(super) fn offset(&self) -> f32 {
+        self.offset
+    }
+
     /// Whether a fling is still carrying the content at `now`.
     pub(super) fn is_gliding(&self, now: Instant) -> bool {
         self.glide.is_some_and(|glide| glide.is_active(now))
