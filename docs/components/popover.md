@@ -43,6 +43,11 @@ The anchor is any element; the popover does not open itself, so the anchor's
 own action is what the host answers to open it. The content sits on a raised
 surface with a border, a shadow and 6 px of padding.
 
+While it is open, its backdrop takes the pointer from the window beneath, so
+nothing there is hovered: rows keep their fills and reveals at rest, as a
+press on them reaches the backdrop and dismisses. Over a popover without a
+backdrop, only the surface and what it draws past its box cover the window.
+
 ## Placement
 
 ```rust

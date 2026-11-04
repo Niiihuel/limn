@@ -2873,7 +2873,8 @@ impl Element {
     /// message around its row of actions. It is passive: it adds no pointer
     /// target, no focus stop and no paint, and the host mirrors nothing. A
     /// region that is itself a control counts as hovered while it has
-    /// keyboard focus too.
+    /// keyboard focus too. A floating surface over it with a pointer region
+    /// there, such as a popover or its backdrop, takes the hover from it.
     pub fn hover_region(mut self) -> Self {
         self.hover_reveal = HoverReveal::Region;
         self
