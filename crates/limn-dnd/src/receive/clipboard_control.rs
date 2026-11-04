@@ -26,7 +26,7 @@ pub(super) struct ClipboardStamp(u64);
 
 fn allocate_text_request_id(counter: &AtomicU64) -> Result<TextRequestId, ClipboardError> {
     counter
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
             next.checked_add(1)
         })
         .map(TextRequestId)
@@ -39,7 +39,7 @@ fn next_text_request_id() -> Result<TextRequestId, ClipboardError> {
 
 pub(super) fn next_clipboard_stamp() -> Result<ClipboardStamp, ClipboardError> {
     NEXT_STAMP
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
             next.checked_add(1)
         })
         .map(ClipboardStamp)

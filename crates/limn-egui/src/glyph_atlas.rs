@@ -289,8 +289,10 @@ impl Atlas {
         let transfer = self.style.map_or(FontColorTransferFunction::default(), |(transfer, _)| transfer);
         let pixels = pixmap
             .data_as_u8_slice()
-            .chunks_exact(4)
-            .map(|pixel| transfer.to_atlas_color(Color32::from_rgba_premultiplied(pixel[0], pixel[1], pixel[2], pixel[3])))
+            .as_chunks::<4>()
+            .0
+            .iter()
+            .map(|&[r, g, b, a]| transfer.to_atlas_color(Color32::from_rgba_premultiplied(r, g, b, a)))
             .collect();
         let image = ColorImage { size: [width as usize, height as usize], pixels, ..ColorImage::default() };
         Some((image, egui::vec2(bounds.x0 as f32, bounds.y0 as f32)))

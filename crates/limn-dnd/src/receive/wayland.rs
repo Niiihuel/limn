@@ -49,7 +49,7 @@ fn next_offer_id() -> Result<OfferId, ReceiveError> {
 
 fn allocate_offer_id(counter: &AtomicU64) -> Result<OfferId, ReceiveError> {
     counter
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |next| {
             next.checked_add(1)
         })
         .map(OfferId)
