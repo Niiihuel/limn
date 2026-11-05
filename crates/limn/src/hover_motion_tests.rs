@@ -170,3 +170,50 @@ fn an_entering_pill_grows_from_another_height_and_travels_in_without_the_settle(
         assert!(bad.kept.is_none_or(|kept| kept.grow_from.is_none() && kept.enter_from.is_none()));
     }
 }
+
+/// A download arrow that bobs: 2 px up at 0 ms, home at 1 s and up again at
+/// 2 s, as a chat app's update button waits on a download.
+fn bob() -> IconMotion {
+    IconMotion::new()
+        .keyframe(IconKeyframe::at(0).offset(Point::new(0.0, -2.0)))
+        .keyframe(IconKeyframe::at(1000))
+        .keyframe(IconKeyframe::at(2000).offset(Point::new(0.0, -2.0)))
+}
+
+fn update(motion: IconMotion) -> Element {
+    Element::row(vec![
+        Element::clickable("update", Element::icon(Icon::ArrowDown))
+            .background(FILL)
+            .size(Some(40.0), Some(40.0))
+            .icon_loop("update:bob", motion),
+        Element::spacer().flex(1.0),
+    ])
+}
+
+#[test]
+fn a_loop_plays_over_and_over_whatever_the_pointer_does() {
+    let mut still = UiTree::new(update(bob()));
+    still.set_reduced_motion(true);
+    let rest = still.layout(SIZE);
+    assert!(!still.is_animating(), "nothing moves under reduced motion");
+    let home = icon(&rest).0;
+
+    let mut tree = UiTree::new(update(bob()));
+    let start = Instant::now();
+    let at = |ms: u64| start + Duration::from_millis(ms);
+    let rounds = [0, 500, 1000, 1500, 2000, 2500, 7000].map(|ms| icon(&tree.layout_at(SIZE, at(ms))).0.y - home.y);
+    assert_eq!(rounds, [-2.0, -1.0, 0.0, -1.0, -2.0, -1.0, 0.0], "eased in and out, round after round");
+    assert_eq!(tree.animation_repaint_after(), Some(Duration::from_millis(16)), "painting at the ambient cadence");
+
+    tree.handle_event(UiEvent::PointerMove(Point::new(20.0, 20.0)));
+    let hovered = tree.layout_at(SIZE, at(8000));
+    let (rect, transform) = icon(&hovered);
+    assert_eq!((rect.x, rect.y - home.y, transform), (home.x, -2.0, IconTransform::IDENTITY), "the pointer changes nothing");
+    assert_eq!((rect.width, rect.height), (home.width, home.height));
+    assert_eq!(the_rest(&tree.layout_at(SIZE, at(8500))), the_rest(&rest), "only the icon moves");
+
+    tree.set_root(update(IconMotion::new()));
+    tree.layout_at(SIZE, at(9000));
+    assert_eq!(icon(&tree.layout_at(SIZE, at(9500))).0, home, "without keyframes it rests");
+    assert!(!tree.is_animating(), "and nothing keeps the window painting");
+}

@@ -35,6 +35,14 @@ fn moving_icons(cx: &Cx) -> Element {
             .keyframe(IconKeyframe::at(150).scale(1.06, 0.88))
             .keyframe(IconKeyframe::at(350).scale(1.0, 1.04))
             .keyframe(IconKeyframe::at(600))),
+        // On its own, round after round: a download that waits.
+        IconButton::new("tokens-download", Icon::ArrowDown, cx.palette)
+            .accessibility_label("Downloading the update")
+            .render()
+            .icon_loop("tokens-download:bob", IconMotion::new()
+                .keyframe(IconKeyframe::at(0).offset(Point::new(0.0, -2.0)))
+                .keyframe(IconKeyframe::at(1000))
+                .keyframe(IconKeyframe::at(2000).offset(Point::new(0.0, -2.0)))),
     ])
 }
 
@@ -87,7 +95,7 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 caption(cx, "No animations (set_reduced_motion)"),
             ]),
             moving_icons(cx),
-            caption(cx, "hover_motion: under the pointer the gear turns half way round, the microphone shakes and the headphones squash."),
+            caption(cx, "hover_motion: under the pointer the gear turns half way round, the microphone shakes and the headphones squash. icon_loop: the arrow bobs 2 px every 2 s on its own."),
             rail_pills(cx),
             caption(cx, "grow_from and enter_from: a rail's pill grows from 8 to 20 px on hover, or slides in from 4 px to the left."),
         ]),
