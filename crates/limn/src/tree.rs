@@ -1950,6 +1950,8 @@ struct IconMotionState {
     from: crate::motion::IconPose,
     /// When it comes to rest or to its last keyframe.
     settles: Instant,
+    /// An `icon_loop`'s, which plays since `since` and never settles.
+    looping: bool,
     seen: Instant,
 }
 
@@ -4425,7 +4427,7 @@ pub struct UiTree {
     moves: HashMap<String, AnimatedMove>,
     /// A pushing reach jumped while placed: the layout it was measured for is stale.
     pushes_moved: std::cell::Cell<bool>,
-    /// Each `hover_motion` element's playing, by its ID.
+    /// Each `hover_motion` and `icon_loop` element's playing, by its ID.
     icon_motions: HashMap<String, IconMotionState>,
     /// The ink of each `animate_foreground` element and when it was seen.
     inks: RefCell<HashMap<String, (ColorTransition, Instant)>>,
@@ -5179,6 +5181,7 @@ impl UiTree {
             && (!self.skeleton_started.is_empty()
                 || !self.shimmer_started.is_empty()
                 || self.spinner_started.keys().any(|id| !self.settled_spinners.contains(id))
+                || self.icon_motions.values().any(|state| state.looping)
                 || self.record_motion.values().any(|record| record.is_moving(now))))
             || self.scroll_button_hold.is_some();
         let transition = (!self.reduced_motion
@@ -5213,7 +5216,7 @@ impl UiTree {
                 .values()
                 .any(|state| state.value.is_active(now))
             || self.moves.values().any(|state| state.x.is_active(now) || state.y.is_active(now))
-            || self.icon_motions.values().any(|state| now < state.settles)
+            || self.icon_motions.values().any(|state| !state.looping && now < state.settles)
             || self.inks.borrow().values().any(|(ink, _)| ink.is_active(now))
             || self
                 .popover_view_transitions
@@ -9655,6 +9658,7 @@ impl LayoutBuilder<'_> {
             since: now,
             from: rest,
             settles: now,
+            looping: false,
             seen: now,
         });
         state.seen = now;
@@ -9666,7 +9670,36 @@ impl LayoutBuilder<'_> {
             state.settles = now + Duration::from_millis(u64::from(length));
         }
         let pose = state.pose(motion, now);
-        if pose == rest {
+        self.pose_icons(start, pose);
+    }
+
+    /// Paint only: the icons painted since command `start` where `motion`
+    /// has them, played over and over since the element was first painted.
+    fn loop_icons(&mut self, id: &str, motion: &crate::IconMotion, start: usize) {
+        let round = Duration::from_millis(u64::from(motion.play_ms()));
+        if self.reduced_motion || round.is_zero() {
+            return;
+        }
+        let now = self.now;
+        let rest = crate::motion::IconPose::REST;
+        let state = self.icon_motions.entry(id.to_owned()).or_insert(IconMotionState {
+            hovered: true,
+            since: now,
+            from: rest,
+            settles: now,
+            looping: true,
+            seen: now,
+        });
+        state.seen = now;
+        let into = now.saturating_duration_since(state.since).as_nanos() % round.as_nanos();
+        let pose = motion.pose(rest, true, into as f32 / 1e6);
+        self.pose_icons(start, pose);
+    }
+
+    /// Paint only: turn, stretch and move the icons painted since command
+    /// `start` by `pose`.
+    fn pose_icons(&mut self, start: usize, pose: crate::motion::IconPose) {
+        if pose == crate::motion::IconPose::REST {
             return;
         }
         for command in &mut self.frame.commands[start..] {
@@ -12554,6 +12587,9 @@ impl LayoutBuilder<'_> {
             let visible = clip.map_or(Some(rect), |clip| rect.intersection(clip));
             let hovered = self.pointer.zip(visible).is_some_and(|(point, visible)| visible.contains(point));
             self.move_icons(id, motion, hovered, start);
+        }
+        if let Some((id, motion)) = element.kept.as_ref().and_then(|kept| kept.icon_loop.as_ref()) {
+            self.loop_icons(id, motion, start);
         }
         if let Some((id, factor, anchor)) = element.kept.as_ref().and_then(|kept| kept.scale.as_ref()) {
             let scale = self.spring(&format!("scale/{id}"), *factor);
