@@ -408,10 +408,10 @@ mod tests {
         let frame = tree.layout(Size::new(600.0, 400.0));
         assert!(!frame.regions.iter().any(|region| region.id == "cancel:close"));
         assert!(!frame.access.iter().any(|node| node.id == "cancel:close"));
-        let escape = UiEvent::Key { key: Key::Escape, shift: false, ctrl: false };
+        let escape = UiEvent::Key { key: Key::Escape, shift: false, ctrl: false, alt: false };
         assert_eq!(tree.handle_event(escape), vec![UiAction::Clicked { id: "cancel".into() }]);
         assert!(tree.focus("cancel"));
-        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false };
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false };
         assert_eq!(tree.handle_event(enter), vec![UiAction::Clicked { id: "cancel".into() }]);
     }
 
