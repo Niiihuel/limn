@@ -94,6 +94,14 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .link_action_prefix("markdown-large:")
                 .render()
                 .element,
+            caption(cx, ".font_size(16.0).line_height(22.0): a chat message's tighter leading; headings keep its proportion"),
+            Markdown::new(SIZED, palette)
+                .width(width)
+                .font_size(16.0)
+                .line_height(22.0)
+                .link_action_prefix("markdown-leading:")
+                .render()
+                .element,
         ]),
         section(cx, "Streaming", vec![
             caption(cx, ".streaming(true): the unfinished tail is styled, but its address does not open yet"),
