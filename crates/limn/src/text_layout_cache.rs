@@ -5,13 +5,13 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use crate::{InlineImage, TextLayout, TextSpan, TextStyle};
+use crate::{FontFamily, InlineImage, TextLayout, TextSpan, TextStyle};
 
 #[derive(Clone, Copy, Eq, Hash, PartialEq)]
 struct Key {
     text: u64,
     size: u32,
-    family: u8,
+    family: FontFamily,
     line_height: Option<u32>,
     leading: crate::Leading,
     width: Option<u32>,
@@ -25,7 +25,7 @@ impl Key {
         Self {
             text: hasher.finish(),
             size: style.size.to_bits(),
-            family: style.family as u8,
+            family: style.family,
             line_height: style.line_height.map(f32::to_bits),
             leading: style.leading,
             width: width.map(f32::to_bits),
@@ -57,7 +57,7 @@ fn hash_spans(spans: &[TextSpan]) -> u64 {
     for span in spans {
         span.text.hash(&mut hasher);
         span.font_size.to_bits().hash(&mut hasher);
-        (span.font_family as u8).hash(&mut hasher);
+        span.font_family.hash(&mut hasher);
         [span.color.r, span.color.g, span.color.b, span.color.a].hash(&mut hasher);
         span.background.map(|color| [color.r, color.g, color.b, color.a]).hash(&mut hasher);
         span.icon.hash(&mut hasher);

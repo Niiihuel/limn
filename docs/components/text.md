@@ -92,6 +92,11 @@ are faces the host provides; a host without one paints `Sans`. Semibold sits
 between the other two, for a title that should stand out from medium text
 without the weight of bold.
 
+`FontFamily::Custom(id)` is a face the host loads at run time, such as a font
+for one person's name; see [A face given at run time](../theming.md#a-face-given-at-run-time).
+`.text_stroke(width, color)` and `.text_shadow(offset, blur, color)` outline
+it, give it a glow or a hard shadow; see [Layout](../layout.md#text).
+
 ## Out of focus
 
 ```rust

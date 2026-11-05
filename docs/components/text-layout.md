@@ -132,7 +132,11 @@ order, for characters the families lack; `.emoji(font)` sets the face tried
 last, so it never takes a symbol a text face has. A family without a face of
 its own takes `Sans`: `SansItalic` slanted and `SansBold` thickened. Behind
 `Sans` come the fallbacks, then `Monospace`, then the emoji face; behind
-`Monospace` come `Sans`, the fallbacks, then the emoji face. Only the faces given are used, never the system's, so text is laid
+`Monospace` come `Sans`, the fallbacks, then the emoji face. `FontFamily::Custom(id)`
+takes the face given for it, at the face's own weight and slant, with what
+`Sans` tries behind it, and is `Sans` until one is given:
+`Fonts::face(FontFamily::Custom(id), font)`, or `limn_egui::install_face`, which
+gives egui the face too. `Fonts::faces()` lists the families given a face. Only the faces given are used, never the system's, so text is laid
 out alike on every machine and in a browser.
 
 `Font::new(bytes)` refuses bytes that hold no face; `Font::from_static` keeps a

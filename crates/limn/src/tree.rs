@@ -36,6 +36,9 @@ mod top_fade_tests;
 #[path = "text_gradient_tests.rs"]
 mod text_gradient_tests;
 #[cfg(test)]
+#[path = "text_effect_tests.rs"]
+mod text_effect_tests;
+#[cfg(test)]
 #[path = "text_marks_tests.rs"]
 mod text_marks_tests;
 #[cfg(test)]
@@ -83,7 +86,7 @@ use web_time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, MeasuredRows, UniformList};
+use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, Kept, MeasuredRows, UniformList};
 use crate::motion::{
     skeleton_color, spinner_angle, SKELETON_PERIOD, ColorTransition, ScalarSpring, ScalarTransition,
 };
@@ -112,7 +115,7 @@ pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
     BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
-    RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
+    RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextEffect, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 
@@ -676,6 +679,17 @@ pub enum DrawCommand {
     /// Glyphs limn has shaped and placed; see [`crate::GlyphRun`]. A backend
     /// draws each glyph where the run says, and lays nothing out again.
     Glyphs(crate::GlyphRun),
+    /// An outline or a shadow of text, painted before the text itself:
+    /// `effect` of each of `runs`, a [`DrawCommand::Text`] or a
+    /// [`DrawCommand::Glyphs`] placed where the text that follows is. The
+    /// runs' own ink is not painted. A backend that paints no effects may
+    /// skip it; the text still reads.
+    TextEffect {
+        /// What is painted of the runs.
+        effect: crate::TextEffect,
+        /// The text the effect is of, as it is painted after this.
+        runs: Vec<DrawCommand>,
+    },
     /// A run of text the tree has already measured and wrapped. A backend
     /// paints it from `position` without wrapping it again.
     Text {
@@ -884,6 +898,19 @@ impl DrawCommand {
                 let line = seen(&run.color).then(|| around(&glyphs, 0.0)).flatten()?;
                 Some(Rect::new(line.x, line.y - run.size * 0.8, line.width + run.size, line.height + run.size * 1.05))
             }
+            Self::TextEffect { effect, runs } => {
+                let (reach, offset, color) = match *effect {
+                    crate::TextEffect::Stroke { width, color } => (width / 2.0, Point::new(0.0, 0.0), color),
+                    crate::TextEffect::Shadow { offset, blur, color } => (blur, offset, color),
+                };
+                let corners: Vec<Point> = runs
+                    .iter()
+                    .filter_map(DrawCommand::bounds)
+                    .flat_map(|rect| [Point::new(rect.x, rect.y), Point::new(rect.x + rect.width, rect.y + rect.height)])
+                    .map(|corner| Point::new(corner.x + offset.x, corner.y + offset.y))
+                    .collect();
+                seen(&color).then(|| around(&corners, reach)).flatten()
+            }
             // `position` is the line's top-left corner.
             Self::Text { position, text, color, font_size, .. } => seen(color).then(|| {
                 let width = text.chars().count() as f32 * font_size * 0.6;
@@ -978,11 +1005,35 @@ impl DrawCommand {
                 run.origin = Point::new(run.origin.x + dx, run.origin.y + dy);
                 fade(&mut run.color);
             }
+            Self::TextEffect { effect, runs } => {
+                let (crate::TextEffect::Stroke { color, .. } | crate::TextEffect::Shadow { color, .. }) = effect;
+                fade(color);
+                for run in runs {
+                    *run = run.moved(dx, dy, opacity);
+                }
+            }
             Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
         }
         ghost
     }
+}
+
+/// What `kept` has a text inked in `ink` paint under its glyphs, the shadow
+/// first, their alpha scaled by the ink's.
+fn text_effects(kept: Option<&Kept>, ink: Color) -> Vec<TextEffect> {
+    let Some(kept) = kept else {
+        return Vec::new();
+    };
+    let faded = |color: Color| Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * f32::from(ink.a) / 255.0).round() as u8);
+    [kept.text_shadow, kept.text_stroke]
+        .into_iter()
+        .flatten()
+        .map(|effect| match effect {
+            TextEffect::Stroke { width, color } => TextEffect::Stroke { width, color: faded(color) },
+            TextEffect::Shadow { offset, blur, color } => TextEffect::Shadow { offset, blur, color: faded(color) },
+        })
+        .collect()
 }
 
 /// `from` with `amount` of the way to `to`, channel by channel.
@@ -1459,6 +1510,23 @@ fn animate_popover_command(
                 run.glyphs = run.glyphs.iter().map(|glyph| crate::Glyph { x: glyph.x * scale, y: glyph.y * scale, ..*glyph }).collect();
             }
             fade(&mut run.color, opacity);
+        }
+        DrawCommand::TextEffect { effect, runs } => {
+            match effect {
+                crate::TextEffect::Stroke { width, color } => {
+                    *width *= scale;
+                    fade(color, opacity);
+                }
+                crate::TextEffect::Shadow { offset, blur, color } => {
+                    offset.x *= scale;
+                    offset.y *= scale;
+                    *blur *= scale;
+                    fade(color, opacity);
+                }
+            }
+            for run in runs {
+                animate_popover_command(run, opacity, slide_y, scale, origin);
+            }
         }
         DrawCommand::Icon { rect, tint, .. } => {
             scale_rect(rect, scale, origin, slide_y);
@@ -2096,7 +2164,8 @@ impl SelectableTextBlock {
             | FontFamily::SansSemibold
             | FontFamily::SansBold
             | FontFamily::SansBoldItalic
-            | FontFamily::Display => sans_metrics,
+            | FontFamily::Display
+            | FontFamily::Custom(_) => sans_metrics,
         }
         .at_size(run.font_size)
         .char_width;
@@ -4382,6 +4451,9 @@ pub struct UiTree {
     width_cache: RefCell<TextWidthCache>,
     formatted_cache: RefCell<FormattedTextCache>,
     layout_cache: RefCell<TextLayoutCache>,
+    /// The faces' generation the measured widths were taken with: a face
+    /// given to `limn::set_fonts`, as a host installs one, measures afresh.
+    measured_fonts: u64,
     /// Whether `Element::text` is laid out in a `TextLayout`; see
     /// [`UiTree::set_text_layout`].
     text_layout: bool,
@@ -4499,6 +4571,7 @@ impl UiTree {
             width_cache: RefCell::new(TextWidthCache::default()),
             formatted_cache: RefCell::new(FormattedTextCache::default()),
             layout_cache: RefCell::new(TextLayoutCache::default()),
+            measured_fonts: crate::fonts::generation(),
             text_layout: false,
             measurement_cache: RefCell::new(MeasurementCache::default()),
             horizontal_scrolls: HashMap::new(),
@@ -5414,6 +5487,12 @@ impl UiTree {
     ) -> Frame {
         self.begin_paste_layout();
         self.layout_cache.get_mut().begin_pass();
+        let fonts = crate::fonts::generation();
+        if fonts != self.measured_fonts {
+            self.measured_fonts = fonts;
+            self.width_cache.get_mut().clear();
+            self.formatted_cache.get_mut().clear();
+        }
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
         for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
@@ -10697,10 +10776,22 @@ impl LayoutBuilder<'_> {
 
     /// Paint text laid out in a `TextLayout`: its selection, its glyphs, and
     /// the selectable block a pointer reads it back from.
-    fn paint_laid_out_text(&mut self, value: &str, content: Rect, style: Style, clip: Option<Rect>, ink: Option<&[Color]>) {
+    fn paint_laid_out_text(
+        &mut self,
+        value: &str,
+        content: Rect,
+        style: Style,
+        clip: Option<Rect>,
+        ink: Option<&[Color]>,
+        effects: &[TextEffect],
+    ) {
         let layout = self.laid_out_text(value, style, content.width, style.center_content);
         let origin = Point::new(content.x, content.y);
         let block_index = self.frame.text_blocks.len();
+        self.paint_text_effects(effects, || {
+            let drawn = layout.draw(origin, style.foreground);
+            drawn.into_iter().filter(|command| matches!(command, DrawCommand::Glyphs(_))).collect()
+        });
         let runs = self.paint_layout(&layout, value, origin, style, clip, block_index, ink);
         self.frame.text_blocks.push(SelectableTextBlock {
             source: value.to_owned(),
@@ -10955,7 +11046,8 @@ impl LayoutBuilder<'_> {
             | FontFamily::SansSemibold
             | FontFamily::SansBold
             | FontFamily::SansBoldItalic
-            | FontFamily::Display => self.sans_metrics,
+            | FontFamily::Display
+            | FontFamily::Custom(_) => self.sans_metrics,
         }
         .at_size(style.font_size)
     }
@@ -11122,6 +11214,18 @@ impl LayoutBuilder<'_> {
                 font_family: style.font_family,
             });
             self.frame.commands.push(DrawCommand::PopClip);
+        }
+    }
+
+    /// `effects` of the text `runs` gives, each its own command, before the
+    /// text is drawn. Without effects the runs are never made.
+    fn paint_text_effects(&mut self, effects: &[TextEffect], runs: impl FnOnce() -> Vec<DrawCommand>) {
+        if effects.is_empty() {
+            return;
+        }
+        let runs = runs();
+        for effect in effects {
+            self.frame.commands.push(DrawCommand::TextEffect { effect: *effect, runs: runs.clone() });
         }
     }
 
@@ -13720,6 +13824,17 @@ impl LayoutBuilder<'_> {
                     .kept
                     .as_ref()
                     .and_then(|kept| kept.ink_gradient.clone());
+                if !shown.is_empty() {
+                    self.paint_text_effects(&text_effects(element.kept.as_deref(), style.foreground), || {
+                        vec![DrawCommand::Text {
+                            position: Point::new(x, y),
+                            text: shown.clone(),
+                            color: style.foreground,
+                            font_size: style.font_size,
+                            font_family: style.font_family,
+                        }]
+                    });
+                }
                 if let Some((id, highlight)) = shimmer {
                     self.observed_shimmers.insert(id.clone());
                     let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
@@ -13781,7 +13896,8 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::Text(value) if self.text_layout => {
                 let ink = element.kept.as_ref().and_then(|kept| kept.ink_gradient.clone());
-                self.paint_laid_out_text(value, content, style, clip, ink.as_deref());
+                let effects = text_effects(element.kept.as_deref(), style.foreground);
+                self.paint_laid_out_text(value, content, style, clip, ink.as_deref(), &effects);
             }
             ElementKind::Text(value)
             | ElementKind::ShimmerText {
@@ -13814,6 +13930,7 @@ impl LayoutBuilder<'_> {
                 });
                 let mut source_byte = 0;
                 let mut source_char = 0;
+                let effects = text_effects(element.kept.as_deref(), style.foreground);
                 let lines = self.wrapped_lines(value, content.width, style);
                 let sweep_width = if shimmer.is_some() {
                     lines
@@ -13837,6 +13954,17 @@ impl LayoutBuilder<'_> {
                     } else {
                         content.x
                     };
+                    if !line.is_empty() {
+                        self.paint_text_effects(&effects, || {
+                            vec![DrawCommand::Text {
+                                position: Point::new(x, y),
+                                text: line.to_owned(),
+                                color: style.foreground,
+                                font_size: style.font_size,
+                                font_family: style.font_family,
+                            }]
+                        });
+                    }
                     self.paint_static_run(
                         block_index,
                         value,

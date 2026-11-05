@@ -58,7 +58,7 @@ mod top_bar;
 mod tooltip;
 mod tour;
 mod typography;
-pub use typography::demo_emoji;
+pub use typography::{demo_emoji, RUN_TIME_FACE};
 mod video;
 #[cfg(not(target_arch = "wasm32"))]
 pub use video::present_videos;
@@ -124,7 +124,7 @@ impl Page {
 pub const PAGES: &[Page] = &[
     Page { id: "tokens", group: "System", title: "Tokens", source: "tokens", view: tokens::view, sections: &[], since: "0.1.39" },
     Page { id: "scheme", group: "System", title: "Scheme", source: "scheme", view: scheme::view, sections: &[], since: "0.1.39" },
-    Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Gradient ink", "Inline pictures", "Marks and hints", "A limit of lines", "Long text", "Soft focus", "Unicode fallback", "Monochrome emoji", "Color emoji"], since: "0.1.39" },
+    Page { id: "text", group: "System", title: "Text", source: "typography", view: typography::view, sections: &["Scale", "Outside the scale", "Ink and family", "Weights", "Gradient ink", "Outline and glow", "A face given at run time", "Inline pictures", "Marks and hints", "A limit of lines", "Long text", "Soft focus", "Unicode fallback", "Monochrome emoji", "Color emoji"], since: "0.1.39" },
     Page { id: "separator", group: "System", title: "Separator", source: "typography", view: typography::view, sections: &["Separator"], since: "0.1.39" },
     Page { id: "icon", group: "System", title: "Icon", source: "navigation", view: navigation::view, sections: &["Selected item icon", "Servers and settings", "Categories and small icons", "Zoom and chevrons"], since: "0.1.39" },
     Page { id: "drawing", group: "System", title: "Drawing", source: "drawing", view: drawing::view, sections: &[], since: "0.1.44" },

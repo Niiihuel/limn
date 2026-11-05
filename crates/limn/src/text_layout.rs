@@ -757,8 +757,33 @@ const FAMILIES: [(FontFamily, &str, f32, FontStyle); 9] = [
     (FontFamily::Display, "limn-display", 400.0, FontStyle::Normal),
 ];
 
+/// A built-in family's place in [`FAMILIES`]. A custom one takes `Sans`'s,
+/// and its weight and slant: a custom face is drawn as it is.
 fn slot(family: FontFamily) -> usize {
-    FAMILIES.iter().position(|(given, ..)| *given == family).expect("every family has a slot")
+    let family = if matches!(family, FontFamily::Custom(_)) { FontFamily::Sans } else { family };
+    FAMILIES.iter().position(|(given, ..)| *given == family).expect("every built-in family has a slot")
+}
+
+/// The family a face given for `FontFamily::Custom(id)` is registered under.
+fn custom_name(id: u16) -> String {
+    format!("limn-face-{id}")
+}
+
+/// For each family, the faces tried in order.
+struct Stacks {
+    builtin: [Vec<FontFamilyName<'static>>; FAMILIES.len()],
+    /// Each custom family the fonts give a face: that face, then `Sans`'s.
+    custom: HashMap<u16, Vec<FontFamilyName<'static>>>,
+}
+
+impl Stacks {
+    /// A custom family without a face of its own is `Sans`.
+    fn of(&self, family: FontFamily) -> &[FontFamilyName<'static>] {
+        match family {
+            FontFamily::Custom(id) => self.custom.get(&id).unwrap_or(&self.builtin[slot(family)]),
+            _ => &self.builtin[slot(family)],
+        }
+    }
 }
 
 /// The vertical measures of a family at a size.
@@ -784,10 +809,9 @@ struct System {
     given: Arc<Fonts>,
     fonts: FontContext,
     layouts: LayoutContext<Brush>,
-    /// For each family, the faces tried in order.
-    stacks: [Vec<FontFamilyName<'static>>; FAMILIES.len()],
+    stacks: Stacks,
     /// A family's ascent, descent and natural line height at a size, by its bits.
-    naturals: HashMap<(u32, usize), Metrics>,
+    naturals: HashMap<(u32, FontFamily), Metrics>,
 }
 
 thread_local! {
@@ -832,6 +856,16 @@ impl System {
         if let Some(font) = given.emoji_face() {
             register(font, "limn-emoji", None, None);
         }
+        let custom: Vec<u16> = given
+            .faces()
+            .filter_map(|(family, font)| match family {
+                FontFamily::Custom(id) => {
+                    register(font, &custom_name(id), Some(400.0), Some(FontStyle::Normal));
+                    Some(id)
+                }
+                _ => None,
+            })
+            .collect();
         let named = |name: &str| FontFamilyName::Named(Cow::Owned(name.to_owned()));
         let stack = |family: FontFamily| {
             let own = FAMILIES[slot(family)].1;
@@ -865,12 +899,18 @@ impl System {
             names.push(named("limn-emoji"));
             names
         };
+        let builtin = FAMILIES.map(|(family, ..)| stack(family));
+        // A custom face first, then everything `Sans` tries, emoji last.
+        let custom = custom
+            .into_iter()
+            .map(|id| (id, std::iter::once(named(&custom_name(id))).chain(builtin[slot(FontFamily::Sans)].iter().cloned()).collect()))
+            .collect();
         Self {
             generation,
             given: given.clone(),
             fonts: FontContext { collection, source_cache: SourceCache::default() },
             layouts: LayoutContext::new(),
-            stacks: FAMILIES.map(|(family, ..)| stack(family)),
+            stacks: Stacks { builtin, custom },
             naturals: HashMap::new(),
         }
     }
@@ -881,7 +921,7 @@ impl System {
     }
 
     fn metrics(&mut self, size: f32, family: FontFamily) -> Metrics {
-        if let Some(metrics) = self.naturals.get(&(size.to_bits(), slot(family))) {
+        if let Some(metrics) = self.naturals.get(&(size.to_bits(), family)) {
             return *metrics;
         }
         let style = TextStyle::new(size, family);
@@ -892,7 +932,7 @@ impl System {
         });
         let (ascent, descent) = font.unwrap_or((size * 0.8, size * 0.2));
         let metrics = Metrics { ascent, descent, natural: layout.height() };
-        self.naturals.insert((size.to_bits(), slot(family)), metrics);
+        self.naturals.insert((size.to_bits(), family), metrics);
         metrics
     }
 
@@ -913,7 +953,7 @@ impl System {
         let (_, _, weight, slant) = FAMILIES[slot(family)];
         let mut builder = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, false);
         builder.push_default(StyleProperty::FontFamily(parley::FontFamily::List(Cow::Borrowed(
-            &self.stacks[slot(family)],
+            self.stacks.of(family),
         ))));
         builder.push_default(StyleProperty::FontSize(size));
         builder.push_default(StyleProperty::FontWeight(FontWeight::new(weight)));
@@ -928,7 +968,7 @@ impl System {
             let range = span.range.clone();
             let (_, _, weight, slant) = FAMILIES[slot(span.family)];
             builder.push(
-                StyleProperty::FontFamily(parley::FontFamily::List(Cow::Borrowed(&self.stacks[slot(span.family)]))),
+                StyleProperty::FontFamily(parley::FontFamily::List(Cow::Borrowed(self.stacks.of(span.family)))),
                 range.clone(),
             );
             // A picture's text is read and copied, never drawn: it takes no room.
