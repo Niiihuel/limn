@@ -422,3 +422,23 @@ fn explicit_return_focus_and_close_button_work_without_drag_handler_state() {
     tree.layout(size);
     assert_eq!(tree.focused_id(), Some("opener"));
 }
+
+#[test]
+fn glass_material_belongs_to_the_sheet_shell_and_keeps_close_action() {
+    let palette = ComponentPalette::neutral_dark();
+    let material = crate::GlassMaterial::new(palette.surface);
+    let mut tree = UiTree::new(BottomSheet::new(
+        Element::button("base", "Page"), true, "Sheet", "", "dismiss", palette,
+    ).glass(material).body(Element::text("Sharp content")).render());
+    tree.set_reduced_motion(true);
+    let frame = tree.layout(Size::new(400.0, 600.0));
+    let shell = frame.access.iter().find(|node| node.id == "dismiss:dialog").unwrap().rect;
+    let glass: Vec<_> = frame.commands.iter().filter_map(|command| match command {
+        crate::DrawCommand::Glass { rect, material: actual, .. } => Some((*rect, *actual)), _ => None,
+    }).collect();
+    assert_eq!(glass, vec![(shell, material)]);
+    let close = frame.regions.iter().find(|region| region.id == "dismiss:close").unwrap().rect;
+    let point = Point::new(close.x + close.width / 2.0, close.y + close.height / 2.0);
+    tree.handle_event(UiEvent::PointerDown(point));
+    assert_eq!(tree.handle_event(UiEvent::PointerUp(point)), vec![UiAction::Clicked { id: "dismiss".into() }]);
+}

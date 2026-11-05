@@ -44,3 +44,6 @@ limn-editor = { version = "0.1.43", path = "../limn-editor" }
 # Inspect configured font charmaps: egui's has_glyph has false negatives on its replacement face.
 # This parser is already used by egui; it adds no runtime dependency.
 skrifa = "0.44.0"
+# Native glass QA drives adapter initialization and deterministic motion frames.
+pollster = "1.0.1"
+web-time = "1.1"

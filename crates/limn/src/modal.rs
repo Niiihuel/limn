@@ -132,6 +132,7 @@ pub struct Modal {
     role: Role,
     spoken_description: String,
     sheet: Option<SheetLayout>,
+    glass: Option<crate::GlassMaterial>,
 }
 
 impl Modal {
@@ -171,7 +172,14 @@ impl Modal {
             role: Role::Dialog,
             spoken_description: String::new(),
             sheet: None,
+            glass: None,
         }
+    }
+
+    /// Sample the host's backdrop through the dialog shell, keeping content sharp.
+    pub fn glass(mut self, material: crate::GlassMaterial) -> Self {
+        self.glass = Some(material);
+        self
     }
 
     /// An alert dialog shows its description in its body: say it is one,
@@ -459,6 +467,12 @@ impl Component for Modal {
             .shadow(self.palette.shadow, Point::new(0.0, 16.0), 32.0, 0.0)
             .clip_children()
             .accessible(said);
+
+        if let Some(material) = self.glass {
+            card.style.background = None;
+            card.style.border = None;
+            card = card.glass(material);
+        }
 
         let placement = if let Some(sheet) = self.sheet {
             card = card.max_height(sheet.max_height)

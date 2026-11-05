@@ -108,7 +108,7 @@ mod captured_paste;
 pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
+    GlassMaterial, BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -545,6 +545,36 @@ fn clamp_formatted(
 /// carries out `Frame::commands` in order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
+    /// A rounded backdrop-sampling surface, painted before its foreground.
+    Glass {
+        /// The surface's bounds; what lies behind them is what the material
+        /// samples.
+        rect: Rect,
+        /// Corner radius, the same on all four corners.
+        radius: f32,
+        /// How the backdrop is blurred and tinted. A backend that cannot sample
+        /// the backdrop can fill the bounds with `material.tint`, as the egui
+        /// one does.
+        material: GlassMaterial,
+        /// Opacity of the whole surface from 0 to 1: 1 unless a transition is
+        /// fading it.
+        opacity: f32,
+    },
+    /// A selection lens sampling a local, feedback-free copy of its track and labels.
+    GlassSelection {
+        /// Lens bounds in logical pixels.
+        rect: Rect,
+        /// Lens corner radius in logical pixels.
+        radius: f32,
+        /// Optical properties of the lens.
+        material: GlassMaterial,
+        /// Opacity of the lens, from zero to one.
+        opacity: f32,
+        /// Local backdrop bounds, including the neighboring labels.
+        backdrop_rect: Rect,
+        /// Ordinary paint captured before inserting this lens.
+        backdrop: Vec<DrawCommand>,
+    },
     /// A box shadow, pushed before the fill of the box that casts it.
     Shadow {
         /// The box that casts the shadow, not the shadow's own extent.
@@ -858,7 +888,9 @@ impl DrawCommand {
             | Self::Icon { rect, tint: color, .. } => seen(color).then_some(*rect),
             Self::FillVerticalGradient { rect, top, bottom } => (seen(top) || seen(bottom)).then_some(*rect),
             Self::FillHorizontalGradient { rect, left, right } => (seen(left) || seen(right)).then_some(*rect),
-            Self::RasterImage { rect, opacity, .. }
+            Self::Glass { rect, opacity, .. }
+            | Self::GlassSelection { rect, opacity, .. }
+            | Self::RasterImage { rect, opacity, .. }
             | Self::Record { rect, opacity, .. }
             | Self::Surface { rect, opacity, .. }
             | Self::EffortSlider { rect, opacity, .. } => (*opacity > 0.0).then_some(*rect),
@@ -927,7 +959,14 @@ impl DrawCommand {
                 fade(track);
                 fade(fill);
             }
+            Self::GlassSelection { rect, opacity, backdrop_rect, backdrop, .. } => {
+                shift(rect);
+                shift(backdrop_rect);
+                *opacity *= opacity_factor;
+                *backdrop = backdrop.iter().map(|command| command.moved(dx, dy, 1.0)).collect();
+            }
             Self::RasterImage { rect, opacity, .. }
+            | Self::Glass { rect, opacity, .. }
             | Self::Record { rect, opacity, .. }
             | Self::Surface { rect, opacity, .. }
             | Self::EffortSlider { rect, opacity, .. } => {
@@ -1281,7 +1320,9 @@ const MORPH_CURVE: Easing = Easing::CubicBezier(0.32, 0.72, 0.0, 1.0);
 /// Moves a picture `t` of the way from `origin` to where it is laid out, its
 /// corner radius from `radius` to its own. Other commands are left alone.
 fn morph_picture(command: &mut DrawCommand, origin: Rect, radius: f32, t: f32) {
-    if let DrawCommand::RasterImage { rect, radius: corner, .. } = command {
+    if let DrawCommand::RasterImage { rect, radius: corner, .. }
+        | DrawCommand::Glass { rect, radius: corner, .. }
+        | DrawCommand::GlassSelection { rect, radius: corner, .. } = command {
         let lerp = |from: f32, to: f32| from + (to - from) * t;
         *rect = Rect::new(
             lerp(origin.x, rect.x),
@@ -1290,6 +1331,38 @@ fn morph_picture(command: &mut DrawCommand, origin: Rect, radius: f32, t: f32) {
             lerp(origin.height, rect.height),
         );
         *corner = lerp(radius, *corner);
+    }
+}
+
+/// Glass menus grow an opaque optical shell first; their rows arrive at the end.
+fn morph_glass_menu(command: &mut DrawCommand, origin: Rect, origin_radius: f32,
+    target: Rect, eased: f32, closing: bool) {
+    let time = 1.0 - (1.0 - eased.clamp(0.0, 1.0)).cbrt();
+    let t = if closing { MORPH_CURVE.sample(eased) } else {
+        // A small underdamped rebound, normalized to the exact final shape.
+        let spring = |t: f32| 1.0 - (-7.0 * t).exp() * ((10.0 * t).cos() + 0.7 * (10.0 * t).sin());
+        spring(time) / spring(1.0)
+    };
+    if popover_shell_command(command, target) {
+        let lerp = |from: f32, to: f32| from + (to - from) * t;
+        let rect = Rect::new(lerp(origin.x, target.x), lerp(origin.y, target.y),
+            lerp(origin.width, target.width).max(0.0), lerp(origin.height, target.height).max(0.0));
+        morph_popover_shell(command, rect);
+        match command {
+            DrawCommand::Glass { radius, material, opacity, .. } => {
+                *radius = lerp(origin_radius, *radius).max(0.0);
+                material.presence *= eased;
+                material.bloom = (1.0 - eased) * 0.35;
+                if closing { *opacity *= eased; }
+            }
+            DrawCommand::FillRect { radius, .. } | DrawCommand::StrokeRect { radius, .. }
+            | DrawCommand::Shadow { radius, .. } => *radius = lerp(origin_radius, *radius).max(0.0),
+            _ => {}
+        }
+    } else {
+        let content = ((time - 0.55) / 0.45).clamp(0.0, 1.0);
+        animate_popover_command(command, content, (1.0 - content) * 4.0, 1.0,
+            Point::new(target.x, target.y));
     }
 }
 
@@ -1442,6 +1515,18 @@ fn animate_popover_command(
             *image_opacity *= opacity.clamp(0.0, 1.0);
             *radius *= scale;
         }
+        DrawCommand::GlassSelection { rect, radius, opacity: own_opacity, backdrop_rect, backdrop, .. } => {
+            scale_rect(rect, scale, origin, slide_y);
+            scale_rect(backdrop_rect, scale, origin, slide_y);
+            *radius *= scale;
+            *own_opacity *= opacity.clamp(0.0, 1.0);
+            for command in backdrop { animate_popover_command(command, 1.0, slide_y, scale, origin); }
+        }
+        DrawCommand::Glass { rect, radius, opacity: own_opacity, .. } => {
+            scale_rect(rect, scale, origin, slide_y);
+            *radius *= scale;
+            *own_opacity *= opacity.clamp(0.0, 1.0);
+        }
         DrawCommand::Spinner { rect, color, .. } => {
             scale_rect(rect, scale, origin, slide_y);
             fade(color, opacity);
@@ -1496,6 +1581,7 @@ fn animate_popover_command(
 fn popover_shell_command(command: &DrawCommand, rect: Rect) -> bool {
     match command {
         DrawCommand::Shadow { rect: painted, .. }
+        | DrawCommand::Glass { rect: painted, .. }
         | DrawCommand::FillRect { rect: painted, .. }
         | DrawCommand::StrokeRect { rect: painted, .. }
         | DrawCommand::FillCornerRect { rect: painted, .. }
@@ -1508,6 +1594,7 @@ fn popover_shell_command(command: &DrawCommand, rect: Rect) -> bool {
 fn morph_popover_shell(command: &mut DrawCommand, rect: Rect) {
     match command {
         DrawCommand::Shadow { rect: painted, .. }
+        | DrawCommand::Glass { rect: painted, .. }
         | DrawCommand::FillRect { rect: painted, .. }
         | DrawCommand::StrokeRect { rect: painted, .. }
         | DrawCommand::FillCornerRect { rect: painted, .. }
@@ -1591,6 +1678,7 @@ pub struct Frame {
     submenu_targets: HashMap<String, String>,
     submenu_triggers: HashSet<String>,
     sliders: HashMap<String, SliderGeometry>,
+    glass_switches: HashMap<String, GlassSwitchGeometry>,
     scroll_extents: HashMap<String, f32>,
     horizontal_viewports: HashMap<String, Rect>,
     /// Each button inside a `drag_to_pan` viewport, with the viewport a drag
@@ -1848,6 +1936,18 @@ struct TabFocusScope {
     every_arrow: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct GlassSwitchGeometry {
+    bounds: Rect,
+    checked: bool,
+}
+
+struct GlassSwitchDrag {
+    origin: Point,
+    geometry: GlassSwitchGeometry,
+    moved: bool,
+}
+
 #[derive(Debug)]
 struct TabIndicatorState {
     selected_id: String,
@@ -1855,6 +1955,12 @@ struct TabIndicatorState {
     // of stopping and starting again.
     x: ScalarSpring,
     width: ScalarSpring,
+    lift_x: ScalarSpring,
+    lift_y: ScalarSpring,
+    material_presence: ScalarSpring,
+    travel_from: f32,
+    press_start: Option<(f32, f32)>,
+    dragging: bool,
 }
 
 /// Final-position paint for a floating surface. It is deliberately separate
@@ -4376,6 +4482,7 @@ pub struct UiTree {
     horizontal_pan: Option<HorizontalPan>,
     scroll_button_hold: Option<ScrollButtonHold>,
     slider_drag: Option<SliderDrag>,
+    glass_switch_drag: Option<GlassSwitchDrag>,
     sketch_draft: Option<crate::sketch::SketchDraft>,
     slider_motion: HashMap<String, SliderMotion>,
     hovered_scrollbar: Option<String>,
@@ -4490,6 +4597,7 @@ impl UiTree {
             horizontal_pan: None,
             scroll_button_hold: None,
             slider_drag: None,
+            glass_switch_drag: None,
             sketch_draft: None,
             slider_motion: HashMap::new(),
             hovered_scrollbar: None,
@@ -5229,7 +5337,7 @@ impl UiTree {
             || self
                 .tab_indicators
                 .values()
-                .any(|state| state.x.is_active(now) || state.width.is_active(now))
+                .any(|state| state.x.is_active(now) || state.width.is_active(now) || state.lift_x.is_active(now) || state.lift_y.is_active(now) || state.material_presence.is_active(now))
             || self.horizontal_scrolls.values().any(|state| state.is_gliding(now));
         let hover_wait = self.tooltip_hover_since.as_ref().and_then(|(id, since)| {
             let elapsed = now.saturating_duration_since(*since);
@@ -5907,7 +6015,8 @@ impl UiTree {
                             }
                             builder.frame.commands.push(DrawCommand::PopClip);
                         }
-                        if progress < 1.0 {
+                        let glass_morph = morph.is_some() && builder.frame.commands[command_start..].iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
+                        if progress < 1.0 && !glass_morph {
                             let slide = (1.0 - progress) * slide_sign * 4.0;
                             let scale = open_scale + (1.0 - open_scale) * progress;
                             let origin =
@@ -5922,7 +6031,8 @@ impl UiTree {
                         }
                         if let (Some((origin, radius)), true) = (morph, progress < 1.0) {
                             for command in &mut builder.frame.commands[command_start..] {
-                                morph_picture(command, origin, radius, MORPH_CURVE.sample(progress));
+                                if glass_morph { morph_glass_menu(command, origin, radius, rect, progress, false); }
+                                else { morph_picture(command, origin, radius, MORPH_CURVE.sample(progress)); }
                             }
                         }
                         if travel != (0.0, 0.0) {
@@ -6068,10 +6178,12 @@ impl UiTree {
                 }
                 for command in &exit.paint.commands {
                     let mut command = command.clone();
+                    let glass_morph = exit.paint.morph.is_some() && exit.paint.commands.iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
                     if let Some((from, radius)) = exit.paint.morph {
-                        morph_picture(&mut command, from, radius, MORPH_CURVE.sample(opacity));
+                        if glass_morph { morph_glass_menu(&mut command, from, radius, rect, opacity, true); }
+                        else { morph_picture(&mut command, from, radius, MORPH_CURVE.sample(opacity)); }
                     }
-                    animate_popover_command(&mut command, opacity, slide, scale, origin);
+                    if !glass_morph { animate_popover_command(&mut command, opacity, slide, scale, origin); }
                     exit_commands.push(command);
                 }
             }
@@ -6996,6 +7108,9 @@ impl UiTree {
         if let Some(actions) = self.handle_drag_event(&event) {
             return actions;
         }
+        if let (Some(drag), UiEvent::PointerMove(point) | UiEvent::PointerUp(point)) = (&mut self.glass_switch_drag, &event) {
+            drag.moved |= (point.x - drag.origin.x).abs() > 3.0;
+        }
         let pressed_at = match &event {
             UiEvent::PointerDown(position)
             | UiEvent::PointerDownModified { position, .. }
@@ -7281,6 +7396,7 @@ impl UiTree {
                 }
             }
             UiEvent::PointerLeave => {
+                self.glass_switch_drag = None;
                 if let Some(draft) = self.sketch_draft.take() {
                     actions.push(UiAction::Sketched { id: draft.id.clone(), mark: draft.mark() });
                 }
@@ -7477,6 +7593,8 @@ impl UiTree {
                     .filter(|region| region.kind == HitKind::Button)
                     .map(|region| region.id.clone());
                 self.pressed_dispatch = self.pressed.as_deref().map(|id| self.dispatch_id(id));
+                self.glass_switch_drag = self.pressed.as_ref().and_then(|id| self.frame.glass_switches.get(id))
+                    .map(|geometry| GlassSwitchDrag { origin: point, geometry: *geometry, moved: false });
                 let next_focus =
                     hit.as_ref()
                         .filter(|region| {
@@ -7550,8 +7668,14 @@ impl UiTree {
                 if self.scroll_button_hold.take().is_some() {
                     return actions;
                 }
+                let switch_drag = self.glass_switch_drag.take();
                 let pressed_dispatch = self.pressed_dispatch.take();
                 if let Some(pressed) = self.pressed.take() {
+                    let unchanged_drag = switch_drag.is_some_and(|drag| {
+                        let geometry = self.frame.glass_switches.get(&pressed).copied().unwrap_or(drag.geometry);
+                        drag.moved && geometry.checked == (point.x >= geometry.bounds.x + geometry.bounds.width / 2.0)
+                    });
+                    if unchanged_drag { return actions; }
                     if self.frame.press_region(point).map(|region| region.id.as_str())
                         == Some(pressed.as_str())
                         && pressed_dispatch.as_deref() == Some(self.dispatch_id(&pressed).as_str())
@@ -12733,6 +12857,14 @@ impl LayoutBuilder<'_> {
                 radius: style.radius,
             });
         }
+        if let Some(material) = element.kept.as_ref().and_then(|kept| kept.glass) {
+            self.frame.commands.push(DrawCommand::Glass {
+                rect,
+                radius: style.radius,
+                material: material.normalized(),
+                opacity: 1.0,
+            });
+        }
         if let Some(color) = style.background {
             paint_corner_rect(
                 &mut self.frame.commands,
@@ -12899,7 +13031,16 @@ impl LayoutBuilder<'_> {
                         }
                         _ => child.indicator_slot.as_ref() == Some(&selection.selected_id),
                     });
-                    if let Some(target) = index.and_then(|index| rects.get(index)).copied() {
+                    if let Some(mut target) = index.and_then(|index| rects.get(index)).copied() {
+                        if let Some(width) = selection.width {
+                            if index == Some(children.len().saturating_sub(1)) { target.x += target.width - width; }
+                            target.width = width;
+                        }
+                        if selection.glass.is_some() && matches!(selection.selected_id.as_str(), "on" | "off") {
+                            if let Some(id) = &selection.press_id {
+                                self.frame.glass_switches.insert(id.clone(), GlassSwitchGeometry { bounds: rect, checked: selection.selected_id == "on" });
+                            }
+                        }
                         self.observed_tabs.insert(selection.group_id.clone());
                         let state = self
                             .tab_indicators
@@ -12908,6 +13049,12 @@ impl LayoutBuilder<'_> {
                                 selected_id: selection.selected_id.clone(),
                                 x: ScalarSpring::new(target.x, self.now),
                                 width: ScalarSpring::new(target.width, self.now),
+                                lift_x: ScalarSpring::new(0.0, self.now).motion(if selection.press_id.is_some() { crate::SpringMotion { stiffness: 900.0, damping_ratio: 0.7 } } else { crate::SpringMotion { stiffness: 250.0, damping_ratio: 0.60 } }),
+                                lift_y: ScalarSpring::new(0.0, self.now).motion(if selection.press_id.is_some() { crate::SpringMotion { stiffness: 900.0, damping_ratio: 0.7 } } else { crate::SpringMotion { stiffness: 250.0, damping_ratio: 0.70 } }),
+                                material_presence: ScalarSpring::new(0.0, self.now).motion(crate::SpringMotion { stiffness: 1000.0, damping_ratio: 1.0 }),
+                                travel_from: target.x,
+                                press_start: None,
+                                dragging: false,
                             });
                         if self.reduced_motion || selection.animation_ms == 0 {
                             state.x.snap_to(target.x, self.now);
@@ -12915,9 +13062,14 @@ impl LayoutBuilder<'_> {
                             state.selected_id.clone_from(&selection.selected_id);
                         } else if state.selected_id != selection.selected_id {
                             let duration = Duration::from_millis(u64::from(selection.animation_ms));
-                            let motion = crate::SpringMotion::settling_in(duration);
+                            let motion = if selection.glass.is_some() && selection.press_id.is_some() {
+                                crate::SpringMotion { stiffness: 700.0, damping_ratio: 0.78 }
+                            } else if selection.glass.is_some() {
+                                crate::SpringMotion { stiffness: 280.0, damping_ratio: 0.938 }
+                            } else { crate::SpringMotion::settling_in(duration) };
                             // Setting a pace before rebasing would redraw the
                             // flight so far on the new curve: a jump.
+                            state.travel_from = state.x.value(self.now);
                             state.x.launch(target.x, motion, self.now);
                             state.width.launch(target.width, motion, self.now);
                             state.selected_id.clone_from(&selection.selected_id);
@@ -12926,21 +13078,77 @@ impl LayoutBuilder<'_> {
                         {
                             // Resizing a dock or window moves the entire strip;
                             // only changing selection should leave a sliding trail.
-                            state.x.snap_to(target.x, self.now);
+                            if state.dragging {
+                                state.x.launch(target.x, crate::SpringMotion { stiffness: 700.0, damping_ratio: 0.78 }, self.now);
+                            } else { state.x.snap_to(target.x, self.now); }
                             state.width.snap_to(target.width, self.now);
                         }
-                        let indicator = Rect::new(
-                            state.x.value(self.now),
-                            target.y,
-                            state.width.value(self.now),
-                            target.height,
-                        );
+                        let parent_pressed = selection.press_id.as_deref().is_some_and(|id| self.pressed == Some(id));
+                        if selection.glass.is_some() && parent_pressed {
+                            if let Some(pointer) = self.pointer {
+                                let (press_x, start_x) = *state.press_start.get_or_insert((pointer.x, state.x.value(self.now)));
+                                if (pointer.x - press_x).abs() > 3.0 {
+                                    state.dragging = true;
+                                    let left = rects.first().map_or(target.x, |rect| rect.x);
+                                    let right = rects.last().map_or(target.x, |rect| rect.x + rect.width - target.width);
+                                    state.x.snap_to((start_x + pointer.x - press_x).clamp(left, right), self.now);
+                                }
+                            }
+                        } else {
+                            state.press_start = None;
+                            state.dragging = false;
+                        }
+                        let x = state.x.value(self.now);
+                        let remaining = (target.x - x).abs();
+                        let distance = (target.x - state.travel_from).abs();
+                        let pressed = selection.press_id.as_deref().is_some_and(|id| self.pressed == Some(id))
+                            || action_ids.iter().any(|id| self.pressed == Some(id.as_str()));
+                        let lifting = selection.glass.is_some() && (pressed || (distance > 0.1 && remaining > distance * 0.08));
+                        if self.reduced_motion || selection.glass.is_none() {
+                            state.lift_x.snap_to(0.0, self.now);
+                            state.lift_y.snap_to(0.0, self.now);
+                            state.material_presence.snap_to(0.0, self.now);
+                        } else {
+                            state.lift_x.retarget(if lifting { 1.0 } else { 0.0 }, self.now);
+                            state.lift_y.retarget(if lifting { 1.0 } else { 0.0 }, self.now);
+                            state.material_presence.retarget(if lifting { 1.0 } else { 0.0 }, self.now);
+                        }
+                        let lift_x = state.lift_x.value(self.now);
+                        let lift_y = state.lift_y.value(self.now);
+                        let presence = state.material_presence.value(self.now).clamp(0.0, 1.0);
+                        let stretch = if pressed { 0.18 } else { 0.12 };
+                        let width = state.width.value(self.now) * (1.0 + lift_x * stretch);
+                        let height = target.height * (1.0 + lift_y * if pressed { 0.18 } else { -0.06 });
+                        let indicator = Rect::new(x - (width - state.width.value(self.now)) / 2.0,
+                            target.y - (height - target.height) / 2.0, width, height);
                         let radius = selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0);
-                        self.frame.commands.insert(
-                            command_start,
-                            DrawCommand::FillRect { rect: indicator, color: selection.color, radius },
-                        );
-                        if let Some(color) = selection.border {
+                        let pad = selection.glass.map_or(0.0, |material| material.refraction.max(material.blur).max(target.height * 0.2));
+                        let local_rect = Rect::new(rect.x - pad, rect.y - pad, rect.width + pad * 2.0, rect.height + pad * 2.0);
+                        let command = match selection.glass {
+                            Some(material) => DrawCommand::GlassSelection {
+                                rect: indicator, radius, material, opacity: presence,
+                                backdrop_rect: local_rect,
+                                backdrop: self.frame.commands.iter().filter(|command| match command {
+                                    DrawCommand::PushClip(_) | DrawCommand::RoundClip { .. } | DrawCommand::PopClip => true,
+                                    _ => command.bounds().is_some_and(|bounds| bounds.intersection(local_rect).is_some()),
+                                }).filter_map(|command| match command {
+                                    DrawCommand::GlassSelection { .. } => None,
+                                    DrawCommand::Glass { rect, radius, material, opacity } => Some(DrawCommand::FillRect {
+                                        rect: *rect, radius: *radius, color: Color { a: (material.tint.a as f32 * opacity) as u8, ..material.tint },
+                                    }),
+                                    _ => Some(command.clone()),
+                                }).collect(),
+                            },
+                            None => DrawCommand::FillRect { rect: indicator, color: selection.color, radius },
+                        };
+                        if selection.glass.is_some() {
+                            let color = Color { a: (selection.color.a as f32 * (1.0 - presence)).round() as u8, ..selection.color };
+                            self.frame.commands.insert(command_start, DrawCommand::FillRect { rect: indicator, radius, color });
+                            self.frame.commands.push(command);
+                        }
+                        else { self.frame.commands.insert(command_start, command); }
+                        if let Some(mut color) = selection.border {
+                            if selection.glass.is_some() { color.a = (color.a as f32 * (1.0 - presence)).round() as u8; }
                             self.frame.commands.insert(
                                 command_start + 1,
                                 DrawCommand::StrokeRect { rect: indicator, color, radius, width: 1.0 },
@@ -15994,6 +16202,151 @@ fn wrap_lines(value: &str, width: f32, char_width: f32) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glass_selection_captures_labels_without_feedback_and_preserves_hit_targets() {
+        use crate::{Component, Tab, Tabs};
+        let palette = ComponentPalette::neutral_dark();
+        let view = |selected: &str| Tabs::new(vec![
+            Tab::new("home", "Home", 80.0).active(selected == "home"),
+            Tab::new("browse", "Browse", 80.0).active(selected == "browse"),
+        ], palette).id("glass-tabs").render().glass_selection(GlassMaterial::new(palette.surface));
+        let size = Size::new(200.0, 40.0);
+        let now = Instant::now();
+        let mut tree = UiTree::new(view("home"));
+        let initial = tree.layout_at(size, now);
+        let lens = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::GlassSelection { rect, backdrop, .. } => Some((*rect, backdrop.clone())), _ => None,
+        }).unwrap();
+        let (start, backdrop) = lens(&initial);
+        assert!(initial.commands.iter().any(|command| matches!(command, DrawCommand::GlassSelection { opacity, .. } if *opacity == 0.0)));
+        assert!(backdrop.iter().any(|command| matches!(command, DrawCommand::Text { .. } | DrawCommand::Glyphs(_))));
+        assert!(!backdrop.iter().any(|command| matches!(command, DrawCommand::GlassSelection { .. })));
+        let target_region = initial.regions.iter().find(|region| region.id == "browse").unwrap().rect;
+        tree.set_root(view("browse"));
+        tree.layout_at(size, now + Duration::from_millis(10));
+        let midway = tree.layout_at(size, now + Duration::from_millis(70));
+        let (moving, _) = lens(&midway);
+        assert!(moving.x > start.x);
+        assert!(moving.width > start.width, "travel stretches the lens");
+        assert!(midway.commands.iter().any(|command| matches!(command, DrawCommand::GlassSelection { opacity, .. } if *opacity > 0.1)));
+        assert_eq!(midway.regions.iter().find(|region| region.id == "browse").unwrap().rect, target_region);
+        tree.set_reduced_motion(true);
+        let (snapped, _) = lens(&tree.layout_at(size, now + Duration::from_millis(80)));
+        assert_eq!(snapped.x, target_region.x);
+        assert_eq!(snapped.width, target_region.width);
+    }
+
+    #[test]
+    fn glass_switch_lifts_on_press_and_tracks_a_drag_without_moving_hit_regions() {
+        use crate::{Component, Switch};
+        let p = ComponentPalette::neutral_dark();
+        let view = || Switch::new("switch", false, p).track_size(64.0, 28.0)
+            .glass(GlassMaterial::new(p.surface)).render();
+        let mut tree = UiTree::new(view());
+        let now = Instant::now();
+        let size = Size::new(80.0, 40.0);
+        let lens = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::GlassSelection { rect, .. } => Some(*rect), _ => None,
+        }).unwrap();
+        let first = tree.layout_at(size, now);
+        let first_lens = lens(&first);
+        let bounds = first.regions.iter().find(|region| region.id == "switch").unwrap().rect;
+        let point = Point::new(first_lens.x + first_lens.width / 2.0, first_lens.y + first_lens.height / 2.0);
+        tree.handle_event(UiEvent::PointerDown(point));
+        tree.layout_at(size, now + Duration::from_millis(1));
+        let pressed = tree.layout_at(size, now + Duration::from_millis(81));
+        assert!(lens(&pressed).width > first_lens.width * 1.1);
+        tree.handle_event(UiEvent::PointerMove(Point::new(point.x + 24.0, point.y)));
+        let dragged = tree.layout_at(size, now + Duration::from_millis(97));
+        assert!(lens(&dragged).x > first_lens.x + 15.0);
+        assert_eq!(dragged.regions.iter().find(|region| region.id == "switch").unwrap().rect, bounds);
+    }
+
+    #[test]
+    fn glass_switch_drag_sets_the_endpoint_while_taps_toggle_and_cancel_is_inert() {
+        use crate::{Component, Switch};
+        let palette = ComponentPalette::neutral_dark();
+        let make = |checked| {
+            let mut tree = UiTree::new(Switch::new("switch", checked, palette).track_size(64.0, 28.0)
+                .thumb_inset(2.0).thumb_width(40.0).glass(GlassMaterial::new(palette.surface)).render());
+            tree.layout(Size::new(80.0, 40.0));
+            tree
+        };
+        let clicked = vec![UiAction::Clicked { id: "switch".into() }];
+        for checked in [false, true] {
+            let measured = make(checked);
+            let bounds = measured.frame().regions.iter().find(|region| region.id == "switch").unwrap().rect;
+            let point = |fraction: f32| Point::new(bounds.x + bounds.width * fraction, bounds.y + bounds.height / 2.0);
+            let origin = point(if checked { 0.75 } else { 0.25 });
+            let other = point(if checked { 0.25 } else { 0.75 });
+            let same = point(if checked { 0.625 } else { 0.375 });
+            let mut tap = make(checked);
+            tap.handle_event(UiEvent::PointerDown(origin));
+            assert_eq!(tap.handle_event(UiEvent::PointerUp(origin)), clicked);
+            let mut change = make(checked);
+            change.handle_event(UiEvent::PointerDown(origin));
+            change.handle_event(UiEvent::PointerMove(other));
+            assert_eq!(change.handle_event(UiEvent::PointerUp(other)), clicked);
+            let mut keep = make(checked);
+            keep.handle_event(UiEvent::PointerDown(origin));
+            keep.handle_event(UiEvent::PointerMove(same));
+            assert!(keep.handle_event(UiEvent::PointerUp(same)).is_empty());
+            let mut reverse = make(checked);
+            reverse.handle_event(UiEvent::PointerDown(origin));
+            reverse.handle_event(UiEvent::PointerMove(other));
+            reverse.handle_event(UiEvent::PointerMove(origin));
+            assert!(reverse.handle_event(UiEvent::PointerUp(origin)).is_empty());
+            let mut cancel = make(checked);
+            cancel.handle_event(UiEvent::PointerDown(origin));
+            cancel.handle_event(UiEvent::PointerMove(other));
+            cancel.handle_event(UiEvent::PointerLeave);
+            assert!(cancel.handle_event(UiEvent::PointerUp(other)).is_empty());
+        }
+    }
+
+    #[test]
+    fn glass_menu_shell_grows_before_its_rows_and_reverses_on_close() {
+        let origin = Rect::new(220.0, 10.0, 36.0, 36.0);
+        let target = Rect::new(60.0, 52.0, 196.0, 180.0);
+        let material = GlassMaterial::new(Color::rgba(20, 30, 40, 40));
+        let shell = DrawCommand::Glass { rect: target, radius: 20.0, material, opacity: 1.0 };
+        let row = DrawCommand::FillRect { rect: Rect::new(70.0, 62.0, 176.0, 30.0), radius: 4.0, color: Color::rgb(255,255,255) };
+        let mut early_shell = shell.clone();
+        morph_glass_menu(&mut early_shell, origin, 18.0, target, 0.0, false);
+        assert!(matches!(early_shell, DrawCommand::Glass { rect, .. } if rect == origin));
+        let mut early_row = row.clone();
+        morph_glass_menu(&mut early_row, origin, 18.0, target, 0.5, false);
+        assert!(matches!(early_row, DrawCommand::FillRect { color, .. } if color.a == 0));
+        let mut finished = shell.clone();
+        morph_glass_menu(&mut finished, origin, 18.0, target, 1.0, false);
+        assert!(matches!(finished, DrawCommand::Glass { rect, .. } if rect == target));
+        let mut closed = shell;
+        morph_glass_menu(&mut closed, origin, 18.0, target, 0.0, true);
+        assert!(matches!(closed, DrawCommand::Glass { rect, opacity, .. } if rect == origin && opacity == 0.0));
+    }
+
+    #[test]
+    fn glass_follows_drag_entrance_and_popover_shell_geometry() {
+        let material = GlassMaterial::new(Color::rgba(100, 120, 140, 60));
+        let mut command = DrawCommand::Glass {
+            rect: Rect::new(10.0, 20.0, 200.0, 60.0),
+            radius: 30.0,
+            material,
+            opacity: 0.8,
+        }.moved(5.0, -10.0, 0.5);
+        assert_eq!(command, DrawCommand::Glass {
+            rect: Rect::new(15.0, 10.0, 200.0, 60.0), radius: 30.0, material, opacity: 0.4,
+        });
+        animate_popover_command(&mut command, 0.5, 4.0, 0.5, Point::new(15.0, 10.0));
+        assert_eq!(command, DrawCommand::Glass {
+            rect: Rect::new(15.0, 14.0, 100.0, 30.0), radius: 15.0, material, opacity: 0.2,
+        });
+        assert!(popover_shell_command(&command, Rect::new(15.0, 14.0, 100.0, 30.0)));
+        let target = Rect::new(20.0, 30.0, 120.0, 80.0);
+        morph_popover_shell(&mut command, target);
+        assert!(matches!(command, DrawCommand::Glass { rect, .. } if rect == target));
+    }
 
     fn menu_with_secondary_actions(mark_secondary: bool, visible_rows: usize) -> Element {
         use crate::{

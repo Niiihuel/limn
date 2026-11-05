@@ -1,4 +1,4 @@
-use crate::{Color, DrawCommand, Point, RasterImage, Rect, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{GlassMaterial, Color, DrawCommand, Point, RasterImage, Rect, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -943,6 +943,12 @@ pub struct BoxShadow {
 /// stable when children are rebuilt or reordered.
 #[derive(Clone, Debug)]
 pub struct TabSelection {
+    /// Optional optical material for the sliding selection.
+    pub glass: Option<crate::GlassMaterial>,
+    /// Optional parent control whose press lifts the lens.
+    pub press_id: Option<String>,
+    /// Optional lens width overriding the selected slot width.
+    pub width: Option<f32>,
     /// Stable ID under which the tree keeps where the indicator is.
     pub group_id: String,
     /// ID of the tab button, or of the [`Element::indicator_slot`] child, the
@@ -1004,6 +1010,8 @@ pub(crate) enum HoverReveal {
 /// keeps an element's ink and a column's children across rebuilds.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Kept {
+    /// Stored off the common element path: most elements have no material.
+    pub(crate) glass: Option<GlassMaterial>,
     pub(crate) foreground: Option<String>,
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
@@ -1123,7 +1131,7 @@ pub struct Element {
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
-    /// Rare paint and retained effects. Boxed
+    /// Rare paint and retained effects, including [`Element::glass`]. Boxed
     /// together so ordinary elements do not grow in cached trees.
     pub(crate) kept: Option<Box<Kept>>,
     /// Set by [`Element::hover_region`] and [`Element::reveal_on_hover`];
@@ -2381,6 +2389,9 @@ impl Element {
     ) -> Self {
         if let ElementKind::TabStrip { selection, .. } = &mut self.kind {
             *selection = Some(TabSelection {
+                glass: None,
+                press_id: None,
+                width: None,
                 group_id: group_id.into(),
                 selected_id: selected_id.into(),
                 color,
@@ -2388,6 +2399,34 @@ impl Element {
                 radius: radius.max(0.0),
                 animation_ms,
             });
+        }
+        self
+    }
+
+    /// Refract the backdrop through the selected tab's moving pill.
+    /// Has no effect until `tab_selection` is set.
+    pub fn glass_selection(mut self, material: crate::GlassMaterial) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            selection.glass = Some(material);
+        }
+        self
+    }
+
+    /// Make a selection lens lift while its parent control is pressed.
+    pub fn selection_press(mut self, id: impl Into<String>) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            selection.press_id = Some(id.into());
+        }
+        self
+    }
+
+    /// Override the indicator width, anchored to the outside edge of its slot.
+    /// Non-finite values are ignored and negative widths become zero.
+    pub fn selection_width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+                selection.width = Some(width.max(0.0));
+            }
         }
         self
     }
@@ -4107,6 +4146,13 @@ impl Element {
     /// Fill the element's bounds with this color.
     pub fn background(mut self, color: Color) -> Self {
         self.style.background = Some(color);
+        self
+    }
+
+    /// Add a backdrop material behind the element's background and children.
+    /// Leave the background transparent for the sampled scene to show through.
+    pub fn glass(mut self, material: GlassMaterial) -> Self {
+        self.kept.get_or_insert_default().glass = Some(material.normalized());
         self
     }
 

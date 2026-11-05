@@ -36,6 +36,12 @@ impl BottomSheet {
         }
     }
 
+    /// Refract the host's backdrop through the sheet shell; its rows stay sharp.
+    pub fn glass(mut self, material: crate::GlassMaterial) -> Self {
+        self.modal = self.modal.glass(material);
+        self
+    }
+
     /// Preferred maximum width, at least 240; phone widths still take priority.
     /// A value that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {

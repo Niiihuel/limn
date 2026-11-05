@@ -305,3 +305,11 @@ pub use list_row::RowSizing;
 pub use page::SectionSizing;
 #[allow(deprecated)]
 pub use panel_header::HeaderSizing;
+
+mod glass;
+pub use glass::GlassMaterial;
+
+mod floating_glass_bar;
+pub use floating_glass_bar::{FloatingBarMotion, FloatingGlassBar, FloatingGlassTab};
+mod glass_menu;
+pub use glass_menu::GlassMenu;
