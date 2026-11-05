@@ -13,6 +13,8 @@ pub struct RasterImage {
     cover: bool,
     checkerboard: bool,
     quarter_turns: u8,
+    /// Hundredths of the box's height that dissolve at its bottom.
+    dissolve: u8,
 }
 
 impl std::fmt::Debug for RasterImage {
@@ -27,6 +29,7 @@ impl std::fmt::Debug for RasterImage {
             .field("cover", &self.cover)
             .field("checkerboard", &self.checkerboard)
             .field("quarter_turns", &self.quarter_turns)
+            .field("dissolve", &self.dissolve)
             .finish()
     }
 }
@@ -77,6 +80,7 @@ impl RasterImage {
             cover: false,
             checkerboard: false,
             quarter_turns: 0,
+            dissolve: 0,
         })
     }
 
@@ -158,12 +162,40 @@ impl RasterImage {
     pub fn quarter_turns(&self) -> u8 {
         self.quarter_turns
     }
+
+    /// Dissolve the bottom `fraction` of the picture's box into what is behind
+    /// it, along smootherstep so it ends without an edge: a cover run edge to
+    /// edge at the top of a player, fading into the page under it. Kept in
+    /// hundredths, from 0 (the default, none) to 1. The picture is then drawn
+    /// with square corners, unturned, cut only by the clip's rectangle.
+    pub fn dissolve_bottom(mut self, fraction: f32) -> Self {
+        self.dissolve = if fraction.is_finite() { (fraction.clamp(0.0, 1.0) * 100.0).round() as u8 } else { 0 };
+        self
+    }
+
+    /// The share of the box's height that dissolves, from 0 to 1; see
+    /// [`dissolve_bottom`](Self::dissolve_bottom).
+    pub fn dissolved(&self) -> f32 {
+        f32::from(self.dissolve) / 100.0
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::{DrawCommand, Element, Size, UiTree};
+
+    #[test]
+    fn a_dissolve_is_kept_in_hundredths_and_reaches_the_draw_command() {
+        let image = RasterImage::new("a".repeat(64), RasterImageFormat::Png, 3, Arc::from("cG5n"), "Portada").unwrap();
+        assert_eq!(image.dissolved(), 0.0, "none by default");
+        assert_eq!(image.clone().dissolve_bottom(0.424).dissolved(), 0.42);
+        assert_eq!(image.clone().dissolve_bottom(3.0).dissolved(), 1.0);
+        assert_eq!(image.clone().dissolve_bottom(f32::NAN).dissolved(), 0.0);
+        let dissolving = image.dissolve_bottom(0.42);
+        let frame = UiTree::new(Element::raster_image(dissolving.clone())).layout(Size::new(100.0, 100.0));
+        assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::RasterImage { image, .. } if image == &dissolving)));
+    }
 
     #[test]
     fn raster_image_layout_keeps_alt_and_bounded_payload() {

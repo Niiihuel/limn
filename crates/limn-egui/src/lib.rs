@@ -918,6 +918,41 @@ fn paint_turned(painter: &egui::Painter, texture: egui::TextureId, (target, uv):
     painter.add(egui::Shape::mesh(mesh));
 }
 
+/// How many bands a dissolve is cut into: enough that the straight spans
+/// between them neither band nor show the curve as facets over a tall fade.
+const DISSOLVE_STOPS: usize = 16;
+
+/// Smootherstep, `6t⁵ − 15t⁴ + 10t³`: flat at both ends, so a fade along it
+/// starts and settles without a line the eye picks out.
+fn smootherstep(t: f32) -> f32 {
+    let t = t.clamp(0.0, 1.0);
+    t * t * t * (t * (t * 6.0 - 15.0) + 10.0)
+}
+
+/// `texture` over `target` with its bottom `fraction` dissolving to nothing:
+/// rows down the box whose vertices carry the opacity, whole above the fade
+/// and along smootherstep through it. Square corners only.
+fn dissolved_mesh(texture: egui::TextureId, (target, uv): (EguiRect, EguiRect), fraction: f32, opacity: f32) -> egui::Mesh {
+    let start = 1.0 - fraction.clamp(0.0, 1.0);
+    // How far down the box each row is, from 0 to 1, and how much of the picture shows there.
+    let rows = std::iter::once((0.0, 1.0)).chain((0..=DISSOLVE_STOPS).map(|stop| {
+        let along = stop as f32 / DISSOLVE_STOPS as f32;
+        (start + along * fraction.clamp(0.0, 1.0), 1.0 - smootherstep(along))
+    }));
+    let mut mesh = egui::Mesh::with_texture(texture);
+    for (row, (down, shown)) in rows.enumerate() {
+        let (y, v) = (target.min.y + down * target.height(), uv.min.y + down * uv.height());
+        let color = Color32::from_white_alpha((shown * opacity.clamp(0.0, 1.0) * 255.0).round() as u8);
+        mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(target.min.x, y), uv: Pos2::new(uv.min.x, v), color });
+        mesh.vertices.push(egui::epaint::Vertex { pos: Pos2::new(target.max.x, y), uv: Pos2::new(uv.max.x, v), color });
+        if row > 0 {
+            let below = row as u32 * 2;
+            mesh.indices.extend([below - 2, below - 1, below + 1, below - 2, below + 1, below]);
+        }
+    }
+    mesh
+}
+
 /// The centered part of an image that fills `area` without distortion, as
 /// texture coordinates.
 fn cover_uv(area: EguiRect, pixels: [usize; 2]) -> EguiRect {
@@ -1664,7 +1699,10 @@ fn under_rounded_clip(area: EguiRect, own: limn::CornerRadii, clip: RoundedClip)
         let own = if moved { 0.0 } else { own };
         let radius = if radius.is_nan() { 0.0 } else { radius.clamp(0.0, limit) };
         let outside_arc = dx < radius && dy < radius && (radius - dx).powi(2) + (radius - dy).powi(2) > radius * radius;
-        if outside_arc { own.max(radius - dx.max(dy)) } else { own }
+        // A corner rounded enough of its own to lie inside the clip's arc keeps its radius, as
+        // a thumbnail near a pill's end does: rounded more, it no longer meets its own rim.
+        let fits = ((radius - dx - own).powi(2) + (radius - dy - own).powi(2)).sqrt() + own <= radius;
+        if outside_arc && !fits { own.max(radius - dx.max(dy)) } else { own }
     };
     let (left, top) = (inside.min.x - shape.min.x, inside.min.y - shape.min.y);
     let (right, bottom) = (shape.max.x - inside.max.x, shape.max.y - inside.max.y);
@@ -2193,7 +2231,9 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                     if transparent {
                         paint_checkerboard(ui.ctx(), &painter, target, *radius, round, *opacity);
                     }
-                    if turns == 0 {
+                    if turns == 0 && image.dissolved() > 0.0 {
+                        painter.add(egui::Shape::mesh(dissolved_mesh(texture, (target, uv), image.dissolved(), *opacity)));
+                    } else if turns == 0 {
                         paint_texture(&painter, texture, (target, uv), *radius, round, *opacity, false);
                     } else {
                         paint_turned(&painter, texture, (target, uv), turns, *opacity);
@@ -3024,6 +3064,21 @@ mod font_tests;
 mod tests {
     use super::*;
 
+    #[test]
+    fn a_dissolve_keeps_the_picture_whole_above_it_and_fades_it_to_nothing_at_the_bottom() {
+        let target = EguiRect::from_min_size(Pos2::new(0.0, 10.0), egui::vec2(100.0, 200.0));
+        let uv = EguiRect::from_min_max(Pos2::new(0.1, 0.0), Pos2::new(0.9, 1.0));
+        let mesh = dissolved_mesh(egui::TextureId::default(), (target, uv), 0.42, 1.0);
+        let rows: Vec<(f32, f32, u8)> = mesh.vertices.chunks(2).map(|pair| (pair[0].pos.y, pair[0].uv.y, pair[0].color.a())).collect();
+        assert_eq!(rows.first(), Some(&(10.0, 0.0, 255)), "the top is the picture's own");
+        assert!((rows[1].0 - (10.0 + 200.0 * 0.58)).abs() < 0.01 && rows[1].2 == 255, "whole down to where the fade starts: {rows:?}");
+        assert_eq!(rows.last(), Some(&(210.0, 1.0, 0)), "and gone at the bottom");
+        assert!(rows.windows(2).all(|pair| pair[0].0 <= pair[1].0 && pair[0].2 >= pair[1].2), "down the box, never brighter: {rows:?}");
+        assert!(mesh.vertices.chunks(2).all(|pair| pair[0].uv.x == 0.1 && pair[1].uv.x == 0.9 && pair[0].color == pair[1].color));
+        assert_eq!(mesh.indices.len(), (rows.len() - 1) * 6);
+        assert_eq!(dissolved_mesh(egui::TextureId::default(), (target, uv), 0.42, 0.5).vertices[0].color.a(), 128, "a fading element fades it whole");
+    }
+
     /// How many outline points sit on the leftmost edge of a filled rounded
     /// rectangle, tessellated as an iPhone (three pixels a point) would.
     fn leftmost_points(area: EguiRect, radius: CornerRadius) -> usize {
@@ -3058,6 +3113,13 @@ mod tests {
         // Two points in from the corner, it stays concentric: 14.
         let (_, inset) = under_rounded_clip(at(150.0, 80.0, 58.0, 38.0), square, clip);
         assert_eq!(radii(inset), (0.0, 0.0, 14.0, 0.0));
+        // Rounded enough of its own to stay inside the arc, it keeps its own corner, as a 40
+        // thumbnail rounded by 8, 8 in from a 56 pill's end, keeps its 8 rather than 20.
+        let pill = Some((at(0.0, 0.0, 300.0, 56.0), limn::CornerRadii::same(28.0)));
+        let (_, thumb) = under_rounded_clip(at(8.0, 8.0, 40.0, 40.0), limn::CornerRadii::same(8.0), pill);
+        assert_eq!(radii(thumb), (8.0, 8.0, 8.0, 8.0));
+        let (_, bare) = under_rounded_clip(at(8.0, 8.0, 40.0, 40.0), square, pill);
+        assert_eq!(radii(bare), (20.0, 0.0, 0.0, 20.0), "a square one still takes the concentric corner");
         // Inside the arc, or away from the corners, nothing changes.
         let dot = at(196.0, 106.0, 4.0, 4.0);
         assert_eq!(under_rounded_clip(dot, square, clip), (dot, square));
