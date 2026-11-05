@@ -85,6 +85,32 @@ pass pictures already fitted (`RasterImage::cover`). Faces that do not fit
 the hint's width join «+N». A row without faces is not added. Like the rest
 of the hint it is passive: nothing in it can be clicked.
 
+## Picture and lines
+
+```rust
+Tooltip::new(badge, "badge:0", "", palette)
+    .picture(artwork, Size::new(96.0, 64.0))
+    .lines([
+        TextSpan::new("Account age", palette.muted, 14.0, FontFamily::SansMedium),
+        TextSpan::new("BLOOM", palette.text, 18.0, FontFamily::SansBold),
+        TextSpan::new("5 years, 10 months", palette.muted, 14.0, FontFamily::SansMedium),
+    ])
+    .centered()
+    .shape(TooltipShape { padding_x: 16.0, padding_y: 16.0, ..shape })
+    .render()
+```
+
+`picture(image, size)` adds a picture in a box `size` large, such as a
+badge's artwork: whole inside it at its own proportions, or filling it when
+`RasterImage::cover`; a box wider than the hint is scaled down whole. It stands 12 px clear of the blocks
+around it, where text stands 6. `lines(spans)` adds lines one under the
+other with no space between them, each `TextSpan` wrapped on its own in its
+size, face and color (the rest of a span is not drawn), such as a heading
+between two quieter lines; blank spans are left out. `centered()` centers
+every line and block across the hint, and `shape(TooltipShape)` draws this
+hint to its own measures instead of the tokens', such as a roomier padding.
+With an empty title the hint starts with its first block.
+
 ## Delay, title, pointer and fill
 
 ```rust
@@ -169,6 +195,7 @@ moves under reduced motion. See [Animation](../animation.md).
 ## Accessibility
 
 A hint is not seen by who cannot hover, so its title is told to the platform
-as the description of the first control in its anchor. The hint of a `Button`
+as the description of the first control in its anchor. A hint without a title
+is described by its `lines`, one per line. The hint of a `Button`
 or an `IconButton` names an icon alone and describes a button with a label. A
 passive anchor is not told to the platform at all.
