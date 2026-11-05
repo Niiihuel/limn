@@ -100,3 +100,27 @@ fn a_gradient_keeps_the_foregrounds_alpha_and_inks_each_line() {
         assert!(painted.iter().all(|(_, color)| color.a == 128));
     }
 }
+
+// Laid out in limn's own faces, as limn_egui::attach_fonts has it: the glyphs are inked in
+// the same bands, where they used to come out in the plain foreground.
+#[cfg(feature = "bundled-fonts")]
+#[test]
+fn laid_out_text_inks_its_glyphs_in_the_gradient_too() {
+    let (red, blue) = (Color::rgb(255, 0, 0), Color::rgb(0, 0, 255));
+    let mut tree = UiTree::new(Element::text("Gradiente").foreground_gradient(vec![red, blue]));
+    tree.set_text_layout(true);
+    let frame = tree.layout(Size::new(400.0, 100.0));
+    let mut clip = None;
+    let mut painted = Vec::new();
+    for command in &frame.commands {
+        match command {
+            DrawCommand::PushClip(rect) => clip = Some(*rect),
+            DrawCommand::PopClip => clip = None,
+            DrawCommand::Glyphs(run) => painted.push((clip, run.color)),
+            _ => {}
+        }
+    }
+    assert!(painted.len() >= 24 && painted.iter().all(|(clip, _)| clip.is_some()), "each band clipped: {}", painted.len());
+    let (first, last) = (painted.first().unwrap().1, painted.last().unwrap().1);
+    assert!(first.r > 240 && first.b < 15 && last.b > 240 && last.r < 15, "{first:?} to {last:?}");
+}

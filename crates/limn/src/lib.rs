@@ -197,7 +197,7 @@ pub use element::{
     LinePlot,
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
-    SpinnerVariant, Style, TabSelection, TextHighlight, TextHint, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipFace, TooltipItem, TooltipPlacement, TooltipSection, TOOLTIP_FACE, TOOLTIP_FACE_ICON, TOOLTIP_FACE_OVERLAP,
+    SpinnerVariant, Style, TabSelection, TextEffect, TextHighlight, TextHint, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipFace, TooltipItem, TooltipPlacement, TooltipSection, TOOLTIP_FACE, TOOLTIP_FACE_ICON, TOOLTIP_FACE_OVERLAP,
     TooltipOptions, TooltipShape, TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE, SMALL_ICON_SIZE,
     ZoomControl, ZoomView,
 };

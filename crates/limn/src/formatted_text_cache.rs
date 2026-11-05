@@ -36,7 +36,7 @@ impl FormattedTextCache {
         for span in spans {
             span.text.hash(&mut hash);
             span.font_size.to_bits().hash(&mut hash);
-            (span.font_family as u8).hash(&mut hash);
+            span.font_family.hash(&mut hash);
             [span.color.r, span.color.g, span.color.b, span.color.a].hash(&mut hash);
             span.background
                 .map(|color| [color.r, color.g, color.b, color.a])

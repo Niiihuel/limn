@@ -7,7 +7,7 @@ use crate::FontFamily;
 
 const MAX_ENTRIES: usize = 4096;
 const MAX_TEXT_BYTES: usize = 256;
-type FontKey = (u32, u8);
+type FontKey = (u32, FontFamily);
 
 #[derive(Default)]
 pub(crate) struct TextWidthCache {
@@ -17,7 +17,7 @@ pub(crate) struct TextWidthCache {
 
 impl TextWidthCache {
     fn font_key(size: f32, family: FontFamily) -> FontKey {
-        (size.to_bits(), family as u8)
+        (size.to_bits(), family)
     }
 
     pub(crate) fn get(&self, text: &str, size: f32, family: FontFamily) -> Option<f32> {
