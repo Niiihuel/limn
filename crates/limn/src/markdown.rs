@@ -17,8 +17,8 @@ use std::{
 use crate::markdown_cache::{self, MarkdownCacheEntry, MarkdownFrame, MARKDOWN_CACHES};
 use crate::markdown_parser::{
     begins_web_url, bounded_source, link_icon, parse_bounded_mode, parse_inline_with_tail,
-    pending_fence_line, web_links, web_url, Block, InlineKind, InlineRun, ListMarker, MAX_BLOCKS,
-    MAX_SOURCE_CHARS,
+    pending_fence_line, web_links, web_url, Block, ColumnAlign, InlineKind, InlineRun, ListMarker,
+    MAX_BLOCKS, MAX_SOURCE_CHARS,
 };
 use crate::{
     AlertColors, AlertTone, CodeBlock, CodeLanguage, CodeSyntaxColors, Color, Component, ComponentPalette, Diagram,
@@ -256,7 +256,7 @@ impl<'a> Markdown<'a> {
         }
     }
 
-    /// Stable identity of this preview's code viewports. Set it when rebuilding
+    /// Stable identity of this preview's code viewports and wide tables. Set it when rebuilding
     /// a preview each frame to retain horizontal scroll offsets. Source trees
     /// remain shareable in the cache; IDs are applied to the returned instance.
     pub fn id(mut self, id: impl Into<String>) -> Self {
@@ -451,10 +451,9 @@ impl<'a> Markdown<'a> {
                 self.diagram_sources,
             ),
         };
-        if !self.presentation.code_word_wrap {
-            let scope = self.id.unwrap_or_else(crate::code_block::anonymous_code_scroll_id);
-            scope_code_scrolls(&mut preview.element, &scope, &mut 0);
-        }
+        // Code that does not wrap, and a table wider than the text, scroll sideways.
+        let scope = self.id.unwrap_or_else(crate::code_block::anonymous_code_scroll_id);
+        scope_code_scrolls(&mut preview.element, &scope, &mut 0);
         preview
     }
 
@@ -710,6 +709,114 @@ fn code_block(language: &str, content: &str, presentation: &MarkdownPresentation
     block.render()
 }
 
+/// Each column as wide as its longest cell asks, up to a cap. When they do
+/// not fit `width`, the narrow ones keep theirs and the wide ones share what
+/// is left, each at least `min`; past that the table scrolls sideways.
+fn table_widths(natural: &[f32], width: f32, min: f32) -> Vec<f32> {
+    let mut widths = natural.to_vec();
+    if natural.iter().sum::<f32>() <= width {
+        return widths;
+    }
+    let mut wide: Vec<usize> = (0..natural.len()).collect();
+    loop {
+        let kept: f32 = (0..natural.len())
+            .filter(|column| !wide.contains(column))
+            .map(|column| natural[column])
+            .sum();
+        let share = ((width - kept) / wide.len() as f32).max(min);
+        let (narrow, rest): (Vec<usize>, Vec<usize>) =
+            wide.iter().partition(|column| natural[**column] <= share);
+        if narrow.is_empty() {
+            for column in &wide {
+                widths[*column] = share;
+            }
+            return widths;
+        }
+        wide = rest;
+        if wide.is_empty() {
+            return widths;
+        }
+    }
+}
+
+/// A pipe table: the header in bold over the panel's fill, a line between
+/// rows, each cell lined up as its column says and wrapped to its width.
+fn table_block(
+    align: &[ColumnAlign],
+    rows: &[Vec<String>],
+    width: f32,
+    body: f32,
+    presentation: &MarkdownPresentation,
+) -> Element {
+    let (scale, colors) = (presentation.scale(), presentation.colors);
+    let pad = 6.0 * scale;
+    // About 0.62 of the size a character, as a list's number column guesses.
+    let natural: Vec<f32> = (0..align.len())
+        .map(|column| {
+            let longest = rows
+                .iter()
+                .filter_map(|row| row.get(column))
+                .map(|cell| cell.chars().count())
+                .max()
+                .unwrap_or(0);
+            (longest as f32 * 0.62 * body + 2.0 * pad).clamp(40.0 * scale, 360.0 * scale)
+        })
+        .collect();
+    let widths = table_widths(&natural, width - 2.0, 96.0 * scale);
+    let cell = |text: &str, column: usize, header: bool| {
+        let inner = (widths[column] - 2.0 * pad).max(1.0);
+        let mut text = render_inline_mode(text, inner, body, false, true, presentation);
+        if header {
+            if let ElementKind::FormattedText(spans) = &mut text.kind {
+                for span in spans {
+                    span.color = colors.strong;
+                    span.font_family = match span.font_family {
+                        FontFamily::Sans => FontFamily::SansBold,
+                        FontFamily::SansItalic => FontFamily::SansBoldItalic,
+                        family => family,
+                    };
+                }
+            }
+        }
+        // A text as wide as its words, after a spring, lines up at the end.
+        let lined = match align[column] {
+            ColumnAlign::Left => text,
+            ColumnAlign::Center => Element::row(vec![
+                Element::spacer().flex(1.0),
+                text.size(None, None).max_width(inner),
+                Element::spacer().flex(1.0),
+            ]),
+            ColumnAlign::Right => Element::row(vec![
+                Element::spacer().flex(1.0),
+                text.size(None, None).max_width(inner),
+            ]),
+        };
+        Element::column(vec![lined])
+            .padding(pad)
+            .size(Some(widths[column]), None)
+    };
+    let mut lines = vec![];
+    for (index, row) in rows.iter().enumerate() {
+        if index > 0 {
+            lines.push(Element::spacer().size(None, Some(1.0)).background(colors.border));
+        }
+        let cells = (0..align.len())
+            .map(|column| cell(row.get(column).map_or("", String::as_str), column, index == 0))
+            .collect();
+        let line = Element::row(cells);
+        lines.push(if index == 0 { line.background(colors.panel) } else { line });
+    }
+    let total: f32 = widths.iter().sum::<f32>() + 2.0;
+    let table = Element::column(lines)
+        .size(Some(total), None)
+        .border(colors.border, 1.0);
+    if total <= width {
+        return table;
+    }
+    Element::horizontal_scroll_2d(crate::code_block::anonymous_code_scroll_id(), table)
+        .size(Some(width), None)
+}
+
 fn scope_code_scrolls(element: &mut Element, scope: &str, ordinal: &mut usize) {
     match &mut element.kind {
         ElementKind::Column(children) | ElementKind::Row(children) => {
@@ -926,7 +1033,10 @@ fn render_cached_markdown(
             .then(|| blocks.len().checked_sub(1))
             .flatten()
             .filter(|index| {
-                !matches!(blocks[*index], Block::Code(..) | Block::OpenCode(..) | Block::Rule)
+                !matches!(
+                    blocks[*index],
+                    Block::Code(..) | Block::OpenCode(..) | Block::Rule | Block::Table(..)
+                )
             });
     let mut preview = MARKDOWN_CACHES.with(|caches| {
         let caches = caches.borrow();
@@ -1183,6 +1293,7 @@ fn render_markdown_blocks(
             Block::Rule => Element::spacer()
                 .size(None, Some(1.0))
                 .background(colors.border),
+            Block::Table(align, rows) => table_block(align, rows, width, body, presentation),
         };
         // One root per source block keeps streaming reconciliation stable.
         // List rows stay compact while prose and headings have their own rhythm.
@@ -2989,5 +3100,87 @@ mod tests {
         let _ = render_markdown_at_width("uno", 320.0);
         drop(Markdown::begin_frame(Some("b"), 480.0));
         assert_eq!(entries(), 0);
+    }
+
+    /// A table starts at a line of cells with a delimiter row of as many under
+    /// it, may end a paragraph, and goes on to a line without `|`; `\|` is a
+    /// pipe in a cell, and a short row gets empty cells.
+    #[test]
+    fn a_pipe_table_parses_with_its_alignments() {
+        use crate::markdown_parser::ColumnAlign::{Center, Left, Right};
+        let (blocks, _) =
+            parse("Intro\n| a | b | c |\n|:--|--:|:-:|\n| 1 | x \\| y | z |\n2 |\nafter");
+        let row = |cells: &[&str]| cells.iter().map(|cell| cell.to_string()).collect::<Vec<_>>();
+        assert_eq!(
+            blocks,
+            [
+                Block::Paragraph("Intro".into()),
+                Block::Table(
+                    vec![Left, Right, Center],
+                    vec![row(&["a", "b", "c"]), row(&["1", "x | y", "z"]), row(&["2", "", ""])]
+                ),
+                Block::Paragraph("after".into()),
+            ]
+        );
+        // No delimiter row, or one with another number of cells: text.
+        for source in ["| a | b |\n| 1 | 2 |", "| a | b |\n|---|", "a | b\n--- | --- | ---"] {
+            let (blocks, _) = parse(source);
+            assert!(
+                blocks.iter().all(|block| matches!(block, Block::Paragraph(_))),
+                "{source}: {blocks:?}"
+            );
+        }
+        // A heading ends it.
+        let (blocks, _) = parse("| a |\n| --- |\n| 1 |\n## Next");
+        assert!(matches!(&blocks[..], [Block::Table(_, rows), Block::Heading(2, _)] if rows.len() == 2));
+    }
+
+    /// Columns keep the width their cells ask while they fit; past that the
+    /// narrow keep theirs and the wide share the rest, never under the floor.
+    #[test]
+    fn table_columns_share_the_width() {
+        assert_eq!(table_widths(&[60.0, 80.0], 400.0, 96.0), [60.0, 80.0]);
+        assert_eq!(table_widths(&[50.0, 400.0, 400.0], 500.0, 96.0), [50.0, 225.0, 225.0]);
+        assert_eq!(table_widths(&[300.0; 8], 500.0, 96.0), [96.0; 8]);
+    }
+
+    /// The header is bold, a column's cells start at one x (or end at one, to
+    /// the right), and a table wider than the text scrolls sideways.
+    #[test]
+    fn a_table_lines_up_its_columns_and_scrolls_when_wide() {
+        let source = "| Name | Total |\n|---|---:|\n| Ana | 1 |\n| Bob | 1234 |\n";
+        let frame = UiTree::new(render_markdown_at_width(source, 480.0)).layout(Size::new(480.0, 400.0));
+        let at = |value: &str| {
+            frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    DrawCommand::Text { text, position, font_family, .. } if text == value => {
+                        Some((position.x, *font_family))
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{value} is drawn"))
+        };
+        assert_eq!(at("Name").1, FontFamily::SansBold);
+        assert_eq!(at("Ana").1, FontFamily::Sans);
+        assert_eq!(at("Name").0, at("Ana").0);
+        assert_eq!(at("Ana").0, at("Bob").0);
+        // Right-aligned: the longer number starts further left.
+        assert!(at("1234").0 < at("1").0 && at("1").0 > at("Ana").0);
+        let scrolls = |element: &Element| {
+            fn any(element: &Element) -> bool {
+                match &element.kind {
+                    ElementKind::HorizontalScroll { .. } => true,
+                    ElementKind::Column(children) | ElementKind::Row(children) => children.iter().any(any),
+                    ElementKind::Panel(child) => any(child),
+                    _ => false,
+                }
+            }
+            any(element)
+        };
+        assert!(!scrolls(&render_markdown_at_width(source, 480.0)));
+        let wide = format!("|{}\n|{}\n", " long column title |".repeat(9), "---|".repeat(9));
+        assert!(scrolls(&render_markdown_at_width(&wide, 480.0)));
     }
 }
