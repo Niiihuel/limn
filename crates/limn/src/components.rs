@@ -5,7 +5,7 @@
 
 use crate::{
     Access, Color, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement, RasterImage, TooltipItem,
-    RadiusRole, TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, ICON_SIZE,
+    RadiusRole, Size, TextSpan, TooltipOptions, TooltipPlacement, TooltipSection, TooltipShape, TooltipStyle, ICON_SIZE,
 };
 use crate::{DropdownMenu, DropdownMenuEntry, DropdownMenuItem, MenuMotion, Role};
 
@@ -226,14 +226,63 @@ impl Tooltip {
         self.background = Some(color);
         self
     }
+
+    /// Add a picture in a box `size` large, such as a badge's artwork; see
+    /// [`TooltipSection::Picture`]. A size that is not finite or not above
+    /// zero adds nothing.
+    pub fn picture(mut self, image: RasterImage, size: Size) -> Self {
+        if size.width.is_finite() && size.height.is_finite() && size.width > 0.0 && size.height > 0.0 {
+            self.sections.push(TooltipSection::Picture { image, size });
+        }
+        self
+    }
+
+    /// Add lines one under the other, each in its span's size, face and
+    /// ink; see [`TooltipSection::Lines`]. A hint with an empty title
+    /// describes its anchor with these lines.
+    pub fn lines(mut self, spans: impl IntoIterator<Item = TextSpan>) -> Self {
+        let spans: Vec<_> = spans.into_iter().filter(|span| !span.text.trim().is_empty()).collect();
+        if !spans.is_empty() {
+            self.sections.push(TooltipSection::Lines(spans));
+        }
+        self
+    }
+
+    /// Center every line and block across the hint, as a card that shows a
+    /// picture over what it means.
+    pub fn centered(mut self) -> Self {
+        self.options.centered = true;
+        self
+    }
+
+    /// Draw this hint's body and pointer to these measures instead of the
+    /// tokens', such as a roomier padding around a picture.
+    pub fn shape(mut self, shape: TooltipShape) -> Self {
+        self.options.shape = Some(shape);
+        self
+    }
 }
 
 impl Component for Tooltip {
     fn render(self) -> Element {
         // A hint is not seen by who cannot hover: its title describes the
         // control it is anchored to.
-        let anchor = if self.described && !self.title.trim().is_empty() {
-            self.anchor.accessible(Access::hinted(self.title.clone()))
+        // Without a title, its lines say what it says.
+        let said = if self.title.trim().is_empty() {
+            self.sections
+                .iter()
+                .filter_map(|section| match section {
+                    TooltipSection::Lines(spans) => Some(spans.iter().map(|span| span.text.as_str())),
+                    _ => None,
+                })
+                .flatten()
+                .collect::<Vec<_>>()
+                .join("\n")
+        } else {
+            self.title.clone()
+        };
+        let anchor = if self.described && !said.trim().is_empty() {
+            self.anchor.accessible(Access::hinted(said))
         } else {
             self.anchor
         };
@@ -3620,6 +3669,16 @@ mod tests {
         // A passive anchor is not made a node by its hint.
         let passive = Tooltip::new(Element::text("12 files"), "count", "In this folder", palette).render();
         assert!(UiTree::new(passive).layout(Size::new(200.0, 60.0)).access.is_empty());
+    }
+
+    #[test]
+    fn a_hint_without_a_title_describes_its_control_with_its_lines() {
+        let palette = ComponentPalette::neutral_dark();
+        let line = |text: &str| TextSpan::new(text, Color::WHITE, 14.0, FontFamily::SansMedium);
+        let hinted = Tooltip::new(Button::new("badge", "Badge", palette).render(), "badge", "", palette)
+            .lines([line("Account age"), line(" "), line("Bloom")]);
+        let said = access_node(hinted.render(), "badge");
+        assert_eq!(said.description.as_deref(), Some("Account age\nBloom"));
     }
 
     #[test]
