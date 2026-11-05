@@ -121,6 +121,8 @@ pub struct Modal {
     closable: bool,
     scrim: Color,
     title_gap: f32,
+    title_size: f32,
+    title_family: FontFamily,
     animation_ms: u16,
     role: Role,
     spoken_description: String,
@@ -157,6 +159,8 @@ impl Modal {
             closable: true,
             scrim: Color::rgba(0, 0, 0, 180),
             title_gap: 10.0,
+            title_size: 16.0,
+            title_family: FontFamily::Sans,
             animation_ms: crate::tokens().motion.enter_ms,
             role: Role::Dialog,
             spoken_description: String::new(),
@@ -277,6 +281,24 @@ impl Modal {
         }
         self
     }
+
+    /// The title's size in logical pixels, 16 by default, such as 20 for a
+    /// confirmation that leads with its question. A size that is not finite
+    /// and positive is ignored; the rest is kept between 8 and 96.
+    pub fn title_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.title_size = size.clamp(8.0, 96.0);
+        }
+        self
+    }
+
+    /// The title's face, [`FontFamily::Sans`] by default, such as
+    /// [`FontFamily::SansSemibold`] for a title that stands apart from the
+    /// body under it.
+    pub fn title_family(mut self, family: FontFamily) -> Self {
+        self.title_family = family;
+        self
+    }
 }
 
 impl Component for Modal {
@@ -298,7 +320,7 @@ impl Component for Modal {
         }
 
         let title = Element::formatted_text(vec![TextSpan::new(
-            self.title, self.palette.text, 16.0, FontFamily::Sans,
+            self.title, self.palette.text, self.title_size, self.title_family,
         )]);
         let header = if self.sheet.is_some() {
             // Share one touch-height header: a separate fixed handle row
@@ -442,6 +464,31 @@ mod tests {
         let locked = node("locked");
         assert_eq!((locked.role, locked.name.as_str()), (Role::Button, crate::labels().close));
         assert!(locked.disabled && !locked.actionable);
+    }
+
+    #[test]
+    fn the_title_is_painted_at_the_size_and_in_the_face_asked_for() {
+        let palette = ComponentPalette::neutral_dark();
+        let painted = |modal: Modal| {
+            let mut tree = UiTree::new(modal.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(800.0, 600.0));
+            frame.commands.iter().find_map(|command| match command {
+                // The title is the only text, broken into pieces at 96 px.
+                crate::DrawCommand::Text { text, font_size, font_family, .. } if "¿Confirmas?".starts_with(text.as_str()) => {
+                    Some((*font_size, *font_family))
+                }
+                _ => None,
+            }).unwrap()
+        };
+        let modal = || Modal::new(Element::spacer(), true, "¿Confirmas?", "", "switch", palette);
+        assert_eq!(painted(modal()), (16.0, FontFamily::Sans));
+        assert_eq!(
+            painted(modal().title_size(20.0).title_family(FontFamily::SansSemibold)),
+            (20.0, FontFamily::SansSemibold)
+        );
+        assert_eq!(painted(modal().title_size(f32::NAN)).0, 16.0);
+        assert_eq!((painted(modal().title_size(1.0)).0, painted(modal().title_size(200.0)).0), (8.0, 96.0));
     }
 
     #[test]

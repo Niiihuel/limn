@@ -73,7 +73,11 @@ bounds the card, never under 160; the body takes what is left and scrolls.
 `closable(false)` leaves the close button out of the title row; Escape
 still reports the close ID. `scrim(color)` sets what dims the window, black
 at about 70 % unless set. `title_gap(px)` is the space under the title row,
-which is at least 24 high; 10 unless set. `backdrop_dismiss(true)` makes a click on the dimmed window report the close
+which is at least 24 high; 10 unless set. `title_size(px)` and
+`title_family(family)` set the title, 16 px in `FontFamily::Sans` unless set,
+such as 20 px `SansSemibold` for a confirmation that leads with its question;
+a size that is not finite and positive is ignored and the rest kept between 8
+and 96. `backdrop_dismiss(true)` makes a click on the dimmed window report the close
 ID; without it that click does nothing. `initial_focus(id)` names the control
 focused when the modal opens and `return_focus(id)` the one focused when it
 closes.
@@ -109,7 +113,7 @@ paints Cancel, `Outline` unless set; `Secondary` fills it with the palette's
 `raised`. `description_size(px)` is 12 unless set. `closable(false)` leaves
 out the close button; Cancel and Escape still report `cancel_id`.
 `button_sizing(sizing)` sets the actions' geometry, `ControlSize::Compact`'s
-unless set (28 high, 12 px labels). `scrim` and `title_gap` are the modal's. `confirm_enabled(false)` keeps the
+unless set (28 high, 12 px labels). `scrim`, `title_gap`, `title_size` and `title_family` are the modal's. `confirm_enabled(false)` keeps the
 button in view and passive while the action is being prepared.
 `alternative(id, label)` adds a second way to go ahead between the two, and
 `body(element)` puts content between the description and the actions. `width`
