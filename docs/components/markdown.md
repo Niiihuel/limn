@@ -89,6 +89,14 @@ ignored, and the rest is kept between 8 and 96. In a column too narrow for a
 large size, a list gives up its nesting first and then the width of its marker
 column, so an item's text always starts inside the column.
 
+`line_height(px)` sets the height of a line of body text, 22/14 of the body
+size unless set (22 at 14 px, about 25 at 16). A chat client that sets its
+messages 16 on 22 passes `.font_size(16.0).line_height(22.0)`. Paragraphs, list
+items and their markers, quotes and table cells take it; headings and subtext
+lines take the same proportion to their own size, so a 24 px heading gets 33.
+Code blocks keep their own leading. A height that is not finite and positive is
+ignored, and the rest is kept between 1 and 192.
+
 `code_font_size(size)` sets fenced code independently of the body, in logical
 pixels. Without it, code keeps its existing proportion to the body. Invalid
 numbers and nonpositive sizes are ignored; valid sizes stay within 1 to 96.

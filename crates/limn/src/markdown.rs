@@ -157,6 +157,8 @@ pub(crate) struct MarkdownPresentation {
     radius_bits: [u32; 4],
     // The body size every text and line height is scaled from, as bits.
     font_size_bits: u32,
+    // The body's line height when the host sets one, as bits.
+    line_height_bits: Option<u32>,
     code_font_size_bits: Option<u32>,
     code_word_wrap: bool,
 }
@@ -173,6 +175,17 @@ impl MarkdownPresentation {
     /// How much larger than the 14 px body everything set in proportion to it is.
     fn scale(&self) -> f32 {
         self.font_size() / BODY_SIZE
+    }
+
+    /// The height of a line of text `size` px tall: the body's at the body
+    /// size, 22/14 of it unless the host set one; at another size, the same
+    /// proportion as the body's once set, and 1.4 times the size before.
+    fn line_height(&self, size: f32) -> f32 {
+        match self.line_height_bits.map(f32::from_bits) {
+            Some(height) => height * size / self.font_size(),
+            None if size == self.font_size() => BODY_LINE_HEIGHT * self.scale(),
+            None => size * 1.4,
+        }
     }
 
     #[cfg(test)]
@@ -229,6 +242,7 @@ impl<'a> Markdown<'a> {
                     [radius.control, radius.surface, radius.card, radius.panel].map(f32::to_bits)
                 },
                 font_size_bits: BODY_SIZE.to_bits(),
+                line_height_bits: None,
                 code_font_size_bits: None,
                 code_word_wrap: true,
             },
@@ -261,6 +275,20 @@ impl<'a> Markdown<'a> {
     pub fn font_size(mut self, size: f32) -> Self {
         if size.is_finite() && size > 0.0 {
             self.presentation.font_size_bits = size.clamp(8.0, 96.0).to_bits();
+        }
+        self
+    }
+
+    /// The height of a line of body text in logical pixels: 22/14 of the
+    /// body size unless set, 22 at 14 px and about 25 at 16. Paragraphs,
+    /// list items, quotes and table cells take it, and headings and subtext
+    /// lines the same proportion to their own size, such as 22 for a 16 px
+    /// body and 33 for a 24 px heading; code blocks keep their own. A height
+    /// that is not finite and positive is ignored; the rest is kept between
+    /// 1 and 192.
+    pub fn line_height(mut self, height: f32) -> Self {
+        if height.is_finite() && height > 0.0 {
+            self.presentation.line_height_bits = Some(height.clamp(1.0, 192.0).to_bits());
         }
         self
     }
@@ -555,11 +583,7 @@ fn render_inline_mode(
     Element::formatted_text(spans)
         .font_family(FontFamily::Sans)
         .font_size(size)
-        .line_height(if size == presentation.font_size() {
-            BODY_LINE_HEIGHT * presentation.scale()
-        } else {
-            size * 1.4
-        })
+        .line_height(presentation.line_height(size))
         .size(Some(width.max(0.0)), None)
 }
 
@@ -969,7 +993,7 @@ fn render_markdown_blocks(
                     )])
                     .font_family(FontFamily::Sans)
                     .font_size(body)
-                    .line_height(BODY_LINE_HEIGHT * scale)
+                    .line_height(presentation.line_height(body))
                     .foreground(color)
                     .size(Some(marker), None),
                     render_inline_mode(
@@ -2530,6 +2554,41 @@ mod tests {
             ),
             11.0 * 1.5
         );
+    }
+
+    #[test]
+    fn a_line_height_set_for_the_body_holds_for_its_blocks_and_in_proportion_for_headings() {
+        let source = "# Uno\n\nDos  \nlíneas\n\n- tres\n\n> cuatro\n\n-# cinco\n\n```\nseis\n```";
+        let rects = |markdown: Markdown| {
+            let mut tree = UiTree::new(Element::column(vec![markdown.render().element, Element::spacer().flex(1.0)]));
+            tree.set_reduced_motion(true);
+            let blocks = tree.layout(Size::new(480.0, 2_000.0)).text_layouts();
+            move |source: &str| {
+                let block = blocks.iter().find(|block| block.source.starts_with(source)).unwrap();
+                block.runs.iter().map(|run| run.rect).collect::<Vec<_>>()
+            }
+        };
+        let set = rects(Markdown::new(source, palette()).width(480.0).font_size(16.0).line_height(22.0));
+        let dos = set("Dos");
+        assert_eq!((dos[0].height, dos[1].y - dos[0].y), (22.0, 22.0), "the body's lines");
+        for item in ["tres", "cuatro", "•"] {
+            assert_eq!(set(item)[0].height, 22.0, "{item}");
+        }
+        assert_eq!(set("•")[0].y, set("tres")[0].y, "the marker on its item's line");
+        // 22 px of 16 is the proportion for the heading's 25.1 and the subtext's 13.
+        assert!((set("Uno")[0].height - 22.0 / 14.0 * 16.0 * 1.375).abs() < 1e-3);
+        assert!((set("cinco")[0].height - 16.0 * SUBTEXT_SCALE * 1.375).abs() < 1e-3);
+        let unset = rects(Markdown::new(source, palette()).width(480.0).font_size(16.0));
+        assert_eq!(set("seis")[0].height, unset("seis")[0].height, "code keeps its own");
+        assert!((unset("Dos")[0].height - BODY_LINE_HEIGHT * 16.0 / 14.0).abs() < 1e-3, "22/14 of the body unless set");
+        assert!((unset("Uno")[0].height - 22.0 / 14.0 * 16.0 * 1.4).abs() < 1e-3);
+
+        // Bad heights are ignored, and the rest kept to 1..=192.
+        let height = |value: f32| rects(Markdown::new("Dos", palette()).line_height(value))("Dos")[0].height;
+        assert_eq!([f32::NAN, f32::INFINITY, 0.0, -4.0].map(height), [BODY_LINE_HEIGHT; 4]);
+        assert_eq!(height(500.0), 192.0);
+        let kept = Markdown::new("Dos", palette()).line_height(0.5).presentation.line_height_bits;
+        assert_eq!(kept.map(f32::from_bits), Some(1.0));
     }
 
     #[test]
