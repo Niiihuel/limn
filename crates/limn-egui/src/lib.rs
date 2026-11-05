@@ -1699,7 +1699,10 @@ fn under_rounded_clip(area: EguiRect, own: limn::CornerRadii, clip: RoundedClip)
         let own = if moved { 0.0 } else { own };
         let radius = if radius.is_nan() { 0.0 } else { radius.clamp(0.0, limit) };
         let outside_arc = dx < radius && dy < radius && (radius - dx).powi(2) + (radius - dy).powi(2) > radius * radius;
-        if outside_arc { own.max(radius - dx.max(dy)) } else { own }
+        // A corner rounded enough of its own to lie inside the clip's arc keeps its radius, as
+        // a thumbnail near a pill's end does: rounded more, it no longer meets its own rim.
+        let fits = ((radius - dx - own).powi(2) + (radius - dy - own).powi(2)).sqrt() + own <= radius;
+        if outside_arc && !fits { own.max(radius - dx.max(dy)) } else { own }
     };
     let (left, top) = (inside.min.x - shape.min.x, inside.min.y - shape.min.y);
     let (right, bottom) = (shape.max.x - inside.max.x, shape.max.y - inside.max.y);
@@ -3110,6 +3113,13 @@ mod tests {
         // Two points in from the corner, it stays concentric: 14.
         let (_, inset) = under_rounded_clip(at(150.0, 80.0, 58.0, 38.0), square, clip);
         assert_eq!(radii(inset), (0.0, 0.0, 14.0, 0.0));
+        // Rounded enough of its own to stay inside the arc, it keeps its own corner, as a 40
+        // thumbnail rounded by 8, 8 in from a 56 pill's end, keeps its 8 rather than 20.
+        let pill = Some((at(0.0, 0.0, 300.0, 56.0), limn::CornerRadii::same(28.0)));
+        let (_, thumb) = under_rounded_clip(at(8.0, 8.0, 40.0, 40.0), limn::CornerRadii::same(8.0), pill);
+        assert_eq!(radii(thumb), (8.0, 8.0, 8.0, 8.0));
+        let (_, bare) = under_rounded_clip(at(8.0, 8.0, 40.0, 40.0), square, pill);
+        assert_eq!(radii(bare), (20.0, 0.0, 0.0, 20.0), "a square one still takes the concentric corner");
         // Inside the arc, or away from the corners, nothing changes.
         let dot = at(196.0, 106.0, 4.0, 4.0);
         assert_eq!(under_rounded_clip(dot, square, clip), (dot, square));
