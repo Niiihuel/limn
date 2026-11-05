@@ -198,6 +198,36 @@ ctx.set_fonts(limn_egui::font_definitions_with(faces));
 limn_egui::attach_fonts(&mut tree, &ctx);
 ```
 
+### A face given at run time
+
+`FontFamily::Custom(id)` is a family the host gives a face at run time,
+under a number of its choosing: a font it downloads for one person's name,
+say. `limn_egui::install_face(&ctx, id, bytes)` takes the TrueType or
+OpenType bytes, refuses those that hold no face, and installs the face in
+egui's fonts, so `Element::text`, `truncated_text` and a `TextSpan` in that
+family are measured as they are painted. What the face lacks is drawn as
+interface text is: the chosen interface face, the fallbacks, then emoji.
+limn reads no WOFF or WOFF2; the host decodes those first.
+
+```rust
+// When the download finishes, from inside a frame.
+limn_egui::install_face(ctx, 3, bytes)?;
+// On the next frame, as after any change to the fonts.
+limn_egui::attach_fonts(&mut tree, ctx);
+// Anywhere in the tree.
+Element::truncated_text(name).font_family(FontFamily::Custom(3))
+```
+
+Until the face is installed, and for a number with no face, the family is
+`Sans`, measured and painted alike. egui takes new fonts at the start of a
+frame, or at once when no text was laid out yet in this one; `attach_fonts`
+then has the tree measure with them. Each call has egui load its fonts
+again, so install faces as they arrive, not every frame. A host that builds
+its own `FontDefinitions`, as with a system font found for a character,
+passes them through `limn_egui::add_installed_faces` before
+`Context::set_fonts`; `font_definitions` and `font_definitions_with` already
+carry the faces.
+
 The 623-entry synthetic fixture in `limn-egui/src/emoji_samples.txt` covers
 all visible scalars from RUNE's Unicode picker at the time of this change.
 Tests inspect actual installed charmaps in all five families and exercise

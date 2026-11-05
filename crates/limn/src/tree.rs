@@ -36,6 +36,9 @@ mod top_fade_tests;
 #[path = "text_gradient_tests.rs"]
 mod text_gradient_tests;
 #[cfg(test)]
+#[path = "text_effect_tests.rs"]
+mod text_effect_tests;
+#[cfg(test)]
 #[path = "text_marks_tests.rs"]
 mod text_marks_tests;
 #[cfg(test)]
@@ -80,7 +83,7 @@ use web_time::{Duration, Instant};
 
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, MeasuredRows, UniformList};
+use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, Kept, MeasuredRows, UniformList};
 use crate::motion::{
     skeleton_color, spinner_angle, ColorTransition, Easing, ScalarSpring, ScalarTransition,
 };
@@ -107,7 +110,7 @@ pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
     BoxShadow, Color, CornerRadii, Cursor, Element, ElementKind, FontFamily, GlassMaterial, Icon, InlineImage, Point, PopoverPlacement,
-    RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
+    RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextEffect, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 
@@ -677,6 +680,16 @@ pub enum DrawCommand {
         /// pixel gaps.
         dashed: bool,
     },
+    /// An outline or a shadow of text, painted before the text itself:
+    /// `effect` of each of `runs`, a [`DrawCommand::Text`] placed where the
+    /// text that follows is. The runs' own ink is not painted. A backend
+    /// that paints no effects may skip it; the text still reads.
+    TextEffect {
+        /// What is painted of the runs.
+        effect: crate::TextEffect,
+        /// The text the effect is of, as it is painted after this.
+        runs: Vec<DrawCommand>,
+    },
     /// A run of text the tree has already measured and wrapped. A backend
     /// paints it from `position` without wrapping it again.
     Text {
@@ -921,11 +934,35 @@ impl DrawCommand {
                 *position = Point::new(position.x + dx, position.y + dy);
                 fade(color);
             }
+            Self::TextEffect { effect, runs } => {
+                let (crate::TextEffect::Stroke { color, .. } | crate::TextEffect::Shadow { color, .. }) = effect;
+                fade(color);
+                for run in runs {
+                    *run = run.moved(dx, dy, opacity);
+                }
+            }
             Self::PushClip(rect) | Self::RoundClip { rect, .. } => shift(rect),
             Self::PopClip => {}
         }
         ghost
     }
+}
+
+/// What `kept` has a text inked in `ink` paint under its glyphs, the shadow
+/// first, their alpha scaled by the ink's.
+fn text_effects(kept: Option<&Kept>, ink: Color) -> Vec<TextEffect> {
+    let Some(kept) = kept else {
+        return Vec::new();
+    };
+    let faded = |color: Color| Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * f32::from(ink.a) / 255.0).round() as u8);
+    [kept.text_shadow, kept.text_stroke]
+        .into_iter()
+        .flatten()
+        .map(|effect| match effect {
+            TextEffect::Stroke { width, color } => TextEffect::Stroke { width, color: faded(color) },
+            TextEffect::Shadow { offset, blur, color } => TextEffect::Shadow { offset, blur, color: faded(color) },
+        })
+        .collect()
 }
 
 /// `from` with `amount` of the way to `to`, channel by channel.
@@ -1375,6 +1412,23 @@ fn animate_popover_command(
             scale_point(position, scale, origin, slide_y);
             *font_size *= scale;
             fade(color, opacity);
+        }
+        DrawCommand::TextEffect { effect, runs } => {
+            match effect {
+                crate::TextEffect::Stroke { width, color } => {
+                    *width *= scale;
+                    fade(color, opacity);
+                }
+                crate::TextEffect::Shadow { offset, blur, color } => {
+                    offset.x *= scale;
+                    offset.y *= scale;
+                    *blur *= scale;
+                    fade(color, opacity);
+                }
+            }
+            for run in runs {
+                animate_popover_command(run, opacity, slide_y, scale, origin);
+            }
         }
         DrawCommand::Icon { rect, tint, .. } => {
             scale_rect(rect, scale, origin, slide_y);
@@ -1900,7 +1954,8 @@ impl SelectableTextBlock {
             | FontFamily::SansMedium
             | FontFamily::SansSemibold
             | FontFamily::SansBold
-            | FontFamily::SansBoldItalic => sans_metrics,
+            | FontFamily::SansBoldItalic
+            | FontFamily::Custom(_) => sans_metrics,
         }
         .at_size(run.font_size)
         .char_width;
@@ -9720,7 +9775,8 @@ impl LayoutBuilder<'_> {
             | FontFamily::SansMedium
             | FontFamily::SansSemibold
             | FontFamily::SansBold
-            | FontFamily::SansBoldItalic => self.sans_metrics,
+            | FontFamily::SansBoldItalic
+            | FontFamily::Custom(_) => self.sans_metrics,
         }
         .at_size(style.font_size)
     }
@@ -9852,6 +9908,18 @@ impl LayoutBuilder<'_> {
     /// `text` in `rect`, inked with `stops` from its left edge to its right:
     /// bands clipped side by side, each in the color at its middle, as the
     /// shimmer paints its sweep.
+    /// `effects` of the text `runs` gives, each its own command, before the
+    /// text is drawn. Without effects the runs are never made.
+    fn paint_text_effects(&mut self, effects: &[TextEffect], runs: impl FnOnce() -> Vec<DrawCommand>) {
+        if effects.is_empty() {
+            return;
+        }
+        let runs = runs();
+        for effect in effects {
+            self.frame.commands.push(DrawCommand::TextEffect { effect: *effect, runs: runs.clone() });
+        }
+    }
+
     fn paint_gradient_line(
         &mut self,
         text: &str,
@@ -12282,6 +12350,17 @@ impl LayoutBuilder<'_> {
                     .kept
                     .as_ref()
                     .and_then(|kept| kept.ink_gradient.clone());
+                if !shown.is_empty() {
+                    self.paint_text_effects(&text_effects(element.kept.as_deref(), style.foreground), || {
+                        vec![DrawCommand::Text {
+                            position: Point::new(x, y),
+                            text: shown.clone(),
+                            color: style.foreground,
+                            font_size: style.font_size,
+                            font_family: style.font_family,
+                        }]
+                    });
+                }
                 if let Some((id, highlight)) = shimmer {
                     self.observed_shimmers.insert(id.clone());
                     let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
@@ -12370,6 +12449,7 @@ impl LayoutBuilder<'_> {
                 });
                 let mut source_byte = 0;
                 let mut source_char = 0;
+                let effects = text_effects(element.kept.as_deref(), style.foreground);
                 let lines = self.wrapped_lines(value, content.width, style);
                 let sweep_width = if shimmer.is_some() {
                     lines
@@ -12393,6 +12473,17 @@ impl LayoutBuilder<'_> {
                     } else {
                         content.x
                     };
+                    if !line.is_empty() {
+                        self.paint_text_effects(&effects, || {
+                            vec![DrawCommand::Text {
+                                position: Point::new(x, y),
+                                text: line.to_owned(),
+                                color: style.foreground,
+                                font_size: style.font_size,
+                                font_family: style.font_family,
+                            }]
+                        });
+                    }
                     self.paint_static_run(
                         block_index,
                         value,

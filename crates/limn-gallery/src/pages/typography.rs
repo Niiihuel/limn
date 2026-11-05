@@ -12,6 +12,9 @@ const ROLES: [(TextRole, &str); 8] = [
     (TextRole::Code, "Code"),
 ];
 
+/// The custom family the gallery installs a face for when it starts.
+pub const RUN_TIME_FACE: u16 = 1;
+
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
     let width = cx.width.min(520.0);
@@ -80,6 +83,43 @@ pub fn view(cx: &Cx) -> Vec<Section> {
             Element::truncated_text(long)
                 .font_size(15.0)
                 .foreground_gradient(vec![palette.muted, palette.text])
+                .size(Some(width.min(240.0)), None),
+        ]),
+        section(cx, "Outline and glow", {
+            let name = |text: &str| Element::text(text).font_family(limn::FontFamily::SansBold).font_size(20.0);
+            let pink = limn::Color::rgb(0xF4, 0x7F, 0xFF);
+            let ink = limn::Color::rgb(0xF9, 0xA8, 0x25);
+            vec![
+                caption(cx, ".text_stroke(width, color) and .text_shadow(offset, blur, color): paint under the glyphs, which measure as before"),
+                name("Neon: a white fill, a colored edge and its glow")
+                    .foreground(limn::Color::WHITE)
+                    .text_stroke(1.8, pink)
+                    .text_shadow(limn::Point::new(0.0, 0.0), 6.4, pink),
+                name("Toon: an outline in a darker ink").foreground(ink).text_stroke(2.4, limn::Color::rgb(0x6B, 0x3A, 0x00)),
+                name("Pop: a hard shadow beside it")
+                    .foreground(limn::Color::WHITE)
+                    .text_stroke(1.6, limn::Color::rgb(0x1E, 0x1F, 0x22))
+                    .text_shadow(limn::Point::new(1.6, 1.6), 0.0, pink),
+                caption(cx, "Over a gradient, and cut short: the glow follows what is painted"),
+                Element::truncated_text("Holographic, with a glow, longer than its column")
+                    .font_family(limn::FontFamily::SansBold)
+                    .font_size(18.0)
+                    .foreground_gradient(vec![
+                        limn::Color::rgb(0xA9, 0xC9, 0xFF),
+                        limn::Color::rgb(0xFF, 0xBB, 0xEC),
+                        limn::Color::rgb(0xFF, 0xC3, 0xA0),
+                    ])
+                    .text_shadow(limn::Point::new(0.0, 0.0), 6.0, limn::Color::rgba(0xFF, 0xBB, 0xEC, 200))
+                    .size(Some(width.min(260.0)), None),
+            ]
+        }),
+        section(cx, "A face given at run time", vec![
+            caption(cx, "FontFamily::Custom(id), installed with limn_egui::install_face(ctx, id, bytes): here egui's Hack stands in for a downloaded face. Without one the text is Sans."),
+            Element::text("Ada Lovelace · 𝓡 · 🦀").font_family(limn::FontFamily::Custom(RUN_TIME_FACE)).font_size(18.0).foreground(palette.text),
+            Element::truncated_text("Cut short in the same face, measured as it is painted")
+                .font_family(limn::FontFamily::Custom(RUN_TIME_FACE))
+                .font_size(15.0)
+                .foreground(palette.muted)
                 .size(Some(width.min(240.0)), None),
         ]),
         section(cx, "Inline pictures", {

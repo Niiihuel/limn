@@ -174,13 +174,15 @@ pub use dictation::{DictationButton, DictationState, DictationWaveform};
 pub use dropdown_menu::{
     ContextMenuMetrics, DropdownMenu, DropdownMenuEntry, DropdownMenuItem, DropdownMenuSection,
 };
+mod fonts;
+pub use fonts::FontError;
 pub use element::{
     Cursor,
     Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Element, ElementKind, SurfaceFit, FontFamily, HeatCell, HeatPlot, Icon, LevelBars,
     LinePlot,
     PiePlot, PieSlice, PlotSeries, RadarPlot,
     PopoverPlacement,
-    SpinnerVariant, Style, TabSelection, TextHighlight, TextHint, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipFace, TooltipItem, TooltipPlacement, TooltipSection, TOOLTIP_FACE, TOOLTIP_FACE_ICON, TOOLTIP_FACE_OVERLAP,
+    SpinnerVariant, Style, TabSelection, TextEffect, TextHighlight, TextHint, TextSpan, InlineImage, INLINE_IMAGE_SCALE, TooltipFace, TooltipItem, TooltipPlacement, TooltipSection, TOOLTIP_FACE, TOOLTIP_FACE_ICON, TOOLTIP_FACE_OVERLAP,
     TooltipOptions, TooltipShape, TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE, SMALL_ICON_SIZE,
     ZoomControl, ZoomView,
 };

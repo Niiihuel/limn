@@ -29,6 +29,9 @@ base64 = "0.22"
 sha2 = "0.10"
 # Finds the emoji clusters `set_color_emoji` paints; limn already builds it.
 unicode-segmentation = "1.12"
+# Tell a font face from bytes that are not one, as egui reads them, before
+# egui is given them: the same version egui already builds.
+skrifa = { version = "0.44.0", default-features = false, features = ["std"] }
 
 [dev-dependencies]
 limn-editor = { version = "0.1.43", path = "../limn-editor" }

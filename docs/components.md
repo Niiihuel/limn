@@ -160,7 +160,7 @@ wrap the window's root element, since they cover the whole window.
 
 | Component | Purpose |
 | --- | --- |
-| `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text, wrapped. `Text::eyebrow` is the small monospaced label above a group. `.font_size(px)` is for a step the host's design has between two roles, such as 10.5; prefer a role. |
+| `Text` | Passive text in a role of the type scale and a color of the palette: `.role`, `.muted`, `.ink` for a semantic color, `.mono`, `.truncate`, `.fade`, `.line_height`, and `.tooltip` to show the whole value of truncated text, wrapped. `Text::eyebrow` is the small monospaced label above a group. `.font_size(px)` is for a step the host's design has between two roles, such as 10.5; prefer a role. On a rendered `Element::text` or `truncated_text`, `.foreground_gradient`, `.text_stroke` and `.text_shadow` ink, outline and shadow it, and `FontFamily::Custom(id)` sets it in a face the host installs at run time. |
 | `Markdown` | Markdown source as wrapped prose with links, lists, quotes and code blocks; see [Markdown](#markdown). |
 
 `TextRole` is the scale, in logical pixels:

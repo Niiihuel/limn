@@ -723,7 +723,7 @@ pub enum SpinnerVariant {
 
 /// The face a text is measured and painted in. The host chooses the font
 /// for each. The default is `Monospace`.
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, Eq, Hash, PartialEq)]
 pub enum FontFamily {
     /// The host's fixed-width face.
     #[default]
@@ -744,6 +744,12 @@ pub enum FontFamily {
     /// [`Self::SansBold`] slanted by the host. It measures exactly as
     /// `SansBold`.
     SansBoldItalic,
+    /// A face the host gives at run time under this number, such as a font
+    /// it downloads for one person's name: see `limn_egui::install_face`.
+    /// Its characters the face lacks are drawn as [`Self::Sans`] draws them,
+    /// and until the face is given the whole text is measured and painted
+    /// as `Sans`.
+    Custom(u16),
 }
 
 /// One inline style run in a paragraph. Width is measured by the same host
@@ -1061,6 +1067,35 @@ impl BoxShadow {
     }
 }
 
+/// Paint under a text's glyphs, as [`Element::text_stroke`] and
+/// [`Element::text_shadow`] ask for it: never a change to the text's size,
+/// where it wraps or is cut, its selection or its targets, and it may reach
+/// past the text's box.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TextEffect {
+    /// A line `width` wide along the glyphs' edges, centred on them as CSS's
+    /// `-webkit-text-stroke` is, under the glyphs (CSS's `paint-order:
+    /// stroke`), so half of it shows round them.
+    Stroke {
+        /// The line's width, from 0 to 16 pixels.
+        width: f32,
+        /// Its color; the alpha of the text's foreground scales its own.
+        color: Color,
+    },
+    /// The glyphs' shape in `color`, moved by `offset` and blurred by `blur`
+    /// as CSS's `text-shadow` is, under the glyphs and their stroke. With no
+    /// offset it is a glow; with no blur, a hard shadow.
+    Shadow {
+        /// How far the shadow is moved from the glyphs.
+        offset: Point,
+        /// The blur radius, from 0 to 32 pixels: twice the deviation of the
+        /// Gaussian it is blurred with, as in CSS.
+        blur: f32,
+        /// Its color; the alpha of the text's foreground scales its own.
+        color: Color,
+    },
+}
+
 /// The part an element plays in revealing controls under the pointer.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum HoverReveal {
@@ -1101,6 +1136,10 @@ pub(crate) struct Kept {
     /// Set by [`Element::foreground_gradient`]: colors a text's ink runs
     /// through from the left of each line to its right.
     pub(crate) ink_gradient: Option<Arc<[Color]>>,
+    /// Set by [`Element::text_shadow`] and [`Element::text_stroke`]: what a
+    /// text paints under its glyphs, shadow first.
+    pub(crate) text_shadow: Option<TextEffect>,
+    pub(crate) text_stroke: Option<TextEffect>,
     pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
     pub(crate) translation: Option<Point>,
     pub(crate) pointer_blocker: Option<String>,
@@ -4091,6 +4130,43 @@ impl Element {
     pub fn foreground_gradient(mut self, stops: impl Into<Arc<[Color]>>) -> Self {
         let stops = stops.into();
         self.kept.get_or_insert_default().ink_gradient = (stops.len() > 1).then_some(stops);
+        self
+    }
+
+    /// Outline a text's glyphs with a line `width` pixels wide in `color`,
+    /// centred on their edges as CSS's `-webkit-text-stroke` is and painted
+    /// under them, so half of it shows round each glyph: a name in a bright
+    /// fill with a colored edge. For [`Element::text`] and
+    /// [`Element::truncated_text`], over a [`foreground_gradient`] too; the
+    /// alpha of the foreground scales the color's. A width that is not
+    /// finite or not above zero paints none, and one is at most 16 pixels.
+    /// Measuring, wrapping, truncation and selection are those of the plain
+    /// text; the stroke may reach past its box. See [`TextEffect::Stroke`]
+    /// for how a backend draws it.
+    ///
+    /// [`foreground_gradient`]: Self::foreground_gradient
+    pub fn text_stroke(mut self, width: f32, color: Color) -> Self {
+        let width = if width.is_finite() { width.min(16.0) } else { 0.0 };
+        self.kept.get_or_insert_default().text_stroke = (width > 0.0).then_some(TextEffect::Stroke { width, color });
+        self
+    }
+
+    /// Paint a text's glyphs in `color` under them, moved by `offset` and
+    /// blurred by `blur` pixels as CSS's `text-shadow` is: with a zero
+    /// offset a glow round the text, with no blur a hard shadow beside it.
+    /// It is painted under the [`text_stroke`] as well. For the same texts
+    /// as `text_stroke`, with the same measures; an offset that is not
+    /// finite is zero, and the blur is kept within 0..=32.
+    ///
+    /// [`text_stroke`]: Self::text_stroke
+    pub fn text_shadow(mut self, offset: Point, blur: f32, color: Color) -> Self {
+        let finite = |value: f32| if value.is_finite() { value } else { 0.0 };
+        let shadow = TextEffect::Shadow {
+            offset: Point::new(finite(offset.x), finite(offset.y)),
+            blur: finite(blur).clamp(0.0, 32.0),
+            color,
+        };
+        self.kept.get_or_insert_default().text_shadow = Some(shadow);
         self
     }
 

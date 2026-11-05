@@ -10,11 +10,12 @@ use eframe::egui::{
 };
 use limn::{
     Color, DrawCommand, FontFamily, Frame, Icon, Key, Point, RasterImage, RasterImageFormat, Rect,
-    OtherButton, SpinnerVariant, UiEvent,
+    OtherButton, SpinnerVariant, TextEffect, UiEvent,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
+use std::sync::{Mutex, PoisonError};
 
 mod glass;
 mod touch_context;
@@ -2002,19 +2003,7 @@ fn paint_at_impl(
                 font_family,
             } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                let (font, italics) = match font_family {
-                    FontFamily::Monospace => (FontId::monospace(*font_size), false),
-                    FontFamily::Sans => (FontId::proportional(*font_size), false),
-                    FontFamily::SansMedium | FontFamily::SansSemibold | FontFamily::SansBold => {
-                        (FontId::new(*font_size, egui_family(ui.ctx(), *font_family)), false)
-                    }
-                    // The bold face slanted, as SansItalic slants the regular one.
-                    FontFamily::SansBoldItalic => {
-                        (FontId::new(*font_size, egui_family(ui.ctx(), *font_family)), true)
-                    }
-                    // egui slants the regular face, so advances match Sans.
-                    FontFamily::SansItalic => (FontId::proportional(*font_size), true),
-                };
+                let (font, italics) = egui_font(ui.ctx(), *font_size, *font_family);
                 let at = pos(origin, *position);
                 if color_emoji::paint(&painter, at, text, &font, italics, color(*ink)) {
                     continue;
@@ -2030,6 +2019,23 @@ fn paint_at_impl(
                     painter.galley(at, painter.layout_job(job), color(*ink));
                 } else {
                     painter.text(at, Align2::LEFT_TOP, text, font, color(*ink));
+                }
+            }
+            DrawCommand::TextEffect { effect, runs } => {
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let copies = effect_copies(*effect);
+                for run in runs {
+                    // The glyphs' shapes in the effect's ink: an emoji the
+                    // host draws as a picture is its glyph's shape.
+                    if let DrawCommand::Text { position, text, font_size, font_family, .. } = run {
+                        let (font_id, italics) = egui_font(ui.ctx(), *font_size, *font_family);
+                        let format = egui::TextFormat { font_id, italics, ..Default::default() };
+                        let galley = painter.layout_job(egui::text::LayoutJob::single_section(text.clone(), format));
+                        for (offset, ink) in &copies {
+                            let at = pos(origin, Point::new(position.x + offset.x, position.y + offset.y));
+                            painter.galley_with_override_text_color(at, galley.clone(), color(*ink));
+                        }
+                    }
                 }
             }
             DrawCommand::Icon {
@@ -2792,7 +2798,56 @@ pub fn font_definitions() -> egui::FontDefinitions {
         .entry(egui::FontFamily::Proportional)
         .or_default()
         .insert(0, name);
+    add_installed_faces(&mut fonts);
     fonts
+}
+
+/// The faces [`install_face`] installed, by their number.
+static INSTALLED: Mutex<Vec<(u16, egui::FontData)>> = Mutex::new(Vec::new());
+
+/// Give `definitions` a family for each [`FontFamily::Custom`] face
+/// [`install_face`] installed: the face, then every face `Proportional`
+/// has, so what the face lacks is drawn as interface text is, emoji too. A
+/// host that installs fonts of its own making with `Context::set_fonts`
+/// passes them through this first, after any change to their
+/// `Proportional` family, so the faces it installed stay.
+/// [`font_definitions`] and [`font_definitions_with`] already have them.
+pub fn add_installed_faces(definitions: &mut egui::FontDefinitions) {
+    let behind = definitions.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
+    for (id, data) in INSTALLED.lock().unwrap_or_else(PoisonError::into_inner).iter() {
+        let name = custom_family(*id);
+        definitions.font_data.insert(name.clone(), data.clone().into());
+        let chain = std::iter::once(name.clone()).chain(behind.iter().filter(|face| **face != name).cloned()).collect();
+        definitions.families.insert(egui::FontFamily::Name(name.into()), chain);
+    }
+}
+
+/// Paint [`FontFamily::Custom`]`(id)`, and measure it, in the TrueType or
+/// OpenType face in `bytes` from here on, as [`add_installed_faces`] gives
+/// egui the face. A face installed again under the same `id` replaces it.
+/// The first face of a collection is taken; limn reads no WOFF or WOFF2,
+/// which a host decodes first.
+///
+/// Call it inside a frame, once egui has fonts: from the frame a download
+/// finishes in, say. egui takes the new fonts at the start of a frame, or at
+/// once if no text was laid out yet this frame; call [`attach_fonts`] again
+/// after, as after any change to the fonts, so a tree measures with it.
+/// Until then, and for an `id` with no face, the family is measured and
+/// painted as `Sans`. Each call has egui load its fonts again, so a host
+/// with many faces installs them as they come rather than one every frame.
+pub fn install_face(ctx: &egui::Context, id: u16, bytes: impl Into<std::sync::Arc<[u8]>>) -> Result<(), limn::FontError> {
+    let bytes: std::sync::Arc<[u8]> = bytes.into();
+    skrifa::FontRef::from_index(&bytes, 0).map_err(|_| limn::FontError)?;
+    {
+        let mut installed = INSTALLED.lock().unwrap_or_else(PoisonError::into_inner);
+        installed.retain(|(given, _)| *given != id);
+        installed.push((id, egui::FontData::from_owned(bytes.to_vec())));
+    }
+    let mut definitions = ctx.fonts(|fonts| fonts.definitions().clone());
+    add_installed_faces(&mut definitions);
+    ctx.set_fonts(definitions);
+    ctx.request_repaint();
+    Ok(())
 }
 
 const SANS_MEDIUM: &str = "limn-sans-medium";
@@ -2842,18 +2897,99 @@ pub fn font_definitions_with(faces: UiFaces) -> egui::FontDefinitions {
         fonts.families.entry(egui::FontFamily::Name(family.into())).or_default().insert(0, first);
     }
     fonts.families.entry(egui::FontFamily::Proportional).or_default().insert(0, regular);
+    // The custom faces fall back on the chosen face, not the bundled one.
+    add_installed_faces(&mut fonts);
     fonts
 }
 
+/// The egui font a limn family is painted in at `size`, and whether egui
+/// slants it.
+fn egui_font(ctx: &egui::Context, size: f32, family: FontFamily) -> (FontId, bool) {
+    // egui slants the regular face, so advances match Sans, and the bold
+    // face for a bold italic.
+    let italics = matches!(family, FontFamily::SansItalic | FontFamily::SansBoldItalic);
+    (FontId::new(size, egui_family(ctx, family)), italics)
+}
+
+/// Where a backend that can neither stroke nor blur glyph outlines paints
+/// copies of a run's glyphs, and in which ink, to draw `effect` of it.
+///
+/// A stroke is rings of copies out to half its width, a pixel or less
+/// apart, at its color: the glyphs grown by that much. A shadow is one copy
+/// at its offset when it has no blur; blurred, it is a Gaussian sampled on
+/// up to four rings out to twice its deviation, each copy faint by its
+/// share, so the copies add up to the color where the glyphs are wide and
+/// fade away from them. Copies of a translucent ink also add up where they
+/// overlap.
+fn effect_copies(effect: TextEffect) -> Vec<(Point, Color)> {
+    let at = |radius: f32, turn: f32| Point::new(radius * turn.cos(), radius * turn.sin());
+    // Rings out to `reach`, `step` or less apart up to `rings` of them, with
+    // copies `arc` or less apart along each, up to `most`.
+    let rings = |reach: f32, step: f32, rings: f32, arc: f32, most: usize| -> Vec<(f32, usize)> {
+        let count = (reach / step).ceil().clamp(1.0, rings) as usize;
+        (1..=count)
+            .map(|ring| {
+                let radius = reach * ring as f32 / count as f32;
+                (radius, ((std::f32::consts::TAU * radius / arc).ceil() as usize).clamp(8, most))
+            })
+            .collect()
+    };
+    let ring = |radius: f32, copies: usize| {
+        (0..copies).map(move |index| at(radius, std::f32::consts::TAU * index as f32 / copies as f32))
+    };
+    match effect {
+        TextEffect::Stroke { width, color } if width > 0.0 && color.a > 0 => rings(width / 2.0, 1.0, 8.0, 0.75, 32)
+            .into_iter()
+            .flat_map(|(radius, copies)| ring(radius, copies))
+            .map(|offset| (offset, color))
+            .collect(),
+        TextEffect::Shadow { offset, blur, color } if color.a > 0 => {
+            let deviation = blur / 2.0;
+            if deviation < 0.25 {
+                return vec![(offset, color)];
+            }
+            let gauss = |radius: f32| (-radius * radius / (2.0 * deviation * deviation)).exp();
+            let rings = rings(2.0 * deviation, 2.0, 4.0, 2.0, 12);
+            let step = 2.0 * deviation / rings.len() as f32;
+            // Each copy weighs the Gaussian times the area it stands for.
+            let mut copies = vec![(Point::new(0.0, 0.0), std::f32::consts::PI * step * step / 4.0)];
+            for (radius, count) in rings {
+                let weight = gauss(radius) * std::f32::consts::TAU * radius * step / count as f32;
+                copies.extend(ring(radius, count).map(|at| (at, weight)));
+            }
+            let total: f32 = copies.iter().map(|(_, weight)| weight).sum();
+            copies
+                .into_iter()
+                .filter_map(|(at, weight)| {
+                    let alpha = (f32::from(color.a) * weight / total).round() as u8;
+                    (alpha > 0).then(|| (Point::new(offset.x + at.x, offset.y + at.y), Color::rgba(color.r, color.g, color.b, alpha)))
+                })
+                .collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The name a face for `FontFamily::Custom(id)` and its egui family go by.
+fn custom_family(id: u16) -> String {
+    format!("limn-face-{id}")
+}
+
 /// The egui family a limn family is painted and measured with. A host that
-/// set its own fonts without the weighted faces gets the regular one.
+/// set its own fonts without the weighted faces gets the regular one, and
+/// a custom family whose face is not installed is the regular one.
 fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
+    let custom;
     let weighted = match family {
         FontFamily::Monospace => return egui::FontFamily::Monospace,
         FontFamily::Sans | FontFamily::SansItalic => return egui::FontFamily::Proportional,
         FontFamily::SansMedium => SANS_MEDIUM,
         FontFamily::SansSemibold => SANS_SEMIBOLD,
         FontFamily::SansBold | FontFamily::SansBoldItalic => SANS_BOLD,
+        FontFamily::Custom(id) => {
+            custom = custom_family(id);
+            &custom
+        }
     };
     let named = egui::FontFamily::Name(weighted.into());
     if ctx.fonts(|fonts| fonts.definitions().families.contains_key(&named)) {
@@ -4304,6 +4440,67 @@ mod tests {
             assert_eq!(pixels, expected_pixels);
             assert!((aligned.width() * scale - f32::from(expected_pixels)).abs() < 0.0001);
             assert!((aligned.height() * scale - f32::from(expected_pixels)).abs() < 0.0001);
+        }
+    }
+
+    #[test]
+    fn a_stroke_is_rings_of_copies_out_to_half_its_width_in_its_color() {
+        let ink = Color::rgb(200, 40, 120);
+        let copies = effect_copies(TextEffect::Stroke { width: 2.4, color: ink });
+        let reach = |copies: &[(Point, Color)]| copies.iter().map(|(at, _)| at.x.hypot(at.y)).fold(0.0, f32::max);
+        assert!((reach(&copies) - 1.2).abs() < 1e-4);
+        assert!(copies.iter().all(|(_, color)| *color == ink));
+        // Two rings, so no gap a pixel wide is left between the glyphs and the outer one.
+        assert!(copies.iter().any(|(at, _)| (at.x.hypot(at.y) - 0.6).abs() < 1e-4));
+        assert!(effect_copies(TextEffect::Stroke { width: 0.0, color: ink }).is_empty());
+        assert!(effect_copies(TextEffect::Stroke { width: 2.0, color: Color::TRANSPARENT }).is_empty());
+    }
+
+    #[test]
+    fn a_shadow_is_one_copy_without_blur_and_a_faint_gaussian_of_them_with_it() {
+        let ink = Color::rgba(0, 0, 0, 200);
+        let offset = Point::new(1.5, 1.5);
+        assert_eq!(effect_copies(TextEffect::Shadow { offset, blur: 0.0, color: ink }), vec![(offset, ink)]);
+        let copies = effect_copies(TextEffect::Shadow { offset, blur: 6.0, color: ink });
+        assert!(copies.len() > 20);
+        // About the offset, out to twice the deviation, the blur radius.
+        let (sum_x, sum_y) = copies.iter().fold((0.0, 0.0), |(x, y), (at, color)| {
+            (x + (at.x - offset.x) * f32::from(color.a), y + (at.y - offset.y) * f32::from(color.a))
+        });
+        assert!(sum_x.abs() < 1.0 && sum_y.abs() < 1.0, "{sum_x} {sum_y}");
+        assert!(copies.iter().all(|(at, _)| (at.x - offset.x).hypot(at.y - offset.y) <= 6.0 + 1e-4));
+        // The copies add up to the color, the nearest the strongest.
+        let total: u32 = copies.iter().map(|(_, color)| u32::from(color.a)).sum();
+        assert!(total.abs_diff(200) <= copies.len() as u32 / 2, "{total}");
+        assert!(copies[0].1.a > copies.last().unwrap().1.a);
+        assert!(copies.iter().all(|(_, color)| (color.r, color.g, color.b) == (0, 0, 0)));
+    }
+
+    #[test]
+    fn an_effect_paints_copies_of_its_text_in_its_ink_under_the_text() {
+        let ctx = egui::Context::default();
+        install_fonts(&ctx);
+        ctx.run_ui(Default::default(), |_| {}).textures_delta.clear();
+        let edge = Color::rgb(200, 40, 120);
+        for element in [limn::Element::truncated_text("Ada"), limn::Element::text("Ada")] {
+            let element = element.foreground(Color::WHITE).text_stroke(2.0, edge);
+            let mut tree = limn::UiTree::new(limn::Element::column(vec![element]));
+            attach_fonts(&mut tree, &ctx);
+            let frame = tree.layout(limn::Size::new(200.0, 40.0));
+            let mut output = ctx.run_ui(Default::default(), |ui| paint_at(ui, &frame, Pos2::ZERO));
+            output.textures_delta.clear();
+            let copies = effect_copies(TextEffect::Stroke { width: 2.0, color: edge }).len();
+            let texts: Vec<Option<Color32>> = output
+                .shapes
+                .iter()
+                .filter_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(text) => Some(text.override_text_color),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(texts.len(), copies + 1);
+            assert!(texts[..copies].iter().all(|ink| *ink == Some(color(edge))));
+            assert_eq!(texts[copies], None, "the text itself last, in its own ink");
         }
     }
 

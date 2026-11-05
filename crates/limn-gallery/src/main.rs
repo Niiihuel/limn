@@ -75,6 +75,11 @@ impl Host {
     }
 
     fn start(&mut self, ctx: &egui::Context) {
+        // The Text page's face given at run time, as a host installs one it downloaded.
+        let face = egui::FontDefinitions::default().font_data.get("Hack").map(|data| (*data.font).as_ref().to_vec());
+        if let Some(bytes) = face {
+            limn_egui::install_face(ctx, pages::RUN_TIME_FACE, bytes).expect("egui's Hack is a font");
+        }
         limn_egui::attach_fonts(&mut self.tree, ctx);
         limn_egui::repaint_on_patch(ctx);
     }
