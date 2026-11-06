@@ -99,7 +99,8 @@ impl Qa {
 
     // CPU includes callback preparation, the shared blur and queue submission.
     // Wall time additionally waits for all GPU work; it is not a timestamp query.
-    fn draw(&mut self, frame: &Frame, optical: bool) -> (f64, f64) {
+    // `page`: the frame carries its own page, which the glass captures.
+    fn draw(&mut self, frame: &Frame, page: bool) -> (f64, f64) {
         let start = Instant::now();
         let area = self.area();
         self.context.begin_pass(egui::RawInput {
@@ -111,11 +112,11 @@ impl Qa {
             egui::Id::unique("glass QA"),
             egui::UiBuilder::new().max_rect(area),
         );
-        self.glass.paint_backdrop(&ui, area);
-        if optical {
-            self.glass.paint_at(&ui, frame, egui::Pos2::ZERO, area);
+        if page {
+            self.glass.paint_page(&ui, frame, egui::Pos2::ZERO);
         } else {
-            limn_egui::paint_at(&ui, frame, egui::Pos2::ZERO);
+            self.glass.paint_backdrop(&ui, area);
+            self.glass.paint_at(&ui, frame, egui::Pos2::ZERO, area);
         }
         let mut output = self.context.end_pass();
         let jobs = self
@@ -267,12 +268,12 @@ fn comparison_frame() -> Frame {
 
 fn measure(qa: &mut Qa, frame: &Frame, frames: usize, name: &str) {
     for _ in 0..10 {
-        qa.draw(frame, true);
+        qa.draw(frame, false);
     }
     let mut cpu = Vec::new();
     let mut wall = Vec::new();
     for _ in 0..frames {
-        let (a, b) = qa.draw(frame, true);
+        let (a, b) = qa.draw(frame, false);
         cpu.push(a);
         wall.push(b);
     }
@@ -324,7 +325,7 @@ fn local_lens_frame(qa: &Qa) -> Frame {
     tree.layout_at(size, now + web_time::Duration::from_millis(100))
 }
 
-fn measure_captured_page(qa: &mut Qa, frames: usize) {
+fn measure_captured_page(qa: &mut Qa, frames: usize, out: &Path) {
     let palette = ComponentPalette::neutral_dark();
     let mut page = UiTree::new(
         Element::column(
@@ -341,22 +342,19 @@ fn measure_captured_page(qa: &mut Qa, frames: usize) {
         .background(palette.surface),
     );
     let scene = page.layout(Size::new(qa.size[0] as f32, qa.size[1] as f32));
-    for (name, frame) in [
-        ("captured-page-only", Frame::default()),
-        ("captured-page-three-glass", phone_frame(qa.size)),
-    ] {
+    let mut glazed = scene.clone();
+    glazed.commands.extend(phone_frame(qa.size).commands);
+    for (name, frame) in [("captured-page-only", scene), ("captured-page-three-glass", glazed)] {
         let mut cpu = Vec::new();
         let mut wall = Vec::new();
         for index in 0..frames + 10 {
-            let start = Instant::now();
-            assert!(qa.glass.set_backdrop_frame("qa:page", &scene, qa.size, 1.0));
-            let capture = start.elapsed().as_secs_f64() * 1000.0;
-            let (submission, _) = qa.draw(&frame, true);
+            let (submission, synchronized) = qa.draw(&frame, true);
             if index >= 10 {
-                cpu.push(capture + submission);
-                wall.push(start.elapsed().as_secs_f64() * 1000.0);
+                cpu.push(submission);
+                wall.push(synchronized);
             }
         }
+        qa.capture(&out.join(format!("{name}.png")));
         cpu.sort_by(f64::total_cmp);
         wall.sort_by(f64::total_cmp);
         let p95 = (frames * 95 / 100).min(frames - 1);
@@ -447,7 +445,7 @@ fn measure_video(qa: &mut Qa, path: &Path, frames: usize) {
                 texture.size(),
             );
             let upload = start.elapsed().as_secs_f64() * 1000.0;
-            let (a, _) = qa.draw(&frame, true);
+            let (a, _) = qa.draw(&frame, false);
             if index >= 10 {
                 cpu.push(upload + a);
                 wall.push(start.elapsed().as_secs_f64() * 1000.0);
@@ -564,7 +562,7 @@ fn motion_frames(qa: &mut Qa, out: &Path) {
         for index in 0..21 {
             let now = transition + web_time::Duration::from_secs_f64(index as f64 / 30.0);
             let frame = tree.layout_at(viewport, now);
-            qa.draw(&frame, true);
+            qa.draw(&frame, false);
             qa.capture(&dir.join(format!("{index:03}.png")));
         }
     }
@@ -596,7 +594,7 @@ fn motion_frames(qa: &mut Qa, out: &Path) {
             tree.set_root(switch(true));
         }
         let frame = tree.layout_at(viewport, now);
-        qa.draw(&frame, true);
+        qa.draw(&frame, false);
         qa.capture(&dir.join(format!("{index:03}.png")));
     }
     let dir = out.join("collapse");
@@ -639,7 +637,7 @@ fn motion_frames(qa: &mut Qa, out: &Path) {
         .render();
         let mut tree = UiTree::new(wrap(bar));
         let frame = tree.layout_at(viewport, now);
-        qa.draw(&frame, true);
+        qa.draw(&frame, false);
         qa.capture(&dir.join(format!("{index:03}.png")));
     }
 }
@@ -664,7 +662,7 @@ fn main() {
     std::fs::create_dir_all(&out).unwrap();
     let mut qa = pollster::block_on(Qa::new(&backdrop.expect("--backdrop <png>")));
     let frame = comparison_frame();
-    qa.draw(&frame, true);
+    qa.draw(&frame, false);
     qa.capture(&out.join("limn.png"));
     measure(&mut qa, &Frame::default(), frames, "backdrop-only");
     measure(&mut qa, &frame, frames, "three-glass-shared-blur");
@@ -673,7 +671,7 @@ fn main() {
     if motion {
         motion_frames(&mut qa, &out);
     }
-    measure_captured_page(&mut qa, frames);
+    measure_captured_page(&mut qa, frames, &out);
     if let Some(path) = video {
         measure_video(&mut qa, &path, frames);
     }

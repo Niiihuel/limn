@@ -25,7 +25,7 @@ pub fn paint(renderer: &mut limn_egui::GlassRenderer, ui: &egui::Ui, frame: &Fra
     let scale = ui.ctx().pixels_per_point();
     let size = [(area.width * scale).ceil() as u32, (area.height * scale).ceil() as u32];
     let background = background(p, Size::new(area.width, area.height), phase);
-    if renderer.set_backdrop_frame("glass", &background, size, scale) {
+    if renderer.set_backdrop_frame(ui.ctx(), &background, size, scale) {
         let rect = egui::Rect::from_min_size(origin + egui::vec2(area.x, area.y), egui::vec2(area.width, area.height));
         renderer.paint_at_surface(ui, frame, origin, rect, "glass:backdrop");
     } else { limn_egui::paint_at(ui, frame, origin); }

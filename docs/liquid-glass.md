@@ -137,6 +137,17 @@ External paint callbacks need an explicit capture contract: an arbitrary
 either-backend callback cannot be assumed to render correctly into another
 target. Exclude the glass itself from its backdrop to avoid feedback.
 
+`GlassRenderer::paint_page` does this for a whole window: it renders what a
+frame paints beneath its first glass into the backdrop, then paints the frame.
+The capture is drawn by the window's own egui renderer from the window's own
+textures, on a layer whose shapes are taken before the window draws them.
+Pictures and CPU surfaces such as a video's frames therefore appear as they do
+on screen, with no second decode or upload: a second egui context would decode
+every picture again, and limn's image and surface caches hold one context's
+textures at a time. Paint callbacks are left out of the capture. The window's
+renderer must draw without multisampling or depth, as eframe's does by
+default. A frame without glass is painted without any capture.
+
 ## Integration in Surco
 
 Surco remains unchanged by this branch. Its intended application is the

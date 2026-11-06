@@ -24,57 +24,62 @@ pub struct GlassRenderer {
     selection_index: Cell<usize>,
 }
 
+/// Paints limn commands into a texture of their own with the window's renderer,
+/// from the window's own textures: pictures and surfaces appear as they are on
+/// screen. A second egui context would decode every picture again, and limn's
+/// caches keep one context's textures at a time.
 struct SceneRenderer {
-    context: egui::Context,
-    renderer: egui_wgpu::Renderer,
     texture: Option<wgpu::Texture>,
 }
 
 impl SceneRenderer {
-    fn new(device: &wgpu::Device) -> Self {
-        let context = egui::Context::default();
-        super::install_fonts(&context);
-        Self { context, renderer: egui_wgpu::Renderer::new(device, wgpu::TextureFormat::Rgba8Unorm, Default::default()), texture: None }
+    const fn new() -> Self {
+        Self { texture: None }
     }
 
-    fn render(&mut self, state: &egui_wgpu::RenderState, id: &str, frame: &Frame, size: [u32; 2], scale: f32) -> wgpu::Texture {
-        self.render_at(state, id, frame, size, scale, egui::Pos2::ZERO)
-    }
-    fn render_at(&mut self, state: &egui_wgpu::RenderState, id: &str, frame: &Frame, size: [u32; 2], scale: f32, origin: egui::Pos2) -> wgpu::Texture {
+    /// Paint `commands` at `origin`, in points, into `size` pixels at `scale`.
+    /// Call during a pass of `ctx`, the context the window's renderer draws.
+    fn render(&mut self, state: &egui_wgpu::RenderState, ctx: &egui::Context, salt: usize,
+        commands: &[limn::DrawCommand], size: [u32; 2], scale: f32, origin: egui::Pos2) -> wgpu::Texture {
+        let format = state.target_format;
+        // Sampled gamma-encoded, as every backdrop is.
+        let sampled = [format.remove_srgb_suffix()];
         if self.texture.as_ref().is_none_or(|texture| texture.width() != size[0] || texture.height() != size[1]) {
             self.texture = Some(state.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("limn page backdrop"), size: wgpu::Extent3d { width: size[0], height: size[1], depth_or_array_layers: 1 },
-                mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format: wgpu::TextureFormat::Rgba8Unorm,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
+                mip_level_count: 1, sample_count: 1, dimension: wgpu::TextureDimension::D2, format,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: if sampled[0] == format { &[] } else { &sampled },
             }));
         }
-        self.context.set_pixels_per_point(scale);
+        let texture = self.texture.clone().unwrap();
+        // A layer of its own, emptied before the window draws it.
+        let layer = egui::LayerId::new(egui::Order::Background, egui::Id::unique("limn glass capture"));
         let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size[0] as f32 / scale, size[1] as f32 / scale));
-        self.context.begin_pass(egui::RawInput { screen_rect: Some(area), ..Default::default() });
-        let ui = egui::Ui::new(self.context.clone(), egui::Id::unique((id, "backdrop")), egui::UiBuilder::new().max_rect(area));
-        super::paint_at(&ui, frame, origin);
-        let mut output = self.context.end_pass();
-        for (id, deltas) in &output.textures_delta.set { for delta in deltas { self.renderer.update_texture(&state.device, &state.queue, *id, delta); } }
-        let jobs = self.context.tessellate(output.shapes, output.pixels_per_point);
+        let ui = egui::Ui::new(ctx.clone(), egui::Id::unique(("limn glass capture", salt)),
+            egui::UiBuilder::new().layer_id(layer).max_rect(area));
+        super::paint_commands(&ui, commands, origin, None, None);
+        let shapes: Vec<_> = ctx.graphics_mut(|layers| std::mem::take(layers.entry(layer))).all_entries().cloned().collect();
+        // A callback draws into the window's pass alone.
+        let jobs: Vec<_> = ctx.tessellate(shapes, scale).into_iter()
+            .filter(|job| matches!(job.primitive, egui::epaint::Primitive::Mesh(_))).collect();
         let screen = egui_wgpu::ScreenDescriptor { size_in_pixels: size, pixels_per_point: scale };
         let mut encoder = state.device.create_command_encoder(&Default::default());
-        let commands = self.renderer.update_buffers(&state.device, &state.queue, &mut encoder, &jobs, &screen);
-        let texture = self.texture.as_ref().unwrap();
         let view = texture.create_view(&Default::default());
         {
+            let mut renderer = state.renderer.write();
+            // Its buffers are written again for the window before its own pass is submitted.
+            renderer.update_buffers(&state.device, &state.queue, &mut encoder, &jobs, &screen);
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("limn page backdrop"), color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view, resolve_target: None, depth_slice: None,
                     ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT), store: wgpu::StoreOp::Store },
                 })], ..Default::default()
             }).forget_lifetime();
-            self.renderer.render(&mut pass, &jobs, &screen);
+            renderer.render(&mut pass, &jobs, &screen);
         }
-        state.queue.submit(commands.into_iter().chain([encoder.finish()]));
-        for id in &output.textures_delta.free { self.renderer.free_texture(id); }
-        output.textures_delta.clear();
-        texture.clone()
+        state.queue.submit([encoder.finish()]);
+        texture
     }
 }
 
@@ -173,26 +178,46 @@ impl GlassRenderer {
             sampler,
             backdrop: None,
             blur: RefCell::new(BackdropBlur::new(device)),
-            scene: SceneRenderer::new(device),
+            scene: SceneRenderer::new(),
             selections: RefCell::new(Vec::new()),
             selection_index: Cell::new(0),
         }
     }
 
-    /// Render an ordinary limn page into a reusable RGBA texture before painting glass.
+    /// Render an ordinary limn page into a reusable texture before painting glass.
     ///
-    /// `id` belongs to the caller. `size` is in physical pixels, and `scale` is
-    /// pixels per logical point. The frame must contain the page behind the glass,
-    /// excluding the glass and its foreground. External `Surface` commands and
-    /// nested glass are refused: render those into a shared GPU texture with
-    /// `set_backdrop_texture` instead. No window surface is read or copied.
-    /// Returns false for unsupported commands, invalid size or invalid scale.
-    pub fn set_backdrop_frame(&mut self, id: &str, frame: &Frame, size: [u32; 2], scale: f32) -> bool {
+    /// Call during a pass of `ctx`, the window's context: the page is drawn by
+    /// the window's renderer from its own textures, so pictures and surfaces
+    /// appear as on screen without a second copy. `size` is in physical pixels,
+    /// and `scale` is pixels per logical point. The frame must contain the page
+    /// behind the glass, excluding the glass and its foreground; nested glass is
+    /// refused. The renderer must draw without multisampling or depth, as
+    /// eframe's does by default. Returns false for nested glass, invalid size or
+    /// invalid scale.
+    pub fn set_backdrop_frame(&mut self, ctx: &egui::Context, frame: &Frame, size: [u32; 2], scale: f32) -> bool {
         if !scale.is_finite() || scale <= 0.0 || !valid_upload(size, size[0] as usize * size[1] as usize * 4, self.state.device.limits().max_texture_dimension_2d)
-            || frame.commands.iter().any(|command| matches!(command, limn::DrawCommand::Surface { .. } | limn::DrawCommand::Glass { .. } | limn::DrawCommand::GlassSelection { .. })) { return false; }
-        let texture = self.scene.render(&self.state, id, frame, size, scale);
+            || frame.commands.iter().any(|command| matches!(command, limn::DrawCommand::Glass { .. } | limn::DrawCommand::GlassSelection { .. })) { return false; }
+        let texture = self.scene.render(&self.state, ctx, usize::MAX, &frame.commands, size, scale, egui::Pos2::ZERO);
         if self.backdrop.as_ref().is_none_or(|previous| previous.texture != texture) { self.replace_backdrop(texture); }
         true
+    }
+
+    /// Paint `frame` over what it paints beneath its first glass, as the page
+    /// behind every pane: that part is rendered into the backdrop first, as
+    /// [`set_backdrop_frame`](Self::set_backdrop_frame) does, across the window.
+    /// A frame without glass is painted as it is, at no extra cost. Call during
+    /// the window's pass; `origin` is in window points.
+    pub fn paint_page(&mut self, ui: &egui::Ui, frame: &Frame, origin: egui::Pos2) {
+        let glass = |command: &limn::DrawCommand| matches!(command, limn::DrawCommand::Glass { .. } | limn::DrawCommand::GlassSelection { .. });
+        let Some(first) = frame.commands.iter().position(glass) else { return super::paint_at(ui, frame, origin); };
+        let viewport = ui.ctx().viewport_rect();
+        let scale = ui.ctx().pixels_per_point();
+        let size = [(viewport.width() * scale).round() as u32, (viewport.height() * scale).round() as u32];
+        if valid_rect(viewport) && valid_upload(size, size[0] as usize * size[1] as usize * 4, self.state.device.limits().max_texture_dimension_2d) {
+            let texture = self.scene.render(&self.state, ui.ctx(), usize::MAX, &frame.commands[..first], size, scale, origin - viewport.min.to_vec2());
+            if self.backdrop.as_ref().is_none_or(|previous| previous.texture != texture) { self.replace_backdrop(texture); }
+        }
+        self.paint_at(ui, frame, origin, viewport);
     }
 
     /// Use a GPU-produced backdrop without readback or another texture upload.
@@ -226,7 +251,7 @@ impl GlassRenderer {
 
     fn replace_backdrop(&mut self, texture: wgpu::Texture) {
         self.blur.get_mut().entries.clear();
-        let view = texture.create_view(&Default::default());
+        let view = texture.create_view(&wgpu::TextureViewDescriptor { format: Some(texture.format().remove_srgb_suffix()), ..Default::default() });
         let mut renderer = self.state.renderer.write();
         let id = if let Some(previous) = &self.backdrop {
             renderer.update_egui_texture_from_wgpu_texture(
@@ -390,12 +415,11 @@ impl GlassRenderer {
         let index = self.selection_index.get();
         self.selection_index.set(index + 1);
         let mut scenes = self.selections.borrow_mut();
-        while scenes.len() <= index { scenes.push(SceneRenderer::new(&self.state.device)); }
-        let mut frame = Frame::default();
-        frame.commands = commands.to_vec();
-        let texture = scenes[index].render_at(&self.state, "selection", &frame, size, scale,
+        while scenes.len() <= index { scenes.push(SceneRenderer::new()); }
+        let texture = scenes[index].render(&self.state, ui.ctx(), index, commands, size, scale,
             egui::pos2(origin.x - backdrop_rect.min.x, origin.y - backdrop_rect.min.y));
-        let image = Backdrop { view: texture.create_view(&Default::default()), size, texture, id: egui::TextureId::Managed(0) };
+        let view = texture.create_view(&wgpu::TextureViewDescriptor { format: Some(texture.format().remove_srgb_suffix()), ..Default::default() });
+        let image = Backdrop { view, size, texture, id: egui::TextureId::Managed(0) };
         self.paint_image(ui, painter, area, radius, material, opacity, backdrop_rect, &image)
     }
 
