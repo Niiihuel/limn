@@ -62,7 +62,11 @@ and inline positions, retaining its action IDs.
 ## Menus and sheets
 
 `GlassMenu` reuses dropdown focus, keyboard navigation, action IDs and
-dismissal. Supply the trigger's laid-out rectangle as its morph origin.
+dismissal. Supply the trigger's laid-out rectangle as its origin: the whole
+menu, rows included, grows out of its corner nearest the trigger's centre
+from a tenth of its size in 200 ms, and shrinks back into it in 170 ms, as
+BitChord's does. Any popover can do the same with
+`Element::popover_grow_toward`.
 Dismissal reports `{id}:dismiss`. For a held row, wrap the row in
 `ContextMenu::new(...).open_action(...)`, handle that request by opening a
 `GlassMenu`, and use the row's bounds as its origin. The touch input bridge

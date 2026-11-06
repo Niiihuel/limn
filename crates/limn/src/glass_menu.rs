@@ -1,4 +1,4 @@
-//! Context actions that grow from their trigger through the glass material.
+//! Context actions on a pane of glass that grows out of its trigger.
 
 use crate::{
     Component, ComponentPalette, DropdownMenu, DropdownMenuEntry, Element, ElementKind,
@@ -13,8 +13,12 @@ pub struct GlassMenu {
     menu: DropdownMenu,
     material: GlassMaterial,
     origin: Rect,
-    origin_radius: f32,
 }
+
+/// BitChord's menu opens on a stiff, critically damped spring, about 200 ms,
+/// and closes in 170 ms.
+const OPEN_MS: u16 = 200;
+const CLOSE_MS: u16 = 170;
 
 impl GlassMenu {
     /// A menu anchored to the end of `anchor`. All generated IDs derive from
@@ -34,13 +38,12 @@ impl GlassMenu {
             menu: DropdownMenu::new(anchor, entries, open, format!("{id}:dismiss"), palette)
                 .placement(PopoverPlacement::BottomEnd)
                 .motion(MenuMotion {
-                    open_ms: crate::tokens().motion.move_ms,
+                    open_ms: OPEN_MS,
                     item_ms: crate::tokens().motion.hover_ms,
                 })
-                .close_animation_ms(crate::tokens().motion.move_ms),
+                .close_animation_ms(CLOSE_MS),
             material,
             origin,
-            origin_radius: origin.width.min(origin.height).max(0.0) / 2.0,
         }
     }
 
@@ -48,15 +51,6 @@ impl GlassMenu {
     /// and keeps all actions scrollable when the viewport is smaller.
     pub fn width(mut self, width: f32) -> Self {
         self.menu = self.menu.width(width);
-        self
-    }
-
-    /// The trigger's corner radius in logical pixels. Circular buttons use
-    /// half their shorter side by default. Non-finite values are ignored.
-    pub fn origin_radius(mut self, radius: f32) -> Self {
-        if radius.is_finite() {
-            self.origin_radius = radius.max(0.0);
-        }
         self
     }
 
@@ -83,7 +77,9 @@ impl Component for GlassMenu {
             surface.style.border = None;
             **floating = surface.glass(self.material);
         }
-        menu.popover_morph(self.origin, self.origin_radius)
+        // As BitChord's: all of it, rows too, grows out of its corner nearest the trigger.
+        let centre = Point::new(self.origin.x + self.origin.width / 2.0, self.origin.y + self.origin.height / 2.0);
+        menu.popover_grow_toward(centre)
     }
 }
 
