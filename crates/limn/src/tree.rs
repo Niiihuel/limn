@@ -13223,7 +13223,9 @@ impl LayoutBuilder<'_> {
                         let height = target.height * (1.0 + lift_y * grow_y);
                         let indicator = Rect::new(x - (width - state.width.value(self.now)) / 2.0,
                             target.y - (height - target.height) / 2.0, width, height);
-                        let radius = selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0);
+                        // Its corners grow with it: a capsule lifted is a capsule still, as Apple's lens.
+                        let radius = (selection.radius * indicator.height / target.height.max(1.0))
+                            .min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0);
                         let pad = selection.glass.map_or(0.0, |material| material.refraction.max(material.blur).max(target.height * 0.2));
                         let local_rect = Rect::new(rect.x - pad, rect.y - pad, rect.width + pad * 2.0, rect.height + pad * 2.0);
                         let command = match selection.glass {
@@ -16332,6 +16334,9 @@ mod tests {
         assert!(moving.x > start.x);
         assert!(moving.width > start.width, "travel stretches the lens");
         assert!(moving.height > start.height && moving.y < start.y, "and lifts it past its strip: {moving:?} from {start:?}");
+        let corner = |frame: &Frame| frame.commands.iter().find_map(|command| match command { DrawCommand::GlassSelection { radius, .. } => Some(*radius), _ => None }).unwrap();
+        assert!((corner(&midway) / moving.height - corner(&initial) / start.height).abs() < 0.01,
+            "its corners grow with it, so a capsule lifted is a capsule still: {} on {moving:?}", corner(&midway));
         assert!(midway.commands.iter().any(|command| matches!(command, DrawCommand::GlassSelection { opacity, .. } if *opacity > 0.1)));
         assert_eq!(midway.regions.iter().find(|region| region.id == "browse").unwrap().rect, target_region);
         tree.set_reduced_motion(true);
