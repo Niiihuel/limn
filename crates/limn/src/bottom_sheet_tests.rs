@@ -442,3 +442,23 @@ fn glass_material_belongs_to_the_sheet_shell_and_keeps_close_action() {
     tree.handle_event(UiEvent::PointerDown(point));
     assert_eq!(tree.handle_event(UiEvent::PointerUp(point)), vec![UiAction::Clicked { id: "dismiss".into() }]);
 }
+
+#[test]
+fn a_glass_sheet_with_an_origin_pops_out_of_it_as_a_drop() {
+    use crate::{Component, DrawCommand, Element, GlassMaterial, Rect, Size, UiTree};
+    let palette = crate::ComponentPalette::neutral_dark();
+    let button = Rect::new(170.0, 700.0, 50.0, 50.0);
+    let sheet = crate::BottomSheet::new(Element::spacer(), true, "Output", "", "output:close", palette)
+        .body(Element::spacer().size(None, Some(300.0))).glass(GlassMaterial::new(palette.surface)).render()
+        .popover_morph(button, 25.0).popover_animation_ms(crate::GLASS_POP_OPEN_MS);
+    let now = web_time::Instant::now();
+    let mut tree = UiTree::new(sheet);
+    let pane = |frame: &crate::Frame| frame.commands.iter().find_map(|command| match command {
+        DrawCommand::Glass { rect, .. } => Some(*rect), _ => None,
+    }).expect("a pane of glass");
+    tree.layout_at(Size::new(390.0, 844.0), now);
+    let early = pane(&tree.layout_at(Size::new(390.0, 844.0), now + web_time::Duration::from_millis(40)));
+    assert!(early.width < 100.0, "a drop over the button first: {early:?}");
+    let open = pane(&tree.layout_at(Size::new(390.0, 844.0), now + web_time::Duration::from_millis(700)));
+    assert!(open.width > 300.0, "then the sheet: {open:?}");
+}

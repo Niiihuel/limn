@@ -471,7 +471,7 @@ impl GlassRenderer {
             0.0,
             material.saturation, material.dim, material.power, material.intensity,
             material.bezel, material.magnify, material.presence, material.bloom,
-            0.0, 0.0, 0.0, 0.0,
+            material.glow_at.0, material.glow_at.1, material.glow, 0.0,
         ];
         let bytes: Vec<u8> = parameters
             .iter()

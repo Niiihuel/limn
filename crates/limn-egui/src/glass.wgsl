@@ -7,7 +7,8 @@ struct Parameters {
     options: vec4<f32>,
     optical: vec4<f32>,
     lens: vec4<f32>,
-    reserved: vec4<f32>,
+    // A press: where, as shares of the surface (xy), and how much light it brings (z).
+    glow: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> params: Parameters;
 @group(0) @binding(1) var backdrop: texture_2d<f32>;
@@ -126,6 +127,15 @@ fn linear_from_gamma(rgb: vec3<f32>) -> vec3<f32> {
     let lit = 0.03 + 0.09 * toward + 0.02 * away;
     rgb = mix(rgb, vec3(1.0), caught * lit);
     var alpha = mix(base_alpha, 1.0, max(glint, caught * lit));
+    // Pressed, the glass brightens around the press: a wide, soft lift, about 8% at full
+    // strength, as aurora's interactive glass and Apple's.
+    if params.glow.z > 0.001 {
+        let size = params.area.zw;
+        let off = (input.uv - params.glow.xy) * size;
+        let reach = 0.75 * max(size.x, size.y);
+        let lift = params.glow.z * (0.55 + 0.45 * exp(-dot(off, off) / (reach * reach)));
+        rgb = mix(rgb, vec3(1.0), 0.14 * lift);
+    }
     rgb = mix(rgb, vec3(1.0), params.lens.w * 0.12);
     alpha = mix(alpha, 1.0, params.lens.w * 0.084) * coverage * params.options.x;
     // Decode straight gamma RGB before premultiplication for linear targets.

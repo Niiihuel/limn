@@ -1012,6 +1012,8 @@ pub(crate) enum HoverReveal {
 pub(crate) struct Kept {
     /// Stored off the common element path: most elements have no material.
     pub(crate) glass: Option<GlassMaterial>,
+    /// Set by [`Element::glass_press`]: the ID its press is kept under.
+    pub(crate) glass_press: Option<String>,
     pub(crate) foreground: Option<String>,
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
@@ -4146,6 +4148,15 @@ impl Element {
     /// Fill the element's bounds with this color.
     pub fn background(mut self, color: Color) -> Self {
         self.style.background = Some(color);
+        self
+    }
+
+    /// Grow this pane of glass, and what is on it, while a press inside it lasts, and light
+    /// it around the press, as aurora's interactive glass: to 1.075 on a spring of 0.30 s
+    /// with a bounce of 0.35 and back on the same, the light coming in 120 ms and going in
+    /// 300. Its layout and pointer regions stay; its motion is kept under `id`.
+    pub fn glass_press(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().glass_press = Some(id.into());
         self
     }
 

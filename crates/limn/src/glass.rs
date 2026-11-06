@@ -35,6 +35,11 @@ pub struct GlassMaterial {
     pub presence: f32,
     /// Milky bloom during a morph, clamped to 0–1.
     pub bloom: f32,
+    /// Light under a press, clamped to 0–1: a wide soft lift around `glow_at`, as aurora's
+    /// interactive glass brightens. Set by [`Element::glass_press`](crate::Element::glass_press).
+    pub glow: f32,
+    /// Where the press is, as shares of the surface's width and height.
+    pub glow_at: (f32, f32),
 }
 
 impl GlassMaterial {
@@ -53,6 +58,8 @@ impl GlassMaterial {
             magnify: 1.0,
             presence: 1.0,
             bloom: 0.0,
+            glow: 0.0,
+            glow_at: (0.5, 0.5),
         }
     }
 
@@ -149,6 +156,8 @@ impl GlassMaterial {
             magnify: bound(self.magnify, 2.0).max(1.0),
             presence: bound(self.presence, 1.0),
             bloom: bound(self.bloom, 1.0),
+            glow: bound(self.glow, 1.0),
+            glow_at: (bound(self.glow_at.0, 1.0), bound(self.glow_at.1, 1.0)),
             ..self
         }
     }

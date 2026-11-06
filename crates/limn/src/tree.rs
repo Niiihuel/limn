@@ -11831,6 +11831,46 @@ impl LayoutBuilder<'_> {
 
     /// As `scalar`, on a spring that covers its way in one move: for a value
     /// that is followed, and redirected before it arrives.
+    /// aurora's interactive glass under a press, from its `Motion.qml`: `press` (0.30 s, bounce
+    /// 0.35), `pressScale` 1.075, `glowIn` 120 ms and `glowOut` 300 ms.
+    fn press_glass(&mut self, id: &str, rect: Rect, start: usize) {
+        let inside = self.pointer.filter(|point| rect.contains(*point));
+        let pressed = self.pressed.is_some() && inside.is_some();
+        let omega = std::f32::consts::TAU / 0.30;
+        let press = crate::SpringMotion { stiffness: omega * omega, damping_ratio: 0.65 };
+        let lift = self.spring_moving(&format!("glass-press/{id}"), if pressed { 1.0 } else { 0.0 }, press);
+        let glow = self.spring_paced(&format!("glass-glow/{id}"), if pressed { 1.0 } else { 0.0 }, 120, 300).clamp(0.0, 1.0);
+        if lift.abs() < 1e-3 && glow < 1e-3 {
+            return;
+        }
+        let at = inside.map_or((0.5, 0.5), |point| ((point.x - rect.x) / rect.width.max(1.0), (point.y - rect.y) / rect.height.max(1.0)));
+        let scale = 1.0 + 0.075 * lift;
+        let centre = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+        let mut lit = false;
+        for command in &mut self.frame.commands[start..] {
+            if let (DrawCommand::Glass { material, .. }, false) = (&mut *command, lit) {
+                (material.glow, material.glow_at, lit) = (glow, at, true);
+            }
+            animate_popover_command(command, 1.0, 0.0, scale, centre);
+        }
+    }
+
+    /// As `spring`, on `motion`.
+    fn spring_moving(&self, key: &str, target: f32, motion: crate::SpringMotion) -> f32 {
+        let mut springs = self.springs.borrow_mut();
+        let state = springs.entry(key.to_owned()).or_insert_with(|| AnimatedSpring {
+            value: ScalarSpring::new(target, self.now),
+            seen: self.now,
+        });
+        state.seen = self.now;
+        if self.reduced_motion {
+            state.value = ScalarSpring::new(target, self.now);
+        } else if target != state.value.target() {
+            state.value.launch(target, motion, self.now);
+        }
+        state.value.value(self.now)
+    }
+
     fn spring(&self, key: &str, target: f32) -> f32 {
         let motion = crate::tokens().motion.move_ms;
         self.spring_paced(key, target, motion, motion)
@@ -12492,6 +12532,9 @@ impl LayoutBuilder<'_> {
                     animate_popover_command(command, 1.0, 0.0, scale, origin);
                 }
             }
+        }
+        if let Some(id) = element.kept.as_ref().and_then(|kept| kept.glass_press.as_ref()) {
+            self.press_glass(id, rect, start);
         }
         match &element.presence {
             Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed | HoverReveal::Rising) => {
@@ -16300,6 +16343,31 @@ mod tests {
             cancel.handle_event(UiEvent::PointerLeave);
             assert!(cancel.handle_event(UiEvent::PointerUp(other)).is_empty());
         }
+    }
+
+    #[test]
+    fn pressed_interactive_glass_grows_and_lights_up_where_it_is_held_then_settles_back() {
+        let material = GlassMaterial::new(Color::rgba(38, 38, 40, 122));
+        let view = || Element::panel(Element::button("go", "Go").size(Some(56.0), Some(56.0)))
+            .glass(material).glass_press("go").round().size(Some(56.0), Some(56.0));
+        let pane = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Glass { rect, material, .. } => Some((*rect, *material)), _ => None,
+        }).unwrap();
+        let now = Instant::now();
+        let mut tree = UiTree::new(view());
+        let (rest, _) = pane(&tree.layout_at(Size::new(200.0, 200.0), now));
+        let at = Point::new(rest.x + 40.0, rest.y + 20.0);
+        tree.handle_event(UiEvent::PointerMove(at));
+        tree.handle_event(UiEvent::PointerDown(at));
+        tree.layout_at(Size::new(200.0, 200.0), now);
+        let (held, lit) = pane(&tree.layout_at(Size::new(200.0, 200.0), now + Duration::from_millis(250)));
+        assert!(held.width > rest.width * 1.05 && held.width < rest.width * 1.1, "grown about 7.5%: {held:?}");
+        assert!(lit.glow > 0.9 && (lit.glow_at.0 - 40.0 / rest.width).abs() < 0.01 && (lit.glow_at.1 - 20.0 / rest.height).abs() < 0.01,
+            "lit where held: {lit:?}");
+        tree.handle_event(UiEvent::PointerUp(at));
+        tree.layout_at(Size::new(200.0, 200.0), now + Duration::from_millis(260));
+        let (back, _) = pane(&tree.layout_at(Size::new(200.0, 200.0), now + Duration::from_millis(1200)));
+        assert!((back.width - rest.width).abs() < 0.5, "back to its size: {back:?}");
     }
 
     #[test]
