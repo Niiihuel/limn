@@ -307,6 +307,8 @@ pub use page::SectionSizing;
 pub use panel_header::HeaderSizing;
 
 mod glass;
+mod liquid;
+pub use liquid::{GLASS_POP_CLOSE_MS, GLASS_POP_OPEN_MS};
 pub use glass::GlassMaterial;
 
 mod floating_glass_bar;

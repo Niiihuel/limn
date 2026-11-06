@@ -1317,16 +1317,6 @@ fn paint_dashed_corners(
 /// How far past its tab strip a lifted selection lens stands, top and bottom together.
 const LENS_LIFT: f32 = 9.0;
 
-/// The share of its size a surface that grows toward its trigger starts from.
-const GROW_FROM: f32 = 0.1;
-
-/// The corner of `rect` nearest `point`.
-fn nearest_corner(rect: Rect, point: Point) -> Point {
-    let x = if (point.x - rect.x).abs() <= (point.x - (rect.x + rect.width)).abs() { rect.x } else { rect.x + rect.width };
-    let y = if (point.y - rect.y).abs() <= (point.y - (rect.y + rect.height)).abs() { rect.y } else { rect.y + rect.height };
-    Point::new(x, y)
-}
-
 /// The curve a popover's pictures travel on from their origin, and back on close.
 const MORPH_CURVE: Easing = Easing::CubicBezier(0.32, 0.72, 0.0, 1.0);
 
@@ -1347,36 +1337,10 @@ fn morph_picture(command: &mut DrawCommand, origin: Rect, radius: f32, t: f32) {
     }
 }
 
-/// Glass menus grow an opaque optical shell first; their rows arrive at the end.
-fn morph_glass_menu(command: &mut DrawCommand, origin: Rect, origin_radius: f32,
-    target: Rect, eased: f32, closing: bool) {
-    let time = 1.0 - (1.0 - eased.clamp(0.0, 1.0)).cbrt();
-    let t = if closing { MORPH_CURVE.sample(eased) } else {
-        // A small underdamped rebound, normalized to the exact final shape.
-        let spring = |t: f32| 1.0 - (-7.0 * t).exp() * ((10.0 * t).cos() + 0.7 * (10.0 * t).sin());
-        spring(time) / spring(1.0)
-    };
-    if popover_shell_command(command, target) {
-        let lerp = |from: f32, to: f32| from + (to - from) * t;
-        let rect = Rect::new(lerp(origin.x, target.x), lerp(origin.y, target.y),
-            lerp(origin.width, target.width).max(0.0), lerp(origin.height, target.height).max(0.0));
-        morph_popover_shell(command, rect);
-        match command {
-            DrawCommand::Glass { radius, material, opacity, .. } => {
-                *radius = lerp(origin_radius, *radius).max(0.0);
-                material.presence *= eased;
-                material.bloom = (1.0 - eased) * 0.35;
-                if closing { *opacity *= eased; }
-            }
-            DrawCommand::FillRect { radius, .. } | DrawCommand::StrokeRect { radius, .. }
-            | DrawCommand::Shadow { radius, .. } => *radius = lerp(origin_radius, *radius).max(0.0),
-            _ => {}
-        }
-    } else {
-        let content = ((time - 0.55) / 0.45).clamp(0.0, 1.0);
-        animate_popover_command(command, content, (1.0 - content) * 4.0, 1.0,
-            Point::new(target.x, target.y));
-    }
+/// Dims a command's colours to `share` of their alpha, in its place.
+fn liquid_fade(command: &mut DrawCommand, share: f32) {
+    let place = command.bounds().map_or(Point::new(0.0, 0.0), |rect| Point::new(rect.x, rect.y));
+    animate_popover_command(command, share, 0.0, 1.0, place);
 }
 
 fn animate_popover_command(
@@ -1985,7 +1949,6 @@ struct PopoverSnapshot {
     animation_ms: u16,
     close_animation_ms: Option<u16>,
     open_scale: f32,
-    grow: Option<Point>,
     morph: Option<(Rect, f32)>,
     view_key: Option<String>,
     rect: Rect,
@@ -5698,7 +5661,6 @@ impl UiTree {
                         animation_ms,
                         close_animation_ms,
                         open_scale,
-                        grow,
                         morph,
                         view_key,
                         backdrop,
@@ -5959,7 +5921,6 @@ impl UiTree {
                                 animation_ms,
                                 close_animation_ms,
                                 open_scale,
-                                grow,
                                 morph,
                                 view_key: view_key.clone(),
                                 rect,
@@ -6031,13 +5992,12 @@ impl UiTree {
                             }
                             builder.frame.commands.push(DrawCommand::PopClip);
                         }
-                        let glass_morph = grow.is_none() && morph.is_some() && builder.frame.commands[command_start..].iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
+                        let glass_morph = morph.is_some() && builder.frame.commands[command_start..].iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
                         if progress < 1.0 && !glass_morph {
-                            let (slide, scale, origin) = match grow {
-                                Some(toward) => (0.0, GROW_FROM + (1.0 - GROW_FROM) * progress, nearest_corner(rect, toward)),
-                                None => ((1.0 - progress) * slide_sign * 4.0, open_scale + (1.0 - open_scale) * progress,
-                                    Point::new(rect.x + rect.width / 2.0, rect.y + rect.height)),
-                            };
+                            let slide = (1.0 - progress) * slide_sign * 4.0;
+                            let scale = open_scale + (1.0 - open_scale) * progress;
+                            let origin =
+                                Point::new(rect.x + rect.width / 2.0, rect.y + rect.height);
                             for (index, command) in
                                 builder.frame.commands[command_start..].iter_mut().enumerate()
                             {
@@ -6046,10 +6006,14 @@ impl UiTree {
                                 animate_popover_command(command, progress, slide, scale, origin);
                             }
                         }
-                        if let (Some((origin, radius)), true, None) = (morph, progress < 1.0, grow) {
-                            for command in &mut builder.frame.commands[command_start..] {
-                                if glass_morph { morph_glass_menu(command, origin, radius, rect, progress, false); }
-                                else { morph_picture(command, origin, radius, MORPH_CURVE.sample(progress)); }
+                        if let (Some((origin, radius)), true) = (morph, progress < 1.0) {
+                            if glass_morph {
+                                let pop = crate::liquid::pop(origin, rect, crate::liquid::seconds(progress, animation_ms), false);
+                                crate::liquid::apply(&mut builder.frame.commands, command_start, rect, pop, liquid_fade);
+                            } else {
+                                for command in &mut builder.frame.commands[command_start..] {
+                                    morph_picture(command, origin, radius, MORPH_CURVE.sample(progress));
+                                }
                             }
                         }
                         if travel != (0.0, 0.0) {
@@ -6181,12 +6145,10 @@ impl UiTree {
             let mut exit_commands = Vec::new();
             for exit in self.popover_exits.values() {
                 let opacity = exit.opacity.value(now);
+                let slide = (1.0 - opacity) * exit.paint.slide_sign * 4.0;
+                let scale = exit.paint.open_scale + (1.0 - exit.paint.open_scale) * opacity;
                 let rect = exit.paint.rect;
-                let (slide, scale, origin) = match exit.paint.grow {
-                    Some(toward) => (0.0, GROW_FROM + (1.0 - GROW_FROM) * opacity, nearest_corner(rect, toward)),
-                    None => ((1.0 - opacity) * exit.paint.slide_sign * 4.0, exit.paint.open_scale + (1.0 - exit.paint.open_scale) * opacity,
-                        Point::new(rect.x + rect.width / 2.0, rect.y + rect.height)),
-                };
+                let origin = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height);
                 if let Some((rect, mut color)) = exit.paint.scrim {
                     color.a = (f32::from(color.a) * opacity.clamp(0.0, 1.0)).round() as u8;
                     exit_commands.push(DrawCommand::FillRect {
@@ -6195,14 +6157,21 @@ impl UiTree {
                         radius: 0.0,
                     });
                 }
+                let glass_morph = exit.paint.morph.is_some() && exit.paint.commands.iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
+                if let (Some((from, _)), true) = (exit.paint.morph, glass_morph) {
+                    let closing = exit.paint.close_animation_ms.unwrap_or(exit.paint.animation_ms.min(crate::tokens().motion.exit_ms));
+                    let mut commands = exit.paint.commands.clone();
+                    let pop = crate::liquid::pop(from, rect, crate::liquid::seconds(1.0 - opacity, closing), true);
+                    crate::liquid::apply(&mut commands, 0, rect, pop, liquid_fade);
+                    exit_commands.extend(commands);
+                    continue;
+                }
                 for command in &exit.paint.commands {
                     let mut command = command.clone();
-                    let glass_morph = exit.paint.grow.is_none() && exit.paint.morph.is_some() && exit.paint.commands.iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
-                    if let (Some((from, radius)), None) = (exit.paint.morph, exit.paint.grow) {
-                        if glass_morph { morph_glass_menu(&mut command, from, radius, rect, opacity, true); }
-                        else { morph_picture(&mut command, from, radius, MORPH_CURVE.sample(opacity)); }
+                    if let Some((from, radius)) = exit.paint.morph {
+                        morph_picture(&mut command, from, radius, MORPH_CURVE.sample(opacity));
                     }
-                    if !glass_morph { animate_popover_command(&mut command, opacity, slide, scale, origin); }
+                    animate_popover_command(&mut command, opacity, slide, scale, origin);
                     exit_commands.push(command);
                 }
             }
@@ -9035,7 +9004,6 @@ enum DeferredOverlay {
         animation_ms: u16,
         close_animation_ms: Option<u16>,
         open_scale: f32,
-        grow: Option<Point>,
         morph: Option<(Rect, f32)>,
         view_key: Option<String>,
         backdrop: bool,
@@ -9631,7 +9599,6 @@ impl LayoutBuilder<'_> {
                 animation_ms: crate::tokens().motion.enter_ms,
                 close_animation_ms: None,
                 open_scale: 1.0,
-                grow: None,
                 morph: None,
                 view_key: None,
                 rect,
@@ -13257,7 +13224,6 @@ impl LayoutBuilder<'_> {
                 animation_ms,
                 close_animation_ms,
                 open_scale,
-                grow,
                 morph,
                 view_key,
                 hover_open,
@@ -13361,7 +13327,6 @@ impl LayoutBuilder<'_> {
                     animation_ms: *animation_ms,
                     close_animation_ms: *close_animation_ms,
                     open_scale: *open_scale,
-                    grow: *grow,
                     morph: *morph,
                     view_key: view_key.clone(),
                     backdrop: *backdrop,
@@ -16335,27 +16300,6 @@ mod tests {
             cancel.handle_event(UiEvent::PointerLeave);
             assert!(cancel.handle_event(UiEvent::PointerUp(other)).is_empty());
         }
-    }
-
-    #[test]
-    fn glass_menu_shell_grows_before_its_rows_and_reverses_on_close() {
-        let origin = Rect::new(220.0, 10.0, 36.0, 36.0);
-        let target = Rect::new(60.0, 52.0, 196.0, 180.0);
-        let material = GlassMaterial::new(Color::rgba(20, 30, 40, 40));
-        let shell = DrawCommand::Glass { rect: target, radius: 20.0, material, opacity: 1.0 };
-        let row = DrawCommand::FillRect { rect: Rect::new(70.0, 62.0, 176.0, 30.0), radius: 4.0, color: Color::rgb(255,255,255) };
-        let mut early_shell = shell.clone();
-        morph_glass_menu(&mut early_shell, origin, 18.0, target, 0.0, false);
-        assert!(matches!(early_shell, DrawCommand::Glass { rect, .. } if rect == origin));
-        let mut early_row = row.clone();
-        morph_glass_menu(&mut early_row, origin, 18.0, target, 0.5, false);
-        assert!(matches!(early_row, DrawCommand::FillRect { color, .. } if color.a == 0));
-        let mut finished = shell.clone();
-        morph_glass_menu(&mut finished, origin, 18.0, target, 1.0, false);
-        assert!(matches!(finished, DrawCommand::Glass { rect, .. } if rect == target));
-        let mut closed = shell;
-        morph_glass_menu(&mut closed, origin, 18.0, target, 0.0, true);
-        assert!(matches!(closed, DrawCommand::Glass { rect, opacity, .. } if rect == origin && opacity == 0.0));
     }
 
     #[test]
@@ -22400,35 +22344,5 @@ mod tests {
             }] = true;
         }
         assert_eq!(corners, [true; 4]);
-    }
-
-    #[test]
-    fn a_surface_grows_out_of_its_corner_nearest_the_trigger_and_goes_back_into_it() {
-        let paper = Color::rgb(250, 250, 250);
-        let view = |open: bool| {
-            let anchor = Element::spacer().size(Some(40.0), Some(40.0));
-            if !open { return anchor; }
-            let surface = Element::panel(Element::spacer()).background(paper).size(Some(200.0), Some(300.0));
-            Element::popover(anchor, surface, "menu:dismiss", PopoverPlacement::BottomEnd)
-                .popover_grow_toward(Point::new(380.0, 20.0)).popover_animation_ms(200).popover_close_animation_ms(170)
-        };
-        let painted = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
-            DrawCommand::FillRect { rect, color, .. } if color.r == paper.r && color.g == paper.g => Some(*rect),
-            _ => None,
-        });
-        let size = Size::new(400.0, 400.0);
-        let now = Instant::now();
-        let mut tree = UiTree::new(view(true));
-        let start = painted(&tree.layout_at(size, now)).expect("the surface is painted from its first frame");
-        let rest = painted(&tree.layout_at(size, now + Duration::from_millis(400))).unwrap();
-        let corner = Point::new(rest.x + rest.width, rest.y);
-        assert!((start.width - rest.width * 0.1).abs() < 0.5, "a tenth of its size: {start:?} of {rest:?}");
-        assert!((start.x + start.width - corner.x).abs() < 0.5 && (start.y - corner.y).abs() < 0.5,
-            "from its top right corner, nearest the trigger: {start:?}, {corner:?}");
-        tree.set_root(view(false));
-        tree.layout_at(size, now + Duration::from_millis(400));
-        let leaving = painted(&tree.layout_at(size, now + Duration::from_millis(485))).expect("it shrinks as it leaves");
-        assert!(leaving.width < rest.width && (leaving.x + leaving.width - corner.x).abs() < 0.5 && (leaving.y - corner.y).abs() < 0.5,
-            "back into the same corner: {leaving:?}");
     }
 }

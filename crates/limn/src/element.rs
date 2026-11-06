@@ -1671,9 +1671,6 @@ pub enum ElementKind {
         /// Scale the entrance starts from and the exit ends at; 1 does not
         /// scale. [`Element::popover_open_scale`] keeps it within 0.5..=1.25.
         open_scale: f32,
-        /// Grow from a tenth of its size at its corner nearest this window point,
-        /// its trigger's centre; see [`Element::popover_grow_toward`].
-        grow: Option<Point>,
         /// The rectangle and corner radius the pictures grow from; see
         /// [`Element::popover_morph`].
         morph: Option<(Rect, f32)>,
@@ -3011,7 +3008,6 @@ impl Element {
                 animation_ms: crate::tokens().motion.enter_ms,
                 close_animation_ms: None,
                 open_scale: 1.0,
-                grow: None,
                 morph: None,
                 view_key: None,
                 hover_open: false,
@@ -3226,20 +3222,6 @@ impl Element {
         if let ElementKind::Popover { morph, .. } = &mut self.kind {
             if finite {
                 *morph = Some((origin, radius.max(0.0)));
-            }
-        }
-        self
-    }
-
-    /// Grow the whole surface, all it paints, from a tenth of its size at its
-    /// corner nearest `toward`, a window point such as its trigger's centre, as
-    /// a phone's menu opens out of its button; the exit shrinks back into that
-    /// corner. Hit geometry stays final. Takes the place of the open scale and
-    /// of a morph. A point that is not finite is ignored.
-    pub fn popover_grow_toward(mut self, toward: Point) -> Self {
-        if let ElementKind::Popover { grow, .. } = &mut self.kind {
-            if toward.x.is_finite() && toward.y.is_finite() {
-                *grow = Some(toward);
             }
         }
         self

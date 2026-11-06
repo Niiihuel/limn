@@ -62,11 +62,13 @@ and inline positions, retaining its action IDs.
 ## Menus and sheets
 
 `GlassMenu` reuses dropdown focus, keyboard navigation, action IDs and
-dismissal. Supply the trigger's laid-out rectangle as its origin: the whole
-menu, rows included, grows out of its corner nearest the trigger's centre
-from a tenth of its size in 200 ms, and shrinks back into it in 170 ms, as
-BitChord's does. Any popover can do the same with
-`Element::popover_grow_toward`.
+dismissal. Supply the trigger's laid-out rectangle as its morph origin: the
+menu pops as aurora's `GlassMorph.qml` does, a small drop leaving the trigger
+that swells into the panel on a spring for each edge, its corners, veil and
+a faint bloom forming on the way, and the rows, where they are laid out,
+focusing in through it; closing shrinks it into the drop, which melts into
+the trigger. Any glass popover does the same with `Element::popover_morph`
+and `GLASS_POP_OPEN_MS` / `GLASS_POP_CLOSE_MS`.
 Dismissal reports `{id}:dismiss`. For a held row, wrap the row in
 `ContextMenu::new(...).open_action(...)`, handle that request by opening a
 `GlassMenu`, and use the row's bounds as its origin. The touch input bridge

@@ -210,6 +210,8 @@ impl GlassRenderer {
     pub fn paint_page(&mut self, ui: &egui::Ui, frame: &Frame, origin: egui::Pos2) {
         let glass = |command: &limn::DrawCommand| matches!(command, limn::DrawCommand::Glass { .. } | limn::DrawCommand::GlassSelection { .. });
         let Some(first) = frame.commands.iter().position(glass) else { return super::paint_at(ui, frame, origin); };
+        // A pane's own shadow is painted just before it; the pane must not see it beneath itself.
+        let first = if first > 0 && matches!(frame.commands[first - 1], limn::DrawCommand::Shadow { .. }) { first - 1 } else { first };
         let viewport = ui.ctx().viewport_rect();
         let scale = ui.ctx().pixels_per_point();
         let size = [(viewport.width() * scale).round() as u32, (viewport.height() * scale).round() as u32];
