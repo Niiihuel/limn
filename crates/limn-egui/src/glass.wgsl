@@ -7,7 +7,8 @@ struct Parameters {
     options: vec4<f32>,
     optical: vec4<f32>,
     lens: vec4<f32>,
-    // A press: where, as shares of the surface (xy), and how much light it brings (z).
+    // A press: where, as shares of the surface (xy), and how much light it brings (z); the
+    // share of the height the pane fades out over toward its foot (w).
     glow: vec4<f32>,
 };
 @group(0) @binding(0) var<uniform> params: Parameters;
@@ -138,6 +139,10 @@ fn linear_from_gamma(rgb: vec3<f32>) -> vec3<f32> {
     }
     rgb = mix(rgb, vec3(1.0), params.lens.w * 0.12);
     alpha = mix(alpha, 1.0, params.lens.w * 0.084) * coverage * params.options.x;
+    // A scroll edge: the pane gives way to the sharp page toward its foot.
+    if params.glow.w > 0.001 {
+        alpha *= smoothstep(0.0, 1.0, clamp((1.0 - input.uv.y) / params.glow.w, 0.0, 1.0));
+    }
     // Decode straight gamma RGB before premultiplication for linear targets.
     if params.options.z > 0.5 { rgb = linear_from_gamma(rgb); }
     return vec4(rgb * alpha, alpha);

@@ -40,6 +40,9 @@ pub struct GlassMaterial {
     pub glow: f32,
     /// Where the press is, as shares of the surface's width and height.
     pub glow_at: (f32, f32),
+    /// Share of the pane's height, clamped to 0–1, over which it fades out toward its foot:
+    /// with no tint, rim or bend, the soft scroll edge iOS blurs a page into under its bars.
+    pub fade: f32,
 }
 
 impl GlassMaterial {
@@ -60,6 +63,7 @@ impl GlassMaterial {
             bloom: 0.0,
             glow: 0.0,
             glow_at: (0.5, 0.5),
+            fade: 0.0,
         }
     }
 
@@ -129,6 +133,13 @@ impl GlassMaterial {
         self
     }
 
+    /// Fade the pane out over this share of its height toward its foot; ignore non-finite
+    /// input and clamp to 0–1.
+    pub fn fade(mut self, value: f32) -> Self {
+        if value.is_finite() { self.fade = value.clamp(0.0, 1.0); }
+        self
+    }
+
     /// Set material bloom; ignore non-finite input and clamp to 0–1.
     pub fn bloom(mut self, value: f32) -> Self {
         if value.is_finite() { self.bloom = value.clamp(0.0, 1.0); }
@@ -158,6 +169,7 @@ impl GlassMaterial {
             bloom: bound(self.bloom, 1.0),
             glow: bound(self.glow, 1.0),
             glow_at: (bound(self.glow_at.0, 1.0), bound(self.glow_at.1, 1.0)),
+            fade: bound(self.fade, 1.0),
             ..self
         }
     }
