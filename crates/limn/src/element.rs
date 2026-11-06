@@ -949,6 +949,11 @@ pub struct TabSelection {
     pub press_id: Option<String>,
     /// Optional lens width overriding the selected slot width.
     pub width: Option<f32>,
+    /// Optional indicator height, centred in the selected slot: a segmented control's knob
+    /// inside taller touch targets.
+    pub height: Option<f32>,
+    /// aurora's segmented knob, by how much it grows lifted; see [`Element::selection_lift`].
+    pub lift: Option<f32>,
     /// Stable ID under which the tree keeps where the indicator is.
     pub group_id: String,
     /// ID of the tab button, or of the [`Element::indicator_slot`] child, the
@@ -2394,6 +2399,8 @@ impl Element {
                 glass: None,
                 press_id: None,
                 width: None,
+                height: None,
+                lift: None,
                 group_id: group_id.into(),
                 selected_id: selected_id.into(),
                 color,
@@ -2410,6 +2417,31 @@ impl Element {
     pub fn glass_selection(mut self, material: crate::GlassMaterial) -> Self {
         if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
             selection.glass = Some(material);
+        }
+        self
+    }
+
+    /// Draw the selection this tall, centred in its slot. Has no effect until
+    /// `tab_selection` is set; a height that is not finite is ignored.
+    pub fn tab_selection_height(mut self, height: f32) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            if height.is_finite() {
+                selection.height = Some(height.max(0.0));
+            }
+        }
+        self
+    }
+
+    /// Move a glass selection as aurora's segmented control moves its knob: on its snappy
+    /// spring (0.30 s, bounce 0.15), lifted to `scale` as a lens for the first half of its
+    /// way on its press spring (0.30 s, bounce 0.35), then landing on its bouncy one (0.42 s,
+    /// bounce 0.55), squashing into place as it arrives. Has no effect until `tab_selection`
+    /// and `glass_selection` are set; a scale that is not finite is ignored.
+    pub fn selection_lift(mut self, scale: f32) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            if scale.is_finite() {
+                selection.lift = Some(scale.clamp(1.0, 2.0));
+            }
         }
         self
     }

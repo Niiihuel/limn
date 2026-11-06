@@ -1314,6 +1314,13 @@ fn paint_dashed_corners(
 /// Move and fade a floating surface's paint only. Its layout, pointer regions,
 /// scroll geometry, and focus targets stay at their final coordinates, so a
 /// short entrance cannot make a menu's click target drift under the pointer.
+/// A spring as aurora's `Motion.qml` gives one, SwiftUI's: perceptual duration in seconds and
+/// bounce; ω = 2π / duration, ζ = 1 − bounce.
+fn aurora_spring(duration: f32, bounce: f32) -> crate::SpringMotion {
+    let omega = std::f32::consts::TAU / duration;
+    crate::SpringMotion { stiffness: omega * omega, damping_ratio: 1.0 - bounce }
+}
+
 /// How far past its tab strip a lifted selection lens stands, top and bottom together.
 const LENS_LIFT: f32 = 9.0;
 
@@ -13089,6 +13096,10 @@ impl LayoutBuilder<'_> {
                             if index == Some(children.len().saturating_sub(1)) { target.x += target.width - width; }
                             target.width = width;
                         }
+                        if let Some(height) = selection.height {
+                            target.y += (target.height - height) / 2.0;
+                            target.height = height;
+                        }
                         if selection.glass.is_some() && matches!(selection.selected_id.as_str(), "on" | "off") {
                             if let Some(id) = &selection.press_id {
                                 self.frame.glass_switches.insert(id.clone(), GlassSwitchGeometry { bounds: rect, checked: selection.selected_id == "on" });
@@ -13117,6 +13128,8 @@ impl LayoutBuilder<'_> {
                             let duration = Duration::from_millis(u64::from(selection.animation_ms));
                             let motion = if selection.glass.is_some() && selection.press_id.is_some() {
                                 crate::SpringMotion { stiffness: 700.0, damping_ratio: 0.78 }
+                            } else if selection.glass.is_some() && selection.lift.is_some() {
+                                aurora_spring(0.30, 0.15)
                             } else if selection.glass.is_some() {
                                 crate::SpringMotion { stiffness: 280.0, damping_ratio: 0.938 }
                             } else { crate::SpringMotion::settling_in(duration) };
@@ -13156,11 +13169,25 @@ impl LayoutBuilder<'_> {
                         let distance = (target.x - state.travel_from).abs();
                         let pressed = selection.press_id.as_deref().is_some_and(|id| self.pressed == Some(id))
                             || action_ids.iter().any(|id| self.pressed == Some(id.as_str()));
-                        let lifting = selection.glass.is_some() && (pressed || (distance > 0.1 && remaining > distance * 0.08));
+                        // aurora's knob is held up while more than 45% of a segment is left
+                        // to go; BitChord's lens until 92% of the way.
+                        let lifting = selection.glass.is_some() && (pressed || match selection.lift {
+                            Some(_) => remaining > 0.45 * target.width,
+                            None => distance > 0.1 && remaining > distance * 0.08,
+                        });
                         if self.reduced_motion || selection.glass.is_none() {
                             state.lift_x.snap_to(0.0, self.now);
                             state.lift_y.snap_to(0.0, self.now);
                             state.material_presence.snap_to(0.0, self.now);
+                        } else if selection.lift.is_some() {
+                            // Lifted on the press spring, landed on the bouncy one.
+                            let goal = if lifting { 1.0 } else { 0.0 };
+                            if state.lift_x.target() != goal {
+                                let motion = if lifting { aurora_spring(0.30, 0.35) } else { aurora_spring(0.42, 0.55) };
+                                state.lift_x.launch(goal, motion, self.now);
+                                state.lift_y.launch(goal, motion, self.now);
+                            }
+                            state.material_presence.retarget(goal, self.now);
                         } else {
                             state.lift_x.retarget(if lifting { 1.0 } else { 0.0 }, self.now);
                             state.lift_y.retarget(if lifting { 1.0 } else { 0.0 }, self.now);
@@ -13174,6 +13201,8 @@ impl LayoutBuilder<'_> {
                         // BitChord's tab bar's does while it travels.
                         let (grow_x, grow_y) = if selection.press_id.is_some() {
                             (if pressed { 0.18 } else { 0.12 }, if pressed { 0.18 } else { -0.06 })
+                        } else if let Some(scale) = selection.lift {
+                            (scale - 1.0, scale - 1.0)
                         } else {
                             let grow = ((rect.height + LENS_LIFT) / target.height.max(1.0) - 1.0).max(0.0);
                             (grow, grow)
@@ -16297,6 +16326,33 @@ mod tests {
         let (snapped, _) = lens(&tree.layout_at(size, now + Duration::from_millis(80)));
         assert_eq!(snapped.x, target_region.x);
         assert_eq!(snapped.width, target_region.width);
+    }
+
+    #[test]
+    fn a_segmented_knob_lifts_for_half_its_way_and_lands_in_its_slot_as_auroras() {
+        let lens = GlassMaterial::new(Color::rgba(255, 255, 255, 40)).blur(0.0);
+        let view = |selected: &str| {
+            let cell = |id: &str| Element::clickable(id, Element::text(id)).size(None, Some(44.0)).flex(1.0).indicator_slot(id);
+            Element::tab_strip(vec![cell("all"), cell("songs"), cell("artists"), cell("albums")],
+                ["all", "songs", "artists", "albums"].map(String::from).to_vec())
+                .tab_selection("segments", selected, Color::rgb(99, 99, 102), 15.0, 200)
+                .tab_selection_height(30.0).glass_selection(lens).selection_lift(1.3)
+        };
+        let lens_at = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::GlassSelection { rect, opacity, .. } => Some((*rect, *opacity)), _ => None,
+        }).unwrap();
+        let size = Size::new(400.0, 44.0);
+        let now = Instant::now();
+        let mut tree = UiTree::new(view("all"));
+        let (rest, hidden) = lens_at(&tree.layout_at(size, now));
+        assert!((rest.height - 30.0).abs() < 0.01 && (rest.y - 7.0).abs() < 0.01 && hidden == 0.0, "a 30 knob in a 44 slot: {rest:?}");
+        tree.set_root(view("albums"));
+        tree.layout_at(size, now);
+        let (lifted, seen) = lens_at(&tree.layout_at(size, now + Duration::from_millis(60)));
+        assert!(lifted.height > 34.0 && seen > 0.5, "lifted into a lens on its way: {lifted:?}");
+        for ms in (100..1500).step_by(16) { tree.layout_at(size, now + Duration::from_millis(ms)); }
+        let (landed, gone) = lens_at(&tree.layout_at(size, now + Duration::from_millis(1500)));
+        assert!((landed.height - 30.0).abs() < 0.5 && landed.x > 280.0 && gone < 0.05, "landed in its slot, flat again: {landed:?}");
     }
 
     #[test]
