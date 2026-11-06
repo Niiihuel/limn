@@ -2034,6 +2034,9 @@ struct FlowHeight {
 struct PopoverExit {
     paint: PopoverSnapshot,
     opacity: ScalarTransition,
+    /// Opened after every popover still open: it leaves above them, where it stood, not
+    /// under a sheet it was opened over.
+    on_top: bool,
 }
 
 struct PopoverViewTransition {
@@ -4498,6 +4501,9 @@ pub struct UiTree {
     popover_transitions: HashMap<String, ScalarTransition>,
     popover_snapshots: HashMap<String, PopoverSnapshot>,
     popover_exits: HashMap<String, PopoverExit>,
+    /// The order the open popovers opened in, so one that closes keeps its depth.
+    popover_order: HashMap<String, u64>,
+    popover_opened: u64,
     replacements: HashMap<String, Replacement>,
     // Measuring reads and starts these, and measuring borrows the tree shared.
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
@@ -4604,6 +4610,8 @@ impl UiTree {
             popover_transitions: HashMap::new(),
             popover_snapshots: HashMap::new(),
             popover_exits: HashMap::new(),
+            popover_order: HashMap::new(),
+            popover_opened: 0,
             replacements: HashMap::new(),
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
@@ -5102,6 +5110,7 @@ impl UiTree {
             self.popover_transitions.clear();
             self.popover_snapshots.clear();
             self.popover_exits.clear();
+            self.popover_order.clear();
             self.replacements.clear();
             self.flow_heights.get_mut().clear();
             self.scalars.get_mut().clear();
@@ -6137,13 +6146,17 @@ impl UiTree {
                             .unwrap_or(paint.animation_ms.min(crate::tokens().motion.exit_ms)),
                     )),
                 );
+                let opened = self.popover_order.get(&id).copied().unwrap_or(0);
+                let on_top = observed_popovers.iter().filter_map(|open| self.popover_order.get(open)).all(|other| *other < opened);
                 self.popover_exits
-                    .insert(id, PopoverExit { paint, opacity });
+                    .insert(id, PopoverExit { paint, opacity, on_top });
             }
             self.popover_exits
                 .retain(|id, exit| !observed_popovers.contains(id) && exit.opacity.is_active(now));
             let mut exit_commands = Vec::new();
+            let mut top_exits = Vec::new();
             for exit in self.popover_exits.values() {
+                let exit_commands = if exit.on_top { &mut top_exits } else { &mut exit_commands };
                 let opacity = exit.opacity.value(now);
                 let slide = (1.0 - opacity) * exit.paint.slide_sign * 4.0;
                 let scale = exit.paint.open_scale + (1.0 - exit.paint.open_scale) * opacity;
@@ -6175,11 +6188,20 @@ impl UiTree {
                     exit_commands.push(command);
                 }
             }
-            // Above the ordinary scene, below every currently open popover.
+            // Above the ordinary scene, below every currently open popover; one opened over all
+            // of them leaves over them.
             frame
                 .commands
                 .splice(overlay_start..overlay_start, exit_commands);
+            frame.commands.extend(top_exits);
         }
+        for id in current_popover_snapshots.keys() {
+            if !self.popover_order.contains_key(id) {
+                self.popover_opened += 1;
+                self.popover_order.insert(id.clone(), self.popover_opened);
+            }
+        }
+        self.popover_order.retain(|id, _| current_popover_snapshots.contains_key(id) || self.popover_exits.contains_key(id));
         self.popover_snapshots = current_popover_snapshots;
         // Hover-open submenus are excluded from the static tree walk so their
         // dormant options cannot receive focus. Once a submenu is painted,

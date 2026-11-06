@@ -366,12 +366,14 @@ impl Component for Modal {
                 ]).size(None, Some(4.0)),
                 Element::spacer().flex(1.0),
             ]);
+            // A handle lights nothing under a pointer or a press: the header row it spans is
+            // the sheet's own, and a fill there reads as a second panel.
             let handle = self.palette.interactive_surface(
                 Element::clickable(format!("{}:drag", self.close_id), handle)
                     .dispatch_as(self.close_id.clone())
                     .draggable_in_place()
                     .accessible(Access::new(Role::Button).name(crate::labels().close))
-            ).size(None, Some(44.0));
+            ).hover_background(Color::TRANSPARENT).pressed_background(Color::TRANSPARENT).size(None, Some(44.0));
             let title = Element::column(vec![
                 Element::spacer().size(None, Some(12.0)), title,
             ]).flex(1.0);
