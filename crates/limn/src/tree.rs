@@ -1321,6 +1321,31 @@ fn aurora_spring(duration: f32, bounce: f32) -> crate::SpringMotion {
     crate::SpringMotion { stiffness: omega * omega, damping_ratio: 1.0 - bounce }
 }
 
+/// A bottom sheet's spring: back to its place when let go short, and to a new height when
+/// what it holds changes; a little bounce, as iOS's sheets.
+fn sheet_motion() -> crate::SpringMotion {
+    aurora_spring(0.38, 0.18)
+}
+/// How far down a sheet's handle takes it before it leaves when let go: this share of its
+/// height, between these.
+const SHEET_AWAY: f32 = 0.3;
+const SHEET_AWAY_LEAST: f32 = 60.0;
+const SHEET_AWAY_MOST: f32 = 180.0;
+/// How fast a flick down, in points a second, sends a sheet away however short.
+const SHEET_FLING: f32 = 700.0;
+/// How far past the foot of the screen a sheet let go goes before it is gone.
+const SHEET_EXIT_PAST: f32 = 24.0;
+/// How far a sheet stretches up at most, held by its handle past its place.
+const SHEET_STRETCH: f32 = 48.0;
+
+/// The finger's way down as the sheet follows it: all of it down, and up a rubber band's,
+/// less the further it pulls, never past `SHEET_STRETCH`.
+fn rubber_band(down: f32) -> f32 {
+    if down >= 0.0 { return down; }
+    let pulled = -down;
+    -SHEET_STRETCH * (1.0 - 1.0 / (pulled * 0.55 / SHEET_STRETCH + 1.0))
+}
+
 /// How far past its tab strip a lifted selection lens stands, top and bottom together.
 const LENS_LIFT: f32 = 9.0;
 
@@ -1962,6 +1987,9 @@ struct PopoverSnapshot {
     slide_sign: f32,
     /// The dimming behind a dialog; it fades with the surface.
     scrim: Option<(Rect, Color)>,
+    /// How far down a bottom sheet stood from its place, held or springing: let go there,
+    /// it leaves down from it.
+    sheet_offset: f32,
 }
 
 /// The paint an `animate_replace` element had last frame, and the one it
@@ -3699,6 +3727,10 @@ struct PointerDrag {
     active: bool,
     /// The source as painted when the drag began, before any translation.
     ghost: Vec<DrawCommand>,
+    /// Where the pointer was last seen down the screen and when, and how fast it went
+    /// there, in points a second: what a sheet's handle is let go with.
+    last: Option<(f32, Instant)>,
+    speed: f32,
 }
 
 /// A field's value as limn lays it out, in a tree told to
@@ -5566,6 +5598,15 @@ impl UiTree {
                     .as_ref()
                     .filter(|drag| drag.active)
                     .map(|drag| drag.id.as_str()),
+                sheet_held: self
+                    .pointer_drag
+                    .as_ref()
+                    .filter(|drag| drag.active)
+                    .zip(self.pointer)
+                    .and_then(|(drag, pointer)| {
+                        let dismiss = drag.id.strip_suffix(":drag")?;
+                        Some((dismiss, rubber_band(pointer.y - drag.origin.y), drag.speed))
+                    }),
                 drag_ghost: None,
                 metrics: self.metrics,
                 sans_metrics: self.sans_metrics,
@@ -5955,6 +5996,7 @@ impl UiTree {
                                 scrim: scrim
                                     .filter(|_| coach.is_none())
                                     .map(|color| (viewport_rect, color)),
+                                sheet_offset: 0.0,
                             },
                         );
                         if let Some(transition) = builder
@@ -6041,6 +6083,33 @@ impl UiTree {
                                 for command in &mut builder.frame.commands[command_start..] {
                                     morph_picture(command, origin, radius, MORPH_CURVE.sample(progress));
                                 }
+                            }
+                        }
+                        if placement == PopoverPlacement::Bottom && coach.is_none() {
+                            let offset = builder.sheet_spring(&dismiss_id, rect, progress);
+                            if offset.abs() > 0.1 {
+                                // Its shell keeps the foot of the screen when it rises past its
+                                // place; what it holds goes with its top, cut by the shell.
+                                let shell = Rect::new(rect.x, rect.y + offset, rect.width, rect.height + (-offset).max(0.0));
+                                let painted = builder.frame.commands.split_off(bubble_start);
+                                for command in painted.iter().filter(|command| popover_shell_command(command, rect)) {
+                                    let mut command = command.clone();
+                                    morph_popover_shell(&mut command, shell);
+                                    builder.frame.commands.push(command);
+                                }
+                                builder.frame.commands.push(DrawCommand::PushClip(shell));
+                                builder.frame.commands.extend(painted.into_iter()
+                                    .filter(|command| !popover_shell_command(command, rect))
+                                    .map(|command| command.moved(0.0, offset, 1.0)));
+                                builder.frame.commands.push(DrawCommand::PopClip);
+                                // Taken down, it dims the page less.
+                                if let Some(DrawCommand::FillRect { color, .. }) = scrim_index.and_then(|index| builder.frame.commands.get_mut(index)) {
+                                    let left = 1.0 - (offset / rect.height.max(1.0)).clamp(0.0, 1.0);
+                                    color.a = (f32::from(color.a) * left).round() as u8;
+                                }
+                            }
+                            if let Some(snapshot) = builder.popover_snapshots.get_mut(&dismiss_id) {
+                                snapshot.sheet_offset = offset;
                             }
                         }
                         if travel != (0.0, 0.0) {
@@ -6187,6 +6256,14 @@ impl UiTree {
                         color,
                         radius: 0.0,
                     });
+                }
+                // Let go down its way, a sheet goes on down from where the finger left it.
+                if exit.paint.sheet_offset > 1.0 {
+                    let gone = 1.0 - (1.0 - (1.0 - opacity).clamp(0.0, 1.0)).powi(3);
+                    let from = exit.paint.sheet_offset;
+                    let offset = from + (rect.height + SHEET_EXIT_PAST - from) * gone;
+                    exit_commands.extend(exit.paint.commands.iter().map(|command| command.moved(0.0, offset, 1.0)));
+                    continue;
                 }
                 let glass_morph = exit.paint.morph.is_some() && exit.paint.commands.iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
                 if let (Some((from, _)), true) = (exit.paint.morph, glass_morph) {
@@ -7133,7 +7210,7 @@ impl UiTree {
             }
             other => other,
         };
-        if let Some(actions) = self.handle_drag_event(&event) {
+        if let Some(actions) = self.handle_drag_event(&event, now) {
             return actions;
         }
         if let (Some(drag), UiEvent::PointerMove(point) | UiEvent::PointerUp(point)) = (&mut self.glass_switch_drag, &event) {
@@ -7168,6 +7245,8 @@ impl UiTree {
                     origin,
                     active: false,
                     ghost: Vec::new(),
+                    last: None,
+                    speed: 0.0,
                 });
         }
         self.validate_ime_owner(now);
@@ -7195,10 +7274,18 @@ impl UiTree {
 
     /// Owns the pointer while a drag is active so the source never clicks and
     /// controls under the pointer do not react as if hovered.
-    fn handle_drag_event(&mut self, event: &UiEvent) -> Option<Vec<UiAction>> {
+    fn handle_drag_event(&mut self, event: &UiEvent, now: Instant) -> Option<Vec<UiAction>> {
         let drag = self.pointer_drag.as_mut()?;
         match *event {
             UiEvent::PointerMove(position) => {
+                // The speed of the last stretch, smoothed: what a flick is told by.
+                if let Some((y, at)) = drag.last {
+                    let seconds = now.saturating_duration_since(at).as_secs_f32();
+                    if seconds > 0.004 {
+                        drag.speed = drag.speed * 0.3 + (position.y - y) / seconds * 0.7;
+                    }
+                }
+                drag.last = Some((position.y, now));
                 let mut actions = Vec::new();
                 if !drag.active {
                     let (dx, dy) = (position.x - drag.origin.x, position.y - drag.origin.y);
@@ -7224,13 +7311,29 @@ impl UiTree {
             }
             UiEvent::PointerUp(position) => {
                 let drag = self.pointer_drag.take()?;
-                drag.active.then(|| {
-                    vec![UiAction::Dropped {
-                        target: self.drop_target_at(position, &drag.id),
-                        id: drag.id,
-                        position,
-                    }]
-                })
+                if !drag.active {
+                    return None;
+                }
+                // A sheet's handle let go: far enough down, or flung down, the sheet leaves,
+                // its dismissal named as where it was dropped; short of that, it springs back.
+                if let Some((dismiss, sheet)) = self.sheet_of(&drag.id) {
+                    let down = position.y - drag.origin.y;
+                    // A finger that stopped before letting go flicks nothing.
+                    let still = drag.last.is_none_or(|(_, at)| now.saturating_duration_since(at) > Duration::from_millis(80));
+                    let speed = if still { 0.0 } else { drag.speed };
+                    let leaves = down >= (sheet.height * SHEET_AWAY).clamp(SHEET_AWAY_LEAST, SHEET_AWAY_MOST)
+                        || (speed >= SHEET_FLING && down > DRAG_THRESHOLD);
+                    return Some(vec![if leaves {
+                        UiAction::Dropped { id: drag.id, position, target: Some(dismiss) }
+                    } else {
+                        UiAction::DragCancelled { id: drag.id }
+                    }]);
+                }
+                Some(vec![UiAction::Dropped {
+                    target: self.drop_target_at(position, &drag.id),
+                    id: drag.id,
+                    position,
+                }])
             }
             UiEvent::Key {
                 key: Key::Escape, ..
@@ -7240,6 +7343,14 @@ impl UiTree {
             }
             _ => None,
         }
+    }
+
+    /// The bottom sheet whose handle `id` is, by its dismissal, and where it stands.
+    fn sheet_of(&self, id: &str) -> Option<(String, Rect)> {
+        let dismiss = id.strip_suffix(":drag")?;
+        let surface = format!("popover_surface:{dismiss}");
+        let rect = self.frame.regions.iter().find(|region| region.id == surface)?.rect;
+        Some((dismiss.to_owned(), rect))
     }
 
     fn drop_target_at(&self, point: Point, source: &str) -> Option<String> {
@@ -8932,6 +9043,9 @@ struct LayoutBuilder<'a> {
     spatial_focus: bool,
     /// Source of the active pointer drag and the commands it painted.
     drag_source: Option<&'a str>,
+    /// A sheet held by its handle: its dismissal, how far the finger has taken it down
+    /// (less than that up, as a rubber band), and how fast.
+    sheet_held: Option<(&'a str, f32, f32)>,
     drag_ghost: Option<std::ops::Range<usize>>,
     metrics: FontMetrics,
     sans_metrics: FontMetrics,
@@ -9645,6 +9759,7 @@ impl LayoutBuilder<'_> {
                 rect,
                 slide_sign,
                 scrim: None,
+                sheet_offset: 0.0,
             },
             );
         }
@@ -11894,6 +12009,26 @@ impl LayoutBuilder<'_> {
             }
             animate_popover_command(command, 1.0, 0.0, scale, centre);
         }
+    }
+
+    /// How far a bottom sheet stands below its place `rect`: where the finger holding its
+    /// handle has taken it, or where its spring is on its way back or to a new height. It
+    /// stands in its place while it enters.
+    fn sheet_spring(&self, dismiss_id: &str, rect: Rect, entered: f32) -> f32 {
+        let key = format!("__sheet:{dismiss_id}");
+        let held = self.sheet_held.filter(|(id, _, _)| *id == dismiss_id);
+        let rest = |top: f32, speed: f32| {
+            self.springs.borrow_mut().insert(key.clone(), AnimatedSpring { value: ScalarSpring::moving(top, speed, self.now), seen: self.now });
+        };
+        if let Some((_, down, speed)) = held {
+            rest(rect.y + down, speed);
+            return down;
+        }
+        if entered < 1.0 {
+            rest(rect.y, 0.0);
+            return 0.0;
+        }
+        self.spring_moving(&key, rect.y, sheet_motion()) - rect.y
     }
 
     /// As `spring`, on `motion`.

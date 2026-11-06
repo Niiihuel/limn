@@ -123,9 +123,12 @@ impl Component for BottomSheet {
 /// host's open state and pass it each [`UiAction`]. A `true` result asks the
 /// host to close the sheet. Body scrolling never starts a handle drag.
 ///
-/// The handle uses the existing in-place drag primitive: the sheet stays in
-/// its layout while held, then the shared Popover transition closes it. No
-/// detached drag preview or second overlay state machine is created.
+/// Held by its handle, the sheet follows the finger down, and up a little as a
+/// rubber band. Let go far enough down (a third of its height, between 60 and
+/// 180 points) or flung down, the tree reports the handle `Dropped` on
+/// `dismiss_id`, and the sheet goes on down from where it was as it closes.
+/// Let go short, it reports `DragCancelled` and the sheet springs back. A sheet
+/// whose height changes moves to it on the same spring.
 #[derive(Debug)]
 pub struct BottomSheetDrag {
     dismiss_id: String,
@@ -144,9 +147,11 @@ impl BottomSheetDrag {
         }
     }
 
-    /// Recognize close clicks and a released downward handle drag of at least
-    /// 64 logical pixels, with vertical travel at least the horizontal travel.
-    /// Short/upward/sideways drags and cancellation keep the sheet open.
+    /// Recognize close clicks and a handle the tree let go onto the sheet's
+    /// dismissal. A drop reported without that target, as a host may
+    /// synthesize one, closes it when it went at least 64 logical pixels down
+    /// and no further sideways. Short/upward/sideways drags and cancellation
+    /// keep the sheet open.
     pub fn handle_action(&mut self, action: &UiAction) -> bool {
         match action {
             UiAction::Clicked { id } if id == &self.dismiss_id => {
@@ -157,8 +162,9 @@ impl BottomSheetDrag {
                 self.origin = Some(*position);
                 false
             }
-            UiAction::Dropped { id, position, .. } if id == &self.handle_id => {
+            UiAction::Dropped { id, position, target } if id == &self.handle_id => {
                 self.origin.take().is_some_and(|origin| {
+                    if target.as_deref() == Some(self.dismiss_id.as_str()) { return true; }
                     let down = position.y - origin.y;
                     down >= 64.0 && down >= (position.x - origin.x).abs()
                 })

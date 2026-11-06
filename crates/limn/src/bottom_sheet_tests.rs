@@ -259,7 +259,8 @@ fn drag_handle_requests_close_once_on_downward_release_and_clicks_remain_accessi
         handle.x + handle.width / 2.0,
         handle.y + handle.height / 2.0,
     );
-    let end = Point::new(start.x, start.y + 80.0);
+    // A slow drag past a third of the sheet, at most 180 points, closes it.
+    let end = Point::new(start.x, start.y + 200.0);
     let mut drag = BottomSheetDrag::new("dismiss");
     assert!(tree.handle_event(UiEvent::PointerDown(start)).is_empty());
     let actions = tree.handle_event(UiEvent::PointerMove(end));
@@ -461,4 +462,90 @@ fn a_glass_sheet_with_an_origin_pops_out_of_it_as_a_drop() {
     assert!(early.width < 100.0, "a drop over the button first: {early:?}");
     let open = pane(&tree.layout_at(Size::new(390.0, 844.0), now + web_time::Duration::from_millis(700)));
     assert!(open.width > 300.0, "then the sheet: {open:?}");
+}
+
+#[test]
+fn a_held_sheet_follows_the_finger_springs_back_when_let_go_short_and_leaves_when_flung() {
+    let mut tree = UiTree::new(sheet(true));
+    let at = std::time::Instant::now();
+    let ms = |n: u64| at + std::time::Duration::from_millis(n);
+    let size = Size::new(390.0, 700.0);
+    tree.layout_at(size, ms(0));
+    // Entered, it stands in its place.
+    let frame = tree.layout_at(size, ms(2000));
+    let handle = bounds(&frame, "dismiss:drag");
+    let rest = bounds(&frame, "popover_surface:dismiss").y;
+    let start = Point::new(handle.x + handle.width / 2.0, handle.y + handle.height / 2.0);
+    let top = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+        crate::DrawCommand::PushClip(rect) if rect.width == bounds(frame, "popover_surface:dismiss").width => Some(rect.y),
+        _ => None,
+    });
+    // Held 80 points down slowly, it follows the finger; let go, it springs back.
+    tree.handle_event_at(UiEvent::PointerDown(start), ms(2000));
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(start.x, start.y + 40.0)), ms(2100));
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(start.x, start.y + 80.0)), ms(2300));
+    let held = tree.layout_at(size, ms(2310));
+    assert!((top(&held).unwrap() - (rest + 80.0)).abs() < 0.5, "it follows the finger: {:?} from {rest}", top(&held));
+    let release = tree.handle_event_at(UiEvent::PointerUp(Point::new(start.x, start.y + 80.0)), ms(2500));
+    assert_eq!(release, vec![UiAction::DragCancelled { id: "dismiss:drag".into() }], "let go short and still");
+    // The frame after the release sets the spring off; the next shows it on its way.
+    tree.layout_at(size, ms(2510));
+    let back = tree.layout_at(size, ms(2580));
+    let between = top(&back).expect("on its way back");
+    assert!(between > rest && between < rest + 80.0, "it springs back: {between}");
+    let settled = tree.layout_at(size, ms(4000));
+    assert!(top(&settled).is_none(), "back in its place");
+    // Pulled up, it stretches a little and no more.
+    tree.handle_event_at(UiEvent::PointerDown(start), ms(4000));
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(start.x, start.y - 300.0)), ms(4100));
+    let stretched = top(&tree.layout_at(size, ms(4110))).unwrap();
+    assert!(stretched < rest && stretched >= rest - 48.0, "a rubber band up: {stretched}");
+    tree.handle_event_at(UiEvent::PointerUp(Point::new(start.x, start.y - 300.0)), ms(4600));
+    // Flung down, however short, it leaves; its dismissal is where it was dropped.
+    tree.layout_at(size, ms(6000));
+    tree.handle_event_at(UiEvent::PointerDown(start), ms(6000));
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(start.x, start.y + 10.0)), ms(6010));
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(start.x, start.y + 40.0)), ms(6030));
+    let flung = tree.handle_event_at(UiEvent::PointerUp(Point::new(start.x, start.y + 40.0)), ms(6040));
+    assert_eq!(flung, vec![UiAction::Dropped { id: "dismiss:drag".into(), position: Point::new(start.x, start.y + 40.0), target: Some("dismiss".into()) }]);
+    let mut drag = BottomSheetDrag::new("dismiss");
+    drag.handle_action(&UiAction::DragStarted { id: "dismiss:drag".into(), position: start });
+    assert!(drag.handle_action(&flung[0]), "the host closes it");
+}
+
+#[test]
+fn a_sheet_whose_content_grows_rises_to_its_new_height_on_a_spring_and_one_let_go_leaves_down() {
+    let sheet = |tall: f32, open: bool| BottomSheet::new(Element::spacer(), open, "Import", "", "dismiss", ComponentPalette::neutral_dark())
+        .max_height(700.0)
+        .body(Element::spacer().size(None, Some(tall)))
+        .render();
+    let at = std::time::Instant::now();
+    let ms = |n: u64| at + std::time::Duration::from_millis(n);
+    let size = Size::new(390.0, 800.0);
+    let mut tree = UiTree::new(sheet(120.0, true));
+    tree.layout_at(size, ms(0));
+    let short = bounds(&tree.layout_at(size, ms(2000)), "popover_surface:dismiss").y;
+    tree.set_root(sheet(320.0, true));
+    tree.layout_at(size, ms(2000));
+    let frame = tree.layout_at(size, ms(2080));
+    let tall = bounds(&frame, "popover_surface:dismiss").y;
+    assert!(tall < short - 150.0, "laid out taller at once: {tall} from {short}");
+    let shown = frame.commands.iter().find_map(|command| match command {
+        crate::DrawCommand::PushClip(rect) if rect.width == 390.0 && rect.y > tall + 1.0 => Some(rect.y),
+        _ => None,
+    }).expect("its top on its way");
+    assert!(shown < short && shown > tall, "it rises rather than jumps: {shown} between {short} and {tall}");
+    // Held down and closed there, it leaves down from where it was, not from its place.
+    let start = Point::new(195.0, tall + 22.0);
+    tree.layout_at(size, ms(4000));
+    tree.handle_event_at(UiEvent::PointerDown(start), ms(4000));
+    tree.handle_event_at(UiEvent::PointerMove(Point::new(195.0, start.y + 150.0)), ms(4200));
+    tree.layout_at(size, ms(4210));
+    tree.set_root(sheet(320.0, false));
+    let leaving = tree.layout_at(size, ms(4230));
+    let lowest = leaving.commands.iter().filter_map(|command| match command {
+        crate::DrawCommand::FillCornerRect { rect, .. } | crate::DrawCommand::FillRect { rect, .. } if rect.width == 390.0 && rect.height < 700.0 => Some(rect.y),
+        _ => None,
+    }).fold(f32::MIN, f32::max);
+    assert!(lowest >= tall + 150.0, "it goes on from the finger: {lowest} from {tall}");
 }

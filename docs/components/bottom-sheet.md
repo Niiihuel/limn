@@ -45,12 +45,19 @@ temporary opening menu item disappears.
 Escape, tapping the close control or handle, and tapping the scrim request the
 same `UiAction::Clicked { id: dismiss_id }`. `.backdrop_dismiss(false)` keeps
 outside taps from closing while still blocking the underlying view. To dismiss
-by dragging, feed actions to `BottomSheetDrag`: a downward handle release of
-at least 64 logical pixels closes, while short, upward, sideways or cancelled
-drags do not. Scrolling the body does not drag the handle. The handle uses
-limn's existing in-place drag API: the sheet stays in its layout while held,
-then closes through the shared overlay transition. It does not follow the
-finger. Call `.reset()` when closing/replacing it by another host-owned path.
+by dragging, feed actions to `BottomSheetDrag`. Held by its handle (the header
+row, or a grabber strip over a headless sheet's body), the sheet follows the
+finger down, and up only as a rubber band of at most 48 points. Let go past a
+third of its height (kept between 60 and 180 points), or flung down at 700
+points a second or more, the tree reports the handle `Dropped` with the
+sheet's `dismiss_id` as its target. `BottomSheetDrag` turns that into a close,
+and the sheet goes on down from where the finger left it as it leaves. Let go
+short, the tree reports `DragCancelled` and the sheet springs back with a
+little bounce. A drop a host synthesizes without that target still closes at
+64 points down. Scrolling the body does not drag the handle. A sheet whose
+content changes its height moves to the new height on the same spring rather
+than jumping. Call `.reset()` when closing/replacing it by another host-owned
+path.
 
 The viewport supplied to `UiTree` should exclude system safe areas. If a host
 deliberately uses a full-screen viewport instead, `.safe_area_bottom(inset)`

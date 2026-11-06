@@ -352,12 +352,11 @@ impl Component for Modal {
         let title = Element::formatted_text(vec![TextSpan::new(
             self.title, self.palette.text, 16.0, FontFamily::Sans,
         )]);
-        let header = if self.sheet.is_some() {
-            // Share one touch-height header: a separate fixed handle row
-            // would crowd the footer when the keyboard shortens the viewport.
-            // These are sibling controls, so the close button wins hit tests
-            // without nesting interactive accessibility nodes.
-            let handle = Element::column(vec![
+        // A sheet's grabber, the whole strip it heads to be held by: dragged down, the sheet
+        // follows and leaves; pressed, it closes.
+        let grabber = |top: f32, height: f32| {
+            let mark = Element::column(vec![
+                Element::spacer().size(None, Some(top)),
                 Element::row(vec![
                     Element::spacer().flex(1.0),
                     Element::spacer().size(Some(36.0), Some(4.0))
@@ -368,12 +367,19 @@ impl Component for Modal {
             ]);
             // A handle lights nothing under a pointer or a press: the header row it spans is
             // the sheet's own, and a fill there reads as a second panel.
-            let handle = self.palette.interactive_surface(
-                Element::clickable(format!("{}:drag", self.close_id), handle)
+            self.palette.interactive_surface(
+                Element::clickable(format!("{}:drag", self.close_id), mark)
                     .dispatch_as(self.close_id.clone())
                     .draggable_in_place()
                     .accessible(Access::new(Role::Button).name(crate::labels().close))
-            ).hover_background(Color::TRANSPARENT).pressed_background(Color::TRANSPARENT).size(None, Some(44.0));
+            ).hover_background(Color::TRANSPARENT).pressed_background(Color::TRANSPARENT).size(None, Some(height))
+        };
+        let header = if self.sheet.is_some() {
+            // Share one touch-height header: a separate fixed handle row
+            // would crowd the footer when the keyboard shortens the viewport.
+            // These are sibling controls, so the close button wins hit tests
+            // without nesting interactive accessibility nodes.
+            let handle = grabber(0.0, 44.0);
             let title = Element::column(vec![
                 Element::spacer().size(None, Some(12.0)), title,
             ]).flex(1.0);
@@ -399,7 +405,12 @@ impl Component for Modal {
             }
             Element::row(row).gap(8.0).min_size(0.0, 24.0)
         };
-        let mut sections = if self.headless { vec![] } else { vec![header] };
+        // Headless, a sheet still has its grabber: a strip over its body, as iOS's share sheet.
+        let mut sections = match (self.headless, self.sheet.is_some()) {
+            (true, true) => vec![grabber(8.0, 20.0)],
+            (true, false) => vec![],
+            (false, _) => vec![header],
+        };
         let mut body = self.body;
 
         if !self.description.is_empty() && !self.headless {
