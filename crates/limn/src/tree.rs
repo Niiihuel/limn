@@ -4510,6 +4510,8 @@ pub struct UiTree {
     popover_exits: HashMap<String, PopoverExit>,
     /// The order the open popovers opened in, so one that closes keeps its depth.
     popover_order: HashMap<String, u64>,
+    /// Whatever appears in the next layout stands as its entrance would leave it.
+    settle_entrances: bool,
     popover_opened: u64,
     replacements: HashMap<String, Replacement>,
     // Measuring reads and starts these, and measuring borrows the tree shared.
@@ -4618,6 +4620,7 @@ impl UiTree {
             popover_snapshots: HashMap::new(),
             popover_exits: HashMap::new(),
             popover_order: HashMap::new(),
+            settle_entrances: false,
             popover_opened: 0,
             replacements: HashMap::new(),
             flow_heights: RefCell::new(HashMap::new()),
@@ -5102,6 +5105,13 @@ impl UiTree {
             input.keep_cursor_visible = true;
         }
         true
+    }
+
+    /// Have whatever appears in the next layout stand as its entrance would leave it, without
+    /// fading or settling in: for a host showing again what it had just drawn, such as a page
+    /// uncovered by a sheet the host moved itself, whose parts would otherwise enter anew.
+    pub fn settle_entrances(&mut self) {
+        self.settle_entrances = true;
     }
 
     /// Disable decorative color transitions when the user requests reduced motion.
@@ -5620,6 +5630,7 @@ impl UiTree {
                 transitions: &mut self.transitions,
                 popover_transitions: &mut self.popover_transitions,
                 popover_exits: &self.popover_exits,
+                settle_entrances: std::mem::take(&mut self.settle_entrances),
                 replacements: &mut self.replacements,
                 observed_replacements: &mut observed_replacements,
                 previous_popover_snapshots: &self.popover_snapshots,
@@ -8983,6 +8994,8 @@ struct LayoutBuilder<'a> {
     transitions: &'a mut HashMap<String, ColorTransition>,
     popover_transitions: &'a mut HashMap<String, ScalarTransition>,
     popover_exits: &'a HashMap<String, PopoverExit>,
+    /// Entrances first seen in this layout start where they end.
+    settle_entrances: bool,
     replacements: &'a mut HashMap<String, Replacement>,
     observed_replacements: &'a mut HashSet<String>,
     previous_popover_snapshots: &'a HashMap<String, PopoverSnapshot>,
@@ -9604,15 +9617,14 @@ impl LayoutBuilder<'_> {
         let now = self.now;
         self.observed_popovers.insert(id.to_owned());
         let exits = self.popover_exits;
+        let settled = self.settle_entrances;
         let transition = self
             .popover_transitions
             .entry(id.to_owned())
             .or_insert_with(|| {
                 // Reopened while leaving: continue from what is still visible.
-                ScalarTransition::new(
-                    exits.get(id).map_or(0.0, |exit| exit.opacity.value(now)),
-                    now,
-                )
+                let from = if settled { 1.0 } else { exits.get(id).map_or(0.0, |exit| exit.opacity.value(now)) };
+                ScalarTransition::new(from, now)
             });
         transition.retarget(
             1.0,
@@ -16326,6 +16338,25 @@ mod tests {
         let (snapped, _) = lens(&tree.layout_at(size, now + Duration::from_millis(80)));
         assert_eq!(snapped.x, target_region.x);
         assert_eq!(snapped.width, target_region.width);
+    }
+
+    #[test]
+    fn what_a_host_shows_again_stands_at_once_instead_of_entering_anew() {
+        let ink = Color::rgb(200, 100, 50);
+        let view = |shown: bool| Element::column(if shown {
+            vec![Element::panel(Element::spacer()).background(ink).size(Some(80.0), Some(40.0)).animate_enter("shelf")]
+        } else { vec![] });
+        let alpha = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { color, .. } if color.r == ink.r && color.g == ink.g => Some(color.a), _ => None,
+        });
+        let now = Instant::now();
+        let mut tree = UiTree::new(view(true));
+        assert!(alpha(&tree.layout_at(Size::new(200.0, 100.0), now)).unwrap_or(0) < 255, "a first appearance enters");
+        tree.set_root(view(false));
+        tree.layout_at(Size::new(200.0, 100.0), now + Duration::from_millis(500));
+        tree.set_root(view(true));
+        tree.settle_entrances();
+        assert_eq!(alpha(&tree.layout_at(Size::new(200.0, 100.0), now + Duration::from_millis(510))), Some(255), "shown again, it stands");
     }
 
     #[test]
