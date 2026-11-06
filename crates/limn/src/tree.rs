@@ -1314,6 +1314,9 @@ fn paint_dashed_corners(
 /// Move and fade a floating surface's paint only. Its layout, pointer regions,
 /// scroll geometry, and focus targets stay at their final coordinates, so a
 /// short entrance cannot make a menu's click target drift under the pointer.
+/// How far past its tab strip a lifted selection lens stands, top and bottom together.
+const LENS_LIFT: f32 = 9.0;
+
 /// The share of its size a surface that grows toward its trigger starts from.
 const GROW_FROM: f32 = 0.1;
 
@@ -13134,9 +13137,17 @@ impl LayoutBuilder<'_> {
                         let lift_x = state.lift_x.value(self.now);
                         let lift_y = state.lift_y.value(self.now);
                         let presence = state.material_presence.value(self.now).clamp(0.0, 1.0);
-                        let stretch = if pressed { 0.18 } else { 0.12 };
-                        let width = state.width.value(self.now) * (1.0 + lift_x * stretch);
-                        let height = target.height * (1.0 + lift_y * if pressed { 0.18 } else { -0.06 });
+                        // A switch's thumb stretches as it is held. A tab's lens stands as tall as
+                        // the whole strip and LENS_LIFT more, in its cell's proportions, as
+                        // BitChord's tab bar's does while it travels.
+                        let (grow_x, grow_y) = if selection.press_id.is_some() {
+                            (if pressed { 0.18 } else { 0.12 }, if pressed { 0.18 } else { -0.06 })
+                        } else {
+                            let grow = ((rect.height + LENS_LIFT) / target.height.max(1.0) - 1.0).max(0.0);
+                            (grow, grow)
+                        };
+                        let width = state.width.value(self.now) * (1.0 + lift_x * grow_x);
+                        let height = target.height * (1.0 + lift_y * grow_y);
                         let indicator = Rect::new(x - (width - state.width.value(self.now)) / 2.0,
                             target.y - (height - target.height) / 2.0, width, height);
                         let radius = selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0);
@@ -16249,6 +16260,7 @@ mod tests {
         let (moving, _) = lens(&midway);
         assert!(moving.x > start.x);
         assert!(moving.width > start.width, "travel stretches the lens");
+        assert!(moving.height > start.height && moving.y < start.y, "and lifts it past its strip: {moving:?} from {start:?}");
         assert!(midway.commands.iter().any(|command| matches!(command, DrawCommand::GlassSelection { opacity, .. } if *opacity > 0.1)));
         assert_eq!(midway.regions.iter().find(|region| region.id == "browse").unwrap().rect, target_region);
         tree.set_reduced_motion(true);

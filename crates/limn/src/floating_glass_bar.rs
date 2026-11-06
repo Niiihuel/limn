@@ -259,10 +259,10 @@ impl Component for FloatingGlassBar {
             0.0
         };
         let total_height = height + y;
+        // Unclipped: the lens stands past the capsule while it travels.
         let tabs = Element::panel(tabs.padding(padding))
             .glass(self.material)
             .round()
-            .clip_children()
             .block_pointer(format!("{}:tabs", self.id))
             .size(Some(tab_width), Some(height));
         let place = |surface: Element, x: f32, y: f32| {
