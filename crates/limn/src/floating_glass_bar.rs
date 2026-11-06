@@ -229,7 +229,8 @@ impl Component for FloatingGlassBar {
             children.push(
                 cell.size(Some(width), Some(height - 2.0 * padding))
                     .round()
-                    .clip_children(),
+                    .clip_children()
+                    .indicator_slot(&tab.id),
             );
         }
         let mut tabs = Element::tab_strip(children, action_ids);
@@ -363,6 +364,8 @@ mod tests {
         widths.sort();
         assert_eq!(widths, vec![56, 56, 312]);
         assert!(glass(&b).iter().all(|rect| rect.x + rect.width <= 440.1));
+        // The chosen tab carries the lens, which needs its cell found.
+        assert!(a.commands.iter().any(|command| matches!(command, DrawCommand::GlassSelection { .. })));
     }
 
     #[test]

@@ -1911,12 +1911,13 @@ struct BackdropSurface<'a> {
 fn paint_at_impl(ui: &egui::Ui, frame: &Frame, origin: Pos2,
     glass: Option<(&GlassRenderer, EguiRect)>, backdrop_surface: Option<BackdropSurface<'_>>) {
     publish_access(ui, frame, origin);
-    paint_commands(ui, &frame.commands, origin, glass, backdrop_surface);
+    paint_commands(ui, &frame.commands, origin, glass, backdrop_surface, true);
 }
 
-/// Paint `commands` alone; their frame's accessibility is published elsewhere.
+/// Paint `commands` alone; their frame's accessibility is published elsewhere. `announce`
+/// names their pictures to egui's accessibility, which a capture of them repainted must not.
 fn paint_commands(ui: &egui::Ui, commands: &[DrawCommand], origin: Pos2,
-    glass: Option<(&GlassRenderer, EguiRect)>, backdrop_surface: Option<BackdropSurface<'_>>) {
+    glass: Option<(&GlassRenderer, EguiRect)>, backdrop_surface: Option<BackdropSurface<'_>>, announce: bool) {
     let display = glyph_atlas::Display::of(ui.ctx());
     let mut clips = vec![ui.clip_rect()];
     // The rounded shape of each clip in force, from a `RoundClip`.
@@ -2233,19 +2234,21 @@ fn paint_commands(ui: &egui::Ui, commands: &[DrawCommand], origin: Pos2,
                 radius,
             } => {
                 let area = rect(origin, *area);
-                let response = ui.interact(
-                    area,
-                    egui::Id::unique((
-                        "limn-raster-image",
-                        image.sha256(),
-                        area.min.x.to_bits(),
-                        area.min.y.to_bits(),
-                    )),
-                    egui::Sense::hover(),
-                );
-                response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::Role::Image, true, image.alt())
-                });
+                if announce {
+                    let response = ui.interact(
+                        area,
+                        egui::Id::unique((
+                            "limn-raster-image",
+                            image.sha256(),
+                            area.min.x.to_bits(),
+                            area.min.y.to_bits(),
+                        )),
+                        egui::Sense::hover(),
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::Role::Image, true, image.alt())
+                    });
+                }
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
                 let texture = if image.is_full_resolution() {
                     full_resolution_texture(ui, image, area)
@@ -2294,14 +2297,16 @@ fn paint_commands(ui: &egui::Ui, commands: &[DrawCommand], origin: Pos2,
                 mirrored,
             } => {
                 let area = rect(origin, *area);
-                let response = ui.interact(
-                    area,
-                    egui::Id::unique(("limn-surface", id)),
-                    egui::Sense::hover(),
-                );
-                response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::Role::Image, true, label)
-                });
+                if announce {
+                    let response = ui.interact(
+                        area,
+                        egui::Id::unique(("limn-surface", id)),
+                        egui::Sense::hover(),
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::Role::Image, true, label)
+                    });
+                }
                 let painter = ui
                     .painter()
                     .with_clip_rect(clips.last().unwrap().intersect(area));

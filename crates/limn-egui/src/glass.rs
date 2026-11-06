@@ -58,7 +58,7 @@ impl SceneRenderer {
         let area = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(size[0] as f32 / scale, size[1] as f32 / scale));
         let ui = egui::Ui::new(ctx.clone(), egui::Id::unique(("limn glass capture", salt)),
             egui::UiBuilder::new().layer_id(layer).max_rect(area));
-        super::paint_commands(&ui, commands, origin, None, None);
+        super::paint_commands(&ui, commands, origin, None, None, false);
         let shapes: Vec<_> = ctx.graphics_mut(|layers| std::mem::take(layers.entry(layer))).all_entries().cloned().collect();
         // A callback draws into the window's pass alone.
         let jobs: Vec<_> = ctx.tessellate(shapes, scale).into_iter()
