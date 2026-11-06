@@ -71,6 +71,7 @@ mod text_layout_cache;
 mod window_controls;
 mod menu_header;
 mod modal;
+mod share_sheet;
 mod navigation_bar;
 mod motion;
 mod notice;
@@ -227,6 +228,7 @@ pub use text_layout::{Glyph, GlyphRun, Leading, TextLayout, TextLine, TextStyle}
 pub use window_controls::WindowControls;
 pub use menu_header::MenuHeader;
 pub use modal::{DismissButton, Modal};
+pub use share_sheet::{ShareAction, ShareSheet, ShareTarget};
 pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
