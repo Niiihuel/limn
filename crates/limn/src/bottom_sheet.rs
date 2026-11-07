@@ -55,6 +55,13 @@ impl BottomSheet {
         self
     }
 
+    /// Announce it as an alert dialog, described by `description` to assistive
+    /// technology though its body says it in its own way.
+    pub fn alert(mut self, description: &str) -> Self {
+        self.modal = self.modal.alert(description);
+        self
+    }
+
     /// Refract the host's backdrop through the sheet shell; its rows stay sharp.
     pub fn glass(mut self, material: crate::GlassMaterial) -> Self {
         self.modal = self.modal.glass(material);

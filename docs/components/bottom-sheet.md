@@ -59,6 +59,37 @@ content changes its height moves to the new height on the same spring rather
 than jumping. Call `.reset()` when closing/replacing it by another host-owned
 path.
 
+### iOS 26's sheet
+
+`.ios(SheetSpec { .. })` draws and moves the sheet as Apple's. The spec gives:
+
+- the heights it rests at, smallest first: `SheetDetent::Fit` (as tall as what it holds), `Medium` (about half), `Large` and `Height(points)`;
+- where the screen's safe area starts (`safe_top`), since the large height stops 10 points under it;
+- the display's corner radius (`screen_corner`);
+- whether what it was opened over recedes, and whether a drag may send it away.
+
+The tree gives the sheet its size each frame:
+
+- **Partial heights:** it floats 8 points in from the sides and foot, with corners concentric with the display's.
+- **Near its large height:** it eases onto the screen's edges and its glass grows opaque. What it was opened over recedes behind it, smaller and rounded.
+- **With a field focused:** it anchors to the sides, as the keyboard does.
+
+Its bar:
+
+- the grabber;
+- a cross that reports `dismiss_id`;
+- the title, centred at 17 points semibold;
+- with `.confirm(id, label, enabled)`, a prominent check.
+
+It moves:
+
+- **Held by its bar:** it follows the finger one to one between its heights, and past its largest as UIScrollView's rubber band.
+- **Held by its body:** when the content is at its top, pulling it down moves the sheet. Short of its largest height, pushing up grows the sheet before the content scrolls.
+- **Let go:** it rests at the height its speed carries it nearest to, projected as UIKit does (deceleration 0.998). If that is past its smallest height, it leaves: the tree reports `UiAction::Clicked { id: dismiss_id }` and the sheet slides on down from where it was.
+- **Tapped grabber:** it steps through its heights.
+
+Hosts that turn touch pans into `Scroll2D` events send `UiEvent::ScrollEnded` when the finger lifts.
+
 The viewport supplied to `UiTree` should exclude system safe areas. If a host
 deliberately uses a full-screen viewport instead, `.safe_area_bottom(inset)`
 reserves extra content space above the home indicator. Leave it at zero when

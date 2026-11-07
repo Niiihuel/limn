@@ -1324,7 +1324,7 @@ fn aurora_spring(duration: f32, bounce: f32) -> crate::SpringMotion {
 /// A bottom sheet's spring: back to its place when let go short, and to a new height when
 /// what it holds changes; a little bounce, as iOS's sheets.
 fn sheet_motion() -> crate::SpringMotion {
-    aurora_spring(0.38, 0.18)
+    aurora_spring(0.45, 0.12)
 }
 /// How far down a sheet's handle takes it before it leaves when let go: this share of its
 /// height, between these.
@@ -12314,6 +12314,9 @@ impl LayoutBuilder<'_> {
         floating.style.width = Some(shape.rect.width);
         floating.style.height = Some(shape.rect.height);
         floating.style.corner_radii = Some(CornerRadii { top_left: shape.top_radius, top_right: shape.top_radius, bottom_right: shape.bottom_radius, bottom_left: shape.bottom_radius });
+        // Glass and its shadow round all four corners alike: the screen's own corners hide the
+        // foot's once the sheet anchors to it.
+        floating.style.radius = shape.top_radius;
         // Glass at partial heights, growing opaque as it anchors to the screen's edges.
         if let Some(glass) = floating.kept.as_mut().and_then(|kept| kept.glass.as_mut()) {
             glass.tint.a = (f32::from(glass.tint.a) + (255.0 - f32::from(glass.tint.a)) * shape.anchored).round() as u8;

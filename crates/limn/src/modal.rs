@@ -405,11 +405,8 @@ impl Component for Modal {
             // the sheet; its buttons win their own presses.
             let circle = |content: Element, fill: Option<Color>| {
                 let circle = Element::panel(content.centered()).round().size(Some(44.0), Some(44.0));
-                match (fill, self.glass) {
-                    (Some(fill), _) => circle.background(fill),
-                    (None, Some(_)) => circle.glass(crate::GlassMaterial { refraction: 14.0, ..crate::GlassMaterial::new(Color { a: 26, ..Color::WHITE }) }),
-                    (None, None) => circle.background(Color { a: 28, ..self.palette.text }),
-                }
+                // Over the sheet's own glass a circle of it reads as a light, translucent disc.
+                circle.background(fill.unwrap_or(Color { a: 36, ..self.palette.text }))
             };
             let cross = Element::icon(Icon::Close).foreground(self.palette.text).size(Some(16.0), Some(16.0));
             let close = Element::clickable(format!("{}:close", self.close_id), circle(cross, None))
@@ -429,7 +426,7 @@ impl Component for Modal {
             };
             let name = Element::formatted_text(vec![TextSpan::new(
                 named.clone(), self.palette.text, 17.0, FontFamily::SansSemibold,
-            )]).center_content().flex(1.0).centered_y();
+            )]).centered_x().flex(1.0).centered_y();
             let bar = Element::row(vec![
                 Element::spacer().size(Some(15.0), None), close.centered_y(), name, end.centered_y(), Element::spacer().size(Some(15.0), None),
             ]).gap(8.0).size(None, Some(60.0));
