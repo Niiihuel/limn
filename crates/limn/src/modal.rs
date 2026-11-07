@@ -99,6 +99,12 @@ const VIEWPORT_MARGIN: f32 = 24.0;
 const FLUSH_HEADER: f32 = 44.0;
 /// The card's outline, in logical pixels.
 const OUTLINE: f32 = 1.0;
+/// `from` toward `to` by `share`, opaque.
+fn mix(from: Color, to: Color, share: f32) -> Color {
+    let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * share).round() as u8;
+    Color::rgb(channel(from.r, to.r), channel(from.g, to.g), channel(from.b, to.b))
+}
+
 /// How long an iOS sheet takes to go down past the foot of the screen.
 const SHEET_CLOSE_MS: u16 = 340;
 
@@ -405,21 +411,24 @@ impl Component for Modal {
             // the sheet; its buttons win their own presses.
             let circle = |content: Element, fill: Option<Color>| {
                 let circle = Element::panel(content.centered()).round().size(Some(44.0), Some(44.0));
-                // Over the sheet's own glass a circle of it reads as a light, translucent disc.
-                circle.background(fill.unwrap_or(Color { a: 36, ..self.palette.text }))
+                // Over the sheet's own glass a circle of it reads as a light disc: opaque, its
+                // tint mixed in already, as a translucent one shows the seams it is drawn with.
+                circle.background(fill.unwrap_or_else(|| mix(self.palette.surface, self.palette.text, 0.16)))
             };
             let cross = Element::icon(Icon::Close).foreground(self.palette.text).size(Some(16.0), Some(16.0));
+            // The circle is the target, so a keyboard's ring rounds it.
             let close = Element::clickable(format!("{}:close", self.close_id), circle(cross, None))
                 .dispatch_as(self.close_id.clone())
                 .accessible(Access::new(Role::Button).name(crate::labels().close))
+                .size(Some(44.0), Some(44.0))
                 .round();
             let end = match &self.confirm {
                 Some((id, label, enabled)) => {
                     let ink = if *enabled { Color::rgb(0, 0, 0) } else { self.palette.muted };
-                    let fill = if *enabled { self.palette.text } else { Color { a: 40, ..self.palette.text } };
+                    let fill = if *enabled { self.palette.text } else { mix(self.palette.surface, self.palette.text, 0.18) };
                     let check = circle(Element::icon(Icon::Check).foreground(ink).size(Some(18.0), Some(18.0)), Some(fill));
                     let said = Access::new(Role::Button).name(label.clone());
-                    if *enabled { Element::clickable(id.clone(), check).accessible(said).round() }
+                    if *enabled { Element::clickable(id.clone(), check).accessible(said).size(Some(44.0), Some(44.0)).round() }
                     else { check.accessible(said.id(id.clone()).disabled(true)) }
                 }
                 None => Element::spacer().size(Some(44.0), Some(44.0)),

@@ -1333,6 +1333,8 @@ const SHEET_AWAY_LEAST: f32 = 60.0;
 const SHEET_AWAY_MOST: f32 = 180.0;
 /// How fast a flick down, in points a second, sends a sheet away however short.
 const SHEET_FLING: f32 = 700.0;
+/// How deep an iOS sheet's rim bends what is behind it.
+const SHEET_BEZEL: f32 = 12.0;
 /// How far below its large height an iOS sheet starts to push back what it was opened over.
 const RECEDE_FROM: f32 = 40.0;
 /// How far past the foot of the screen a sheet let go goes before it is gone.
@@ -3776,6 +3778,8 @@ struct SheetFrame {
 #[derive(Clone, Copy, Debug)]
 struct SheetPaint {
     rect: Rect,
+    /// Its surface: its content's rectangle, reaching on down behind a keyboard.
+    shell: Rect,
     entered: f32,
     leave: f32,
     recede: f32,
@@ -5873,10 +5877,6 @@ impl UiTree {
                                 },
                             });
                         }
-                        // A sheet anchors to the screen's sides while one of these is typed in.
-                        let fields: Vec<String> = focusables.iter()
-                            .filter(|(_, kind)| matches!(kind, HitKind::TextInput | HitKind::TextArea))
-                            .map(|(id, _)| id.clone()).collect();
                         if focus_scope {
                             builder.frame.popover_focus.push(PopoverFocusScope {
                                 dismiss_id: dismiss_id.clone(),
@@ -5896,7 +5896,7 @@ impl UiTree {
                         // and its shape from that height.
                         let sheet = sheet.filter(|_| placement == PopoverPlacement::Bottom && coach.is_none());
                         let sheet_shape = sheet.as_deref().map(|spec| {
-                            builder.sheet_layout(&mut floating, spec, &dismiss_id, viewport, morph.is_some(), &fields)
+                            builder.sheet_layout(&mut floating, spec, &dismiss_id, viewport, morph.is_some())
                         });
                         // Measure wrapped content at the width the viewport
                         // can actually allocate. Shrinking only the painted
@@ -6176,6 +6176,12 @@ impl UiTree {
                             }
                         }
                         if let Some(paint) = sheet_shape {
+                            // Over a keyboard its glass goes on down behind it.
+                            if paint.shell != rect {
+                                for command in &mut builder.frame.commands[bubble_start..] {
+                                    if popover_shell_command(command, rect) { morph_popover_shell(command, paint.shell); }
+                                }
+                            }
                             // Taken down, or rising, it dims the page as much as it shows.
                             if let Some(DrawCommand::FillRect { color, .. }) = scrim_index.and_then(|index| builder.frame.commands.get_mut(index)) {
                                 color.a = (f32::from(color.a) * paint.entered).round() as u8;
@@ -7520,7 +7526,15 @@ impl UiTree {
                 drag.height = height;
                 drag.last = now;
             }
-            None => self.sheet_drag = Some(SheetDrag { dismiss: dismiss.to_owned(), grabber, raw, height, speed: 0.0, last: now }),
+            None => {
+                // As UIKit's: taking the sheet first puts the keyboard away.
+                let typing = self.focused.as_deref().is_some_and(|id| self.frame.regions.iter()
+                    .any(|region| region.id == id && matches!(region.kind, HitKind::TextInput | HitKind::TextArea)));
+                if typing {
+                    Self::replace_focused(&mut self.focused, &mut self.paste_epoch, None);
+                }
+                self.sheet_drag = Some(SheetDrag { dismiss: dismiss.to_owned(), grabber, raw, height, speed: 0.0, last: now });
+            }
         }
     }
 
@@ -12280,7 +12294,7 @@ impl LayoutBuilder<'_> {
     /// Lays an iOS sheet out at the height a finger has taken it to or its spring stands at:
     /// `floating` takes the size, corners and material that height gives it. `morphs`: it
     /// grows out of the button that opened it, so it does not rise from the foot.
-    fn sheet_layout(&mut self, floating: &mut Element, spec: &crate::SheetSpec, dismiss_id: &str, viewport: Size, morphs: bool, fields: &[String]) -> SheetPaint {
+    fn sheet_layout(&mut self, floating: &mut Element, spec: &crate::SheetSpec, dismiss_id: &str, viewport: Size, morphs: bool) -> SheetPaint {
         use crate::sheet_geometry as geometry;
         let floats = spec.screen_corner > 0.0;
         let width = (viewport.width - if floats { 2.0 * geometry::FLOAT_INSET } else { 0.0 }).max(0.0);
@@ -12309,8 +12323,7 @@ impl LayoutBuilder<'_> {
                 self.spring_moving(&key, target, sheet_motion())
             }
         };
-        let typing = self.focused.is_some_and(|id| fields.iter().any(|field| field == id));
-        let shape = geometry::shape(spec, height, smallest, viewport.width, viewport.height, typing);
+        let shape = geometry::shape(spec, height, smallest, viewport.width, viewport.height);
         floating.style.width = Some(shape.rect.width);
         floating.style.height = Some(shape.rect.height);
         floating.style.corner_radii = Some(CornerRadii { top_left: shape.top_radius, top_right: shape.top_radius, bottom_right: shape.bottom_radius, bottom_left: shape.bottom_radius });
@@ -12320,6 +12333,10 @@ impl LayoutBuilder<'_> {
         // Glass at partial heights, growing opaque as it anchors to the screen's edges.
         if let Some(glass) = floating.kept.as_mut().and_then(|kept| kept.glass.as_mut()) {
             glass.tint.a = (f32::from(glass.tint.a) + (255.0 - f32::from(glass.tint.a)) * shape.anchored).round() as u8;
+            // Its corners are round arcs, concentric with the display's, not a pane's squircle,
+            // and it bends what is behind it only at its rim, not a corner's depth into it.
+            glass.power = 2.0;
+            glass.bezel = SHEET_BEZEL;
         }
         let large = geometry::large(spec, viewport.height);
         self.sheet_frames.insert(dismiss_id.to_owned(), SheetFrame { heights, resting, height, viewport: viewport.height, dismissible: spec.dismissible });
@@ -12330,8 +12347,9 @@ impl LayoutBuilder<'_> {
         }
         SheetPaint {
             rect: shape.rect,
+            shell: shape.shell,
             entered: if smallest > 0.0 { (height / smallest).clamp(0.0, 1.0) } else { 1.0 },
-            leave: viewport.height - shape.rect.y + SHEET_EXIT_PAST,
+            leave: viewport.height - shape.shell.y + SHEET_EXIT_PAST,
             recede,
         }
     }

@@ -72,7 +72,8 @@ The tree gives the sheet its size each frame:
 
 - **Partial heights:** it floats 8 points in from the sides and foot, with corners concentric with the display's.
 - **Near its large height:** it eases onto the screen's edges and its glass grows opaque. What it was opened over recedes behind it, smaller and rounded.
-- **With a field focused:** it anchors to the sides, as the keyboard does.
+- **Over the keyboard** (`keyboard`, how much of the screen's foot it covers): it grows by the keyboard's height, up to its large one, keeping its sides' inset. Its content ends above the keyboard and its glass reaches down behind it. Taken by its bar, it lets go of a field's focus first, which puts the keyboard away.
+- **Corners:** its glass corners are round arcs, not a pane's squircle, and its rim bends what is behind it only 12 points deep.
 
 Its bar:
 

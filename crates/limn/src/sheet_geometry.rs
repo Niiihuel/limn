@@ -59,11 +59,14 @@ pub struct SheetSpec {
     pub dismissible: bool,
     /// The detent it opens at, an index into `detents`.
     pub opens_at: usize,
+    /// How much of the screen's foot the keyboard covers: the sheet grows by it, its content
+    /// kept above the keyboard and its glass reaching down behind it, as UIKit's does.
+    pub keyboard: f32,
 }
 
 impl Default for SheetSpec {
     fn default() -> Self {
-        Self { detents: vec![SheetDetent::Fit, SheetDetent::Large], safe_top: 0.0, screen_corner: 0.0, recede: true, dismissible: true, opens_at: 0 }
+        Self { detents: vec![SheetDetent::Fit, SheetDetent::Large], safe_top: 0.0, screen_corner: 0.0, recede: true, dismissible: true, opens_at: 0, keyboard: 0.0 }
     }
 }
 
@@ -98,9 +101,11 @@ pub fn anchored(height: f32, large: f32) -> f32 {
 /// A sheet's shape at one height.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shape {
-    /// Where it is laid out: its content keeps the smallest resting height when it is taken
-    /// lower, and goes down whole.
+    /// Where its content is laid out: it keeps the smallest resting height when it is taken
+    /// lower, and goes down whole; it ends above a keyboard.
     pub rect: Rect,
+    /// Where its surface stands: its content's, reaching on down behind a keyboard.
+    pub shell: Rect,
     /// Its top corners' radius.
     pub top_radius: f32,
     /// Its bottom corners', which straighten as it anchors to the screen's foot.
@@ -110,18 +115,28 @@ pub struct Shape {
 }
 
 /// The shape of a sheet `height` tall whose smallest resting height is `smallest`, in a
-/// `width` by `viewport` screen. `typing`: a keyboard is up, which anchors it to the sides.
-pub fn shape(spec: &SheetSpec, height: f32, smallest: f32, width: f32, viewport: f32, typing: bool) -> Shape {
+/// `width` by `viewport` screen. Over the keyboard `spec` names, it grows by the keyboard's
+/// height, up to its large one, keeping its sides' inset.
+pub fn shape(spec: &SheetSpec, height: f32, smallest: f32, width: f32, viewport: f32) -> Shape {
     let large = large(spec, viewport);
     let floats = spec.screen_corner > 0.0;
-    let anchored = if floats && !typing { anchored(height, large) } else { 1.0 };
+    let anchored = if floats { anchored(height, large) } else { 1.0 };
     let inset = FLOAT_INSET * (1.0 - anchored);
     let radius = if floats { (spec.screen_corner - FLOAT_INSET).max(10.0) } else { 12.0 };
+    let keyboard = spec.keyboard.clamp(0.0, viewport);
     // Below its smallest height it is not squeezed: it is taken down as it is.
     let laid = height.max(smallest.min(large));
     let down = (laid - height).max(0.0);
-    let rect = Rect::new(inset, viewport - inset - laid + down, (width - 2.0 * inset).max(0.0), laid);
-    Shape { rect, top_radius: radius, bottom_radius: if floats { radius * (1.0 - anchored) } else { 0.0 }, anchored }
+    // Its foot: the screen's, behind a keyboard, else 8 over it while it floats.
+    let foot = if keyboard > 0.0 { viewport } else { viewport - inset };
+    let top = (foot - keyboard - laid + down).max(viewport - large.max(laid) + down);
+    let side = (width - 2.0 * inset).max(0.0);
+    // Over a keyboard its content ends above it and its glass goes on down behind it; with
+    // none, both keep the height it was laid out at, taken down past the foot as they are.
+    let (content, surface) = if keyboard > 0.0 { ((foot - keyboard - top).max(0.0), (foot - top).max(0.0)) } else { (laid, laid) };
+    let rect = Rect::new(inset, top, side, content);
+    let shell = Rect::new(inset, top, side, surface);
+    Shape { rect, shell, top_radius: radius, bottom_radius: if floats { radius * (1.0 - anchored) } else { 0.0 }, anchored }
 }
 
 /// Past its largest height a sheet stretches as UIScrollView's content does past its end:
@@ -162,25 +177,35 @@ mod tests {
         let spec = spec();
         let large = large(&spec, 844.0);
         assert_eq!(large, 787.0, "10 under the safe area's top");
-        let half = shape(&spec, 300.0, 300.0, 390.0, 844.0, false);
+        let half = shape(&spec, 300.0, 300.0, 390.0, 844.0);
         assert_eq!(half.rect, Rect::new(8.0, 844.0 - 8.0 - 300.0, 374.0, 300.0));
         assert!((half.top_radius - 39.33).abs() < 0.01 && half.bottom_radius == half.top_radius, "concentric with the display's 47.33");
-        let full = shape(&spec, large, 300.0, 390.0, 844.0, false);
+        let full = shape(&spec, large, 300.0, 390.0, 844.0);
         assert_eq!(full.rect, Rect::new(0.0, 57.0, 390.0, large), "on the screen's edges, under the gap");
         assert_eq!((full.anchored, full.bottom_radius), (1.0, 0.0));
         // Still floating at three quarters, easing in after.
-        assert_eq!(shape(&spec, large * 0.75, 300.0, 390.0, 844.0, false).rect.x, 8.0);
-        let between = shape(&spec, large * 0.9, 300.0, 390.0, 844.0, false).rect.x;
+        assert_eq!(shape(&spec, large * 0.75, 300.0, 390.0, 844.0).rect.x, 8.0);
+        let between = shape(&spec, large * 0.9, 300.0, 390.0, 844.0).rect.x;
         assert!(between > 0.0 && between < 8.0, "{between}");
-        // A keyboard anchors it; without a display radius it never floats.
-        assert_eq!(shape(&spec, 300.0, 300.0, 390.0, 844.0, true).rect.x, 0.0);
-        assert_eq!(shape(&SheetSpec::default(), 300.0, 300.0, 390.0, 844.0, false).rect.x, 0.0);
+        // Without a display radius it never floats.
+        assert_eq!(shape(&SheetSpec::default(), 300.0, 300.0, 390.0, 844.0).rect.x, 0.0);
+    }
+
+    #[test]
+    fn over_a_keyboard_it_grows_by_it_its_content_above_and_its_glass_behind() {
+        let spec = SheetSpec { keyboard: 300.0, ..spec() };
+        let raised = shape(&spec, 300.0, 300.0, 390.0, 844.0);
+        assert_eq!(raised.rect, Rect::new(8.0, 844.0 - 300.0 - 300.0, 374.0, 300.0), "its content as tall as before, above the keyboard");
+        assert_eq!(raised.shell, Rect::new(8.0, 244.0, 374.0, 600.0), "its glass on down behind the keyboard, its sides' inset kept");
+        // A taller one stops at its large height: its content gives up what does not fit.
+        let tall = shape(&spec, 700.0, 300.0, 390.0, 844.0);
+        assert_eq!((tall.shell.y, tall.rect.height), (57.0, 844.0 - 300.0 - 57.0));
     }
 
     #[test]
     fn taken_below_its_smallest_height_a_sheet_goes_down_whole() {
         let spec = spec();
-        let shape = shape(&spec, 200.0, 300.0, 390.0, 844.0, false);
+        let shape = shape(&spec, 200.0, 300.0, 390.0, 844.0);
         assert_eq!(shape.rect.height, 300.0, "not squeezed");
         assert_eq!(shape.rect.y, 844.0 - 8.0 - 300.0 + 100.0, "a hundred lower");
     }

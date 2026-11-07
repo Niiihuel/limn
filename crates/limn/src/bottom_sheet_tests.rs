@@ -664,3 +664,36 @@ fn panning_an_ios_sheets_content_at_its_top_takes_the_sheet_and_up_grows_it_befo
     assert_eq!(tree.handle_event_at(UiEvent::ScrollEnded, ms(at, 7000)), vec![UiAction::Clicked { id: "sheet".into() }]);
 }
 
+
+
+#[test]
+fn over_a_keyboard_an_ios_sheet_grows_its_glass_reaches_behind_it_and_a_drag_puts_the_keyboard_away() {
+    let sheet = |keyboard: f32| BottomSheet::new(Element::spacer(), true, "Import", "", "sheet", ComponentPalette::neutral_dark())
+        .ios(crate::SheetSpec { safe_top: 47.0, screen_corner: 47.33, keyboard, ..crate::SheetSpec::default() })
+        .glass(crate::GlassMaterial::new(crate::Color::rgba(30, 30, 32, 214)))
+        .body(Element::text_input("link", "", "Link"))
+        .initial_focus("link")
+        .render();
+    let size = Size::new(390.0, 844.0);
+    let glass = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+        crate::DrawCommand::Glass { rect, .. } if rect.width > 300.0 => Some(*rect),
+        _ => None,
+    }).unwrap();
+    let mut tree = UiTree::new(sheet(0.0));
+    tree.set_reduced_motion(true);
+    let resting = glass(&tree.layout(size));
+    tree.set_root(sheet(300.0));
+    let frame = tree.layout(size);
+    let raised = glass(&frame);
+    assert_eq!((raised.x, raised.y + raised.height), (resting.x, 844.0), "its sides kept, its glass down to the foot");
+    assert!((raised.y - (resting.y - 300.0 + 8.0)).abs() < 1.0, "grown by the keyboard: {raised:?} from {resting:?}");
+    let field = bounds(&frame, "link");
+    assert!(field.y + field.height <= 844.0 - 300.0, "its field above the keyboard: {field:?}");
+    // Taken by its bar, the field lets the keyboard go first.
+    assert_eq!(tree.focused_id(), Some("link"));
+    let bar = bounds(&frame, "sheet:drag");
+    let start = crate::Point::new(bar.x + bar.width / 2.0, bar.y + 6.0);
+    tree.handle_event(UiEvent::PointerDown(start));
+    tree.handle_event(UiEvent::PointerMove(crate::Point::new(start.x, start.y + 30.0)));
+    assert_ne!(tree.focused_id(), Some("link"), "the keyboard goes as the sheet is taken");
+}
