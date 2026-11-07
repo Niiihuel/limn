@@ -1,4 +1,4 @@
-use crate::{Color, DrawCommand, Point, RasterImage, Rect, ScrollMotion, ScrollbarAppearance, Size};
+use crate::{GlassMaterial, Color, DrawCommand, Point, RasterImage, Rect, ScrollMotion, ScrollbarAppearance, Size};
 use std::sync::Arc;
 
 /// Text size, in logical pixels, of an element that sets none.
@@ -943,6 +943,17 @@ pub struct BoxShadow {
 /// stable when children are rebuilt or reordered.
 #[derive(Clone, Debug)]
 pub struct TabSelection {
+    /// Optional optical material for the sliding selection.
+    pub glass: Option<crate::GlassMaterial>,
+    /// Optional parent control whose press lifts the lens.
+    pub press_id: Option<String>,
+    /// Optional lens width overriding the selected slot width.
+    pub width: Option<f32>,
+    /// Optional indicator height, centred in the selected slot: a segmented control's knob
+    /// inside taller touch targets.
+    pub height: Option<f32>,
+    /// aurora's segmented knob, by how much it grows lifted; see [`Element::selection_lift`].
+    pub lift: Option<f32>,
     /// Stable ID under which the tree keeps where the indicator is.
     pub group_id: String,
     /// ID of the tab button, or of the [`Element::indicator_slot`] child, the
@@ -1004,6 +1015,10 @@ pub(crate) enum HoverReveal {
 /// keeps an element's ink and a column's children across rebuilds.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Kept {
+    /// Stored off the common element path: most elements have no material.
+    pub(crate) glass: Option<GlassMaterial>,
+    /// Set by [`Element::glass_press`]: the ID its press is kept under.
+    pub(crate) glass_press: Option<String>,
     pub(crate) foreground: Option<String>,
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
@@ -1123,7 +1138,7 @@ pub struct Element {
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
-    /// Rare paint and retained effects. Boxed
+    /// Rare paint and retained effects, including [`Element::glass`]. Boxed
     /// together so ordinary elements do not grow in cached trees.
     pub(crate) kept: Option<Box<Kept>>,
     /// Set by [`Element::hover_region`] and [`Element::reveal_on_hover`];
@@ -1703,6 +1718,8 @@ pub enum ElementKind {
         /// The dismiss ID of the popover whose surface this one is placed beside;
         /// see [`Element::popover_clear_of`].
         clear_of: Option<String>,
+        /// A bottom surface as iOS 26's sheet; see [`Element::popover_sheet`].
+        sheet: Option<Box<crate::SheetSpec>>,
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -2381,6 +2398,11 @@ impl Element {
     ) -> Self {
         if let ElementKind::TabStrip { selection, .. } = &mut self.kind {
             *selection = Some(TabSelection {
+                glass: None,
+                press_id: None,
+                width: None,
+                height: None,
+                lift: None,
                 group_id: group_id.into(),
                 selected_id: selected_id.into(),
                 color,
@@ -2388,6 +2410,59 @@ impl Element {
                 radius: radius.max(0.0),
                 animation_ms,
             });
+        }
+        self
+    }
+
+    /// Refract the backdrop through the selected tab's moving pill.
+    /// Has no effect until `tab_selection` is set.
+    pub fn glass_selection(mut self, material: crate::GlassMaterial) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            selection.glass = Some(material);
+        }
+        self
+    }
+
+    /// Draw the selection this tall, centred in its slot. Has no effect until
+    /// `tab_selection` is set; a height that is not finite is ignored.
+    pub fn tab_selection_height(mut self, height: f32) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            if height.is_finite() {
+                selection.height = Some(height.max(0.0));
+            }
+        }
+        self
+    }
+
+    /// Move a glass selection as aurora's segmented control moves its knob: on its snappy
+    /// spring (0.30 s, bounce 0.15), lifted to `scale` as a lens for the first half of its
+    /// way on its press spring (0.30 s, bounce 0.35), then landing on its bouncy one (0.42 s,
+    /// bounce 0.55), squashing into place as it arrives. Has no effect until `tab_selection`
+    /// and `glass_selection` are set; a scale that is not finite is ignored.
+    pub fn selection_lift(mut self, scale: f32) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            if scale.is_finite() {
+                selection.lift = Some(scale.clamp(1.0, 2.0));
+            }
+        }
+        self
+    }
+
+    /// Make a selection lens lift while its parent control is pressed.
+    pub fn selection_press(mut self, id: impl Into<String>) -> Self {
+        if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+            selection.press_id = Some(id.into());
+        }
+        self
+    }
+
+    /// Override the indicator width, anchored to the outside edge of its slot.
+    /// Non-finite values are ignored and negative widths become zero.
+    pub fn selection_width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            if let ElementKind::TabStrip { selection: Some(selection), .. } = &mut self.kind {
+                selection.width = Some(width.max(0.0));
+            }
         }
         self
     }
@@ -2983,6 +3058,7 @@ impl Element {
                 at: None,
                 anchor_outset: [0.0; 4],
                 clear_of: None,
+                sheet: None,
             },
             layout,
         )
@@ -3170,6 +3246,21 @@ impl Element {
         } = &mut self.kind
         {
             *close_animation_ms = Some(duration);
+        }
+        self
+    }
+
+    /// Make a bottom surface iOS 26's sheet. It rests at `spec`'s heights, floating
+    /// inset at partial ones with corners concentric with the display's, anchored to
+    /// the screen's edges and opaque at its large one, where what it was opened over
+    /// recedes. It follows a drag of its grabber (an element whose ID is the dismiss ID
+    /// and `:drag`), or of its content once that is scrolled to its top, and a release
+    /// rests it at the height its speed carries it nearest to, or reports `dismiss_id`
+    /// as a click when that is its foot. A tap on the grabber steps through the heights.
+    /// The surface takes the size and corners the tree gives it at each height.
+    pub fn popover_sheet(mut self, spec: crate::SheetSpec) -> Self {
+        if let ElementKind::Popover { sheet, .. } = &mut self.kind {
+            *sheet = Some(Box::new(spec));
         }
         self
     }
@@ -4107,6 +4198,22 @@ impl Element {
     /// Fill the element's bounds with this color.
     pub fn background(mut self, color: Color) -> Self {
         self.style.background = Some(color);
+        self
+    }
+
+    /// Grow this pane of glass, and what is on it, while a press inside it lasts, and light
+    /// it around the press, as aurora's interactive glass: to 1.075 on a spring of 0.30 s
+    /// with a bounce of 0.35 and back on the same, the light coming in 120 ms and going in
+    /// 300. Its layout and pointer regions stay; its motion is kept under `id`.
+    pub fn glass_press(mut self, id: impl Into<String>) -> Self {
+        self.kept.get_or_insert_default().glass_press = Some(id.into());
+        self
+    }
+
+    /// Add a backdrop material behind the element's background and children.
+    /// Leave the background transparent for the sampled scene to show through.
+    pub fn glass(mut self, material: GlassMaterial) -> Self {
+        self.kept.get_or_insert_default().glass = Some(material.normalized());
         self
     }
 

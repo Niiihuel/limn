@@ -71,6 +71,7 @@ mod text_layout_cache;
 mod window_controls;
 mod menu_header;
 mod modal;
+mod share_sheet;
 mod navigation_bar;
 mod motion;
 mod notice;
@@ -149,6 +150,7 @@ pub use accordion::{Accordion, AccordionItem};
 pub use alert::{Alert, AlertColors, AlertTone};
 pub use alert_dialog::AlertDialog;
 pub use bottom_sheet::{BottomSheet, BottomSheetDrag};
+pub use sheet_geometry::{SheetDetent, SheetSpec};
 pub use coach_mark::{CoachMark, Tour, TourStep};
 pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
@@ -227,6 +229,7 @@ pub use text_layout::{Glyph, GlyphRun, Leading, TextLayout, TextLine, TextStyle}
 pub use window_controls::WindowControls;
 pub use menu_header::MenuHeader;
 pub use modal::{DismissButton, Modal};
+pub use share_sheet::{ShareAction, ShareSheet, ShareTarget};
 pub use motion::{
     Easing, MenuMotion, ScalarSpring, ScalarTransition, ScrollMotion, SpringMotion,
 };
@@ -305,3 +308,14 @@ pub use list_row::RowSizing;
 pub use page::SectionSizing;
 #[allow(deprecated)]
 pub use panel_header::HeaderSizing;
+
+mod glass;
+mod liquid;
+mod sheet_geometry;
+pub use liquid::{GLASS_POP_CLOSE_MS, GLASS_POP_OPEN_MS};
+pub use glass::GlassMaterial;
+
+mod floating_glass_bar;
+pub use floating_glass_bar::{FloatingBarMotion, FloatingGlassBar, FloatingGlassTab};
+mod glass_menu;
+pub use glass_menu::GlassMenu;

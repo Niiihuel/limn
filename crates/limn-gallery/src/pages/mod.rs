@@ -6,6 +6,7 @@
 use crate::app::State;
 use limn::{ComponentPalette, Element, ElementKind, FontFamily, UiAction};
 
+pub(crate) mod glass;
 mod accordion;
 mod avatars;
 mod badge;
@@ -166,6 +167,7 @@ pub const PAGES: &[Page] = &[
     Page { id: "menu-bar", group: "Navigation", title: "MenuBar", source: "chrome", view: chrome::view, sections: &["Menu bar"], since: "0.1.39" },
     Page { id: "status-bar", group: "Navigation", title: "StatusBar", source: "chrome", view: chrome::view, sections: &["Status bar"], since: "0.1.39" },
     Page { id: "window-controls", group: "Navigation", title: "WindowControls", source: "chrome", view: chrome::view, sections: &["Window controls"], since: "0.1.44" },
+    Page { id: "glass", group: "Surfaces", title: "GlassMaterial", source: "glass", view: glass::view, sections: &[], since: "0.1.43" },
     Page { id: "navigation-bar", group: "Navigation", title: "NavigationBar", source: "navigation_bar", view: navigation_bar::view, sections: &[], since: "0.1.39" },
     Page { id: "top-bar", group: "Navigation", title: "TopBar", source: "top_bar", view: top_bar::view, sections: &[], since: "0.1.43" },
     Page { id: "list-row", group: "Data", title: "ListRow", source: "lists", view: lists::view, sections: &[], since: "0.1.39" },
@@ -289,6 +291,7 @@ pub fn find(id: &str) -> &'static Page {
 
 /// What a demo keeps that a flag or a choice cannot hold.
 pub fn update(state: &mut State, action: &UiAction) {
+    glass::update(state, action);
     accordion::update(state, action);
     table::update(state, action);
     dates::update(state, action);
