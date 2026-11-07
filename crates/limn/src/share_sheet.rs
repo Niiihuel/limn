@@ -47,6 +47,7 @@ pub struct ShareSheet {
     targets: Vec<ShareTarget>,
     actions: Vec<ShareAction>,
     material: Option<GlassMaterial>,
+    ios: Option<crate::SheetSpec>,
 }
 
 /// iOS's measures: a 52 preview with corners of 10, a 30 cross, app squares 60 with corners
@@ -80,6 +81,7 @@ impl ShareSheet {
             targets: Vec::new(),
             actions: Vec::new(),
             material: None,
+            ios: None,
         }
     }
 
@@ -98,6 +100,12 @@ impl ShareSheet {
     /// What can be done with it, in their order.
     pub fn actions(mut self, actions: Vec<ShareAction>) -> Self {
         self.actions = actions;
+        self
+    }
+
+    /// Move it as iOS 26's sheet; see [`crate::BottomSheet::ios`].
+    pub fn ios(mut self, spec: crate::SheetSpec) -> Self {
+        self.ios = Some(spec);
         self
     }
 
@@ -162,6 +170,9 @@ impl Component for ShareSheet {
             .body(Element::column(body).gap(16.0).padding(16.0));
         if let Some(material) = self.material {
             sheet = sheet.glass(material);
+        }
+        if let Some(spec) = self.ios {
+            sheet = sheet.ios_sheet(spec);
         }
         sheet.bottom_sheet(600.0, 0.0).render()
     }

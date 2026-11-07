@@ -1333,10 +1333,28 @@ const SHEET_AWAY_LEAST: f32 = 60.0;
 const SHEET_AWAY_MOST: f32 = 180.0;
 /// How fast a flick down, in points a second, sends a sheet away however short.
 const SHEET_FLING: f32 = 700.0;
+/// How far below its large height an iOS sheet starts to push back what it was opened over.
+const RECEDE_FROM: f32 = 40.0;
 /// How far past the foot of the screen a sheet let go goes before it is gone.
 const SHEET_EXIT_PAST: f32 = 24.0;
 /// How far a sheet stretches up at most, held by its handle past its place.
 const SHEET_STRETCH: f32 = 48.0;
+
+/// Pushes back the scene painted before command `end`, `depth` of the way to iOS's receded
+/// card: smaller about the screen's middle, its corners rounded as the display's are.
+fn recede_scene(commands: &mut Vec<DrawCommand>, end: usize, depth: f32, corner: f32, viewport: Size) {
+    let end = end.min(commands.len());
+    let scale = 1.0 - (1.0 - crate::sheet_geometry::RECEDE_SCALE) * depth;
+    let origin = Point::new(viewport.width / 2.0, viewport.height / 2.0);
+    for command in &mut commands[..end] {
+        animate_popover_command(command, 1.0, 0.0, scale, origin);
+    }
+    let card = Rect::new(origin.x - viewport.width * scale / 2.0, origin.y - viewport.height * scale / 2.0, viewport.width * scale, viewport.height * scale);
+    let radius = (corner - crate::sheet_geometry::FLOAT_INSET).max(10.0) * depth;
+    commands.insert(end, DrawCommand::PopClip);
+    commands.insert(0, DrawCommand::RoundClip { rect: card, radii: CornerRadii { top_left: radius, top_right: radius, bottom_right: radius, bottom_left: radius } });
+    commands.insert(0, DrawCommand::PushClip(card));
+}
 
 /// The finger's way down as the sheet follows it: all of it down, and up a rubber band's,
 /// less the further it pulls, never past `SHEET_STRETCH`.
@@ -1990,6 +2008,11 @@ struct PopoverSnapshot {
     /// How far down a bottom sheet stood from its place, held or springing: let go there,
     /// it leaves down from it.
     sheet_offset: f32,
+    /// An iOS sheet's way down past the foot of the screen, which it goes when it closes
+    /// unless it melts back into the button it grew out of.
+    sheet_exit: Option<f32>,
+    /// How far an iOS sheet had pushed back what it was opened over, 0 to 1.
+    recede: f32,
 }
 
 /// The paint an `animate_replace` element had last frame, and the one it
@@ -3412,6 +3435,9 @@ pub enum UiEvent {
         /// diff scrolls sideways by `delta_y`.
         shift: bool,
     },
+    /// A direct pan the host translated into `Scroll2D` events has ended: the
+    /// finger is up. An iOS sheet the pan took comes to rest, or leaves.
+    ScrollEnded,
     /// Clipboard text for the focused control. A text field inserts it as it
     /// does `Text`.
     Paste(String),
@@ -3731,6 +3757,41 @@ struct PointerDrag {
     /// there, in points a second: what a sheet's handle is let go with.
     last: Option<(f32, Instant)>,
     speed: f32,
+}
+
+/// What an iOS sheet was laid out as: the heights it rests at, ascending, the height it
+/// stood at, the screen's height, and whether a drag may send it away.
+#[derive(Clone, Debug)]
+struct SheetFrame {
+    heights: Vec<f32>,
+    resting: usize,
+    height: f32,
+    viewport: f32,
+    dismissible: bool,
+}
+
+/// How an iOS sheet is painted this frame: its shape; how much of its smallest height shows,
+/// which the dimming follows; how far it goes to leave the screen; and how far it pushes
+/// back what it was opened over.
+#[derive(Clone, Copy, Debug)]
+struct SheetPaint {
+    rect: Rect,
+    entered: f32,
+    leave: f32,
+    recede: f32,
+}
+
+/// An iOS sheet held: by its grabber, from where the finger went down, or by its content
+/// as that pans. `raw` is where the finger has taken it, before its rubber band; `speed`,
+/// how fast it grows, in points a second.
+#[derive(Clone, Debug)]
+struct SheetDrag {
+    dismiss: String,
+    grabber: Option<(String, f32, f32)>,
+    raw: f32,
+    height: f32,
+    speed: f32,
+    last: Instant,
 }
 
 /// A field's value as limn lays it out, in a tree told to
@@ -4536,6 +4597,12 @@ pub struct UiTree {
     pressed: Option<String>,
     pressed_dispatch: Option<String>,
     pointer_drag: Option<PointerDrag>,
+    /// iOS sheets: the height each rests at, by its dismissal, while it is open.
+    sheet_detents: HashMap<String, usize>,
+    /// What each open iOS sheet was last laid out as, for a drag to start from and let go to.
+    sheet_frames: HashMap<String, SheetFrame>,
+    /// An iOS sheet held by its grabber or by its content.
+    sheet_drag: Option<SheetDrag>,
     transitions: HashMap<String, ColorTransition>,
     popover_transitions: HashMap<String, ScalarTransition>,
     popover_snapshots: HashMap<String, PopoverSnapshot>,
@@ -4647,6 +4714,9 @@ impl UiTree {
             pressed: None,
             pressed_dispatch: None,
             pointer_drag: None,
+            sheet_detents: HashMap::new(),
+            sheet_frames: HashMap::new(),
+            sheet_drag: None,
             transitions: HashMap::new(),
             popover_transitions: HashMap::new(),
             popover_snapshots: HashMap::new(),
@@ -5578,6 +5648,7 @@ impl UiTree {
         let context_menu_paint = self.context_menu_paint(viewport_rect);
         self.measurement_cache.get_mut().clear();
         let ghost_range;
+        let mut receding: Option<(f32, f32)>;
         let (mut frame, overlay_start) = {
             let mut builder = LayoutBuilder {
                 viewport: viewport_rect,
@@ -5598,6 +5669,10 @@ impl UiTree {
                     .as_ref()
                     .filter(|drag| drag.active)
                     .map(|drag| drag.id.as_str()),
+                sheet_hold: self.sheet_drag.as_ref().map(|drag| (drag.dismiss.as_str(), drag.height)),
+                sheet_detents: &self.sheet_detents,
+                sheet_frames: &mut self.sheet_frames,
+                recede: None,
                 sheet_held: self
                     .pointer_drag
                     .as_ref()
@@ -5742,6 +5817,7 @@ impl UiTree {
                         pointed,
                         anchor_outset,
                         clear_of,
+                        sheet,
                     } => {
                         let coach = coach.as_deref();
                         if let Some(coach) = coach {
@@ -5797,6 +5873,10 @@ impl UiTree {
                                 },
                             });
                         }
+                        // A sheet anchors to the screen's sides while one of these is typed in.
+                        let fields: Vec<String> = focusables.iter()
+                            .filter(|(_, kind)| matches!(kind, HitKind::TextInput | HitKind::TextArea))
+                            .map(|(id, _)| id.clone()).collect();
                         if focus_scope {
                             builder.frame.popover_focus.push(PopoverFocusScope {
                                 dismiss_id: dismiss_id.clone(),
@@ -5812,6 +5892,12 @@ impl UiTree {
                                 pointed,
                             });
                         }
+                        // An iOS sheet: its height from the finger holding it or its spring,
+                        // and its shape from that height.
+                        let sheet = sheet.filter(|_| placement == PopoverPlacement::Bottom && coach.is_none());
+                        let sheet_shape = sheet.as_deref().map(|spec| {
+                            builder.sheet_layout(&mut floating, spec, &dismiss_id, viewport, morph.is_some(), &fields)
+                        });
                         // Measure wrapped content at the width the viewport
                         // can actually allocate. Shrinking only the painted
                         // rectangle would retain the wider layout's height.
@@ -5853,7 +5939,7 @@ impl UiTree {
                                 )
                             }
                         };
-                        let rect = LayoutBuilder::translated_rect(&floating, rect);
+                        let rect = sheet_shape.map_or_else(|| LayoutBuilder::translated_rect(&floating, rect), |shape| shape.rect);
                         builder.observed_popovers.insert(dismiss_id.clone());
                         let surface = if floating.kept.as_ref().is_some_and(|kept| kept.translation.is_some()) {
                             rect.intersection(viewport_rect)
@@ -5865,7 +5951,9 @@ impl UiTree {
                                 kind: HitKind::Surface,
                             });
                         }
-                        let progress = if builder.reduced_motion || animation_ms == 0 {
+                        // A sheet rises on its spring, not with a popover's fade, unless it
+                        // grows out of the button that opened it.
+                        let progress = if builder.reduced_motion || animation_ms == 0 || (sheet_shape.is_some() && morph.is_none()) {
                             1.0
                         } else {
                             let transition = builder
@@ -5997,6 +6085,8 @@ impl UiTree {
                                     .filter(|_| coach.is_none())
                                     .map(|color| (viewport_rect, color)),
                                 sheet_offset: 0.0,
+                                sheet_exit: None,
+                                recede: 0.0,
                             },
                         );
                         if let Some(transition) = builder
@@ -6085,7 +6175,16 @@ impl UiTree {
                                 }
                             }
                         }
-                        if placement == PopoverPlacement::Bottom && coach.is_none() {
+                        if let Some(paint) = sheet_shape {
+                            // Taken down, or rising, it dims the page as much as it shows.
+                            if let Some(DrawCommand::FillRect { color, .. }) = scrim_index.and_then(|index| builder.frame.commands.get_mut(index)) {
+                                color.a = (f32::from(color.a) * paint.entered).round() as u8;
+                            }
+                            if let Some(snapshot) = builder.popover_snapshots.get_mut(&dismiss_id) {
+                                snapshot.sheet_exit = Some(paint.leave);
+                                snapshot.recede = paint.recede;
+                            }
+                        } else if placement == PopoverPlacement::Bottom && coach.is_none() {
                             let offset = builder.sheet_spring(&dismiss_id, rect, progress);
                             if offset.abs() > 0.1 {
                                 // Its shell keeps the foot of the screen when it rises past its
@@ -6177,6 +6276,7 @@ impl UiTree {
                 builder.keyboard_focus = old_keyboard;
             }
             ghost_range = builder.drag_ghost.take();
+            receding = builder.recede.take();
             self.hovered_region = builder.hovered_region(base_regions);
             (builder.frame, overlay_start)
         };
@@ -6257,6 +6357,17 @@ impl UiTree {
                         radius: 0.0,
                     });
                 }
+                // An iOS sheet goes on down past the foot of the screen, unless it melts back
+                // into the button it grew out of; what it pushed back comes forward again.
+                if let (Some(travel), None) = (exit.paint.sheet_exit, exit.paint.morph) {
+                    let gone = 1.0 - (1.0 - (1.0 - opacity).clamp(0.0, 1.0)).powi(3);
+                    exit_commands.extend(exit.paint.commands.iter().map(|command| command.moved(0.0, travel * gone, 1.0)));
+                    if exit.paint.recede > 0.0 {
+                        let left = exit.paint.recede * (1.0 - gone);
+                        receding = Some((receding.map_or(0.0, |(deepest, _)| deepest).max(left), receding.map_or(0.0, |(_, corner)| corner)));
+                    }
+                    continue;
+                }
                 // Let go down its way, a sheet goes on down from where the finger left it.
                 if exit.paint.sheet_offset > 1.0 {
                     let gone = 1.0 - (1.0 - (1.0 - opacity).clamp(0.0, 1.0)).powi(3);
@@ -6290,6 +6401,11 @@ impl UiTree {
                 .splice(overlay_start..overlay_start, exit_commands);
             frame.commands.extend(top_exits);
         }
+        // What an iOS sheet at its large height was opened over recedes behind it, smaller and
+        // rounded as a card.
+        if let Some((depth, corner)) = receding.filter(|(depth, _)| *depth > 0.001) {
+            recede_scene(&mut frame.commands, overlay_start, depth, corner, viewport);
+        }
         for id in current_popover_snapshots.keys() {
             if !self.popover_order.contains_key(id) {
                 self.popover_opened += 1;
@@ -6297,6 +6413,12 @@ impl UiTree {
             }
         }
         self.popover_order.retain(|id, _| current_popover_snapshots.contains_key(id) || self.popover_exits.contains_key(id));
+        // An iOS sheet closed forgets its height: opened again, it rises to its first.
+        self.sheet_frames.retain(|id, _| current_popover_snapshots.contains_key(id));
+        self.sheet_detents.retain(|id, _| current_popover_snapshots.contains_key(id));
+        if self.sheet_drag.as_ref().is_some_and(|drag| !self.sheet_frames.contains_key(&drag.dismiss)) {
+            self.sheet_drag = None;
+        }
         self.popover_snapshots = current_popover_snapshots;
         // Hover-open submenus are excluded from the static tree walk so their
         // dormant options cannot receive focus. Once a submenu is painted,
@@ -7168,10 +7290,24 @@ impl UiTree {
 
     /// Dispatch with the same monotonic clock used by `layout_at`.
     pub fn handle_event_at(&mut self, event: UiEvent, now: Instant) -> Vec<UiAction> {
+        let mut actions = self.handle_event_at_inner(event, now);
+        // A tap on an iOS sheet's grabber steps it through its heights.
+        actions.retain(|action| !matches!(action, UiAction::Clicked { id } if self.step_sheet(id)));
+        actions
+    }
+
+    fn handle_event_at_inner(&mut self, event: UiEvent, now: Instant) -> Vec<UiAction> {
         self.observe_keys(&event);
         let event = match event {
             // Only kept, for `key_held` and `modifiers`.
             UiEvent::KeyReleased { .. } | UiEvent::ModifiersChanged(_) => return Vec::new(),
+            // A direct pan over an iOS sheet's content may take the sheet instead.
+            UiEvent::Scroll2D { position, delta_x, delta_y, direct: true, .. }
+                if delta_x.abs() <= delta_y.abs() && self.pan_sheet(position, delta_y, now) => return Vec::new(),
+            UiEvent::ScrollEnded => {
+                let by_content = self.sheet_drag.as_ref().is_some_and(|drag| drag.grabber.is_none());
+                return if by_content { self.let_go_sheet(now).into_iter().collect() } else { Vec::new() };
+            }
             UiEvent::PasteCaptured { target, text } => {
                 return self.paste_captured(target, text, now)
             }
@@ -7287,6 +7423,7 @@ impl UiTree {
                 }
                 drag.last = Some((position.y, now));
                 let mut actions = Vec::new();
+                let origin = drag.origin.y;
                 if !drag.active {
                     let (dx, dy) = (position.x - drag.origin.x, position.y - drag.origin.y);
                     if dx.hypot(dy) < DRAG_THRESHOLD {
@@ -7302,6 +7439,15 @@ impl UiTree {
                 self.pressed = None;
                 self.pressed_dispatch = None;
                 self.pointer = Some(position);
+                // An iOS sheet's grabber: the sheet follows the finger.
+                if let Some(dismiss) = id.strip_suffix(":drag").filter(|dismiss| self.sheet_frames.contains_key(*dismiss)) {
+                    let from = match &self.sheet_drag {
+                        Some(SheetDrag { grabber: Some((_, _, from)), .. }) => *from,
+                        _ => self.sheet_frames[dismiss].height,
+                    };
+                    let dismiss = dismiss.to_owned();
+                    self.move_sheet(&dismiss, Some((id.clone(), origin, from)), from - (position.y - origin), now);
+                }
                 actions.push(UiAction::DragMoved {
                     over: self.drop_target_at(position, &id),
                     id,
@@ -7313,6 +7459,14 @@ impl UiTree {
                 let drag = self.pointer_drag.take()?;
                 if !drag.active {
                     return None;
+                }
+                // An iOS sheet's grabber let go: the sheet rests at the height its speed carries it
+                // nearest to, or leaves, which reports its dismissal.
+                if self.sheet_drag.as_ref().is_some_and(|sheet| sheet.grabber.as_ref().is_some_and(|(id, _, _)| *id == drag.id)) {
+                    return Some(match self.let_go_sheet(now) {
+                        Some(dismissal) => vec![dismissal],
+                        None => vec![UiAction::DragCancelled { id: drag.id }],
+                    });
                 }
                 // A sheet's handle let go: far enough down, or flung down, the sheet leaves,
                 // its dismissal named as where it was dropped; short of that, it springs back.
@@ -7339,10 +7493,111 @@ impl UiTree {
                 key: Key::Escape, ..
             } if drag.active => {
                 let drag = self.pointer_drag.take()?;
+                // A sheet held comes back to where it rested.
+                if let Some(sheet) = self.sheet_drag.take() {
+                    self.springs.get_mut().insert(format!("__sheet:{}", sheet.dismiss), AnimatedSpring { value: ScalarSpring::new(sheet.height, now), seen: now });
+                }
                 Some(vec![UiAction::DragCancelled { id: drag.id }])
             }
             _ => None,
         }
+    }
+
+    /// Takes the iOS sheet `dismiss` where a finger has, `raw` points tall before its rubber
+    /// band past its largest height; `grabber`: held by it, with the finger's first `y` and
+    /// the sheet's height then.
+    fn move_sheet(&mut self, dismiss: &str, grabber: Option<(String, f32, f32)>, raw: f32, now: Instant) {
+        let Some(frame) = self.sheet_frames.get(dismiss) else { return };
+        let largest = frame.heights.last().copied().unwrap_or(frame.height);
+        let height = crate::sheet_geometry::followed(raw, largest, frame.viewport);
+        match self.sheet_drag.as_mut().filter(|drag| drag.dismiss == dismiss) {
+            Some(drag) => {
+                let seconds = now.saturating_duration_since(drag.last).as_secs_f32();
+                if seconds > 0.004 {
+                    drag.speed = drag.speed * 0.3 + (height - drag.height) / seconds * 0.7;
+                }
+                drag.raw = raw;
+                drag.height = height;
+                drag.last = now;
+            }
+            None => self.sheet_drag = Some(SheetDrag { dismiss: dismiss.to_owned(), grabber, raw, height, speed: 0.0, last: now }),
+        }
+    }
+
+    /// Lets go of the iOS sheet held: its spring sets off from where the finger left it, at its
+    /// speed, to the height that speed carries it nearest to; or it leaves, sliding on down
+    /// rather than into the button it grew out of, which reports its dismissal.
+    fn let_go_sheet(&mut self, now: Instant) -> Option<UiAction> {
+        let drag = self.sheet_drag.take()?;
+        let frame = self.sheet_frames.get(&drag.dismiss)?;
+        // A finger that stopped before letting go flicks nothing.
+        let speed = if now.saturating_duration_since(drag.last) > Duration::from_millis(80) { 0.0 } else { drag.speed };
+        let rest = crate::sheet_geometry::release(&frame.heights, drag.height, speed, frame.dismissible);
+        self.springs.get_mut().insert(format!("__sheet:{}", drag.dismiss), AnimatedSpring { value: ScalarSpring::moving(drag.height, speed, now), seen: now });
+        match rest {
+            Some(index) => {
+                self.sheet_detents.insert(drag.dismiss, index);
+                None
+            }
+            None => {
+                if let Some(snapshot) = self.popover_snapshots.get_mut(&drag.dismiss) {
+                    snapshot.morph = None;
+                }
+                Some(UiAction::Clicked { id: drag.dismiss })
+            }
+        }
+    }
+
+    /// A direct pan over an iOS sheet takes the sheet where its content cannot go that way:
+    /// down while the content is at its top, up while the sheet is short of its largest
+    /// height. Back at its largest going up, the content scrolls again. Whether it took it.
+    fn pan_sheet(&mut self, position: Point, delta: f32, now: Instant) -> bool {
+        if let Some(drag) = self.sheet_drag.as_ref().filter(|drag| drag.grabber.is_none()) {
+            let dismiss = drag.dismiss.clone();
+            let raw = drag.raw - delta;
+            let Some(frame) = self.sheet_frames.get(&dismiss) else { return false };
+            let largest = frame.heights.last().copied().unwrap_or(frame.height);
+            if raw >= largest && delta < 0.0 {
+                let last = frame.heights.len().saturating_sub(1);
+                self.springs.get_mut().insert(format!("__sheet:{dismiss}"), AnimatedSpring { value: ScalarSpring::new(largest, now), seen: now });
+                self.sheet_detents.insert(dismiss, last);
+                self.sheet_drag = None;
+                return false;
+            }
+            self.move_sheet(&dismiss, None, raw, now);
+            return true;
+        }
+        if delta == 0.0 {
+            return false;
+        }
+        // The surface under the finger, topmost first: only an iOS sheet's is taken.
+        let Some((index, dismiss)) = self.frame.regions.iter().enumerate().rev()
+            .filter(|(_, region)| region.rect.contains(position))
+            .find_map(|(index, region)| region.id.strip_prefix("popover_surface:").map(|id| (index, id.to_owned())))
+        else { return false };
+        let Some(frame) = self.sheet_frames.get(&dismiss) else { return false };
+        let largest = frame.heights.last().copied().unwrap_or(frame.height);
+        // What scrolls under the finger, inside the sheet, and whether it is at its top.
+        let at_top = self.frame.regions[index..].iter().rev()
+            .find(|region| region.kind == HitKind::Scroll && region.rect.contains(position))
+            .is_none_or(|region| self.scroll_offset(&region.id) <= 0.5);
+        let takes = (delta > 0.0 && at_top) || (delta < 0.0 && frame.height < largest - 0.5);
+        if takes {
+            let raw = frame.height - delta;
+            self.move_sheet(&dismiss, None, raw, now);
+        }
+        takes
+    }
+
+    /// A tap on an iOS sheet's grabber, `id`: the sheet steps to its next height, after its
+    /// largest back to its smallest. Whether `id` was one.
+    fn step_sheet(&mut self, id: &str) -> bool {
+        let Some((dismiss, frame)) = id.strip_suffix(":drag").and_then(|dismiss| self.sheet_frames.get_key_value(dismiss)) else { return false };
+        if frame.heights.len() > 1 {
+            let next = (frame.resting + 1) % frame.heights.len();
+            self.sheet_detents.insert(dismiss.clone(), next);
+        }
+        true
     }
 
     /// The bottom sheet whose handle `id` is, by its dismissal, and where it stands.
@@ -7446,6 +7701,7 @@ impl UiTree {
             | UiEvent::PointerDownModified { .. }
             | UiEvent::PointerDownEditor { .. }
             | UiEvent::Scroll2D { .. }
+            | UiEvent::ScrollEnded
             | UiEvent::Paste(_) => {
                 unreachable!("additive editor events normalized above")
             }
@@ -9046,6 +9302,13 @@ struct LayoutBuilder<'a> {
     /// A sheet held by its handle: its dismissal, how far the finger has taken it down
     /// (less than that up, as a rubber band), and how fast.
     sheet_held: Option<(&'a str, f32, f32)>,
+    /// The iOS sheet a finger holds, by its dismissal, at the height it has taken it to.
+    sheet_hold: Option<(&'a str, f32)>,
+    sheet_detents: &'a HashMap<String, usize>,
+    sheet_frames: &'a mut HashMap<String, SheetFrame>,
+    /// The deepest an iOS sheet at its large height has pushed back what it was opened over,
+    /// 0 to 1, and the screen's corner radius it rounds that with.
+    recede: Option<(f32, f32)>,
     drag_ghost: Option<std::ops::Range<usize>>,
     metrics: FontMetrics,
     sans_metrics: FontMetrics,
@@ -9174,6 +9437,7 @@ enum DeferredOverlay {
         pointed: bool,
         anchor_outset: [f32; 4],
         clear_of: Option<String>,
+        sheet: Option<Box<crate::SheetSpec>>,
     },
     Tooltip {
         anchor: Rect,
@@ -9760,6 +10024,8 @@ impl LayoutBuilder<'_> {
                 slide_sign,
                 scrim: None,
                 sheet_offset: 0.0,
+                sheet_exit: None,
+                recede: 0.0,
             },
             );
         }
@@ -12011,6 +12277,62 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// Lays an iOS sheet out at the height a finger has taken it to or its spring stands at:
+    /// `floating` takes the size, corners and material that height gives it. `morphs`: it
+    /// grows out of the button that opened it, so it does not rise from the foot.
+    fn sheet_layout(&mut self, floating: &mut Element, spec: &crate::SheetSpec, dismiss_id: &str, viewport: Size, morphs: bool, fields: &[String]) -> SheetPaint {
+        use crate::sheet_geometry as geometry;
+        let floats = spec.screen_corner > 0.0;
+        let width = (viewport.width - if floats { 2.0 * geometry::FLOAT_INSET } else { 0.0 }).max(0.0);
+        floating.style.width = Some(width);
+        floating.style.height = None;
+        floating.style.max_height = None;
+        let natural = self.measure(floating, Size::new(width, f32::INFINITY)).height;
+        let heights = geometry::heights(spec, natural, viewport.height);
+        let smallest = heights.first().copied().unwrap_or(natural);
+        let resting = self.sheet_detents.get(dismiss_id).copied().unwrap_or(spec.opens_at).min(heights.len().saturating_sub(1));
+        let target = heights.get(resting).copied().unwrap_or(natural);
+        let key = format!("__sheet:{dismiss_id}");
+        let height = match self.sheet_hold.filter(|(id, _)| *id == dismiss_id) {
+            Some((_, held)) => {
+                // The spring waits, with the speed the finger gives it, for the release.
+                if let Some(state) = self.springs.borrow_mut().get_mut(&key) { state.seen = self.now; }
+                held
+            }
+            None => {
+                // First seen, it rises from the foot of the screen; grown out of a button, it
+                // is there at once as the button's glass becomes it.
+                if !morphs && !self.reduced_motion {
+                    let now = self.now;
+                    self.springs.borrow_mut().entry(key.clone()).or_insert_with(|| AnimatedSpring { value: ScalarSpring::new(0.0, now), seen: now });
+                }
+                self.spring_moving(&key, target, sheet_motion())
+            }
+        };
+        let typing = self.focused.is_some_and(|id| fields.iter().any(|field| field == id));
+        let shape = geometry::shape(spec, height, smallest, viewport.width, viewport.height, typing);
+        floating.style.width = Some(shape.rect.width);
+        floating.style.height = Some(shape.rect.height);
+        floating.style.corner_radii = Some(CornerRadii { top_left: shape.top_radius, top_right: shape.top_radius, bottom_right: shape.bottom_radius, bottom_left: shape.bottom_radius });
+        // Glass at partial heights, growing opaque as it anchors to the screen's edges.
+        if let Some(glass) = floating.kept.as_mut().and_then(|kept| kept.glass.as_mut()) {
+            glass.tint.a = (f32::from(glass.tint.a) + (255.0 - f32::from(glass.tint.a)) * shape.anchored).round() as u8;
+        }
+        let large = geometry::large(spec, viewport.height);
+        self.sheet_frames.insert(dismiss_id.to_owned(), SheetFrame { heights, resting, height, viewport: viewport.height, dismissible: spec.dismissible });
+        // Only its large height pushes back what it was opened over.
+        let recede = if spec.recede && large > 0.0 { ((height - (large - RECEDE_FROM)) / RECEDE_FROM).clamp(0.0, 1.0) } else { 0.0 };
+        if recede > 0.0 {
+            self.recede = Some((self.recede.map_or(0.0, |(deepest, _)| deepest).max(recede), spec.screen_corner));
+        }
+        SheetPaint {
+            rect: shape.rect,
+            entered: if smallest > 0.0 { (height / smallest).clamp(0.0, 1.0) } else { 1.0 },
+            leave: viewport.height - shape.rect.y + SHEET_EXIT_PAST,
+            recede,
+        }
+    }
+
     /// How far a bottom sheet stands below its place `rect`: where the finger holding its
     /// handle has taken it, or where its spring is on its way back or to a new height. It
     /// stands in its place while it enters.
@@ -13481,6 +13803,7 @@ impl LayoutBuilder<'_> {
                 at,
                 anchor_outset,
                 clear_of,
+                sheet,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -13583,6 +13906,7 @@ impl LayoutBuilder<'_> {
                     pointed: at.is_some(),
                     anchor_outset: *anchor_outset,
                     clear_of: clear_of.clone(),
+                    sheet: sheet.clone(),
                 });
             }
             ElementKind::Tooltip {

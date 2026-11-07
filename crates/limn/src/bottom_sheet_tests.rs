@@ -549,3 +549,118 @@ fn a_sheet_whose_content_grows_rises_to_its_new_height_on_a_spring_and_one_let_g
     }).fold(f32::MIN, f32::max);
     assert!(lowest >= tall + 150.0, "it goes on from the finger: {lowest} from {tall}");
 }
+
+fn ios_sheet(open: bool, body: f32) -> Element {
+    BottomSheet::new(Element::button("behind", "Page"), open, "Import", "", "sheet", ComponentPalette::neutral_dark())
+        .ios(crate::SheetSpec { safe_top: 47.0, screen_corner: 47.33, ..crate::SheetSpec::default() })
+        .confirm("sheet-go", "Import", true)
+        .body(Element::column(vec![Element::button("inside", "Row"), Element::spacer().size(None, Some(body))]))
+        .render()
+}
+
+fn ms(at: std::time::Instant, n: u64) -> std::time::Instant {
+    at + std::time::Duration::from_millis(n)
+}
+
+#[test]
+fn an_ios_sheet_rises_to_its_content_floating_inset_and_steps_to_its_large_height_on_its_grabber() {
+    let at = std::time::Instant::now();
+    let size = Size::new(390.0, 844.0);
+    let mut tree = UiTree::new(ios_sheet(true, 200.0));
+    let first = bounds(&tree.layout_at(size, ms(at, 0)), "popover_surface:sheet");
+    let settled = bounds(&tree.layout_at(size, ms(at, 3000)), "popover_surface:sheet");
+    assert!(first.y > settled.y + 100.0, "it rises from the foot: {first:?} to {settled:?}");
+    assert_eq!((settled.x, settled.width), (8.0, 374.0), "floating 8 in");
+    assert!((settled.y + settled.height - (844.0 - 8.0)).abs() < 0.5, "8 over the foot: {settled:?}");
+    assert!(settled.height < 400.0, "as tall as what it holds: {settled:?}");
+    // Its bar: the cross, the title, the check; the grabber steps it to its large height.
+    let frame = tree.layout_at(size, ms(at, 3000));
+    for id in ["sheet:close", "sheet-go", "sheet:drag"] {
+        assert!(frame.regions.iter().any(|region| region.id == id), "{id}");
+    }
+    let grabber = bounds(&frame, "sheet:drag");
+    let tap = crate::Point::new(grabber.x + grabber.width / 2.0, grabber.y + 6.0);
+    tree.handle_event_at(UiEvent::PointerDown(tap), ms(at, 3000));
+    assert!(tree.handle_event_at(UiEvent::PointerUp(tap), ms(at, 3010)).is_empty(), "a step, not a close");
+    // The frame after sets its spring off.
+    tree.layout_at(size, ms(at, 3011));
+    let large = tree.layout_at(size, ms(at, 6000));
+    let sheet = bounds(&large, "popover_surface:sheet");
+    assert_eq!((sheet.x, sheet.width), (0.0, 390.0), "anchored to the sides: {sheet:?}");
+    assert!((sheet.y - 57.0).abs() < 0.5, "10 under the safe area: {sheet:?}");
+    // What it was opened over recedes behind it, smaller and rounded.
+    assert!(matches!(large.commands.first(), Some(crate::DrawCommand::PushClip(card)) if card.width < 390.0), "{:?}", large.commands.first());
+}
+
+#[test]
+fn a_held_ios_sheet_follows_the_grabber_and_a_flick_down_sends_it_away_sliding_from_where_it_was() {
+    let at = std::time::Instant::now();
+    let size = Size::new(390.0, 844.0);
+    let mut tree = UiTree::new(ios_sheet(true, 200.0));
+    tree.layout_at(size, ms(at, 0));
+    let frame = tree.layout_at(size, ms(at, 3000));
+    let rest = bounds(&frame, "popover_surface:sheet");
+    let grabber = bounds(&frame, "sheet:drag");
+    // On the bar, clear of its buttons.
+    let start = crate::Point::new(grabber.x + grabber.width / 2.0, grabber.y + 6.0);
+    // Held and taken down slowly, it follows; let go short, it comes back.
+    tree.handle_event_at(UiEvent::PointerDown(start), ms(at, 3000));
+    tree.handle_event_at(UiEvent::PointerMove(crate::Point::new(start.x, start.y + 20.0)), ms(at, 3100));
+    tree.handle_event_at(UiEvent::PointerMove(crate::Point::new(start.x, start.y + 40.0)), ms(at, 3300));
+    let held = bounds(&tree.layout_at(size, ms(at, 3310)), "popover_surface:sheet");
+    assert!((held.y - (rest.y + 40.0)).abs() < 1.0, "it follows the finger: {held:?} from {rest:?}");
+    assert_eq!(held.height, rest.height, "taken down, not squeezed");
+    let release = tree.handle_event_at(UiEvent::PointerUp(crate::Point::new(start.x, start.y + 40.0)), ms(at, 3500));
+    assert_eq!(release, vec![UiAction::DragCancelled { id: "sheet:drag".into() }]);
+    tree.layout_at(size, ms(at, 3510));
+    assert!((bounds(&tree.layout_at(size, ms(at, 5000)), "popover_surface:sheet").y - rest.y).abs() < 0.5, "back where it rested");
+    // Flicked down, however short, it leaves: its dismissal, as a click.
+    tree.handle_event_at(UiEvent::PointerDown(start), ms(at, 5000));
+    tree.handle_event_at(UiEvent::PointerMove(crate::Point::new(start.x, start.y + 10.0)), ms(at, 5010));
+    tree.handle_event_at(UiEvent::PointerMove(crate::Point::new(start.x, start.y + 40.0)), ms(at, 5030));
+    let flung = bounds(&tree.layout_at(size, ms(at, 5032)), "popover_surface:sheet");
+    let up = tree.handle_event_at(UiEvent::PointerUp(crate::Point::new(start.x, start.y + 40.0)), ms(at, 5035));
+    assert_eq!(up, vec![UiAction::Clicked { id: "sheet".into() }]);
+    tree.set_root(ios_sheet(false, 200.0));
+    let leaving = tree.layout_at(size, ms(at, 5060));
+    let top = leaving.commands.iter().filter_map(|command| match command {
+        crate::DrawCommand::FillRect { rect, .. } | crate::DrawCommand::FillCornerRect { rect, .. } | crate::DrawCommand::Glass { rect, .. }
+            if (rect.width - flung.width).abs() < 0.5 => Some(rect.y),
+        _ => None,
+    }).fold(f32::MAX, f32::min);
+    assert!(top >= flung.y - 0.5 && top < 844.0, "it goes on down from where it was: {top} from {flung:?}");
+}
+
+#[test]
+fn panning_an_ios_sheets_content_at_its_top_takes_the_sheet_and_up_grows_it_before_it_scrolls() {
+    let at = std::time::Instant::now();
+    let size = Size::new(390.0, 844.0);
+    // Taller than half the screen but short of its large height, with more below to scroll.
+    let mut tree = UiTree::new(BottomSheet::new(Element::spacer(), true, "Lists", "", "sheet", ComponentPalette::neutral_dark())
+        .ios(crate::SheetSpec { safe_top: 47.0, screen_corner: 47.33, detents: vec![crate::SheetDetent::Medium, crate::SheetDetent::Large], ..crate::SheetSpec::default() })
+        .body(Element::spacer().size(None, Some(2000.0)))
+        .render());
+    tree.layout_at(size, ms(at, 0));
+    let medium = bounds(&tree.layout_at(size, ms(at, 3000)), "popover_surface:sheet");
+    let inside = crate::Point::new(195.0, medium.y + medium.height / 2.0);
+    let pan = |tree: &mut UiTree, delta: f32, when: u64| tree.handle_event_at(UiEvent::Scroll2D { position: inside, delta_x: 0.0, delta_y: delta, direct: true, shift: false }, ms(at, when));
+    // Up: the sheet grows before its content scrolls.
+    pan(&mut tree, -60.0, 3000);
+    pan(&mut tree, -60.0, 3100);
+    let grown = bounds(&tree.layout_at(size, ms(at, 3110)), "popover_surface:sheet");
+    assert!((grown.height - (medium.height + 120.0)).abs() < 1.0, "{grown:?} from {medium:?}");
+    assert_eq!(tree.scroll_offset("modal_body:sheet"), 0.0, "the content has not moved");
+    assert!(tree.handle_event_at(UiEvent::ScrollEnded, ms(at, 3300)).is_empty());
+    tree.layout_at(size, ms(at, 3301));
+    // Let go, slowly, nearer its medium height than its large: back to medium.
+    let back = bounds(&tree.layout_at(size, ms(at, 6000)), "popover_surface:sheet");
+    assert!((back.height - medium.height).abs() < 0.5, "{back:?}");
+    // Down, at its content's top: the sheet goes down, and far enough it leaves.
+    for (step, when) in (0..8).zip((6000..).step_by(100)) {
+        let _ = step;
+        pan(&mut tree, 60.0, when);
+    }
+    tree.layout_at(size, ms(at, 6810));
+    assert_eq!(tree.handle_event_at(UiEvent::ScrollEnded, ms(at, 7000)), vec![UiAction::Clicked { id: "sheet".into() }]);
+}
+

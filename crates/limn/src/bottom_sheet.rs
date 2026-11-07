@@ -36,6 +36,25 @@ impl BottomSheet {
         }
     }
 
+    /// Draw and move it as iOS 26's sheet: at `spec`'s heights, floating inset at partial
+    /// ones and anchored, opaque, at its large one, under a bar with the grabber, the cross
+    /// at its start, the title centred and, with [`Self::confirm`], a prominent check at its
+    /// end. It follows a drag of that bar, or of its body once scrolled to its top, and comes
+    /// to rest where the release's speed carries it nearest; sent past its smallest height it
+    /// leaves and reports `dismiss_id`. A tap on the grabber steps through its heights. Its
+    /// body fills the height it stands at; `max_height` no longer bounds it.
+    pub fn ios(mut self, spec: crate::SheetSpec) -> Self {
+        self.modal = self.modal.ios_sheet(spec);
+        self
+    }
+
+    /// An iOS sheet's prominent check, reporting `id`, named `label`; disabled, it stays
+    /// shown and named but cannot be pressed.
+    pub fn confirm(mut self, id: impl Into<String>, label: impl Into<String>, enabled: bool) -> Self {
+        self.modal = self.modal.confirm(id.into(), label.into(), enabled);
+        self
+    }
+
     /// Refract the host's backdrop through the sheet shell; its rows stay sharp.
     pub fn glass(mut self, material: crate::GlassMaterial) -> Self {
         self.modal = self.modal.glass(material);

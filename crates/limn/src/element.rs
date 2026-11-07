@@ -1718,6 +1718,8 @@ pub enum ElementKind {
         /// The dismiss ID of the popover whose surface this one is placed beside;
         /// see [`Element::popover_clear_of`].
         clear_of: Option<String>,
+        /// A bottom surface as iOS 26's sheet; see [`Element::popover_sheet`].
+        sheet: Option<Box<crate::SheetSpec>>,
     },
     /// A transient, non-interactive overlay whose anchor remains in normal
     /// layout. The `anchor_id` identifies an action or a passive hover target.
@@ -3056,6 +3058,7 @@ impl Element {
                 at: None,
                 anchor_outset: [0.0; 4],
                 clear_of: None,
+                sheet: None,
             },
             layout,
         )
@@ -3243,6 +3246,21 @@ impl Element {
         } = &mut self.kind
         {
             *close_animation_ms = Some(duration);
+        }
+        self
+    }
+
+    /// Make a bottom surface iOS 26's sheet. It rests at `spec`'s heights, floating
+    /// inset at partial ones with corners concentric with the display's, anchored to
+    /// the screen's edges and opaque at its large one, where what it was opened over
+    /// recedes. It follows a drag of its grabber (an element whose ID is the dismiss ID
+    /// and `:drag`), or of its content once that is scrolled to its top, and a release
+    /// rests it at the height its speed carries it nearest to, or reports `dismiss_id`
+    /// as a click when that is its foot. A tap on the grabber steps through the heights.
+    /// The surface takes the size and corners the tree gives it at each height.
+    pub fn popover_sheet(mut self, spec: crate::SheetSpec) -> Self {
+        if let ElementKind::Popover { sheet, .. } = &mut self.kind {
+            *sheet = Some(Box::new(spec));
         }
         self
     }

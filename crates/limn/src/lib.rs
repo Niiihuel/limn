@@ -150,6 +150,7 @@ pub use accordion::{Accordion, AccordionItem};
 pub use alert::{Alert, AlertColors, AlertTone};
 pub use alert_dialog::AlertDialog;
 pub use bottom_sheet::{BottomSheet, BottomSheetDrag};
+pub use sheet_geometry::{SheetDetent, SheetSpec};
 pub use coach_mark::{CoachMark, Tour, TourStep};
 pub use attachment::{Attachment, AttachmentOrientation};
 pub use avatar::Avatar;
@@ -310,6 +311,7 @@ pub use panel_header::HeaderSizing;
 
 mod glass;
 mod liquid;
+mod sheet_geometry;
 pub use liquid::{GLASS_POP_CLOSE_MS, GLASS_POP_OPEN_MS};
 pub use glass::GlassMaterial;
 
