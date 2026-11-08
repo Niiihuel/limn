@@ -5,6 +5,9 @@ use crate::{
     GlassMaterial, MenuMotion, Point, PopoverPlacement, Rect,
 };
 
+/// The corner of iOS 26's menus.
+const RADIUS: f32 = 26.0;
+
 /// A controlled action menu with an optical surface. Placement, focus,
 /// keyboard navigation and dismissal use [`DropdownMenu`]. The source bounds
 /// are in window coordinates, obtained from the host's laid-out trigger.
@@ -33,6 +36,8 @@ impl GlassMenu {
         Self {
             menu: DropdownMenu::new(anchor, entries, open, format!("{id}:dismiss"), palette)
                 .placement(PopoverPlacement::BottomEnd)
+                // iOS's: a row lights under the finger, never under a resting pointer.
+                .touch()
                 // aurora's pop: a drop out of the trigger, swelling into the panel.
                 .motion(MenuMotion {
                     open_ms: crate::GLASS_POP_OPEN_MS,
@@ -82,6 +87,8 @@ impl Component for GlassMenu {
             let mut surface = (**floating).clone();
             surface.style.background = None;
             surface.style.border = None;
+            // iOS 26's menus are round panes, measured off an iPhone's screen.
+            surface.style.radius = surface.style.radius.max(RADIUS);
             **floating = surface.glass(self.material);
         }
         menu.popover_morph(self.origin, self.origin_radius)
@@ -172,6 +179,32 @@ mod tests {
                 id: "song:dismiss".into()
             }]
         );
+    }
+
+    #[test]
+    fn rows_light_under_a_finger_alone_and_a_slide_chooses_the_row_it_ends_on() {
+        let palette = ComponentPalette::neutral_dark();
+        let view = GlassMenu::new("song", Element::button("more", "More"), Rect::new(200.0, 20.0, 44.0, 44.0),
+            vec![DropdownMenuItem::new("queue", "Add to queue").into(), DropdownMenuItem::new("next", "Play next").into()],
+            true, GlassMaterial::new(palette.surface), palette).render();
+        let mut tree = UiTree::new(view);
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(400.0, 500.0));
+        let centre = |id: &str| {
+            let rect = frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+            Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0)
+        };
+        let (queue, next) = (centre("queue"), centre("next"));
+        let lit = |frame: &crate::Frame, at: Point, color: crate::Color| frame.commands.iter().any(|command|
+            matches!(command, DrawCommand::FillRect { rect, color: fill, .. } if rect.contains(at) && *fill == color));
+        tree.handle_event(crate::UiEvent::PointerMove(queue));
+        let frame = tree.layout(Size::new(400.0, 500.0));
+        assert!(!lit(&frame, queue, palette.hover), "a resting pointer lights nothing");
+        tree.handle_event(crate::UiEvent::PointerDown(queue));
+        tree.handle_event(crate::UiEvent::PointerMove(next));
+        let frame = tree.layout(Size::new(400.0, 500.0));
+        assert!(lit(&frame, next, palette.selected), "the row under the finger is lit");
+        assert_eq!(tree.handle_event(crate::UiEvent::PointerUp(next)), vec![crate::UiAction::Clicked { id: "next".into() }]);
     }
 
     #[test]

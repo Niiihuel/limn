@@ -99,6 +99,9 @@ const VIEWPORT_MARGIN: f32 = 24.0;
 const FLUSH_HEADER: f32 = 44.0;
 /// The card's outline, in logical pixels.
 const OUTLINE: f32 = 1.0;
+/// The corner of a modal in glass, as iOS 26's alerts and route picker are drawn, measured
+/// off an iPhone's screen.
+const GLASS_RADIUS: f32 = 32.0;
 /// `from` toward `to` by `share`, opaque.
 fn mix(from: Color, to: Color, share: f32) -> Color {
     let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * share).round() as u8;
@@ -416,8 +419,14 @@ impl Component for Modal {
                 circle.background(fill.unwrap_or_else(|| mix(self.palette.surface, self.palette.text, 0.16)))
             };
             let cross = Element::icon(Icon::Close).foreground(self.palette.text).size(Some(16.0), Some(16.0));
+            // Apple's convention (HIG, Sheets): a Cancel goes with a Done, and what asks before it
+            // does something keeps its way out; a sheet that only offers choices is put away by
+            // a swipe, its grabber or a press beside it, with no cross. Its close still stands
+            // where the cross would, unseen, for a screen reader, which has no swipe to use.
+            let crossed = self.confirm.is_some() || self.role == Role::AlertDialog;
+            let face = if crossed { circle(cross, None) } else { Element::spacer().size(Some(44.0), Some(44.0)) };
             // The circle is the target, so a keyboard's ring rounds it.
-            let close = Element::clickable(format!("{}:close", self.close_id), circle(cross, None))
+            let close = Element::clickable(format!("{}:close", self.close_id), face)
                 .dispatch_as(self.close_id.clone())
                 .accessible(Access::new(Role::Button).name(crate::labels().close))
                 .size(Some(44.0), Some(44.0))
@@ -570,6 +579,8 @@ impl Component for Modal {
             card.style.background = None;
             card.style.border = None;
             card = card.glass(material);
+            // A pane of glass in the middle is iOS 26's alert, its corners as round as its.
+            if self.sheet.is_none() { card = card.radius(crate::tokens().radius.panel.max(GLASS_RADIUS)); }
         }
 
         let ios = self.ios.filter(|_| self.sheet.is_some());

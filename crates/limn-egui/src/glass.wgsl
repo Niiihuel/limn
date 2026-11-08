@@ -49,6 +49,21 @@ fn linear_from_gamma(rgb: vec3<f32>) -> vec3<f32> {
     return select(pow((rgb + vec3(0.055)) / 1.055, vec3(2.4)), rgb / 12.92, rgb <= vec3(0.04045));
 }
 
+// How far, in shares of `refraction`, the rim bends what is behind it `depth` into the bezel,
+// toward the middle: from nothing at the edge, as a drop's, to its peak, then less and less.
+fn bend_at(depth: f32, normal: vec2<f32>, bezel: f32) -> vec2<f32> {
+    let u = 1.0 - depth;
+    let k = clamp(24.0 / bezel, 2.0, 4.0);
+    let slope = min(pow(u, k - 1.0) / pow(max(1.0 - pow(u, k), 0.0001), (k - 1.0) / k), 40.0);
+    let surface_normal = normalize(vec3(normal * slope, 1.0));
+    let ray = refract(vec3(0.0, 0.0, -1.0), surface_normal, 1.0 / 1.5);
+    // The bend starts from nothing at the edge, so what is outside runs on
+    // into the glass, squeezed, before the rim mirrors it: in Apple's footage
+    // text and color enter a shape this way, like a drop. Dividing by 0.4,
+    // the peak of this curve, makes `refraction` the largest displacement.
+    return ray.xy / max(-ray.z, 0.25) * smoothstep(0.0, 0.12, depth) / 0.4;
+}
+
 @fragment fn fragment_main(input: Vertex) -> @location(0) vec4<f32> {
     let half_size = params.area.zw * 0.5;
     let point = (input.uv - vec2(0.5)) * params.area.zw;
@@ -65,21 +80,21 @@ fn linear_from_gamma(rgb: vec3<f32>) -> vec3<f32> {
     if dot(gradient, gradient) > 0.00000001 { normal = normalize(gradient); }
     let bezel = max(select(radius, min(params.lens.x, radius), params.lens.x > 0.0), 4.0);
     let depth = clamp(-distance / bezel, 0.0, 1.0);
-    let u = 1.0 - depth;
-    let k = clamp(24.0 / bezel, 2.0, 4.0);
-    let slope = min(pow(u, k - 1.0) / pow(max(1.0 - pow(u, k), 0.0001), (k - 1.0) / k), 40.0);
-    let surface_normal = normalize(vec3(normal * slope, 1.0));
-    let ray = refract(vec3(0.0, 0.0, -1.0), surface_normal, 1.0 / 1.5);
-    // The bend starts from nothing at the edge, so what is outside runs on
-    // into the glass, squeezed, before the rim mirrors it: in Apple's footage
-    // text and color enter a shape this way, like a drop. Dividing by 0.4,
-    // the peak of this curve, makes `refraction` the largest displacement.
-    let bend = ray.xy / max(-ray.z, 0.25) * smoothstep(0.0, 0.12, depth) / 0.4;
+    let bend = bend_at(depth, normal, bezel);
     let uv_per_point = params.mapping.zw / params.area.zw;
     // Further than this the lookup would cross the middle to the far side.
-    let offset = bend * min(params.effects.z, bezel * 0.88) * uv_per_point * params.optical.w;
+    let reach = min(params.effects.z, bezel * 0.88) * params.optical.w;
+    let offset = bend * reach * uv_per_point;
+    // How the rim maps what is behind it, a point further in: above 1 it squeezes, near 0
+    // it holds one line of the page over many (a fold, where the rim turns to mirroring),
+    // and below it mirrors. Over a fold a sharp line of text would smear into streaks,
+    // mirrored it would read backwards, and squeezed hard it would shimmer: there the rim
+    // shows the blurred page, without colour fringes, as Apple's bars do.
+    let further = bend_at(clamp((-distance + 1.0) / bezel, 0.0, 1.0), normal, bezel);
+    let mapping = 1.0 + dot(normal, bend - further) * reach;
+    let legible = smoothstep(0.3, 0.8, mapping) * (1.0 - smoothstep(2.5, 5.0, mapping));
     let uv = params.mapping.xy + ((input.uv - vec2(0.5)) / params.lens.y + vec2(0.5)) * params.mapping.zw;
-    let dispersion = bend * params.effects.w * uv_per_point * params.optical.w;
+    let dispersion = bend * params.effects.w * uv_per_point * params.optical.w * legible;
     // The shared backdrop has already passed through the separable blur. The
     // rim squeezes it several times over, so one lookup there would alias and
     // leave hard bands; five along the bend keep it as soft as Apple's.
@@ -93,7 +108,7 @@ fn linear_from_gamma(rgb: vec3<f32>) -> vec3<f32> {
         }
         scene += tap * 0.2;
     }
-    let rim_view = params.optical.w * pow(1.0 - depth, 1.6) * 0.9;
+    let rim_view = params.optical.w * pow(1.0 - depth, 1.6) * 0.9 * legible;
     if rim_view > 0.002 {
         var crisp = vec4(0.0);
         for (var i = 0; i < 3; i += 1) {

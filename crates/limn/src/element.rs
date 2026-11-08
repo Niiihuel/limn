@@ -2173,6 +2173,9 @@ pub struct Style {
     pub focus_ring: bool,
     /// Action menus share one pointer/keyboard highlight instead of a button ring.
     pub action_menu_item: bool,
+    /// Lit under a press alone, as iOS's menus are: a pointer resting over it lights nothing.
+    /// Keyboard focus still lights it.
+    pub press_highlight: bool,
     /// Duration of interactive background transitions, in milliseconds.
     pub transition_ms: u16,
     /// Outline drawn inside the bounds; set by [`Element::border`] or
@@ -2247,6 +2250,7 @@ impl Default for Style {
             hover_border: None,
             focus_ring: true,
             action_menu_item: false,
+            press_highlight: false,
             transition_ms: 0,
             border: None,
             dashed_border: false,
@@ -4371,6 +4375,13 @@ impl Element {
         self.style.action_menu_item = true;
         self.style.focus_ring = false;
         self.style.transition_ms = 0;
+        self
+    }
+
+    /// Light only while pressed, as a touch screen's menu rows: no hover. A press slid onto
+    /// it from another such row lights it too, as iOS's menus follow the finger.
+    pub fn press_highlight(mut self) -> Self {
+        self.style.press_highlight = true;
         self
     }
 

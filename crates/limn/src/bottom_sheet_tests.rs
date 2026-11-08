@@ -697,3 +697,20 @@ fn over_a_keyboard_an_ios_sheet_grows_its_glass_reaches_behind_it_and_a_drag_put
     tree.handle_event(UiEvent::PointerMove(crate::Point::new(start.x, start.y + 30.0)));
     assert_ne!(tree.focused_id(), Some("link"), "the keyboard goes as the sheet is taken");
 }
+
+#[test]
+fn an_ios_sheet_shows_its_cross_beside_a_done_or_in_a_confirmation_and_a_sheet_of_choices_none() {
+    let size = Size::new(390.0, 844.0);
+    let crossed = |sheet: BottomSheet| {
+        let mut tree = UiTree::new(sheet.ios(crate::SheetSpec { safe_top: 47.0, screen_corner: 47.33, ..crate::SheetSpec::default() }).render());
+        let at = std::time::Instant::now();
+        tree.layout_at(size, at);
+        let frame = tree.layout_at(size, ms(at, 3000));
+        assert!(frame.regions.iter().any(|region| region.id == "sheet:close"), "its close stays for a screen reader");
+        frame.commands.iter().any(|command| matches!(command, crate::DrawCommand::Icon { icon: crate::Icon::Close, .. }))
+    };
+    let new = || BottomSheet::new(Element::button("behind", "Page"), true, "Output", "", "sheet", ComponentPalette::neutral_dark());
+    assert!(!crossed(new()), "a sheet of choices has no cross");
+    assert!(crossed(new().confirm("sheet-go", "Import", true)), "a Cancel goes with a Done");
+    assert!(crossed(new().alert("Delete?")), "a confirmation keeps its way out");
+}

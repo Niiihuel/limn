@@ -37,9 +37,11 @@ impl BottomSheet {
     }
 
     /// Draw and move it as iOS 26's sheet: at `spec`'s heights, floating inset at partial
-    /// ones and anchored, opaque, at its large one, under a bar with the grabber, the cross
-    /// at its start, the title centred and, with [`Self::confirm`], a prominent check at its
-    /// end. It follows a drag of that bar, or of its body once scrolled to its top, and comes
+    /// ones and anchored, opaque, at its large one, under a bar with the grabber and the title
+    /// centred. As Apple's convention has it, the cross stands at its start only beside
+    /// [`Self::confirm`]'s prominent check at its end, or in an [`Self::alert`]: a sheet of
+    /// choices is put away by a swipe, its grabber or a press beside it, and its close stays
+    /// there unseen for a screen reader. It follows a drag of that bar, or of its body once scrolled to its top, and comes
     /// to rest where the release's speed carries it nearest; sent past its smallest height it
     /// leaves and reports `dismiss_id`. A tap on the grabber steps through its heights. Its
     /// body fills the height it stands at; `max_height` no longer bounds it.

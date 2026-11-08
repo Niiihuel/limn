@@ -23,7 +23,9 @@ pub struct GlassMaterial {
     pub saturation: f32,
     /// Darkening of the sampled scene, clamped to 0–1.
     pub dim: f32,
-    /// Corner superellipse exponent, clamped to 2–6. Capsules stay circular.
+    /// Corner superellipse exponent, clamped to 2–6. Capsules stay circular. 2, the
+    /// default, draws round arcs, as round as the radius says, as Apple's panes are: at 4 a
+    /// corner of 32 looks one of 17.
     pub power: f32,
     /// Strength of refraction, dispersion and edge lighting, clamped to 0–1.
     pub intensity: f32,
@@ -55,7 +57,7 @@ impl GlassMaterial {
             dispersion: 0.5,
             saturation: 2.2,
             dim: 0.0,
-            power: 4.0,
+            power: 2.0,
             intensity: 1.0,
             bezel: 0.0,
             magnify: 1.0,

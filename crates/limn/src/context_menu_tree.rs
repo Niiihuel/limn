@@ -51,6 +51,8 @@ pub(super) struct ContextMenuState {
     palette: ComponentPalette,
     selected: Option<usize>,
     pressed: Option<usize>,
+    /// What it was opened on: the field's bounds, or the press alone over plain text.
+    anchor: Rect,
     /// A menu opened inside a modal must not outlive that modal (or leak
     /// through a subsequently opened one).
     modal: Option<String>,
@@ -110,6 +112,16 @@ impl UiTree {
         self.context_menu_palette = palette;
     }
 
+    /// Draw the menus of text, a field's, an editor's or a page's, as iOS 26's edit menu on a
+    /// touch screen: a capsule of `material` holding the actions there are in a row, Cut, Copy,
+    /// Paste and Select All, split by hairlines, over what was held, or under it where there
+    /// is no room above. What cannot be done is left out rather than dimmed, as Apple's
+    /// guidelines ask. `None`, the default, draws them as a pointer's menus. A host's own
+    /// context menus are not affected.
+    pub fn set_touch_text_menu(&mut self, material: Option<crate::GlassMaterial>) {
+        self.touch_text_menu = material;
+    }
+
     /// Draw every context menu at the measures of the host's other menus: the
     /// width from `preferred_width`, and its rows' height, label size, icon slot,
     /// padding, gap and scrollbar gutter.
@@ -132,6 +144,19 @@ impl UiTree {
         viewport: Rect,
     ) -> Option<(Element, Rect, Option<String>, Option<String>)> {
         let menu = self.context_menu.as_ref()?;
+        if let (Some(material), false) = (self.touch_text_menu, matches!(menu.target, Target::Custom { .. })) {
+            let measure = |text: &str, size: f32| {
+                measured_width(self.text_measurer.as_deref(), text, size, FontFamily::Sans, self.sans_metrics.at_size(size).char_width)
+            };
+            let (bar, width) = context_menu::edit_bar(&menu.entries, menu.palette, material, &measure);
+            let height = context_menu::EDIT_BAR_HEIGHT;
+            let margin = 8.0_f32.min(viewport.width / 2.0);
+            let x = (menu.position.x - width / 2.0).clamp(margin, (viewport.width - width - margin).max(margin));
+            // Over what was held, as iOS's; under it where the screen's top leaves no room.
+            let above = menu.anchor.y - EDIT_BAR_GAP - height;
+            let y = if above >= margin { above } else { (menu.anchor.y + menu.anchor.height + EDIT_BAR_GAP).min(viewport.height - height - margin) };
+            return Some((bar, Rect::new(x, y, width, height), menu.selected.map(context_menu::row_id), menu.pressed.map(context_menu::row_id)));
+        }
         let sizes = self.context_menu_sizes;
         let width = sizes.width.min((viewport.width - 16.0).max(0.0));
         // As a native menu, it takes the window's height before it scrolls.
@@ -175,7 +200,7 @@ impl UiTree {
         ))
     }
 
-    fn open_text_context_menu(&mut self, position: Point, keyboard: bool, now: Instant) -> Option<UiAction> {
+    pub(super) fn open_text_context_menu(&mut self, position: Point, keyboard: bool, now: Instant) -> Option<UiAction> {
         self.close_context_menu(now);
         if !position.x.is_finite() || !position.y.is_finite() {
             return None;
@@ -217,6 +242,8 @@ impl UiTree {
                 .then_some(index)
             })
             .unwrap_or(0);
+        // A field's bounds, which a touch screen's edit menu stands over.
+        let field = hit.as_ref().filter(|hit| matches!(hit.kind, HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor)).map(|hit| hit.rect);
         let custom = self
             .frame
             .context_menu_regions
@@ -255,7 +282,8 @@ impl UiTree {
             let input = self.inputs.get(&hit.id)?;
             let selected = input.selected_range().is_some();
             let copy = selected && !input.password;
-            let entries = text_entries(copy, copy, true, !input.value.is_empty());
+            let entries = if self.touch_text_menu.is_some() { touch_entries(selected, copy, !input.value.is_empty()) }
+                else { text_entries(copy, copy, true, !input.value.is_empty()) };
             let next_focus = Some(hit.id.clone());
             Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
             (
@@ -382,6 +410,7 @@ impl UiTree {
             palette,
             selected,
             pressed: None,
+            anchor: field.unwrap_or(Rect::new(position.x, position.y, 0.0, 0.0)),
             modal,
         });
         self.pointer = Some(position);
@@ -414,9 +443,17 @@ impl UiTree {
                 let Some(input) = self.inputs.get_mut(id) else {
                     return Vec::new();
                 };
-                if item.action_id == "select_all" {
-                    input.set_selection(input.value.chars().count(), Some(0));
+                if matches!(item.action_id.as_str(), "select" | "select_all") {
+                    if item.action_id == "select" { input.select_word() } else { input.set_selection(input.value.chars().count(), Some(0)) }
                     input.keep_cursor_visible = true;
+                    // iOS's edit menu comes back at once over what was selected, to cut or copy it.
+                    if self.touch_text_menu.is_some() && input.selected_range().is_some() {
+                        let copy = !input.password;
+                        self.context_menu = Some(ContextMenuState {
+                            target: menu.target.clone(), position: menu.position, entries: touch_entries(true, copy, true),
+                            palette: menu.palette, selected: None, pressed: None, anchor: menu.anchor, modal: menu.modal.clone(),
+                        });
+                    }
                     return Vec::new();
                 }
                 if input.password {
@@ -808,6 +845,9 @@ impl UiTree {
     }
 }
 
+/// How far iOS's edit menu stands off what it was opened on.
+const EDIT_BAR_GAP: f32 = 8.0;
+
 fn row_index(id: &str) -> Option<usize> {
     id.strip_prefix("__context_menu:item:")?.parse().ok()
 }
@@ -831,6 +871,18 @@ fn shortcut_matches(shortcut: &str, key: Key, shift: bool, ctrl: bool, alt: bool
         && shortcut_shift == shift
         && shortcut_alt == alt
         && shortcut_key.is_some_and(|part| Key::from_name(part) == Some(key))
+}
+
+/// A field's text menu on a touch screen, in iOS's order: what is selected cut, copied or
+/// replaced; with nothing selected, a word or all of it to select, or a paste.
+fn touch_entries(selected: bool, copy: bool, filled: bool) -> Vec<ContextMenuEntry> {
+    let item = |id: &str, label: &str, enabled: bool| ContextMenuEntry::Item(ContextMenuItem::new(id, label).enabled(enabled));
+    let labels = crate::labels();
+    if selected {
+        vec![item("cut", labels.cut, copy), item("copy", labels.copy, copy), item("paste", labels.paste, true)]
+    } else {
+        vec![item("select", labels.select, filled), item("select_all", labels.select_all, filled), item("paste", labels.paste, true)]
+    }
 }
 
 fn text_entries(copy: bool, cut: bool, paste: bool, select_all: bool) -> Vec<ContextMenuEntry> {

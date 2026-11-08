@@ -1368,6 +1368,11 @@ fn rubber_band(down: f32) -> f32 {
 
 /// How far past its tab strip a lifted selection lens stands, top and bottom together.
 const LENS_LIFT: f32 = 9.0;
+/// How closely a held tab bar's lens follows the finger: tight, a hair behind, no bounce.
+const SCRUB_SPRING: crate::SpringMotion = crate::SpringMotion { stiffness: 900.0, damping_ratio: 0.85 };
+/// The speed, in points a second, at which a dragged lens stretches along its way by a
+/// tenth, as iOS's drop of glass does; it stretches by a fifth at most.
+const SCRUB_STRETCH: f32 = 2000.0;
 
 /// The curve a popover's pictures travel on from their origin, and back on close.
 const MORPH_CURVE: Easing = Easing::CubicBezier(0.32, 0.72, 0.0, 1.0);
@@ -1696,6 +1701,8 @@ pub struct Frame {
     /// and each thing a component described, in the order they were placed.
     pub access: Vec<crate::AccessNode>,
     action_menu_items: HashSet<String>,
+    /// Rows lit under a press alone: a press slid from one onto another chooses that one.
+    press_highlight_rows: HashSet<String>,
     /// The places in `regions` that are a popover's backdrop: under the pointer, they raise no
     /// tooltip, though they answer to the id of a control (an image viewer's close).
     backdrops: Vec<usize>,
@@ -1708,6 +1715,9 @@ pub struct Frame {
     submenu_triggers: HashSet<String>,
     sliders: HashMap<String, SliderGeometry>,
     glass_switches: HashMap<String, GlassSwitchGeometry>,
+    /// The tabs of each strip whose glass lens a finger can drag along, as iOS 26's tab bar's:
+    /// each tab's action and where it is.
+    glass_tabs: Vec<Vec<(String, Rect)>>,
     scroll_extents: HashMap<String, f32>,
     horizontal_viewports: HashMap<String, Rect>,
     /// Each button inside a `drag_to_pan` viewport, with the viewport a drag
@@ -4643,8 +4653,13 @@ pub struct UiTree {
     reduced_motion: bool,
     static_selection: Option<StaticSelection>,
     context_menu: Option<ContextMenuState>,
+    /// Where a double tap selected a word on a touch screen: its edit menu opens as the finger
+    /// lifts, as iOS's does.
+    edit_menu_on_release: Option<Point>,
     context_menu_palette: crate::ComponentPalette,
     context_menu_sizes: crate::context_menu::Sizes,
+    /// Text menus drawn as iOS 26's edit menu, in this glass; see `set_touch_text_menu`.
+    touch_text_menu: Option<crate::GlassMaterial>,
     context_menu_swallow_release: bool,
     ime_owner: Option<ime_tree::ImeOwner>,
     /// The field a held press extends the selection of, and whether it is
@@ -4749,6 +4764,8 @@ impl UiTree {
             static_selection: None,
             context_menu: None,
             context_menu_palette: crate::ComponentPalette::neutral_dark(),
+            touch_text_menu: None,
+            edit_menu_on_release: None,
             context_menu_sizes: crate::context_menu::Sizes::default(),
             context_menu_swallow_release: false,
             ime_owner: None,
@@ -8028,7 +8045,10 @@ impl UiTree {
                         let extend = extend && focused_before.as_deref() == Some(region.id.as_str());
                         input.place_cursor_at(point, multiline, extend);
                         match clicks {
-                            2 => input.select_word(),
+                            2 => {
+                                input.select_word();
+                                if self.touch_text_menu.is_some() { self.edit_menu_on_release = Some(point); }
+                            }
                             3.. => input.select_line(multiline),
                             _ => self.field_drag = Some((region.id.clone(), multiline)),
                         }
@@ -8036,6 +8056,12 @@ impl UiTree {
                 }
             }
             UiEvent::PointerUp(point) => {
+                if let Some(at) = self.edit_menu_on_release.take() {
+                    self.pressed = None;
+                    self.field_drag = None;
+                    actions.extend(self.open_text_context_menu(at, false, now));
+                    return actions;
+                }
                 if let Some(mut draft) = self.sketch_draft.take() {
                     draft.extend(point);
                     actions.push(UiAction::Sketched { id: draft.id.clone(), mark: draft.mark() });
@@ -8085,7 +8111,21 @@ impl UiTree {
                         drag.moved && geometry.checked == (point.x >= geometry.bounds.x + geometry.bounds.width / 2.0)
                     });
                     if unchanged_drag { return actions; }
-                    if self.frame.press_region(point).map(|region| region.id.as_str())
+                    // A finger slid from one touch menu row onto another chooses that one.
+                    let slid = self.frame.press_region(point).map(|region| region.id.clone())
+                        .filter(|id| *id != pressed && self.frame.press_highlight_rows.contains(id)
+                            && self.frame.press_highlight_rows.contains(&pressed));
+                    // A tab bar's lens dragged along it lands on the tab nearest the finger.
+                    let landed = self.frame.glass_tabs.iter().find(|tabs| tabs.iter().any(|(id, _)| *id == pressed))
+                        .filter(|_| self.frame.press_region(point).map(|region| region.id.as_str()) != Some(pressed.as_str()))
+                        .and_then(|tabs| tabs.iter().min_by(|a, b| {
+                            let off = |rect: &Rect| (rect.x + rect.width / 2.0 - point.x).abs();
+                            off(&a.1).total_cmp(&off(&b.1))
+                        }))
+                        .map(|(id, _)| id.clone());
+                    if let Some(id) = slid.or(landed) {
+                        actions.push(UiAction::Clicked { id: self.dispatch_id(&id) });
+                    } else if self.frame.press_region(point).map(|region| region.id.as_str())
                         == Some(pressed.as_str())
                         && pressed_dispatch.as_deref() == Some(self.dispatch_id(&pressed).as_str())
                     {
@@ -13309,16 +13349,22 @@ impl LayoutBuilder<'_> {
             if style.action_menu_item {
                 self.frame.action_menu_items.insert(id.clone());
             }
+            if style.press_highlight {
+                self.frame.press_highlight_rows.insert(id.clone());
+            }
             let hovered = if style.action_menu_item && self.keyboard_focus {
                 self.focused == Some(id.as_str())
             } else {
-                self.hovered == Some(id.as_str())
-                    || element.hover_peer.as_deref() == self.hovered && self.hovered.is_some()
+                (self.hovered == Some(id.as_str())
+                    || element.hover_peer.as_deref() == self.hovered && self.hovered.is_some())
+                    && (!style.press_highlight || self.pressed.is_some())
             };
+            // Under a press slid across a touch menu, the row under the finger is the lit one.
+            let slid_onto = style.press_highlight && hovered && self.pressed.is_some();
             // A handle dragged in place is held for as long as its drag lasts,
             // wherever the pointer has gone.
             let held = element.drag_in_place && self.drag_source == Some(id.as_str());
-            if self.pressed == Some(id.as_str()) && hovered || held {
+            if self.pressed == Some(id.as_str()) && hovered || held || slid_onto {
                 style.background = style
                     .pressed_background
                     .or(style.hover_background)
@@ -13610,6 +13656,16 @@ impl LayoutBuilder<'_> {
                                 press_start: None,
                                 dragging: false,
                             });
+                        // A lens of a strip of tabs, not a switch's thumb nor a segmented knob,
+                        // under a finger held on one of its tabs.
+                        let scrubbing = selection.glass.is_some() && selection.press_id.is_none() && selection.lift.is_none()
+                            && action_ids.iter().any(|id| self.pressed == Some(id.as_str()));
+                        if selection.glass.is_some() && selection.press_id.is_none() && selection.lift.is_none() {
+                            self.frame.glass_tabs.push(children.iter().zip(rects.iter()).filter_map(|(child, rect)| match &child.kind {
+                                ElementKind::Button { id, .. } | ElementKind::IconButton { id, .. } | ElementKind::Clickable { id, .. } => Some((id.clone(), *rect)),
+                                _ => None,
+                            }).collect());
+                        }
                         if self.reduced_motion || selection.animation_ms == 0 {
                             state.x.snap_to(target.x, self.now);
                             state.width.snap_to(target.width, self.now);
@@ -13629,18 +13685,28 @@ impl LayoutBuilder<'_> {
                             state.x.launch(target.x, motion, self.now);
                             state.width.launch(target.width, motion, self.now);
                             state.selected_id.clone_from(&selection.selected_id);
-                        } else if state.x.target() != target.x
-                            || state.width.target() != target.width
+                        } else if !scrubbing && (state.x.target() != target.x
+                            || state.width.target() != target.width)
                         {
                             // Resizing a dock or window moves the entire strip;
                             // only changing selection should leave a sliding trail.
                             if state.dragging {
+                                // Let go off its tab, the lens travels back to it lifted, as it left.
+                                state.travel_from = state.x.value(self.now);
                                 state.x.launch(target.x, crate::SpringMotion { stiffness: 700.0, damping_ratio: 0.78 }, self.now);
                             } else { state.x.snap_to(target.x, self.now); }
                             state.width.snap_to(target.width, self.now);
                         }
                         let parent_pressed = selection.press_id.as_deref().is_some_and(|id| self.pressed == Some(id));
-                        if selection.glass.is_some() && parent_pressed {
+                        if let (true, Some(pointer)) = (scrubbing, self.pointer) {
+                            // iOS 26's tab bar: held, its lens goes under the finger and follows
+                            // it along the bar, centred on it, until the finger lets go.
+                            let left = rects.first().map_or(target.x, |rect| rect.x);
+                            let right = rects.last().map_or(target.x, |rect| rect.x + rect.width - target.width);
+                            state.dragging = true;
+                            let goal = (pointer.x - target.width / 2.0).clamp(left, right.max(left));
+                            if self.reduced_motion { state.x.snap_to(goal, self.now) } else { state.x.launch(goal, SCRUB_SPRING, self.now) }
+                        } else if selection.glass.is_some() && parent_pressed {
                             if let Some(pointer) = self.pointer {
                                 let (press_x, start_x) = *state.press_start.get_or_insert((pointer.x, state.x.value(self.now)));
                                 if (pointer.x - press_x).abs() > 3.0 {
@@ -13697,8 +13763,12 @@ impl LayoutBuilder<'_> {
                             let grow = ((rect.height + LENS_LIFT) / target.height.max(1.0) - 1.0).max(0.0);
                             (grow, grow)
                         };
-                        let width = state.width.value(self.now) * (1.0 + lift_x * grow_x);
-                        let height = target.height * (1.0 + lift_y * grow_y);
+                        // A tab bar's lens dragged fast stretches along its way, thinner, as a drop.
+                        let stretch = if selection.glass.is_some() && selection.press_id.is_none() && selection.lift.is_none() {
+                            (state.x.velocity(self.now).abs() / SCRUB_STRETCH * 0.1).min(0.2)
+                        } else { 0.0 };
+                        let width = state.width.value(self.now) * (1.0 + lift_x * grow_x) * (1.0 + stretch);
+                        let height = target.height * (1.0 + lift_y * grow_y) * (1.0 - stretch / 2.0);
                         let indicator = Rect::new(x - (width - state.width.value(self.now)) / 2.0,
                             target.y - (height - target.height) / 2.0, width, height);
                         // Its corners grow with it: a capsule lifted is a capsule still, as Apple's lens.
@@ -16823,6 +16893,35 @@ mod tests {
         let (snapped, _) = lens(&tree.layout_at(size, now + Duration::from_millis(80)));
         assert_eq!(snapped.x, target_region.x);
         assert_eq!(snapped.width, target_region.width);
+    }
+
+    #[test]
+    fn a_held_tab_bar_lens_follows_the_finger_and_lands_on_the_tab_it_is_let_go_over() {
+        let view = |selected: &str| {
+            let cell = |id: &str| Element::clickable(id, Element::spacer()).size(Some(100.0), Some(40.0)).indicator_slot(id);
+            Element::tab_strip(vec![cell("a"), cell("b"), cell("c")], vec!["a".into(), "b".into(), "c".into()])
+                .tab_selection("bar", selected, Color::rgb(60, 60, 60), 20.0, 200)
+                .glass_selection(GlassMaterial::new(Color::rgba(255, 255, 255, 0)))
+        };
+        let size = Size::new(300.0, 40.0);
+        let mut tree = UiTree::new(view("a"));
+        tree.set_reduced_motion(true);
+        tree.layout(size);
+        let lens = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::GlassSelection { rect, .. } => Some(*rect), _ => None,
+        }).unwrap();
+        tree.handle_event(UiEvent::PointerMove(Point::new(50.0, 20.0)));
+        tree.handle_event(UiEvent::PointerDown(Point::new(50.0, 20.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(230.0, 20.0)));
+        let held = lens(&tree.layout(size));
+        assert!((held.x + held.width / 2.0 - 230.0).abs() < 0.5, "the lens stands under the finger: {held:?}");
+        assert_eq!(tree.handle_event(UiEvent::PointerUp(Point::new(230.0, 20.0))), vec![UiAction::Clicked { id: "c".into() }]);
+        // Dragged past the bar's end, it stops at its last tab.
+        tree.set_root(view("c"));
+        tree.layout(size);
+        tree.handle_event(UiEvent::PointerDown(Point::new(250.0, 20.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(400.0, 20.0)));
+        assert_eq!(lens(&tree.layout(size)).x, 200.0);
     }
 
     #[test]
