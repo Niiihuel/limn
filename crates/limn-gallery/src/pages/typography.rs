@@ -199,6 +199,12 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 Text::new(long, palette).fade(32.0).render(),
                 caption(cx, "No options: the paragraph wraps"),
                 Text::new(long, palette).line_height(20.0).render(),
+                caption(cx, "shrink_to_fit().centered_y() beside a control: it wraps before the control"),
+                Element::row(vec![
+                    Text::new(long, palette).render().shrink_to_fit().centered_y(),
+                    tool("typography-long-archive", Icon::Archive),
+                ])
+                .gap(8.0),
             ])
             .gap(6.0)
             .size(Some(width.min(280.0)), None),

@@ -67,6 +67,10 @@ shrinks down to its `min_size`, then the next, and only if that is still not
 enough do they shrink below their minimums. Flexible siblings keep their
 minimum widths throughout.
 
+`centered_y`, `centered_x` and `centered` hand `shrink_to_fit`,
+`shrink_height_to_fit` and `min_size` to the wrapper they put around a child,
+so `label.shrink_to_fit().centered_y()` still gives up width.
+
 ### Giving up height: `shrink_height_to_fit`
 
 A column normally keeps every non-flex child's natural height. Mark just the
