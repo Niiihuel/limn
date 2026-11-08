@@ -4344,14 +4344,29 @@ impl Element {
 
     /// Center this element vertically in whatever height its parent gives
     /// it. The wrapper takes over the element's width and flex, so it stands
-    /// in the same place in a row; the element keeps its own height.
+    /// in the same place in a row; the element keeps its own height. It
+    /// takes over [`Self::shrink_to_fit`], [`Self::shrink_height_to_fit`] and
+    /// the minimum size too, so a label that shrinks still gives up width
+    /// to the controls after it.
     pub fn centered_y(mut self) -> Self {
         let width = self.style.width;
         let flex = self.style.flex;
         self.style.flex = 0.0;
-        Self::column(vec![Self::spacer().flex(1.0), self, Self::spacer().flex(1.0)])
+        self.wrapped(|element| Self::column(vec![Self::spacer().flex(1.0), element, Self::spacer().flex(1.0)]))
             .size(width, None)
             .flex(flex)
+    }
+
+    /// Wrap this element, giving the wrapper what a row or column reads off
+    /// a direct child to fit it, which the element no longer is.
+    fn wrapped(self, wrap: impl FnOnce(Self) -> Self) -> Self {
+        let Style { shrink, shrink_height, min_width, min_height, .. } = self.style;
+        let mut wrapper = wrap(self);
+        wrapper.style.shrink = shrink;
+        wrapper.style.shrink_height = shrink_height;
+        wrapper.style.min_width = min_width;
+        wrapper.style.min_height = min_height;
+        wrapper
     }
 
     /// Say what this element is to the platform: its role, its name and its
@@ -4373,17 +4388,23 @@ impl Element {
     }
 
     /// Center this element horizontally in the width its parent gives it.
+    /// The wrapper takes over [`Self::shrink_to_fit`],
+    /// [`Self::shrink_height_to_fit`] and the minimum size, so the element
+    /// still gives up room to its siblings.
     pub fn centered_x(self) -> Self {
-        Self::row(vec![Self::spacer().flex(1.0), self, Self::spacer().flex(1.0)])
+        self.wrapped(|element| Self::row(vec![Self::spacer().flex(1.0), element, Self::spacer().flex(1.0)]))
     }
 
     /// Center this element on both axes in the space its parent gives it.
+    /// The wrapper takes over what [`Self::centered_x`] does.
     pub fn centered(self) -> Self {
-        Self::column(vec![
-            Self::spacer().flex(1.0),
-            self.centered_x(),
-            Self::spacer().flex(1.0),
-        ])
+        self.wrapped(|element| {
+            Self::column(vec![
+                Self::spacer().flex(1.0),
+                element.centered_x(),
+                Self::spacer().flex(1.0),
+            ])
+        })
     }
 
     /// Hold this element in a fixed box that does not flex and hides what
@@ -4619,6 +4640,38 @@ mod centering_tests {
             let row = Element::row(vec![mark(40.0, 10.0).centered_y(), Element::spacer().flex(1.0)]);
             let rect = painted(row, Size::new(width, 50.0));
             assert_eq!((rect.x, rect.y, rect.width, rect.height), (0.0, 20.0, 40.0, 10.0));
+        }
+    }
+
+    #[test]
+    fn a_long_label_centered_in_a_row_ends_before_the_control_after_it() {
+        let long = "A label far too long for the row it sits in, beside its controls";
+        let centerings: [(&str, fn(Element) -> Element); 3] =
+            [("centered_y", Element::centered_y), ("centered_x", Element::centered_x), ("centered", Element::centered)];
+        for (name, center) in centerings {
+            let label = center(Element::text(long).shrink_to_fit().min_size(24.0, 0.0));
+            assert!(label.style.shrink && label.style.min_width == 24.0, "{name} keeps the label's fit");
+            let row = Element::row(vec![label, Element::button("go", "Go").size(Some(40.0), Some(24.0))]).gap(8.0);
+            let frame = UiTree::new(row).layout(Size::new(200.0, 60.0));
+            let control = frame.regions.iter().find(|region| region.id == "go").expect("the control").rect;
+            let end = frame
+                .text_layouts()
+                .iter()
+                .filter(|block| block.source == long)
+                .flat_map(|block| block.runs.iter().map(|run| run.rect.x + run.rect.width))
+                .fold(0.0_f32, f32::max);
+            assert_eq!(control.x + control.width, 200.0, "{name} keeps the control in the row");
+            assert!(end > 0.0 && end <= control.x - 8.0 + 0.01, "{name}: the label ends at {end}, the control starts at {}", control.x);
+        }
+
+        // In a column, the same holds for the height a child gives up.
+        let tall = || Element::spacer().size(Some(20.0), Some(120.0)).shrink_height_to_fit();
+        for (name, centered) in [("centered_x", tall().centered_x()), ("centered", tall().centered())] {
+            assert!(centered.style.shrink_height, "{name} keeps the child's fit");
+            let column = Element::column(vec![centered, Element::button("go", "Go").size(None, Some(40.0))]);
+            let frame = UiTree::new(column).layout(Size::new(200.0, 100.0));
+            let control = frame.regions.iter().find(|region| region.id == "go").expect("the control").rect;
+            assert_eq!((control.y, control.height), (60.0, 40.0), "{name} gives up height for the control");
         }
     }
 
