@@ -5,7 +5,7 @@
 use crate::menu::action_style::{
     self, GAP, HORIZONTAL_PADDING, SCROLLBAR_GUTTER, SEPARATOR_HEIGHT,
 };
-use crate::{Access, Component, ComponentPalette, Element, FontFamily, Icon, Kbd, Role, ScrollArea};
+use crate::{Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Kbd, Role, ScrollArea};
 
 /// One action in a [`ContextMenu`]: a label with an optional icon and shortcut.
 #[derive(Clone, Debug, PartialEq)]
@@ -334,6 +334,56 @@ pub(crate) fn surface(
         ),
         height,
     )
+}
+
+/// iOS 26's edit menu: a capsule this tall.
+pub(crate) const EDIT_BAR_HEIGHT: f32 = 38.0;
+/// Room around each action's name in it, and the size of that name.
+const EDIT_ITEM_PAD: f32 = 14.0;
+const EDIT_LABEL: f32 = 15.0;
+/// Its hairlines between actions: white at 18%, 18 tall.
+const EDIT_HAIRLINE: Color = Color::rgba(255, 255, 255, 46);
+
+/// iOS 26's edit menu: the actions that can be done, by name, in a row in a capsule of
+/// `material`, split by hairlines; and how wide it is. Each keeps its row's ID, so choosing it
+/// is choosing that row. Lit under the finger only.
+// shortcut: no "›" page for more actions than fit across the screen; text menus hold four
+// at most. Add it, as iOS pages its bar, when a host's actions can join them.
+pub(crate) fn edit_bar(
+    entries: &[ContextMenuEntry],
+    palette: ComponentPalette,
+    material: crate::GlassMaterial,
+    measure: &dyn Fn(&str, f32) -> f32,
+) -> (Element, f32) {
+    let mut children = Vec::new();
+    let mut width = 0.0;
+    for (index, item) in entries.iter().enumerate().filter_map(|(index, entry)| match entry {
+        ContextMenuEntry::Item(item) if item.enabled => Some((index, item)),
+        _ => None,
+    }) {
+        if !children.is_empty() {
+            children.push(Element::column(vec![
+                Element::spacer().flex(1.0),
+                Element::spacer().background(EDIT_HAIRLINE).size(Some(1.0), Some(18.0)),
+                Element::spacer().flex(1.0),
+            ]).size(Some(1.0), Some(EDIT_BAR_HEIGHT)));
+            width += 1.0;
+        }
+        let across = measure(&item.label, EDIT_LABEL).ceil() + EDIT_ITEM_PAD * 2.0;
+        let label = Element::text(&item.label).font_family(FontFamily::Sans).font_size(EDIT_LABEL).foreground(palette.text).centered();
+        let row = Element::clickable(row_id(index), label)
+            .action_menu_item()
+            .press_highlight()
+            .accessible(Access::new(Role::MenuItem).name(&item.label));
+        children.push(palette.interactive_surface(row).transition_ms(0).size(Some(across), Some(EDIT_BAR_HEIGHT)));
+        width += across;
+    }
+    let bar = Element::row(children)
+        .glass(material)
+        .radius(EDIT_BAR_HEIGHT / 2.0)
+        .clip_children()
+        .size(Some(width), Some(EDIT_BAR_HEIGHT));
+    (bar, width)
 }
 
 pub(crate) fn row_id(index: usize) -> String {

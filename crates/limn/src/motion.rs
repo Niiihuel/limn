@@ -282,6 +282,14 @@ impl ScalarSpring {
         }
     }
 
+    /// A spring on `value` moving at `velocity`, in units a second, toward it: let go there
+    /// at that speed, it carries on before it turns.
+    pub(crate) fn moving(value: f32, velocity: f32, now: Instant) -> Self {
+        let mut spring = Self::new(value, now);
+        if velocity.is_finite() { spring.velocity = velocity; }
+        spring
+    }
+
     /// Choose the stiffness and damping.
     pub fn motion(mut self, motion: SpringMotion) -> Self {
         self.motion = motion;

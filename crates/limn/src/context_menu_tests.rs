@@ -899,3 +899,65 @@ fn a_host_draws_its_context_menus_at_its_other_menus_measures() {
         DrawCommand::Text { text, font_size, .. } if text == "First" && *font_size == 15.0
     )));
 }
+
+#[test]
+fn a_touch_screens_text_menu_is_ios_edit_bar_over_the_field_with_only_what_can_be_done() {
+    let size = Size::new(300.0, 240.0);
+    let page = Element::column(vec![Element::spacer().size(None, Some(100.0)), input()]);
+    let mut tree = UiTree::new(page);
+    tree.set_touch_text_menu(Some(crate::GlassMaterial::new(Color::rgba(40, 40, 42, 200))));
+    tree.layout(size);
+    tree.focus("draft");
+    // Nothing selected: as iOS's, Select, Select All, Paste.
+    tree.handle_event(UiEvent::ContextMenu { position: Point::new(40.0, 115.0) });
+    let frame = tree.layout(size);
+    let row = |frame: &Frame, action: usize| frame.regions.iter().find(|region| region.id == context_menu::row_id(action)).map(|region| region.rect);
+    let (select, all, paste) = (row(&frame, 0).unwrap(), row(&frame, 1).unwrap(), row(&frame, 2).unwrap());
+    assert!(select.x < all.x && all.x < paste.x && paste.y == all.y, "in one row, in that order");
+    assert_eq!(paste.height, context_menu::EDIT_BAR_HEIGHT);
+    assert!(paste.y + paste.height <= 100.0 - 7.9, "over the field: {paste:?}");
+    assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::Glass { radius, .. } if *radius == context_menu::EDIT_BAR_HEIGHT / 2.0)), "a capsule of glass");
+    // Select All, chosen by a finger, selects; Copy and Cut then come.
+    let centre = Point::new(all.x + all.width / 2.0, all.y + all.height / 2.0);
+    tree.handle_event(UiEvent::PointerMove(centre));
+    tree.handle_event(UiEvent::PointerDown(centre));
+    tree.handle_event(UiEvent::PointerUp(centre));
+    assert_eq!(tree.input_selection("draft"), Some((0, 8)));
+    // As iOS's, it comes back at once over the selection: Cut, Copy, Paste.
+    assert!(tree.context_menu_open(), "the menu comes back over what was selected");
+    assert!(item_enabled(&tree, "cut") && item_enabled(&tree, "copy") && !item_enabled(&tree, "select_all"));
+    let frame = tree.layout(size);
+    assert!(row(&frame, 0).is_some() && row(&frame, 1).is_some() && row(&frame, 2).is_some());
+    // With a password nothing selected can leave it: only Paste is there.
+    let mut secret = UiTree::new(Element::text_input("pin", "1234", "").password(true).size(Some(260.0), Some(32.0)));
+    secret.set_touch_text_menu(Some(crate::GlassMaterial::new(Color::rgba(40, 40, 42, 200))));
+    secret.layout(size);
+    secret.focus("pin");
+    secret.handle_event(key(Key::A, true));
+    secret.handle_event(UiEvent::ContextMenu { position: Point::new(40.0, 15.0) });
+    assert!(!item_enabled(&secret, "cut") && !item_enabled(&secret, "copy") && item_enabled(&secret, "paste"));
+}
+
+#[test]
+fn a_double_tap_on_a_touch_screens_field_selects_the_word_and_brings_its_edit_menu() {
+    let size = Size::new(300.0, 240.0);
+    let mut tree = UiTree::new(Element::text_input("draft", "hola mundo", "").size(Some(260.0), Some(32.0)));
+    tree.set_touch_text_menu(Some(crate::GlassMaterial::new(Color::rgba(40, 40, 42, 200))));
+    tree.layout(size);
+    let at = Point::new(20.0, 16.0);
+    let tap = |count: u8| UiEvent::PointerDownEditor { position: at, shift: false, alt: false, ctrl: false, click_count: count };
+    for count in 1..=2 {
+        tree.handle_event(tap(count));
+        tree.handle_event(UiEvent::PointerUp(at));
+    }
+    assert_eq!(tree.input_selection("draft"), Some((0, 4)), "the word under the finger");
+    assert!(tree.context_menu_open() && item_enabled(&tree, "copy"));
+    // Without the touch menu a double click only selects.
+    let mut desk = UiTree::new(Element::text_input("draft", "hola mundo", "").size(Some(260.0), Some(32.0)));
+    desk.layout(size);
+    for count in 1..=2 {
+        desk.handle_event(tap(count));
+        desk.handle_event(UiEvent::PointerUp(at));
+    }
+    assert!(!desk.context_menu_open());
+}

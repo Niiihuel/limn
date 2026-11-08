@@ -99,6 +99,17 @@ const VIEWPORT_MARGIN: f32 = 24.0;
 const FLUSH_HEADER: f32 = 44.0;
 /// The card's outline, in logical pixels.
 const OUTLINE: f32 = 1.0;
+/// The corner of a modal in glass, as iOS 26's alerts and route picker are drawn, measured
+/// off an iPhone's screen.
+const GLASS_RADIUS: f32 = 32.0;
+/// `from` toward `to` by `share`, opaque.
+fn mix(from: Color, to: Color, share: f32) -> Color {
+    let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * share).round() as u8;
+    Color::rgb(channel(from.r, to.r), channel(from.g, to.g), channel(from.b, to.b))
+}
+
+/// How long an iOS sheet takes to go down past the foot of the screen.
+const SHEET_CLOSE_MS: u16 = 340;
 
 struct SheetLayout {
     max_height: f32,
@@ -132,6 +143,12 @@ pub struct Modal {
     role: Role,
     spoken_description: String,
     sheet: Option<SheetLayout>,
+    glass: Option<crate::GlassMaterial>,
+    /// A bottom sheet drawn and moving as iOS 26's.
+    ios: Option<crate::SheetSpec>,
+    /// Its prominent confirmation at the header's end: what it reports, its name, and
+    /// whether it can be pressed.
+    confirm: Option<(String, String, bool)>,
 }
 
 impl Modal {
@@ -171,7 +188,16 @@ impl Modal {
             role: Role::Dialog,
             spoken_description: String::new(),
             sheet: None,
+            glass: None,
+            ios: None,
+            confirm: None,
         }
+    }
+
+    /// Sample the host's backdrop through the dialog shell, keeping content sharp.
+    pub fn glass(mut self, material: crate::GlassMaterial) -> Self {
+        self.glass = Some(material);
+        self
     }
 
     /// An alert dialog shows its description in its body: say it is one,
@@ -179,6 +205,18 @@ impl Modal {
     pub(crate) fn alert(mut self, description: &str) -> Self {
         self.role = Role::AlertDialog;
         self.spoken_description = description.to_owned();
+        self
+    }
+
+    /// Draw the bottom sheet as iOS 26's; see [`crate::BottomSheet::ios`].
+    pub(crate) fn ios_sheet(mut self, spec: crate::SheetSpec) -> Self {
+        self.ios = Some(spec);
+        self
+    }
+
+    /// The iOS sheet's prominent confirmation; see [`crate::BottomSheet::confirm`].
+    pub(crate) fn confirm(mut self, id: String, label: String, enabled: bool) -> Self {
+        self.confirm = Some((id, label, enabled));
         self
     }
 
@@ -341,15 +379,15 @@ impl Component for Modal {
             said = said.description(description);
         }
 
+        let named = self.title.clone();
         let title = Element::formatted_text(vec![TextSpan::new(
             self.title, self.palette.text, 16.0, FontFamily::Sans,
         )]);
-        let header = if self.sheet.is_some() {
-            // Share one touch-height header: a separate fixed handle row
-            // would crowd the footer when the keyboard shortens the viewport.
-            // These are sibling controls, so the close button wins hit tests
-            // without nesting interactive accessibility nodes.
-            let handle = Element::column(vec![
+        // A sheet's grabber, the whole strip it heads to be held by: dragged down, the sheet
+        // follows and leaves; pressed, it closes.
+        let grabber = |top: f32, height: f32| {
+            let mark = Element::column(vec![
+                Element::spacer().size(None, Some(top)),
                 Element::row(vec![
                     Element::spacer().flex(1.0),
                     Element::spacer().size(Some(36.0), Some(4.0))
@@ -358,12 +396,81 @@ impl Component for Modal {
                 ]).size(None, Some(4.0)),
                 Element::spacer().flex(1.0),
             ]);
-            let handle = self.palette.interactive_surface(
-                Element::clickable(format!("{}:drag", self.close_id), handle)
-                    .dispatch_as(self.close_id.clone())
+            // A handle lights nothing under a pointer or a press: the header row it spans is
+            // the sheet's own, and a fill there reads as a second panel.
+            let handle = Element::clickable(format!("{}:drag", self.close_id), mark);
+            // An iOS sheet's grabber steps through its heights; another's closes the sheet.
+            let handle = if self.ios.is_some() { handle } else { handle.dispatch_as(self.close_id.clone()) };
+            self.palette.interactive_surface(
+                handle
                     .draggable_in_place()
                     .accessible(Access::new(Role::Button).name(crate::labels().close))
-            ).size(None, Some(44.0));
+            ).hover_background(Color::TRANSPARENT).pressed_background(Color::TRANSPARENT).size(None, Some(height))
+        };
+        let ios = self.ios.is_some() && self.sheet.is_some();
+        let header = if ios {
+            // iOS 26's: the grabber over a bar of 44-point circles, the cross at its start and the
+            // prominent check at its end, the title centred between them. The whole bar holds
+            // the sheet; its buttons win their own presses.
+            let circle = |content: Element, fill: Option<Color>| {
+                let circle = Element::panel(content.centered()).round().size(Some(44.0), Some(44.0));
+                // Over the sheet's own glass a circle of it reads as a light disc: opaque, its
+                // tint mixed in already, as a translucent one shows the seams it is drawn with.
+                circle.background(fill.unwrap_or_else(|| mix(self.palette.surface, self.palette.text, 0.16)))
+            };
+            let cross = Element::icon(Icon::Close).foreground(self.palette.text).size(Some(16.0), Some(16.0));
+            // Apple's convention (HIG, Sheets): a Cancel goes with a Done, and what asks before it
+            // does something keeps its way out; a sheet that only offers choices is put away by
+            // a swipe, its grabber or a press beside it, with no cross. Its close still stands
+            // where the cross would, unseen, for a screen reader, which has no swipe to use.
+            let crossed = self.confirm.is_some() || self.role == Role::AlertDialog;
+            let face = if crossed { circle(cross, None) } else { Element::spacer().size(Some(44.0), Some(44.0)) };
+            // The circle is the target, so a keyboard's ring rounds it.
+            let close = Element::clickable(format!("{}:close", self.close_id), face)
+                .dispatch_as(self.close_id.clone())
+                .accessible(Access::new(Role::Button).name(crate::labels().close))
+                .size(Some(44.0), Some(44.0))
+                .round();
+            let end = match &self.confirm {
+                Some((id, label, enabled)) => {
+                    let ink = if *enabled { Color::rgb(0, 0, 0) } else { self.palette.muted };
+                    let fill = if *enabled { self.palette.text } else { mix(self.palette.surface, self.palette.text, 0.18) };
+                    let check = circle(Element::icon(Icon::Check).foreground(ink).size(Some(18.0), Some(18.0)), Some(fill));
+                    let said = Access::new(Role::Button).name(label.clone());
+                    if *enabled { Element::clickable(id.clone(), check).accessible(said).size(Some(44.0), Some(44.0)).round() }
+                    else { check.accessible(said.id(id.clone()).disabled(true)) }
+                }
+                None => Element::spacer().size(Some(44.0), Some(44.0)),
+            };
+            let name = Element::formatted_text(vec![TextSpan::new(
+                named.clone(), self.palette.text, 17.0, FontFamily::SansSemibold,
+            )]).centered_x().flex(1.0).centered_y();
+            let bar = Element::row(vec![
+                Element::spacer().size(Some(15.0), None), close.centered_y(), name, end.centered_y(), Element::spacer().size(Some(15.0), None),
+            ]).gap(8.0).size(None, Some(60.0));
+            let grip = Element::column(vec![
+                Element::spacer().size(None, Some(crate::sheet_geometry::GRABBER_TOP)),
+                Element::row(vec![
+                    Element::spacer().flex(1.0),
+                    Element::spacer().size(Some(crate::sheet_geometry::GRABBER.0), Some(crate::sheet_geometry::GRABBER.1))
+                        .background(Color { a: 77, ..self.palette.text }).radius(crate::sheet_geometry::GRABBER.1 / 2.0),
+                    Element::spacer().flex(1.0),
+                ]),
+                Element::spacer().flex(1.0),
+            ]);
+            // Held, it moves the sheet; pressed, it steps through its heights.
+            let handle = self.palette.interactive_surface(
+                Element::clickable(format!("{}:drag", self.close_id), grip)
+                    .draggable_in_place()
+                    .accessible(Access::new(Role::Button).name(named.clone()).description(crate::labels().next))
+            ).hover_background(Color::TRANSPARENT).pressed_background(Color::TRANSPARENT).size(None, Some(72.0));
+            Element::stack(vec![handle, Element::column(vec![Element::spacer().size(None, Some(12.0)), bar])]).size(None, Some(72.0))
+        } else if self.sheet.is_some() {
+            // Share one touch-height header: a separate fixed handle row
+            // would crowd the footer when the keyboard shortens the viewport.
+            // These are sibling controls, so the close button wins hit tests
+            // without nesting interactive accessibility nodes.
+            let handle = grabber(0.0, 44.0);
             let title = Element::column(vec![
                 Element::spacer().size(None, Some(12.0)), title,
             ]).flex(1.0);
@@ -389,7 +496,12 @@ impl Component for Modal {
             }
             Element::row(row).gap(8.0).min_size(0.0, 24.0)
         };
-        let mut sections = if self.headless { vec![] } else { vec![header] };
+        // Headless, a sheet still has its grabber: a strip over its body, as iOS's share sheet.
+        let mut sections = match (self.headless, self.sheet.is_some()) {
+            (true, true) => vec![grabber(8.0, 20.0)],
+            (true, false) => vec![],
+            (false, _) => vec![header],
+        };
         let mut body = self.body;
 
         if !self.description.is_empty() && !self.headless {
@@ -412,6 +524,9 @@ impl Component for Modal {
             }
         }
         if let Some(body) = body {
+            // An iOS sheet's body fills the height the sheet has, which the tree gives it.
+            let body = if ios { body.padding(PADDING) } else { body };
+            let limit = if ios { f32::INFINITY } else { self.sheet.as_ref().map_or(self.height.unwrap_or(480.0), |s| s.max_height) };
             sections.push(
                 ScrollArea::new(format!("modal_body:{}", self.close_id), body)
                     // A dedicated rail keeps the thumb outside bordered form
@@ -423,18 +538,18 @@ impl Component for Modal {
                             .tint(self.palette.muted),
                     )
                     .render()
-                    .max_height(self.sheet.as_ref().map_or(self.height.unwrap_or(480.0), |s| s.max_height))
+                    .max_height(limit)
                     .flex(1.0),
             );
         }
 
         if let Some(footer) = self.footer {
-            sections.push(if self.flush || self.headless { footer.padding(PADDING) } else { footer });
+            sections.push(if self.flush || self.headless || ios { footer.padding(PADDING) } else { footer });
         }
 
         let mut spaced = Vec::with_capacity(sections.len() * 2);
         for (index, section) in sections.into_iter().enumerate() {
-            if index > 0 && !self.flush && !self.headless {
+            if index > 0 && !self.flush && !self.headless && !ios {
                 let gap = if index == 1 { self.title_gap } else { 10.0 };
                 spaced.push(Element::spacer().size(None, Some(gap)));
             }
@@ -451,7 +566,7 @@ impl Component for Modal {
         }
         let mut card = Element::panel(content)
             // Flush, the body stops inside the outline, so its own fills never cover it.
-            .padding(if self.flush || self.headless { OUTLINE } else { PADDING })
+            .padding(if self.flush || self.headless || ios { OUTLINE } else { PADDING })
             .size(Some(self.width), self.height)
             .background(self.palette.surface)
             .border(self.outline.unwrap_or(self.palette.border), OUTLINE)
@@ -460,9 +575,24 @@ impl Component for Modal {
             .clip_children()
             .accessible(said);
 
+        if let Some(material) = self.glass {
+            card.style.background = None;
+            card.style.border = None;
+            card = card.glass(material);
+            // A pane of glass in the middle is iOS 26's alert, its corners as round as its.
+            if self.sheet.is_none() { card = card.radius(crate::tokens().radius.panel.max(GLASS_RADIUS)); }
+        }
+
+        let ios = self.ios.filter(|_| self.sheet.is_some());
         let placement = if let Some(sheet) = self.sheet {
-            card = card.max_height(sheet.max_height)
-                .corner_radii(CornerRadii::top(crate::tokens().radius.panel));
+            // An iOS sheet's size and corners are the tree's, from the height it stands at.
+            if ios.is_none() {
+                card = card.max_height(sheet.max_height)
+                    .corner_radii(CornerRadii::top(crate::tokens().radius.panel));
+            } else {
+                card.style.width = None;
+                card.style.border = None;
+            }
             PopoverPlacement::Bottom
         } else { PopoverPlacement::Center };
 
@@ -476,6 +606,12 @@ impl Component for Modal {
         }
         if let Some(id) = self.return_focus {
             popover = popover.popover_return_focus(id);
+        }
+        if let Some(spec) = ios {
+            // Black at 20% behind it at every height; it goes down in a third of a second.
+            popover = popover.popover_sheet(spec)
+                .popover_scrim(Color::rgba(0, 0, 0, crate::sheet_geometry::DIM_ALPHA))
+                .popover_close_animation_ms(SHEET_CLOSE_MS);
         }
         popover
     }

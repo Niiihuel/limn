@@ -45,12 +45,51 @@ temporary opening menu item disappears.
 Escape, tapping the close control or handle, and tapping the scrim request the
 same `UiAction::Clicked { id: dismiss_id }`. `.backdrop_dismiss(false)` keeps
 outside taps from closing while still blocking the underlying view. To dismiss
-by dragging, feed actions to `BottomSheetDrag`: a downward handle release of
-at least 64 logical pixels closes, while short, upward, sideways or cancelled
-drags do not. Scrolling the body does not drag the handle. The handle uses
-limn's existing in-place drag API: the sheet stays in its layout while held,
-then closes through the shared overlay transition. It does not follow the
-finger. Call `.reset()` when closing/replacing it by another host-owned path.
+by dragging, feed actions to `BottomSheetDrag`. Held by its handle (the header
+row, or a grabber strip over a headless sheet's body), the sheet follows the
+finger down, and up only as a rubber band of at most 48 points. Let go past a
+third of its height (kept between 60 and 180 points), or flung down at 700
+points a second or more, the tree reports the handle `Dropped` with the
+sheet's `dismiss_id` as its target. `BottomSheetDrag` turns that into a close,
+and the sheet goes on down from where the finger left it as it leaves. Let go
+short, the tree reports `DragCancelled` and the sheet springs back with a
+little bounce. A drop a host synthesizes without that target still closes at
+64 points down. Scrolling the body does not drag the handle. A sheet whose
+content changes its height moves to the new height on the same spring rather
+than jumping. Call `.reset()` when closing/replacing it by another host-owned
+path.
+
+### iOS 26's sheet
+
+`.ios(SheetSpec { .. })` draws and moves the sheet as Apple's. The spec gives:
+
+- the heights it rests at, smallest first: `SheetDetent::Fit` (as tall as what it holds), `Medium` (about half), `Large` and `Height(points)`;
+- where the screen's safe area starts (`safe_top`), since the large height stops 10 points under it;
+- the display's corner radius (`screen_corner`);
+- whether what it was opened over recedes, and whether a drag may send it away.
+
+The tree gives the sheet its size each frame:
+
+- **Partial heights:** it floats 8 points in from the sides and foot, with corners concentric with the display's.
+- **Near its large height:** it eases onto the screen's edges and its glass grows opaque. What it was opened over recedes behind it, smaller and rounded.
+- **Over the keyboard** (`keyboard`, how much of the screen's foot it covers): it grows by the keyboard's height, up to its large one, keeping its sides' inset. Its content ends above the keyboard and its glass reaches down behind it. Taken by its bar, it lets go of a field's focus first, which puts the keyboard away.
+- **Corners:** its glass corners are round arcs, not a pane's squircle, and its rim bends what is behind it only 12 points deep.
+
+Its bar:
+
+- the grabber;
+- a cross that reports `dismiss_id`;
+- the title, centred at 17 points semibold;
+- with `.confirm(id, label, enabled)`, a prominent check.
+
+It moves:
+
+- **Held by its bar:** it follows the finger one to one between its heights, and past its largest as UIScrollView's rubber band.
+- **Held by its body:** when the content is at its top, pulling it down moves the sheet. Short of its largest height, pushing up grows the sheet before the content scrolls.
+- **Let go:** it rests at the height its speed carries it nearest to, projected as UIKit does (deceleration 0.998). If that is past its smallest height, it leaves: the tree reports `UiAction::Clicked { id: dismiss_id }` and the sheet slides on down from where it was.
+- **Tapped grabber:** it steps through its heights.
+
+Hosts that turn touch pans into `Scroll2D` events send `UiEvent::ScrollEnded` when the finger lifts.
 
 The viewport supplied to `UiTree` should exclude system safe areas. If a host
 deliberately uses a full-screen viewport instead, `.safe_area_bottom(inset)`

@@ -108,7 +108,7 @@ mod captured_paste;
 pub use captured_paste::PasteTarget;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
-    BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
+    GlassMaterial, BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
     RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
@@ -545,6 +545,36 @@ fn clamp_formatted(
 /// carries out `Frame::commands` in order.
 #[derive(Clone, Debug, PartialEq)]
 pub enum DrawCommand {
+    /// A rounded backdrop-sampling surface, painted before its foreground.
+    Glass {
+        /// The surface's bounds; what lies behind them is what the material
+        /// samples.
+        rect: Rect,
+        /// Corner radius, the same on all four corners.
+        radius: f32,
+        /// How the backdrop is blurred and tinted. A backend that cannot sample
+        /// the backdrop can fill the bounds with `material.tint`, as the egui
+        /// one does.
+        material: GlassMaterial,
+        /// Opacity of the whole surface from 0 to 1: 1 unless a transition is
+        /// fading it.
+        opacity: f32,
+    },
+    /// A selection lens sampling a local, feedback-free copy of its track and labels.
+    GlassSelection {
+        /// Lens bounds in logical pixels.
+        rect: Rect,
+        /// Lens corner radius in logical pixels.
+        radius: f32,
+        /// Optical properties of the lens.
+        material: GlassMaterial,
+        /// Opacity of the lens, from zero to one.
+        opacity: f32,
+        /// Local backdrop bounds, including the neighboring labels.
+        backdrop_rect: Rect,
+        /// Ordinary paint captured before inserting this lens.
+        backdrop: Vec<DrawCommand>,
+    },
     /// A box shadow, pushed before the fill of the box that casts it.
     Shadow {
         /// The box that casts the shadow, not the shadow's own extent.
@@ -858,7 +888,9 @@ impl DrawCommand {
             | Self::Icon { rect, tint: color, .. } => seen(color).then_some(*rect),
             Self::FillVerticalGradient { rect, top, bottom } => (seen(top) || seen(bottom)).then_some(*rect),
             Self::FillHorizontalGradient { rect, left, right } => (seen(left) || seen(right)).then_some(*rect),
-            Self::RasterImage { rect, opacity, .. }
+            Self::Glass { rect, opacity, .. }
+            | Self::GlassSelection { rect, opacity, .. }
+            | Self::RasterImage { rect, opacity, .. }
             | Self::Record { rect, opacity, .. }
             | Self::Surface { rect, opacity, .. }
             | Self::EffortSlider { rect, opacity, .. } => (*opacity > 0.0).then_some(*rect),
@@ -927,7 +959,14 @@ impl DrawCommand {
                 fade(track);
                 fade(fill);
             }
+            Self::GlassSelection { rect, opacity, backdrop_rect, backdrop, .. } => {
+                shift(rect);
+                shift(backdrop_rect);
+                *opacity *= opacity_factor;
+                *backdrop = backdrop.iter().map(|command| command.moved(dx, dy, 1.0)).collect();
+            }
             Self::RasterImage { rect, opacity, .. }
+            | Self::Glass { rect, opacity, .. }
             | Self::Record { rect, opacity, .. }
             | Self::Surface { rect, opacity, .. }
             | Self::EffortSlider { rect, opacity, .. } => {
@@ -1275,13 +1314,75 @@ fn paint_dashed_corners(
 /// Move and fade a floating surface's paint only. Its layout, pointer regions,
 /// scroll geometry, and focus targets stay at their final coordinates, so a
 /// short entrance cannot make a menu's click target drift under the pointer.
+/// A spring as aurora's `Motion.qml` gives one, SwiftUI's: perceptual duration in seconds and
+/// bounce; ω = 2π / duration, ζ = 1 − bounce.
+fn aurora_spring(duration: f32, bounce: f32) -> crate::SpringMotion {
+    let omega = std::f32::consts::TAU / duration;
+    crate::SpringMotion { stiffness: omega * omega, damping_ratio: 1.0 - bounce }
+}
+
+/// A bottom sheet's spring: back to its place when let go short, and to a new height when
+/// what it holds changes; a little bounce, as iOS's sheets.
+fn sheet_motion() -> crate::SpringMotion {
+    aurora_spring(0.45, 0.12)
+}
+/// How far down a sheet's handle takes it before it leaves when let go: this share of its
+/// height, between these.
+const SHEET_AWAY: f32 = 0.3;
+const SHEET_AWAY_LEAST: f32 = 60.0;
+const SHEET_AWAY_MOST: f32 = 180.0;
+/// How fast a flick down, in points a second, sends a sheet away however short.
+const SHEET_FLING: f32 = 700.0;
+/// How deep an iOS sheet's rim bends what is behind it.
+const SHEET_BEZEL: f32 = 12.0;
+/// How far below its large height an iOS sheet starts to push back what it was opened over.
+const RECEDE_FROM: f32 = 40.0;
+/// How far past the foot of the screen a sheet let go goes before it is gone.
+const SHEET_EXIT_PAST: f32 = 24.0;
+/// How far a sheet stretches up at most, held by its handle past its place.
+const SHEET_STRETCH: f32 = 48.0;
+
+/// Pushes back the scene painted before command `end`, `depth` of the way to iOS's receded
+/// card: smaller about the screen's middle, its corners rounded as the display's are.
+fn recede_scene(commands: &mut Vec<DrawCommand>, end: usize, depth: f32, corner: f32, viewport: Size) {
+    let end = end.min(commands.len());
+    let scale = 1.0 - (1.0 - crate::sheet_geometry::RECEDE_SCALE) * depth;
+    let origin = Point::new(viewport.width / 2.0, viewport.height / 2.0);
+    for command in &mut commands[..end] {
+        animate_popover_command(command, 1.0, 0.0, scale, origin);
+    }
+    let card = Rect::new(origin.x - viewport.width * scale / 2.0, origin.y - viewport.height * scale / 2.0, viewport.width * scale, viewport.height * scale);
+    let radius = (corner - crate::sheet_geometry::FLOAT_INSET).max(10.0) * depth;
+    commands.insert(end, DrawCommand::PopClip);
+    commands.insert(0, DrawCommand::RoundClip { rect: card, radii: CornerRadii { top_left: radius, top_right: radius, bottom_right: radius, bottom_left: radius } });
+    commands.insert(0, DrawCommand::PushClip(card));
+}
+
+/// The finger's way down as the sheet follows it: all of it down, and up a rubber band's,
+/// less the further it pulls, never past `SHEET_STRETCH`.
+fn rubber_band(down: f32) -> f32 {
+    if down >= 0.0 { return down; }
+    let pulled = -down;
+    -SHEET_STRETCH * (1.0 - 1.0 / (pulled * 0.55 / SHEET_STRETCH + 1.0))
+}
+
+/// How far past its tab strip a lifted selection lens stands, top and bottom together.
+const LENS_LIFT: f32 = 9.0;
+/// How closely a held tab bar's lens follows the finger: tight, a hair behind, no bounce.
+const SCRUB_SPRING: crate::SpringMotion = crate::SpringMotion { stiffness: 900.0, damping_ratio: 0.85 };
+/// The speed, in points a second, at which a dragged lens stretches along its way by a
+/// tenth, as iOS's drop of glass does; it stretches by a fifth at most.
+const SCRUB_STRETCH: f32 = 2000.0;
+
 /// The curve a popover's pictures travel on from their origin, and back on close.
 const MORPH_CURVE: Easing = Easing::CubicBezier(0.32, 0.72, 0.0, 1.0);
 
 /// Moves a picture `t` of the way from `origin` to where it is laid out, its
 /// corner radius from `radius` to its own. Other commands are left alone.
 fn morph_picture(command: &mut DrawCommand, origin: Rect, radius: f32, t: f32) {
-    if let DrawCommand::RasterImage { rect, radius: corner, .. } = command {
+    if let DrawCommand::RasterImage { rect, radius: corner, .. }
+        | DrawCommand::Glass { rect, radius: corner, .. }
+        | DrawCommand::GlassSelection { rect, radius: corner, .. } = command {
         let lerp = |from: f32, to: f32| from + (to - from) * t;
         *rect = Rect::new(
             lerp(origin.x, rect.x),
@@ -1291,6 +1392,12 @@ fn morph_picture(command: &mut DrawCommand, origin: Rect, radius: f32, t: f32) {
         );
         *corner = lerp(radius, *corner);
     }
+}
+
+/// Dims a command's colours to `share` of their alpha, in its place.
+fn liquid_fade(command: &mut DrawCommand, share: f32) {
+    let place = command.bounds().map_or(Point::new(0.0, 0.0), |rect| Point::new(rect.x, rect.y));
+    animate_popover_command(command, share, 0.0, 1.0, place);
 }
 
 fn animate_popover_command(
@@ -1442,6 +1549,18 @@ fn animate_popover_command(
             *image_opacity *= opacity.clamp(0.0, 1.0);
             *radius *= scale;
         }
+        DrawCommand::GlassSelection { rect, radius, opacity: own_opacity, backdrop_rect, backdrop, .. } => {
+            scale_rect(rect, scale, origin, slide_y);
+            scale_rect(backdrop_rect, scale, origin, slide_y);
+            *radius *= scale;
+            *own_opacity *= opacity.clamp(0.0, 1.0);
+            for command in backdrop { animate_popover_command(command, 1.0, slide_y, scale, origin); }
+        }
+        DrawCommand::Glass { rect, radius, opacity: own_opacity, .. } => {
+            scale_rect(rect, scale, origin, slide_y);
+            *radius *= scale;
+            *own_opacity *= opacity.clamp(0.0, 1.0);
+        }
         DrawCommand::Spinner { rect, color, .. } => {
             scale_rect(rect, scale, origin, slide_y);
             fade(color, opacity);
@@ -1496,6 +1615,7 @@ fn animate_popover_command(
 fn popover_shell_command(command: &DrawCommand, rect: Rect) -> bool {
     match command {
         DrawCommand::Shadow { rect: painted, .. }
+        | DrawCommand::Glass { rect: painted, .. }
         | DrawCommand::FillRect { rect: painted, .. }
         | DrawCommand::StrokeRect { rect: painted, .. }
         | DrawCommand::FillCornerRect { rect: painted, .. }
@@ -1508,6 +1628,7 @@ fn popover_shell_command(command: &DrawCommand, rect: Rect) -> bool {
 fn morph_popover_shell(command: &mut DrawCommand, rect: Rect) {
     match command {
         DrawCommand::Shadow { rect: painted, .. }
+        | DrawCommand::Glass { rect: painted, .. }
         | DrawCommand::FillRect { rect: painted, .. }
         | DrawCommand::StrokeRect { rect: painted, .. }
         | DrawCommand::FillCornerRect { rect: painted, .. }
@@ -1580,6 +1701,8 @@ pub struct Frame {
     /// and each thing a component described, in the order they were placed.
     pub access: Vec<crate::AccessNode>,
     action_menu_items: HashSet<String>,
+    /// Rows lit under a press alone: a press slid from one onto another chooses that one.
+    press_highlight_rows: HashSet<String>,
     /// The places in `regions` that are a popover's backdrop: under the pointer, they raise no
     /// tooltip, though they answer to the id of a control (an image viewer's close).
     backdrops: Vec<usize>,
@@ -1591,6 +1714,10 @@ pub struct Frame {
     submenu_targets: HashMap<String, String>,
     submenu_triggers: HashSet<String>,
     sliders: HashMap<String, SliderGeometry>,
+    glass_switches: HashMap<String, GlassSwitchGeometry>,
+    /// The tabs of each strip whose glass lens a finger can drag along, as iOS 26's tab bar's:
+    /// each tab's action and where it is.
+    glass_tabs: Vec<Vec<(String, Rect)>>,
     scroll_extents: HashMap<String, f32>,
     horizontal_viewports: HashMap<String, Rect>,
     /// Each button inside a `drag_to_pan` viewport, with the viewport a drag
@@ -1848,6 +1975,18 @@ struct TabFocusScope {
     every_arrow: bool,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct GlassSwitchGeometry {
+    bounds: Rect,
+    checked: bool,
+}
+
+struct GlassSwitchDrag {
+    origin: Point,
+    geometry: GlassSwitchGeometry,
+    moved: bool,
+}
+
 #[derive(Debug)]
 struct TabIndicatorState {
     selected_id: String,
@@ -1855,6 +1994,12 @@ struct TabIndicatorState {
     // of stopping and starting again.
     x: ScalarSpring,
     width: ScalarSpring,
+    lift_x: ScalarSpring,
+    lift_y: ScalarSpring,
+    material_presence: ScalarSpring,
+    travel_from: f32,
+    press_start: Option<(f32, f32)>,
+    dragging: bool,
 }
 
 /// Final-position paint for a floating surface. It is deliberately separate
@@ -1872,6 +2017,14 @@ struct PopoverSnapshot {
     slide_sign: f32,
     /// The dimming behind a dialog; it fades with the surface.
     scrim: Option<(Rect, Color)>,
+    /// How far down a bottom sheet stood from its place, held or springing: let go there,
+    /// it leaves down from it.
+    sheet_offset: f32,
+    /// An iOS sheet's way down past the foot of the screen, which it goes when it closes
+    /// unless it melts back into the button it grew out of.
+    sheet_exit: Option<f32>,
+    /// How far an iOS sheet had pushed back what it was opened over, 0 to 1.
+    recede: f32,
 }
 
 /// The paint an `animate_replace` element had last frame, and the one it
@@ -1951,6 +2104,9 @@ struct FlowHeight {
 struct PopoverExit {
     paint: PopoverSnapshot,
     opacity: ScalarTransition,
+    /// Opened after every popover still open: it leaves above them, where it stood, not
+    /// under a sheet it was opened over.
+    on_top: bool,
 }
 
 struct PopoverViewTransition {
@@ -3291,6 +3447,9 @@ pub enum UiEvent {
         /// diff scrolls sideways by `delta_y`.
         shift: bool,
     },
+    /// A direct pan the host translated into `Scroll2D` events has ended: the
+    /// finger is up. An iOS sheet the pan took comes to rest, or leaves.
+    ScrollEnded,
     /// Clipboard text for the focused control. A text field inserts it as it
     /// does `Text`.
     Paste(String),
@@ -3606,6 +3765,47 @@ struct PointerDrag {
     active: bool,
     /// The source as painted when the drag began, before any translation.
     ghost: Vec<DrawCommand>,
+    /// Where the pointer was last seen down the screen and when, and how fast it went
+    /// there, in points a second: what a sheet's handle is let go with.
+    last: Option<(f32, Instant)>,
+    speed: f32,
+}
+
+/// What an iOS sheet was laid out as: the heights it rests at, ascending, the height it
+/// stood at, the screen's height, and whether a drag may send it away.
+#[derive(Clone, Debug)]
+struct SheetFrame {
+    heights: Vec<f32>,
+    resting: usize,
+    height: f32,
+    viewport: f32,
+    dismissible: bool,
+}
+
+/// How an iOS sheet is painted this frame: its shape; how much of its smallest height shows,
+/// which the dimming follows; how far it goes to leave the screen; and how far it pushes
+/// back what it was opened over.
+#[derive(Clone, Copy, Debug)]
+struct SheetPaint {
+    rect: Rect,
+    /// Its surface: its content's rectangle, reaching on down behind a keyboard.
+    shell: Rect,
+    entered: f32,
+    leave: f32,
+    recede: f32,
+}
+
+/// An iOS sheet held: by its grabber, from where the finger went down, or by its content
+/// as that pans. `raw` is where the finger has taken it, before its rubber band; `speed`,
+/// how fast it grows, in points a second.
+#[derive(Clone, Debug)]
+struct SheetDrag {
+    dismiss: String,
+    grabber: Option<(String, f32, f32)>,
+    raw: f32,
+    height: f32,
+    speed: f32,
+    last: Instant,
 }
 
 /// A field's value as limn lays it out, in a tree told to
@@ -4376,6 +4576,7 @@ pub struct UiTree {
     horizontal_pan: Option<HorizontalPan>,
     scroll_button_hold: Option<ScrollButtonHold>,
     slider_drag: Option<SliderDrag>,
+    glass_switch_drag: Option<GlassSwitchDrag>,
     sketch_draft: Option<crate::sketch::SketchDraft>,
     slider_motion: HashMap<String, SliderMotion>,
     hovered_scrollbar: Option<String>,
@@ -4410,10 +4611,21 @@ pub struct UiTree {
     pressed: Option<String>,
     pressed_dispatch: Option<String>,
     pointer_drag: Option<PointerDrag>,
+    /// iOS sheets: the height each rests at, by its dismissal, while it is open.
+    sheet_detents: HashMap<String, usize>,
+    /// What each open iOS sheet was last laid out as, for a drag to start from and let go to.
+    sheet_frames: HashMap<String, SheetFrame>,
+    /// An iOS sheet held by its grabber or by its content.
+    sheet_drag: Option<SheetDrag>,
     transitions: HashMap<String, ColorTransition>,
     popover_transitions: HashMap<String, ScalarTransition>,
     popover_snapshots: HashMap<String, PopoverSnapshot>,
     popover_exits: HashMap<String, PopoverExit>,
+    /// The order the open popovers opened in, so one that closes keeps its depth.
+    popover_order: HashMap<String, u64>,
+    /// Whatever appears in the next layout stands as its entrance would leave it.
+    settle_entrances: bool,
+    popover_opened: u64,
     replacements: HashMap<String, Replacement>,
     // Measuring reads and starts these, and measuring borrows the tree shared.
     flow_heights: RefCell<HashMap<String, FlowHeight>>,
@@ -4441,8 +4653,13 @@ pub struct UiTree {
     reduced_motion: bool,
     static_selection: Option<StaticSelection>,
     context_menu: Option<ContextMenuState>,
+    /// Where a double tap selected a word on a touch screen: its edit menu opens as the finger
+    /// lifts, as iOS's does.
+    edit_menu_on_release: Option<Point>,
     context_menu_palette: crate::ComponentPalette,
     context_menu_sizes: crate::context_menu::Sizes,
+    /// Text menus drawn as iOS 26's edit menu, in this glass; see `set_touch_text_menu`.
+    touch_text_menu: Option<crate::GlassMaterial>,
     context_menu_swallow_release: bool,
     ime_owner: Option<ime_tree::ImeOwner>,
     /// The field a held press extends the selection of, and whether it is
@@ -4490,6 +4707,7 @@ impl UiTree {
             horizontal_pan: None,
             scroll_button_hold: None,
             slider_drag: None,
+            glass_switch_drag: None,
             sketch_draft: None,
             slider_motion: HashMap::new(),
             hovered_scrollbar: None,
@@ -4515,10 +4733,16 @@ impl UiTree {
             pressed: None,
             pressed_dispatch: None,
             pointer_drag: None,
+            sheet_detents: HashMap::new(),
+            sheet_frames: HashMap::new(),
+            sheet_drag: None,
             transitions: HashMap::new(),
             popover_transitions: HashMap::new(),
             popover_snapshots: HashMap::new(),
             popover_exits: HashMap::new(),
+            popover_order: HashMap::new(),
+            settle_entrances: false,
+            popover_opened: 0,
             replacements: HashMap::new(),
             flow_heights: RefCell::new(HashMap::new()),
             scalars: RefCell::new(HashMap::new()),
@@ -4540,6 +4764,8 @@ impl UiTree {
             static_selection: None,
             context_menu: None,
             context_menu_palette: crate::ComponentPalette::neutral_dark(),
+            touch_text_menu: None,
+            edit_menu_on_release: None,
             context_menu_sizes: crate::context_menu::Sizes::default(),
             context_menu_swallow_release: false,
             ime_owner: None,
@@ -5004,6 +5230,13 @@ impl UiTree {
         true
     }
 
+    /// Have whatever appears in the next layout stand as its entrance would leave it, without
+    /// fading or settling in: for a host showing again what it had just drawn, such as a page
+    /// uncovered by a sheet the host moved itself, whose parts would otherwise enter anew.
+    pub fn settle_entrances(&mut self) {
+        self.settle_entrances = true;
+    }
+
     /// Disable decorative color transitions when the user requests reduced motion.
     pub fn set_reduced_motion(&mut self, reduced: bool) {
         if self.reduced_motion != reduced {
@@ -5017,6 +5250,7 @@ impl UiTree {
             self.popover_transitions.clear();
             self.popover_snapshots.clear();
             self.popover_exits.clear();
+            self.popover_order.clear();
             self.replacements.clear();
             self.flow_heights.get_mut().clear();
             self.scalars.get_mut().clear();
@@ -5229,7 +5463,7 @@ impl UiTree {
             || self
                 .tab_indicators
                 .values()
-                .any(|state| state.x.is_active(now) || state.width.is_active(now))
+                .any(|state| state.x.is_active(now) || state.width.is_active(now) || state.lift_x.is_active(now) || state.lift_y.is_active(now) || state.material_presence.is_active(now))
             || self.horizontal_scrolls.values().any(|state| state.is_gliding(now));
         let hover_wait = self.tooltip_hover_since.as_ref().and_then(|(id, since)| {
             let elapsed = now.saturating_duration_since(*since);
@@ -5435,6 +5669,7 @@ impl UiTree {
         let context_menu_paint = self.context_menu_paint(viewport_rect);
         self.measurement_cache.get_mut().clear();
         let ghost_range;
+        let mut receding: Option<(f32, f32)>;
         let (mut frame, overlay_start) = {
             let mut builder = LayoutBuilder {
                 viewport: viewport_rect,
@@ -5455,6 +5690,19 @@ impl UiTree {
                     .as_ref()
                     .filter(|drag| drag.active)
                     .map(|drag| drag.id.as_str()),
+                sheet_hold: self.sheet_drag.as_ref().map(|drag| (drag.dismiss.as_str(), drag.height)),
+                sheet_detents: &self.sheet_detents,
+                sheet_frames: &mut self.sheet_frames,
+                recede: None,
+                sheet_held: self
+                    .pointer_drag
+                    .as_ref()
+                    .filter(|drag| drag.active)
+                    .zip(self.pointer)
+                    .and_then(|(drag, pointer)| {
+                        let dismiss = drag.id.strip_suffix(":drag")?;
+                        Some((dismiss, rubber_band(pointer.y - drag.origin.y), drag.speed))
+                    }),
                 drag_ghost: None,
                 metrics: self.metrics,
                 sans_metrics: self.sans_metrics,
@@ -5519,6 +5767,7 @@ impl UiTree {
                 transitions: &mut self.transitions,
                 popover_transitions: &mut self.popover_transitions,
                 popover_exits: &self.popover_exits,
+                settle_entrances: std::mem::take(&mut self.settle_entrances),
                 replacements: &mut self.replacements,
                 observed_replacements: &mut observed_replacements,
                 previous_popover_snapshots: &self.popover_snapshots,
@@ -5589,6 +5838,7 @@ impl UiTree {
                         pointed,
                         anchor_outset,
                         clear_of,
+                        sheet,
                     } => {
                         let coach = coach.as_deref();
                         if let Some(coach) = coach {
@@ -5659,6 +5909,12 @@ impl UiTree {
                                 pointed,
                             });
                         }
+                        // An iOS sheet: its height from the finger holding it or its spring,
+                        // and its shape from that height.
+                        let sheet = sheet.filter(|_| placement == PopoverPlacement::Bottom && coach.is_none());
+                        let sheet_shape = sheet.as_deref().map(|spec| {
+                            builder.sheet_layout(&mut floating, spec, &dismiss_id, viewport, morph.is_some())
+                        });
                         // Measure wrapped content at the width the viewport
                         // can actually allocate. Shrinking only the painted
                         // rectangle would retain the wider layout's height.
@@ -5700,7 +5956,7 @@ impl UiTree {
                                 )
                             }
                         };
-                        let rect = LayoutBuilder::translated_rect(&floating, rect);
+                        let rect = sheet_shape.map_or_else(|| LayoutBuilder::translated_rect(&floating, rect), |shape| shape.rect);
                         builder.observed_popovers.insert(dismiss_id.clone());
                         let surface = if floating.kept.as_ref().is_some_and(|kept| kept.translation.is_some()) {
                             rect.intersection(viewport_rect)
@@ -5712,7 +5968,9 @@ impl UiTree {
                                 kind: HitKind::Surface,
                             });
                         }
-                        let progress = if builder.reduced_motion || animation_ms == 0 {
+                        // A sheet rises on its spring, not with a popover's fade, unless it
+                        // grows out of the button that opened it.
+                        let progress = if builder.reduced_motion || animation_ms == 0 || (sheet_shape.is_some() && morph.is_none()) {
                             1.0
                         } else {
                             let transition = builder
@@ -5843,6 +6101,9 @@ impl UiTree {
                                 scrim: scrim
                                     .filter(|_| coach.is_none())
                                     .map(|color| (viewport_rect, color)),
+                                sheet_offset: 0.0,
+                                sheet_exit: None,
+                                recede: 0.0,
                             },
                         );
                         if let Some(transition) = builder
@@ -5907,7 +6168,8 @@ impl UiTree {
                             }
                             builder.frame.commands.push(DrawCommand::PopClip);
                         }
-                        if progress < 1.0 {
+                        let glass_morph = morph.is_some() && builder.frame.commands[command_start..].iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
+                        if progress < 1.0 && !glass_morph {
                             let slide = (1.0 - progress) * slide_sign * 4.0;
                             let scale = open_scale + (1.0 - open_scale) * progress;
                             let origin =
@@ -5921,8 +6183,55 @@ impl UiTree {
                             }
                         }
                         if let (Some((origin, radius)), true) = (morph, progress < 1.0) {
-                            for command in &mut builder.frame.commands[command_start..] {
-                                morph_picture(command, origin, radius, MORPH_CURVE.sample(progress));
+                            if glass_morph {
+                                let pop = crate::liquid::pop(origin, rect, crate::liquid::seconds(progress, animation_ms), false);
+                                crate::liquid::apply(&mut builder.frame.commands, command_start, rect, pop, liquid_fade);
+                            } else {
+                                for command in &mut builder.frame.commands[command_start..] {
+                                    morph_picture(command, origin, radius, MORPH_CURVE.sample(progress));
+                                }
+                            }
+                        }
+                        if let Some(paint) = sheet_shape {
+                            // Over a keyboard its glass goes on down behind it.
+                            if paint.shell != rect {
+                                for command in &mut builder.frame.commands[bubble_start..] {
+                                    if popover_shell_command(command, rect) { morph_popover_shell(command, paint.shell); }
+                                }
+                            }
+                            // Taken down, or rising, it dims the page as much as it shows.
+                            if let Some(DrawCommand::FillRect { color, .. }) = scrim_index.and_then(|index| builder.frame.commands.get_mut(index)) {
+                                color.a = (f32::from(color.a) * paint.entered).round() as u8;
+                            }
+                            if let Some(snapshot) = builder.popover_snapshots.get_mut(&dismiss_id) {
+                                snapshot.sheet_exit = Some(paint.leave);
+                                snapshot.recede = paint.recede;
+                            }
+                        } else if placement == PopoverPlacement::Bottom && coach.is_none() {
+                            let offset = builder.sheet_spring(&dismiss_id, rect, progress);
+                            if offset.abs() > 0.1 {
+                                // Its shell keeps the foot of the screen when it rises past its
+                                // place; what it holds goes with its top, cut by the shell.
+                                let shell = Rect::new(rect.x, rect.y + offset, rect.width, rect.height + (-offset).max(0.0));
+                                let painted = builder.frame.commands.split_off(bubble_start);
+                                for command in painted.iter().filter(|command| popover_shell_command(command, rect)) {
+                                    let mut command = command.clone();
+                                    morph_popover_shell(&mut command, shell);
+                                    builder.frame.commands.push(command);
+                                }
+                                builder.frame.commands.push(DrawCommand::PushClip(shell));
+                                builder.frame.commands.extend(painted.into_iter()
+                                    .filter(|command| !popover_shell_command(command, rect))
+                                    .map(|command| command.moved(0.0, offset, 1.0)));
+                                builder.frame.commands.push(DrawCommand::PopClip);
+                                // Taken down, it dims the page less.
+                                if let Some(DrawCommand::FillRect { color, .. }) = scrim_index.and_then(|index| builder.frame.commands.get_mut(index)) {
+                                    let left = 1.0 - (offset / rect.height.max(1.0)).clamp(0.0, 1.0);
+                                    color.a = (f32::from(color.a) * left).round() as u8;
+                                }
+                            }
+                            if let Some(snapshot) = builder.popover_snapshots.get_mut(&dismiss_id) {
+                                snapshot.sheet_offset = offset;
                             }
                         }
                         if travel != (0.0, 0.0) {
@@ -5990,6 +6299,7 @@ impl UiTree {
                 builder.keyboard_focus = old_keyboard;
             }
             ghost_range = builder.drag_ghost.take();
+            receding = builder.recede.take();
             self.hovered_region = builder.hovered_region(base_regions);
             (builder.frame, overlay_start)
         };
@@ -6046,13 +6356,17 @@ impl UiTree {
                             .unwrap_or(paint.animation_ms.min(crate::tokens().motion.exit_ms)),
                     )),
                 );
+                let opened = self.popover_order.get(&id).copied().unwrap_or(0);
+                let on_top = observed_popovers.iter().filter_map(|open| self.popover_order.get(open)).all(|other| *other < opened);
                 self.popover_exits
-                    .insert(id, PopoverExit { paint, opacity });
+                    .insert(id, PopoverExit { paint, opacity, on_top });
             }
             self.popover_exits
                 .retain(|id, exit| !observed_popovers.contains(id) && exit.opacity.is_active(now));
             let mut exit_commands = Vec::new();
+            let mut top_exits = Vec::new();
             for exit in self.popover_exits.values() {
+                let exit_commands = if exit.on_top { &mut top_exits } else { &mut exit_commands };
                 let opacity = exit.opacity.value(now);
                 let slide = (1.0 - opacity) * exit.paint.slide_sign * 4.0;
                 let scale = exit.paint.open_scale + (1.0 - exit.paint.open_scale) * opacity;
@@ -6066,6 +6380,34 @@ impl UiTree {
                         radius: 0.0,
                     });
                 }
+                // An iOS sheet goes on down past the foot of the screen, unless it melts back
+                // into the button it grew out of; what it pushed back comes forward again.
+                if let (Some(travel), None) = (exit.paint.sheet_exit, exit.paint.morph) {
+                    let gone = 1.0 - (1.0 - (1.0 - opacity).clamp(0.0, 1.0)).powi(3);
+                    exit_commands.extend(exit.paint.commands.iter().map(|command| command.moved(0.0, travel * gone, 1.0)));
+                    if exit.paint.recede > 0.0 {
+                        let left = exit.paint.recede * (1.0 - gone);
+                        receding = Some((receding.map_or(0.0, |(deepest, _)| deepest).max(left), receding.map_or(0.0, |(_, corner)| corner)));
+                    }
+                    continue;
+                }
+                // Let go down its way, a sheet goes on down from where the finger left it.
+                if exit.paint.sheet_offset > 1.0 {
+                    let gone = 1.0 - (1.0 - (1.0 - opacity).clamp(0.0, 1.0)).powi(3);
+                    let from = exit.paint.sheet_offset;
+                    let offset = from + (rect.height + SHEET_EXIT_PAST - from) * gone;
+                    exit_commands.extend(exit.paint.commands.iter().map(|command| command.moved(0.0, offset, 1.0)));
+                    continue;
+                }
+                let glass_morph = exit.paint.morph.is_some() && exit.paint.commands.iter().any(|command| matches!(command, DrawCommand::Glass { .. }));
+                if let (Some((from, _)), true) = (exit.paint.morph, glass_morph) {
+                    let closing = exit.paint.close_animation_ms.unwrap_or(exit.paint.animation_ms.min(crate::tokens().motion.exit_ms));
+                    let mut commands = exit.paint.commands.clone();
+                    let pop = crate::liquid::pop(from, rect, crate::liquid::seconds(1.0 - opacity, closing), true);
+                    crate::liquid::apply(&mut commands, 0, rect, pop, liquid_fade);
+                    exit_commands.extend(commands);
+                    continue;
+                }
                 for command in &exit.paint.commands {
                     let mut command = command.clone();
                     if let Some((from, radius)) = exit.paint.morph {
@@ -6075,10 +6417,30 @@ impl UiTree {
                     exit_commands.push(command);
                 }
             }
-            // Above the ordinary scene, below every currently open popover.
+            // Above the ordinary scene, below every currently open popover; one opened over all
+            // of them leaves over them.
             frame
                 .commands
                 .splice(overlay_start..overlay_start, exit_commands);
+            frame.commands.extend(top_exits);
+        }
+        // What an iOS sheet at its large height was opened over recedes behind it, smaller and
+        // rounded as a card.
+        if let Some((depth, corner)) = receding.filter(|(depth, _)| *depth > 0.001) {
+            recede_scene(&mut frame.commands, overlay_start, depth, corner, viewport);
+        }
+        for id in current_popover_snapshots.keys() {
+            if !self.popover_order.contains_key(id) {
+                self.popover_opened += 1;
+                self.popover_order.insert(id.clone(), self.popover_opened);
+            }
+        }
+        self.popover_order.retain(|id, _| current_popover_snapshots.contains_key(id) || self.popover_exits.contains_key(id));
+        // An iOS sheet closed forgets its height: opened again, it rises to its first.
+        self.sheet_frames.retain(|id, _| current_popover_snapshots.contains_key(id));
+        self.sheet_detents.retain(|id, _| current_popover_snapshots.contains_key(id));
+        if self.sheet_drag.as_ref().is_some_and(|drag| !self.sheet_frames.contains_key(&drag.dismiss)) {
+            self.sheet_drag = None;
         }
         self.popover_snapshots = current_popover_snapshots;
         // Hover-open submenus are excluded from the static tree walk so their
@@ -6951,10 +7313,24 @@ impl UiTree {
 
     /// Dispatch with the same monotonic clock used by `layout_at`.
     pub fn handle_event_at(&mut self, event: UiEvent, now: Instant) -> Vec<UiAction> {
+        let mut actions = self.handle_event_at_inner(event, now);
+        // A tap on an iOS sheet's grabber steps it through its heights.
+        actions.retain(|action| !matches!(action, UiAction::Clicked { id } if self.step_sheet(id)));
+        actions
+    }
+
+    fn handle_event_at_inner(&mut self, event: UiEvent, now: Instant) -> Vec<UiAction> {
         self.observe_keys(&event);
         let event = match event {
             // Only kept, for `key_held` and `modifiers`.
             UiEvent::KeyReleased { .. } | UiEvent::ModifiersChanged(_) => return Vec::new(),
+            // A direct pan over an iOS sheet's content may take the sheet instead.
+            UiEvent::Scroll2D { position, delta_x, delta_y, direct: true, .. }
+                if delta_x.abs() <= delta_y.abs() && self.pan_sheet(position, delta_y, now) => return Vec::new(),
+            UiEvent::ScrollEnded => {
+                let by_content = self.sheet_drag.as_ref().is_some_and(|drag| drag.grabber.is_none());
+                return if by_content { self.let_go_sheet(now).into_iter().collect() } else { Vec::new() };
+            }
             UiEvent::PasteCaptured { target, text } => {
                 return self.paste_captured(target, text, now)
             }
@@ -6993,8 +7369,11 @@ impl UiTree {
             }
             other => other,
         };
-        if let Some(actions) = self.handle_drag_event(&event) {
+        if let Some(actions) = self.handle_drag_event(&event, now) {
             return actions;
+        }
+        if let (Some(drag), UiEvent::PointerMove(point) | UiEvent::PointerUp(point)) = (&mut self.glass_switch_drag, &event) {
+            drag.moved |= (point.x - drag.origin.x).abs() > 3.0;
         }
         let pressed_at = match &event {
             UiEvent::PointerDown(position)
@@ -7025,6 +7404,8 @@ impl UiTree {
                     origin,
                     active: false,
                     ghost: Vec::new(),
+                    last: None,
+                    speed: 0.0,
                 });
         }
         self.validate_ime_owner(now);
@@ -7052,11 +7433,20 @@ impl UiTree {
 
     /// Owns the pointer while a drag is active so the source never clicks and
     /// controls under the pointer do not react as if hovered.
-    fn handle_drag_event(&mut self, event: &UiEvent) -> Option<Vec<UiAction>> {
+    fn handle_drag_event(&mut self, event: &UiEvent, now: Instant) -> Option<Vec<UiAction>> {
         let drag = self.pointer_drag.as_mut()?;
         match *event {
             UiEvent::PointerMove(position) => {
+                // The speed of the last stretch, smoothed: what a flick is told by.
+                if let Some((y, at)) = drag.last {
+                    let seconds = now.saturating_duration_since(at).as_secs_f32();
+                    if seconds > 0.004 {
+                        drag.speed = drag.speed * 0.3 + (position.y - y) / seconds * 0.7;
+                    }
+                }
+                drag.last = Some((position.y, now));
                 let mut actions = Vec::new();
+                let origin = drag.origin.y;
                 if !drag.active {
                     let (dx, dy) = (position.x - drag.origin.x, position.y - drag.origin.y);
                     if dx.hypot(dy) < DRAG_THRESHOLD {
@@ -7072,6 +7462,15 @@ impl UiTree {
                 self.pressed = None;
                 self.pressed_dispatch = None;
                 self.pointer = Some(position);
+                // An iOS sheet's grabber: the sheet follows the finger.
+                if let Some(dismiss) = id.strip_suffix(":drag").filter(|dismiss| self.sheet_frames.contains_key(*dismiss)) {
+                    let from = match &self.sheet_drag {
+                        Some(SheetDrag { grabber: Some((_, _, from)), .. }) => *from,
+                        _ => self.sheet_frames[dismiss].height,
+                    };
+                    let dismiss = dismiss.to_owned();
+                    self.move_sheet(&dismiss, Some((id.clone(), origin, from)), from - (position.y - origin), now);
+                }
                 actions.push(UiAction::DragMoved {
                     over: self.drop_target_at(position, &id),
                     id,
@@ -7081,22 +7480,163 @@ impl UiTree {
             }
             UiEvent::PointerUp(position) => {
                 let drag = self.pointer_drag.take()?;
-                drag.active.then(|| {
-                    vec![UiAction::Dropped {
-                        target: self.drop_target_at(position, &drag.id),
-                        id: drag.id,
-                        position,
-                    }]
-                })
+                if !drag.active {
+                    return None;
+                }
+                // An iOS sheet's grabber let go: the sheet rests at the height its speed carries it
+                // nearest to, or leaves, which reports its dismissal.
+                if self.sheet_drag.as_ref().is_some_and(|sheet| sheet.grabber.as_ref().is_some_and(|(id, _, _)| *id == drag.id)) {
+                    return Some(match self.let_go_sheet(now) {
+                        Some(dismissal) => vec![dismissal],
+                        None => vec![UiAction::DragCancelled { id: drag.id }],
+                    });
+                }
+                // A sheet's handle let go: far enough down, or flung down, the sheet leaves,
+                // its dismissal named as where it was dropped; short of that, it springs back.
+                if let Some((dismiss, sheet)) = self.sheet_of(&drag.id) {
+                    let down = position.y - drag.origin.y;
+                    // A finger that stopped before letting go flicks nothing.
+                    let still = drag.last.is_none_or(|(_, at)| now.saturating_duration_since(at) > Duration::from_millis(80));
+                    let speed = if still { 0.0 } else { drag.speed };
+                    let leaves = down >= (sheet.height * SHEET_AWAY).clamp(SHEET_AWAY_LEAST, SHEET_AWAY_MOST)
+                        || (speed >= SHEET_FLING && down > DRAG_THRESHOLD);
+                    return Some(vec![if leaves {
+                        UiAction::Dropped { id: drag.id, position, target: Some(dismiss) }
+                    } else {
+                        UiAction::DragCancelled { id: drag.id }
+                    }]);
+                }
+                Some(vec![UiAction::Dropped {
+                    target: self.drop_target_at(position, &drag.id),
+                    id: drag.id,
+                    position,
+                }])
             }
             UiEvent::Key {
                 key: Key::Escape, ..
             } if drag.active => {
                 let drag = self.pointer_drag.take()?;
+                // A sheet held comes back to where it rested.
+                if let Some(sheet) = self.sheet_drag.take() {
+                    self.springs.get_mut().insert(format!("__sheet:{}", sheet.dismiss), AnimatedSpring { value: ScalarSpring::new(sheet.height, now), seen: now });
+                }
                 Some(vec![UiAction::DragCancelled { id: drag.id }])
             }
             _ => None,
         }
+    }
+
+    /// Takes the iOS sheet `dismiss` where a finger has, `raw` points tall before its rubber
+    /// band past its largest height; `grabber`: held by it, with the finger's first `y` and
+    /// the sheet's height then.
+    fn move_sheet(&mut self, dismiss: &str, grabber: Option<(String, f32, f32)>, raw: f32, now: Instant) {
+        let Some(frame) = self.sheet_frames.get(dismiss) else { return };
+        let largest = frame.heights.last().copied().unwrap_or(frame.height);
+        let height = crate::sheet_geometry::followed(raw, largest, frame.viewport);
+        match self.sheet_drag.as_mut().filter(|drag| drag.dismiss == dismiss) {
+            Some(drag) => {
+                let seconds = now.saturating_duration_since(drag.last).as_secs_f32();
+                if seconds > 0.004 {
+                    drag.speed = drag.speed * 0.3 + (height - drag.height) / seconds * 0.7;
+                }
+                drag.raw = raw;
+                drag.height = height;
+                drag.last = now;
+            }
+            None => {
+                // As UIKit's: taking the sheet first puts the keyboard away.
+                let typing = self.focused.as_deref().is_some_and(|id| self.frame.regions.iter()
+                    .any(|region| region.id == id && matches!(region.kind, HitKind::TextInput | HitKind::TextArea)));
+                if typing {
+                    Self::replace_focused(&mut self.focused, &mut self.paste_epoch, None);
+                }
+                self.sheet_drag = Some(SheetDrag { dismiss: dismiss.to_owned(), grabber, raw, height, speed: 0.0, last: now });
+            }
+        }
+    }
+
+    /// Lets go of the iOS sheet held: its spring sets off from where the finger left it, at its
+    /// speed, to the height that speed carries it nearest to; or it leaves, sliding on down
+    /// rather than into the button it grew out of, which reports its dismissal.
+    fn let_go_sheet(&mut self, now: Instant) -> Option<UiAction> {
+        let drag = self.sheet_drag.take()?;
+        let frame = self.sheet_frames.get(&drag.dismiss)?;
+        // A finger that stopped before letting go flicks nothing.
+        let speed = if now.saturating_duration_since(drag.last) > Duration::from_millis(80) { 0.0 } else { drag.speed };
+        let rest = crate::sheet_geometry::release(&frame.heights, drag.height, speed, frame.dismissible);
+        self.springs.get_mut().insert(format!("__sheet:{}", drag.dismiss), AnimatedSpring { value: ScalarSpring::moving(drag.height, speed, now), seen: now });
+        match rest {
+            Some(index) => {
+                self.sheet_detents.insert(drag.dismiss, index);
+                None
+            }
+            None => {
+                if let Some(snapshot) = self.popover_snapshots.get_mut(&drag.dismiss) {
+                    snapshot.morph = None;
+                }
+                Some(UiAction::Clicked { id: drag.dismiss })
+            }
+        }
+    }
+
+    /// A direct pan over an iOS sheet takes the sheet where its content cannot go that way:
+    /// down while the content is at its top, up while the sheet is short of its largest
+    /// height. Back at its largest going up, the content scrolls again. Whether it took it.
+    fn pan_sheet(&mut self, position: Point, delta: f32, now: Instant) -> bool {
+        if let Some(drag) = self.sheet_drag.as_ref().filter(|drag| drag.grabber.is_none()) {
+            let dismiss = drag.dismiss.clone();
+            let raw = drag.raw - delta;
+            let Some(frame) = self.sheet_frames.get(&dismiss) else { return false };
+            let largest = frame.heights.last().copied().unwrap_or(frame.height);
+            if raw >= largest && delta < 0.0 {
+                let last = frame.heights.len().saturating_sub(1);
+                self.springs.get_mut().insert(format!("__sheet:{dismiss}"), AnimatedSpring { value: ScalarSpring::new(largest, now), seen: now });
+                self.sheet_detents.insert(dismiss, last);
+                self.sheet_drag = None;
+                return false;
+            }
+            self.move_sheet(&dismiss, None, raw, now);
+            return true;
+        }
+        if delta == 0.0 {
+            return false;
+        }
+        // The surface under the finger, topmost first: only an iOS sheet's is taken.
+        let Some((index, dismiss)) = self.frame.regions.iter().enumerate().rev()
+            .filter(|(_, region)| region.rect.contains(position))
+            .find_map(|(index, region)| region.id.strip_prefix("popover_surface:").map(|id| (index, id.to_owned())))
+        else { return false };
+        let Some(frame) = self.sheet_frames.get(&dismiss) else { return false };
+        let largest = frame.heights.last().copied().unwrap_or(frame.height);
+        // What scrolls under the finger, inside the sheet, and whether it is at its top.
+        let at_top = self.frame.regions[index..].iter().rev()
+            .find(|region| region.kind == HitKind::Scroll && region.rect.contains(position))
+            .is_none_or(|region| self.scroll_offset(&region.id) <= 0.5);
+        let takes = (delta > 0.0 && at_top) || (delta < 0.0 && frame.height < largest - 0.5);
+        if takes {
+            let raw = frame.height - delta;
+            self.move_sheet(&dismiss, None, raw, now);
+        }
+        takes
+    }
+
+    /// A tap on an iOS sheet's grabber, `id`: the sheet steps to its next height, after its
+    /// largest back to its smallest. Whether `id` was one.
+    fn step_sheet(&mut self, id: &str) -> bool {
+        let Some((dismiss, frame)) = id.strip_suffix(":drag").and_then(|dismiss| self.sheet_frames.get_key_value(dismiss)) else { return false };
+        if frame.heights.len() > 1 {
+            let next = (frame.resting + 1) % frame.heights.len();
+            self.sheet_detents.insert(dismiss.clone(), next);
+        }
+        true
+    }
+
+    /// The bottom sheet whose handle `id` is, by its dismissal, and where it stands.
+    fn sheet_of(&self, id: &str) -> Option<(String, Rect)> {
+        let dismiss = id.strip_suffix(":drag")?;
+        let surface = format!("popover_surface:{dismiss}");
+        let rect = self.frame.regions.iter().find(|region| region.id == surface)?.rect;
+        Some((dismiss.to_owned(), rect))
     }
 
     fn drop_target_at(&self, point: Point, source: &str) -> Option<String> {
@@ -7192,6 +7732,7 @@ impl UiTree {
             | UiEvent::PointerDownModified { .. }
             | UiEvent::PointerDownEditor { .. }
             | UiEvent::Scroll2D { .. }
+            | UiEvent::ScrollEnded
             | UiEvent::Paste(_) => {
                 unreachable!("additive editor events normalized above")
             }
@@ -7281,6 +7822,7 @@ impl UiTree {
                 }
             }
             UiEvent::PointerLeave => {
+                self.glass_switch_drag = None;
                 if let Some(draft) = self.sketch_draft.take() {
                     actions.push(UiAction::Sketched { id: draft.id.clone(), mark: draft.mark() });
                 }
@@ -7477,6 +8019,8 @@ impl UiTree {
                     .filter(|region| region.kind == HitKind::Button)
                     .map(|region| region.id.clone());
                 self.pressed_dispatch = self.pressed.as_deref().map(|id| self.dispatch_id(id));
+                self.glass_switch_drag = self.pressed.as_ref().and_then(|id| self.frame.glass_switches.get(id))
+                    .map(|geometry| GlassSwitchDrag { origin: point, geometry: *geometry, moved: false });
                 let next_focus =
                     hit.as_ref()
                         .filter(|region| {
@@ -7501,7 +8045,10 @@ impl UiTree {
                         let extend = extend && focused_before.as_deref() == Some(region.id.as_str());
                         input.place_cursor_at(point, multiline, extend);
                         match clicks {
-                            2 => input.select_word(),
+                            2 => {
+                                input.select_word();
+                                if self.touch_text_menu.is_some() { self.edit_menu_on_release = Some(point); }
+                            }
                             3.. => input.select_line(multiline),
                             _ => self.field_drag = Some((region.id.clone(), multiline)),
                         }
@@ -7509,6 +8056,12 @@ impl UiTree {
                 }
             }
             UiEvent::PointerUp(point) => {
+                if let Some(at) = self.edit_menu_on_release.take() {
+                    self.pressed = None;
+                    self.field_drag = None;
+                    actions.extend(self.open_text_context_menu(at, false, now));
+                    return actions;
+                }
                 if let Some(mut draft) = self.sketch_draft.take() {
                     draft.extend(point);
                     actions.push(UiAction::Sketched { id: draft.id.clone(), mark: draft.mark() });
@@ -7550,9 +8103,29 @@ impl UiTree {
                 if self.scroll_button_hold.take().is_some() {
                     return actions;
                 }
+                let switch_drag = self.glass_switch_drag.take();
                 let pressed_dispatch = self.pressed_dispatch.take();
                 if let Some(pressed) = self.pressed.take() {
-                    if self.frame.press_region(point).map(|region| region.id.as_str())
+                    let unchanged_drag = switch_drag.is_some_and(|drag| {
+                        let geometry = self.frame.glass_switches.get(&pressed).copied().unwrap_or(drag.geometry);
+                        drag.moved && geometry.checked == (point.x >= geometry.bounds.x + geometry.bounds.width / 2.0)
+                    });
+                    if unchanged_drag { return actions; }
+                    // A finger slid from one touch menu row onto another chooses that one.
+                    let slid = self.frame.press_region(point).map(|region| region.id.clone())
+                        .filter(|id| *id != pressed && self.frame.press_highlight_rows.contains(id)
+                            && self.frame.press_highlight_rows.contains(&pressed));
+                    // A tab bar's lens dragged along it lands on the tab nearest the finger.
+                    let landed = self.frame.glass_tabs.iter().find(|tabs| tabs.iter().any(|(id, _)| *id == pressed))
+                        .filter(|_| self.frame.press_region(point).map(|region| region.id.as_str()) != Some(pressed.as_str()))
+                        .and_then(|tabs| tabs.iter().min_by(|a, b| {
+                            let off = |rect: &Rect| (rect.x + rect.width / 2.0 - point.x).abs();
+                            off(&a.1).total_cmp(&off(&b.1))
+                        }))
+                        .map(|(id, _)| id.clone());
+                    if let Some(id) = slid.or(landed) {
+                        actions.push(UiAction::Clicked { id: self.dispatch_id(&id) });
+                    } else if self.frame.press_region(point).map(|region| region.id.as_str())
                         == Some(pressed.as_str())
                         && pressed_dispatch.as_deref() == Some(self.dispatch_id(&pressed).as_str())
                     {
@@ -8780,6 +9353,16 @@ struct LayoutBuilder<'a> {
     spatial_focus: bool,
     /// Source of the active pointer drag and the commands it painted.
     drag_source: Option<&'a str>,
+    /// A sheet held by its handle: its dismissal, how far the finger has taken it down
+    /// (less than that up, as a rubber band), and how fast.
+    sheet_held: Option<(&'a str, f32, f32)>,
+    /// The iOS sheet a finger holds, by its dismissal, at the height it has taken it to.
+    sheet_hold: Option<(&'a str, f32)>,
+    sheet_detents: &'a HashMap<String, usize>,
+    sheet_frames: &'a mut HashMap<String, SheetFrame>,
+    /// The deepest an iOS sheet at its large height has pushed back what it was opened over,
+    /// 0 to 1, and the screen's corner radius it rounds that with.
+    recede: Option<(f32, f32)>,
     drag_ghost: Option<std::ops::Range<usize>>,
     metrics: FontMetrics,
     sans_metrics: FontMetrics,
@@ -8842,6 +9425,8 @@ struct LayoutBuilder<'a> {
     transitions: &'a mut HashMap<String, ColorTransition>,
     popover_transitions: &'a mut HashMap<String, ScalarTransition>,
     popover_exits: &'a HashMap<String, PopoverExit>,
+    /// Entrances first seen in this layout start where they end.
+    settle_entrances: bool,
     replacements: &'a mut HashMap<String, Replacement>,
     observed_replacements: &'a mut HashSet<String>,
     previous_popover_snapshots: &'a HashMap<String, PopoverSnapshot>,
@@ -8906,6 +9491,7 @@ enum DeferredOverlay {
         pointed: bool,
         anchor_outset: [f32; 4],
         clear_of: Option<String>,
+        sheet: Option<Box<crate::SheetSpec>>,
     },
     Tooltip {
         anchor: Rect,
@@ -9463,15 +10049,14 @@ impl LayoutBuilder<'_> {
         let now = self.now;
         self.observed_popovers.insert(id.to_owned());
         let exits = self.popover_exits;
+        let settled = self.settle_entrances;
         let transition = self
             .popover_transitions
             .entry(id.to_owned())
             .or_insert_with(|| {
                 // Reopened while leaving: continue from what is still visible.
-                ScalarTransition::new(
-                    exits.get(id).map_or(0.0, |exit| exit.opacity.value(now)),
-                    now,
-                )
+                let from = if settled { 1.0 } else { exits.get(id).map_or(0.0, |exit| exit.opacity.value(now)) };
+                ScalarTransition::new(from, now)
             });
         transition.retarget(
             1.0,
@@ -9492,6 +10077,9 @@ impl LayoutBuilder<'_> {
                 rect,
                 slide_sign,
                 scrim: None,
+                sheet_offset: 0.0,
+                sheet_exit: None,
+                recede: 0.0,
             },
             );
         }
@@ -11719,6 +12307,129 @@ impl LayoutBuilder<'_> {
 
     /// As `scalar`, on a spring that covers its way in one move: for a value
     /// that is followed, and redirected before it arrives.
+    /// aurora's interactive glass under a press, from its `Motion.qml`: `press` (0.30 s, bounce
+    /// 0.35), `pressScale` 1.075, `glowIn` 120 ms and `glowOut` 300 ms.
+    fn press_glass(&mut self, id: &str, rect: Rect, start: usize) {
+        let inside = self.pointer.filter(|point| rect.contains(*point));
+        let pressed = self.pressed.is_some() && inside.is_some();
+        let omega = std::f32::consts::TAU / 0.30;
+        let press = crate::SpringMotion { stiffness: omega * omega, damping_ratio: 0.65 };
+        let lift = self.spring_moving(&format!("glass-press/{id}"), if pressed { 1.0 } else { 0.0 }, press);
+        let glow = self.spring_paced(&format!("glass-glow/{id}"), if pressed { 1.0 } else { 0.0 }, 120, 300).clamp(0.0, 1.0);
+        if lift.abs() < 1e-3 && glow < 1e-3 {
+            return;
+        }
+        let at = inside.map_or((0.5, 0.5), |point| ((point.x - rect.x) / rect.width.max(1.0), (point.y - rect.y) / rect.height.max(1.0)));
+        let scale = 1.0 + 0.075 * lift;
+        let centre = Point::new(rect.x + rect.width / 2.0, rect.y + rect.height / 2.0);
+        let mut lit = false;
+        for command in &mut self.frame.commands[start..] {
+            if let (DrawCommand::Glass { material, .. }, false) = (&mut *command, lit) {
+                (material.glow, material.glow_at, lit) = (glow, at, true);
+            }
+            animate_popover_command(command, 1.0, 0.0, scale, centre);
+        }
+    }
+
+    /// Lays an iOS sheet out at the height a finger has taken it to or its spring stands at:
+    /// `floating` takes the size, corners and material that height gives it. `morphs`: it
+    /// grows out of the button that opened it, so it does not rise from the foot.
+    fn sheet_layout(&mut self, floating: &mut Element, spec: &crate::SheetSpec, dismiss_id: &str, viewport: Size, morphs: bool) -> SheetPaint {
+        use crate::sheet_geometry as geometry;
+        let floats = spec.screen_corner > 0.0;
+        let width = (viewport.width - if floats { 2.0 * geometry::FLOAT_INSET } else { 0.0 }).max(0.0);
+        floating.style.width = Some(width);
+        floating.style.height = None;
+        floating.style.max_height = None;
+        let natural = self.measure(floating, Size::new(width, f32::INFINITY)).height;
+        let heights = geometry::heights(spec, natural, viewport.height);
+        let smallest = heights.first().copied().unwrap_or(natural);
+        let resting = self.sheet_detents.get(dismiss_id).copied().unwrap_or(spec.opens_at).min(heights.len().saturating_sub(1));
+        let target = heights.get(resting).copied().unwrap_or(natural);
+        let key = format!("__sheet:{dismiss_id}");
+        let height = match self.sheet_hold.filter(|(id, _)| *id == dismiss_id) {
+            Some((_, held)) => {
+                // The spring waits, with the speed the finger gives it, for the release.
+                if let Some(state) = self.springs.borrow_mut().get_mut(&key) { state.seen = self.now; }
+                held
+            }
+            None => {
+                // First seen, it rises from the foot of the screen; grown out of a button, it
+                // is there at once as the button's glass becomes it.
+                if !morphs && !self.reduced_motion {
+                    let now = self.now;
+                    self.springs.borrow_mut().entry(key.clone()).or_insert_with(|| AnimatedSpring { value: ScalarSpring::new(0.0, now), seen: now });
+                }
+                self.spring_moving(&key, target, sheet_motion())
+            }
+        };
+        let shape = geometry::shape(spec, height, smallest, viewport.width, viewport.height);
+        floating.style.width = Some(shape.rect.width);
+        floating.style.height = Some(shape.rect.height);
+        floating.style.corner_radii = Some(CornerRadii { top_left: shape.top_radius, top_right: shape.top_radius, bottom_right: shape.bottom_radius, bottom_left: shape.bottom_radius });
+        // Glass and its shadow round all four corners alike: the screen's own corners hide the
+        // foot's once the sheet anchors to it.
+        floating.style.radius = shape.top_radius;
+        // Glass at partial heights, growing opaque as it anchors to the screen's edges.
+        if let Some(glass) = floating.kept.as_mut().and_then(|kept| kept.glass.as_mut()) {
+            glass.tint.a = (f32::from(glass.tint.a) + (255.0 - f32::from(glass.tint.a)) * shape.anchored).round() as u8;
+            // Its corners are round arcs, concentric with the display's, not a pane's squircle,
+            // and it bends what is behind it only at its rim, not a corner's depth into it.
+            glass.power = 2.0;
+            glass.bezel = SHEET_BEZEL;
+        }
+        let large = geometry::large(spec, viewport.height);
+        self.sheet_frames.insert(dismiss_id.to_owned(), SheetFrame { heights, resting, height, viewport: viewport.height, dismissible: spec.dismissible });
+        // Only its large height pushes back what it was opened over.
+        let recede = if spec.recede && large > 0.0 { ((height - (large - RECEDE_FROM)) / RECEDE_FROM).clamp(0.0, 1.0) } else { 0.0 };
+        if recede > 0.0 {
+            self.recede = Some((self.recede.map_or(0.0, |(deepest, _)| deepest).max(recede), spec.screen_corner));
+        }
+        SheetPaint {
+            rect: shape.rect,
+            shell: shape.shell,
+            entered: if smallest > 0.0 { (height / smallest).clamp(0.0, 1.0) } else { 1.0 },
+            leave: viewport.height - shape.shell.y + SHEET_EXIT_PAST,
+            recede,
+        }
+    }
+
+    /// How far a bottom sheet stands below its place `rect`: where the finger holding its
+    /// handle has taken it, or where its spring is on its way back or to a new height. It
+    /// stands in its place while it enters.
+    fn sheet_spring(&self, dismiss_id: &str, rect: Rect, entered: f32) -> f32 {
+        let key = format!("__sheet:{dismiss_id}");
+        let held = self.sheet_held.filter(|(id, _, _)| *id == dismiss_id);
+        let rest = |top: f32, speed: f32| {
+            self.springs.borrow_mut().insert(key.clone(), AnimatedSpring { value: ScalarSpring::moving(top, speed, self.now), seen: self.now });
+        };
+        if let Some((_, down, speed)) = held {
+            rest(rect.y + down, speed);
+            return down;
+        }
+        if entered < 1.0 {
+            rest(rect.y, 0.0);
+            return 0.0;
+        }
+        self.spring_moving(&key, rect.y, sheet_motion()) - rect.y
+    }
+
+    /// As `spring`, on `motion`.
+    fn spring_moving(&self, key: &str, target: f32, motion: crate::SpringMotion) -> f32 {
+        let mut springs = self.springs.borrow_mut();
+        let state = springs.entry(key.to_owned()).or_insert_with(|| AnimatedSpring {
+            value: ScalarSpring::new(target, self.now),
+            seen: self.now,
+        });
+        state.seen = self.now;
+        if self.reduced_motion {
+            state.value = ScalarSpring::new(target, self.now);
+        } else if target != state.value.target() {
+            state.value.launch(target, motion, self.now);
+        }
+        state.value.value(self.now)
+    }
+
     fn spring(&self, key: &str, target: f32) -> f32 {
         let motion = crate::tokens().motion.move_ms;
         self.spring_paced(key, target, motion, motion)
@@ -12381,6 +13092,9 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
+        if let Some(id) = element.kept.as_ref().and_then(|kept| kept.glass_press.as_ref()) {
+            self.press_glass(id, rect, start);
+        }
         match &element.presence {
             Some((id, _)) if matches!(reveal, HoverReveal::Revealed | HoverReveal::Concealed | HoverReveal::Rising) => {
                 self.reveal_on_hover(element, id, start, reveal)
@@ -12635,16 +13349,22 @@ impl LayoutBuilder<'_> {
             if style.action_menu_item {
                 self.frame.action_menu_items.insert(id.clone());
             }
+            if style.press_highlight {
+                self.frame.press_highlight_rows.insert(id.clone());
+            }
             let hovered = if style.action_menu_item && self.keyboard_focus {
                 self.focused == Some(id.as_str())
             } else {
-                self.hovered == Some(id.as_str())
-                    || element.hover_peer.as_deref() == self.hovered && self.hovered.is_some()
+                (self.hovered == Some(id.as_str())
+                    || element.hover_peer.as_deref() == self.hovered && self.hovered.is_some())
+                    && (!style.press_highlight || self.pressed.is_some())
             };
+            // Under a press slid across a touch menu, the row under the finger is the lit one.
+            let slid_onto = style.press_highlight && hovered && self.pressed.is_some();
             // A handle dragged in place is held for as long as its drag lasts,
             // wherever the pointer has gone.
             let held = element.drag_in_place && self.drag_source == Some(id.as_str());
-            if self.pressed == Some(id.as_str()) && hovered || held {
+            if self.pressed == Some(id.as_str()) && hovered || held || slid_onto {
                 style.background = style
                     .pressed_background
                     .or(style.hover_background)
@@ -12731,6 +13451,14 @@ impl LayoutBuilder<'_> {
                 rect,
                 shadow,
                 radius: style.radius,
+            });
+        }
+        if let Some(material) = element.kept.as_ref().and_then(|kept| kept.glass) {
+            self.frame.commands.push(DrawCommand::Glass {
+                rect,
+                radius: style.radius,
+                material: material.normalized(),
+                opacity: 1.0,
             });
         }
         if let Some(color) = style.background {
@@ -12899,7 +13627,20 @@ impl LayoutBuilder<'_> {
                         }
                         _ => child.indicator_slot.as_ref() == Some(&selection.selected_id),
                     });
-                    if let Some(target) = index.and_then(|index| rects.get(index)).copied() {
+                    if let Some(mut target) = index.and_then(|index| rects.get(index)).copied() {
+                        if let Some(width) = selection.width {
+                            if index == Some(children.len().saturating_sub(1)) { target.x += target.width - width; }
+                            target.width = width;
+                        }
+                        if let Some(height) = selection.height {
+                            target.y += (target.height - height) / 2.0;
+                            target.height = height;
+                        }
+                        if selection.glass.is_some() && matches!(selection.selected_id.as_str(), "on" | "off") {
+                            if let Some(id) = &selection.press_id {
+                                self.frame.glass_switches.insert(id.clone(), GlassSwitchGeometry { bounds: rect, checked: selection.selected_id == "on" });
+                            }
+                        }
                         self.observed_tabs.insert(selection.group_id.clone());
                         let state = self
                             .tab_indicators
@@ -12908,39 +13649,158 @@ impl LayoutBuilder<'_> {
                                 selected_id: selection.selected_id.clone(),
                                 x: ScalarSpring::new(target.x, self.now),
                                 width: ScalarSpring::new(target.width, self.now),
+                                lift_x: ScalarSpring::new(0.0, self.now).motion(if selection.press_id.is_some() { crate::SpringMotion { stiffness: 900.0, damping_ratio: 0.7 } } else { crate::SpringMotion { stiffness: 250.0, damping_ratio: 0.60 } }),
+                                lift_y: ScalarSpring::new(0.0, self.now).motion(if selection.press_id.is_some() { crate::SpringMotion { stiffness: 900.0, damping_ratio: 0.7 } } else { crate::SpringMotion { stiffness: 250.0, damping_ratio: 0.70 } }),
+                                material_presence: ScalarSpring::new(0.0, self.now).motion(crate::SpringMotion { stiffness: 1000.0, damping_ratio: 1.0 }),
+                                travel_from: target.x,
+                                press_start: None,
+                                dragging: false,
                             });
+                        // A lens of a strip of tabs, not a switch's thumb nor a segmented knob,
+                        // under a finger held on one of its tabs.
+                        let scrubbing = selection.glass.is_some() && selection.press_id.is_none() && selection.lift.is_none()
+                            && action_ids.iter().any(|id| self.pressed == Some(id.as_str()));
+                        if selection.glass.is_some() && selection.press_id.is_none() && selection.lift.is_none() {
+                            self.frame.glass_tabs.push(children.iter().zip(rects.iter()).filter_map(|(child, rect)| match &child.kind {
+                                ElementKind::Button { id, .. } | ElementKind::IconButton { id, .. } | ElementKind::Clickable { id, .. } => Some((id.clone(), *rect)),
+                                _ => None,
+                            }).collect());
+                        }
                         if self.reduced_motion || selection.animation_ms == 0 {
                             state.x.snap_to(target.x, self.now);
                             state.width.snap_to(target.width, self.now);
                             state.selected_id.clone_from(&selection.selected_id);
                         } else if state.selected_id != selection.selected_id {
                             let duration = Duration::from_millis(u64::from(selection.animation_ms));
-                            let motion = crate::SpringMotion::settling_in(duration);
+                            let motion = if selection.glass.is_some() && selection.press_id.is_some() {
+                                crate::SpringMotion { stiffness: 700.0, damping_ratio: 0.78 }
+                            } else if selection.glass.is_some() && selection.lift.is_some() {
+                                aurora_spring(0.30, 0.15)
+                            } else if selection.glass.is_some() {
+                                crate::SpringMotion { stiffness: 280.0, damping_ratio: 0.938 }
+                            } else { crate::SpringMotion::settling_in(duration) };
                             // Setting a pace before rebasing would redraw the
                             // flight so far on the new curve: a jump.
+                            state.travel_from = state.x.value(self.now);
                             state.x.launch(target.x, motion, self.now);
                             state.width.launch(target.width, motion, self.now);
                             state.selected_id.clone_from(&selection.selected_id);
-                        } else if state.x.target() != target.x
-                            || state.width.target() != target.width
+                        } else if !scrubbing && (state.x.target() != target.x
+                            || state.width.target() != target.width)
                         {
                             // Resizing a dock or window moves the entire strip;
                             // only changing selection should leave a sliding trail.
-                            state.x.snap_to(target.x, self.now);
+                            if state.dragging {
+                                // Let go off its tab, the lens travels back to it lifted, as it left.
+                                state.travel_from = state.x.value(self.now);
+                                state.x.launch(target.x, crate::SpringMotion { stiffness: 700.0, damping_ratio: 0.78 }, self.now);
+                            } else { state.x.snap_to(target.x, self.now); }
                             state.width.snap_to(target.width, self.now);
                         }
-                        let indicator = Rect::new(
-                            state.x.value(self.now),
-                            target.y,
-                            state.width.value(self.now),
-                            target.height,
-                        );
-                        let radius = selection.radius.min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0);
-                        self.frame.commands.insert(
-                            command_start,
-                            DrawCommand::FillRect { rect: indicator, color: selection.color, radius },
-                        );
-                        if let Some(color) = selection.border {
+                        let parent_pressed = selection.press_id.as_deref().is_some_and(|id| self.pressed == Some(id));
+                        if let (true, Some(pointer)) = (scrubbing, self.pointer) {
+                            // iOS 26's tab bar: held, its lens goes under the finger and follows
+                            // it along the bar, centred on it, until the finger lets go.
+                            let left = rects.first().map_or(target.x, |rect| rect.x);
+                            let right = rects.last().map_or(target.x, |rect| rect.x + rect.width - target.width);
+                            state.dragging = true;
+                            let goal = (pointer.x - target.width / 2.0).clamp(left, right.max(left));
+                            if self.reduced_motion { state.x.snap_to(goal, self.now) } else { state.x.launch(goal, SCRUB_SPRING, self.now) }
+                        } else if selection.glass.is_some() && parent_pressed {
+                            if let Some(pointer) = self.pointer {
+                                let (press_x, start_x) = *state.press_start.get_or_insert((pointer.x, state.x.value(self.now)));
+                                if (pointer.x - press_x).abs() > 3.0 {
+                                    state.dragging = true;
+                                    let left = rects.first().map_or(target.x, |rect| rect.x);
+                                    let right = rects.last().map_or(target.x, |rect| rect.x + rect.width - target.width);
+                                    state.x.snap_to((start_x + pointer.x - press_x).clamp(left, right), self.now);
+                                }
+                            }
+                        } else {
+                            state.press_start = None;
+                            state.dragging = false;
+                        }
+                        let x = state.x.value(self.now);
+                        let remaining = (target.x - x).abs();
+                        let distance = (target.x - state.travel_from).abs();
+                        let pressed = selection.press_id.as_deref().is_some_and(|id| self.pressed == Some(id))
+                            || action_ids.iter().any(|id| self.pressed == Some(id.as_str()));
+                        // aurora's knob is held up while more than 45% of a segment is left
+                        // to go; BitChord's lens until 92% of the way.
+                        let lifting = selection.glass.is_some() && (pressed || match selection.lift {
+                            Some(_) => remaining > 0.45 * target.width,
+                            None => distance > 0.1 && remaining > distance * 0.08,
+                        });
+                        if self.reduced_motion || selection.glass.is_none() {
+                            state.lift_x.snap_to(0.0, self.now);
+                            state.lift_y.snap_to(0.0, self.now);
+                            state.material_presence.snap_to(0.0, self.now);
+                        } else if selection.lift.is_some() {
+                            // Lifted on the press spring, landed on the bouncy one.
+                            let goal = if lifting { 1.0 } else { 0.0 };
+                            if state.lift_x.target() != goal {
+                                let motion = if lifting { aurora_spring(0.30, 0.35) } else { aurora_spring(0.42, 0.55) };
+                                state.lift_x.launch(goal, motion, self.now);
+                                state.lift_y.launch(goal, motion, self.now);
+                            }
+                            state.material_presence.retarget(goal, self.now);
+                        } else {
+                            state.lift_x.retarget(if lifting { 1.0 } else { 0.0 }, self.now);
+                            state.lift_y.retarget(if lifting { 1.0 } else { 0.0 }, self.now);
+                            state.material_presence.retarget(if lifting { 1.0 } else { 0.0 }, self.now);
+                        }
+                        let lift_x = state.lift_x.value(self.now);
+                        let lift_y = state.lift_y.value(self.now);
+                        let presence = state.material_presence.value(self.now).clamp(0.0, 1.0);
+                        // A switch's thumb stretches as it is held. A tab's lens stands as tall as
+                        // the whole strip and LENS_LIFT more, in its cell's proportions, as
+                        // BitChord's tab bar's does while it travels.
+                        let (grow_x, grow_y) = if selection.press_id.is_some() {
+                            (if pressed { 0.18 } else { 0.12 }, if pressed { 0.18 } else { -0.06 })
+                        } else if let Some(scale) = selection.lift {
+                            (scale - 1.0, scale - 1.0)
+                        } else {
+                            let grow = ((rect.height + LENS_LIFT) / target.height.max(1.0) - 1.0).max(0.0);
+                            (grow, grow)
+                        };
+                        // A tab bar's lens dragged fast stretches along its way, thinner, as a drop.
+                        let stretch = if selection.glass.is_some() && selection.press_id.is_none() && selection.lift.is_none() {
+                            (state.x.velocity(self.now).abs() / SCRUB_STRETCH * 0.1).min(0.2)
+                        } else { 0.0 };
+                        let width = state.width.value(self.now) * (1.0 + lift_x * grow_x) * (1.0 + stretch);
+                        let height = target.height * (1.0 + lift_y * grow_y) * (1.0 - stretch / 2.0);
+                        let indicator = Rect::new(x - (width - state.width.value(self.now)) / 2.0,
+                            target.y - (height - target.height) / 2.0, width, height);
+                        // Its corners grow with it: a capsule lifted is a capsule still, as Apple's lens.
+                        let radius = (selection.radius * indicator.height / target.height.max(1.0))
+                            .min(indicator.width / 2.0).min(indicator.height / 2.0).max(0.0);
+                        let pad = selection.glass.map_or(0.0, |material| material.refraction.max(material.blur).max(target.height * 0.2));
+                        let local_rect = Rect::new(rect.x - pad, rect.y - pad, rect.width + pad * 2.0, rect.height + pad * 2.0);
+                        let command = match selection.glass {
+                            Some(material) => DrawCommand::GlassSelection {
+                                rect: indicator, radius, material, opacity: presence,
+                                backdrop_rect: local_rect,
+                                backdrop: self.frame.commands.iter().filter(|command| match command {
+                                    DrawCommand::PushClip(_) | DrawCommand::RoundClip { .. } | DrawCommand::PopClip => true,
+                                    _ => command.bounds().is_some_and(|bounds| bounds.intersection(local_rect).is_some()),
+                                }).filter_map(|command| match command {
+                                    DrawCommand::GlassSelection { .. } => None,
+                                    DrawCommand::Glass { rect, radius, material, opacity } => Some(DrawCommand::FillRect {
+                                        rect: *rect, radius: *radius, color: Color { a: (material.tint.a as f32 * opacity) as u8, ..material.tint },
+                                    }),
+                                    _ => Some(command.clone()),
+                                }).collect(),
+                            },
+                            None => DrawCommand::FillRect { rect: indicator, color: selection.color, radius },
+                        };
+                        if selection.glass.is_some() {
+                            let color = Color { a: (selection.color.a as f32 * (1.0 - presence)).round() as u8, ..selection.color };
+                            self.frame.commands.insert(command_start, DrawCommand::FillRect { rect: indicator, radius, color });
+                            self.frame.commands.push(command);
+                        }
+                        else { self.frame.commands.insert(command_start, command); }
+                        if let Some(mut color) = selection.border {
+                            if selection.glass.is_some() { color.a = (color.a as f32 * (1.0 - presence)).round() as u8; }
                             self.frame.commands.insert(
                                 command_start + 1,
                                 DrawCommand::StrokeRect { rect: indicator, color, radius, width: 1.0 },
@@ -13034,6 +13894,7 @@ impl LayoutBuilder<'_> {
                 at,
                 anchor_outset,
                 clear_of,
+                sheet,
             } => {
                 // A root wrapper receives the entire viewport, unlike a
                 // child allocated by a flex parent. Honor its explicit anchor
@@ -13136,6 +13997,7 @@ impl LayoutBuilder<'_> {
                     pointed: at.is_some(),
                     anchor_outset: *anchor_outset,
                     clear_of: clear_of.clone(),
+                    sheet: sheet.clone(),
                 });
             }
             ElementKind::Tooltip {
@@ -15994,6 +16856,234 @@ fn wrap_lines(value: &str, width: f32, char_width: f32) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn glass_selection_captures_labels_without_feedback_and_preserves_hit_targets() {
+        use crate::{Component, Tab, Tabs};
+        let palette = ComponentPalette::neutral_dark();
+        let view = |selected: &str| Tabs::new(vec![
+            Tab::new("home", "Home", 80.0).active(selected == "home"),
+            Tab::new("browse", "Browse", 80.0).active(selected == "browse"),
+        ], palette).id("glass-tabs").render().glass_selection(GlassMaterial::new(palette.surface));
+        let size = Size::new(200.0, 40.0);
+        let now = Instant::now();
+        let mut tree = UiTree::new(view("home"));
+        let initial = tree.layout_at(size, now);
+        let lens = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::GlassSelection { rect, backdrop, .. } => Some((*rect, backdrop.clone())), _ => None,
+        }).unwrap();
+        let (start, backdrop) = lens(&initial);
+        assert!(initial.commands.iter().any(|command| matches!(command, DrawCommand::GlassSelection { opacity, .. } if *opacity == 0.0)));
+        assert!(backdrop.iter().any(|command| matches!(command, DrawCommand::Text { .. } | DrawCommand::Glyphs(_))));
+        assert!(!backdrop.iter().any(|command| matches!(command, DrawCommand::GlassSelection { .. })));
+        let target_region = initial.regions.iter().find(|region| region.id == "browse").unwrap().rect;
+        tree.set_root(view("browse"));
+        tree.layout_at(size, now + Duration::from_millis(10));
+        let midway = tree.layout_at(size, now + Duration::from_millis(70));
+        let (moving, _) = lens(&midway);
+        assert!(moving.x > start.x);
+        assert!(moving.width > start.width, "travel stretches the lens");
+        assert!(moving.height > start.height && moving.y < start.y, "and lifts it past its strip: {moving:?} from {start:?}");
+        let corner = |frame: &Frame| frame.commands.iter().find_map(|command| match command { DrawCommand::GlassSelection { radius, .. } => Some(*radius), _ => None }).unwrap();
+        assert!((corner(&midway) / moving.height - corner(&initial) / start.height).abs() < 0.01,
+            "its corners grow with it, so a capsule lifted is a capsule still: {} on {moving:?}", corner(&midway));
+        assert!(midway.commands.iter().any(|command| matches!(command, DrawCommand::GlassSelection { opacity, .. } if *opacity > 0.1)));
+        assert_eq!(midway.regions.iter().find(|region| region.id == "browse").unwrap().rect, target_region);
+        tree.set_reduced_motion(true);
+        let (snapped, _) = lens(&tree.layout_at(size, now + Duration::from_millis(80)));
+        assert_eq!(snapped.x, target_region.x);
+        assert_eq!(snapped.width, target_region.width);
+    }
+
+    #[test]
+    fn a_held_tab_bar_lens_follows_the_finger_and_lands_on_the_tab_it_is_let_go_over() {
+        let view = |selected: &str| {
+            let cell = |id: &str| Element::clickable(id, Element::spacer()).size(Some(100.0), Some(40.0)).indicator_slot(id);
+            Element::tab_strip(vec![cell("a"), cell("b"), cell("c")], vec!["a".into(), "b".into(), "c".into()])
+                .tab_selection("bar", selected, Color::rgb(60, 60, 60), 20.0, 200)
+                .glass_selection(GlassMaterial::new(Color::rgba(255, 255, 255, 0)))
+        };
+        let size = Size::new(300.0, 40.0);
+        let mut tree = UiTree::new(view("a"));
+        tree.set_reduced_motion(true);
+        tree.layout(size);
+        let lens = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::GlassSelection { rect, .. } => Some(*rect), _ => None,
+        }).unwrap();
+        tree.handle_event(UiEvent::PointerMove(Point::new(50.0, 20.0)));
+        tree.handle_event(UiEvent::PointerDown(Point::new(50.0, 20.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(230.0, 20.0)));
+        let held = lens(&tree.layout(size));
+        assert!((held.x + held.width / 2.0 - 230.0).abs() < 0.5, "the lens stands under the finger: {held:?}");
+        assert_eq!(tree.handle_event(UiEvent::PointerUp(Point::new(230.0, 20.0))), vec![UiAction::Clicked { id: "c".into() }]);
+        // Dragged past the bar's end, it stops at its last tab.
+        tree.set_root(view("c"));
+        tree.layout(size);
+        tree.handle_event(UiEvent::PointerDown(Point::new(250.0, 20.0)));
+        tree.handle_event(UiEvent::PointerMove(Point::new(400.0, 20.0)));
+        assert_eq!(lens(&tree.layout(size)).x, 200.0);
+    }
+
+    #[test]
+    fn what_a_host_shows_again_stands_at_once_instead_of_entering_anew() {
+        let ink = Color::rgb(200, 100, 50);
+        let view = |shown: bool| Element::column(if shown {
+            vec![Element::panel(Element::spacer()).background(ink).size(Some(80.0), Some(40.0)).animate_enter("shelf")]
+        } else { vec![] });
+        let alpha = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::FillRect { color, .. } if color.r == ink.r && color.g == ink.g => Some(color.a), _ => None,
+        });
+        let now = Instant::now();
+        let mut tree = UiTree::new(view(true));
+        assert!(alpha(&tree.layout_at(Size::new(200.0, 100.0), now)).unwrap_or(0) < 255, "a first appearance enters");
+        tree.set_root(view(false));
+        tree.layout_at(Size::new(200.0, 100.0), now + Duration::from_millis(500));
+        tree.set_root(view(true));
+        tree.settle_entrances();
+        assert_eq!(alpha(&tree.layout_at(Size::new(200.0, 100.0), now + Duration::from_millis(510))), Some(255), "shown again, it stands");
+    }
+
+    #[test]
+    fn a_segmented_knob_lifts_for_half_its_way_and_lands_in_its_slot_as_auroras() {
+        let lens = GlassMaterial::new(Color::rgba(255, 255, 255, 40)).blur(0.0);
+        let view = |selected: &str| {
+            let cell = |id: &str| Element::clickable(id, Element::text(id)).size(None, Some(44.0)).flex(1.0).indicator_slot(id);
+            Element::tab_strip(vec![cell("all"), cell("songs"), cell("artists"), cell("albums")],
+                ["all", "songs", "artists", "albums"].map(String::from).to_vec())
+                .tab_selection("segments", selected, Color::rgb(99, 99, 102), 15.0, 200)
+                .tab_selection_height(30.0).glass_selection(lens).selection_lift(1.3)
+        };
+        let lens_at = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::GlassSelection { rect, opacity, .. } => Some((*rect, *opacity)), _ => None,
+        }).unwrap();
+        let size = Size::new(400.0, 44.0);
+        let now = Instant::now();
+        let mut tree = UiTree::new(view("all"));
+        let (rest, hidden) = lens_at(&tree.layout_at(size, now));
+        assert!((rest.height - 30.0).abs() < 0.01 && (rest.y - 7.0).abs() < 0.01 && hidden == 0.0, "a 30 knob in a 44 slot: {rest:?}");
+        tree.set_root(view("albums"));
+        tree.layout_at(size, now);
+        let (lifted, seen) = lens_at(&tree.layout_at(size, now + Duration::from_millis(60)));
+        assert!(lifted.height > 34.0 && seen > 0.5, "lifted into a lens on its way: {lifted:?}");
+        for ms in (100..1500).step_by(16) { tree.layout_at(size, now + Duration::from_millis(ms)); }
+        let (landed, gone) = lens_at(&tree.layout_at(size, now + Duration::from_millis(1500)));
+        assert!((landed.height - 30.0).abs() < 0.5 && landed.x > 280.0 && gone < 0.05, "landed in its slot, flat again: {landed:?}");
+    }
+
+    #[test]
+    fn glass_switch_lifts_on_press_and_tracks_a_drag_without_moving_hit_regions() {
+        use crate::{Component, Switch};
+        let p = ComponentPalette::neutral_dark();
+        let view = || Switch::new("switch", false, p).track_size(64.0, 28.0)
+            .glass(GlassMaterial::new(p.surface)).render();
+        let mut tree = UiTree::new(view());
+        let now = Instant::now();
+        let size = Size::new(80.0, 40.0);
+        let lens = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::GlassSelection { rect, .. } => Some(*rect), _ => None,
+        }).unwrap();
+        let first = tree.layout_at(size, now);
+        let first_lens = lens(&first);
+        let bounds = first.regions.iter().find(|region| region.id == "switch").unwrap().rect;
+        let point = Point::new(first_lens.x + first_lens.width / 2.0, first_lens.y + first_lens.height / 2.0);
+        tree.handle_event(UiEvent::PointerDown(point));
+        tree.layout_at(size, now + Duration::from_millis(1));
+        let pressed = tree.layout_at(size, now + Duration::from_millis(81));
+        assert!(lens(&pressed).width > first_lens.width * 1.1);
+        tree.handle_event(UiEvent::PointerMove(Point::new(point.x + 24.0, point.y)));
+        let dragged = tree.layout_at(size, now + Duration::from_millis(97));
+        assert!(lens(&dragged).x > first_lens.x + 15.0);
+        assert_eq!(dragged.regions.iter().find(|region| region.id == "switch").unwrap().rect, bounds);
+    }
+
+    #[test]
+    fn glass_switch_drag_sets_the_endpoint_while_taps_toggle_and_cancel_is_inert() {
+        use crate::{Component, Switch};
+        let palette = ComponentPalette::neutral_dark();
+        let make = |checked| {
+            let mut tree = UiTree::new(Switch::new("switch", checked, palette).track_size(64.0, 28.0)
+                .thumb_inset(2.0).thumb_width(40.0).glass(GlassMaterial::new(palette.surface)).render());
+            tree.layout(Size::new(80.0, 40.0));
+            tree
+        };
+        let clicked = vec![UiAction::Clicked { id: "switch".into() }];
+        for checked in [false, true] {
+            let measured = make(checked);
+            let bounds = measured.frame().regions.iter().find(|region| region.id == "switch").unwrap().rect;
+            let point = |fraction: f32| Point::new(bounds.x + bounds.width * fraction, bounds.y + bounds.height / 2.0);
+            let origin = point(if checked { 0.75 } else { 0.25 });
+            let other = point(if checked { 0.25 } else { 0.75 });
+            let same = point(if checked { 0.625 } else { 0.375 });
+            let mut tap = make(checked);
+            tap.handle_event(UiEvent::PointerDown(origin));
+            assert_eq!(tap.handle_event(UiEvent::PointerUp(origin)), clicked);
+            let mut change = make(checked);
+            change.handle_event(UiEvent::PointerDown(origin));
+            change.handle_event(UiEvent::PointerMove(other));
+            assert_eq!(change.handle_event(UiEvent::PointerUp(other)), clicked);
+            let mut keep = make(checked);
+            keep.handle_event(UiEvent::PointerDown(origin));
+            keep.handle_event(UiEvent::PointerMove(same));
+            assert!(keep.handle_event(UiEvent::PointerUp(same)).is_empty());
+            let mut reverse = make(checked);
+            reverse.handle_event(UiEvent::PointerDown(origin));
+            reverse.handle_event(UiEvent::PointerMove(other));
+            reverse.handle_event(UiEvent::PointerMove(origin));
+            assert!(reverse.handle_event(UiEvent::PointerUp(origin)).is_empty());
+            let mut cancel = make(checked);
+            cancel.handle_event(UiEvent::PointerDown(origin));
+            cancel.handle_event(UiEvent::PointerMove(other));
+            cancel.handle_event(UiEvent::PointerLeave);
+            assert!(cancel.handle_event(UiEvent::PointerUp(other)).is_empty());
+        }
+    }
+
+    #[test]
+    fn pressed_interactive_glass_grows_and_lights_up_where_it_is_held_then_settles_back() {
+        let material = GlassMaterial::new(Color::rgba(38, 38, 40, 122));
+        let view = || Element::panel(Element::button("go", "Go").size(Some(56.0), Some(56.0)))
+            .glass(material).glass_press("go").round().size(Some(56.0), Some(56.0));
+        let pane = |frame: &Frame| frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Glass { rect, material, .. } => Some((*rect, *material)), _ => None,
+        }).unwrap();
+        let now = Instant::now();
+        let mut tree = UiTree::new(view());
+        let (rest, _) = pane(&tree.layout_at(Size::new(200.0, 200.0), now));
+        let at = Point::new(rest.x + 40.0, rest.y + 20.0);
+        tree.handle_event(UiEvent::PointerMove(at));
+        tree.handle_event(UiEvent::PointerDown(at));
+        tree.layout_at(Size::new(200.0, 200.0), now);
+        let (held, lit) = pane(&tree.layout_at(Size::new(200.0, 200.0), now + Duration::from_millis(250)));
+        assert!(held.width > rest.width * 1.05 && held.width < rest.width * 1.1, "grown about 7.5%: {held:?}");
+        assert!(lit.glow > 0.9 && (lit.glow_at.0 - 40.0 / rest.width).abs() < 0.01 && (lit.glow_at.1 - 20.0 / rest.height).abs() < 0.01,
+            "lit where held: {lit:?}");
+        tree.handle_event(UiEvent::PointerUp(at));
+        tree.layout_at(Size::new(200.0, 200.0), now + Duration::from_millis(260));
+        let (back, _) = pane(&tree.layout_at(Size::new(200.0, 200.0), now + Duration::from_millis(1200)));
+        assert!((back.width - rest.width).abs() < 0.5, "back to its size: {back:?}");
+    }
+
+    #[test]
+    fn glass_follows_drag_entrance_and_popover_shell_geometry() {
+        let material = GlassMaterial::new(Color::rgba(100, 120, 140, 60));
+        let mut command = DrawCommand::Glass {
+            rect: Rect::new(10.0, 20.0, 200.0, 60.0),
+            radius: 30.0,
+            material,
+            opacity: 0.8,
+        }.moved(5.0, -10.0, 0.5);
+        assert_eq!(command, DrawCommand::Glass {
+            rect: Rect::new(15.0, 10.0, 200.0, 60.0), radius: 30.0, material, opacity: 0.4,
+        });
+        animate_popover_command(&mut command, 0.5, 4.0, 0.5, Point::new(15.0, 10.0));
+        assert_eq!(command, DrawCommand::Glass {
+            rect: Rect::new(15.0, 14.0, 100.0, 30.0), radius: 15.0, material, opacity: 0.2,
+        });
+        assert!(popover_shell_command(&command, Rect::new(15.0, 14.0, 100.0, 30.0)));
+        let target = Rect::new(20.0, 30.0, 120.0, 80.0);
+        morph_popover_shell(&mut command, target);
+        assert!(matches!(command, DrawCommand::Glass { rect, .. } if rect == target));
+    }
 
     fn menu_with_secondary_actions(mark_secondary: bool, visible_rows: usize) -> Element {
         use crate::{
