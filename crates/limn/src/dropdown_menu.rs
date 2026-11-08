@@ -250,6 +250,8 @@ impl DropdownMenuItem {
     /// shows it, the platform is told it is a radio item in a menu and
     /// whether it is the chosen one, and choosing it reports `action_id`. The
     /// circle takes the place of the `selected` tick; `checkbox` replaces it.
+    /// In a menu with [`DropdownMenu::filled_choice`], the chosen circle is
+    /// its `mark` round a dot in its `tick`.
     pub fn radio(mut self, checked: bool) -> Self {
         self.check = Some(MenuCheck::Radio(checked));
         self
@@ -630,8 +632,11 @@ impl DropdownMenu {
     /// In `context_menu_style`, mark the chosen row as a settings list does:
     /// it keeps the palette's `selected` fill and its label the palette's
     /// text, the other labels take the muted ink, and its check is a round
-    /// `mark` with a `tick` in it. Without it the chosen row shows only its
-    /// check. Its submenus take the same.
+    /// `mark` with a `tick` in it. The chosen [`DropdownMenuItem::radio`] is
+    /// filled with `mark` round a dot in `tick` too, unless it is disabled.
+    /// Without it the chosen row shows only its check, and the chosen radio
+    /// is the text's ink round a dot in the surface. Its submenus take the
+    /// same, in either style.
     pub fn filled_choice(mut self, mark: Color, tick: Color) -> Self {
         self.filled_choice = Some((mark, tick));
         self
@@ -884,10 +889,10 @@ impl Component for DropdownMenu {
             );
             if contextual {
                 submenu = submenu.context_menu_style().context_metrics(metrics);
-                submenu.filled_choice = self.filled_choice;
             } else if let Some(sizing) = self.sizing {
                 submenu = submenu.sizing(sizing);
             }
+            submenu.filled_choice = self.filled_choice;
             submenu.submenu = true;
             submenu
                 .width(self.width)
@@ -1167,10 +1172,18 @@ impl Component for DropdownMenu {
                     }
                     if check_column {
                         let ink = if enabled { palette.text } else { palette.muted };
+                        // A filled choice's chosen radio is its `mark` round a `tick` dot,
+                        // the dot being drawn in the palette's surface.
+                        let (ink, check_palette) = match (item.check, self.filled_choice) {
+                            (Some(MenuCheck::Radio(true)), Some((mark, tick))) if enabled => {
+                                (mark, ComponentPalette { surface: tick, ..palette })
+                            }
+                            _ => (ink, palette),
+                        };
                         children.push(
                             if let Some(check) = item.check {
                                 check
-                                    .mark(icon_size.min(ICON_SIZE), ink, palette)
+                                    .mark(icon_size.min(ICON_SIZE), ink, check_palette)
                                     .centered()
                             } else if let (true, Some((mark, tick))) =
                                 (item.selected, self.filled_choice)
@@ -2903,6 +2916,65 @@ mod tests {
             DrawCommand::FillRect { color, .. } if *color == palette.selected || *color == mark
         )));
         assert_eq!(ink(&plain, "USB"), Some(palette.text));
+    }
+
+    #[test]
+    fn a_filled_choice_draws_the_chosen_radio_in_its_mark_round_a_tick_and_so_do_its_submenus() {
+        let palette = ComponentPalette::neutral_dark();
+        let (mark, tick) = (Color::rgb(88, 101, 242), Color::WHITE);
+        let dot = crate::radio::dot_side(16.0);
+        for contextual in [false, true] {
+            let menu = |filled: bool| {
+                let menu = DropdownMenu::new(
+                    Element::button("trigger", "Notificaciones"),
+                    vec![
+                        DropdownMenuItem::new("all", "Todos los mensajes").radio(true).into(),
+                        DropdownMenuItem::new("mentions", "Solo @menciones").radio(false).into(),
+                        DropdownMenuItem::new("default", "Predeterminado").radio(true).disabled().into(),
+                        DropdownMenuItem::new("mute", "Silenciar")
+                            .submenu(vec![DropdownMenuItem::new("hour", "Durante 1 hora").radio(true).into()])
+                            .into(),
+                    ],
+                    true,
+                    "dismiss",
+                    palette,
+                );
+                let menu = if contextual { menu.context_menu_style() } else { menu };
+                open_menu(if filled { menu.filled_choice(mark, tick) } else { menu })
+            };
+            // The 16 px disc filled with `fill` in the row of `id`, if it has
+            // one with a `centre` dot in its middle.
+            let radio = |frame: &crate::Frame, id: &str, fill: Color, centre: Color| {
+                let row = region(frame, id);
+                frame.commands.iter().any(|command| matches!(command,
+                    DrawCommand::FillRect { rect: disc, color, radius } if *color == fill && disc.width == 16.0
+                        && *radius == 8.0 && row.contains(center(*disc))
+                        && frame.commands.iter().any(|command| matches!(command,
+                            DrawCommand::FillRect { rect, color, .. } if *color == centre && rect.width == dot
+                                && (center(*rect).x - center(*disc).x).abs() < 0.5
+                                && (center(*rect).y - center(*disc).y).abs() < 0.5))))
+            };
+            let discs = |frame: &crate::Frame, fill: Color| {
+                frame.commands.iter().filter(|command| matches!(command,
+                    DrawCommand::FillRect { rect, color, .. } if *color == fill && rect.width == 16.0)).count()
+            };
+            let viewport = Size::new(640.0, 480.0);
+            let mut filled = menu(true);
+            let frame = filled.layout(viewport);
+            assert!(radio(&frame, "all", mark, tick), "contextual {contextual}: the chosen radio is the mark round a tick");
+            assert_eq!(discs(&frame, mark), 1, "contextual {contextual}: a disabled chosen radio stays muted");
+            assert!(!radio(&frame, "mentions", mark, tick), "contextual {contextual}: the others stay outlines");
+            assert!(filled.focus("mute"));
+            let nested = filled.layout(viewport);
+            assert!(radio(&nested, "hour", mark, tick), "contextual {contextual}: a submenu takes it");
+            // Without it, the chosen radio is filled with the text's ink round a dot in the surface.
+            let mut plain = menu(false);
+            let frame = plain.layout(viewport);
+            assert!(radio(&frame, "all", palette.text, palette.surface), "contextual {contextual}: unchanged without it");
+            assert_eq!(discs(&frame, mark), 0);
+            assert!(plain.focus("mute"));
+            assert!(radio(&plain.layout(viewport), "hour", palette.text, palette.surface));
+        }
     }
 
     #[test]

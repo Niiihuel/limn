@@ -95,7 +95,9 @@ at the row's edge; only a menu with a row that is both a choice and a submenu
 keeps the two columns apart. Choosing either reports its ID,
 as any item does: the host flips its own value, or chooses the radio item's
 value. The mark is drawn as a `Checkbox` and a `RadioGroup` draw theirs, and is
-muted while the item is disabled.
+muted while the item is disabled. In a menu with `filled_choice(mark, tick)`,
+the chosen radio is filled with `mark` round a dot in `tick`, such as an
+accent blue round a white dot.
 
 ## Two lines, and why an item is disabled
 
@@ -250,7 +252,15 @@ DropdownMenu::new(row, entries, open, "row:dismiss", palette)
 `filled_choice(mark, tick)` marks the chosen row of a style menu as a settings
 list does: it keeps the palette's `selected` fill and the text's ink, the
 other labels are muted, and its check is a round `mark` with a `tick` in it.
-Without it the chosen row shows only its check. Submenus take the same.
+The chosen radio item is filled with `mark` round a dot in `tick`. Without it
+the chosen row shows only its check. Submenus take the same.
+
+```rust
+DropdownMenu::new(row, entries, open, "row:dismiss", palette)
+    .context_menu_style()
+    .filled_choice(accent, Color::WHITE)
+    .render()
+```
 
 `hints_in_tooltips(true)` moves shortcuts and annotations into each row's
 hint, for a narrow menu. `inline(true)` renders the options in the layout
