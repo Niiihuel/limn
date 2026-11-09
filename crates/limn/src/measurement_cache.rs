@@ -1,11 +1,10 @@
 //! Scratch measurements for one immutable tree during one layout pass.
 //! Temporary row/overlay trees use distinct scopes even if allocations reuse
-//! the same address. Entries never survive into the next layout pass.
+//! the same address. Entries never survive into the next layout pass, so the
+//! cache holds no more than the pass measured: it needs no cap of its own.
 
 use super::{Element, ElementKind, Size};
 use std::collections::HashMap;
-
-const MAX_ENTRIES: usize = 16_384;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct Key {
@@ -64,7 +63,7 @@ impl MeasurementCache {
         available: Size,
         measured: Size,
     ) {
-        if !self.disabled() && self.entries.len() < MAX_ENTRIES {
+        if !self.disabled() {
             self.entries
                 .insert(Self::key(scope, element, available), measured);
         }
@@ -126,10 +125,12 @@ mod tests {
         );
         assert_eq!(cache.get(1, &element, Size::new(100.0, 100.0)), None);
         assert_eq!(cache.get(1, &element, Size::new(200.0, 50.0)), None);
-        for scope in 2..MAX_ENTRIES as u64 * 2 {
+        // A large tree keeps every measurement of the pass: a cap that stopped
+        // inserting made everything measured after it measure again.
+        for scope in 2..40_000 {
             cache.insert(scope, &element, available, available);
         }
-        assert_eq!(cache.entries.len(), MAX_ENTRIES);
+        assert_eq!(cache.get(39_999, &element, available), Some(available));
         cache.clear();
         assert!(cache.get(1, &element, available).is_none());
     }

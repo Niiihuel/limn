@@ -74,9 +74,9 @@ The touch wrapper can append derived touch actions afterward. Hosts must
 explicitly defer or reject unpositioned files, revalidate their current view,
 and prevent editor submission in that frame when preparation must precede sending.
 
-`handle_event` returns the `UiAction`s the event produced. Call
-`UiTree::layout` before delivering pointer events: they are resolved against
-the regions of the last layout.
+`handle_event` returns the `UiAction`s the event produced. Pointer events are
+resolved against the regions of the last layout, the frame the person saw, so
+a host delivers a frame's input before laying it out again.
 
 ### Keys held
 
@@ -168,9 +168,9 @@ Rules a renderer must follow:
 
 ## The frame loop
 
+One layout per frame, after the input:
+
 ```rust
-tree.set_root(view(&state, size));
-tree.layout(size);
 for event in input {
     for action in tree.handle_event(event) {
         update(&mut state, &action);

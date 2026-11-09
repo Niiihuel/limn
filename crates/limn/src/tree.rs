@@ -1588,6 +1588,8 @@ pub struct Frame {
     sketches: HashMap<String, (Rect, crate::sketch::SketchStyle)>,
     cursors: HashMap<String, Cursor>,
     drop_targets: HashSet<String>,
+    /// The clickables that answer the pointer alone; see `Element::pointer_only`.
+    pointer_only: HashSet<String>,
     submenu_targets: HashMap<String, String>,
     submenu_triggers: HashSet<String>,
     sliders: HashMap<String, SliderGeometry>,
@@ -1610,6 +1612,7 @@ pub struct Frame {
     /// The zoom views laid out, in order, and the controls that move them.
     zoom_views: Vec<zoom_view_tree::ZoomFrame>,
     zoom_controls: HashMap<String, (String, crate::ZoomControl)>,
+    duplicate_ids: Vec<String>,
 }
 
 /// The coach mark rendered this frame, laid out or not.
@@ -1630,6 +1633,15 @@ struct CoachMotion {
 }
 
 impl Frame {
+    /// The IDs that more than one control of this layout took, in tree order:
+    /// buttons, inputs, clickables and editors. Two controls under one ID share
+    /// its hover, press, focus and transitions, and Tab stops at it once, so
+    /// a test asserts this is empty. A link's action in formatted
+    /// text is not counted: the same target may be linked twice.
+    pub fn duplicate_ids(&self) -> &[String] {
+        &self.duplicate_ids
+    }
+
     /// Whether anything is painted over the host-fed surface `id` after it: a
     /// menu, a tooltip, a dialog, a panel sliding in. A host that shows a
     /// native view where the surface is laid out hides the view while this
@@ -1724,6 +1736,53 @@ pub struct TextLayoutRun {
     /// The part of `rect` that is shown after clipping. A run with `None` does
     /// not answer the pointer.
     pub visible: Option<Rect>,
+}
+
+/// Out of sight, state is kept only for the IDs laid out most recently: a tab
+/// switched away from keeps its scroll and caret, while IDs that come and go,
+/// one per message, do not pile up.
+const DORMANT_KEPT: usize = 64;
+
+/// The layout each ID of a retained map was last laid out in.
+#[derive(Default)]
+struct LastLaidOut {
+    layout: u64,
+    inputs: HashMap<String, u64>,
+    scrolls: HashMap<String, u64>,
+    measured_lists: HashMap<String, u64>,
+    horizontal_scrolls: HashMap<String, u64>,
+}
+
+/// Stamp the IDs of `map` that `layout` used, then forget the dormant ones laid
+/// out longest ago, beyond the `DORMANT_KEPT` most recent.
+fn keep_recent<'a, V>(
+    map: &mut HashMap<String, V>,
+    stamps: &mut HashMap<String, u64>,
+    used: impl Iterator<Item = &'a str>,
+    layout: u64,
+) {
+    for id in used {
+        if let Some(stamp) = stamps.get_mut(id) {
+            *stamp = layout;
+        } else if map.contains_key(id) {
+            stamps.insert(id.to_owned(), layout);
+        }
+    }
+    stamps.retain(|id, _| map.contains_key(id));
+    let mut dormant: Vec<(u64, &String)> = map
+        .keys()
+        .map(|id| (stamps.get(id).copied().unwrap_or(0), id))
+        .filter(|(stamp, _)| *stamp != layout)
+        .collect();
+    if dormant.len() <= DORMANT_KEPT {
+        return;
+    }
+    dormant.sort_unstable();
+    let gone: Vec<String> = dormant[..dormant.len() - DORMANT_KEPT].iter().map(|(_, id)| (*id).clone()).collect();
+    for id in gone {
+        map.remove(&id);
+        stamps.remove(&id);
+    }
 }
 
 /// What a measured list keeps between layouts.
@@ -4358,6 +4417,8 @@ pub struct UiTree {
     text_layout: bool,
     measurement_cache: RefCell<MeasurementCache>,
     horizontal_scrolls: HashMap<String, HorizontalScrollState>,
+    /// When the IDs of each map that outlives its controls were last laid out.
+    last_laid_out: LastLaidOut,
     frame: Frame,
     inputs: HashMap<String, InputState>,
     code_editors: HashMap<String, crate::code_editor::EditorView>,
@@ -4390,6 +4451,9 @@ pub struct UiTree {
     /// key that closes it (Esc) does not make a pointer's focus the keyboard's.
     modal_return_keyboard: bool,
     pending_scroll_focus: Option<String>,
+    /// A control asked to be focused before a layout held it, and whether by
+    /// the keyboard: the next layout focuses it if it holds it.
+    pending_focus: Option<(String, bool)>,
     /// The control to bring into view, its margin, and whether it goes to
     /// the start of the viewport instead of just into it.
     pending_reveal: Option<(String, f32, bool)>,
@@ -4474,6 +4538,7 @@ impl UiTree {
             text_layout: false,
             measurement_cache: RefCell::new(MeasurementCache::default()),
             horizontal_scrolls: HashMap::new(),
+            last_laid_out: LastLaidOut::default(),
             frame: Frame::default(),
             inputs: HashMap::new(),
             code_editors: HashMap::new(),
@@ -4501,6 +4566,7 @@ impl UiTree {
             modal_return_focus: None,
             modal_return_keyboard: false,
             pending_scroll_focus: None,
+            pending_focus: None,
             pending_reveal: None,
             pending_center: None,
             hovered: None,
@@ -4865,6 +4931,7 @@ impl UiTree {
         let had_focus = self.focused.is_some();
         Self::replace_focused(&mut self.focused, &mut self.paste_epoch, None);
         self.pending_scroll_focus = None;
+        self.pending_focus = None;
         self.keyboard_focus = false;
         self.keyboard_tooltip_focus = false;
         self.validate_ime_owner(Instant::now());
@@ -4967,7 +5034,10 @@ impl UiTree {
         self.spatial_focus = enabled;
     }
 
-    /// Focus an interactive element after layout. Returns false for an unknown ID.
+    /// Focus an interactive element. True when the last layout held it and it
+    /// has the focus now. Otherwise false, and the next layout focuses it if it
+    /// holds it, so a host may focus a control its new view adds before laying
+    /// that view out; a later `focus` or `clear_focus` replaces the request.
     /// Text inputs place the caret at the end so command launchers can accept
     /// typing immediately after opening.
     pub fn focus(&mut self, id: &str) -> bool {
@@ -4981,15 +5051,16 @@ impl UiTree {
     }
 
     fn focus_with_modality(&mut self, id: &str, keyboard: bool) -> bool {
-        if !self.focus_order.iter().any(|(candidate, kind)| {
-            candidate == id
-                && matches!(
-                    kind,
-                    HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
-                )
-        }) {
+        if !takes_focus(&self.focus_order, id) {
+            self.pending_focus = Some((id.to_owned(), keyboard));
             return false;
         }
+        self.pending_focus = None;
+        self.give_focus(id, keyboard);
+        true
+    }
+
+    fn give_focus(&mut self, id: &str, keyboard: bool) {
         self.request_scroll_focus(id);
         self.caret_blink.reset();
         let next_focus = Some(id.to_owned());
@@ -5001,7 +5072,6 @@ impl UiTree {
             input.set_selection(input.value.chars().count(), None);
             input.keep_cursor_visible = true;
         }
-        true
     }
 
     /// Disable decorative color transitions when the user requests reduced motion.
@@ -5404,7 +5474,13 @@ impl UiTree {
         let previous_popovers = self.frame.popover_focus.clone();
         let mut focus_order = Vec::new();
         let mut seen = HashSet::new();
-        collect_focus_order(&self.root, &mut focus_order, &mut seen);
+        let mut duplicate_ids = Vec::new();
+        collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut duplicate_ids);
+        // A focus asked for before this tree was laid out lands now, so this
+        // layout already paints it and brings it into view.
+        if let Some((id, keyboard)) = self.pending_focus.take_if(|(id, _)| takes_focus(&focus_order, id)) {
+            self.give_focus(&id, keyboard);
+        }
         self.action_aliases.clear();
         let mut menu_secondary_actions = HashSet::new();
         collect_action_metadata(
@@ -6108,6 +6184,14 @@ impl UiTree {
                 .collect()
         };
         self.focus_order = expand(focus_order);
+        // The rows of a virtual list are known only once placed: a control in
+        // one takes the focus now, its ring on the next layout. A request this
+        // layout did not hold is dropped.
+        if let Some((id, keyboard)) = self.pending_focus.take() {
+            if takes_focus(&self.focus_order, &id) {
+                self.give_focus(&id, keyboard);
+            }
+        }
         let mut regions = Vec::new();
         collect_focus_regions(&self.root, &mut regions);
         self.focus_regions = regions
@@ -6198,6 +6282,7 @@ impl UiTree {
             }
         });
         self.scrollbar_states.retain(|_, state| state.seen);
+        frame.duplicate_ids = duplicate_ids;
         self.frame = frame;
         self.finish_paste_layout();
         if previous_popovers != self.frame.popover_focus {
@@ -6414,6 +6499,7 @@ impl UiTree {
         }
         self.caret_blink.finish_frame(self.focused.as_deref());
         self.trim_code_view_cache();
+        self.keep_recent_state();
         self.validate_ime_owner(now);
         self.paste_layout_pending = false;
         self.frame.clone()
@@ -6499,6 +6585,26 @@ impl UiTree {
                 self.forget_code_view(&id);
             }
         }
+    }
+
+    /// Bound what outlives its controls: the caret of each field, the offset of
+    /// each scroll area and list, the rows a measured list measured.
+    fn keep_recent_state(&mut self) {
+        let seen = &mut self.last_laid_out;
+        seen.layout += 1;
+        let layout = seen.layout;
+        let fields = self
+            .focus_order
+            .iter()
+            .filter(|(_, kind)| matches!(kind, HitKind::TextInput | HitKind::TextArea))
+            .map(|(id, _)| id.as_str());
+        keep_recent(&mut self.inputs, &mut seen.inputs, fields, layout);
+        // Every scroll area and list asks for its offset once per layout.
+        let scrolls = || self.frame.scroll_motion.keys().map(String::as_str);
+        keep_recent(&mut self.scroll_offsets, &mut seen.scrolls, scrolls(), layout);
+        keep_recent(&mut self.measured_lists, &mut seen.measured_lists, scrolls(), layout);
+        let strips = self.frame.horizontal_viewports.keys().map(String::as_str);
+        keep_recent(&mut self.horizontal_scrolls, &mut seen.horizontal_scrolls, strips, layout);
     }
 
     /// Instrumentation for lifecycle/end-to-end checks; not a memory estimate.
@@ -7488,6 +7594,7 @@ impl UiTree {
                                     id == &region.id && *kind == HitKind::CodeDiff
                                 })))
                                 && dismiss_scope.is_none()
+                                && !self.frame.pointer_only.contains(&region.id)
                         })
                         .map(|region| region.id.clone())
                         .or(dismiss_trigger);
@@ -8352,6 +8459,32 @@ fn collect_focus_order(
     order: &mut Vec<(String, HitKind)>,
     seen: &mut HashSet<String>,
 ) {
+    collect_focus_claims(element, order, seen, &mut Vec::new());
+}
+
+/// Gives `id` its place in the focus order, or notes it in `duplicates` when
+/// an earlier element already claimed it.
+fn claim_focus(
+    id: &str,
+    kind: HitKind,
+    order: &mut Vec<(String, HitKind)>,
+    seen: &mut HashSet<String>,
+    duplicates: &mut Vec<String>,
+) {
+    if seen.insert(id.to_owned()) {
+        order.push((id.to_owned(), kind));
+    } else if !duplicates.iter().any(|duplicate| duplicate == id) {
+        duplicates.push(id.to_owned());
+    }
+}
+
+/// As [`collect_focus_order`], also noting each ID that two elements claim.
+fn collect_focus_claims(
+    element: &Element,
+    order: &mut Vec<(String, HitKind)>,
+    seen: &mut HashSet<String>,
+    duplicates: &mut Vec<String>,
+) {
     if element.kept.as_ref().is_some_and(|kept| kept.inert) {
         return;
     }
@@ -8361,13 +8494,13 @@ fn collect_focus_order(
         | ElementKind::TabStrip { children, .. }
         | ElementKind::Stack(children) => {
             for child in children {
-                collect_focus_order(child, order, seen);
+                collect_focus_claims(child, order, seen, duplicates);
             }
         }
         ElementKind::Panel(child)
         | ElementKind::Scroll { child, .. }
         | ElementKind::HorizontalScroll { child, .. } => {
-            collect_focus_order(child, order, seen);
+            collect_focus_claims(child, order, seen, duplicates);
         }
         ElementKind::UniformList(list) => {
             // Layout replaces this marker with focusable controls from the
@@ -8378,14 +8511,14 @@ fn collect_focus_order(
             ));
         }
         ElementKind::Clickable { id, child } => {
-            if seen.insert(id.clone()) {
-                order.push((id.clone(), clickable_kind(element)));
+            if !is_pointer_only(element) {
+                claim_focus(id, clickable_kind(element), order, seen, duplicates);
             }
-            collect_focus_order(child, order, seen);
+            collect_focus_claims(child, order, seen, duplicates);
         }
         ElementKind::Overlay { base, floating } => {
-            collect_focus_order(base, order, seen);
-            collect_focus_order(floating, order, seen);
+            collect_focus_claims(base, order, seen, duplicates);
+            collect_focus_claims(floating, order, seen, duplicates);
         }
         ElementKind::Popover {
             anchor,
@@ -8393,39 +8526,29 @@ fn collect_focus_order(
             hover_open,
             ..
         } => {
-            collect_focus_order(anchor, order, seen);
+            collect_focus_claims(anchor, order, seen, duplicates);
             if !*hover_open {
-                collect_focus_order(floating, order, seen);
+                collect_focus_claims(floating, order, seen, duplicates);
             }
         }
-        ElementKind::Tooltip { anchor, .. } => collect_focus_order(anchor, order, seen),
+        ElementKind::Tooltip { anchor, .. } => collect_focus_claims(anchor, order, seen, duplicates),
         ElementKind::MarkRail(rail) => {
             for mark in &rail.marks {
-                if seen.insert(mark.id.clone()) {
-                    order.push((mark.id.clone(), HitKind::Button));
-                }
+                claim_focus(&mark.id, HitKind::Button, order, seen, duplicates);
             }
         }
         ElementKind::Button { id, .. }
         | ElementKind::IconButton { id, .. }
-        | ElementKind::EffortSlider { id, .. }
-            if seen.insert(id.clone()) =>
-        {
-            order.push((id.clone(), HitKind::Button));
-        }
-        ElementKind::TextInput { id, .. } if seen.insert(id.clone()) => {
-            order.push((id.clone(), HitKind::TextInput));
-        }
-        ElementKind::TextArea { id, .. } if seen.insert(id.clone()) => {
-            order.push((id.clone(), HitKind::TextArea));
-        }
-        ElementKind::CodeEditor(editor) if seen.insert(editor.id.clone()) => {
-            order.push((editor.id.clone(), HitKind::CodeEditor));
-        }
-        ElementKind::CodeDiff(diff) if diff.focusable && seen.insert(diff.id.clone()) => {
-            order.push((diff.id.clone(), HitKind::CodeDiff));
+        | ElementKind::EffortSlider { id, .. } => claim_focus(id, HitKind::Button, order, seen, duplicates),
+        ElementKind::TextInput { id, .. } => claim_focus(id, HitKind::TextInput, order, seen, duplicates),
+        ElementKind::TextArea { id, .. } => claim_focus(id, HitKind::TextArea, order, seen, duplicates),
+        ElementKind::CodeEditor(editor) => claim_focus(&editor.id, HitKind::CodeEditor, order, seen, duplicates),
+        ElementKind::CodeDiff(diff) if diff.focusable => {
+            claim_focus(&diff.id, HitKind::CodeDiff, order, seen, duplicates);
         }
         ElementKind::FormattedText(spans) => {
+            // A link's action is the same wherever its target is linked
+            // again, and a span has no alias to tell them apart: not a duplicate.
             for id in spans
                 .iter()
                 .filter(|span| !span.text.is_empty())
@@ -8436,15 +8559,9 @@ fn collect_focus_order(
                 }
             }
         }
-        ElementKind::Button { .. }
-        | ElementKind::IconButton { .. }
-        | ElementKind::TextInput { .. }
-        | ElementKind::TextArea { .. }
-        | ElementKind::CodeEditor(_)
-        | ElementKind::CodeDiff(_)
+        ElementKind::CodeDiff(_)
         | ElementKind::Flowchart(_)
         | ElementKind::SequenceDiagram(_)
-        | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
         | ElementKind::Scribble { .. }
@@ -8555,6 +8672,21 @@ fn collect_action_metadata(
 
 /// A clickable's kind of region: a button, or a region that only takes the
 /// focus.
+/// Whether `order` holds `id` as a control that takes the focus.
+fn takes_focus(order: &[(String, HitKind)], id: &str) -> bool {
+    order.iter().any(|(candidate, kind)| {
+        candidate == id
+            && matches!(
+                kind,
+                HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
+            )
+    })
+}
+
+fn is_pointer_only(element: &Element) -> bool {
+    element.kept.as_ref().is_some_and(|kept| kept.pointer_only)
+}
+
 fn clickable_kind(element: &Element) -> HitKind {
     if element.kept.as_ref().is_some_and(|kept| kept.focus_area) {
         HitKind::Focus
@@ -12450,7 +12582,7 @@ impl LayoutBuilder<'_> {
     /// Record what the platform should know of `element`: what it says of
     /// itself over what its kind tells.
     fn note_access(&mut self, element: &Element, rect: Rect, clip: Option<Rect>, above: Option<crate::Access>) {
-        let own = focusable_id(element);
+        let own = focusable_id(element).filter(|_| !is_pointer_only(element));
         if own.is_none() && element.access.is_none() {
             return;
         }
@@ -12962,6 +13094,9 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::Clickable { id, child } => {
                 self.add_region(id, rect, clickable_kind(element), clip);
+                if is_pointer_only(element) {
+                    self.frame.pointer_only.insert(id.clone());
+                }
                 if let Some(style) = element.kept.as_ref().and_then(|kept| kept.sketch) {
                     self.frame.sketches.insert(id.clone(), (content, style));
                 }
@@ -16935,6 +17070,60 @@ mod tests {
             Some(frozen)
         );
         assert_eq!(tree.animation_repaint_after(), None);
+    }
+
+    #[test]
+    fn a_frame_lists_the_ids_two_controls_took_but_not_a_link_linked_twice() {
+        let link = || Element::formatted_text(vec![TextSpan::new("docs", Color::rgb(0, 0, 0), 14.0, FontFamily::Sans).action("open:docs")]);
+        let root = Element::column(vec![
+            Element::button("save", "Save"),
+            Element::clickable("save", Element::text("Save again")),
+            Element::text_input("name", "", "Name"),
+            Element::text_input("name", "", "Name again"),
+            Element::button("save", "Third"),
+            Element::button("cancel", "Cancel"),
+            link(),
+            link(),
+        ]);
+        let mut tree = UiTree::new(root);
+        let frame = tree.layout(Size::new(400.0, 400.0));
+        assert_eq!(frame.duplicate_ids(), ["save", "name"]);
+        tree.set_root(Element::column(vec![Element::button("save", "Save"), Element::button("cancel", "Cancel")]));
+        assert!(tree.layout(Size::new(400.0, 400.0)).duplicate_ids().is_empty());
+    }
+
+    #[test]
+    fn state_out_of_sight_is_kept_only_for_the_ids_laid_out_most_recently() {
+        let viewport = Size::new(300.0, 200.0);
+        let page = |id: &str| {
+            Element::column(vec![
+                Element::scroll(id, Element::column((0..20).map(|_| Element::text("row")).collect()))
+                    .size(None, Some(100.0)),
+                Element::text_input(format!("{id}:field"), "draft", "Reply"),
+            ])
+        };
+        let mut tree = UiTree::new(page("tab"));
+        tree.layout(viewport);
+        tree.set_scroll_offset("tab", 40.0);
+        tree.layout(viewport);
+        // A tab switched away from and back keeps its place.
+        for index in 0..10 {
+            tree.set_root(page(&format!("other:{index}")));
+            tree.layout(viewport);
+        }
+        tree.set_root(page("tab"));
+        tree.layout(viewport);
+        assert_eq!(tree.scroll_offset("tab"), 40.0);
+        // IDs that come and go, one per message, do not pile up.
+        for index in 0..200 {
+            tree.set_root(page(&format!("message:{index}")));
+            tree.layout(viewport);
+        }
+        assert_eq!(tree.scroll_offsets.len(), DORMANT_KEPT + 1);
+        assert_eq!(tree.inputs.len(), DORMANT_KEPT + 1);
+        assert!(tree.scroll_offsets.contains_key("message:199"));
+        assert!(tree.scroll_offsets.contains_key("message:136"));
+        assert!(!tree.scroll_offsets.contains_key("tab"));
     }
 
     #[test]

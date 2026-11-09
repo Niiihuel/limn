@@ -109,8 +109,6 @@ impl eframe::App for App {
         limn_egui::normalize_keyboard_input(&ctx);
         let area = ui.max_rect();
         let size = Size::new(area.width(), area.height());
-        self.tree.set_root(self.view(size));
-        self.tree.layout(size);
         for event in limn_egui::events(&ctx, area.min) {
             for action in self.tree.handle_event(event) {
                 self.update(&action);

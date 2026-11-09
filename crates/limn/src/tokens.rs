@@ -6,8 +6,11 @@
 //! without ever seeing a palette, and an application has one shape and one
 //! pace. They are therefore set once for the process with [`set_tokens`] and
 //! read where they are used, like variables on a style sheet's root. So is
-//! a host's one look for every tooltip, when it wants one.
+//! a host's one look for every tooltip, when it wants one. [`with_tokens`]
+//! puts other tokens in force on one thread while a closure runs: a test, or
+//! a window that builds and lays out its tree in it.
 
+use std::cell::Cell;
 use std::sync::{PoisonError, RwLock};
 
 use crate::TooltipStyle;
@@ -228,9 +231,38 @@ pub enum ShortcutStyle {
 
 static CURRENT: RwLock<Tokens> = RwLock::new(Tokens::DEFAULT);
 
-/// The tokens in force. Cheap enough to read wherever one is needed.
+thread_local! {
+    /// What [`with_tokens`] put in force on this thread, over [`CURRENT`].
+    static SCOPED: Cell<Option<Tokens>> = const { Cell::new(None) };
+}
+
+/// The tokens in force: those of the innermost [`with_tokens`] running on this
+/// thread, else the process's. Cheap enough to read wherever one is needed.
 pub fn tokens() -> Tokens {
-    *CURRENT.read().unwrap_or_else(PoisonError::into_inner)
+    SCOPED
+        .with(Cell::get)
+        .unwrap_or_else(|| *CURRENT.read().unwrap_or_else(PoisonError::into_inner))
+}
+
+/// Run `f` with `tokens` in force on this thread alone, and put back what was
+/// in force when it returns or unwinds. Other threads, and the process's
+/// tokens, are untouched, so tests that change tokens run side by side. A
+/// window with tokens of its own builds and lays out its tree inside it, since
+/// both read them. A radius that is negative or not finite falls back to its
+/// default, as with [`set_tokens`].
+pub fn with_tokens<R>(tokens: Tokens, f: impl FnOnce() -> R) -> R {
+    struct Restore(Option<Tokens>);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            SCOPED.with(|scoped| scoped.set(self.0));
+        }
+    }
+    let sanitized = Tokens {
+        radius: tokens.radius.sanitized(),
+        ..tokens
+    };
+    let _restore = Restore(SCOPED.with(|scoped| scoped.replace(Some(sanitized))));
+    f()
 }
 
 /// Replace the tokens for the whole process. Elements built from here on use
@@ -250,7 +282,29 @@ mod tests {
 
     // These never call `set_tokens`: the tokens are shared by every test in
     // this binary. Changing them is covered by `tests/tokens.rs`, which runs
-    // in a process of its own.
+    // in a process of its own, or done on one thread with `with_tokens`.
+
+    #[test]
+    fn with_tokens_holds_on_its_own_thread_until_it_returns_or_unwinds() {
+        let round = Tokens { radius: Radius::ROUND, ..Tokens::DEFAULT };
+        let square = Tokens { radius: Radius::SQUARE, ..Tokens::DEFAULT };
+        let process = tokens();
+        with_tokens(round, || {
+            assert_eq!(tokens().radius, Radius::ROUND);
+            let other = std::thread::spawn(tokens).join().unwrap();
+            assert_eq!(other, process, "another thread keeps the process's tokens");
+            with_tokens(square, || assert_eq!(tokens().radius, Radius::SQUARE));
+            assert_eq!(tokens().radius, Radius::ROUND, "the outer scope is back");
+            let unwound = std::panic::catch_unwind(|| with_tokens(square, || panic!("inside")));
+            assert!(unwound.is_err());
+            assert_eq!(tokens().radius, Radius::ROUND, "an unwind puts it back too");
+        });
+        assert_eq!(tokens(), process);
+        let bad = Radius { control: f32::NAN, ..Radius::ROUND };
+        with_tokens(Tokens { radius: bad, ..Tokens::DEFAULT }, || {
+            assert_eq!(tokens().radius.control, Radius::DEFAULT.control);
+        });
+    }
 
     #[test]
     fn scaling_multiplies_every_token_and_ignores_bad_factors() {

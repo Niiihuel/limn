@@ -61,7 +61,8 @@ Two rules follow:
 
 - **Every mounted control needs its own ID.** Two controls with the same ID
   share memory: hovering one lights up the other, and they share one
-  transition.
+  transition. `frame.duplicate_ids()` lists the IDs a layout found taken
+  twice; assert it is empty in a test of your window.
 - **To send the same action from two places, keep the IDs distinct and alias
   the action:**
 
@@ -89,6 +90,12 @@ screen. This is what makes the window a pure function of your state.
 What the tree does keep is *interaction* state, which is not your data: which
 control has focus, where the pointer is, how far a list is scrolled.
 
+Most of it lasts only while its control is laid out. What should outlive a
+control that goes out of the window for a while, the caret of a field and the
+offset of a scroll area or list, is kept for the 64 IDs of each kind laid out
+most recently: a tab switched back to keeps its place, and IDs that come and
+go, one per message, do not pile up.
+
 ## Actions
 
 `UiTree::handle_event` returns the actions an event produced. The common ones:
@@ -110,8 +117,9 @@ The code editor adds `EditorChanged`, `EditorSaveRequested` and `EditorFailed`.
 
 Focus moves through buttons and inputs in tree order with Tab and Shift+Tab.
 Enter and Space activate a focused button. Focus survives a rebuild as long as
-the focused control keeps its ID. `tree.focus(id)` moves focus from code, after
-a layout that contains the control.
+the focused control keeps its ID. `tree.focus(id)` moves focus from code: at
+once when the last layout held the control, else in the next layout if that one
+holds it, so an `update` may focus a control its new view is about to add.
 
 An open popover, menu or dialog keeps Tab inside itself and closes on Escape.
 
@@ -126,6 +134,16 @@ An element is interactive only if it is a button, an input, or wrapped in
 `Element::clickable(id, child)`. Everything else, including text and icons, is
 passive: it paints, and the pointer passes through it. A disabled button is
 rendered as passive content, so it cannot be focused or clicked by any path.
+
+A clickable can answer the pointer alone with `.pointer_only()`: no stop for
+Tab, no focus when pressed, nothing told to a screen reader. It is for a
+second, larger target of an action a control beside it already offers the
+keyboard, as a lightbox's picture closes it like its close button. Give it an
+ID of its own and alias the action:
+
+```rust
+Element::clickable("viewer:picture", picture).pointer_only().dispatch_as("close");
+```
 
 ## See also
 

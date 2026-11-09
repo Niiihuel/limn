@@ -99,3 +99,97 @@ fn a_release_or_a_change_of_modifiers_activates_nothing() {
     assert!(tree.handle_event(press(Key::Num5, false, false)).is_empty());
     assert_eq!(tree.handle_event(press(Key::Enter, false, false)), vec![UiAction::Clicked { id: "save".into() }]);
 }
+
+#[test]
+fn a_focus_asked_for_before_its_control_is_laid_out_lands_in_the_layout_that_adds_it() {
+    let size = Size::new(320.0, 200.0);
+    let now = Instant::now();
+    let closed = || Element::column(vec![Element::button("open", "Open")]);
+    let open = || Element::column(vec![Element::button("open", "Open"), Element::text_input("search", "", "Search")]);
+
+    // The host's update opens the launcher and focuses its field before laying it out.
+    let mut tree = UiTree::new(closed());
+    tree.layout_at(size, now);
+    assert!(!tree.focus("search"));
+    assert_eq!(tree.focused_id(), None);
+    tree.set_root(open());
+    let deferred = tree.layout_at(size, now);
+    assert_eq!(tree.focused_id(), Some("search"));
+    assert!(tree.has_keyboard_focus());
+
+    // The same layout paints it as a focus given after a layout does.
+    let mut eager = UiTree::new(open());
+    eager.layout_at(size, now);
+    assert!(eager.focus("search"));
+    assert_eq!(eager.layout_at(size, now).commands, deferred.commands);
+}
+
+#[test]
+fn a_focus_request_lasts_one_layout_and_yields_to_a_later_focus_or_clear() {
+    let size = Size::new(320.0, 200.0);
+    let with = |ids: &[&str]| Element::column(ids.iter().map(|id| Element::button(*id, *id)).collect());
+    let mut tree = UiTree::new(with(&["a"]));
+    tree.layout(size);
+
+    assert!(!tree.focus("ghost"));
+    tree.layout(size);
+    tree.set_root(with(&["a", "ghost"]));
+    tree.layout(size);
+    assert_eq!(tree.focused_id(), None, "a layout without it drops the request");
+
+    tree.set_root(with(&["a"]));
+    tree.layout(size);
+    assert!(!tree.focus("later"));
+    assert!(tree.focus("a"));
+    tree.set_root(with(&["a", "later"]));
+    tree.layout(size);
+    assert_eq!(tree.focused_id(), Some("a"), "a focus that landed replaces the request");
+
+    assert!(!tree.focus("next"));
+    tree.clear_focus();
+    tree.set_root(with(&["a", "next"]));
+    tree.layout(size);
+    assert_eq!(tree.focused_id(), None, "clear_focus drops it too");
+}
+
+#[test]
+fn a_focus_asked_for_in_a_virtual_list_row_lands_once_the_row_is_placed() {
+    let size = Size::new(320.0, 200.0);
+    let list = || Element::uniform_list("rows", 50, 24.0, |index| Element::button(format!("row:{index}"), "Row"));
+    let mut tree = UiTree::new(Element::spacer());
+    tree.layout(size);
+    assert!(!tree.focus("row:2"));
+    tree.set_root(list());
+    tree.layout(size);
+    assert_eq!(tree.focused_id(), Some("row:2"));
+}
+
+#[test]
+fn a_pointer_only_clickable_answers_a_press_but_not_tab_focus_or_the_platform() {
+    let size = Size::new(320.0, 240.0);
+    let root = Element::column(vec![
+        Element::button("close", "Close"),
+        Element::clickable("picture", Element::spacer().size(Some(200.0), Some(120.0)))
+            .pointer_only()
+            .dispatch_as("close"),
+        Element::button("next", "Next"),
+    ]);
+    let mut tree = UiTree::new(root);
+    let frame = tree.layout(size);
+    assert!(frame.duplicate_ids().is_empty());
+    assert!(frame.access.iter().all(|node| node.id != "picture"), "the platform is not told of it");
+
+    let picture = frame.regions.iter().find(|region| region.id == "picture").unwrap().rect;
+    let inside = Point::new(picture.x + 20.0, picture.y + 20.0);
+    tree.handle_event(UiEvent::PointerMove(inside));
+    assert_eq!(tree.hovered_id(), Some("picture"), "its hover is its own");
+    assert!(tree.focus("close"));
+    tree.handle_event(UiEvent::PointerDown(inside));
+    assert_eq!(tree.focused_id(), None, "a press takes the focus away, as one on the page does");
+    assert_eq!(tree.handle_event(UiEvent::PointerUp(inside)), vec![UiAction::Clicked { id: "close".into() }]);
+
+    tree.layout(size);
+    assert!(tree.focus("close"));
+    tree.handle_event(press(Key::Tab, false, false));
+    assert_eq!(tree.focused_id(), Some("next"), "Tab goes past it");
+}
