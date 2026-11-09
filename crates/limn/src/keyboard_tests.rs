@@ -163,3 +163,33 @@ fn a_focus_asked_for_in_a_virtual_list_row_lands_once_the_row_is_placed() {
     tree.layout(size);
     assert_eq!(tree.focused_id(), Some("row:2"));
 }
+
+#[test]
+fn a_pointer_only_clickable_answers_a_press_but_not_tab_focus_or_the_platform() {
+    let size = Size::new(320.0, 240.0);
+    let root = Element::column(vec![
+        Element::button("close", "Close"),
+        Element::clickable("picture", Element::spacer().size(Some(200.0), Some(120.0)))
+            .pointer_only()
+            .dispatch_as("close"),
+        Element::button("next", "Next"),
+    ]);
+    let mut tree = UiTree::new(root);
+    let frame = tree.layout(size);
+    assert!(frame.duplicate_ids().is_empty());
+    assert!(frame.access.iter().all(|node| node.id != "picture"), "the platform is not told of it");
+
+    let picture = frame.regions.iter().find(|region| region.id == "picture").unwrap().rect;
+    let inside = Point::new(picture.x + 20.0, picture.y + 20.0);
+    tree.handle_event(UiEvent::PointerMove(inside));
+    assert_eq!(tree.hovered_id(), Some("picture"), "its hover is its own");
+    assert!(tree.focus("close"));
+    tree.handle_event(UiEvent::PointerDown(inside));
+    assert_eq!(tree.focused_id(), None, "a press takes the focus away, as one on the page does");
+    assert_eq!(tree.handle_event(UiEvent::PointerUp(inside)), vec![UiAction::Clicked { id: "close".into() }]);
+
+    tree.layout(size);
+    assert!(tree.focus("close"));
+    tree.handle_event(press(Key::Tab, false, false));
+    assert_eq!(tree.focused_id(), Some("next"), "Tab goes past it");
+}

@@ -135,6 +135,16 @@ An element is interactive only if it is a button, an input, or wrapped in
 passive: it paints, and the pointer passes through it. A disabled button is
 rendered as passive content, so it cannot be focused or clicked by any path.
 
+A clickable can answer the pointer alone with `.pointer_only()`: no stop for
+Tab, no focus when pressed, nothing told to a screen reader. It is for a
+second, larger target of an action a control beside it already offers the
+keyboard, as a lightbox's picture closes it like its close button. Give it an
+ID of its own and alias the action:
+
+```rust
+Element::clickable("viewer:picture", picture).pointer_only().dispatch_as("close");
+```
+
 ## See also
 
 - [Layout](layout.md) for arranging elements.

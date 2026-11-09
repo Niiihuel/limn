@@ -418,11 +418,15 @@ impl ImageViewer {
             Some(image) => Element::raster_image(image.full_resolution()).radius(PICTURE_RADIUS),
             None => pending(&self.close_id, self.error.as_deref(), fit.width, self.palette),
         };
-        // A panel carries the shadow, and the click that closes the viewer is the picture's own.
+        // A panel carries the shadow, and the click that closes the viewer is the picture's own:
+        // the pointer's alone, since the close button offers it to the keyboard.
         let shadow = Element::panel(picture.size(Some(fit.width), Some(fit.height)))
             .radius(PICTURE_RADIUS)
             .shadow(Color::rgba(0, 0, 0, 77), Point::new(0.0, 4.0), 32.0, 0.0);
-        let anchor = Element::clickable(&self.close_id, shadow).size(Some(fit.width), Some(fit.height));
+        let anchor = Element::clickable(format!("{}:picture", self.close_id), shadow)
+            .pointer_only()
+            .dispatch_as(&self.close_id)
+            .size(Some(fit.width), Some(fit.height));
         let mut column = vec![close_control(&self.close_id, controls)];
         for (id, icon, label) in &self.actions {
             column.push(control(id, *icon, label, label, true, controls));
@@ -1833,7 +1837,9 @@ mod tests {
 
             let mut on_picture = UiTree::new(lightbox(window, (1200.0, 800.0), None));
             on_picture.set_reduced_motion(true);
-            let corner = picture(&on_picture.layout(window));
+            let frame = on_picture.layout(window);
+            assert!(frame.duplicate_ids().is_empty(), "the picture closes it under an ID of its own");
+            let corner = picture(&frame);
             assert_eq!(tap(&mut on_picture, Point::new(corner.x + 100.0, corner.y + 100.0)), closed);
         }
 

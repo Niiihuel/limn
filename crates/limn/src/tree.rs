@@ -1588,6 +1588,8 @@ pub struct Frame {
     sketches: HashMap<String, (Rect, crate::sketch::SketchStyle)>,
     cursors: HashMap<String, Cursor>,
     drop_targets: HashSet<String>,
+    /// The clickables that answer the pointer alone; see `Element::pointer_only`.
+    pointer_only: HashSet<String>,
     submenu_targets: HashMap<String, String>,
     submenu_triggers: HashSet<String>,
     sliders: HashMap<String, SliderGeometry>,
@@ -7592,6 +7594,7 @@ impl UiTree {
                                     id == &region.id && *kind == HitKind::CodeDiff
                                 })))
                                 && dismiss_scope.is_none()
+                                && !self.frame.pointer_only.contains(&region.id)
                         })
                         .map(|region| region.id.clone())
                         .or(dismiss_trigger);
@@ -8508,7 +8511,9 @@ fn collect_focus_claims(
             ));
         }
         ElementKind::Clickable { id, child } => {
-            claim_focus(id, clickable_kind(element), order, seen, duplicates);
+            if !is_pointer_only(element) {
+                claim_focus(id, clickable_kind(element), order, seen, duplicates);
+            }
             collect_focus_claims(child, order, seen, duplicates);
         }
         ElementKind::Overlay { base, floating } => {
@@ -8676,6 +8681,10 @@ fn takes_focus(order: &[(String, HitKind)], id: &str) -> bool {
                 HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
             )
     })
+}
+
+fn is_pointer_only(element: &Element) -> bool {
+    element.kept.as_ref().is_some_and(|kept| kept.pointer_only)
 }
 
 fn clickable_kind(element: &Element) -> HitKind {
@@ -12573,7 +12582,7 @@ impl LayoutBuilder<'_> {
     /// Record what the platform should know of `element`: what it says of
     /// itself over what its kind tells.
     fn note_access(&mut self, element: &Element, rect: Rect, clip: Option<Rect>, above: Option<crate::Access>) {
-        let own = focusable_id(element);
+        let own = focusable_id(element).filter(|_| !is_pointer_only(element));
         if own.is_none() && element.access.is_none() {
             return;
         }
@@ -13085,6 +13094,9 @@ impl LayoutBuilder<'_> {
             }
             ElementKind::Clickable { id, child } => {
                 self.add_region(id, rect, clickable_kind(element), clip);
+                if is_pointer_only(element) {
+                    self.frame.pointer_only.insert(id.clone());
+                }
                 if let Some(style) = element.kept.as_ref().and_then(|kept| kept.sketch) {
                     self.frame.sketches.insert(id.clone(), (content, style));
                 }

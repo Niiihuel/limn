@@ -1052,6 +1052,9 @@ pub(crate) struct Kept {
     pub(crate) pulse_ms: Option<u16>,
     /// Set by [`Element::focus_area`]: a clickable that only takes the focus.
     pub(crate) focus_area: bool,
+    /// Set by [`Element::pointer_only`]: a clickable the keyboard and the
+    /// platform do not know of.
+    pub(crate) pointer_only: bool,
     /// Set by [`Element::selection_scope`]: its texts select as one document.
     pub(crate) selection_scope: bool,
     /// Set by [`Element::caret`]: the control whose focus shows the element,
@@ -2662,6 +2665,20 @@ impl Element {
         actions: impl IntoIterator<Item = impl Into<String>>,
     ) -> Self {
         self.hover_surface = Some(Box::new((id.into(), actions.into_iter().map(Into::into).collect())));
+        self
+    }
+
+    /// Make a clickable answer the pointer alone: it is no stop for Tab, takes
+    /// no focus when pressed, and the platform is not told of it. For a
+    /// second, larger target of an action a control beside it already offers
+    /// the keyboard and screen readers, as a lightbox's picture closes it as
+    /// its close button does. Give it an ID of its own and
+    /// [`Element::dispatch_as`] the action, so the two keep their own hover and
+    /// press. Elements that are not clickables are returned unchanged.
+    pub fn pointer_only(mut self) -> Self {
+        if matches!(self.kind, ElementKind::Clickable { .. }) {
+            self.kept.get_or_insert_default().pointer_only = true;
+        }
         self
     }
 
