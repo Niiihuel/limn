@@ -20,13 +20,24 @@ let current = tokens(); // read them back
 | Function | Effect |
 | --- | --- |
 | `set_tokens(tokens)` | Replaces the tokens for the whole process. |
-| `tokens()` | Returns the tokens in force. |
+| `with_tokens(tokens, f)` | Runs `f` with these tokens in force on the current thread only, then puts back the ones before. |
+| `tokens()` | Returns the tokens in force: the innermost `with_tokens` on this thread, else the process's. |
 
 Elements read the tokens when they are built. An application that rebuilds its
 tree every frame, which is the normal case, changes on the next frame.
 
-Tokens are process-wide. They cannot differ between two parts of a window or
-between two windows.
+Tokens are process-wide unless a thread runs under `with_tokens`. Since both
+building elements and laying them out read them, a window with tokens of its
+own builds and lays out its tree inside the call:
+
+```rust
+let frame = limn::with_tokens(compact, || {
+    tree.set_root(view(&state));
+    tree.layout(size)
+});
+```
+
+They cannot differ between two parts of one tree.
 
 ## Radius
 

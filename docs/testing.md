@@ -84,9 +84,17 @@ the instant passed to `layout_at`, so do not assert on them in such a test.
 one process and run in parallel. A unit test that changes tokens would reshape
 every other test while it ran.
 
-Put token-changing tests in an integration test, which Cargo builds as its own
-executable, and keep them in a single test function so they run in order.
-`crates/limn/tests/tokens.rs` is the example.
+Run the test's tree inside `with_tokens` instead: the tokens hold on the test's
+own thread alone, and come back when the closure returns or panics.
+
+```rust
+let frame = limn::with_tokens(Tokens { radius: Radius::ROUND, ..Tokens::DEFAULT }, || {
+    UiTree::new(view()).layout(Size::new(800.0, 600.0))
+});
+```
+
+A test of `set_tokens` itself still belongs in an integration test, which
+Cargo builds as its own executable; `crates/limn/tests/tokens.rs` is the example.
 
 ## Covering more than one size
 
