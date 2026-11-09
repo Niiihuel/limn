@@ -5433,6 +5433,7 @@ impl UiTree {
     ) -> Frame {
         self.begin_paste_layout();
         self.layout_cache.get_mut().begin_pass();
+        self.width_cache.get_mut().begin_pass();
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
         for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
