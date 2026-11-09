@@ -2,7 +2,7 @@
 //! and what the pointer does to them.
 
 use super::{
-    paint_corner_rect, paint_fade, AnimatedScalar, CornerRadii, DeferredOverlay, DrawCommand, HitKind, LayoutBuilder,
+    paint_corner_rect, paint_fade, AnimatedScalar, AnimatedSpring, CornerRadii, DeferredOverlay, DrawCommand, HitKind, LayoutBuilder,
     Point, Rect, Size,
 };
 use crate::{BarPlot, Color, Element, FontFamily, ScalarTransition};
@@ -157,14 +157,13 @@ impl LayoutBuilder<'_> {
     /// From nothing to one over four moves, starting when the key is first
     /// seen: what a plot's bars grow by as it appears.
     fn appearing(&self, key: &str) -> f32 {
-        let mut scalars = self.scalars.borrow_mut();
-        let state = scalars.entry(key.to_owned()).or_insert_with(|| {
+        let mut states = self.states.borrow_mut();
+        let state = states.touch(key, self.now, || {
             let mut value = ScalarTransition::new(0.0, self.now);
             let duration = Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 4);
             value.retarget_with_motion(1.0, self.now, duration, self.reduced_motion);
-            AnimatedScalar { value, seen: self.now }
+            AnimatedScalar { value }
         });
-        state.seen = self.now;
         state.value.value(self.now)
     }
 
@@ -319,7 +318,7 @@ impl LayoutBuilder<'_> {
         let hover = crate::tokens().motion.hover_ms;
         let focus = self.spring_paced(&format!("{}/focus", plot.id), if over.is_some() { 1.0 } else { 0.0 }, hover, hover).clamp(0.0, 1.0);
         let at_key = format!("{}/at", plot.id);
-        let resting = self.springs.borrow().get(&at_key).map(|spring| spring.value.target());
+        let resting = self.states.borrow().get::<AnimatedSpring>(&at_key).map(|spring| spring.value.target());
         let read = over.map_or(resting.unwrap_or(0.0), |index| index as f32);
         let glide = self.spring_paced(&at_key, read, hover, hover);
 
@@ -570,7 +569,7 @@ impl LayoutBuilder<'_> {
         let hover = crate::tokens().motion.hover_ms;
         let focus = self.spring_paced(&format!("{}/focus", plot.id), if over.is_some() { 1.0 } else { 0.0 }, hover, hover).clamp(0.0, 1.0);
         let at_key = format!("{}/at", plot.id);
-        let resting = self.springs.borrow().get(&at_key).map(|spring| spring.value.target());
+        let resting = self.states.borrow().get::<AnimatedSpring>(&at_key).map(|spring| spring.value.target());
         let read = over.map_or(resting.unwrap_or(0.0), |axis| axis as f32).round().clamp(0.0, count as f32 - 1.0) as usize;
         self.spring_paced(&at_key, read as f32, hover, hover);
         if focus > 0.01 {
@@ -668,7 +667,7 @@ impl LayoutBuilder<'_> {
         let hover = crate::tokens().motion.hover_ms;
         let focus = self.spring_paced(&format!("{}/focus", plot.id), if over.is_some() { 1.0 } else { 0.0 }, hover, hover).clamp(0.0, 1.0);
         let band_key = format!("{}/band", plot.id);
-        let resting = self.springs.borrow().get(&band_key).map(|spring| spring.value.target());
+        let resting = self.states.borrow().get::<AnimatedSpring>(&band_key).map(|spring| spring.value.target());
         let lit = self.spring_paced(&band_key, over.map_or(resting.unwrap_or(0.0), |index| index as f32), hover, hover);
 
         // The grid and the ticks.
@@ -840,7 +839,7 @@ impl LayoutBuilder<'_> {
                 let key = format!("{}/cell/{column}/{row}", plot.id);
                 let under = over == Some((column, row));
                 // Only the cells the pointer has been over have a height to come down from.
-                let lift = if under || self.springs.borrow().contains_key(&key) {
+                let lift = if under || self.states.borrow().get::<AnimatedSpring>(&key).is_some() {
                     let lift = self.spring_paced(&key, if under { 1.0 } else { 0.0 }, hover, hover * 2);
                     if under || lift.abs() > 0.004 { lift } else { 0.0 }
                 } else {
