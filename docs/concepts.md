@@ -61,7 +61,8 @@ Two rules follow:
 
 - **Every mounted control needs its own ID.** Two controls with the same ID
   share memory: hovering one lights up the other, and they share one
-  transition.
+  transition. `frame.duplicate_ids()` lists the IDs a layout found taken
+  twice; assert it is empty in a test of your window.
 - **To send the same action from two places, keep the IDs distinct and alias
   the action:**
 

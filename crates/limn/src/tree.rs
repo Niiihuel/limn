@@ -1610,6 +1610,7 @@ pub struct Frame {
     /// The zoom views laid out, in order, and the controls that move them.
     zoom_views: Vec<zoom_view_tree::ZoomFrame>,
     zoom_controls: HashMap<String, (String, crate::ZoomControl)>,
+    duplicate_ids: Vec<String>,
 }
 
 /// The coach mark rendered this frame, laid out or not.
@@ -1630,6 +1631,15 @@ struct CoachMotion {
 }
 
 impl Frame {
+    /// The IDs that more than one control of this layout took, in tree order:
+    /// buttons, inputs, clickables and editors. Two controls under one ID share
+    /// its hover, press, focus and transitions, and Tab stops at it once, so
+    /// a test asserts this is empty. A link's action in formatted
+    /// text is not counted: the same target may be linked twice.
+    pub fn duplicate_ids(&self) -> &[String] {
+        &self.duplicate_ids
+    }
+
     /// Whether anything is painted over the host-fed surface `id` after it: a
     /// menu, a tooltip, a dialog, a panel sliding in. A host that shows a
     /// native view where the surface is laid out hides the view while this
@@ -5404,7 +5414,8 @@ impl UiTree {
         let previous_popovers = self.frame.popover_focus.clone();
         let mut focus_order = Vec::new();
         let mut seen = HashSet::new();
-        collect_focus_order(&self.root, &mut focus_order, &mut seen);
+        let mut duplicate_ids = Vec::new();
+        collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut duplicate_ids);
         self.action_aliases.clear();
         let mut menu_secondary_actions = HashSet::new();
         collect_action_metadata(
@@ -6198,6 +6209,7 @@ impl UiTree {
             }
         });
         self.scrollbar_states.retain(|_, state| state.seen);
+        frame.duplicate_ids = duplicate_ids;
         self.frame = frame;
         self.finish_paste_layout();
         if previous_popovers != self.frame.popover_focus {
@@ -8352,6 +8364,32 @@ fn collect_focus_order(
     order: &mut Vec<(String, HitKind)>,
     seen: &mut HashSet<String>,
 ) {
+    collect_focus_claims(element, order, seen, &mut Vec::new());
+}
+
+/// Gives `id` its place in the focus order, or notes it in `duplicates` when
+/// an earlier element already claimed it.
+fn claim_focus(
+    id: &str,
+    kind: HitKind,
+    order: &mut Vec<(String, HitKind)>,
+    seen: &mut HashSet<String>,
+    duplicates: &mut Vec<String>,
+) {
+    if seen.insert(id.to_owned()) {
+        order.push((id.to_owned(), kind));
+    } else if !duplicates.iter().any(|duplicate| duplicate == id) {
+        duplicates.push(id.to_owned());
+    }
+}
+
+/// As [`collect_focus_order`], also noting each ID that two elements claim.
+fn collect_focus_claims(
+    element: &Element,
+    order: &mut Vec<(String, HitKind)>,
+    seen: &mut HashSet<String>,
+    duplicates: &mut Vec<String>,
+) {
     if element.kept.as_ref().is_some_and(|kept| kept.inert) {
         return;
     }
@@ -8361,13 +8399,13 @@ fn collect_focus_order(
         | ElementKind::TabStrip { children, .. }
         | ElementKind::Stack(children) => {
             for child in children {
-                collect_focus_order(child, order, seen);
+                collect_focus_claims(child, order, seen, duplicates);
             }
         }
         ElementKind::Panel(child)
         | ElementKind::Scroll { child, .. }
         | ElementKind::HorizontalScroll { child, .. } => {
-            collect_focus_order(child, order, seen);
+            collect_focus_claims(child, order, seen, duplicates);
         }
         ElementKind::UniformList(list) => {
             // Layout replaces this marker with focusable controls from the
@@ -8378,14 +8416,12 @@ fn collect_focus_order(
             ));
         }
         ElementKind::Clickable { id, child } => {
-            if seen.insert(id.clone()) {
-                order.push((id.clone(), clickable_kind(element)));
-            }
-            collect_focus_order(child, order, seen);
+            claim_focus(id, clickable_kind(element), order, seen, duplicates);
+            collect_focus_claims(child, order, seen, duplicates);
         }
         ElementKind::Overlay { base, floating } => {
-            collect_focus_order(base, order, seen);
-            collect_focus_order(floating, order, seen);
+            collect_focus_claims(base, order, seen, duplicates);
+            collect_focus_claims(floating, order, seen, duplicates);
         }
         ElementKind::Popover {
             anchor,
@@ -8393,39 +8429,29 @@ fn collect_focus_order(
             hover_open,
             ..
         } => {
-            collect_focus_order(anchor, order, seen);
+            collect_focus_claims(anchor, order, seen, duplicates);
             if !*hover_open {
-                collect_focus_order(floating, order, seen);
+                collect_focus_claims(floating, order, seen, duplicates);
             }
         }
-        ElementKind::Tooltip { anchor, .. } => collect_focus_order(anchor, order, seen),
+        ElementKind::Tooltip { anchor, .. } => collect_focus_claims(anchor, order, seen, duplicates),
         ElementKind::MarkRail(rail) => {
             for mark in &rail.marks {
-                if seen.insert(mark.id.clone()) {
-                    order.push((mark.id.clone(), HitKind::Button));
-                }
+                claim_focus(&mark.id, HitKind::Button, order, seen, duplicates);
             }
         }
         ElementKind::Button { id, .. }
         | ElementKind::IconButton { id, .. }
-        | ElementKind::EffortSlider { id, .. }
-            if seen.insert(id.clone()) =>
-        {
-            order.push((id.clone(), HitKind::Button));
-        }
-        ElementKind::TextInput { id, .. } if seen.insert(id.clone()) => {
-            order.push((id.clone(), HitKind::TextInput));
-        }
-        ElementKind::TextArea { id, .. } if seen.insert(id.clone()) => {
-            order.push((id.clone(), HitKind::TextArea));
-        }
-        ElementKind::CodeEditor(editor) if seen.insert(editor.id.clone()) => {
-            order.push((editor.id.clone(), HitKind::CodeEditor));
-        }
-        ElementKind::CodeDiff(diff) if diff.focusable && seen.insert(diff.id.clone()) => {
-            order.push((diff.id.clone(), HitKind::CodeDiff));
+        | ElementKind::EffortSlider { id, .. } => claim_focus(id, HitKind::Button, order, seen, duplicates),
+        ElementKind::TextInput { id, .. } => claim_focus(id, HitKind::TextInput, order, seen, duplicates),
+        ElementKind::TextArea { id, .. } => claim_focus(id, HitKind::TextArea, order, seen, duplicates),
+        ElementKind::CodeEditor(editor) => claim_focus(&editor.id, HitKind::CodeEditor, order, seen, duplicates),
+        ElementKind::CodeDiff(diff) if diff.focusable => {
+            claim_focus(&diff.id, HitKind::CodeDiff, order, seen, duplicates);
         }
         ElementKind::FormattedText(spans) => {
+            // A link's action is the same wherever its target is linked
+            // again, and a span has no alias to tell them apart: not a duplicate.
             for id in spans
                 .iter()
                 .filter(|span| !span.text.is_empty())
@@ -8436,15 +8462,9 @@ fn collect_focus_order(
                 }
             }
         }
-        ElementKind::Button { .. }
-        | ElementKind::IconButton { .. }
-        | ElementKind::TextInput { .. }
-        | ElementKind::TextArea { .. }
-        | ElementKind::CodeEditor(_)
-        | ElementKind::CodeDiff(_)
+        ElementKind::CodeDiff(_)
         | ElementKind::Flowchart(_)
         | ElementKind::SequenceDiagram(_)
-        | ElementKind::EffortSlider { .. }
         | ElementKind::Skeleton { .. }
         | ElementKind::Spinner { .. }
         | ElementKind::Scribble { .. }
@@ -16935,6 +16955,26 @@ mod tests {
             Some(frozen)
         );
         assert_eq!(tree.animation_repaint_after(), None);
+    }
+
+    #[test]
+    fn a_frame_lists_the_ids_two_controls_took_but_not_a_link_linked_twice() {
+        let link = || Element::formatted_text(vec![TextSpan::new("docs", Color::rgb(0, 0, 0), 14.0, FontFamily::Sans).action("open:docs")]);
+        let root = Element::column(vec![
+            Element::button("save", "Save"),
+            Element::clickable("save", Element::text("Save again")),
+            Element::text_input("name", "", "Name"),
+            Element::text_input("name", "", "Name again"),
+            Element::button("save", "Third"),
+            Element::button("cancel", "Cancel"),
+            link(),
+            link(),
+        ]);
+        let mut tree = UiTree::new(root);
+        let frame = tree.layout(Size::new(400.0, 400.0));
+        assert_eq!(frame.duplicate_ids(), ["save", "name"]);
+        tree.set_root(Element::column(vec![Element::button("save", "Save"), Element::button("cancel", "Cancel")]));
+        assert!(tree.layout(Size::new(400.0, 400.0)).duplicate_ids().is_empty());
     }
 
     #[test]

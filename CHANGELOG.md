@@ -5,6 +5,7 @@ in any release.
 
 ## Unreleased
 
+- `Frame::duplicate_ids()`: the IDs that more than one control of a layout took (buttons, inputs, clickables, editors), in tree order. Such controls share hover, press, focus and transitions and Tab stops at the ID once, as before; now a test can assert there are none. A link's action in formatted text is not counted, since the same target may be linked twice. See [Testing](docs/testing.md#what-to-inspect)
 - A layout keeps every measurement it makes until it ends: past 16,384 the measurement cache stopped taking new ones, so a long list that is not virtualized measured its rows again and again. 8,000 rows of text and a button laid out in 54 ms instead of 87
 - **Breaking**: the minimum supported Rust version is 1.99, up from 1.95. CI and the site build use Rust 1.99.1
 - `limn_egui`: a picture or fill rounded enough of its own to lie inside a rounded clip's arc keeps its own corners, as a 40 thumbnail rounded by 8 near the end of a 56 pill does; it took the clip's concentric corner (20 there), which no longer met its own rim and left the rim standing out
