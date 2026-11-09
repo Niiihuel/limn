@@ -4449,6 +4449,9 @@ pub struct UiTree {
     /// key that closes it (Esc) does not make a pointer's focus the keyboard's.
     modal_return_keyboard: bool,
     pending_scroll_focus: Option<String>,
+    /// A control asked to be focused before a layout held it, and whether by
+    /// the keyboard: the next layout focuses it if it holds it.
+    pending_focus: Option<(String, bool)>,
     /// The control to bring into view, its margin, and whether it goes to
     /// the start of the viewport instead of just into it.
     pending_reveal: Option<(String, f32, bool)>,
@@ -4561,6 +4564,7 @@ impl UiTree {
             modal_return_focus: None,
             modal_return_keyboard: false,
             pending_scroll_focus: None,
+            pending_focus: None,
             pending_reveal: None,
             pending_center: None,
             hovered: None,
@@ -4925,6 +4929,7 @@ impl UiTree {
         let had_focus = self.focused.is_some();
         Self::replace_focused(&mut self.focused, &mut self.paste_epoch, None);
         self.pending_scroll_focus = None;
+        self.pending_focus = None;
         self.keyboard_focus = false;
         self.keyboard_tooltip_focus = false;
         self.validate_ime_owner(Instant::now());
@@ -5027,7 +5032,10 @@ impl UiTree {
         self.spatial_focus = enabled;
     }
 
-    /// Focus an interactive element after layout. Returns false for an unknown ID.
+    /// Focus an interactive element. True when the last layout held it and it
+    /// has the focus now. Otherwise false, and the next layout focuses it if it
+    /// holds it, so a host may focus a control its new view adds before laying
+    /// that view out; a later `focus` or `clear_focus` replaces the request.
     /// Text inputs place the caret at the end so command launchers can accept
     /// typing immediately after opening.
     pub fn focus(&mut self, id: &str) -> bool {
@@ -5041,15 +5049,16 @@ impl UiTree {
     }
 
     fn focus_with_modality(&mut self, id: &str, keyboard: bool) -> bool {
-        if !self.focus_order.iter().any(|(candidate, kind)| {
-            candidate == id
-                && matches!(
-                    kind,
-                    HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
-                )
-        }) {
+        if !takes_focus(&self.focus_order, id) {
+            self.pending_focus = Some((id.to_owned(), keyboard));
             return false;
         }
+        self.pending_focus = None;
+        self.give_focus(id, keyboard);
+        true
+    }
+
+    fn give_focus(&mut self, id: &str, keyboard: bool) {
         self.request_scroll_focus(id);
         self.caret_blink.reset();
         let next_focus = Some(id.to_owned());
@@ -5061,7 +5070,6 @@ impl UiTree {
             input.set_selection(input.value.chars().count(), None);
             input.keep_cursor_visible = true;
         }
-        true
     }
 
     /// Disable decorative color transitions when the user requests reduced motion.
@@ -5466,6 +5474,11 @@ impl UiTree {
         let mut seen = HashSet::new();
         let mut duplicate_ids = Vec::new();
         collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut duplicate_ids);
+        // A focus asked for before this tree was laid out lands now, so this
+        // layout already paints it and brings it into view.
+        if let Some((id, keyboard)) = self.pending_focus.take_if(|(id, _)| takes_focus(&focus_order, id)) {
+            self.give_focus(&id, keyboard);
+        }
         self.action_aliases.clear();
         let mut menu_secondary_actions = HashSet::new();
         collect_action_metadata(
@@ -6169,6 +6182,14 @@ impl UiTree {
                 .collect()
         };
         self.focus_order = expand(focus_order);
+        // The rows of a virtual list are known only once placed: a control in
+        // one takes the focus now, its ring on the next layout. A request this
+        // layout did not hold is dropped.
+        if let Some((id, keyboard)) = self.pending_focus.take() {
+            if takes_focus(&self.focus_order, &id) {
+                self.give_focus(&id, keyboard);
+            }
+        }
         let mut regions = Vec::new();
         collect_focus_regions(&self.root, &mut regions);
         self.focus_regions = regions
@@ -8646,6 +8667,17 @@ fn collect_action_metadata(
 
 /// A clickable's kind of region: a button, or a region that only takes the
 /// focus.
+/// Whether `order` holds `id` as a control that takes the focus.
+fn takes_focus(order: &[(String, HitKind)], id: &str) -> bool {
+    order.iter().any(|(candidate, kind)| {
+        candidate == id
+            && matches!(
+                kind,
+                HitKind::Button | HitKind::Focus | HitKind::TextInput | HitKind::TextArea | HitKind::CodeEditor | HitKind::CodeDiff
+            )
+    })
+}
+
 fn clickable_kind(element: &Element) -> HitKind {
     if element.kept.as_ref().is_some_and(|kept| kept.focus_area) {
         HitKind::Focus

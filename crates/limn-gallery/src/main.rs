@@ -141,8 +141,8 @@ impl eframe::App for Host {
                 self.state.set("hovered-region", &region);
             }
         }
-        self.tree.set_root(hot(|| app::view(&self.state, window)));
-        self.tree.layout(window);
+        // Input lands where the last frame painted it; the view is described
+        // and laid out once, after it.
         let mut changed = false;
         for event in limn_egui::events(&ctx, area.min) {
             // A page may open its own menu where the secondary click was, or
@@ -186,9 +186,7 @@ impl eframe::App for Host {
         if changed {
             self.remember();
         }
-        if changed {
-            self.tree.set_root(hot(|| app::view(&self.state, window)));
-        }
+        self.tree.set_root(hot(|| app::view(&self.state, window)));
         if self.scroll_end {
             self.tree.scroll_to_end("page-scroll");
         }

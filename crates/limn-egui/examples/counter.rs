@@ -70,11 +70,9 @@ impl eframe::App for App {
         let area = ui.max_rect();
         let window = Size::new(area.width(), area.height());
 
-        // 1. Describe, 2. lay out. `hot::call` runs the code as last saved
-        // under hot reload, and is a plain call otherwise.
-        self.tree.set_root(limn::hot::call(|| view(&self.state, window)));
-        self.tree.layout(window);
-        // 3. Deliver input and apply the actions it produces.
+        // 1. Deliver input and apply the actions it produces. A click lands
+        // where the last frame painted its target. `hot::call` runs the code
+        // as last saved under hot reload, and is a plain call otherwise.
         for event in limn_egui::events(&ctx, area.min) {
             for action in self.tree.handle_event(event) {
                 limn::hot::call(|| update(&mut self.state, &action));
@@ -84,7 +82,7 @@ impl eframe::App for App {
         for action in limn_egui::apply_access_requests(&ctx, &mut self.tree) {
             limn::hot::call(|| update(&mut self.state, &action));
         }
-        // 4. Describe the new state and paint it.
+        // 2. Describe the state, 3. lay it out, 4. paint it.
         self.tree.set_root(limn::hot::call(|| view(&self.state, window)));
         let frame = self.tree.layout(window);
         limn_egui::paint_at(ui, &frame, area.min);

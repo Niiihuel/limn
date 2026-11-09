@@ -107,7 +107,8 @@ fn update(state: &mut State, action: &UiAction) {
 
 ## 5. Run the loop
 
-Keep one `UiTree` for the life of the window. Each frame does four things:
+Keep one `UiTree` for the life of the window. Each frame does four things,
+and lays the tree out once:
 
 ```rust
 fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
@@ -120,16 +121,13 @@ fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
     let area = ui.max_rect();
     let window = Size::new(area.width(), area.height());
 
-    // 1. Describe, 2. lay out.
-    self.tree.set_root(view(&self.state, window));
-    self.tree.layout(window);
-    // 3. Deliver input and apply the actions it produces.
+    // 1. Deliver input and apply the actions it produces.
     for event in limn_egui::events(&ctx, area.min) {
         for action in self.tree.handle_event(event) {
             update(&mut self.state, &action);
         }
     }
-    // 4. Describe the new state and paint it.
+    // 2. Describe the state, 3. lay it out, 4. paint it.
     self.tree.set_root(view(&self.state, window));
     let frame = self.tree.layout(window);
     limn_egui::paint_at(ui, &frame, area.min);
@@ -141,8 +139,10 @@ fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
 }
 ```
 
-The tree is laid out before input is delivered because a click is resolved
-against the positions from the last layout.
+Input comes first and is resolved against the last layout, the one the person
+saw when they clicked. An `update` that focuses a control its new view adds
+can call `tree.focus(id)` before the layout: the layout that adds the control
+gives it the focus.
 
 The example file has three calls more: `limn::hot::connect` in `main`,
 `limn_egui::repaint_on_patch`, and `limn::hot::call` around `view` and

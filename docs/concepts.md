@@ -117,8 +117,9 @@ The code editor adds `EditorChanged`, `EditorSaveRequested` and `EditorFailed`.
 
 Focus moves through buttons and inputs in tree order with Tab and Shift+Tab.
 Enter and Space activate a focused button. Focus survives a rebuild as long as
-the focused control keeps its ID. `tree.focus(id)` moves focus from code, after
-a layout that contains the control.
+the focused control keeps its ID. `tree.focus(id)` moves focus from code: at
+once when the last layout held the control, else in the next layout if that one
+holds it, so an `update` may focus a control its new view is about to add.
 
 An open popover, menu or dialog keeps Tab inside itself and closes on Escape.
 
