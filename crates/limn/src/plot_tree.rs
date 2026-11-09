@@ -157,7 +157,7 @@ impl LayoutBuilder<'_> {
     /// From nothing to one over four moves, starting when the key is first
     /// seen: what a plot's bars grow by as it appears.
     fn appearing(&self, key: &str) -> f32 {
-        let mut states = self.states.borrow_mut();
+        let mut states = states_mut!(self);
         let state = states.touch(key, self.now, || {
             let mut value = ScalarTransition::new(0.0, self.now);
             let duration = Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 4);
