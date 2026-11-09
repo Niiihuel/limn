@@ -107,7 +107,7 @@ impl ContextMenu {
 
 impl Component for ContextMenu {
     fn render(mut self) -> Element {
-        self.child.context_menu = Some(self.definition);
+        self.child.context_menu = Some(Box::new(self.definition));
         self.child
     }
 }

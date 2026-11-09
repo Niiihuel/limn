@@ -1004,6 +1004,8 @@ pub(crate) enum HoverReveal {
 /// keeps an element's ink and a column's children across rebuilds.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Kept {
+    /// Names a passive element for `UiTree::reveal` and `anchor_offset`.
+    pub(crate) anchor: Option<String>,
     pub(crate) foreground: Option<String>,
     pub(crate) leaving: Option<String>,
     /// The ID a soft focus is kept under, and its radius.
@@ -1121,8 +1123,6 @@ pub struct Element {
     pub(crate) drag_in_place: bool,
     pub(crate) cursor: Option<Cursor>,
     pub(crate) sticky_top: Option<StickyTop>,
-    /// Names a passive element for `UiTree::reveal` and `anchor_offset`.
-    pub(crate) anchor: Option<String>,
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
@@ -1136,7 +1136,8 @@ pub struct Element {
     /// Arrow-key navigation for an inline menu. Its first focusable child is
     /// the trigger; subsequent buttons are options. This does not trap Tab.
     pub menu_navigation: bool,
-    pub(crate) context_menu: Option<crate::context_menu::ContextMenuDefinition>,
+    /// Boxed: few elements have one, and every element pays for the field.
+    pub(crate) context_menu: Option<Box<crate::context_menu::ContextMenuDefinition>>,
 }
 
 /// A fixed-height, lazily built list. The row factory is called only for rows
@@ -1765,7 +1766,7 @@ pub enum ElementKind {
     /// A virtual list of rows of one height; see [`UniformList`].
     UniformList(UniformList),
     /// A code editor; see `CodeEditor`.
-    CodeEditor(crate::CodeEditor),
+    CodeEditor(Box<crate::CodeEditor>),
     /// A code diff view; see `CodeDiff`.
     CodeDiff(crate::CodeDiff),
     /// A passive diagram at its natural size, measured with the tree's text.
@@ -2266,7 +2267,7 @@ fn length(value: f32, current: f32) -> f32 {
 impl Element {
     /// A code editor; see `CodeEditor`.
     pub fn code_editor(editor: crate::CodeEditor) -> Self {
-        Self::new(ElementKind::CodeEditor(editor))
+        Self::new(ElementKind::CodeEditor(Box::new(editor)))
     }
     /// A code diff view; see `CodeDiff`.
     pub fn code_diff(diff: crate::CodeDiff) -> Self {
@@ -2297,7 +2298,6 @@ impl Element {
             drag_in_place: false,
             cursor: None,
             sticky_top: None,
-            anchor: None,
             animate_height: None,
             kept: None,
             hover_reveal: HoverReveal::None,
@@ -2313,7 +2313,7 @@ impl Element {
     /// Static branches retain anchor geometry when clipped outside the viewport;
     /// a virtual row must have been built before its anchors can be located.
     pub fn anchor(mut self, id: impl Into<String>) -> Self {
-        self.anchor = Some(id.into());
+        self.kept.get_or_insert_default().anchor = Some(id.into());
         self
     }
 
@@ -4901,5 +4901,20 @@ mod popover_outset_tests {
         for bad in [f32::NAN, f32::INFINITY, -4.0] {
             assert_eq!(outset(bad), [0.0, 1.0, 2.0, 3.0], "{bad}");
         }
+    }
+}
+
+#[cfg(test)]
+mod size_budget {
+    use super::*;
+
+    // Every element pays for every field and for its kind's largest variant,
+    // and a window builds thousands of them a frame: what few elements carry
+    // goes in a box. At 1,248 bytes building a view took a third longer.
+    #[test]
+    #[cfg(target_pointer_width = "64")]
+    fn an_element_stays_within_its_size_budget() {
+        let size = std::mem::size_of::<Element>();
+        assert!(size <= 704, "Element grew to {size} bytes: box what few elements carry");
     }
 }

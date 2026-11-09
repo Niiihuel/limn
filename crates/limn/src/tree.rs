@@ -8800,7 +8800,7 @@ fn find_focus_path(element: &Element, id: Option<&str>, path: &mut HashSet<usize
         ElementKind::Tooltip { anchor, .. } => find_focus_path(anchor, id, path),
         _ => false,
     };
-    let found = descendants || element.anchor.is_some()
+    let found = descendants || element.kept.as_ref().is_some_and(|kept| kept.anchor.is_some())
         || focusable_id(element).is_some_and(|target| Some(target) == id);
     if found {
         path.insert(element as *const Element as usize);
@@ -12604,7 +12604,7 @@ impl LayoutBuilder<'_> {
         if let Some(definition) = &element.context_menu {
             if let Some(visible) = clip.map_or(Some(rect), |clip| rect.intersection(clip)) {
                 self.frame.context_menu_regions.push(ContextMenuRegion {
-                    definition: definition.clone(),
+                    definition: (**definition).clone(),
                     rect: visible,
                     region_layer: self.frame.regions.len(),
                 });
@@ -14450,9 +14450,9 @@ impl LayoutBuilder<'_> {
                         .code_editors
                         .entry(editor.id.clone())
                         .or_insert_with(|| {
-                            crate::code_editor::EditorView::new(editor.clone(), self.now)
+                            crate::code_editor::EditorView::new((**editor).clone(), self.now)
                         });
-                    state.update(editor.clone());
+                    state.update((**editor).clone());
                     state.set_hovered_control(self.hovered, self.pointer);
                     state.set_review_pointer(self.hovered, self.pointer, self.now);
                     self.frame.commands.extend(state.paint(
@@ -15268,7 +15268,7 @@ impl LayoutBuilder<'_> {
             self.record_scroll_focus_target(anchor, Self::translated_rect(anchor, rect.inset(element.style.padding)));
         }
         // A control that is also an anchor answers to both names.
-        let ids = [focusable_id(element), element.anchor.as_deref()];
+        let ids = [focusable_id(element), element.kept.as_ref().and_then(|kept| kept.anchor.as_deref())];
         if let Some(scroll) = self.scroll_focus_context.last() {
             let (scroll_id, viewport, layout_offset) = (scroll.id.clone(), scroll.viewport, scroll.offset);
             for id in ids.into_iter().flatten() {
@@ -15541,7 +15541,7 @@ impl LayoutBuilder<'_> {
         element.style.background = background;
         // An anchor stays where the column has it, so revealing it scrolls
         // back to the start of what it pins over.
-        if let Some(anchor) = element.anchor.take() {
+        if let Some(anchor) = element.kept.as_mut().and_then(|kept| kept.anchor.take()) {
             self.record_scroll_focus_target(&Element::spacer().anchor(anchor), rects[index]);
         }
         if rect.height < natural {
