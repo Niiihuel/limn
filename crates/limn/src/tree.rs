@@ -1969,6 +1969,18 @@ struct AnimatedMove {
 /// The ink of an `animate_foreground` element on its way to its color.
 struct Ink(ColorTransition);
 
+/// A control's fill on its way to its hover or press color.
+struct Fill(ColorTransition);
+
+/// When a skeleton started to pulse.
+struct SkeletonStart(Instant);
+
+/// When a shimmering text's highlight started to travel.
+struct ShimmerStart(Instant);
+
+/// When a spinner started to turn, or a scribble to be written.
+struct SpinnerStart(Instant);
+
 /// The slots a `keep_leaving` column last laid out, in order.
 struct Leaving(Vec<String>);
 
@@ -4443,7 +4455,6 @@ pub struct UiTree {
     scroll_button_hold: Option<ScrollButtonHold>,
     slider_drag: Option<SliderDrag>,
     sketch_draft: Option<crate::sketch::SketchDraft>,
-    slider_motion: HashMap<String, SliderMotion>,
     hovered_scrollbar: Option<String>,
     focus_order: Vec<(String, HitKind)>,
     /// Each landmark region and its controls in focus order, outermost first.
@@ -4479,14 +4490,14 @@ pub struct UiTree {
     pressed: Option<String>,
     pressed_dispatch: Option<String>,
     pointer_drag: Option<PointerDrag>,
-    transitions: HashMap<String, ColorTransition>,
     popover_transitions: HashMap<String, ScalarTransition>,
     popover_snapshots: HashMap<String, PopoverSnapshot>,
     popover_exits: HashMap<String, PopoverExit>,
-    replacements: HashMap<String, Replacement>,
     /// What elements keep while layouts touch them: slots' heights, values
-    /// and springs, moves, inks, leaving slots. Measuring reads and starts
-    /// these, and measuring borrows the tree shared.
+    /// and springs, moves, inks and fills, leaving slots, replaced content,
+    /// tab indicators, records, sliders, and when skeletons, shimmers and
+    /// spinners started. Measuring reads and starts some of these, and
+    /// measuring borrows the tree shared.
     states: RefCell<StateStore>,
     /// A pushing reach jumped while placed: the layout it was measured for is stale.
     pushes_moved: std::cell::Cell<bool>,
@@ -4494,14 +4505,9 @@ pub struct UiTree {
     coach_motion: Option<CoachMotion>,
     /// The coach mark step whose target has been revealed and focused.
     coach_key: Option<String>,
-    tab_indicators: HashMap<String, TabIndicatorState>,
-    skeleton_started: HashMap<String, Instant>,
-    shimmer_started: HashMap<String, Instant>,
-    spinner_started: HashMap<String, Instant>,
     /// Scribbles written once whose pen has gone: their start is kept, and they ask for no
     /// frames.
     settled_spinners: HashSet<String>,
-    record_motion: HashMap<String, RecordMotion>,
     reduced_motion: bool,
     static_selection: Option<StaticSelection>,
     context_menu: Option<ContextMenuState>,
@@ -4556,7 +4562,6 @@ impl UiTree {
             scroll_button_hold: None,
             slider_drag: None,
             sketch_draft: None,
-            slider_motion: HashMap::new(),
             hovered_scrollbar: None,
             focus_order: Vec::new(),
             focus_regions: Vec::new(),
@@ -4581,22 +4586,15 @@ impl UiTree {
             pressed: None,
             pressed_dispatch: None,
             pointer_drag: None,
-            transitions: HashMap::new(),
             popover_transitions: HashMap::new(),
             popover_snapshots: HashMap::new(),
             popover_exits: HashMap::new(),
-            replacements: HashMap::new(),
             states: RefCell::new(StateStore::default()),
             pushes_moved: std::cell::Cell::new(false),
             popover_view_transitions: HashMap::new(),
             coach_motion: None,
             coach_key: None,
-            tab_indicators: HashMap::new(),
-            skeleton_started: HashMap::new(),
-            shimmer_started: HashMap::new(),
-            spinner_started: HashMap::new(),
             settled_spinners: HashSet::new(),
-            record_motion: HashMap::new(),
             reduced_motion: false,
             static_selection: None,
             context_menu: None,
@@ -5078,20 +5076,12 @@ impl UiTree {
             for (id, motion) in self.scroll_transitions.drain() {
                 self.scroll_offsets.insert(id, motion.target());
             }
-            self.transitions.clear();
             self.popover_transitions.clear();
             self.popover_snapshots.clear();
             self.popover_exits.clear();
-            self.replacements.clear();
             self.states.get_mut().clear();
             self.popover_view_transitions.clear();
             self.coach_motion = None;
-            self.tab_indicators.clear();
-            self.skeleton_started.clear();
-            self.shimmer_started.clear();
-            self.spinner_started.clear();
-            self.record_motion.clear();
-            self.slider_motion.clear();
             let now = Instant::now();
             for state in self.zoom_views.values_mut() {
                 state.jump(state.view, now);
@@ -5249,16 +5239,17 @@ impl UiTree {
             // uses elapsed time, so it is independent of the frame rate.
             return Some(Duration::ZERO);
         }
+        let states = self.states.borrow();
         let ambient = (!self.reduced_motion
-            && (!self.skeleton_started.is_empty()
-                || !self.shimmer_started.is_empty()
-                || self.spinner_started.keys().any(|id| !self.settled_spinners.contains(id))
-                || self.record_motion.values().any(|record| record.is_moving(now))))
+            && (states.values::<SkeletonStart>().next().is_some()
+                || states.values::<ShimmerStart>().next().is_some()
+                || states.ids::<SpinnerStart>().any(|id| !self.settled_spinners.contains(id))
+                || states.values::<RecordMotion>().any(|record| record.is_moving(now))))
             || self.scroll_button_hold.is_some();
         let transition = (!self.reduced_motion
             && (self.slider_drag.is_some()
-                || self.slider_motion.values().any(|state| state.is_fast(now))))
-            || self.transitions.values().any(|state| state.is_active(now))
+                || states.values::<SliderMotion>().any(|state| state.is_fast(now))))
+            || states.values::<Fill>().any(|fill| fill.0.is_active(now))
             || self
                 .popover_transitions
                 .values()
@@ -5267,10 +5258,7 @@ impl UiTree {
                 .popover_exits
                 .values()
                 .any(|state| state.opacity.is_active(now))
-            || self
-                .replacements
-                .values()
-                .any(|state| state.progress.is_active(now))
+            || states.values::<Replacement>().any(|state| state.progress.is_active(now))
             || self.states_animate(now)
             || self
                 .popover_view_transitions
@@ -5280,10 +5268,7 @@ impl UiTree {
                 .coach_motion
                 .as_ref()
                 .is_some_and(|state| state.values.iter().any(|value| value.is_active(now)))
-            || self
-                .tab_indicators
-                .values()
-                .any(|state| state.x.is_active(now) || state.width.is_active(now))
+            || states.values::<TabIndicatorState>().any(|state| state.x.is_active(now) || state.width.is_active(now))
             || self.horizontal_scrolls.values().any(|state| state.is_gliding(now));
         let hover_wait = self.tooltip_hover_since.as_ref().and_then(|(id, since)| {
             let elapsed = now.saturating_duration_since(*since);
@@ -5294,7 +5279,7 @@ impl UiTree {
             Some(Duration::ZERO)
         } else if ambient {
             Some(Duration::from_millis(16))
-        } else if !self.reduced_motion && !self.slider_motion.is_empty() {
+        } else if !self.reduced_motion && states.values::<SliderMotion>().next().is_some() {
             Some(hover_wait.map_or(Duration::from_millis(33), |wait| {
                 wait.min(Duration::from_millis(33))
             }))
@@ -5479,18 +5464,10 @@ impl UiTree {
             .or(self.pending_reveal.as_ref().map(|(id, ..)| id.as_str()));
         let mut focus_path = HashSet::new();
         find_focus_path(&self.root, probe, &mut focus_path);
-        let mut observed_buttons = HashSet::new();
         let mut observed_popovers = HashSet::new();
-        let mut observed_replacements = HashSet::new();
         let mut current_popover_snapshots = HashMap::new();
-        let mut observed_tabs = HashSet::new();
         let mut observed_tooltips = HashMap::new();
-        let mut observed_skeletons = HashSet::new();
-        let mut observed_shimmers = HashSet::new();
-        let mut observed_spinners = HashSet::new();
         let mut settled_spinners = HashSet::new();
-        let mut observed_records = HashSet::new();
-        let mut observed_sliders = HashSet::new();
         let viewport_rect = Rect::new(0.0, 0.0, viewport.width, viewport.height);
         let context_menu_paint = self.context_menu_paint(viewport_rect);
         self.measurement_cache.get_mut().clear();
@@ -5555,7 +5532,6 @@ impl UiTree {
                 access_above: None,
                 slider_drag: self.slider_drag.as_ref(),
                 sketch_draft: self.sketch_draft.as_ref(),
-                slider_motion: &mut self.slider_motion,
                 focused: self.focused.as_deref(),
                 caret_blink: &mut self.caret_blink,
                 hovered: if self.context_menu.is_some() {
@@ -5571,32 +5547,17 @@ impl UiTree {
                 selection: self.static_selection.as_ref(),
                 selection_scope: None,
                 next_selection_scope: 0,
-                transitions: &mut self.transitions,
                 popover_transitions: &mut self.popover_transitions,
                 popover_exits: &self.popover_exits,
-                replacements: &mut self.replacements,
-                observed_replacements: &mut observed_replacements,
                 previous_popover_snapshots: &self.popover_snapshots,
                 popover_view_transitions: &mut self.popover_view_transitions,
                 coach_motion: &mut self.coach_motion,
-                tab_indicators: &mut self.tab_indicators,
-                skeleton_started: &mut self.skeleton_started,
-                shimmer_started: &mut self.shimmer_started,
-                spinner_started: &mut self.spinner_started,
-                record_motion: &mut self.record_motion,
-                observed_records: &mut observed_records,
-                observed_buttons: &mut observed_buttons,
                 hover_surface_fill: None,
                 surface_gaps_lit: self.context_menu.is_none() && self.hovered.is_none(),
                 observed_popovers: &mut observed_popovers,
                 popover_snapshots: &mut current_popover_snapshots,
-                observed_tabs: &mut observed_tabs,
                 observed_tooltips: &mut observed_tooltips,
-                observed_skeletons: &mut observed_skeletons,
-                observed_shimmers: &mut observed_shimmers,
-                observed_spinners: &mut observed_spinners,
                 settled_spinners: &mut settled_spinners,
-                observed_sliders: &mut observed_sliders,
                 zoom_views: &mut self.zoom_views,
                 reduced_motion: self.reduced_motion,
                 locating: probe.is_some(),
@@ -6208,12 +6169,8 @@ impl UiTree {
                 .cloned();
             Self::replace_focused(&mut self.focused, &mut self.paste_epoch, next_focus);
         }
-        self.transitions
-            .retain(|id, _| observed_buttons.contains(id));
         self.popover_transitions
             .retain(|id, _| observed_popovers.contains(id));
-        self.replacements
-            .retain(|id, _| observed_replacements.contains(id));
         // A slot is remembered while it is rendered, empty or not: content
         // that arrives in one seen empty is what `expand` opens.
         let states = self.states.get_mut();
@@ -6234,19 +6191,7 @@ impl UiTree {
             observed_popovers.contains(id)
                 && (state.opacity.is_active(now) || state.height.is_active(now))
         });
-        self.tab_indicators
-            .retain(|id, _| observed_tabs.contains(id));
-        self.skeleton_started
-            .retain(|id, _| observed_skeletons.contains(id));
-        self.shimmer_started
-            .retain(|id, _| observed_shimmers.contains(id));
-        self.spinner_started
-            .retain(|id, _| observed_spinners.contains(id));
         self.settled_spinners = settled_spinners;
-        self.record_motion
-            .retain(|id, _| observed_records.contains(id));
-        self.slider_motion
-            .retain(|id, _| observed_sliders.contains(id));
         self.tooltip_triggers = observed_tooltips;
         self.scroll_transitions.retain(|id, motion| {
             if !frame.scroll_extents.contains_key(id) {
@@ -7375,10 +7320,8 @@ impl UiTree {
                 if let Some(drag) = self.slider_drag.take() {
                     let snapped = drag.geometry.snap(drag.fraction);
                     if !self.reduced_motion && drag.geometry.animated {
-                        let motion = self
-                            .slider_motion
-                            .entry(drag.id.clone())
-                            .or_insert_with(|| SliderMotion::new(now));
+                        let states = self.states.get_mut();
+                            let motion = states.touch(&drag.id, now, || SliderMotion::new(now));
                         motion.displayed_fraction = drag.fraction;
                         motion.snap = None;
                         motion.animate_to(
@@ -7458,10 +7401,8 @@ impl UiTree {
                     // An entry in `slider_motion` keeps the window repainting,
                     // so only the animated effort slider gets one.
                     if geometry.animated {
-                        let motion = self
-                            .slider_motion
-                            .entry(id.clone())
-                            .or_insert_with(|| SliderMotion::new(now));
+                        let states = self.states.get_mut();
+                            let motion = states.touch(&id, now, || SliderMotion::new(now));
                         motion.last_sample = now;
                         motion.snap = None;
                         motion.burst_started = None;
@@ -7603,10 +7544,8 @@ impl UiTree {
                     let released_fraction = drag.geometry.fraction_at(point);
                     let snapped = drag.geometry.snap(released_fraction);
                     if !self.reduced_motion && drag.geometry.animated {
-                        let motion = self
-                            .slider_motion
-                            .entry(drag.id.clone())
-                            .or_insert_with(|| SliderMotion::new(now));
+                        let states = self.states.get_mut();
+                            let motion = states.touch(&drag.id, now, || SliderMotion::new(now));
                         motion.displayed_fraction = released_fraction;
                         motion.snap = None;
                         motion.animate_to(
@@ -8928,7 +8867,6 @@ struct LayoutBuilder<'a> {
     access_above: Option<crate::Access>,
     slider_drag: Option<&'a SliderDrag>,
     sketch_draft: Option<&'a crate::sketch::SketchDraft>,
-    slider_motion: &'a mut HashMap<String, SliderMotion>,
     focused: Option<&'a str>,
     caret_blink: &'a mut crate::caret_blink::CaretBlink,
     hovered: Option<&'a str>,
@@ -8941,21 +8879,11 @@ struct LayoutBuilder<'a> {
     /// The innermost selection scope being laid out, and the next one's number.
     selection_scope: Option<usize>,
     next_selection_scope: usize,
-    transitions: &'a mut HashMap<String, ColorTransition>,
     popover_transitions: &'a mut HashMap<String, ScalarTransition>,
     popover_exits: &'a HashMap<String, PopoverExit>,
-    replacements: &'a mut HashMap<String, Replacement>,
-    observed_replacements: &'a mut HashSet<String>,
     previous_popover_snapshots: &'a HashMap<String, PopoverSnapshot>,
     popover_view_transitions: &'a mut HashMap<String, PopoverViewTransition>,
     coach_motion: &'a mut Option<CoachMotion>,
-    tab_indicators: &'a mut HashMap<String, TabIndicatorState>,
-    skeleton_started: &'a mut HashMap<String, Instant>,
-    shimmer_started: &'a mut HashMap<String, Instant>,
-    spinner_started: &'a mut HashMap<String, Instant>,
-    record_motion: &'a mut HashMap<String, RecordMotion>,
-    observed_records: &'a mut HashSet<String>,
-    observed_buttons: &'a mut HashSet<String>,
     /// The fill of the shared hover surface the pointer is over, if any.
     hover_surface_fill: Option<Color>,
     /// The pointer is over no control: a shared surface under it stays lit,
@@ -8963,13 +8891,8 @@ struct LayoutBuilder<'a> {
     surface_gaps_lit: bool,
     observed_popovers: &'a mut HashSet<String>,
     popover_snapshots: &'a mut HashMap<String, PopoverSnapshot>,
-    observed_tabs: &'a mut HashSet<String>,
     observed_tooltips: &'a mut HashMap<String, Duration>,
-    observed_skeletons: &'a mut HashSet<String>,
-    observed_shimmers: &'a mut HashSet<String>,
-    observed_spinners: &'a mut HashSet<String>,
     settled_spinners: &'a mut HashSet<String>,
-    observed_sliders: &'a mut HashSet<String>,
     zoom_views: &'a mut HashMap<String, crate::zoom_view::ZoomState>,
     reduced_motion: bool,
     /// A control is being scrolled into view, which needs the layout an
@@ -9661,20 +9584,17 @@ impl LayoutBuilder<'_> {
             return;
         }
         let now = self.now;
-        self.observed_replacements.insert(id.to_owned());
         let commands = self.frame.commands[start..].to_vec();
-        let Some(state) = self.replacements.get_mut(id) else {
+        let mut states = self.states.borrow_mut();
+        let Some(state) = states.keep::<Replacement>(id, now) else {
             // The first content is simply there; only a change travels.
-            self.replacements.insert(
-                id.to_owned(),
-                Replacement {
-                    key: key.to_owned(),
-                    rect,
-                    commands,
-                    leaving: None,
-                    progress: ScalarTransition::new(1.0, now),
-                },
-            );
+            states.touch(id, now, || Replacement {
+                key: key.to_owned(),
+                rect,
+                commands,
+                leaving: None,
+                progress: ScalarTransition::new(1.0, now),
+            });
             return;
         };
         if state.key != key {
@@ -12700,15 +12620,17 @@ impl LayoutBuilder<'_> {
             highlight,
         } = &element.kind
         {
-            if !self.reduced_motion {
-                self.observed_skeletons.insert(id.clone());
-            }
-            let started = self.skeleton_started.entry(id.clone()).or_insert(self.now);
+            // Under reduced motion a skeleton starts on every frame: nothing pulses.
+            let started = if self.reduced_motion {
+                self.now
+            } else {
+                self.states.borrow_mut().touch(id, self.now, || SkeletonStart(self.now)).0
+            };
             let period = element.kept.as_ref().and_then(|kept| kept.pulse_ms);
             style.background = Some(skeleton_color(
                 *base,
                 *highlight,
-                *started,
+                started,
                 self.now,
                 self.reduced_motion,
                 period.map_or(SKELETON_PERIOD, |ms| Duration::from_millis(u64::from(ms))),
@@ -12799,12 +12721,9 @@ impl LayoutBuilder<'_> {
         }
         if let Some(id) = transition_id.filter(|_| !self.reduced_motion && style.transition_ms > 0)
         {
-            self.observed_buttons.insert(id.clone());
             let target = style.background.unwrap_or(Color::TRANSPARENT);
-            let state = self
-                .transitions
-                .entry(id.clone())
-                .or_insert_with(|| ColorTransition::new(target, self.now));
+            let mut states = self.states.borrow_mut();
+            let Fill(state) = states.touch(id, self.now, || Fill(ColorTransition::new(target, self.now)));
             state.retarget(
                 target,
                 self.now,
@@ -12989,11 +12908,8 @@ impl LayoutBuilder<'_> {
                         _ => child.indicator_slot.as_ref() == Some(&selection.selected_id),
                     });
                     if let Some(target) = index.and_then(|index| rects.get(index)).copied() {
-                        self.observed_tabs.insert(selection.group_id.clone());
-                        let state = self
-                            .tab_indicators
-                            .entry(selection.group_id.clone())
-                            .or_insert_with(|| TabIndicatorState {
+                        let mut states = self.states.borrow_mut();
+                        let state = states.touch(&selection.group_id, self.now, || TabIndicatorState {
                                 selected_id: selection.selected_id.clone(),
                                 x: ScalarSpring::new(target.x, self.now),
                                 width: ScalarSpring::new(target.width, self.now),
@@ -13526,8 +13442,7 @@ impl LayoutBuilder<'_> {
                     .as_ref()
                     .filter(|_| !self.reduced_motion && !text.is_empty())
                     .map(|(id, highlight)| {
-                        self.observed_shimmers.insert(id.clone());
-                        let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
+                        let started = self.states.borrow_mut().touch(id, self.now, || ShimmerStart(self.now)).0;
                         let elapsed = self.now.saturating_duration_since(started).as_secs_f32();
                         let reach = width.min(visible_width);
                         (*highlight, (elapsed / 1.8).fract() * (reach + 100.0) - 50.0)
@@ -13613,8 +13528,7 @@ impl LayoutBuilder<'_> {
                     .as_ref()
                     .and_then(|kept| kept.ink_gradient.clone());
                 if let Some((id, highlight)) = shimmer {
-                    self.observed_shimmers.insert(id.clone());
-                    let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
+                    let started = self.states.borrow_mut().touch(id, self.now, || ShimmerStart(self.now)).0;
                     let width = self.text_width(&shown, style);
                     self.paint_shimmer_line(
                         &shown,
@@ -13684,8 +13598,7 @@ impl LayoutBuilder<'_> {
                 let shimmer = if let ElementKind::ShimmerText { id, highlight, .. } = &element.kind
                 {
                     if !self.reduced_motion && !value.is_empty() && content.width > 0.0 {
-                        self.observed_shimmers.insert(id.clone());
-                        let started = *self.shimmer_started.entry(id.clone()).or_insert(self.now);
+                        let started = self.states.borrow_mut().touch(id, self.now, || ShimmerStart(self.now)).0;
                         Some((
                             *highlight,
                             self.now.saturating_duration_since(started).as_secs_f32(),
@@ -15133,11 +15046,11 @@ impl LayoutBuilder<'_> {
                 });
             }
             ElementKind::Record { id, image, out, spinning, peek } => {
-                self.observed_records.insert(id.clone());
                 let now = self.now;
                 let peeked = peek.as_deref().is_some_and(|control| self.hovered == Some(control));
                 let target = if *out || peeked { 1.0 } else { 0.0 };
-                let motion = self.record_motion.entry(id.clone()).or_insert_with(|| RecordMotion {
+                let mut states = self.states.borrow_mut();
+                let motion = states.touch(id, now, || RecordMotion {
                     out: ScalarTransition::new(target, now),
                     turned: 0.0,
                     spinning_since: None,
@@ -15160,22 +15073,24 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::Spinner { id, color, variant } => {
-                if !self.reduced_motion {
-                    self.observed_spinners.insert(id.clone());
-                }
-                let started = self.spinner_started.entry(id.clone()).or_insert(self.now);
+                // Under reduced motion a spinner starts on every frame: it does not turn.
+                let started = if self.reduced_motion {
+                    self.now
+                } else {
+                    self.states.borrow_mut().touch(id, self.now, || SpinnerStart(self.now)).0
+                };
                 paint_spinner(
                     &mut self.frame.commands,
                     rect,
                     *color,
                     *variant,
-                    *started,
+                    started,
                     self.now,
                     self.reduced_motion,
                 );
             }
             ElementKind::Scribble { id, color, stroke, drawing } => {
-                let started = *self.spinner_started.entry(id.clone()).or_insert(self.now);
+                let started = self.states.borrow_mut().touch(id, self.now, || SpinnerStart(self.now)).0;
                 let (commands, moving) = crate::scribble::paint(
                     rect,
                     *color,
@@ -15187,7 +15102,6 @@ impl LayoutBuilder<'_> {
                 );
                 // A drawing written once stops asking for frames when its pen has gone; its
                 // start is still kept, so it is not written again.
-                self.observed_spinners.insert(id.clone());
                 if !moving {
                     self.settled_spinners.insert(id.clone());
                 }
@@ -15199,12 +15113,9 @@ impl LayoutBuilder<'_> {
                 steps,
                 ultra_available,
             } => {
-                self.observed_sliders.insert(id.clone());
                 let drag = self.slider_drag.filter(|drag| drag.id == *id);
-                let motion = self
-                    .slider_motion
-                    .entry(id.clone())
-                    .or_insert_with(|| SliderMotion::new(self.now));
+                let mut states = self.states.borrow_mut();
+                let motion = states.touch(id, self.now, || SliderMotion::new(self.now));
                 let (phase, visual_fraction, ultra_mix, burst_age) = motion.sample(
                     self.now,
                     *fraction,

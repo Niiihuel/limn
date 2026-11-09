@@ -68,6 +68,14 @@ impl StateStore {
         &mut kept.value
     }
 
+    /// The state of kind `T` under `id`, if there is one, kept through the
+    /// sweep after the layout at `now`.
+    pub(super) fn keep<T: 'static>(&mut self, id: &str, now: Instant) -> Option<&mut T> {
+        let kept = self.kind_mut::<T>().get_mut(id)?;
+        kept.touched = now;
+        Some(&mut kept.value)
+    }
+
     /// The state of kind `T` under `id`, without keeping it.
     pub(super) fn get<T: 'static>(&self, id: &str) -> Option<&T> {
         self.kind::<T>()?.get(id).map(|kept| &kept.value)
@@ -86,6 +94,11 @@ impl StateStore {
     /// Every state of kind `T`.
     pub(super) fn values<T: 'static>(&self) -> impl Iterator<Item = &T> {
         self.kind::<T>().into_iter().flat_map(|kind| kind.values().map(|kept| &kept.value))
+    }
+
+    /// The IDs that keep a state of kind `T`.
+    pub(super) fn ids<T: 'static>(&self) -> impl Iterator<Item = &str> {
+        self.kind::<T>().into_iter().flat_map(|kind| kind.keys().map(String::as_str))
     }
 
     /// Every state of kind `T`, to change.

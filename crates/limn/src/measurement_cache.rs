@@ -228,12 +228,12 @@ mod tests {
             tree.animation_repaint_after_at(now + TOOLTIP_HOVER_DELAY),
             None
         );
-        tree.spinner_started.insert("busy".into(), now);
+        tree.states.get_mut().touch("busy", now, || super::super::SpinnerStart(now));
         assert_eq!(
             tree.animation_repaint_after_at(now),
             Some(Duration::from_millis(16))
         );
-        tree.spinner_started.clear();
+        tree.states.get_mut().clear();
         tree.pressed = Some("hint".into());
         assert_eq!(tree.animation_repaint_after_at(now), None);
     }
