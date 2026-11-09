@@ -6,7 +6,7 @@
 //! forgets what that layout did not touch.
 
 use std::any::{Any, TypeId};
-use std::collections::HashMap;
+use crate::FastMap;
 use web_time::Instant;
 
 struct Kept<T> {
@@ -22,7 +22,7 @@ trait Kind {
     fn as_any_mut(&mut self) -> &mut dyn Any;
 }
 
-impl<T: 'static> Kind for HashMap<String, Kept<T>> {
+impl<T: 'static> Kind for FastMap<String, Kept<T>> {
     fn sweep(&mut self, now: Instant) {
         self.retain(|_, kept| kept.touched == now);
     }
@@ -38,18 +38,18 @@ impl<T: 'static> Kind for HashMap<String, Kept<T>> {
 
 #[derive(Default)]
 pub(super) struct StateStore {
-    kinds: HashMap<TypeId, Box<dyn Kind>>,
+    kinds: FastMap<TypeId, Box<dyn Kind>>,
 }
 
 impl StateStore {
-    fn kind<T: 'static>(&self) -> Option<&HashMap<String, Kept<T>>> {
+    fn kind<T: 'static>(&self) -> Option<&FastMap<String, Kept<T>>> {
         self.kinds.get(&TypeId::of::<T>()).and_then(|kind| kind.as_any().downcast_ref())
     }
 
-    fn kind_mut<T: 'static>(&mut self) -> &mut HashMap<String, Kept<T>> {
+    fn kind_mut<T: 'static>(&mut self) -> &mut FastMap<String, Kept<T>> {
         self.kinds
             .entry(TypeId::of::<T>())
-            .or_insert_with(|| Box::new(HashMap::<String, Kept<T>>::new()))
+            .or_insert_with(|| Box::new(FastMap::<String, Kept<T>>::default()))
             .as_any_mut()
             .downcast_mut()
             .expect("a kind is stored under its own type")

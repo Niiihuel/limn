@@ -288,6 +288,14 @@ pub use toolbar::{Toolbar, ToolbarItem};
 pub use top_bar::TopBar;
 pub use access::{Access, AccessNode, Role};
 pub use labels::{labels, set_labels, Labels};
+/// A map hashed for speed, for the tables the layout fills and reads for
+/// every element: SipHash, std's default, took a third of a long list's
+/// layout. Seeded at random per process, since some keys are text from
+/// outside, such as a chat's messages.
+pub(crate) type FastMap<K, V> = std::collections::HashMap<K, V, foldhash::fast::RandomState>;
+/// A set hashed as [`FastMap`] is.
+pub(crate) type FastSet<T> = std::collections::HashSet<T, foldhash::fast::RandomState>;
+
 pub use tokens::{set_tokens, tokens, with_tokens, Motion, Radius, RadiusRole, ShortcutStyle, Tokens};
 pub use theme::Theme;
 pub use tree::{

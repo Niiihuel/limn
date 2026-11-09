@@ -5433,6 +5433,7 @@ impl UiTree {
     ) -> Frame {
         self.begin_paste_layout();
         self.layout_cache.get_mut().begin_pass();
+        self.width_cache.get_mut().begin_pass();
         let viewport = Size::new(viewport.width.max(0.0), viewport.height.max(0.0));
         for state in self.scrollbar_states.values_mut() { state.seen = false; }
         self.caret_blink.begin_frame(self.context_menu.is_none());
@@ -5442,7 +5443,7 @@ impl UiTree {
         }
         let previous_popovers = self.frame.popover_focus.clone();
         let mut focus_order = Vec::new();
-        let mut seen = HashSet::new();
+        let mut seen = crate::FastSet::default();
         let mut duplicate_ids = Vec::new();
         collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut duplicate_ids);
         // A focus asked for before this tree was laid out lands now, so this
@@ -5483,7 +5484,7 @@ impl UiTree {
                 overlays: VecDeque::new(),
                 scroll_focus_context: Vec::new(),
                 pinned: Vec::new(),
-                translated_overflow: HashMap::new(),
+                translated_overflow: crate::FastMap::default(),
                 focus_path,
                 focus_probe: probe,
                 spatial_focus: self.spatial_focus,
@@ -8060,7 +8061,7 @@ impl UiTree {
         for index in candidates {
             let row = (list.build_row)(index);
             let mut focusables = Vec::new();
-            let mut seen = HashSet::new();
+            let mut seen = crate::FastSet::default();
             collect_focus_order(&row, &mut focusables, &mut seen);
             if let Some((_, opened)) = list.expansion.as_ref().filter(|(open, _)| *open == index) {
                 collect_focus_order(opened, &mut focusables, &mut seen);
@@ -8337,7 +8338,7 @@ fn collect_focus_regions(element: &Element, out: &mut Vec<(String, Vec<(String, 
         .and_then(|said| said.id.clone());
     if let Some(id) = region {
         let mut order = Vec::new();
-        collect_focus_order(element, &mut order, &mut HashSet::new());
+        collect_focus_order(element, &mut order, &mut crate::FastSet::default());
         out.push((id, order));
     }
     match &element.kind {
@@ -8371,7 +8372,7 @@ fn collect_focus_regions(element: &Element, out: &mut Vec<(String, Vec<(String, 
 fn collect_focus_order(
     element: &Element,
     order: &mut Vec<(String, HitKind)>,
-    seen: &mut HashSet<String>,
+    seen: &mut crate::FastSet<String>,
 ) {
     collect_focus_claims(element, order, seen, &mut Vec::new());
 }
@@ -8382,7 +8383,7 @@ fn claim_focus(
     id: &str,
     kind: HitKind,
     order: &mut Vec<(String, HitKind)>,
-    seen: &mut HashSet<String>,
+    seen: &mut crate::FastSet<String>,
     duplicates: &mut Vec<String>,
 ) {
     if seen.insert(id.to_owned()) {
@@ -8396,7 +8397,7 @@ fn claim_focus(
 fn collect_focus_claims(
     element: &Element,
     order: &mut Vec<(String, HitKind)>,
-    seen: &mut HashSet<String>,
+    seen: &mut crate::FastSet<String>,
     duplicates: &mut Vec<String>,
 ) {
     if element.kept.as_ref().is_some_and(|kept| kept.inert) {
@@ -8818,7 +8819,7 @@ struct LayoutBuilder<'a> {
     /// Sticky children the scroll area being placed draws last.
     pinned: Vec<PinnedChild>,
     /// Per-layout, scope-aware queries for descendants that can leave their flow slot.
-    translated_overflow: HashMap<(u64, usize), bool>,
+    translated_overflow: crate::FastMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
     /// Whether the arrows move the focus, which needs the bounds of the
@@ -11245,7 +11246,7 @@ impl LayoutBuilder<'_> {
                 let previous = self.measurement_scope;
                 self.measurement_scope = *scope;
                 let mut focusables = Vec::new();
-                collect_focus_order(row, &mut focusables, &mut HashSet::new());
+                collect_focus_order(row, &mut focusables, &mut crate::FastSet::default());
                 self.place(
                     row,
                     Rect::new(
@@ -12543,7 +12544,7 @@ impl LayoutBuilder<'_> {
                 // receive geometry. Keep only their IDs reachable; selecting
                 // one uses the existing targeted probe to reveal its bounds.
                 let mut focusables = Vec::new();
-                collect_focus_order(element, &mut focusables, &mut HashSet::new());
+                collect_focus_order(element, &mut focusables, &mut crate::FastSet::default());
                 held = focusable_id(element).is_none() && !focusables.is_empty();
                 self.frame
                     .scroll_focus_candidates
@@ -12596,7 +12597,7 @@ impl LayoutBuilder<'_> {
         }
         if element.menu_navigation {
             let mut focusables = Vec::new();
-            collect_focus_order(element, &mut focusables, &mut HashSet::new());
+            collect_focus_order(element, &mut focusables, &mut crate::FastSet::default());
             self.frame
                 .inline_menu_focus
                 .push(InlineMenuFocusScope { focusables });
@@ -13065,7 +13066,7 @@ impl LayoutBuilder<'_> {
                         .max(0.0),
                 );
                 self.place(anchor, anchor_rect, clip);
-                let mut seen = HashSet::new();
+                let mut seen = crate::FastSet::default();
                 let mut anchor_focus = Vec::new();
                 collect_focus_order(anchor, &mut anchor_focus, &mut seen);
                 let trigger_id = anchor_focus.first().map(|(id, _)| id.clone());
@@ -13358,7 +13359,7 @@ impl LayoutBuilder<'_> {
                         let row = (list.build_row)(index);
                         let previous_scope = self.enter_measurement_scope();
                         let mut focusables = Vec::new();
-                        let mut seen = HashSet::new();
+                        let mut seen = crate::FastSet::default();
                         collect_focus_order(&row, &mut focusables, &mut seen);
                         self.place(
                             &row,

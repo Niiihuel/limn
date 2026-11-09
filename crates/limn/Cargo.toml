@@ -27,6 +27,9 @@ hot = ["dep:subsecond", "dep:dioxus-devtools"]
 [dependencies]
 # The standard clock everywhere but a browser, where std's panics.
 web-time = "1.1"
+# Hashes the layout's own tables: SipHash took a third of a long list's
+# layout. Already built for parley through hashbrown, so it adds no crate.
+foldhash = "0.2"
 limn-editor = { version = "0.1.43", path = "../limn-editor" }
 limn-language = { version = "0.1.43", path = "../limn-language", optional = true }
 # Lays text out: shaping, line breaking, bidi and the caret's place. Only
