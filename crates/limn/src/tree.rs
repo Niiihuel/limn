@@ -5443,7 +5443,7 @@ impl UiTree {
         }
         let previous_popovers = self.frame.popover_focus.clone();
         let mut focus_order = Vec::new();
-        let mut seen = HashSet::new();
+        let mut seen = crate::FastSet::default();
         let mut duplicate_ids = Vec::new();
         collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut duplicate_ids);
         // A focus asked for before this tree was laid out lands now, so this
@@ -8061,7 +8061,7 @@ impl UiTree {
         for index in candidates {
             let row = (list.build_row)(index);
             let mut focusables = Vec::new();
-            let mut seen = HashSet::new();
+            let mut seen = crate::FastSet::default();
             collect_focus_order(&row, &mut focusables, &mut seen);
             if let Some((_, opened)) = list.expansion.as_ref().filter(|(open, _)| *open == index) {
                 collect_focus_order(opened, &mut focusables, &mut seen);
@@ -8338,7 +8338,7 @@ fn collect_focus_regions(element: &Element, out: &mut Vec<(String, Vec<(String, 
         .and_then(|said| said.id.clone());
     if let Some(id) = region {
         let mut order = Vec::new();
-        collect_focus_order(element, &mut order, &mut HashSet::new());
+        collect_focus_order(element, &mut order, &mut crate::FastSet::default());
         out.push((id, order));
     }
     match &element.kind {
@@ -8372,7 +8372,7 @@ fn collect_focus_regions(element: &Element, out: &mut Vec<(String, Vec<(String, 
 fn collect_focus_order(
     element: &Element,
     order: &mut Vec<(String, HitKind)>,
-    seen: &mut HashSet<String>,
+    seen: &mut crate::FastSet<String>,
 ) {
     collect_focus_claims(element, order, seen, &mut Vec::new());
 }
@@ -8383,7 +8383,7 @@ fn claim_focus(
     id: &str,
     kind: HitKind,
     order: &mut Vec<(String, HitKind)>,
-    seen: &mut HashSet<String>,
+    seen: &mut crate::FastSet<String>,
     duplicates: &mut Vec<String>,
 ) {
     if seen.insert(id.to_owned()) {
@@ -8397,7 +8397,7 @@ fn claim_focus(
 fn collect_focus_claims(
     element: &Element,
     order: &mut Vec<(String, HitKind)>,
-    seen: &mut HashSet<String>,
+    seen: &mut crate::FastSet<String>,
     duplicates: &mut Vec<String>,
 ) {
     if element.kept.as_ref().is_some_and(|kept| kept.inert) {
@@ -11246,7 +11246,7 @@ impl LayoutBuilder<'_> {
                 let previous = self.measurement_scope;
                 self.measurement_scope = *scope;
                 let mut focusables = Vec::new();
-                collect_focus_order(row, &mut focusables, &mut HashSet::new());
+                collect_focus_order(row, &mut focusables, &mut crate::FastSet::default());
                 self.place(
                     row,
                     Rect::new(
@@ -12544,7 +12544,7 @@ impl LayoutBuilder<'_> {
                 // receive geometry. Keep only their IDs reachable; selecting
                 // one uses the existing targeted probe to reveal its bounds.
                 let mut focusables = Vec::new();
-                collect_focus_order(element, &mut focusables, &mut HashSet::new());
+                collect_focus_order(element, &mut focusables, &mut crate::FastSet::default());
                 held = focusable_id(element).is_none() && !focusables.is_empty();
                 self.frame
                     .scroll_focus_candidates
@@ -12597,7 +12597,7 @@ impl LayoutBuilder<'_> {
         }
         if element.menu_navigation {
             let mut focusables = Vec::new();
-            collect_focus_order(element, &mut focusables, &mut HashSet::new());
+            collect_focus_order(element, &mut focusables, &mut crate::FastSet::default());
             self.frame
                 .inline_menu_focus
                 .push(InlineMenuFocusScope { focusables });
@@ -13066,7 +13066,7 @@ impl LayoutBuilder<'_> {
                         .max(0.0),
                 );
                 self.place(anchor, anchor_rect, clip);
-                let mut seen = HashSet::new();
+                let mut seen = crate::FastSet::default();
                 let mut anchor_focus = Vec::new();
                 collect_focus_order(anchor, &mut anchor_focus, &mut seen);
                 let trigger_id = anchor_focus.first().map(|(id, _)| id.clone());
@@ -13359,7 +13359,7 @@ impl LayoutBuilder<'_> {
                         let row = (list.build_row)(index);
                         let previous_scope = self.enter_measurement_scope();
                         let mut focusables = Vec::new();
-                        let mut seen = HashSet::new();
+                        let mut seen = crate::FastSet::default();
                         collect_focus_order(&row, &mut focusables, &mut seen);
                         self.place(
                             &row,
