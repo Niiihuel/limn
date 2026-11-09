@@ -2014,6 +2014,7 @@ name = "limn"
 version = "0.1.43"
 dependencies = [
  "dioxus-devtools",
+ "foldhash 0.2.0",
  "limn-editor",
  "limn-language",
  "parley",

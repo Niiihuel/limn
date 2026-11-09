@@ -5483,7 +5483,7 @@ impl UiTree {
                 overlays: VecDeque::new(),
                 scroll_focus_context: Vec::new(),
                 pinned: Vec::new(),
-                translated_overflow: HashMap::new(),
+                translated_overflow: crate::FastMap::default(),
                 focus_path,
                 focus_probe: probe,
                 spatial_focus: self.spatial_focus,
@@ -8818,7 +8818,7 @@ struct LayoutBuilder<'a> {
     /// Sticky children the scroll area being placed draws last.
     pinned: Vec<PinnedChild>,
     /// Per-layout, scope-aware queries for descendants that can leave their flow slot.
-    translated_overflow: HashMap<(u64, usize), bool>,
+    translated_overflow: crate::FastMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
     /// Whether the arrows move the focus, which needs the bounds of the

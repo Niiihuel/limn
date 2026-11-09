@@ -4,7 +4,6 @@
 //! cache holds no more than the pass measured: it needs no cap of its own.
 
 use super::{Element, ElementKind, Size};
-use std::collections::HashMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 struct Key {
@@ -16,7 +15,7 @@ struct Key {
 
 #[derive(Default)]
 pub(super) struct MeasurementCache {
-    entries: HashMap<Key, Size>,
+    entries: crate::FastMap<Key, Size>,
     #[cfg(test)]
     pub(super) disabled: bool,
     #[cfg(test)]
