@@ -90,6 +90,12 @@ screen. This is what makes the window a pure function of your state.
 What the tree does keep is *interaction* state, which is not your data: which
 control has focus, where the pointer is, how far a list is scrolled.
 
+Most of it lasts only while its control is laid out. What should outlive a
+control that goes out of the window for a while, the caret of a field and the
+offset of a scroll area or list, is kept for the 64 IDs of each kind laid out
+most recently: a tab switched back to keeps its place, and IDs that come and
+go, one per message, do not pile up.
+
 ## Actions
 
 `UiTree::handle_event` returns the actions an event produced. The common ones:

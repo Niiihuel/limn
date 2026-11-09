@@ -1736,6 +1736,53 @@ pub struct TextLayoutRun {
     pub visible: Option<Rect>,
 }
 
+/// Out of sight, state is kept only for the IDs laid out most recently: a tab
+/// switched away from keeps its scroll and caret, while IDs that come and go,
+/// one per message, do not pile up.
+const DORMANT_KEPT: usize = 64;
+
+/// The layout each ID of a retained map was last laid out in.
+#[derive(Default)]
+struct LastLaidOut {
+    layout: u64,
+    inputs: HashMap<String, u64>,
+    scrolls: HashMap<String, u64>,
+    measured_lists: HashMap<String, u64>,
+    horizontal_scrolls: HashMap<String, u64>,
+}
+
+/// Stamp the IDs of `map` that `layout` used, then forget the dormant ones laid
+/// out longest ago, beyond the `DORMANT_KEPT` most recent.
+fn keep_recent<'a, V>(
+    map: &mut HashMap<String, V>,
+    stamps: &mut HashMap<String, u64>,
+    used: impl Iterator<Item = &'a str>,
+    layout: u64,
+) {
+    for id in used {
+        if let Some(stamp) = stamps.get_mut(id) {
+            *stamp = layout;
+        } else if map.contains_key(id) {
+            stamps.insert(id.to_owned(), layout);
+        }
+    }
+    stamps.retain(|id, _| map.contains_key(id));
+    let mut dormant: Vec<(u64, &String)> = map
+        .keys()
+        .map(|id| (stamps.get(id).copied().unwrap_or(0), id))
+        .filter(|(stamp, _)| *stamp != layout)
+        .collect();
+    if dormant.len() <= DORMANT_KEPT {
+        return;
+    }
+    dormant.sort_unstable();
+    let gone: Vec<String> = dormant[..dormant.len() - DORMANT_KEPT].iter().map(|(_, id)| (*id).clone()).collect();
+    for id in gone {
+        map.remove(&id);
+        stamps.remove(&id);
+    }
+}
+
 /// What a measured list keeps between layouts.
 #[derive(Debug, Default)]
 struct MeasuredListState {
@@ -4368,6 +4415,8 @@ pub struct UiTree {
     text_layout: bool,
     measurement_cache: RefCell<MeasurementCache>,
     horizontal_scrolls: HashMap<String, HorizontalScrollState>,
+    /// When the IDs of each map that outlives its controls were last laid out.
+    last_laid_out: LastLaidOut,
     frame: Frame,
     inputs: HashMap<String, InputState>,
     code_editors: HashMap<String, crate::code_editor::EditorView>,
@@ -4484,6 +4533,7 @@ impl UiTree {
             text_layout: false,
             measurement_cache: RefCell::new(MeasurementCache::default()),
             horizontal_scrolls: HashMap::new(),
+            last_laid_out: LastLaidOut::default(),
             frame: Frame::default(),
             inputs: HashMap::new(),
             code_editors: HashMap::new(),
@@ -6426,6 +6476,7 @@ impl UiTree {
         }
         self.caret_blink.finish_frame(self.focused.as_deref());
         self.trim_code_view_cache();
+        self.keep_recent_state();
         self.validate_ime_owner(now);
         self.paste_layout_pending = false;
         self.frame.clone()
@@ -6511,6 +6562,26 @@ impl UiTree {
                 self.forget_code_view(&id);
             }
         }
+    }
+
+    /// Bound what outlives its controls: the caret of each field, the offset of
+    /// each scroll area and list, the rows a measured list measured.
+    fn keep_recent_state(&mut self) {
+        let seen = &mut self.last_laid_out;
+        seen.layout += 1;
+        let layout = seen.layout;
+        let fields = self
+            .focus_order
+            .iter()
+            .filter(|(_, kind)| matches!(kind, HitKind::TextInput | HitKind::TextArea))
+            .map(|(id, _)| id.as_str());
+        keep_recent(&mut self.inputs, &mut seen.inputs, fields, layout);
+        // Every scroll area and list asks for its offset once per layout.
+        let scrolls = || self.frame.scroll_motion.keys().map(String::as_str);
+        keep_recent(&mut self.scroll_offsets, &mut seen.scrolls, scrolls(), layout);
+        keep_recent(&mut self.measured_lists, &mut seen.measured_lists, scrolls(), layout);
+        let strips = self.frame.horizontal_viewports.keys().map(String::as_str);
+        keep_recent(&mut self.horizontal_scrolls, &mut seen.horizontal_scrolls, strips, layout);
     }
 
     /// Instrumentation for lifecycle/end-to-end checks; not a memory estimate.
@@ -16975,6 +17046,40 @@ mod tests {
         assert_eq!(frame.duplicate_ids(), ["save", "name"]);
         tree.set_root(Element::column(vec![Element::button("save", "Save"), Element::button("cancel", "Cancel")]));
         assert!(tree.layout(Size::new(400.0, 400.0)).duplicate_ids().is_empty());
+    }
+
+    #[test]
+    fn state_out_of_sight_is_kept_only_for_the_ids_laid_out_most_recently() {
+        let viewport = Size::new(300.0, 200.0);
+        let page = |id: &str| {
+            Element::column(vec![
+                Element::scroll(id, Element::column((0..20).map(|_| Element::text("row")).collect()))
+                    .size(None, Some(100.0)),
+                Element::text_input(format!("{id}:field"), "draft", "Reply"),
+            ])
+        };
+        let mut tree = UiTree::new(page("tab"));
+        tree.layout(viewport);
+        tree.set_scroll_offset("tab", 40.0);
+        tree.layout(viewport);
+        // A tab switched away from and back keeps its place.
+        for index in 0..10 {
+            tree.set_root(page(&format!("other:{index}")));
+            tree.layout(viewport);
+        }
+        tree.set_root(page("tab"));
+        tree.layout(viewport);
+        assert_eq!(tree.scroll_offset("tab"), 40.0);
+        // IDs that come and go, one per message, do not pile up.
+        for index in 0..200 {
+            tree.set_root(page(&format!("message:{index}")));
+            tree.layout(viewport);
+        }
+        assert_eq!(tree.scroll_offsets.len(), DORMANT_KEPT + 1);
+        assert_eq!(tree.inputs.len(), DORMANT_KEPT + 1);
+        assert!(tree.scroll_offsets.contains_key("message:199"));
+        assert!(tree.scroll_offsets.contains_key("message:136"));
+        assert!(!tree.scroll_offsets.contains_key("tab"));
     }
 
     #[test]
