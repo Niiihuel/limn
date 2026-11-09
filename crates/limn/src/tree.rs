@@ -1,3 +1,12 @@
+/// The layout's state store, to change. Measuring changes no state: what a
+/// measure finds is kept when the element is placed, so the same tree measures
+/// the same way however often it is asked. Debug builds check it.
+macro_rules! states_mut {
+    ($builder:expr) => {{
+        debug_assert!($builder.measuring.get() == 0, "a measure changed the state store");
+        $builder.states.borrow_mut()
+    }};
+}
 #[path = "horizontal_scroll_tree.rs"]
 mod horizontal_scroll_tree;
 use horizontal_scroll_tree::{HorizontalPan, HorizontalScrollState};
@@ -2013,6 +2022,29 @@ fn slot_motion() -> crate::SpringMotion {
 }
 
 /// The time in which a slot covers 99% of its way: one and a half moves.
+/// Where a slot's spring and content height stand at `now`, from where they
+/// stood before, once it shows content `natural` high: the transition starts
+/// or reverses when the content arrives or leaves. Content already there when
+/// the slot is first seen is simply there.
+fn next_flow(before: Option<(ScalarSpring, f32)>, expand: bool, natural: f32, now: Instant, locating: bool) -> (ScalarSpring, f32) {
+    let present = natural > 0.0;
+    let (mut fraction, mut kept) = before.unwrap_or((slot_spring(if present { SLOT_OPEN } else { 0.0 }, now), natural));
+    let target = if present {
+        kept = natural;
+        SLOT_OPEN
+    } else {
+        0.0
+    };
+    if fraction.target() != target {
+        if present && (!expand || locating) && fraction.value(now) <= 0.0 {
+            fraction = slot_spring(SLOT_OPEN, now);
+        } else {
+            fraction.launch(target, slot_motion(), now);
+        }
+    }
+    (fraction, kept)
+}
+
 pub(crate) fn slot_settle() -> Duration {
     Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3 / 2)
 }
@@ -5504,6 +5536,8 @@ impl UiTree {
                 text_layout: self.text_layout,
                 measurement_cache: &self.measurement_cache,
                 states: &self.states,
+                measuring: std::cell::Cell::new(0),
+                flow_naturals: RefCell::new(crate::FastMap::default()),
                 flow_origin: Point::default(),
                 pushes_moved: &self.pushes_moved,
                 measurement_scope: 0,
@@ -6008,6 +6042,11 @@ impl UiTree {
             }
             ghost_range = builder.drag_ghost.take();
             self.hovered_region = builder.hovered_region(base_regions);
+            // A slot measured and never placed keeps what its measure found, as one placed does.
+            let unplaced: Vec<String> = builder.flow_naturals.borrow().keys().cloned().collect();
+            for id in unplaced {
+                builder.keep_flow(&id);
+            }
             (builder.frame, overlay_start)
         };
         // A zoom view not laid out is gone: a new one under its ID opens fitted.
@@ -8838,6 +8877,12 @@ struct LayoutBuilder<'a> {
     text_layout: bool,
     measurement_cache: &'a RefCell<MeasurementCache>,
     states: &'a RefCell<StateStore>,
+    /// How deep the measures under way are, in debug builds, which check
+    /// that a measure changes no state.
+    measuring: std::cell::Cell<u32>,
+    /// The content height and `expand` each `animate_height` slot was last
+    /// measured with in this layout, for placing it to keep.
+    flow_naturals: RefCell<crate::FastMap<String, (f32, bool)>>,
     /// Where the column or row being placed starts its children, which an
     /// `animate_move` slot is measured from.
     flow_origin: Point,
@@ -9586,7 +9631,7 @@ impl LayoutBuilder<'_> {
         }
         let now = self.now;
         let commands = self.frame.commands[start..].to_vec();
-        let mut states = self.states.borrow_mut();
+        let mut states = states_mut!(self);
         let Some(state) = states.keep::<Replacement>(id, now) else {
             // The first content is simply there; only a change travels.
             states.touch(id, now, || Replacement {
@@ -11456,6 +11501,15 @@ impl LayoutBuilder<'_> {
     }
 
     fn measure(&self, element: &Element, available: Size) -> Size {
+        #[cfg(debug_assertions)]
+        self.measuring.set(self.measuring.get() + 1);
+        let size = self.measure_now(element, available);
+        #[cfg(debug_assertions)]
+        self.measuring.set(self.measuring.get() - 1);
+        size
+    }
+
+    fn measure_now(&self, element: &Element, available: Size) -> Size {
         let mut size = self.measure_natural(element, available);
         if let (Some(expand), Some((id, _))) = (element.animate_height, &element.presence) {
             size.height = self.flow_height(id, expand, size.height);
@@ -11475,35 +11529,36 @@ impl LayoutBuilder<'_> {
     }
 
     /// The height an `animate_height` slot occupies now, given its content's.
-    /// Starts or reverses its transition when the content arrives or leaves.
+    /// Measuring changes nothing: it works out where the slot's spring stands
+    /// from where the last layout left it, and notes the content's height for
+    /// the placing, which keeps the spring started or reversed.
     fn flow_height(&self, id: &str, expand: bool, natural: f32) -> f32 {
         if self.reduced_motion {
             return natural;
         }
-        let now = self.now;
-        let present = natural > 0.0;
-        let mut states = self.states.borrow_mut();
-        // Content already there when the slot is first seen is simply there.
-        let state = states.touch(id, now, || FlowHeight {
-            fraction: slot_spring(if present { SLOT_OPEN } else { 0.0 }, now),
+        self.flow_naturals.borrow_mut().insert(id.to_owned(), (natural, expand));
+        let before = self.states.borrow().get::<FlowHeight>(id).map(|state| (state.fraction, state.natural));
+        let (fraction, natural) = next_flow(before, expand, natural, self.now, self.locating);
+        natural * (fraction.value(self.now) / SLOT_OPEN).clamp(0.0, 1.0)
+    }
+
+    /// Keep what measuring found for the `animate_height` slot `id`: its
+    /// spring started or reversed, and its content's height.
+    fn keep_flow(&self, id: &str) {
+        let Some((natural, expand)) = self.flow_naturals.borrow_mut().remove(id) else {
+            return;
+        };
+        let before = self.states.borrow().get::<FlowHeight>(id).map(|state| (state.fraction, state.natural));
+        let (fraction, natural) = next_flow(before, expand, natural, self.now, self.locating);
+        let mut states = states_mut!(self);
+        let state = states.touch(id, self.now, || FlowHeight {
+            fraction,
             natural,
             rect: Rect::new(0.0, 0.0, 0.0, 0.0),
             commands: Vec::new(),
         });
-        let target = if present {
-            state.natural = natural;
-            SLOT_OPEN
-        } else {
-            0.0
-        };
-        if state.fraction.target() != target {
-            if present && (!expand || self.locating) && state.fraction.value(now) <= 0.0 {
-                state.fraction = slot_spring(SLOT_OPEN, now);
-            } else {
-                state.fraction.launch(target, slot_motion(), now);
-            }
-        }
-        state.natural * (state.fraction.value(now) / SLOT_OPEN).clamp(0.0, 1.0)
+        state.fraction = fraction;
+        state.natural = natural;
     }
 
     /// Place an `animate_height` element in a slot that may be shorter than
@@ -11513,10 +11568,11 @@ impl LayoutBuilder<'_> {
         if self.reduced_motion {
             return self.place_inner(element, rect, clip);
         }
-        if self.states.borrow().touched::<FlowHeight>(id) != Some(self.now) {
+        if !self.flow_naturals.borrow().contains_key(id) {
             // A parent that sizes its child without measuring it.
             self.measure(element, Size::new(rect.width, rect.height));
         }
+        self.keep_flow(id);
         let now = self.now;
         let Some((fraction, natural, present)) = self.states.borrow().get::<FlowHeight>(id).map(|state| {
             (
@@ -11530,7 +11586,7 @@ impl LayoutBuilder<'_> {
         let start = self.frame.commands.len();
         if present && fraction >= 1.0 {
             self.place_inner(element, rect, clip);
-            if let Some(state) = self.states.borrow_mut().get_mut::<FlowHeight>(id) {
+            if let Some(state) = states_mut!(self).get_mut::<FlowHeight>(id) {
                 state.rect = rect;
                 state.commands = self.frame.commands[start..].to_vec();
             }
@@ -11545,7 +11601,7 @@ impl LayoutBuilder<'_> {
             self.frame.commands.push(DrawCommand::PushClip(slot.unwrap_or(Rect::new(rect.x, rect.y, 0.0, 0.0))));
             let inner = self.frame.commands.len();
             self.place_inner(element, full, slot.or(Some(Rect::new(rect.x, rect.y, 0.0, 0.0))));
-            if let Some(state) = self.states.borrow_mut().get_mut::<FlowHeight>(id) {
+            if let Some(state) = states_mut!(self).get_mut::<FlowHeight>(id) {
                 state.rect = full;
                 state.commands = self.frame.commands[inner..].to_vec();
             }
@@ -11689,18 +11745,28 @@ impl LayoutBuilder<'_> {
     /// Where the value kept under `key` stands on this frame, heading for
     /// `target`. A key seen for the first time rests on its target.
     fn scalar(&self, key: &str, target: f32) -> f32 {
-        let mut states = self.states.borrow_mut();
+        let mut states = states_mut!(self);
         let state = states.touch(key, self.now, || AnimatedScalar {
             value: ScalarTransition::new(target, self.now),
         });
-        if state.value.target() != target {
+        state.value = self.next_scalar(state.value, target);
+        state.value.value(self.now)
+    }
+
+    /// As [`Self::scalar`], for a measure: where the value stands, changing nothing.
+    fn scalar_peek(&self, key: &str, target: f32) -> f32 {
+        let before = self.states.borrow().get::<AnimatedScalar>(key).map(|state| state.value);
+        self.next_scalar(before.unwrap_or(ScalarTransition::new(target, self.now)), target).value(self.now)
+    }
+
+    /// A scalar's transition once it heads for `target`.
+    fn next_scalar(&self, mut value: ScalarTransition, target: f32) -> ScalarTransition {
+        if value.target() != target {
             // A count is read, not followed: it takes three moves.
             let duration = Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3);
-            state
-                .value
-                .retarget_with_motion(target, self.now, duration, self.reduced_motion);
+            value.retarget_with_motion(target, self.now, duration, self.reduced_motion);
         }
-        state.value.value(self.now)
+        value
     }
 
     /// Puts the text painted since `start` out of focus: each run becomes
@@ -11747,7 +11813,7 @@ impl LayoutBuilder<'_> {
     /// and in `fall_ms` towards a lesser one.
     fn spring_paced(&self, key: &str, target: f32, rise_ms: u16, fall_ms: u16) -> f32 {
         let paced = |settle_ms: u16| crate::SpringMotion::settling_in(Duration::from_millis(u64::from(settle_ms)));
-        let mut states = self.states.borrow_mut();
+        let mut states = states_mut!(self);
         let state = states.touch(key, self.now, || AnimatedSpring {
             value: ScalarSpring::new(target, self.now),
         });
@@ -11764,7 +11830,7 @@ impl LayoutBuilder<'_> {
     /// As `spring`, on `motion`: from rest it starts at standstill, and
     /// redirected it turns from where it is at the speed it has.
     fn spring_on(&self, key: &str, target: f32, motion: crate::SpringMotion) -> f32 {
-        let mut states = self.states.borrow_mut();
+        let mut states = states_mut!(self);
         let state = states.touch(key, self.now, || AnimatedSpring {
             value: ScalarSpring::new(target, self.now).motion(motion),
         });
@@ -11822,17 +11888,19 @@ impl LayoutBuilder<'_> {
     }
 
     /// The text a rolling number reads as on this frame.
-    fn rolling_text(&self, element: &Element) -> Option<Element> {
+    /// A rolling number as the text it shows now; a measure only reads its value.
+    fn rolling_text(&self, element: &Element, measuring: bool) -> Option<Element> {
         let ElementKind::RollingNumber { id, value, format } = &element.kind else {
             return None;
         };
+        let shown = if measuring { self.scalar_peek(id, *value) } else { self.scalar(id, *value) };
         let mut text = element.clone();
-        text.kind = ElementKind::Text(format(self.scalar(id, *value)));
+        text.kind = ElementKind::Text(format(shown));
         Some(text)
     }
 
     fn measure_uncached(&self, element: &Element, available: Size) -> Size {
-        if let Some(text) = self.rolling_text(element) {
+        if let Some(text) = self.rolling_text(element, true) {
             return self.measure_uncached(&text, available);
         }
         let style = element.style;
@@ -12296,7 +12364,7 @@ impl LayoutBuilder<'_> {
     fn moved(&mut self, id: &str, rect: Rect) -> Point {
         let now = self.now;
         let slot = Point::new(rect.x - self.flow_origin.x, rect.y - self.flow_origin.y);
-        let mut states = self.states.borrow_mut();
+        let mut states = states_mut!(self);
         let state = states.touch(id, now, || AnimatedMove {
             slot,
             x: ScalarTransition::new(0.0, now),
@@ -12508,14 +12576,14 @@ impl LayoutBuilder<'_> {
 
     fn place_inner(&mut self, element: &Element, rect: Rect, clip: Option<Rect>) {
         let scrollbar_visibility = element.kept.as_ref().map_or(crate::ScrollbarVisibility::Always, |kept| kept.scrollbar_visibility);
-        if let Some(text) = self.rolling_text(element) {
+        if let Some(text) = self.rolling_text(element, false) {
             return self.place_inner(&text, rect, clip);
         }
         let foreground = element.kept.as_ref().and_then(|kept| kept.foreground.as_deref());
         if let Some(id) = foreground.filter(|_| !self.reduced_motion) {
             let given = element.style.foreground;
             let ink = {
-                let mut states = self.states.borrow_mut();
+                let mut states = states_mut!(self);
                 let Ink(ink) = states.touch(id, self.now, || Ink(ColorTransition::new(given, self.now)));
                 let duration = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
                 ink.retarget(given, self.now, duration);
@@ -12625,7 +12693,7 @@ impl LayoutBuilder<'_> {
             let started = if self.reduced_motion {
                 self.now
             } else {
-                self.states.borrow_mut().touch(id, self.now, || SkeletonStart(self.now)).0
+                states_mut!(self).touch(id, self.now, || SkeletonStart(self.now)).0
             };
             let period = element.kept.as_ref().and_then(|kept| kept.pulse_ms);
             style.background = Some(skeleton_color(
@@ -12723,7 +12791,7 @@ impl LayoutBuilder<'_> {
         if let Some(id) = transition_id.filter(|_| !self.reduced_motion && style.transition_ms > 0)
         {
             let target = style.background.unwrap_or(Color::TRANSPARENT);
-            let mut states = self.states.borrow_mut();
+            let mut states = states_mut!(self);
             let Fill(state) = states.touch(id, self.now, || Fill(ColorTransition::new(target, self.now)));
             state.retarget(
                 target,
@@ -12865,7 +12933,7 @@ impl LayoutBuilder<'_> {
                 let children = kept.as_ref();
                 if let Some(list) = element.kept.as_ref().and_then(|kept| kept.leaving.as_deref()) {
                     let slots = children.iter().filter_map(Self::slot_id).map(str::to_owned).collect();
-                    *self.states.borrow_mut().touch(list, self.now, || Leaving(Vec::new())) = Leaving(slots);
+                    *states_mut!(self).touch(list, self.now, || Leaving(Vec::new())) = Leaving(slots);
                 }
                 let viewport = self
                     .scroll_focus_context
@@ -12909,7 +12977,7 @@ impl LayoutBuilder<'_> {
                         _ => child.indicator_slot.as_ref() == Some(&selection.selected_id),
                     });
                     if let Some(target) = index.and_then(|index| rects.get(index)).copied() {
-                        let mut states = self.states.borrow_mut();
+                        let mut states = states_mut!(self);
                         let state = states.touch(&selection.group_id, self.now, || TabIndicatorState {
                                 selected_id: selection.selected_id.clone(),
                                 x: ScalarSpring::new(target.x, self.now),
@@ -13443,7 +13511,7 @@ impl LayoutBuilder<'_> {
                     .as_ref()
                     .filter(|_| !self.reduced_motion && !text.is_empty())
                     .map(|(id, highlight)| {
-                        let started = self.states.borrow_mut().touch(id, self.now, || ShimmerStart(self.now)).0;
+                        let started = states_mut!(self).touch(id, self.now, || ShimmerStart(self.now)).0;
                         let elapsed = self.now.saturating_duration_since(started).as_secs_f32();
                         let reach = width.min(visible_width);
                         (*highlight, (elapsed / 1.8).fract() * (reach + 100.0) - 50.0)
@@ -13529,7 +13597,7 @@ impl LayoutBuilder<'_> {
                     .as_ref()
                     .and_then(|kept| kept.ink_gradient.clone());
                 if let Some((id, highlight)) = shimmer {
-                    let started = self.states.borrow_mut().touch(id, self.now, || ShimmerStart(self.now)).0;
+                    let started = states_mut!(self).touch(id, self.now, || ShimmerStart(self.now)).0;
                     let width = self.text_width(&shown, style);
                     self.paint_shimmer_line(
                         &shown,
@@ -13599,7 +13667,7 @@ impl LayoutBuilder<'_> {
                 let shimmer = if let ElementKind::ShimmerText { id, highlight, .. } = &element.kind
                 {
                     if !self.reduced_motion && !value.is_empty() && content.width > 0.0 {
-                        let started = self.states.borrow_mut().touch(id, self.now, || ShimmerStart(self.now)).0;
+                        let started = states_mut!(self).touch(id, self.now, || ShimmerStart(self.now)).0;
                         Some((
                             *highlight,
                             self.now.saturating_duration_since(started).as_secs_f32(),
@@ -15050,7 +15118,7 @@ impl LayoutBuilder<'_> {
                 let now = self.now;
                 let peeked = peek.as_deref().is_some_and(|control| self.hovered == Some(control));
                 let target = if *out || peeked { 1.0 } else { 0.0 };
-                let mut states = self.states.borrow_mut();
+                let mut states = states_mut!(self);
                 let motion = states.touch(id, now, || RecordMotion {
                     out: ScalarTransition::new(target, now),
                     turned: 0.0,
@@ -15078,7 +15146,7 @@ impl LayoutBuilder<'_> {
                 let started = if self.reduced_motion {
                     self.now
                 } else {
-                    self.states.borrow_mut().touch(id, self.now, || SpinnerStart(self.now)).0
+                    states_mut!(self).touch(id, self.now, || SpinnerStart(self.now)).0
                 };
                 paint_spinner(
                     &mut self.frame.commands,
@@ -15091,7 +15159,7 @@ impl LayoutBuilder<'_> {
                 );
             }
             ElementKind::Scribble { id, color, stroke, drawing } => {
-                let started = self.states.borrow_mut().touch(id, self.now, || SpinnerStart(self.now)).0;
+                let started = states_mut!(self).touch(id, self.now, || SpinnerStart(self.now)).0;
                 let (commands, moving) = crate::scribble::paint(
                     rect,
                     *color,
@@ -15115,7 +15183,7 @@ impl LayoutBuilder<'_> {
                 ultra_available,
             } => {
                 let drag = self.slider_drag.filter(|drag| drag.id == *id);
-                let mut states = self.states.borrow_mut();
+                let mut states = states_mut!(self);
                 let motion = states.touch(id, self.now, || SliderMotion::new(self.now));
                 let (phase, visual_fraction, ultra_mix, burst_age) = motion.sample(
                     self.now,

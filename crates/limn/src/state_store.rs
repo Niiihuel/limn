@@ -86,11 +86,6 @@ impl StateStore {
         self.kind_mut::<T>().get_mut(id).map(|kept| &mut kept.value)
     }
 
-    /// The clock of the last layout that touched the state of kind `T` under `id`.
-    pub(super) fn touched<T: 'static>(&self, id: &str) -> Option<Instant> {
-        self.kind::<T>()?.get(id).map(|kept| kept.touched)
-    }
-
     /// Every state of kind `T`.
     pub(super) fn values<T: 'static>(&self) -> impl Iterator<Item = &T> {
         self.kind::<T>().into_iter().flat_map(|kind| kind.values().map(|kept| &kept.value))
@@ -141,7 +136,6 @@ mod tests {
         let second = first + Duration::from_millis(16);
         store.touch("row", second, || Height(0.0));
         assert_eq!(store.get::<Ink>("row").map(|ink| ink.0), Some(1), "a look does not keep it");
-        assert_eq!(store.touched::<Height>("row"), Some(second));
         store.sweep(second);
         assert_eq!(store.get::<Height>("row").map(|height| height.0), Some(12.0));
         assert!(store.get::<Ink>("row").is_none(), "untouched by that layout, forgotten");
