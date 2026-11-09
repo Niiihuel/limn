@@ -59,7 +59,7 @@ fn alpha_at(primitives: &[egui::ClippedPrimitive], point: Pos2) -> f32 {
         let egui::epaint::Primitive::Mesh(mesh) = &primitive.primitive else {
             continue;
         };
-        for indices in mesh.indices.chunks_exact(3) {
+        for indices in mesh.indices.as_chunks::<3>().0 {
             let [a, b, c] = [
                 mesh.vertices[indices[0] as usize],
                 mesh.vertices[indices[1] as usize],

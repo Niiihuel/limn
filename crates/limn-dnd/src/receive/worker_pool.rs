@@ -386,7 +386,7 @@ impl WorkerPool {
     pub(crate) fn consume_registry(&self) -> Result<(), ReceiveError> {
         self.shared
             .registries
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |used| {
                 (used < MAX_REGISTRIES).then_some(used + 1)
             })
             .map(|_| ())

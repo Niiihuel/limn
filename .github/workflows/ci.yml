@@ -18,7 +18,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       # The version in Cargo.toml: a newer clippy's lints must not break a pull request.
-      - uses: dtolnay/rust-toolchain@1.95.0
+      - uses: dtolnay/rust-toolchain@1.99.1
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
