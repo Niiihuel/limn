@@ -10238,108 +10238,16 @@ impl LayoutBuilder<'_> {
             ElementKind::CodeEditor(_) => self.place_code_editor(element, rect, content, clip),
             ElementKind::CodeDiff(_) => self.place_code_diff(element, rect, content, clip),
             ElementKind::TextArea { .. } => self.place_text_area(element, rect, content, clip, style, metrics),
-            ElementKind::Flowchart(flowchart) => {
-                let mut commands = Vec::new();
-                flowchart.paint(
-                    content,
-                    &|text, size| self.sans_width(text, size),
-                    &|size| self.sans_metrics.at_size(size).line_height,
-                    &mut commands,
-                );
-                self.frame.commands.append(&mut commands);
-            }
-            ElementKind::SequenceDiagram(diagram) => {
-                let mut commands = Vec::new();
-                diagram.paint(
-                    content,
-                    &|text, size| self.sans_width(text, size),
-                    &|size| self.sans_metrics.at_size(size).line_height,
-                    &mut commands,
-                );
-                self.frame.commands.append(&mut commands);
-            }
-            ElementKind::UnitGrid(grid) => {
-                // Each part's cells follow those of the parts before it.
-                let focused = grid.focus.filter(|focus| *focus < grid.parts.len());
-                let mut end = 0.0;
-                let spans: Vec<(f32, f32, Color)> = grid
-                    .parts
-                    .iter()
-                    .enumerate()
-                    .map(|(index, part)| {
-                        let key = format!("{}/{}", grid.id, part.key);
-                        let cells = self.scalar(&key, part.cells.max(0.0)).max(0.0);
-                        let receded = focused.is_some_and(|focus| focus != index);
-                        let recede = self.scalar(&format!("{key}/recede"), f32::from(u8::from(receded)));
-                        let start = end;
-                        end += cells;
-                        (start, end, mix(part.color, grid.empty, recede * 0.78))
-                    })
-                    .collect();
-                let pitch = grid.cell + grid.gap;
-                for row in 0..grid.rows {
-                    for column in 0..grid.columns {
-                        let cell = f32::from(row) * f32::from(grid.columns) + f32::from(column);
-                        // A cell a part covers in part shows that share of its colour.
-                        let color = spans.iter().fold(grid.empty, |color, (start, end, ink)| {
-                            let cover = (end.min(cell + 1.0) - start.max(cell)).clamp(0.0, 1.0);
-                            if cover > 0.0 { mix(color, *ink, cover) } else { color }
-                        });
-                        self.frame.commands.push(DrawCommand::FillRect {
-                            rect: Rect::new(
-                                content.x + f32::from(column) * pitch,
-                                content.y + f32::from(row) * pitch,
-                                grid.cell,
-                                grid.cell,
-                            ),
-                            color,
-                            radius: grid.radius,
-                        });
-                    }
-                }
-            }
+            ElementKind::Flowchart(_) => self.place_flowchart(element, content),
+            ElementKind::SequenceDiagram(_) => self.place_sequence_diagram(element, content),
+            ElementKind::UnitGrid(_) => self.place_unit_grid(element, content),
             ElementKind::BarPlot(plot) => self.paint_bar_plot(plot, content, clip),
             ElementKind::LinePlot(plot) => self.paint_line_plot(plot, content, clip),
             ElementKind::PiePlot(plot) => self.paint_pie_plot(plot, content, clip),
             ElementKind::RadarPlot(plot) => self.paint_radar_plot(plot, content, clip),
             ElementKind::HeatPlot(plot) => self.paint_heat_plot(plot, content, clip),
             ElementKind::Drawing(_) => self.place_drawing(element, content),
-            ElementKind::LevelBars(bars) => {
-                let pitch = bars.bar + bars.gap;
-                let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };
-                let slots = fit.clamp(0.0, f32::from(MAX_LEVEL_SLOTS)) as usize;
-                // The newest level takes the last slot; the levels that do
-                // not fit are the oldest, and slots without one stay dots.
-                let skipped = bars.levels.len().saturating_sub(slots);
-                let empty = slots.saturating_sub(bars.levels.len());
-                let left = content.x + content.width - (slots as f32 * pitch - bars.gap).max(0.0);
-                for slot in 0..slots {
-                    let level = slot
-                        .checked_sub(empty)
-                        .and_then(|index| bars.levels.get(skipped + index))
-                        .filter(|level| level.is_finite())
-                        .map_or(0.0, |level| level.clamp(0.0, 1.0));
-                    // A peak shows almost at once and falls back slowly, as a
-                    // meter's needle does: a bar that chased every dip would flicker.
-                    let motion = crate::tokens().motion;
-                    let shown = self
-                        .spring_paced(&format!("{}/{slot}", bars.id), level, motion.hover_ms, motion.move_ms * 2)
-                        .clamp(0.0, 1.0);
-                    let height = bars.bar + (content.height - bars.bar).max(0.0) * shown;
-                    self.frame.commands.push(DrawCommand::FillRect {
-                        rect: Rect::new(
-                            left + slot as f32 * pitch,
-                            content.y + (content.height - height) / 2.0,
-                            bars.bar,
-                            height,
-                        ),
-                        // A dot takes the bars' ink as soon as it stands up.
-                        color: mix(bars.rest, bars.color, shown * 4.0),
-                        // Half the width is a shape, not a token.
-                        radius: bars.bar / 2.0,
-                    });
-                }
-            }
+            ElementKind::LevelBars(_) => self.place_level_bars(element, content),
             ElementKind::MarkRail(rail) => {
                 let pitch = (content.height / rail.marks.len().max(1) as f32).min(rail.pitch);
                 let at = |id: Option<&str>| {
