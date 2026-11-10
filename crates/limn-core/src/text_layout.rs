@@ -878,6 +878,10 @@ impl System {
         if let Some(font) = given.emoji_face() {
             register(font, "limn-emoji", None, None);
         }
+        let last: Vec<String> = (0..given.last_resorts().len()).map(|index| format!("limn-last-{index}")).collect();
+        for (font, name) in given.last_resorts().iter().zip(&last) {
+            register(font, name, None, None);
+        }
         let custom: Vec<u16> = given
             .faces()
             .filter_map(|(family, font)| match family {
@@ -917,8 +921,9 @@ impl System {
                     names.push(named("limn-mono"));
                 }
             }
-            // Last, so it never takes a symbol a text face has.
+            // After the text faces, so it never takes a symbol one has; then what nothing else draws.
             names.push(named("limn-emoji"));
+            names.extend(last.iter().map(|name| named(name)));
             names
         };
         // The instance of the first face given among `names`.

@@ -143,13 +143,14 @@ impl std::error::Error for FontError {}
 /// `Custom` family is its face, at the weight and slant the face has, with
 /// everything `Sans` tries behind it; without a face it is `Sans`. Behind `Sans` comes every fallback, then `Monospace`, then
 /// the emoji face; behind `Monospace` comes `Sans`, every fallback, then the
-/// emoji face. The emoji face is last so it never takes a symbol a text face
-/// has.
+/// emoji face. The emoji face comes after the text faces so it never takes a
+/// symbol one has; only the last resorts come after it, in every family.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Fonts {
     faces: Vec<(FontFamily, Font)>,
     fallbacks: Vec<Font>,
     emoji: Option<Font>,
+    last_resorts: Vec<Font>,
 }
 
 impl Fonts {
@@ -194,10 +195,19 @@ impl Fonts {
         self
     }
 
-    /// Lay emoji out in `font`, tried after every other face, in place of the
-    /// emoji face there was.
+    /// Lay emoji out in `font`, tried after every other face but the last
+    /// resorts, in place of the emoji face there was.
     pub fn emoji(mut self, font: Font) -> Self {
         self.emoji = Some(font);
+        self
+    }
+
+    /// Try `font` for characters no other face has, after the emoji face and
+    /// the last resorts already given: a face found for a script none of the
+    /// others draws, such as one of the system's, which then changes nothing
+    /// they draw.
+    pub fn last_resort(mut self, font: Font) -> Self {
+        self.last_resorts.push(font);
         self
     }
 
@@ -222,9 +232,15 @@ impl Fonts {
         self.emoji.as_ref()
     }
 
+    /// The last resorts, in the order they are tried.
+    pub fn last_resorts(&self) -> &[Font] {
+        &self.last_resorts
+    }
+
     /// The given face a layout's run names by its data.
     pub(crate) fn find(&self, data: &FontData) -> Font {
-        let mut all = self.faces.iter().map(|(_, font)| font).chain(&self.fallbacks).chain(&self.emoji);
+        let mut all =
+            self.faces.iter().map(|(_, font)| font).chain(&self.fallbacks).chain(&self.emoji).chain(&self.last_resorts);
         all.find(|font| font.id() == data.data.id() && font.index() == data.index)
             .cloned()
             .unwrap_or_else(|| Font { data: data.clone(), compiled: None, variations: Arc::new([]) })
