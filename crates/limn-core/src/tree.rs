@@ -3461,6 +3461,7 @@ impl UiTree {
                         placement,
                         colors,
                         options,
+                        content,
                     } => {
                         let start = builder.frame.commands.len();
                         let origin = builder.paint_tooltip(
@@ -3468,6 +3469,7 @@ impl UiTree {
                             &title,
                             shortcut.as_deref(),
                             &sections,
+                            content,
                             max_width,
                             placement,
                             colors,
@@ -6666,6 +6668,7 @@ enum DeferredOverlay {
         placement: TooltipPlacement,
         colors: TooltipStyle,
         options: TooltipOptions,
+        content: Option<Box<Element>>,
     },
 }
 
@@ -7870,6 +7873,7 @@ impl LayoutBuilder<'_> {
                 placement: TooltipPlacement::Above,
                 colors: hint.colors,
                 options: crate::tokens().tooltip_options,
+                content: None,
             });
         }
     }
@@ -10585,6 +10589,7 @@ impl LayoutBuilder<'_> {
                 placement,
                 colors,
                 options,
+                content: own,
             } => {
                 let region_start = self.frame.regions.len();
                 self.place(anchor, content, clip);
@@ -10626,6 +10631,7 @@ impl LayoutBuilder<'_> {
                         placement: *placement,
                         colors: *colors,
                         options: *options,
+                        content: own.clone(),
                     });
                 }
             }
@@ -11945,6 +11951,7 @@ impl LayoutBuilder<'_> {
                             placement: TooltipPlacement::Above,
                             colors: editor.palette.tooltip_style(),
                             options: crate::tokens().tooltip_options,
+                            content: None,
                         });
                     }
                     for control in controls {
@@ -12484,6 +12491,7 @@ impl LayoutBuilder<'_> {
                         placement: TooltipPlacement::Right,
                         colors: rail.tooltip,
                         options: crate::tokens().tooltip_options,
+                        content: None,
                     });
                 }
                 self.frame.tab_focus.push(TabFocusScope {
