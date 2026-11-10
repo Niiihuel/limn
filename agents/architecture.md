@@ -45,8 +45,10 @@ In `crates/limn-core/src/`:
 | File | Holds |
 | --- | --- |
 | `element.rs` | `Element`, `ElementKind`, `Style`, and the builder methods. An `Element` is at most 704 bytes: `an_element_stays_within_its_size_budget` fails above that, so a rare field goes in `Kept` or behind a `Box`. |
-| `tree.rs` | `UiTree` (state and events), `LayoutBuilder` (one layout pass), `Frame`, `HitRegion`, `DrawCommand`, `UiEvent`, `UiAction`, `Key`, and the state of text inputs. |
-| `*_tree.rs` | Parts of the layout that have moved out of `tree.rs`: child modules of `tree`, so they reach its private items. `zoom_view_tree.rs`, `horizontal_scroll_tree.rs`, `plot_tree.rs`, `corner_mask_tree.rs`, `context_menu_tree.rs`, `ime_tree.rs`. |
+| `tree.rs` | `UiTree` (state and events) and `LayoutBuilder` (one layout pass, with `measure_uncached` and `place_inner`). What has moved out of it is in the child modules below. |
+| `draw_command.rs`, `events.rs`, `frame.rs` | Child modules of `tree` with what a backend reads and sends: `DrawCommand`; `Key`, `OtherButton`, `UiEvent`, `Modifiers`, `UiAction`; `Frame`, `HitRegion`, `HitKind`, `TextLayoutBlock`, `TextLayoutRun` and hit testing. `tree.rs` re-exports them, so `lib.rs` exports them as before. |
+| `input_state.rs`, `formatted_text.rs` | Child modules of `tree`: the state of a text field (`InputState`, `FieldLayout`, `VisualLine`), and formatted text flowed into lines and cut to its `max_lines` with «…» (`layout_formatted`, `clamp_formatted`). |
+| `*_tree.rs` | Parts of the layout that have moved out of `tree.rs`: child modules of `tree`, so they reach its private items. `zoom_view_tree.rs`, `horizontal_scroll_tree.rs`, `plot_tree.rs`, `corner_mask_tree.rs`, `context_menu_tree.rs`, `ime_tree.rs`, `tooltip_tree.rs`, `scrollbar_tree.rs`, `slider_tree.rs`, `sheet_tree.rs`. |
 | `state_store.rs` | `StateStore`: what the layout keeps for an element, by its ID and the state's type. |
 | `measurement_cache.rs` | `MeasurementCache`: the sizes one layout pass has measured. |
 | `text_layout.rs`, `text_layout_cache.rs`, `text_width_cache.rs`, `formatted_text_cache.rs`, `fonts.rs` | Text: shaping and line breaking with parley, and the caches that outlive a frame. |
@@ -55,7 +57,7 @@ In `crates/limn-core/src/`:
 | `access.rs` | `AccessNode`, `Role`: what a frame tells the platform. |
 | `components.rs` | The `Component` trait, `ComponentPalette`, `Button` and the first components. |
 | every other file | What the engine lays out or opens itself, one file each: the code editor (`code_editor.rs` and its `code_editor_*.rs` modules), `code_diff.rs`, `flowchart.rs`, `sequence.rs`, `spinner.rs`, `context_menu.rs` and more. Also helpers (`geometry.rs`, `labels.rs`, `typography.rs`, `hot.rs`), and two more child modules of `tree`: `inline_menu_navigation.rs` and `captured_paste.rs`. |
-| `*_tests.rs` | Tests split out of the file they test. `tree.rs` and its child modules declare theirs with `#[path]`, so those see the tree's private state. The rest are declared with `#[path]` from the file they test. |
+| `*_tests.rs` | Tests split out of the file they test. `tree.rs` and its child modules declare theirs with `#[path]`, so those see the tree's private state; `tree.rs`'s own are `tree_tests.rs`, the module `tree::tests`. The rest are declared with `#[path]` from the file they test. |
 
 In `crates/limn-components/src/`:
 
@@ -241,8 +243,8 @@ maps and the other text caches still use std's.
   One exception is known: the code editor's `EditorView::update` reads the
   wall clock when its document changes.
 - Durations come from `tokens().motion`. A few are still constants in
-  `tree.rs`: a popover's change of view, the effort slider, the delay of a
-  tooltip.
+  `tree.rs`: a popover's change of view, the effort slider (one of its
+  three is in `slider_tree.rs`), the delay of a tooltip.
 - `UiTree::animation_repaint_after` tells the host when the next frame is
   due, and `None` when nothing moves. A host that honors it draws only when
   something changes.
@@ -333,7 +335,7 @@ Each is in the [plan](plan.md) with its order.
 
 | Debt | Shows as |
 | --- | --- |
-| `tree.rs` is 24,000 lines and `place_inner` 2,900. | Every feature edits the same file; pull requests conflict. |
+| `tree.rs` is 13,500 lines and `place_inner` 2,900. | Every feature edits the same file; pull requests conflict. |
 | `ElementKind` is closed and holds widgets (`Flowchart`, `SequenceDiagram`, the plots, `Record`, `EffortSlider`). | A widget that could be a component is matched across the layout. |
 | Four widget commands in `DrawCommand`. | A backend must know how a widget looks. |
 | One walk measures, places, paints and animates. | No subtree can be skipped when nothing in it changed. |

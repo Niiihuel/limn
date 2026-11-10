@@ -99,7 +99,8 @@ Small gaps, each a commit of its own:
 - `Frame::duplicate_ids` does not see the rows of a virtual list (invariant 2).
 - The code editor's `EditorView::update` reads the wall clock (invariant 11).
 - Durations written as constants in `tree.rs`: a popover's change of view,
-  the effort slider, a tooltip's delay (R11).
+  the effort slider (one of its three in `slider_tree.rs`), a tooltip's delay
+  (R11).
 - `crates/limn-gallery/examples/captured_paste.rs` lays out after each event
   (R6).
 
@@ -165,9 +166,18 @@ In order, by how much of a host's own design each one blocks:
 These move code. Nothing waits behind them now, so they can start.
 
 1. **Split `tree.rs` along its seams**, with no change of behaviour, one move
-   per commit: `DrawCommand`; `UiEvent`, `UiAction` and `Key`; `Frame` and hit
-   testing; the state of text inputs; formatted text; tooltips; sheets and
-   glass. Each becomes a child module of `tree`, as `zoom_view_tree.rs` is.
+   per commit, each into a child module of `tree`, as `zoom_view_tree.rs` is.
+   Done, from 23,860 lines to about 13,500: its tests (`tree_tests.rs`),
+   `DrawCommand` (`draw_command.rs`), `UiEvent`, `UiAction` and `Key`
+   (`events.rs`), `Frame` and hit testing (`frame.rs`), the state of text
+   inputs (`input_state.rs`), formatted text (`formatted_text.rs`), painting
+   tooltips (`tooltip_tree.rs`), scrollbars and sliders (`scrollbar_tree.rs`,
+   `slider_tree.rs`), iOS sheets (`sheet_tree.rs`). Left: liquid glass,
+   untouched; and what of those seams is still in `tree.rs` because the code
+   that stays or the tests use it too (`place_tooltip`, `slider_action`,
+   `scrollbar_opacity`, `overflow`, `char_range`, `visual_lines_measured`),
+   with `step_sheet`, `sheet_of`, `recede_scene`, `rubber_band` and the
+   constants of a sheet's drag.
 2. **Split `place_inner` by kind**: each arm of its `match` a function in the
    module of its kind.
 3. **Adopt rustfmt**, in one commit named in `.git-blame-ignore-revs`, and
