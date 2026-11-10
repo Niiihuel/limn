@@ -50,7 +50,8 @@ own content, and how to switch movement off.
 | `Element::unit_grid`, the cells of a `ContextWindow` | Shown as given. A part's new count is moved to cell by cell, and the parts after it follow; a part in focus makes the others recede. | | three times `move_ms` |
 
 Continuous indicators run on fixed periods and are not transitions: `Spinner`,
-`Scribble`, `Skeleton`, `TextShimmer` and the text caret.
+`Scribble`, `Skeleton`, `TextShimmer`, the icons of an element with
+`icon_loop` and the text caret.
 
 ### Not animated
 
@@ -101,7 +102,7 @@ if let Some(after) = tree.animation_repaint_after() {
 | --- | --- | --- |
 | `None` | Everything is at rest. | Nothing. An idle window costs nothing. |
 | `Some(Duration::ZERO)` | A transition is running, or the user is scrolling or dragging. | Paints on the very next display refresh. |
-| `Some(16 ms)` | Only ambient indicators are running: a spinner, a skeleton, a shimmer. | Paints at that cadence. |
+| `Some(16 ms)` | Only ambient indicators are running: a spinner, a skeleton, a shimmer, an icon loop. | Paints at that cadence. |
 | A longer wait | A tooltip is about to open, or the caret is about to blink. | Wakes once, then. |
 
 Zero matters. A transition paced by a fixed timer runs at half the rate of a
@@ -323,6 +324,31 @@ Nothing moves under reduced motion.
 | `.offset(point)` | Moved in logical pixels. |
 | `.easing(easing)` | The curve from the keyframe before. |
 | `IconMotion::return_ms(ms)` | How long the way back to rest takes; 0 is at once. |
+
+### Icons that move on their own
+
+```rust
+use limn::{IconKeyframe, IconMotion, Point};
+
+// Up 2 px, home at 1 s, up again at 2 s, eased in and out: a download that waits.
+let bob = IconMotion::new()
+    .keyframe(IconKeyframe::at(0).offset(Point::new(0.0, -2.0)))
+    .keyframe(IconKeyframe::at(1000))
+    .keyframe(IconKeyframe::at(2000).offset(Point::new(0.0, -2.0)));
+let update = IconButton::new("update", Icon::ArrowDown, palette)
+    .render()
+    .icon_loop("update-bob", bob);
+```
+
+`Element::icon_loop(id, motion)` plays the same keyframes over and over for
+as long as the element is painted, whatever the pointer does: from rest at
+0 ms through each keyframe to the last, then from 0 again. End on the pose
+you start from and the loop has no seam; a keyframe at 0 ms makes each round
+start there, as a CSS animation's `0%` does. Only icons move, as with
+`hover_motion`. A loop is an ambient indicator: the tree keeps the window
+painting at the 16 ms cadence while one is painted, and stops once it is no
+longer built; under reduced motion nothing moves and nothing is repainted for
+it.
 
 ### A bar that grows into place
 

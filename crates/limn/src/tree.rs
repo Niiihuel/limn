@@ -2040,6 +2040,8 @@ struct IconMotionState {
     from: crate::motion::IconPose,
     /// When it comes to rest or to its last keyframe.
     settles: Instant,
+    /// An `icon_loop`'s, which plays since `since` and never settles.
+    looping: bool,
 }
 
 impl IconMotionState {
@@ -5341,6 +5343,7 @@ impl UiTree {
             && (states.values::<SkeletonStart>().next().is_some()
                 || states.values::<ShimmerStart>().next().is_some()
                 || states.ids::<SpinnerStart>().any(|id| !self.settled_spinners.contains(id))
+                || states.values::<IconMotionState>().any(|state| state.looping)
                 || states.values::<RecordMotion>().any(|record| record.is_moving(now))))
             || self.scroll_button_hold.is_some();
         let transition = (!self.reduced_motion
@@ -5356,7 +5359,7 @@ impl UiTree {
                 .values()
                 .any(|state| state.opacity.is_active(now))
             || states.values::<Replacement>().any(|state| state.progress.is_active(now))
-            || states.values::<IconMotionState>().any(|state| now < state.settles)
+            || states.values::<IconMotionState>().any(|state| !state.looping && now < state.settles)
             || self.states_animate(now)
             || self
                 .popover_view_transitions
@@ -9866,7 +9869,7 @@ impl LayoutBuilder<'_> {
         let rest = crate::motion::IconPose::REST;
         let pose = {
             let mut states = states_mut!(self);
-            let state = states.touch(id, now, || IconMotionState { hovered: false, since: now, from: rest, settles: now });
+            let state = states.touch(id, now, || IconMotionState { hovered: false, since: now, from: rest, settles: now, looping: false });
             if state.hovered != hovered {
                 state.from = state.pose(motion, now);
                 state.hovered = hovered;
@@ -9876,7 +9879,30 @@ impl LayoutBuilder<'_> {
             }
             state.pose(motion, now)
         };
-        if pose == rest {
+        self.pose_icons(start, pose);
+    }
+
+    /// Paint only: the icons painted since command `start` where `motion`
+    /// has them, played over and over since the element was first painted.
+    fn loop_icons(&mut self, id: &str, motion: &crate::IconMotion, start: usize) {
+        let round = Duration::from_millis(u64::from(motion.play_ms()));
+        if self.reduced_motion || round.is_zero() {
+            return;
+        }
+        let now = self.now;
+        let rest = crate::motion::IconPose::REST;
+        let since = states_mut!(self)
+            .touch(id, now, || IconMotionState { hovered: true, since: now, from: rest, settles: now, looping: true })
+            .since;
+        let into = now.saturating_duration_since(since).as_nanos() % round.as_nanos();
+        let pose = motion.pose(rest, true, into as f32 / 1e6);
+        self.pose_icons(start, pose);
+    }
+
+    /// Paint only: turn, stretch and move the icons painted since command
+    /// `start` by `pose`.
+    fn pose_icons(&mut self, start: usize, pose: crate::motion::IconPose) {
+        if pose == crate::motion::IconPose::REST {
             return;
         }
         for command in &mut self.frame.commands[start..] {
@@ -12769,6 +12795,9 @@ impl LayoutBuilder<'_> {
             let visible = clip.map_or(Some(rect), |clip| rect.intersection(clip));
             let hovered = self.pointer.zip(visible).is_some_and(|(point, visible)| visible.contains(point));
             self.move_icons(id, motion, hovered, start);
+        }
+        if let Some((id, motion)) = element.kept.as_ref().and_then(|kept| kept.icon_loop.as_ref()) {
+            self.loop_icons(id, motion, start);
         }
         if let Some((id, factor, anchor)) = element.kept.as_ref().and_then(|kept| kept.scale.as_ref()) {
             let scale = self.spring(&format!("scale/{id}"), *factor);

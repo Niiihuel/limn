@@ -1168,6 +1168,9 @@ pub(crate) struct Kept {
     /// Set by [`Element::hover_motion`]: the ID its playing is kept under,
     /// and the keyframes its icons follow.
     pub(crate) icon_motion: Option<(String, crate::IconMotion)>,
+    /// Set by [`Element::icon_loop`]: the ID its playing is kept under, and
+    /// the keyframes its icons follow over and over.
+    pub(crate) icon_loop: Option<(String, crate::IconMotion)>,
     /// Set by [`Element::grow_from`]: the height its fills grow from while
     /// its presence animates.
     pub(crate) grow_from: Option<f32>,
@@ -3056,6 +3059,21 @@ impl Element {
     /// Under reduced motion nothing moves. `id` must be unique in the window.
     pub fn hover_motion(mut self, id: impl Into<String>, motion: crate::IconMotion) -> Self {
         self.kept.get_or_insert_default().icon_motion = Some((id.into(), motion));
+        self
+    }
+
+    /// Move the icons this element paints along `motion` over and over for
+    /// as long as it is painted, whatever the pointer does, as a download
+    /// arrow bobs while it waits: from rest at 0 ms through the keyframes to
+    /// the last one, then from 0 again. A motion whose last keyframe is its
+    /// first pose loops without a jump; one with a keyframe at 0 ms starts
+    /// each round there. Only icons move: backgrounds, text, layout, hit
+    /// targets and accessibility stay put. Under reduced motion nothing
+    /// moves, and the window is kept painting only while one is painted and
+    /// motion is on. A motion without keyframes leaves the icons at rest.
+    /// `id` must be unique in the window.
+    pub fn icon_loop(mut self, id: impl Into<String>, motion: crate::IconMotion) -> Self {
+        self.kept.get_or_insert_default().icon_loop = Some((id.into(), motion));
         self
     }
 
