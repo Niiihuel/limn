@@ -1,0 +1,2 @@
+# Every change adds a line at the top of the same list: keep both sides.
+CHANGELOG.md merge=union
