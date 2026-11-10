@@ -258,7 +258,7 @@ mod tests {
         let size = Size::new(400.0, 200.0);
         tree.layout(size);
         tree.handle_event(UiEvent::PointerMove(Point::new(40.0, 8.0)));
-        let frame = tree.layout_at(size, Instant::now() + crate::tree::TOOLTIP_HOVER_DELAY * 2);
+        let frame = tree.layout_at(size, Instant::now() + crate::TOOLTIP_HOVER_DELAY * 2);
         let painted: Vec<_> = frame
             .commands
             .iter()
@@ -295,7 +295,7 @@ mod tests {
             let size = Size::new(600.0, 400.0);
             tree.layout(size);
             tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 10.0)));
-            let frame = tree.layout_at(size, Instant::now() + crate::tree::TOOLTIP_HOVER_DELAY * 2);
+            let frame = tree.layout_at(size, Instant::now() + crate::TOOLTIP_HOVER_DELAY * 2);
             let icons: Vec<f32> = frame
                 .commands
                 .iter()
@@ -338,7 +338,7 @@ mod tests {
             let size = Size::new(600.0, 400.0);
             tree.layout(size);
             tree.handle_event(UiEvent::PointerMove(Point::new(10.0, 10.0)));
-            tree.layout_at(size, Instant::now() + crate::tree::TOOLTIP_HOVER_DELAY * 2)
+            tree.layout_at(size, Instant::now() + crate::TOOLTIP_HOVER_DELAY * 2)
         };
         let frame = painted(320.0);
         let side = crate::TOOLTIP_FACE;

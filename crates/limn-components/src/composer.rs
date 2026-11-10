@@ -1,7 +1,7 @@
 //! Reusable composition surface. The host owns text and actions; this
 //! component owns the editor card and its responsive slot layout.
 
-use crate::components::{Component, ComponentPalette};
+use crate::{Component, ComponentPalette};
 use crate::{Color, CornerRadii, Element, FontFamily, Point, TextHighlight};
 
 const STRIP_INSET: f32 = 8.0;

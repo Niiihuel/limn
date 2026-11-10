@@ -1,7 +1,7 @@
 //! A teaching bubble that points at a control which already exists, and the
 //! sequence of them that makes a guided tour.
 
-use crate::element::CoachAnchor;
+use crate::CoachAnchor;
 use crate::modal::DismissButton;
 use crate::theme::mix;
 use crate::{

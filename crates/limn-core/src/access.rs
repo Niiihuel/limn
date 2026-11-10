@@ -90,19 +90,31 @@ pub enum Role {
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Access {
-    pub(crate) id: Option<String>,
-    pub(crate) role: Option<Role>,
-    pub(crate) name: Option<String>,
+    #[doc(hidden)]
+    pub id: Option<String>,
+    #[doc(hidden)]
+    pub role: Option<Role>,
+    #[doc(hidden)]
+    pub name: Option<String>,
     /// A name for a control that nothing else names: its hint's title.
-    pub(crate) hint: Option<String>,
-    pub(crate) description: Option<String>,
-    pub(crate) disabled: bool,
-    pub(crate) toggled: Option<bool>,
-    pub(crate) mixed: bool,
-    pub(crate) selected: Option<bool>,
-    pub(crate) expanded: Option<bool>,
-    pub(crate) value: Option<f32>,
-    pub(crate) value_text: Option<String>,
+    #[doc(hidden)]
+    pub hint: Option<String>,
+    #[doc(hidden)]
+    pub description: Option<String>,
+    #[doc(hidden)]
+    pub disabled: bool,
+    #[doc(hidden)]
+    pub toggled: Option<bool>,
+    #[doc(hidden)]
+    pub mixed: bool,
+    #[doc(hidden)]
+    pub selected: Option<bool>,
+    #[doc(hidden)]
+    pub expanded: Option<bool>,
+    #[doc(hidden)]
+    pub value: Option<f32>,
+    #[doc(hidden)]
+    pub value_text: Option<String>,
 }
 
 impl Access {

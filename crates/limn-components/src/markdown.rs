@@ -924,7 +924,7 @@ fn diagram_block(
 ) -> Option<Element> {
     // Before anything reads it: a host may hand over a fence of any size,
     // on every frame.
-    if content.len() > crate::diagram::MAX_SOURCE_BYTES {
+    if content.len() > crate::MAX_SOURCE_BYTES {
         return None;
     }
     let palette = presentation.palette;
@@ -2640,7 +2640,7 @@ mod tests {
 
     #[test]
     fn code_past_the_highlight_bounds_stays_plain() {
-        use crate::code_syntax::{MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_LINES};
+        use crate::{MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_LINES};
         let limits = MarkdownLimits {
             source_chars: 4 * MAX_HIGHLIGHT_BYTES,
             blocks: MAX_BLOCKS,

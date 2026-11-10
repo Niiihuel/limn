@@ -1053,7 +1053,8 @@ impl Flowchart {
         self.palette
     }
 
-    pub(crate) fn heap_bytes(&self) -> usize {
+    #[doc(hidden)]
+    pub fn heap_bytes(&self) -> usize {
         let graph = &self.shared.graph;
         graph.nodes.iter().map(|node| node.id.len() + node.label.len() + 64).sum::<usize>()
             + graph.edges.iter().map(|edge| edge.label.len() + 64).sum::<usize>()

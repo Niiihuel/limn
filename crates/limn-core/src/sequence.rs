@@ -1084,7 +1084,8 @@ impl SequenceDiagram {
         self.palette
     }
 
-    pub(crate) fn heap_bytes(&self) -> usize {
+    #[doc(hidden)]
+    pub fn heap_bytes(&self) -> usize {
         let graph = &self.shared.graph;
         graph.title.len()
             + graph.participants.iter().map(|one| one.id.len() + one.label.len() + 64).sum::<usize>()

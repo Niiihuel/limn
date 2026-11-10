@@ -1,6 +1,6 @@
 //! Compact controlled selector for a local 24-hour time of day.
 
-use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
+use crate::{Component, ComponentPalette, ControlSize, IconButton, TextField};
 use crate::{Access, Element, FontFamily, Icon, Role};
 
 /// An editable `HH:MM` field plus keyboard-reachable hour and minute controls.

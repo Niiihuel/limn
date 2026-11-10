@@ -140,7 +140,8 @@ const TOOLTIP_PADDING: f32 = 8.0;
 const REVEAL_RISE: f32 = 8.0;
 /// Between a library-shaped hint and its anchor: its 5 px pointer and 2 px.
 const TOOLTIP_GAP: f32 = 7.0;
-pub(crate) const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
+#[doc(hidden)]
+pub const TOOLTIP_HOVER_DELAY: Duration = Duration::from_millis(350);
 /// The start of the hover target of a text run's hint that has no action;
 /// the index of its text in the frame and the hint's title follow.
 const TEXT_HINT_PREFIX: &str = "__text_hint:";
@@ -2324,7 +2325,8 @@ fn next_flow(before: Option<(ScalarSpring, f32)>, expand: bool, natural: f32, no
     (fraction, kept)
 }
 
-pub(crate) fn slot_settle() -> Duration {
+#[doc(hidden)]
+pub fn slot_settle() -> Duration {
     Duration::from_millis(u64::from(crate::tokens().motion.move_ms) * 3 / 2)
 }
 

@@ -16,16 +16,19 @@ pub trait Component {
     fn render(self) -> Element;
 }
 
-pub(crate) fn hover_ms() -> u16 {
+#[doc(hidden)]
+pub fn hover_ms() -> u16 {
     crate::tokens().motion.hover_ms
 }
 // Discrete corners for editor chrome. Circular controls (for example the
 // switch thumb or a host's avatar) opt into their own semantic shape.
-pub(crate) fn control_radius() -> f32 {
+#[doc(hidden)]
+pub fn control_radius() -> f32 {
     crate::tokens().radius.control
 }
 
-pub(crate) fn surface_radius() -> f32 {
+#[doc(hidden)]
+pub fn surface_radius() -> f32 {
     crate::tokens().radius.surface
 }
 
@@ -399,7 +402,8 @@ impl TooltipSpec {
     }
 
     // Wrap a rendered button, enabled or passive, in the hint.
-    pub(crate) fn wrap(self, anchor: Element, id: String, button_palette: ComponentPalette) -> Element {
+    #[doc(hidden)]
+    pub fn wrap(self, anchor: Element, id: String, button_palette: ComponentPalette) -> Element {
         let Some(title) = self.title.filter(|_| !self.suppressed) else {
             return anchor;
         };
@@ -537,7 +541,8 @@ impl ComponentPalette {
         }
     }
 
-    pub(crate) fn is_dark(self) -> bool {
+    #[doc(hidden)]
+    pub fn is_dark(self) -> bool {
         u16::from(self.border.r) + u16::from(self.border.g) + u16::from(self.border.b) < 3 * 128
     }
 
@@ -550,7 +555,8 @@ impl ComponentPalette {
         }
     }
 
-    pub(crate) fn tooltip_style(self) -> TooltipStyle {
+    #[doc(hidden)]
+    pub fn tooltip_style(self) -> TooltipStyle {
         if let Some(style) = crate::tokens().tooltip {
             return style;
         }
@@ -1035,7 +1041,8 @@ impl Button {
         self
     }
 
-    pub(crate) fn colors(&self) -> (Color, Color, Color, Color, bool) {
+    #[doc(hidden)]
+    pub fn colors(&self) -> (Color, Color, Color, Color, bool) {
         let palette = self.palette;
         let (base, hover, pressed, ink) = match self.variant {
             ButtonVariant::Default => (
@@ -2121,7 +2128,8 @@ impl Component for TextArea {
 }
 
 // What a field drawn disabled still says: the node its input would have been.
-pub(crate) fn disabled_field(
+#[doc(hidden)]
+pub fn disabled_field(
     role: Role,
     id: String,
     name: Option<String>,
@@ -2144,7 +2152,8 @@ fn input_radius(_size: ControlSize) -> f32 {
 
 // The fill, border, radius, ink and height every text field shares; a
 // select drawn as a field takes it too.
-pub(crate) fn input_surface(
+#[doc(hidden)]
+pub fn input_surface(
     input: Element,
     palette: ComponentPalette,
     size: ControlSize,
@@ -2408,13 +2417,15 @@ pub enum SwitchVariant {
 }
 
 /// Side of a search field's clear button: its glyph and 4 around it.
-pub(crate) const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
+#[doc(hidden)]
+pub const CLEAR_SIDE: f32 = ICON_SIZE + 8.0;
 /// From the clear button to the field's end, so that its glyph is as far
 /// from that end as the magnifier is from the start.
 const CLEAR_INSET: f32 = 8.0 - (CLEAR_SIDE - ICON_SIZE) / 2.0;
 
 // A circled cross that empties a search field; drawn disabled it is passive.
-pub(crate) fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element {
+#[doc(hidden)]
+pub fn clear_button(id: String, palette: ComponentPalette, enabled: bool) -> Element {
     // An icon alone: it is named for what it does.
     let said = Access::new(Role::Button).name(crate::labels().clear_search);
     if enabled {
@@ -2690,7 +2701,8 @@ impl Component for Switch {
 /// The thumb and the track of a `SwitchVariant::Accent` switch. The thumb is
 /// light at full strength; the track is `on_ink` or the link color while on,
 /// the muted color while off, darkened until it reads at 3:1 against the thumb.
-pub(crate) fn accent_switch_colors(
+#[doc(hidden)]
+pub fn accent_switch_colors(
     palette: ComponentPalette,
     checked: bool,
     on_ink: Option<Color>,
@@ -2701,7 +2713,8 @@ pub(crate) fn accent_switch_colors(
     (light, crate::readable_ink(track, light, 3.0))
 }
 
-pub(crate) const fn lighter(color: Color, amount: u8) -> Color {
+#[doc(hidden)]
+pub const fn lighter(color: Color, amount: u8) -> Color {
     Color::rgba(
         color.r.saturating_add(amount),
         color.g.saturating_add(amount),
@@ -2710,7 +2723,8 @@ pub(crate) const fn lighter(color: Color, amount: u8) -> Color {
     )
 }
 
-pub(crate) const fn darker(color: Color, amount: u8) -> Color {
+#[doc(hidden)]
+pub const fn darker(color: Color, amount: u8) -> Color {
     Color::rgba(
         color.r.saturating_sub(amount),
         color.g.saturating_sub(amount),

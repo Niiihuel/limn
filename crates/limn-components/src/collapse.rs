@@ -73,7 +73,7 @@ mod tests {
 
     fn exit() -> Duration {
         // The slot moves on a spring; this is the time it takes to all but arrive.
-        crate::tree::slot_settle()
+        crate::slot_settle()
     }
 
     #[test]
@@ -135,7 +135,7 @@ mod tests {
         tree.layout_at(SIZE, start);
         tree.set_root(root(slot(true).expand()));
         assert_eq!(painted(&tree.layout_at(SIZE, start), "below").unwrap().0, closed);
-        let enter = crate::tree::slot_settle();
+        let enter = crate::slot_settle();
         let frame = tree.layout_at(SIZE, start + enter / 2);
         let below = painted(&frame, "below").unwrap().0;
         assert!(below > closed && below < closed + 40.0, "{below}");

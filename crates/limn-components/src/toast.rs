@@ -220,7 +220,7 @@ impl Component for Toast {
             .clip_children()
             .background(self.palette.raised)
             .border(self.palette.border, 1.0)
-            .radius(crate::components::surface_radius())
+            .radius(crate::surface_radius())
             .shadow(self.palette.shadow, Point::new(0.0, 3.0), 10.0, 0.0)
             .size(Some(self.width), None)
             .animate_presence(presence)
@@ -346,7 +346,7 @@ mod tests {
             .commands
             .iter()
             .find_map(|command| match command {
-                DrawCommand::FillRect { rect, radius, .. } if *radius == crate::components::surface_radius() => Some(*rect),
+                DrawCommand::FillRect { rect, radius, .. } if *radius == crate::surface_radius() => Some(*rect),
                 _ => None,
             })
             .unwrap();
@@ -411,7 +411,7 @@ mod tests {
             .iter()
             .find_map(|command| match command {
                 DrawCommand::FillRect { rect, radius, .. }
-                    if *radius == crate::components::surface_radius() =>
+                    if *radius == crate::surface_radius() =>
                 {
                     Some(*rect)
                 }
@@ -433,7 +433,7 @@ mod tests {
         let surface = |frame: &crate::Frame| {
             frame.commands.iter().find_map(|command| match command {
                 DrawCommand::FillRect { color, radius, .. }
-                    if *radius == crate::components::surface_radius() =>
+                    if *radius == crate::surface_radius() =>
                 {
                     Some(color.a)
                 }

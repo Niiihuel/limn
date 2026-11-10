@@ -418,7 +418,7 @@ mod tests {
     #[test]
     fn an_item_opens_and_closes_on_the_collapse_and_closing_content_is_out_of_reach_at_once() {
         let start = Instant::now() - Duration::from_secs(60);
-        let settle = crate::tree::slot_settle();
+        let settle = crate::slot_settle();
         let mut tree = UiTree::new(root(accordion([false; 3])));
         let closed = headers(&tree.layout_at(WINDOW, start))[1].y;
         let open = closed + CONTENT + BODY_END;

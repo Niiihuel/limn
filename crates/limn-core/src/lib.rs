@@ -26,7 +26,8 @@ mod raster_image;
 mod scroll_area;
 mod selector_sizing;
 mod sequence;
-mod shortcut;
+#[doc(hidden)]
+pub mod shortcut;
 mod sketch;
 mod scribble;
 mod spinner;
@@ -71,6 +72,23 @@ pub use geometry::{Color, Point, Rect, Size};
 pub use geometry::{blend, contrast, px, readable_ink};
 #[doc(hidden)]
 pub mod action_style;
+#[doc(hidden)]
+pub use code_syntax::{highlight_spans, MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_LINES};
+#[doc(hidden)]
+pub use components::{
+    accent_switch_colors, clear_button, control_radius, darker, disabled_field, hover_ms, input_surface, lighter,
+    surface_radius, CLEAR_SIDE,
+};
+#[doc(hidden)]
+pub use context_menu::row_id;
+#[doc(hidden)]
+pub use diagram::MAX_SOURCE_BYTES;
+#[doc(hidden)]
+pub use element::CoachAnchor;
+#[doc(hidden)]
+pub use sheet_geometry::{DIM_ALPHA, GRABBER, GRABBER_TOP};
+#[doc(hidden)]
+pub use tree::{slot_settle, TOOLTIP_HOVER_DELAY};
 pub use fonts::{fonts, set_fonts, Font, FontError, Fonts};
 pub use text_layout::{Glyph, GlyphRun, Leading, TextLayout, TextLine, TextStyle};
 pub use motion::{

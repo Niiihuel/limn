@@ -59,7 +59,7 @@ impl MenuCheck {
             Self::Box(checked) => (checked, false),
             Self::Radio(checked) => (checked, true),
             Self::Switch(on) => {
-                let (thumb, track) = crate::components::accent_switch_colors(palette, on, accent);
+                let (thumb, track) = crate::accent_switch_colors(palette, on, accent);
                 let thumb = Element::spacer()
                     .background(thumb)
                     .radius(5.0)

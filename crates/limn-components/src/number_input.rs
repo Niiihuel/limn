@@ -1,6 +1,6 @@
 //! A field for a number with a button that lowers it and one that raises it.
 
-use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
+use crate::{Component, ComponentPalette, ControlSize, IconButton, TextField};
 use crate::{Access, CornerRadii, Element, ElementKind, Icon, Role};
 
 /// The whole control unless a width is set.

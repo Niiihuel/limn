@@ -1,7 +1,7 @@
 //! The application menus across the top of a window, or behind one button.
 
 use crate::{
-    components::control_radius, page::px, Access, ActiveHover, Button, ButtonSize, ButtonVariant,
+    control_radius, page::px, Access, ActiveHover, Button, ButtonSize, ButtonVariant,
     Component, ComponentPalette, ControlSize, ControlState, DropdownMenu, DropdownMenuEntry,
     DropdownMenuItem, Element, FontFamily, Icon, IconButton, Role, TooltipSpec,
 };

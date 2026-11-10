@@ -89,20 +89,29 @@ pub enum CoachAlign {
 /// Ties a popover to controls that already exist in the tree, by their IDs,
 /// instead of to the element it wraps. Built by `CoachMark`.
 #[derive(Clone, Debug, PartialEq)]
+#[doc(hidden)]
 pub struct CoachAnchor {
     /// The bubble points at the union of the regions with these IDs.
-    pub(crate) targets: Vec<String>,
-    pub(crate) side: CoachSide,
-    pub(crate) align: CoachAlign,
+    #[doc(hidden)]
+    pub targets: Vec<String>,
+    #[doc(hidden)]
+    pub side: CoachSide,
+    #[doc(hidden)]
+    pub align: CoachAlign,
     /// Names the step: when it changes the bubble travels to the new target.
-    pub(crate) key: String,
+    #[doc(hidden)]
+    pub key: String,
     /// The bubble's fill, shared by its caret and the ring on the target.
-    pub(crate) fill: Color,
+    #[doc(hidden)]
+    pub fill: Color,
     /// Dims everything but the target.
-    pub(crate) dim: Option<Color>,
+    #[doc(hidden)]
+    pub dim: Option<Color>,
     /// Actions reported by the Left and Right arrow keys.
-    pub(crate) back: Option<String>,
-    pub(crate) next: Option<String>,
+    #[doc(hidden)]
+    pub back: Option<String>,
+    #[doc(hidden)]
+    pub next: Option<String>,
 }
 
 /// Preferred side of a non-interactive tooltip. The engine flips to the
@@ -845,7 +854,8 @@ pub enum InlineImage {
 impl InlineImage {
     /// The picture as an element of its own, fitted inside its box: a
     /// button's or a menu row's leading picture. `label` names a surface.
-    pub(crate) fn element(&self, label: &str) -> Element {
+    #[doc(hidden)]
+    pub fn element(&self, label: &str) -> Element {
         match self {
             Self::Raster(image) => Element::raster_image(image.clone()),
             Self::Surface(id) => Element::surface(id.clone(), label).surface_fit(SurfaceFit::Contain),
@@ -1302,7 +1312,8 @@ pub struct Element {
     pub(crate) draggable: bool,
     pub(crate) drag_in_place: bool,
     pub(crate) cursor: Option<Cursor>,
-    pub(crate) sticky_top: Option<StickyTop>,
+    #[doc(hidden)]
+    pub sticky_top: Option<StickyTop>,
     /// Set by [`Element::animate_height`]: the height follows `presence`'s
     /// ID, and whether it also opens from zero. One byte of existing padding.
     pub(crate) animate_height: Option<bool>,
@@ -2259,7 +2270,8 @@ pub enum ZoomControl {
 /// How a `sticky_top` child of a column sits while pinned. Whole pixels, so
 /// the option fits in the padding `Element` already has.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub(crate) struct StickyTop {
+#[doc(hidden)]
+pub struct StickyTop {
     /// `MAX` is no cap.
     pub(crate) max_height: std::num::NonZeroU16,
     pub(crate) inset: u8,
@@ -3118,7 +3130,8 @@ impl Element {
     /// Paint this element and what it holds, and nothing more: no pointer
     /// target, focus stop or accessibility node is made inside it, as for a
     /// glimpse of a panel that is not open.
-    pub(crate) fn inert(mut self) -> Self {
+    #[doc(hidden)]
+    pub fn inert(mut self) -> Self {
         self.kept.get_or_insert_default().inert = true;
         self
     }
@@ -3156,7 +3169,8 @@ impl Element {
     /// Paint this element only while `id` has the focus, and then on the
     /// caret clock fields share: blinking, steady under reduced motion, and
     /// shown again at once when `offset` changes.
-    pub(crate) fn caret(mut self, id: impl Into<String>, offset: usize) -> Self {
+    #[doc(hidden)]
+    pub fn caret(mut self, id: impl Into<String>, offset: usize) -> Self {
         self.kept.get_or_insert_default().caret = Some((id.into(), offset));
         self
     }
@@ -3314,7 +3328,8 @@ impl Element {
 
     /// Place the surface against existing controls, found by their IDs once
     /// the anchor has been laid out, with a caret and a ring on them.
-    pub(crate) fn popover_coach(mut self, value: CoachAnchor) -> Self {
+    #[doc(hidden)]
+    pub fn popover_coach(mut self, value: CoachAnchor) -> Self {
         if let ElementKind::Popover { coach, .. } = &mut self.kind {
             *coach = Some(Box::new(value));
         }
@@ -4106,7 +4121,8 @@ impl Element {
     /// caret and hint, for a control a component lays over it there. Other
     /// elements ignore it; a width that is not finite is ignored and a
     /// negative one is zero.
-    pub(crate) fn input_trailing_space(mut self, width: f32) -> Self {
+    #[doc(hidden)]
+    pub fn input_trailing_space(mut self, width: f32) -> Self {
         if width.is_finite() && matches!(self.kind, ElementKind::TextInput { .. }) {
             self.kept.get_or_insert_default().input_trailing_space = width.max(0.0);
         }
@@ -4298,7 +4314,8 @@ impl Element {
 
     /// One cycle of a [`skeleton`](Self::skeleton)'s pulse, from `base` to
     /// `highlight` and back, in milliseconds.
-    pub(crate) fn pulse_period(mut self, ms: u16) -> Self {
+    #[doc(hidden)]
+    pub fn pulse_period(mut self, ms: u16) -> Self {
         self.kept.get_or_insert_default().pulse_ms = Some(ms);
         self
     }
@@ -4414,7 +4431,8 @@ impl Element {
     /// the start and the last at the end, at their natural widths, and the
     /// middle one centered in the row, or `gap` after the first when centered
     /// it would meet either of them, and no wider than the room left.
-    pub(crate) fn center_middle(mut self) -> Self {
+    #[doc(hidden)]
+    pub fn center_middle(mut self) -> Self {
         self.kept.get_or_insert_default().center_middle = true;
         self
     }

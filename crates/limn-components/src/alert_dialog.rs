@@ -1,6 +1,6 @@
 //! A centered confirmation surface for consequential actions.
 
-use crate::components::{Component, ComponentPalette};
+use crate::{Component, ComponentPalette};
 use crate::{
     Button, ButtonSizing, ButtonVariant, Color, ControlSize, Element, FontFamily, Modal, TextSpan,
 };

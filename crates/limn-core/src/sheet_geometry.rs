@@ -16,14 +16,17 @@ pub const FLOAT_INSET: f32 = 8.0;
 /// The room the large height leaves under the safe area's top.
 pub const LARGE_GAP: f32 = 10.0;
 /// Black at 20%, behind a sheet at every height.
+#[doc(hidden)]
 pub const DIM_ALPHA: u8 = 51;
 /// How small what the sheet was opened over gets at its large height.
 pub const RECEDE_SCALE: f32 = 0.92;
 /// UIScrollView's normal deceleration, which projects a release's speed into distance.
 const DECELERATION: f32 = 0.998;
 /// The grabber: a pill at the top of the sheet, as iOS draws it.
+#[doc(hidden)]
 pub const GRABBER: (f32, f32) = (36.0, 5.0);
 /// How far the grabber stands under the sheet's top edge.
+#[doc(hidden)]
 pub const GRABBER_TOP: f32 = 5.0;
 
 /// A height a sheet rests at.

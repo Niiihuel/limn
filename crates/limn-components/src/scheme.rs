@@ -4,7 +4,7 @@
 //! each one. Neither reaches a component: both only produce the
 //! [`ComponentPalette`] a component takes.
 
-use crate::components::{darker, lighter};
+use crate::{darker, lighter};
 use crate::{Color, ComponentPalette};
 
 /// How far [`Scheme::step`] moves each channel.

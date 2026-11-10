@@ -1,7 +1,7 @@
 //! A color chosen by hand: a field of saturation and brightness, a bar of
 //! hues, and a field for the color's hex digits.
 
-use crate::components::TextField;
+use crate::TextField;
 use crate::{Access, Color, Component, ComponentPalette, Element, Role, UiAction};
 
 /// The diameter of a thumb. The field and the bar are inset by half of it,

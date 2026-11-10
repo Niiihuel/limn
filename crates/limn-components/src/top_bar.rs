@@ -1,7 +1,7 @@
 //! The bar across the top of a music app's window: the host's controls at
 //! both ends, and a round Home button and a wide search in the middle.
 
-use crate::components::{clear_button, disabled_field, hover_ms, lighter, CLEAR_SIDE};
+use crate::{clear_button, disabled_field, hover_ms, lighter, CLEAR_SIDE};
 use crate::{
     Access, ButtonSizing, ButtonVariant, Component, ComponentPalette, ControlSize, Element,
     FontFamily, Icon, IconButton, PopoverPlacement, Role, Separator, TooltipPlacement, ICON_SIZE,

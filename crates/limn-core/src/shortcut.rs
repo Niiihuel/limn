@@ -2,13 +2,16 @@
 
 use crate::{Color, Icon};
 
-pub(crate) const FONT_SIZE: f32 = 11.0;
+#[doc(hidden)]
+pub const FONT_SIZE: f32 = 11.0;
 pub(crate) const MENU_FONT_SIZE: f32 = 12.0;
-pub(crate) const HEIGHT: f32 = 18.0;
+#[doc(hidden)]
+pub const HEIGHT: f32 = 18.0;
 /// Code OSS's keycap: 5 px of padding inside a 1 px outline.
 pub(crate) const HORIZONTAL_PADDING: f32 = 6.0;
 /// Three quarters of a control's radius: 3 px by default.
-pub(crate) fn radius() -> f32 {
+#[doc(hidden)]
+pub fn radius() -> f32 {
     crate::tokens().radius.control * 0.75
 }
 pub(crate) const ICON_SIZE: f32 = 11.0;
@@ -192,7 +195,8 @@ pub(crate) fn width(value: &str, measure: impl Fn(&str) -> f32) -> f32 {
 }
 
 /// A faint neutral chip, as Code OSS fills its keybinding labels.
-pub(crate) fn cap_fill(ink: Color) -> Color {
+#[doc(hidden)]
+pub fn cap_fill(ink: Color) -> Color {
     Color::rgba(128, 128, 128, ((u16::from(ink.a) * 17 + 50) / 100) as u8)
 }
 
