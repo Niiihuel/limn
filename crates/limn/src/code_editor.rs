@@ -903,6 +903,8 @@ pub(crate) struct EditorView {
     structure_cache: structure::StructureCache,
     structure_controls: Vec<structure::StructureControl>,
     breakpoint_pointer: Option<Point>,
+    /// Whether the pointer is over the gutter, which shows the chevrons of open blocks.
+    gutter_hovered: bool,
     content_visible: Rect,
     minimap_cache: minimap::Cache,
     highlight_index: HighlightIndex,
@@ -1095,6 +1097,7 @@ impl EditorView {
             structure_cache: Default::default(),
             structure_controls: Vec::new(),
             breakpoint_pointer: None,
+            gutter_hovered: false,
             content_visible: Rect::new(0.0, 0.0, 0.0, 0.0),
             minimap_cache: Default::default(),
             highlight_index: Default::default(),
@@ -1179,6 +1182,13 @@ impl EditorView {
                 .filter(|suffix| suffix.starts_with(':'))
                 .and(pointer)
         });
+        // Over the editor or a control of its gutter, left of the text and among its rows.
+        let ours = id.is_some_and(|id| {
+            id == self.editor.id || self.structure_controls.iter().any(|control| control.action_id == id)
+        }) || self.breakpoint_pointer.is_some();
+        let body = self.viewport.body;
+        self.gutter_hovered = ours
+            && pointer.is_some_and(|point| point.x < body.x && point.y >= body.y && point.y < body.y + body.height);
     }
     pub(crate) fn owns_structure_control(&self, id: &str, position: Point) -> bool {
         self.structure_controls.iter().any(|control| {
@@ -2621,6 +2631,7 @@ impl EditorView {
                     self.structure_controls.push(structure::fold_control(
                         candidate,
                         folded,
+                        self.gutter_hovered,
                         Rect::new(body.x - fold_lane - 4.0, y, fold_lane, self.editor.line_height()),
                         row_clip,
                         self.editor.palette,
@@ -3724,6 +3735,17 @@ pub(crate) fn paint_diff(
 ) -> Vec<DrawCommand> {
     let line_height = LINE_HEIGHT * diff.font_size / FONT_SIZE;
     view.syntax.update_diff(diff.lines.clone(), diff.language);
+    // The host's inks over the built-in colours, as the editor paints its rows.
+    let dark = diff.palette.is_dark();
+    let inked = |spans: &[CodeHighlight]| -> Vec<CodeHighlight> {
+        match diff.syntax_colors {
+            Some(colors) => spans
+                .iter()
+                .map(|span| CodeHighlight { range: span.range.clone(), color: colors.ink(span.color, dark) })
+                .collect(),
+            None => spans.to_vec(),
+        }
+    };
     let viewport = &mut view.viewport;
     if view
         .identity
@@ -3841,10 +3863,11 @@ pub(crate) fn paint_diff(
             CodeDiffLineKind::Added => ("+", colors.add_bar, colors.add_row, colors.add_word),
             CodeDiffLineKind::Removed => ("−", colors.del_bar, colors.del_row, colors.del_word),
             CodeDiffLineKind::Folded => {
-                // The band only; the tree lays the row's label and control over it.
+                // A faint band, which the control laid over it fills on hover.
+                let hover = diff.palette.hover;
                 commands.push(DrawCommand::FillRect {
                     rect: Rect::new(rect.x, y, rect.width, line_height),
-                    color: diff.palette.hover,
+                    color: Color { a: (hover.a as u16 * 11 / 20) as u8, ..hover },
                     radius: 0.0,
                 });
                 let rows = Rect::new(rect.x, viewport.body.y, rect.width, viewport.body.height);
@@ -3923,7 +3946,7 @@ pub(crate) fn paint_diff(
             (viewport.scroll_x, viewport.body.width),
             diff.palette.text,
             0,
-            view.syntax.diff_line(&diff.lines, diff.language, row),
+            &inked(view.syntax.diff_line(&diff.lines, diff.language, row)),
         );
         commands.push(DrawCommand::PopClip);
     }
