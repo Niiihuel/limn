@@ -381,9 +381,9 @@ Any element can be placed without a component:
 
 | Method | Effect |
 | --- | --- |
-| `element.centered_y()` | Centers it vertically in its parent's height. The wrapper takes over its width and flex, so it keeps its place in a row. |
-| `element.centered_x()` | Centers it horizontally in its parent's width. |
-| `element.centered()` | Centers it on both axes. |
+| `element.centered_y()` | Centers it vertically in its parent's height. The wrapper takes over its width, flex, `shrink_to_fit`, `shrink_height_to_fit` and `min_size`, so it keeps its place in a row and a label that shrinks still wraps before the controls after it. |
+| `element.centered_x()` | Centers it horizontally in its parent's width. The wrapper takes over its `shrink_to_fit`, `shrink_height_to_fit` and `min_size`. |
+| `element.centered()` | Centers it on both axes, the wrapper taking over what `centered_x` does. |
 | `element.clip_to(width, height)` | Holds it in a fixed box that does not flex and hides what overflows, while it keeps its own width. |
 | `Element::row(children).wrap()` | Moves the children that do not fit the row's width onto more lines, each as tall as its tallest child, and grows with them: tags, role pills. `.line_gap(px)` spaces the lines, `gap` until set. See [Layout](layout.md#wrapping-rows). |
 
