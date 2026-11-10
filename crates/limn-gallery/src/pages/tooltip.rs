@@ -1,5 +1,5 @@
 use super::{caption, row, section, Cx, Section};
-use limn::{Button, ButtonVariant, Color, Component, FontFamily, Icon, IconButton, Tooltip, TooltipFace, TooltipPlacement};
+use limn::{Button, ButtonVariant, Color, Component, FontFamily, Icon, IconButton, Size, TextSpan, Tooltip, TooltipFace, TooltipPlacement};
 
 pub fn view(cx: &Cx) -> Vec<Section> {
     let palette = cx.palette;
@@ -44,6 +44,18 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 .faces(Some(Icon::Screen), [TooltipFace::new("Elena", Color::rgb(96, 190, 170))], 0)
                 .render(),
         ])]),
+        section(cx, "Picture and lines", vec![
+            row(vec![Tooltip::new(anchor("tooltip-picture", "Badge"), "tooltip-picture", "", palette)
+                .picture(super::media::picture(0).cover(), Size::new(96.0, 64.0))
+                .lines([
+                    TextSpan::new("Account age", palette.muted, 14.0, FontFamily::SansMedium),
+                    TextSpan::new("BLOOM", palette.text, 18.0, FontFamily::SansBold),
+                    TextSpan::new("5 years, 10 months", palette.muted, 14.0, FontFamily::SansMedium),
+                ])
+                .centered()
+                .render()]),
+            caption(cx, "A badge's hint: its artwork over what it means, every line centered, the heading between two quieter lines."),
+        ]),
         section(cx, "Title face", vec![row(vec![
             Tooltip::new(anchor("tooltip-sans", "Sans"), "tooltip-sans", "Rust workshop", palette)
                 .placement(TooltipPlacement::Right)

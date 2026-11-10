@@ -9445,6 +9445,11 @@ fn rounded_caret(edge: Point, outward: Point, size: Size, color: Color, ring: Co
     commands
 }
 
+/// The space between two blocks of a hint: a picture stands further off.
+fn tooltip_block_gap(picture: bool) -> f32 {
+    if picture { 12.0 } else { 6.0 }
+}
+
 fn place_tooltip(
     anchor: Rect,
     desired: Size,
@@ -9572,12 +9577,20 @@ struct TooltipIconRowLayout {
     size: Size,
 }
 
+/// Lines of a hint's text block in one style.
+struct TooltipRun<'a> {
+    lines: Vec<&'a str>,
+    style: Style,
+    color: Color,
+}
+
 enum TooltipBlock<'a> {
     Separator,
-    Text {
-        lines: Vec<&'a str>,
-        style: Style,
-        color: Color,
+    /// Runs one under the other with no space between them.
+    Text(Vec<TooltipRun<'a>>),
+    Picture {
+        image: &'a RasterImage,
+        size: Size,
     },
     IconRow(TooltipIconRowLayout),
     Faces {
@@ -10189,6 +10202,7 @@ impl LayoutBuilder<'_> {
         // Ignore trailing and repeated dividers, including when callers
         // construct the section data directly.
         let mut separator_pending = false;
+        let mut after_picture = false;
         for section in sections {
             let block = match section {
                 TooltipSection::Separator => {
@@ -10204,10 +10218,47 @@ impl LayoutBuilder<'_> {
                     } else {
                         (description_style, colors.text)
                     };
-                    TooltipBlock::Text {
+                    TooltipBlock::Text(vec![TooltipRun {
                         lines: self.wrapped_lines(text, content_max, style),
                         style,
                         color,
+                    }])
+                }
+                TooltipSection::Lines(spans) => {
+                    let runs: Vec<_> = spans
+                        .iter()
+                        .filter(|span| !span.text.trim().is_empty())
+                        .map(|span| {
+                            let style = Style {
+                                font_size: if span.font_size.is_finite() && span.font_size > 0.0 {
+                                    span.font_size
+                                } else {
+                                    description_style.font_size
+                                },
+                                font_family: span.font_family,
+                                ..Style::default()
+                            };
+                            TooltipRun {
+                                lines: self.wrapped_lines(&span.text, content_max, style),
+                                style,
+                                color: span.color,
+                            }
+                        })
+                        .collect();
+                    if runs.is_empty() {
+                        continue;
+                    }
+                    TooltipBlock::Text(runs)
+                }
+                TooltipSection::Picture { image, size } => {
+                    if !(size.width.is_finite() && size.height.is_finite() && size.width > 0.0 && size.height > 0.0) {
+                        continue;
+                    }
+                    // One wider than the hint is scaled down whole.
+                    let scale = (content_max / size.width).min(1.0);
+                    TooltipBlock::Picture {
+                        image,
+                        size: Size::new(size.width * scale, size.height * scale),
                     }
                 }
                 TooltipSection::IconRow { label, items } => {
@@ -10237,21 +10288,26 @@ impl LayoutBuilder<'_> {
                     }
                 }
             };
+            let picture = matches!(block, TooltipBlock::Picture { .. });
             if separator_pending {
                 content_height += 15.0;
                 blocks.push(TooltipBlock::Separator);
                 separator_pending = false;
             } else if content_height > 0.0 {
-                content_height += 6.0;
+                content_height += tooltip_block_gap(picture || after_picture);
             }
+            after_picture = picture;
             let size = match &block {
-                TooltipBlock::Text { lines, style, .. } => Size::new(
-                    lines
-                        .iter()
-                        .map(|line| self.text_width(line, *style))
-                        .fold(0.0_f32, f32::max),
-                    lines.len() as f32 * self.metrics_for(*style).line_height,
-                ),
+                TooltipBlock::Text(runs) => runs.iter().fold(Size::new(0.0, 0.0), |size, run| {
+                    Size::new(
+                        run.lines
+                            .iter()
+                            .map(|line| self.text_width(line, run.style))
+                            .fold(size.width, f32::max),
+                        size.height + run.lines.len() as f32 * self.metrics_for(run.style).line_height,
+                    )
+                }),
+                TooltipBlock::Picture { size, .. } => *size,
                 TooltipBlock::IconRow(row) => row.size,
                 TooltipBlock::Faces { width, .. } => Size::new(*width, crate::TOOLTIP_FACE),
                 TooltipBlock::Separator => unreachable!(),
@@ -10395,9 +10451,18 @@ impl LayoutBuilder<'_> {
         } else {
             body.y + (body.height - title_height) / 2.0
         };
+        // Where something `width` wide starts: the left edge, or centered.
+        let start = |width: f32| {
+            if options.centered {
+                content.x + (content.width - width).max(0.0) / 2.0
+            } else {
+                content.x
+            }
+        };
         for line in title_lines {
+            let x = start(self.text_width(&line, title_style));
             self.frame.commands.push(DrawCommand::Text {
-                position: Point::new(content.x, text_y),
+                position: Point::new(x, text_y),
                 text: line,
                 color: colors.text,
                 font_size: title_style.font_size,
@@ -10427,6 +10492,7 @@ impl LayoutBuilder<'_> {
         }
         let mut divided = false;
         let mut has_content = title_height > 0.0 || keycap_width.is_some();
+        let mut after_picture = false;
         for block in blocks {
             if matches!(block, TooltipBlock::Separator) {
                 self.frame.commands.push(DrawCommand::FillRect {
@@ -10438,34 +10504,46 @@ impl LayoutBuilder<'_> {
                 divided = true;
                 continue;
             }
+            let picture = matches!(block, TooltipBlock::Picture { .. });
             if !divided && has_content {
-                text_y += 6.0;
+                text_y += tooltip_block_gap(picture || after_picture);
             }
+            after_picture = picture;
             divided = false;
             has_content = true;
             match block {
-                TooltipBlock::Text {
-                    style,
-                    lines,
-                    color,
-                } => {
-                    for line in lines {
-                        self.frame.commands.push(DrawCommand::Text {
-                            position: Point::new(content.x, text_y),
-                            text: line.to_owned(),
-                            color,
-                            font_size: style.font_size,
-                            font_family: style.font_family,
-                        });
-                        text_y += self.metrics_for(style).line_height;
+                TooltipBlock::Text(runs) => {
+                    for run in runs {
+                        for line in run.lines {
+                            let x = start(self.text_width(line, run.style));
+                            self.frame.commands.push(DrawCommand::Text {
+                                position: Point::new(x, text_y),
+                                text: line.to_owned(),
+                                color: run.color,
+                                font_size: run.style.font_size,
+                                font_family: run.style.font_family,
+                            });
+                            text_y += self.metrics_for(run.style).line_height;
+                        }
                     }
+                }
+                TooltipBlock::Picture { image, size } => {
+                    self.frame.commands.push(DrawCommand::RasterImage {
+                        rect: Rect::new(start(size.width), text_y, size.width, size.height),
+                        image: image.clone(),
+                        opacity: 1.0,
+                        radius: 0.0,
+                    });
+                    text_y += size.height;
                 }
                 TooltipBlock::IconRow(row) => {
                     let line_height = self.metrics_for(footer_style).line_height;
                     let mut label_y = text_y + row.label_y;
+                    // The whole row moves to the middle; its own layout stays.
+                    let left = start(row.size.width);
                     for label in row.label_lines {
                         self.frame.commands.push(DrawCommand::Text {
-                            position: Point::new(content.x, label_y),
+                            position: Point::new(left, label_y),
                             text: label,
                             color: colors.muted,
                             font_size: footer_style.font_size,
@@ -10475,7 +10553,7 @@ impl LayoutBuilder<'_> {
                     }
                     for item in row.items {
                         let rect = Rect::new(
-                            content.x + item.rect.x,
+                            left + item.rect.x,
                             text_y + item.rect.y,
                             item.rect.width,
                             item.rect.height,
@@ -10514,8 +10592,8 @@ impl LayoutBuilder<'_> {
                     }
                     text_y += row.size.height;
                 }
-                TooltipBlock::Faces { icon, faces, more, .. } => {
-                    self.paint_tooltip_faces(content.x, text_y, icon, faces, more, colors);
+                TooltipBlock::Faces { icon, faces, more, width } => {
+                    self.paint_tooltip_faces(start(width), text_y, icon, faces, more, colors);
                     text_y += crate::TOOLTIP_FACE;
                 }
                 TooltipBlock::Separator => unreachable!(),
@@ -18304,6 +18382,63 @@ mod tests {
             DrawCommand::Text { text, .. } if ["Ctrl", "Shift", "B"].contains(&text.as_str())
         )));
         assert_eq!(frame.regions.len(), 1);
+    }
+
+    #[test]
+    fn a_centered_hint_draws_its_picture_over_its_lines_in_the_middle() {
+        let palette = ComponentPalette::neutral_dark();
+        let line = |text: &str, size: f32| TextSpan::new(text, Color::WHITE, size, FontFamily::SansMedium);
+        let window = Size::new(400.0, 400.0);
+        let mut tree = UiTree::new(Element::column(vec![
+            Element::spacer().size(None, Some(250.0)),
+            Tooltip::new(
+                Element::icon_button("badge", Icon::PanelLeft, "").size(Some(20.0), Some(20.0)),
+                "badge",
+                "",
+                palette,
+            )
+            .picture(inline_picture(), Size::new(96.0, 64.0))
+            .lines([line("Account age", 14.0), line("BLOOM", 18.0), line("5 years", 14.0)])
+            .centered()
+            .render(),
+        ]));
+        // Every character 8 wide at any size, so widths are known.
+        tree.set_text_measurer(|text: &str, _: f32, _: FontFamily| text.chars().count() as f32 * 8.0);
+        tree.set_reduced_motion(true);
+        tree.layout(window);
+        assert!(tree.focus("badge"));
+        let frame = tree.layout(window);
+        let picture = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::RasterImage { rect, .. } => Some(*rect),
+                _ => None,
+            })
+            .expect("the picture");
+        let lines: Vec<(String, Point, f32, f32)> = frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, position, font_size, .. } => {
+                    Some((text.clone(), *position, *font_size, text.chars().count() as f32 * 8.0))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            lines.iter().map(|(text, ..)| text.as_str()).collect::<Vec<_>>(),
+            ["Account age", "BLOOM", "5 years"]
+        );
+        assert_eq!((picture.width, picture.height), (96.0, 64.0));
+        // Every line is centered on the picture's middle.
+        let middle = picture.x + picture.width / 2.0;
+        for (text, position, _, width) in &lines {
+            assert!((position.x + width / 2.0 - middle).abs() < 1.0, "{text} at {position:?}, {width} wide");
+        }
+        // The picture stands 12 over the lines, which follow each other.
+        assert_eq!(lines[0].1.y, picture.y + picture.height + 12.0);
+        assert!(lines[1].1.y > lines[0].1.y && lines[2].1.y > lines[1].1.y);
     }
 
     #[test]

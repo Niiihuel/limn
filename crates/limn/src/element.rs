@@ -154,6 +154,22 @@ pub enum TooltipSection {
     /// A wrapped paragraph in the muted color, slightly smaller. Blank text
     /// is left out.
     Footer(String),
+    /// A picture in a box `size` large, such as a badge's artwork over what
+    /// it means: whole inside it at its own proportions, or filling it when
+    /// [`RasterImage::cover`]. A box wider than the hint is scaled down
+    /// whole. It stands 12 pixels clear of the blocks around it, where text
+    /// stands 6.
+    Picture {
+        /// The picture, with its text alternative.
+        image: RasterImage,
+        /// Width and height of its box, in logical pixels.
+        size: Size,
+    },
+    /// Lines of text one under the other with no space between them, each
+    /// span wrapped on its own in its own size, face and ink: a heading
+    /// between two quieter lines. Only a span's text, size, face and color
+    /// are drawn; a blank span is left out.
+    Lines(Vec<TextSpan>),
 }
 
 /// A labeled, passive item in a tooltip row. Icons keep their canonical size.
@@ -281,6 +297,9 @@ pub struct TooltipOptions {
     /// grows it past full size and back while its opacity stops at full,
     /// so its fade is over in about a quarter of `enter_ms`.
     pub enter_easing: Easing,
+    /// Every line and block centered across the hint instead of set from
+    /// its left edge.
+    pub centered: bool,
 }
 
 impl TooltipOptions {
@@ -295,6 +314,7 @@ impl TooltipOptions {
         open_scale: 1.0,
         enter_ms: None,
         enter_easing: Easing::OutCubic,
+        centered: false,
     };
 
     /// The options with numbers safe to paint: a title size that is not
