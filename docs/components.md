@@ -206,6 +206,7 @@ let preview = Markdown::new(source, palette).width(reading_width).render();
 | --- | --- |
 | `.width(px)` | The reading column, kept between 48 and 1,200; 600 unless set or when not finite. |
 | `.font_size(px)` | The body text, 14 unless set; headings, code, list markers, line heights and the space between blocks keep their proportion to it. Kept between 8 and 96; a size that is not finite and positive is ignored. |
+| `.line_height(px)` | The height of a line of body text, 22/14 of the body size unless set; headings and subtext take the same proportion to their size, code blocks keep theirs. Kept between 1 and 192; a height that is not finite and positive is ignored. |
 | `.colors(MarkdownColors)` | The ten inks and fills: `text`, `strong`, `emphasis`, `link`, `code_ink`, `code_fill`, `muted`, `success`, `panel`, `border`. The default, `MarkdownColors::for_palette`, reads the palette and paints strong text like body text, in the bold face. |
 | `.streaming(bool)` | The source is still growing: an unclosed delimiter at its end already styles its text, a half-written fence is held back, and a web address at the end has no action until it is delimited. |
 | `.link_action_prefix(text)` | The start of every link action; `markdown_link:` unless set. |
