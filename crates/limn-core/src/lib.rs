@@ -53,6 +53,7 @@ pub use components::{
     TooltipSpec,
 };
 pub use context_menu::{ContextMenu, ContextMenuEntry, ContextMenuItem};
+pub use context_menu::{ContextMenuView, ContextMenuViewFn};
 pub use element::{
     Cursor,
     Border, BoxShadow, CoachAlign, CoachSide, BarPlot, BarSeries, BarValue, CornerRadii, Drawing, Element, ElementKind, SurfaceFit, FontFamily, HeatCell, HeatPlot, Icon, LevelBars,
@@ -82,8 +83,6 @@ pub use components::{
     accent_switch_colors, clear_button, control_radius, darker, disabled_field, hover_ms, input_surface, lighter,
     surface_radius, CLEAR_SIDE,
 };
-#[doc(hidden)]
-pub use context_menu::row_id;
 #[doc(hidden)]
 pub use diagram::MAX_SOURCE_BYTES;
 #[doc(hidden)]
