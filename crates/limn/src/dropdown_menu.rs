@@ -600,6 +600,7 @@ pub struct DropdownMenu {
     sizing: Option<SelectorSizing>,
     inline: bool,
     context_menu_style: bool,
+    touch: bool,
     context_metrics: ContextMenuMetrics,
     filled_choice: Option<(Color, Color)>,
     hints_in_tooltips: bool,
@@ -642,6 +643,7 @@ impl DropdownMenu {
             sizing: None,
             inline: false,
             context_menu_style: false,
+            touch: false,
             context_metrics: ContextMenuMetrics::default(),
             filled_choice: None,
             hints_in_tooltips: false,
@@ -761,6 +763,13 @@ impl DropdownMenu {
     /// the same ones.
     pub fn motion(mut self, motion: MenuMotion) -> Self {
         self.motion = motion;
+        self
+    }
+
+    /// Rows lit under a finger alone, as iOS's menus: no hover. Keyboard focus still lights
+    /// them.
+    pub fn touch(mut self) -> Self {
+        self.touch = true;
         self
     }
 
@@ -1379,6 +1388,7 @@ impl Component for DropdownMenu {
                         .transition_ms(self.motion.item_ms)
                         .padding(vertical_padding)
                         .size(Some(row_width), Some(row_height));
+                    let row = if self.touch { row.press_highlight() } else { row };
                     let row = if contextual {
                         let row = row
                             .size(None, None)

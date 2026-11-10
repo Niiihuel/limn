@@ -9,6 +9,7 @@
 //! that control had been clicked, to capture an open menu or dialog.
 //! `--pages` prints the components as JSON, one page each, and exits.
 
+mod glass_demo;
 mod app;
 mod pages;
 
@@ -26,6 +27,8 @@ thread_local! {
 }
 
 struct Host {
+    glass: Option<limn_egui::GlassRenderer>,
+    bar_motion: limn::FloatingBarMotion,
     tree: UiTree,
     state: app::State,
     started: bool,
@@ -150,6 +153,12 @@ impl eframe::App for Host {
         // and laid out once, after it.
         let mut changed = false;
         for event in limn_egui::events(&ctx, area.min) {
+            if self.state.choice("page", "") == "glass" {
+                if let UiEvent::Scroll { delta_y, .. } | UiEvent::ScrollDirect { delta_y, .. } = &event {
+                    self.bar_motion.scroll_by(-delta_y, Instant::now(), self.state.flag("reduced-motion"));
+                    ctx.request_repaint();
+                }
+            }
             // A page may open its own menu where the secondary click was, or
             // for the menu key.
             if matches!(
@@ -174,6 +183,10 @@ impl eframe::App for Host {
                     }
                 }
                 hot(|| app::update(&mut self.state, &action));
+                if matches!(&action, UiAction::Clicked { id } if id == "glass-collapse") {
+                    self.bar_motion.set_collapsed(self.state.flag("glass-collapse"), Instant::now(), self.state.flag("reduced-motion"));
+                    ctx.request_repaint();
+                }
                 self.show_what_a_click_changed(&action);
                 changed = true;
             }
@@ -191,6 +204,14 @@ impl eframe::App for Host {
         if changed {
             self.remember();
         }
+        if self.state.choice("page", "") == "glass" {
+            let now = Instant::now();
+            if self.screenshot.is_some() {
+                self.bar_motion.set_collapsed(self.state.flag("glass-collapse"), now, true);
+            }
+            self.state.set("glass-collapse-progress", &self.bar_motion.value(now).to_string());
+            if self.bar_motion.is_active(now) { ctx.request_repaint(); }
+        }
         self.tree.set_root(hot(|| app::view(&self.state, window)));
         if self.scroll_end {
             self.tree.scroll_to_end("page-scroll");
@@ -204,6 +225,7 @@ impl eframe::App for Host {
             }
         }
         let frame = self.tree.layout(window);
+        if self.state.choice("page", "") == "glass" { pages::glass::track_geometry(&mut self.state, &frame); }
         let animation_due = pages::present_animation(&ctx, &frame);
         #[cfg(not(target_arch = "wasm32"))]
         if self.screenshot.is_none() {
@@ -221,7 +243,13 @@ impl eframe::App for Host {
             }
             ctx.request_repaint();
         }
-        limn_egui::paint_at(ui, &frame, area.min);
+        if self.state.choice("page", "") == "glass" {
+            if let Some(glass) = &mut self.glass {
+                let phase = if self.screenshot.is_some() || self.state.flag("reduced-motion") { 0.0 } else { self.opened.elapsed().as_secs_f32() * 22.0 };
+                glass_demo::paint(glass, ui, &frame, area.min, self.state.theme().palette(), phase);
+                if self.screenshot.is_none() { ctx.request_repaint(); }
+            } else { limn_egui::paint_at(ui, &frame, area.min); }
+        } else { limn_egui::paint_at(ui, &frame, area.min); }
         limn_egui::report_ime(&ctx, &self.tree, area.min);
         limn_egui::set_cursor(&ctx, self.tree.cursor());
 
@@ -291,6 +319,8 @@ fn main() {
                     limn_egui::install_fonts(&creation.egui_ctx);
                     limn_egui::set_color_emoji(Some(pages::demo_emoji));
                     Ok(Box::new(Host {
+                        bar_motion: limn::FloatingBarMotion::new(state.flag("glass-collapse"), Instant::now()),
+                        glass: creation.wgpu_render_state.as_ref().map(limn_egui::GlassRenderer::new),
                         tree: UiTree::new(Element::spacer()),
                         state,
                         started: false,
@@ -371,6 +401,8 @@ fn main() -> eframe::Result {
             limn_egui::install_fonts(&creation.egui_ctx);
             limn_egui::set_color_emoji(Some(pages::demo_emoji));
             Ok(Box::new(Host {
+                        bar_motion: limn::FloatingBarMotion::new(state.flag("glass-collapse"), Instant::now()),
+                        glass: creation.wgpu_render_state.as_ref().map(limn_egui::GlassRenderer::new),
                 tree: UiTree::new(Element::spacer()),
                 state,
                 started: false,

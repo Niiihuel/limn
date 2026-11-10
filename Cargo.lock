@@ -2058,11 +2058,13 @@ dependencies = [
  "image",
  "limn",
  "limn-editor",
+ "pollster",
  "resvg",
  "sha2",
  "skrifa",
  "unicode-segmentation",
  "vello_cpu",
+ "web-time",
 ]
 
 [[package]]

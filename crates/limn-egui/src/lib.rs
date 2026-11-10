@@ -16,6 +16,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
+mod glass;
+pub use glass::GlassRenderer;
 mod glyph_atlas;
 mod touch_context;
 
@@ -1915,14 +1917,48 @@ pub fn apply_access_requests(ctx: &egui::Context, tree: &mut limn::UiTree) -> Ve
 
 /// Paint a tree laid out in its own coordinate space at a window position.
 pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
+    paint_at_impl(ui, frame, origin, None, None);
+}
+
+#[derive(Clone, Copy)]
+struct BackdropSurface<'a> {
+    id: &'a str,
+    texture: egui::TextureId,
+    rect: EguiRect,
+}
+
+fn paint_at_impl(ui: &egui::Ui, frame: &Frame, origin: Pos2,
+    glass: Option<(&GlassRenderer, EguiRect)>, backdrop_surface: Option<BackdropSurface<'_>>) {
     publish_access(ui, frame, origin);
+    paint_commands(ui, &frame.commands, origin, glass, backdrop_surface, true);
+}
+
+/// Paint `commands` alone; their frame's accessibility is published elsewhere. `announce`
+/// names their pictures to egui's accessibility, which a capture of them repainted must not.
+fn paint_commands(ui: &egui::Ui, commands: &[DrawCommand], origin: Pos2,
+    glass: Option<(&GlassRenderer, EguiRect)>, backdrop_surface: Option<BackdropSurface<'_>>, announce: bool) {
     let display = glyph_atlas::Display::of(ui.ctx());
     let mut clips = vec![ui.clip_rect()];
     // The rounded shape of each clip in force, from a `RoundClip`.
     let mut rounds: Vec<RoundedClip> = vec![None];
-    for command in &frame.commands {
+    for command in commands {
         let round = *rounds.last().unwrap();
         match command {
+            DrawCommand::Glass { rect: area, radius, material, opacity } => {
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
+                if !glass.is_some_and(|(renderer, backdrop)| renderer.paint_glass(ui, &painter, area, *radius, *material, *opacity, backdrop)) {
+                    let tint = material.tint;
+                    painter.rect_filled(area, corner(*radius, area), Color32::from_rgba_unmultiplied(tint.r, tint.g, tint.b, (opacity.clamp(0.0, 1.0) * 255.0).round() as u8));
+                }
+            }
+            DrawCommand::GlassSelection { rect: area, radius, material, opacity, backdrop_rect, backdrop } => {
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                let area = rect(origin, *area);
+                if !glass.is_some_and(|(renderer, _)| renderer.paint_selection(ui, &painter, area, *radius, *material, *opacity, rect(origin, *backdrop_rect), backdrop, origin)) {
+                    painter.rect_filled(area, corner(*radius, area), color(material.tint));
+                }
+            }
             DrawCommand::PushClip(area) => {
                 let next = clips
                     .last()
@@ -2240,19 +2276,21 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 radius,
             } => {
                 let area = rect(origin, *area);
-                let response = ui.interact(
-                    area,
-                    egui::Id::unique((
-                        "limn-raster-image",
-                        image.sha256(),
-                        area.min.x.to_bits(),
-                        area.min.y.to_bits(),
-                    )),
-                    egui::Sense::hover(),
-                );
-                response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::Role::Image, true, image.alt())
-                });
+                if announce {
+                    let response = ui.interact(
+                        area,
+                        egui::Id::unique((
+                            "limn-raster-image",
+                            image.sha256(),
+                            area.min.x.to_bits(),
+                            area.min.y.to_bits(),
+                        )),
+                        egui::Sense::hover(),
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::Role::Image, true, image.alt())
+                    });
+                }
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
                 let texture = if image.is_full_resolution() {
                     full_resolution_texture(ui, image, area)
@@ -2301,14 +2339,16 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                 mirrored,
             } => {
                 let area = rect(origin, *area);
-                let response = ui.interact(
-                    area,
-                    egui::Id::unique(("limn-surface", id)),
-                    egui::Sense::hover(),
-                );
-                response.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::Role::Image, true, label)
-                });
+                if announce {
+                    let response = ui.interact(
+                        area,
+                        egui::Id::unique(("limn-surface", id)),
+                        egui::Sense::hover(),
+                    );
+                    response.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::Role::Image, true, label)
+                    });
+                }
                 let painter = ui
                     .painter()
                     .with_clip_rect(clips.last().unwrap().intersect(area));
@@ -2321,7 +2361,9 @@ pub fn paint_at(ui: &egui::Ui, frame: &Frame, origin: Pos2) {
                         uv
                     }
                 };
-                if let Some(paint) = surface_paint(ui, id) {
+                if let Some(backdrop) = backdrop_surface.filter(|backdrop| backdrop.id == id) {
+                    painter.image(backdrop.texture, backdrop.rect, EguiRect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)), Color32::from_white_alpha((opacity.clamp(0.0, 1.0) * 255.0) as u8));
+                } else if let Some(paint) = surface_paint(ui, id) {
                     let ppp = ui.ctx().pixels_per_point();
                     let snap = |value: f32| (value * ppp).round() / ppp;
                     let rect = EguiRect::from_min_max(

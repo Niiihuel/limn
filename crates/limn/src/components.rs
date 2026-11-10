@@ -2458,7 +2458,9 @@ pub struct Switch {
     ink: Option<Color>,
     off_ink: Option<Color>,
     thumb_inset: f32,
+    thumb_width: Option<f32>,
     off_track: Option<(Color, Color)>,
+    glass: Option<crate::GlassMaterial>,
 }
 
 impl Switch {
@@ -2477,8 +2479,18 @@ impl Switch {
             ink: None,
             off_ink: None,
             thumb_inset: THUMB_INSET,
+            thumb_width: None,
             off_track: None,
+            glass: None,
         }
+    }
+
+    /// Use an optical thumb with a spring lift while pressed. A tap toggles;
+    /// a drag reports `Clicked` only when released on the opposite half of
+    /// the track. Releasing on the current half or cancelling reports nothing.
+    pub fn glass(mut self, material: crate::GlassMaterial) -> Self {
+        self.glass = Some(material);
+        self
     }
 
     /// The track's width and height and the thumb's side: 28, 16 and 10
@@ -2513,6 +2525,13 @@ impl Switch {
         if inset.is_finite() {
             self.thumb_inset = inset.max(0.0);
         }
+        self
+    }
+
+    /// Set the thumb's width in logical pixels, independently of its height.
+    /// Non-finite values are ignored; the width is clamped inside the track.
+    pub fn thumb_width(mut self, width: f32) -> Self {
+        if width.is_finite() { self.thumb_width = Some(width.max(0.0)); }
         self
     }
 
@@ -2594,6 +2613,7 @@ impl Component for Switch {
             (SwitchVariant::Default, false) => (palette.text, palette.selected),
             (SwitchVariant::Accent, checked) => accent_switch_colors(palette, checked, self.ink),
         };
+        let thumb_color = if self.glass.is_some() { if palette.is_dark() { palette.text } else { palette.surface } } else { thumb_color };
         let track_color = match self.off_ink {
             Some(off) if !self.checked => off,
             _ => track_color,
@@ -2605,7 +2625,7 @@ impl Component for Switch {
                 .size(Some(thumb), Some(thumb))
                 .indicator_slot(name)
         };
-        let contents = Element::tab_strip(
+        let mut contents = Element::tab_strip(
             vec![
                 slot("off"),
                 Element::spacer().size(Some(track_width - thumb * 2.0 - inset * 2.0), Some(thumb)),
@@ -2620,6 +2640,18 @@ impl Component for Switch {
             thumb / 2.0,
             crate::tokens().motion.move_ms,
         );
+        if let Some(width) = self.thumb_width {
+            let width = width.clamp(thumb, track_width - inset * 2.0);
+            let cell = (track_width - inset * 2.0) / 2.0;
+            if let crate::ElementKind::TabStrip { children, .. } = &mut contents.kind {
+                *children = vec![Element::spacer().size(Some(cell), Some(thumb)).indicator_slot("off"),
+                    Element::spacer().size(Some(cell), Some(thumb)).indicator_slot("on")];
+            }
+            contents = contents.selection_width(width);
+        }
+        if let Some(material) = self.glass {
+            contents = contents.glass_selection(material).selection_press(self.action_id.clone());
+        }
         // Off, the host's own track when it gives one, with its border.
         let (track_color, border) = match (self.off_track, self.checked) {
             (Some((fill, border)), false) => (fill, Some(border)),
@@ -3093,6 +3125,7 @@ pub struct SegmentedControl {
     palette: ComponentPalette,
     height: f32,
     selection_border: Option<Color>,
+    radius: Option<f32>,
 }
 
 impl SegmentedControl {
@@ -3103,7 +3136,15 @@ impl SegmentedControl {
             palette,
             height: 28.0,
             selection_border: None,
+            radius: None,
         }
+    }
+
+    /// Set the selection's corner radius in logical pixels; half its height makes a pill.
+    /// Non-finite values are ignored and negative radii become zero.
+    pub fn radius(mut self, radius: f32) -> Self {
+        if radius.is_finite() { self.radius = Some(radius.max(0.0)); }
+        self
     }
 
     /// Outline the chosen segment one pixel wide in this color: a white chip
@@ -3129,6 +3170,7 @@ impl Component for SegmentedControl {
             + TAB_GAP * self.items.len().saturating_sub(1) as f32;
         let mut tabs = Tabs::new(self.items, self.palette).height(self.height - TAB_TRACK_PADDING * 2.0);
         tabs.selection_border = self.selection_border;
+        tabs.radius = self.radius;
         tabs.render()
             .size(
                 Some(inner_width + TAB_TRACK_PADDING * 2.0),

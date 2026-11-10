@@ -36,6 +36,40 @@ impl BottomSheet {
         }
     }
 
+    /// Draw and move it as iOS 26's sheet: at `spec`'s heights, floating inset at partial
+    /// ones and anchored, opaque, at its large one, under a bar with the grabber and the title
+    /// centred. As Apple's convention has it, the cross stands at its start only beside
+    /// [`Self::confirm`]'s prominent check at its end, or in an [`Self::alert`]: a sheet of
+    /// choices is put away by a swipe, its grabber or a press beside it, and its close stays
+    /// there unseen for a screen reader. It follows a drag of that bar, or of its body once scrolled to its top, and comes
+    /// to rest where the release's speed carries it nearest; sent past its smallest height it
+    /// leaves and reports `dismiss_id`. A tap on the grabber steps through its heights. Its
+    /// body fills the height it stands at; `max_height` no longer bounds it.
+    pub fn ios(mut self, spec: crate::SheetSpec) -> Self {
+        self.modal = self.modal.ios_sheet(spec);
+        self
+    }
+
+    /// An iOS sheet's prominent check, reporting `id`, named `label`; disabled, it stays
+    /// shown and named but cannot be pressed.
+    pub fn confirm(mut self, id: impl Into<String>, label: impl Into<String>, enabled: bool) -> Self {
+        self.modal = self.modal.confirm(id.into(), label.into(), enabled);
+        self
+    }
+
+    /// Announce it as an alert dialog, described by `description` to assistive
+    /// technology though its body says it in its own way.
+    pub fn alert(mut self, description: &str) -> Self {
+        self.modal = self.modal.alert(description);
+        self
+    }
+
+    /// Refract the host's backdrop through the sheet shell; its rows stay sharp.
+    pub fn glass(mut self, material: crate::GlassMaterial) -> Self {
+        self.modal = self.modal.glass(material);
+        self
+    }
+
     /// Preferred maximum width, at least 240; phone widths still take priority.
     /// A value that is not finite is ignored.
     pub fn width(mut self, width: f32) -> Self {
@@ -117,9 +151,12 @@ impl Component for BottomSheet {
 /// host's open state and pass it each [`UiAction`]. A `true` result asks the
 /// host to close the sheet. Body scrolling never starts a handle drag.
 ///
-/// The handle uses the existing in-place drag primitive: the sheet stays in
-/// its layout while held, then the shared Popover transition closes it. No
-/// detached drag preview or second overlay state machine is created.
+/// Held by its handle, the sheet follows the finger down, and up a little as a
+/// rubber band. Let go far enough down (a third of its height, between 60 and
+/// 180 points) or flung down, the tree reports the handle `Dropped` on
+/// `dismiss_id`, and the sheet goes on down from where it was as it closes.
+/// Let go short, it reports `DragCancelled` and the sheet springs back. A sheet
+/// whose height changes moves to it on the same spring.
 #[derive(Debug)]
 pub struct BottomSheetDrag {
     dismiss_id: String,
@@ -138,9 +175,11 @@ impl BottomSheetDrag {
         }
     }
 
-    /// Recognize close clicks and a released downward handle drag of at least
-    /// 64 logical pixels, with vertical travel at least the horizontal travel.
-    /// Short/upward/sideways drags and cancellation keep the sheet open.
+    /// Recognize close clicks and a handle the tree let go onto the sheet's
+    /// dismissal. A drop reported without that target, as a host may
+    /// synthesize one, closes it when it went at least 64 logical pixels down
+    /// and no further sideways. Short/upward/sideways drags and cancellation
+    /// keep the sheet open.
     pub fn handle_action(&mut self, action: &UiAction) -> bool {
         match action {
             UiAction::Clicked { id } if id == &self.dismiss_id => {
@@ -151,8 +190,9 @@ impl BottomSheetDrag {
                 self.origin = Some(*position);
                 false
             }
-            UiAction::Dropped { id, position, .. } if id == &self.handle_id => {
+            UiAction::Dropped { id, position, target } if id == &self.handle_id => {
                 self.origin.take().is_some_and(|origin| {
+                    if target.as_deref() == Some(self.dismiss_id.as_str()) { return true; }
                     let down = position.y - origin.y;
                     down >= 64.0 && down >= (position.x - origin.x).abs()
                 })

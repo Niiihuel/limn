@@ -51,6 +51,8 @@ pub struct Labels {
     pub paste: &'static str,
     /// The text context menu.
     pub select_all: &'static str,
+    /// A touch screen's text menu: the word under the caret.
+    pub select: &'static str,
     /// Over the date of a date and time picker.
     pub date: &'static str,
     /// Over the time of a date and time picker.
@@ -234,6 +236,7 @@ impl Labels {
         copy: "Copy",
         paste: "Paste",
         select_all: "Select all",
+        select: "Select",
         date: "Date",
         local_time: "Local time",
         time: "Time",
@@ -337,6 +340,7 @@ impl Labels {
         copy: "Copiar",
         paste: "Pegar",
         select_all: "Seleccionar todo",
+        select: "Seleccionar",
         date: "Fecha",
         local_time: "Hora local",
         time: "Hora",
