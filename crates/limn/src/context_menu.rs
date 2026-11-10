@@ -331,6 +331,8 @@ pub(crate) fn surface(
             width,
             Some(height),
             INSET,
+            None,
+            None,
         ),
         height,
     )

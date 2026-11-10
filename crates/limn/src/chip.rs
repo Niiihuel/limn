@@ -670,7 +670,7 @@ mod tests {
                 .commands
                 .iter()
                 .find_map(|command| match command {
-                    DrawCommand::Icon { rect, icon: Icon::Check, tint } if *tint == ink => Some(*rect),
+                    DrawCommand::Icon { rect, icon: Icon::Check, tint, .. } if *tint == ink => Some(*rect),
                     _ => None,
                 })
                 .expect("an icon in the ink");
@@ -706,7 +706,7 @@ mod tests {
             .commands
             .iter()
             .find_map(|command| match command {
-                DrawCommand::Icon { rect, icon: Icon::CloseBold, tint } if *tint == palette.text => Some(*rect),
+                DrawCommand::Icon { rect, icon: Icon::CloseBold, tint, .. } if *tint == palette.text => Some(*rect),
                 _ => None,
             })
             .expect("a close glyph in the ink");
@@ -752,7 +752,7 @@ mod tests {
             assert_eq!(ink, palette.muted);
             let glyph = |frame: &Frame| {
                 frame.commands.iter().find_map(|command| match command {
-                    DrawCommand::Icon { rect, icon: Icon::CloseBold, tint } => Some((*rect, *tint)),
+                    DrawCommand::Icon { rect, icon: Icon::CloseBold, tint, .. } => Some((*rect, *tint)),
                     _ => None,
                 })
             };

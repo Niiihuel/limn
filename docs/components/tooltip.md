@@ -105,7 +105,22 @@ Tooltip::new(anchor, "server", "Rust workshop", palette)
 | `arrow` | `true` | The small pointer that joins the hint to its anchor. |
 | `background` | the palette's | The fill of the hint and its pointer. |
 
-They are kept as `TooltipOptions` on the rendered `ElementKind::Tooltip`.
+They are kept as `TooltipOptions` on the rendered `ElementKind::Tooltip`. Every
+tooltip starts from the tokens' `tooltip_options`, so a host changes the
+defaults of all of them, the engine's own hints included, in one place; see
+[Tokens](../tokens.md#tooltip).
+
+## Shape and entrance
+
+The tokens' `tooltip_options.shape`, a `TooltipShape`, draws every hint to
+the host's measures: its radius, its padding, its shadow and a pointer with a
+rounded tip in the body's fill, such as a body rounded 8 with 8 by 12 of
+padding and a pointer 16 wide and 10 deep. The body's 1 px outline goes on
+round the pointer's sides and tip as one line, with none across its base, as
+Discord draws its hints; a transparent `border` draws neither. `open_scale` grows it from that
+scale about the pointer's tip as it fades in, over `enter_ms` when set, on
+`enter_easing`: `Easing::Spring` grows it a little past full size and back
+as a spring does. See [Tokens](../tokens.md#tooltip).
 
 ## Placement
 
@@ -145,8 +160,11 @@ that holds it beneath, no wider than 320.
 
 ## Motion
 
-The hint fades in and out, and moving between neighbouring controls does not
-blink; see [Animation](../animation.md).
+The hint fades in over `Motion::enter_ms`, or the options' `enter_ms`,
+growing from `open_scale` when it is below 1 on the options' `enter_easing`
+(on `Easing::Spring` past full size and back, its fade over early), and
+fades out; moving between neighbouring controls does not blink. Nothing
+moves under reduced motion. See [Animation](../animation.md).
 
 ## Accessibility
 

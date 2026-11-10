@@ -26,7 +26,7 @@ own content, and how to switch movement off.
 | --- | --- | --- | --- |
 | `Popover`, `DropdownMenu`, `DropdownList`, `Modal`, `AlertDialog` | Fades in and settles 4 px into place. | Fades out. | `enter_ms`, `exit_ms` |
 | The dimmed backdrop of `Modal` and `AlertDialog` | Fades in with the dialog. | Fades out with it. | `enter_ms`, `exit_ms` |
-| Tooltip | Fades in. | Fades out. Moving between neighbouring controls does not blink. | `enter_ms`, `exit_ms` |
+| Tooltip | Fades in, growing from `open_scale` on `enter_easing`, which may be a spring. | Fades out. Moving between neighbouring controls does not blink. | `enter_ms`, `exit_ms` |
 | Context menu | Fades in and settles. | Fades out. | `enter_ms`, `exit_ms` |
 | `Toast` | Fades in and settles. | Fades out where it was. | `enter_ms`, `exit_ms` |
 | `CoachMark`, `Tour` | Fades in and settles; its ring fades in on the target. On a new step both spring from the last target to the new one. | Fades out. | `enter_ms`, `exit_ms`, `move_ms` |
@@ -35,6 +35,8 @@ own content, and how to switch movement off.
 | An element with `conceal_on_hover` | Fades in when the pointer leaves the region. | Fades out when it comes over it. | `enter_ms`, `exit_ms` |
 | An element with `extend_on_hover`, such as a `PeekPanel` | Its edge reaches out under the pointer or the focus, overshooting a little. | Springs back past its rest and settles. | a spring, three `move_ms` |
 | An element with `dim_on_hover` | Fades back in when the pointer leaves the region. | Fades down to its opacity when it comes over it. | `enter_ms`, `exit_ms` |
+| An element with `grow_from` or `enter_from` beside one of those, `animate_enter` or `animate_presence` | Its fills grow about their middle from the height given, and its paint travels from the offset given. | Shrinks and travels back the same way, with a hover reveal. | as the presence it goes with |
+| The icons of an element with `hover_motion` | Under the pointer they play the motion's keyframes and hold the last. | They ease back to rest. | the keyframes' own times, `move_ms` back unless `return_ms` |
 | Hover and press on any control | The fill cross-fades. | The fill cross-fades. | `hover_ms` |
 | `Tabs`, `SegmentedControl` | The selection springs to the chosen tab. | | `move_ms` |
 | `NavigationBar` | The workspace capsule springs to the selected workspace; control fills cross-fade and tooltips fade. | | `move_ms`, `hover_ms`, tooltip tokens |
@@ -258,6 +260,14 @@ region is passive and the host mirrors no hover state. A pinned
 control, such as a clickable row, counts as hovered while it has keyboard
 focus too.
 
+What a floating surface covers is not under the pointer: where a popover (a
+part of it drawn past its box and the popovers opened from it too), its
+backdrop, a dialog, a context menu or an `Element::overlay` layer has a
+pointer region, a region beneath it is not hovered, as a press there does not
+reach it. Its reveals, moving icons and lit gaps stay at rest, as its
+controls are not `hovered_id`. A popover without a backdrop, such as
+`popover_non_modal` or `popover_on_hover`, leaves the rows beside it hovered.
+
 `conceal_on_hover(id)` is the opposite: painted except while the pointer is
 over the region. Put one of each in an `Element::stack` and the two give way
 to each other, such as a mark over a picture that turns into what a click
@@ -280,6 +290,56 @@ profile card that gives way to its text:
 let card = Element::overlay(content, decoration.dim_on_hover("card-7-effect", 0.35))
     .hover_region();
 ```
+
+### Icons that move under the pointer
+
+```rust
+use limn::{IconKeyframe, IconMotion};
+
+let gear = IconMotion::new()
+    .keyframe(IconKeyframe::at(120))
+    .keyframe(IconKeyframe::at(1070).turn(180.0));
+let settings = IconButton::new("settings", Icon::Settings, "Settings", palette)
+    .render()
+    .hover_motion("settings-gear", gear);
+```
+
+While the pointer is over the element's own visible box, and no floating
+surface over it, the icons it paints play the motion: from where they are at 0 ms, through each keyframe at
+its time, holding the last. When the pointer leaves they ease back to rest
+over `move_ms`, or the motion's `return_ms`; coming back before they are
+home plays again from where they are, so nothing jumps. Only icons move:
+fills, text, layout, hit targets and the accessibility tree stay where they
+are. A keyframe turns clockwise in degrees, stretches across and down and
+moves in logical pixels, all about the icon's middle; the way to it follows
+`Easing::InOutSine`, close to CSS `ease-in-out`, unless it is given another.
+Nothing moves under reduced motion.
+
+| Method | Effect |
+| --- | --- |
+| `IconKeyframe::at(ms)` | The icon at rest at `ms` after the pointer came. |
+| `.turn(degrees)` | Turned clockwise; negative is anticlockwise. |
+| `.scale(x, y)` | Stretched across and down, each clamped to 0–4. |
+| `.offset(point)` | Moved in logical pixels. |
+| `.easing(easing)` | The curve from the keyframe before. |
+| `IconMotion::return_ms(ms)` | How long the way back to rest takes; 0 is at once. |
+
+### A bar that grows into place
+
+```rust
+let hovered = pill(20.0).reveal_on_hover("server-7:hover").grow_from(8.0);
+let chosen = pill(40.0).animate_enter("server-7:chosen").grow_from(20.0);
+let arriving = pill(20.0).reveal_on_hover("server-8:hover").enter_from(Point::new(-4.0, 0.0));
+```
+
+Beside `reveal_on_hover`, `rise_on_hover`, `conceal_on_hover`, `dim_on_hover`,
+`animate_enter` or `animate_presence`, `grow_from(height)` has the filled
+rectangles the element paints grow about their middle from `height` to their
+own height while it fades in, and shrink back while a hover reveal fades
+out. Their corners stay no rounder than half the height they have, so a pill
+keeps round ends. `enter_from(offset)` moves the paint from `offset` to its
+place the same way. Either replaces the 4 px settle of an entering element.
+Both are paint only, and do nothing under reduced motion.
 
 ### Which row the pointer is on
 
@@ -350,7 +410,7 @@ if self.panel_width.is_active(Instant::now()) {
 | Method | Effect |
 | --- | --- |
 | `ScalarTransition::new(value, now)` | Starts at rest at `value`. |
-| `.easing(Easing::InOutCubic)` | Chooses the curve; the default is `OutCubic`. `Easing::CubicBezier(x1, y1, x2, y2)` is a CSS `cubic-bezier`. |
+| `.easing(Easing::InOutCubic)` | Chooses the curve: `OutCubic` (the default), `InOutCubic`, `InOutSine`, `Linear` or `Spring`, which passes the target by 14 % of the way and comes back to rest on it at the end of the duration. `Easing::CubicBezier(x1, y1, x2, y2)` is a CSS `cubic-bezier`. |
 | `.retarget(value, now, duration)` | Heads for a new value from wherever it is now, without a jump. |
 | `.retarget_with_motion(value, now, duration, reduced_motion)` | As above, or a snap when `reduced_motion` is true. |
 | `.snap_to(value, now)` | Jumps immediately. |

@@ -503,7 +503,7 @@ impl TextLayout {
                 Part::Fill(area, ink, radius) => {
                     DrawCommand::FillRect { rect: moved(*area), color: ink.unwrap_or(color), radius: *radius }
                 }
-                Part::Icon(area, icon, ink) => DrawCommand::Icon { rect: moved(*area), icon: *icon, tint: ink.unwrap_or(color) },
+                Part::Icon(area, icon, ink) => DrawCommand::Icon { rect: moved(*area), icon: *icon, tint: ink.unwrap_or(color), transform: crate::IconTransform::IDENTITY },
                 Part::Picture(area, InlineImage::Raster(image), _) => {
                     DrawCommand::RasterImage { rect: moved(*area), image: image.clone(), opacity: 1.0, radius: 0.0 }
                 }

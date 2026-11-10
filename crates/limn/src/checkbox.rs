@@ -225,7 +225,7 @@ mod tests {
     /// The mark that shows: none when its ink is transparent.
     fn mark(frame: &Frame) -> Option<(Icon, Color, Rect)> {
         frame.commands.iter().find_map(|command| match command {
-            DrawCommand::Icon { icon, tint, rect } if tint.a > 0 => Some((*icon, *tint, *rect)),
+            DrawCommand::Icon { icon, tint, rect, .. } if tint.a > 0 => Some((*icon, *tint, *rect)),
             _ => None,
         })
     }
