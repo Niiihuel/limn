@@ -48,6 +48,7 @@ pub struct Tooltip {
     described: bool,
     options: TooltipOptions,
     background: Option<Color>,
+    content: Option<Box<Element>>,
 }
 
 impl Tooltip {
@@ -73,6 +74,7 @@ impl Tooltip {
             described: true,
             options: crate::tokens().tooltip_options,
             background: None,
+            content: None,
         }
     }
 
@@ -264,6 +266,18 @@ impl Tooltip {
         self.options.shape = Some(shape);
         self
     }
+
+    /// Lay the body out as `content`, an element of the caller's own, in
+    /// place of the title, shortcut and sections. The body is sized to it,
+    /// at most `max_width` wide, plus the padding of the shape (8 at the
+    /// sides and 6 above and below without one), and keeps its fill, border,
+    /// shadow, pointer, placement and entrance. The content is painted and
+    /// nothing more: nothing in it can be clicked, focused or read, so the
+    /// title is still what the platform is told.
+    pub fn content(mut self, content: Element) -> Self {
+        self.content = Some(Box::new(content));
+        self
+    }
 }
 
 impl Component for Tooltip {
@@ -305,12 +319,14 @@ impl Component for Tooltip {
             sections,
             max_width,
             options,
+            content,
             ..
         } = &mut element.kind
         {
             *sections = self.sections;
             *max_width = self.max_width;
             *options = self.options;
+            *content = self.content;
         }
         element
     }
@@ -334,6 +350,7 @@ pub struct TooltipSpec {
     palette: Option<ComponentPalette>,
     max_width: Option<f32>,
     suppressed: bool,
+    content: Option<Box<Element>>,
 }
 
 impl TooltipSpec {
@@ -354,6 +371,7 @@ impl TooltipSpec {
             palette: None,
             max_width: None,
             suppressed: false,
+            content: None,
         }
     }
 
@@ -394,6 +412,13 @@ impl TooltipSpec {
         self
     }
 
+    /// Lay the hint's body out as `content`, in place of its title,
+    /// description and shortcut; see [`Tooltip::content`].
+    pub fn content(mut self, content: Element) -> Self {
+        self.content = Some(Box::new(content));
+        self
+    }
+
     /// Render the button without its hint, for example while the menu it
     /// opens is showing.
     pub fn suppressed(mut self, suppressed: bool) -> Self {
@@ -418,6 +443,7 @@ impl TooltipSpec {
         if let Some(width) = self.max_width {
             tooltip = tooltip.max_width(width);
         }
+        tooltip.content = self.content;
         tooltip.hint()
     }
 }

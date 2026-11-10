@@ -243,6 +243,10 @@ impl LayoutBuilder<'_> {
         }
     }
 
+    /// Paint a hint beside `anchor` and return the point it grows from.
+    /// `own`, the content a component built, takes the place of the title,
+    /// shortcut and sections: the body is sized to it and it is placed inside
+    /// the padding, for its paint alone.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn paint_tooltip(
         &mut self,
@@ -250,6 +254,7 @@ impl LayoutBuilder<'_> {
         title: &str,
         shortcut: Option<&str>,
         sections: &[TooltipSection],
+        own: Option<Box<Element>>,
         preferred_width: f32,
         preferred: TooltipPlacement,
         colors: TooltipStyle,
@@ -297,6 +302,13 @@ impl LayoutBuilder<'_> {
         }
         let shape = options.shape;
         let padding_x = shape.map_or(TOOLTIP_PADDING, |shape| shape.padding_x);
+        // Nothing in content of the component's own may take the pointer, the
+        // focus or a reader, and the built-in layout steps aside for it.
+        let own = own.map(|own| own.inert());
+        let (title, shortcut, sections) = match own {
+            Some(_) => ("", None, &[][..]),
+            None => (title, shortcut, sections),
+        };
         let title_style = Style {
             font_size: options.title_font_size,
             font_family: options.title_font_family,
@@ -327,7 +339,8 @@ impl LayoutBuilder<'_> {
             })
             .filter(|width| content_max - width - 8.0 >= 24.0);
         let title_budget = content_max - keycap_width.map_or(0.0, |width| width + 8.0);
-        let rich = !sections.is_empty() || title.contains('\n');
+        let rich = own.is_some() || !sections.is_empty() || title.contains('\n');
+        let padding_y = shape.map_or(if rich { 6.0 } else { 1.0 }, |shape| shape.padding_y);
         let title_lines = if title.is_empty() {
             Vec::new()
         } else if rich {
@@ -483,6 +496,12 @@ impl LayoutBuilder<'_> {
             content_height += size.height;
             blocks.push(block);
         }
+        if let Some(own) = &own {
+            // As much as the body can hold inside the window's inset.
+            let room = Size::new(content_max, (viewport.height - 16.0 - padding_y * 2.0).max(0.0));
+            let size = self.measure(own, room);
+            (content_width, content_height) = (size.width, size.height);
+        }
         let body_width = (padding_x * 2.0 + content_width)
             .max(TOOLTIP_HEIGHT)
             .min(max_width);
@@ -605,7 +624,6 @@ impl LayoutBuilder<'_> {
                 color: colors.background,
             });
         }
-        let padding_y = shape.map_or(if rich { 6.0 } else { 1.0 }, |shape| shape.padding_y);
         let content = Rect::new(
             body.x + padding_x,
             body.y + padding_y,
@@ -766,7 +784,14 @@ impl LayoutBuilder<'_> {
                 TooltipBlock::Separator => unreachable!(),
             }
         }
+        if let Some(own) = &own {
+            self.place(own, content, Some(content));
+        }
         self.frame.commands.push(DrawCommand::PopClip);
         Some(origin)
     }
 }
+
+#[cfg(test)]
+#[path = "tooltip_tree_tests.rs"]
+mod tests;

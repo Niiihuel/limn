@@ -144,6 +144,10 @@ In order, by how much of a host's own design each one blocks:
      pan bar of `drag_to_pan` take their look from `ScrollbarAppearance`.
      Left: the thumb of a text area (`paint_laid_out_area`) and the code
      editor's own bars (`code_editor.rs`).
+   - A tooltip's content can be the component's own (`Tooltip::content`,
+     placed by `paint_tooltip` in `tooltip_tree.rs`); still hard-wired are
+     the built-in layout's measures, text hints (`TextSpan::tooltip`), the
+     code editor's diagnostics and the mark rail's hint.
 2. **The controls in `components.rs`**: `Button`, `IconButton`, `Link`,
    `Kbd`, `Tooltip`, `TextField`, `TextArea`, `SearchField`, `Switch`, `Tabs`,
    `SegmentedControl`, `Popover`, with `spinner.rs` and `scroll_area.rs`.

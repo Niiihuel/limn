@@ -2046,6 +2046,11 @@ pub enum ElementKind {
         colors: TooltipStyle,
         /// When it opens and how its title and pointer are drawn.
         options: TooltipOptions,
+        /// What the body holds when the component lays it out itself, in
+        /// place of `title`, `shortcut` and `sections`; see
+        /// [`crate::Tooltip::content`]. It is painted and nothing more: no
+        /// pointer target, focus stop or accessibility node is made in it.
+        content: Option<Box<Element>>,
     },
     /// A vertical scrolling viewport over one child; see [`Element::scroll`].
     Scroll {
@@ -3710,6 +3715,7 @@ impl Element {
                 placement,
                 colors,
                 options: crate::tokens().tooltip_options,
+                content: None,
             },
             layout,
         )
