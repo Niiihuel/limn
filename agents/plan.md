@@ -122,7 +122,7 @@ application with a look of its own depends on `limn-core`, uses none of
 - The compiler holds the line now: a component cannot reach inside the
   engine (R22).
 - What the components did reach for was opened as seams, `#[doc(hidden)]
-  pub` (R23). `seams_do_not_grow` holds their number: 86 on 2026-11-10,
+  pub` (R23). `seams_do_not_grow` holds their number: 84 on 2026-11-10,
   where there were none to count before, because nothing stopped a
   component from reaching in.
 - The engine's tests stand on the engine alone: 738 of them. The 47 that
@@ -138,6 +138,10 @@ In order, by how much of a host's own design each one blocks:
    `ComponentPalette` and their measures from constants. A host cannot
    restyle them without a change to the engine. Each takes its look from
    what the element carries, given by the component that asks for it.
+   The context menu takes a view (`ContextMenu::view`,
+   `UiTree::set_context_menu_view`); still hard-wired: its default look,
+   which lives in the engine (`ContextMenuView::default_element`), its
+   entrance and its 8-pixel margins in the window.
 2. **The controls in `components.rs`**: `Button`, `IconButton`, `Link`,
    `Kbd`, `Tooltip`, `TextField`, `TextArea`, `SearchField`, `Switch`, `Tabs`,
    `SegmentedControl`, `Popover`, with `spinner.rs` and `scroll_area.rs`.

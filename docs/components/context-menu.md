@@ -77,6 +77,70 @@ tree.set_context_menu_sizing(SelectorSizing {
 });
 ```
 
+## A look of your own
+
+A view is the function that draws a context menu: it reads a `ContextMenuView`
+(the entries, the colors, the width, the tallest the menu may be, a way to
+measure text and the measures in force) and returns the menu's element and its
+size. `ContextMenu::view` gives one menu its view.
+`UiTree::set_context_menu_view` gives one to every menu without its own, the
+code editor's and the text's included. With neither, limn's look draws it.
+
+```rust
+fn plain_menu() -> ContextMenuViewFn {
+    ContextMenuViewFn::new(|view| {
+        if view.touch.is_some() {
+            return view.default_element(); // limn's edit bar on a touch screen
+        }
+        let row = |entry: &ContextMenuEntry| if matches!(entry, ContextMenuEntry::Separator) { 9.0 } else { 32.0 };
+        let rows = view.entries.iter().enumerate().map(|(index, entry)| match entry {
+            ContextMenuEntry::Item(item) if item.enabled => {
+                Element::clickable(ContextMenuView::row_id(index), Element::text(&item.label))
+                    .action_menu_item()
+                    .hover_background(Color::rgb(60, 60, 72))
+                    .pressed_background(Color::rgb(80, 80, 96))
+                    .size(Some(view.width), Some(row(entry)))
+            }
+            ContextMenuEntry::Item(item) => Element::text(&item.label).size(Some(view.width), Some(row(entry))),
+            ContextMenuEntry::Separator => Element::spacer().size(Some(view.width), Some(row(entry))),
+        });
+        let height = view.entries.iter().map(row).sum::<f32>().min(view.max_height);
+        let menu = Element::scroll(ContextMenuView::scroll_id(), Element::column(rows.collect()))
+            .background(Color::rgb(30, 30, 36))
+            .size(Some(view.width), Some(height));
+        (menu, Size::new(view.width, height))
+    })
+}
+
+tree.set_context_menu_view(Some(plain_menu()));
+```
+
+The tree keeps the rest: it opens the menu, places it inside the window,
+lights its active row, moves that row with the pointer and the keyboard,
+scrolls it, runs its shortcuts and closes it. It knows the menu's parts by
+their IDs, so a view owes it this:
+
+- Entry `i` of `view.entries`, separators counted, is row `i`. An enabled
+  entry is one `Element::clickable` with the ID `ContextMenuView::row_id(i)`,
+  with `action_menu_item()`. The row shows it is lit, under the pointer or as
+  the keyboard's row, with its `hover_background`, and pressed with its
+  `pressed_background`.
+- A disabled entry and a separator take no pointer. The tree never chooses
+  them, but it would light one under the pointer that had a row's ID.
+- Rows that do not fit in `view.max_height` scroll in one scroll area with the
+  ID `ContextMenuView::scroll_id()`. The tree starts it at its top each time
+  the menu opens and lets its rail be dragged; under another ID a press on the
+  rail closes the menu.
+- A press on no row and not on that rail closes the menu, as one outside
+  does, and what was pressed is not told. Only a press where nothing in the
+  menu has a hit region leaves it open; a scroll area has one.
+- The size returned is the element's: the tree places the element in a
+  rectangle of that size, and the wheel there scrolls the menu.
+
+`view.touch` is set for a menu of text on a touch screen
+(`set_touch_text_menu`), which the tree centres on the press, over what was
+held. limn's look for it is the edit bar, as wide as its actions.
+
 ## Keyboard
 
 | Key | Effect |
