@@ -54,6 +54,7 @@ Everything is in [`docs/`](docs/README.md).
 | Receive native file drops or opt into Selection text | [File drops and text: APIs, decisions and lifetimes](docs/file-drop.md) |
 | Add a component | [Contributing a component](docs/contributing.md) |
 | Write a renderer | [Backend contract](docs/backend.md) |
+| Change limn itself | [AGENTS.md](AGENTS.md): the rules, and the pages on how the core is built |
 
 ## Site
 

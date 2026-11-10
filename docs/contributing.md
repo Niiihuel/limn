@@ -176,9 +176,13 @@ field of its own:
 
 - Give the state a type of its own, even a newtype over an `Instant`: the
   store keeps one map per type, by the element's ID.
-- In the layout, `self.states.borrow_mut().touch(id, self.now, init)` finds or
-  makes it and keeps it through this layout. `get` looks at it without keeping
-  it. Drop the borrow before measuring or placing anything else.
+- When placing, `states_mut!(self).touch(id, self.now, init)` finds or makes
+  it and keeps it through this layout. `get` looks at it without keeping it.
+  Drop the borrow before measuring or placing anything else.
+- Measuring changes no state: a measure reads what the last layout left with
+  `self.states.borrow().get(id)` and works out where it stands now, and the
+  placing keeps the same result. The same tree then measures the same way
+  however often a parent asks. Debug builds assert it.
 - What a layout did not touch is forgotten when it ends, and all of it under
   reduced motion. If it animates, add its check to `UiTree::states_animate`.
 
