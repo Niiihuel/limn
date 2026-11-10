@@ -11,7 +11,7 @@ const colors = foundation.id === 'colors';
 const code = colors
   ? `use limn::{Color, Theme};\n\nlet theme = Theme {\n    background: Color::rgb(255, 255, 255),\n    foreground: Color::rgb(24, 26, 31),\n    accent: Color::rgb(9, 105, 218),\n};\nlet palette = theme.palette();`
   : `use limn::{set_tokens, Motion, Radius, Tokens};\n\nset_tokens(Tokens {\n    radius: Radius::DEFAULT.scaled(1.5),\n    motion: Motion::DEFAULT,\n});`;
-// The three inputs of Theme::DARK, from crates/limn/src/theme.rs.
+// The three inputs of Theme::DARK, from crates/limn-components/src/theme.rs.
 const inputs = [
   { name: 'background', value: '#1e1f22', rgb: '30, 31, 34', purpose: 'The window background.' },
   { name: 'foreground', value: '#ffffff', rgb: '255, 255, 255', purpose: 'The source for text and feedback.' },
@@ -39,13 +39,13 @@ const toc = [{ depth: 2, slug: 'preview', text: 'Preview' }, { depth: 2, slug: '
       <div class="color-reference">
         {inputs.map(({ name, value, rgb, purpose }) => <div class="color-role"><span class="color-swatch" style={`--swatch:${value}`} aria-hidden="true"></span><div><code>{name}</code><p>{purpose}</p></div><div class="color-value"><code>{value}</code><span>RGB {rgb}</span></div></div>)}
       </div>
-      <p class="docs-source">Values from <a href={`${REPO}/blob/main/crates/limn/src/theme.rs`}>theme.rs</a>. <code>Theme</code> derives roles; <code>Scheme</code> can store a host's explicit values.</p>
+      <p class="docs-source">Values from <a href={`${REPO}/blob/main/crates/limn-components/src/theme.rs`}>theme.rs</a>. <code>Theme</code> derives roles; <code>Scheme</code> can store a host's explicit values.</p>
     </> : <>
       <div class="radius-reference">
         {radius.map(([name, value, purpose]) => <div><span class="radius-sample" style={`border-radius:${value}px`} aria-hidden="true"></span><code>{name}</code><strong>{value} px</strong><p>{purpose}</p></div>)}
       </div>
       <div class="motion-reference">{motion.map(([name, value, purpose]) => <div><code>{name}</code><strong>{value} ms</strong><span>{purpose}</span></div>)}</div>
-      <p class="docs-source">Logical pixels and milliseconds, from <a href={`${REPO}/blob/main/crates/limn/src/tokens.rs`}>tokens.rs</a>. These tokens apply to the whole process.</p>
+      <p class="docs-source">Logical pixels and milliseconds, from <a href={`${REPO}/blob/main/crates/limn-core/src/tokens.rs`}>tokens.rs</a>. These tokens apply to the whole process.</p>
     </>}
   </section>
   <div class="legacy-anchors" aria-hidden="true"><span id="import"></span><span id="usage"></span>{colors ? <><span id="palettes"></span><span id="an-action-on-a-color-of-its-own"></span></> : <span id="reading-the-tokens"></span>}</div>

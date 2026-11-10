@@ -110,7 +110,7 @@ for width in [180.0, 360.0, 900.0] {
 ## Running the tests
 
 ```sh
-cargo test -p limn -p limn-egui -p limn-gallery
+cargo test -p limn -p limn-core -p limn-components -p limn-egui -p limn-gallery
 ```
 
 The gallery's tests lay out every page in both themes at three widths and fail

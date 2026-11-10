@@ -29,7 +29,7 @@ jobs:
       - run: cargo clippy -p limn-gallery --all-targets --features hot -- -D warnings
       - run: cargo test --workspace
       # Without grammars, as the browser build is: code views fall back to the line lexer.
-      - run: cargo test -p limn --no-default-features
+      - run: cargo test -p limn -p limn-core -p limn-components --no-default-features
       - run: cargo doc --workspace --no-deps
         env:
           RUSTDOCFLAGS: -D warnings

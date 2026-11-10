@@ -1,6 +1,6 @@
 ---
 name: core
-description: Changes limn's engine: the tree, layout, events and retained state in crates/limn/src/tree.rs, element.rs, state_store.rs and the *_tree.rs modules. Use when a task changes how elements are measured, placed, hit, focused, animated or remembered, or when a component needs something the layout does not offer yet.
+description: Changes limn's engine: the tree, layout, events and retained state in crates/limn-core/src/tree.rs, element.rs, state_store.rs and the *_tree.rs modules. Use when a task changes how elements are measured, placed, hit, focused, animated or remembered, or when a component needs something the layout does not offer yet.
 ---
 
 # Core
@@ -55,7 +55,7 @@ every frame of every application, and read by every later change.
 ## Before finishing
 
 - [ ] The suite passes in a debug build, where `states_mut!` asserts.
-- [ ] `cargo test -p limn --no-default-features` passes.
+- [ ] `cargo test -p limn -p limn-core -p limn-components --no-default-features` passes.
 - [ ] `tree.rs` is not longer than it was, or the pull request says why.
 - [ ] `Element` is within its size budget.
 - [ ] No new field on `UiTree` holds state for one element.
