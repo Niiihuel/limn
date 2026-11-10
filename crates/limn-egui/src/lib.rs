@@ -16,6 +16,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
 use std::io::Cursor;
 
+mod egui_faces;
 mod glass;
 pub use glass::GlassRenderer;
 mod glyph_atlas;
@@ -2948,22 +2949,28 @@ pub fn install_fonts(ctx: &egui::Context) {
 /// The bundled font families and their Unicode fallbacks. Hosts can prepend
 /// system faces before installing these definitions with `Context::set_fonts`.
 /// The UI faces are those in force: a host that gave limn its own with
-/// `limn::set_fonts` first paints and measures in what limn lays out in.
+/// `limn::set_fonts` first paints and measures in what limn lays out in, at
+/// the instance each names. Faces [`attach_fonts`] gave limn's layout from
+/// egui's are not among them: egui has them already.
 pub fn font_definitions() -> egui::FontDefinitions {
-    definitions_with(&limn::fonts())
+    definitions_with(&egui_faces::given())
+}
+
+/// `font` as egui keeps a face: the same bytes, kept where they are
+/// compiled, at the instance the font names.
+fn font_data(font: &limn::Font) -> egui::FontData {
+    let data = match font.static_bytes() {
+        Some(bytes) => egui::FontData::from_static(bytes),
+        None => egui::FontData::from_owned(font.bytes().to_vec()),
+    };
+    let coords = egui::epaint::text::VariationCoords::new(font.variations().iter().copied());
+    egui::FontData { index: font.index(), tweak: egui::FontTweak { coords, ..Default::default() }, ..data }
 }
 
 /// [`font_definitions`] with `current` as the faces in force.
 fn definitions_with(current: &limn::Fonts) -> egui::FontDefinitions {
     let bundled = limn::Fonts::bundled();
-    // The same bytes limn lays text out in, kept where they are compiled.
-    let data = |font: &limn::Font| -> std::sync::Arc<egui::FontData> {
-        match font.static_bytes() {
-            Some(bytes) => egui::FontData::from_static(bytes),
-            None => egui::FontData::from_owned(font.bytes().to_vec()),
-        }
-        .into()
-    };
+    let data = |font: &limn::Font| -> std::sync::Arc<egui::FontData> { font_data(font).into() };
     let face = |family| bundled.face_of(family).expect("limn bundles a face for it");
     // A weight the host gave no face of its own is its regular one, as limn lays it out.
     let ui_face = |family| current.face_of(family).or(current.face_of(FontFamily::Sans)).unwrap_or_else(|| face(family));
@@ -3039,8 +3046,7 @@ fn add_faces(definitions: &mut egui::FontDefinitions, current: &limn::Fonts) {
             continue;
         };
         let name = custom_family(id);
-        let data = egui::FontData { index: font.index(), ..egui::FontData::from_owned(font.bytes().to_vec()) };
-        definitions.font_data.insert(name.clone(), data.into());
+        definitions.font_data.insert(name.clone(), font_data(font).into());
         let chain = std::iter::once(name.clone()).chain(behind.iter().filter(|face| **face != name).cloned()).collect();
         definitions.families.insert(egui::FontFamily::Name(name.into()), chain);
     }
@@ -3062,8 +3068,9 @@ fn add_faces(definitions: &mut egui::FontDefinitions, current: &limn::Fonts) {
 /// rather than one every frame.
 pub fn install_face(ctx: &egui::Context, id: u16, bytes: impl Into<std::sync::Arc<[u8]>>) -> Result<(), limn::FontError> {
     let font = limn::Font::new(bytes)?;
-    limn::set_fonts(limn::fonts().face(FontFamily::Custom(id), font));
     let mut definitions = ctx.fonts(|fonts| fonts.definitions().clone());
+    // Beside what limn was given; the faces it took from egui's stay.
+    egui_faces::attach(egui_faces::given().face(FontFamily::Custom(id), font), &definitions);
     add_installed_faces(&mut definitions);
     ctx.set_fonts(definitions);
     ctx.request_repaint();
@@ -3078,7 +3085,11 @@ const DISPLAY: &str = "limn-display";
 
 /// Faces of the host's choice for interface text, in place of the bundled
 /// Ubuntu: a font the person picked from the system's, say. A weight left
-/// out is drawn with the regular face.
+/// out is drawn with the regular face. A face may be one instance of a
+/// variable font, named by its `FontTweak::coords`: one file can give every
+/// weight. Through [`attach_fonts`], limn's own layout lays text out in the
+/// same faces, at the same instances, with the same fallbacks between
+/// weights.
 pub struct UiFaces {
     /// The face of [`FontFamily::Sans`] and [`FontFamily::SansItalic`].
     pub regular: egui::FontData,
@@ -3096,8 +3107,9 @@ pub struct UiFaces {
 /// [`font_definitions`] with `faces` first in each interface family, so the
 /// bundled faces and every fallback behind them still draw what `faces`
 /// lacks. Monospace text keeps its own face. Install the result with
-/// `Context::set_fonts`, then call [`attach_fonts`] again so the tree
-/// measures with it.
+/// `Context::set_fonts`, then call [`attach_fonts`] again once egui has it:
+/// the tree measures with it, and limn's own layout lays text out in the
+/// same faces from then on. Building the definitions changes nothing.
 pub fn font_definitions_with(faces: UiFaces) -> egui::FontDefinitions {
     let mut fonts = font_definitions();
     let regular = "limn-ui-regular".to_owned();
@@ -3227,9 +3239,24 @@ fn egui_family(ctx: &egui::Context, family: FontFamily) -> egui::FontFamily {
 
 /// Make a tree measure text with the fonts egui paints with, and lay
 /// `Element::text` out in limn's own text layout, drawn from this backend's
-/// glyph atlas (see `UiTree::set_text_layout`). Call once per tree, and again
-/// after changing the context's fonts.
+/// glyph atlas (see `UiTree::set_text_layout`), in those fonts too.
+///
+/// limn's layout takes from egui's fonts the faces of the host's own: the
+/// first face of each interface family (regular, medium, semibold and bold)
+/// where it is not limn's, as [`font_definitions_with`] puts a host's
+/// [`UiFaces`] or a host puts a face first in `Proportional` itself, at the
+/// instance its `FontTweak::coords` name (nothing else of the tweak), with
+/// the face limn had for `Sans` tried first behind them, as egui keeps it;
+/// and the faces egui tries after limn's emoji face, as last resorts
+/// (`limn::Fonts::last_resort`). They go to `limn::set_fonts`, for the whole
+/// process, sharing egui's bytes, and are taken away once egui's fonts no
+/// longer have them. A host without faces of its own sees no change.
+///
+/// Call once per tree, and again after changing the context's fonts, once
+/// egui has them: right after `Context::set_fonts` if no text was laid out
+/// in the frame yet, or in the next frame.
 pub fn attach_fonts(tree: &mut limn::UiTree, ctx: &egui::Context) {
+    egui_faces::attach(egui_faces::given(), &ctx.fonts(|fonts| fonts.definitions().clone()));
     tree.set_text_layout(true);
     let mono = egui::FontId::monospace(14.0);
     let sans = egui::FontId::proportional(14.0);

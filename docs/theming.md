@@ -141,7 +141,8 @@ The faces limn lays text out in are `limn::fonts()`, one set for the whole
 process; `limn::set_fonts` replaces them, and a backend draws glyphs from the
 same bytes. See [TextLayout](components/text-layout.md#fonts). The rest of
 this section is about the faces egui lays its own text out in, which limn's
-components still use.
+components still use, and which `attach_fonts` hands on to limn's layout
+where they are the host's own.
 
 `limn_egui::install_fonts(&ctx)` gives egui limn's own faces, the same bytes
 limn lays text out in and in the same order: Ubuntu Regular, Medium and Bold
@@ -194,7 +195,14 @@ fall back to `regular` when left out; `semibold` falls back to `bold`, then
 stays behind the chosen ones, so what the family lacks still draws. limn
 reads no file itself: the host loads the bytes, off its interface's
 thread, and installs the result with `Context::set_fonts`, then calls
-`attach_fonts` again so the tree measures with it.
+`attach_fonts` again once egui has it (at once if no text was laid out in
+the frame yet, else in the next frame). The tree then measures with it,
+and limn's own layout, in which `Element::text`, formatted text and text
+fields are set, lays text out in the same faces: `attach_fonts` gives them
+to `limn::fonts()`, sharing egui's bytes, with the same fallbacks between
+weights and limn's own `Sans` face tried first behind them. Nothing is
+handed over twice. Once egui's fonts no longer have them, the next
+`attach_fonts` gives limn its own faces back.
 
 ```rust
 let faces = limn_egui::UiFaces {
@@ -206,6 +214,39 @@ let faces = limn_egui::UiFaces {
 ctx.set_fonts(limn_egui::font_definitions_with(faces));
 limn_egui::attach_fonts(&mut tree, &ctx);
 ```
+
+One variable font can give every weight: each face is the same bytes at
+the instance its `FontTweak::coords` name, and limn lays text out, measures
+and draws it at that instance too. Nothing else of a `FontTweak` reaches
+limn's layout.
+
+```rust
+let file: std::sync::Arc<dyn AsRef<[u8]> + Send + Sync> = std::sync::Arc::new(variable_bytes);
+let at = |wght: f32| egui::FontData {
+    tweak: egui::FontTweak {
+        coords: egui::epaint::text::VariationCoords::new([(b"wght", wght)]),
+        ..Default::default()
+    },
+    ..egui::FontData::from_blob(file.clone(), 0)
+};
+let faces = limn_egui::UiFaces {
+    regular: at(360.0),
+    medium: Some(at(440.0)),
+    semibold: Some(at(560.0)),
+    bold: Some(at(670.0)),
+};
+```
+
+A face a host puts after limn's emoji face in egui's `Proportional` family, as one found
+on the system for a character none of the others draws, is also handed on:
+to limn's layout as a last resort (`Fonts::last_resort`), tried after its
+emoji face in every family, so it draws only what no other face has. Text
+limn lays out is painted as `DrawCommand::Glyphs`, not `DrawCommand::Text`:
+a host that looks for characters to find a face for reads the `text` of
+each `GlyphRun` too, where a glyph whose `id` is 0 is a character the faces lack. A
+host that also gives limn faces with `limn::set_fonts` does so before
+`attach_fonts` takes any from egui; given after, the faces taken from egui
+are kept with them even once egui's fonts lose them.
 
 ### A face given at run time
 

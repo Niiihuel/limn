@@ -10,10 +10,11 @@ use std::ops::Range;
 use std::sync::{Arc, OnceLock};
 
 use parley::fontique::{Collection, CollectionOptions, FontInfoOverride, SourceCache};
+use parley::setting::{FontVariation, Tag};
 use parley::{
     Affinity, Alignment, AlignmentOptions, BoundingBox, Cursor, FontContext, FontFamilyName, FontStyle,
-    FontWeight, InlineBox, InlineBoxKind, LayoutContext, LineHeight, OverflowWrap, PositionedLayoutItem,
-    Selection, StyleProperty, TextWrapMode, VerticalAlign, YieldData,
+    FontVariations, FontWeight, InlineBox, InlineBoxKind, LayoutContext, LineHeight, OverflowWrap,
+    PositionedLayoutItem, Selection, StyleProperty, TextWrapMode, VerticalAlign, YieldData,
 };
 use unicode_segmentation::UnicodeSegmentation;
 
@@ -110,8 +111,11 @@ pub struct GlyphRun {
     pub font: Font,
     /// The font size in logical pixels.
     pub size: f32,
-    /// The instance of a variable font, as normalized coordinates in 2.14
-    /// fixed point, one for each axis; empty for a static font.
+    /// The instance of a variable font the glyphs were shaped at and are
+    /// drawn at, as normalized coordinates in 2.14 fixed point, one for each
+    /// axis; empty for a static font and for a variable one at its default
+    /// instance. These, not the [`Font::variations`] of `font`, say the
+    /// instance: two instances of one file share their bytes.
     pub coords: Arc<[i16]>,
     /// Thicken the outlines: a bold the face has no weight for.
     pub embolden: bool,
@@ -769,16 +773,30 @@ fn custom_name(id: u16) -> String {
     format!("limn-face-{id}")
 }
 
-/// For each family, the faces tried in order.
+/// The faces a family tries in order, and the instance of a variable font
+/// the first of them given is set at: whichever face draws a character is
+/// set at it, so a weight carries over to a variable fallback.
+struct Stack {
+    names: Vec<FontFamilyName<'static>>,
+    variations: Vec<FontVariation>,
+}
+
+/// For each family, its stack.
 struct Stacks {
-    builtin: [Vec<FontFamilyName<'static>>; FAMILIES.len()],
+    builtin: [Stack; FAMILIES.len()],
     /// Each custom family the fonts give a face: that face, then `Sans`'s.
-    custom: HashMap<u16, Vec<FontFamilyName<'static>>>,
+    custom: HashMap<u16, Stack>,
+}
+
+impl Stack {
+    fn instance(&self) -> StyleProperty<'_, Brush> {
+        StyleProperty::FontVariations(FontVariations::List(Cow::Borrowed(&self.variations)))
+    }
 }
 
 impl Stacks {
     /// A custom family without a face of its own is `Sans`.
-    fn of(&self, family: FontFamily) -> &[FontFamilyName<'static>] {
+    fn of(&self, family: FontFamily) -> &Stack {
         match family {
             FontFamily::Custom(id) => self.custom.get(&id).unwrap_or(&self.builtin[slot(family)]),
             _ => &self.builtin[slot(family)],
@@ -834,6 +852,8 @@ impl System {
         let given = fonts::current();
         // Only the given faces: text is laid out alike on every machine.
         let mut collection = Collection::new(CollectionOptions { shared: false, system_fonts: false });
+        // The instance of each face registered, by the name it goes by.
+        let mut instances: HashMap<String, Vec<FontVariation>> = HashMap::new();
         let mut register = |font: &Font, name: &str, weight: Option<f32>, style: Option<FontStyle>| {
             let data = font.data();
             let only = FontInfoOverride {
@@ -843,6 +863,8 @@ impl System {
                 ..FontInfoOverride::default()
             };
             collection.register_fonts(data.data.clone(), Some(only));
+            let instance = font.variations().iter().map(|(tag, value)| FontVariation::new(Tag::from_bytes(*tag), *value));
+            instances.insert(name.to_owned(), instance.collect());
         };
         for (family, name, weight, style) in FAMILIES {
             if let Some(font) = given.face_of(family) {
@@ -855,6 +877,10 @@ impl System {
         }
         if let Some(font) = given.emoji_face() {
             register(font, "limn-emoji", None, None);
+        }
+        let last: Vec<String> = (0..given.last_resorts().len()).map(|index| format!("limn-last-{index}")).collect();
+        for (font, name) in given.last_resorts().iter().zip(&last) {
+            register(font, name, None, None);
         }
         let custom: Vec<u16> = given
             .faces()
@@ -895,15 +921,24 @@ impl System {
                     names.push(named("limn-mono"));
                 }
             }
-            // Last, so it never takes a symbol a text face has.
+            // After the text faces, so it never takes a symbol one has; then what nothing else draws.
             names.push(named("limn-emoji"));
+            names.extend(last.iter().map(|name| named(name)));
             names
         };
-        let builtin = FAMILIES.map(|(family, ..)| stack(family));
+        // The instance of the first face given among `names`.
+        let set = |names: Vec<FontFamilyName<'static>>| {
+            let first = names.iter().find_map(|name| match name {
+                FontFamilyName::Named(name) => instances.get(name.as_ref()),
+                _ => None,
+            });
+            Stack { variations: first.cloned().unwrap_or_default(), names }
+        };
+        let builtin = FAMILIES.map(|(family, ..)| set(stack(family)));
         // A custom face first, then everything `Sans` tries, emoji last.
         let custom = custom
             .into_iter()
-            .map(|id| (id, std::iter::once(named(&custom_name(id))).chain(builtin[slot(FontFamily::Sans)].iter().cloned()).collect()))
+            .map(|id| (id, set(std::iter::once(named(&custom_name(id))).chain(builtin[slot(FontFamily::Sans)].names.iter().cloned()).collect())))
             .collect();
         Self {
             generation,
@@ -952,9 +987,11 @@ impl System {
             .map_or((style.size, style.family), |span| (span.size, span.family));
         let (_, _, weight, slant) = FAMILIES[slot(family)];
         let mut builder = self.layouts.ranged_builder(&mut self.fonts, text, 1.0, false);
-        builder.push_default(StyleProperty::FontFamily(parley::FontFamily::List(Cow::Borrowed(
-            self.stacks.of(family),
-        ))));
+        let paragraph = self.stacks.of(family);
+        builder.push_default(StyleProperty::FontFamily(parley::FontFamily::List(Cow::Borrowed(&paragraph.names))));
+        if !paragraph.variations.is_empty() {
+            builder.push_default(paragraph.instance());
+        }
         builder.push_default(StyleProperty::FontSize(size));
         builder.push_default(StyleProperty::FontWeight(FontWeight::new(weight)));
         builder.push_default(StyleProperty::FontStyle(slant));
@@ -967,10 +1004,12 @@ impl System {
         for (index, span) in spans.iter().enumerate() {
             let range = span.range.clone();
             let (_, _, weight, slant) = FAMILIES[slot(span.family)];
-            builder.push(
-                StyleProperty::FontFamily(parley::FontFamily::List(Cow::Borrowed(self.stacks.of(span.family)))),
-                range.clone(),
-            );
+            let stack = self.stacks.of(span.family);
+            builder.push(StyleProperty::FontFamily(parley::FontFamily::List(Cow::Borrowed(&stack.names))), range.clone());
+            // A span in a static family drops the paragraph's instance.
+            if !stack.variations.is_empty() || !paragraph.variations.is_empty() {
+                builder.push(stack.instance(), range.clone());
+            }
             // A picture's text is read and copied, never drawn: it takes no room.
             builder.push(StyleProperty::FontSize(if span.image.is_some() { 0.0 } else { span.size }), range.clone());
             builder.push(StyleProperty::FontWeight(FontWeight::new(weight)), range.clone());

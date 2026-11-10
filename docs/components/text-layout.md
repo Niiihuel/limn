@@ -129,10 +129,14 @@ Ubuntu for `Sans` in regular, medium and bold, Hack for `Monospace`, Noto Sans
 Math and Noto Sans Symbols 2 behind both, and Noto Emoji for emoji. `.face(family,
 font)` replaces a family's face; `.fallback(font)` adds a face tried, in
 order, for characters the families lack; `.emoji(font)` sets the face tried
-last, so it never takes a symbol a text face has. A family without a face of
+after every text face, so it never takes a symbol one has; `.last_resort(font)`
+adds a face tried after the emoji face, for what no other face has: a face
+found on the system for one script, say, which then changes nothing the others
+draw. A family without a face of
 its own takes `Sans`: `SansItalic` slanted and `SansBold` thickened. Behind
 `Sans` come the fallbacks, then `Monospace`, then the emoji face; behind
-`Monospace` come `Sans`, the fallbacks, then the emoji face. `FontFamily::Custom(id)`
+`Monospace` come `Sans`, the fallbacks, then the emoji face; the last resorts
+come after the emoji face in every family. `FontFamily::Custom(id)`
 takes the face given for it, at the face's own weight and slant, with what
 `Sans` tries behind it, and is `Sans` until one is given:
 `Fonts::face(FontFamily::Custom(id), font)`, or `limn_egui::install_face`, which
@@ -140,13 +144,34 @@ gives egui the face too. `Fonts::faces()` lists the families given a face. Only 
 out alike on every machine and in a browser.
 
 `Font::new(bytes)` refuses bytes that hold no face; `Font::from_static` keeps a
-face compiled into the program, which a backend can then use without copying.
+face compiled into the program, which a backend can then use without copying,
+and `Font::from_shared(bytes, index)` shares bytes another owner keeps, as
+`limn_egui::attach_fonts` shares egui's.
+
+A variable font is laid out at the instance its `Font` names, so one file can
+be several weights:
+
+```rust
+let file = limn::Font::new(std::fs::read("Mada-Variable.ttf")?)?;
+let regular = file.clone().with_variations([(*b"wght", 360.0)]);
+let bold = file.with_variations([(*b"wght", 670.0)]);
+limn::set_fonts(limn::Fonts::bundled().face(FontFamily::Sans, regular).face(FontFamily::SansBold, bold));
+```
+
+Each axis is its four-letter tag and a value in the axis' own units. A value
+past the axis' range is its end; an axis the face lacks, and every axis of a
+static face, is ignored. A family is shaped, measured and drawn at the
+instance of the first face it is given (`SansItalic` at `Sans`'s), and a
+character it takes from another variable face, such as Noto Emoji, is set at
+that instance too. A variable face with no instance named is drawn at its
+family's weight, as CSS draws one.
 
 ## Drawing the glyphs
 
-A backend draws each `GlyphRun` from `run.font.bytes()` at `run.size`, glyph
-by glyph where the run places it, slanting the outlines by `run.skew` degrees
-and thickening them when `run.embolden` asks. `run.text` is the text the run
+A backend draws each `GlyphRun` from `run.font.bytes()` at `run.size`, at the
+instance `run.coords` gives (normalized, one for each axis; empty at a face's
+default), glyph by glyph where the run places it, slanting the outlines by
+`run.skew` degrees and thickening them when `run.embolden` asks. `run.text` is the text the run
 shows, for tests and tools. `limn-egui` draws them from an atlas of its own,
 rasterized as egui rasterizes its own text, so both look alike.
 
@@ -158,5 +183,15 @@ rasterized as egui rasterizes its own text, so both look alike.
   one is the host's.
 - The bundled faces have no Arabic, Hebrew or CJK glyphs: such text is laid
   out in its own direction and broken by its own rules, but drawn with each
-  face's missing-glyph mark until a face that has it is given.
+  face's missing-glyph mark until a face that has it is given. A character no
+  face given has is glyph 0 of its run, the first face's mark; the run's
+  `text` still holds it, for a host that finds a face for it and gives it as
+  a last resort.
+- Of a font collection, every face of the file is registered under the family
+  it is given for, so text may be laid out in another face of the same file
+  than `Font::in_collection` named. Read from how fontique registers a file,
+  not tested.
+- `limn_egui::attach_fonts` takes from egui's fonts only the first face of
+  each interface family and the faces after limn's emoji face: one a host
+  puts elsewhere in a chain, or first in `Monospace`, stays egui's alone.
 - Tabs take the width of a space.

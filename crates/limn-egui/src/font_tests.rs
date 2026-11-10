@@ -56,6 +56,21 @@ fn a_hosts_ui_face_is_what_egui_measures_and_its_missing_weights_take_it() {
 }
 
 #[test]
+fn a_face_limn_lays_out_at_an_instance_is_given_to_egui_at_it() {
+    let emoji = limn::Fonts::bundled().emoji_face().unwrap().clone();
+    let light = emoji.clone().with_variations([(*b"wght", 300.0)]);
+    let current = limn::Fonts::new().face(FontFamily::Sans, light.clone()).face(FontFamily::Custom(9), light);
+    let definitions = definitions_with(&current);
+    let custom = custom_family(9);
+    for name in ["Sans-Regular", "Sans-Bold", custom.as_str()] {
+        let data = &definitions.font_data[name];
+        assert_eq!(data.tweak.coords, egui::epaint::text::VariationCoords::new([(*b"wght", 300.0)]), "{name}");
+        assert_eq!(data.bytes().as_ptr(), emoji.bytes().as_ptr(), "{name} is kept where it is compiled");
+    }
+    assert_eq!(definitions.font_data["NotoEmoji"].tweak.coords, Default::default(), "the bundled one is as it was");
+}
+
+#[test]
 fn chosen_faces_lead_each_interface_family_and_keep_their_fallbacks() {
     let bundled = font_definitions();
     let face = |name: &str| (*bundled.font_data[name]).clone();

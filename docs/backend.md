@@ -22,7 +22,9 @@ Call `tree.set_text_layout(true)` once the backend draws `DrawCommand::Glyphs`:
 every `Element::text` is then laid out by limn itself, in the faces of
 `limn::fonts()`, and drawn as glyph runs, so it needs no measuring. Other text
 is still measured as below until it moves too. `limn_egui::attach_fonts` turns
-it on.
+it on, and gives `limn::fonts()` the faces of the host's own in egui's fonts,
+so both paths draw in the same faces. A backend draws each run at the instance
+`GlyphRun::coords` gives: a variable face may be several weights of one file.
 
 Layout depends on text widths, so the tree must measure with the same fonts
 the backend paints with. Register them once, and again if the fonts change:
@@ -192,10 +194,10 @@ The egui backend exposes:
 | Function | Purpose |
 | --- | --- |
 | `install_fonts(&ctx)` | Installs the UI font. Once, at window creation. |
-| `font_definitions_with(UiFaces)` | The bundled fonts with the host's faces first for interface text, to install with `Context::set_fonts`. See [A font of the person's choice](theming.md#a-font-of-the-persons-choice). |
+| `font_definitions_with(UiFaces)` | The bundled fonts with the host's faces first for interface text, to install with `Context::set_fonts`; `attach_fonts` then gives limn's layout the same faces. See [A font of the person's choice](theming.md#a-font-of-the-persons-choice). |
 | `install_face(&ctx, id, bytes)` | Lays `FontFamily::Custom(id)` out and paints it in a TrueType or OpenType face the host loaded at run time, in limn's layout and egui's. See [A face given at run time](theming.md#a-face-given-at-run-time). |
 | `add_installed_faces(&mut definitions)` | Gives fonts a host builds itself the families of the faces `install_face` installed, before `Context::set_fonts`. |
-| `attach_fonts(&mut tree, &ctx)` | Makes a tree measure with egui's fonts. Once per tree. |
+| `attach_fonts(&mut tree, &ctx)` | Makes a tree measure with egui's fonts, turns on limn's text layout, and gives it the faces of the host's own in those fonts: the first of each interface family and those after limn's emoji face. Once per tree, and again once egui has new fonts. |
 | `normalize_keyboard_input(&ctx)` | Fixes key and text events on remapped layouts. Each frame, before `events`. |
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |
 | `events_indexed(&ctx, origin)` | Unreleased indexed-input contract: input with its source index for an ordered host loop. See below. |
