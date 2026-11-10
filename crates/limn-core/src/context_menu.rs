@@ -5,16 +5,24 @@
 use crate::action_style::{
     self, GAP, HORIZONTAL_PADDING, SCROLLBAR_GUTTER, SEPARATOR_HEIGHT,
 };
-use crate::{Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Kbd, Role, ScrollArea};
+use crate::{Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Kbd, Role, ScrollArea, Size};
+use std::sync::Arc;
 
 /// One action in a [`ContextMenu`]: a label with an optional icon and shortcut.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ContextMenuItem {
-    pub(crate) action_id: String,
-    pub(crate) label: String,
-    pub(crate) shortcut: Option<String>,
-    pub(crate) icon: Option<Icon>,
-    pub(crate) enabled: bool,
+    /// What the host receives when it is chosen. The tree's own menus of text use `cut`,
+    /// `copy`, `paste`, `select` and `select_all`.
+    pub action_id: String,
+    /// Its name, for the row and for the platform.
+    pub label: String,
+    /// Its keys, as `Ctrl+Shift+Z`: pressed while the menu is open, they choose it.
+    pub shortcut: Option<String>,
+    /// Its leading icon.
+    pub icon: Option<Icon>,
+    /// Whether it can be chosen. A disabled item stays in the menu, known to the platform as
+    /// disabled.
+    pub enabled: bool,
 }
 
 impl ContextMenuItem {
@@ -67,6 +75,7 @@ pub(crate) struct ContextMenuDefinition {
     pub entries: Vec<ContextMenuEntry>,
     pub palette: ComponentPalette,
     pub open_action: Option<String>,
+    pub view: Option<ContextMenuViewFn>,
 }
 
 /// Attach a contextual menu without adding layout, a primary-click target,
@@ -92,8 +101,17 @@ impl ContextMenu {
                 entries,
                 palette,
                 open_action: None,
+                view: None,
             },
         }
+    }
+
+    /// Draw this menu with `view` rather than limn's look, or the tree's
+    /// (`UiTree::set_context_menu_view`). The tree still opens, places, drives and dismisses
+    /// it; [`ContextMenuView`] says what the drawing owes it.
+    pub fn view(mut self, view: ContextMenuViewFn) -> Self {
+        self.definition.view = Some(view);
+        self
     }
 
     /// Request a host-controlled surface instead of opening the built-in menu.
@@ -109,6 +127,129 @@ impl Component for ContextMenu {
     fn render(mut self) -> Element {
         self.child.context_menu = Some(Box::new(self.definition));
         self.child
+    }
+}
+
+/// What a context menu is drawn from: its entries, and the room and measures the tree gives
+/// it. A [`ContextMenuViewFn`] turns it into the menu's element. The tree keeps the rest: it
+/// opens the menu, places it in the window, lights its active row, moves that row with the
+/// pointer and the keyboard, scrolls it, runs its shortcuts and dismisses it.
+///
+/// The tree knows the menu's parts by their IDs, so a view owes it this:
+///
+/// - Entry `i` of `entries`, separators counted, is row `i`. An enabled entry is one
+///   [`Element::clickable`] with the ID [`ContextMenuView::row_id`]`(i)`, opted into menu
+///   focus with [`Element::action_menu_item`]. The tree reports a click on it as the entry's
+///   action, lights it under the pointer or as the keyboard's row, and Enter or Space
+///   chooses it. The row shows it is lit with its own [`Element::hover_background`], and
+///   pressed with its [`Element::pressed_background`].
+/// - A disabled entry and a separator take no pointer. The tree never chooses them, but it
+///   would light one under the pointer that took it with a row's ID.
+/// - Rows that do not fit in `max_height` scroll in one scroll area ([`Element::scroll`] or
+///   [`ScrollArea`]) with the ID [`ContextMenuView::scroll_id`]. The tree starts it at its
+///   top each time the menu opens, and lets its rail be dragged; under another ID, a press on
+///   the rail closes the menu.
+/// - A press on no row and not on that rail closes the menu, as one outside does, and what
+///   was pressed is not told. Only a press where nothing in the menu has a hit region leaves
+///   it open. A scroll area has one, so in limn's look a press on a separator or a disabled
+///   row closes the menu.
+/// - The size returned is the element's: the tree places the element in a rectangle of that
+///   size, and the wheel in that rectangle scrolls the menu.
+pub struct ContextMenuView<'a> {
+    /// The menu's rows, in order.
+    pub entries: &'a [ContextMenuEntry],
+    /// The menu's colors: those given to [`ContextMenu::new`], or for a menu of text the
+    /// tree's, from [`UiTree::set_context_menu_palette`](crate::UiTree::set_context_menu_palette).
+    pub palette: ComponentPalette,
+    /// The width of a pointer's menu, in logical pixels: the host's sizing, else 352, and at
+    /// most the window's width less 16. limn's touch bar takes the width its actions need.
+    pub width: f32,
+    /// The tallest the menu may be, in logical pixels: the window's height less 16. Rows that
+    /// would make it taller scroll.
+    pub max_height: f32,
+    /// The width of one line of text in the sans face at a font size, both in logical pixels:
+    /// the host's measurer, from [`UiTree::set_text_measurer`](crate::UiTree::set_text_measurer),
+    /// else limn's estimate.
+    pub measure: &'a dyn Fn(&str, f32) -> f32,
+    /// The height of one line of a label at `label_size`, in logical pixels.
+    pub line_height: f32,
+    /// The least height of a row, in logical pixels. This and the measures after it are
+    /// limn's own, or the host's from
+    /// [`UiTree::set_context_menu_sizing`](crate::UiTree::set_context_menu_sizing).
+    pub row_height: f32,
+    /// The font size of a row's label, in logical pixels.
+    pub label_size: f32,
+    /// The width of the slot kept for a row's icon, in logical pixels.
+    pub icon_size: f32,
+    /// The space between a row's edge and its content, in logical pixels.
+    pub padding: f32,
+    /// The space between a row's icon, its label and its shortcut, in logical pixels.
+    pub gap: f32,
+    /// The width the rows give up to the scrollbar while the menu scrolls, in logical pixels.
+    pub scrollbar_gutter: f32,
+    /// `Some` for a menu of text on a touch screen, with the glass of
+    /// [`UiTree::set_touch_text_menu`](crate::UiTree::set_touch_text_menu): the tree centres
+    /// it on the press, over what was held or under it. `None` for a pointer's menu, which the
+    /// tree places at the press, and always for a menu given with [`ContextMenu`].
+    pub touch: Option<crate::GlassMaterial>,
+}
+
+impl ContextMenuView<'_> {
+    /// The ID row `index` must have, separators counted. It names the row in the frame's hit
+    /// regions and accessibility nodes; the host's actions carry the entry's own ID instead.
+    pub fn row_id(index: usize) -> String {
+        row_id(index)
+    }
+
+    /// The ID the scroll area that holds the rows must have when they scroll.
+    pub fn scroll_id() -> &'static str {
+        SCROLL_ID
+    }
+
+    /// limn's own look, as the tree draws a menu with no view: rows of an icon, a label and a
+    /// shortcut's keycaps on a raised surface, or iOS's edit bar when `touch` is set. A view
+    /// that only wraps that look calls this.
+    pub fn default_element(&self) -> (Element, Size) {
+        if let Some(material) = self.touch {
+            let (bar, width) = edit_bar(self.entries, self.palette, material, self.measure);
+            return (bar, Size::new(width, EDIT_BAR_HEIGHT));
+        }
+        let sizes = Sizes {
+            width: self.width,
+            row_height: self.row_height,
+            label_size: self.label_size,
+            icon_size: self.icon_size,
+            padding: self.padding,
+            gap: self.gap,
+            gutter: self.scrollbar_gutter,
+        };
+        let (surface, height) = surface(self.entries, self.palette, self.width, self.max_height, self.measure, self.line_height, sizes);
+        (surface, Size::new(self.width, height))
+    }
+}
+
+/// A context menu's drawing: from a [`ContextMenuView`], the menu's element and its size in
+/// logical pixels. One menu takes it from [`ContextMenu::view`]; every other menu, a field's
+/// included, from [`UiTree::set_context_menu_view`](crate::UiTree::set_context_menu_view).
+/// A clone shares the function.
+#[derive(Clone)]
+pub struct ContextMenuViewFn(Arc<dyn Fn(&ContextMenuView<'_>) -> (Element, Size) + Send + Sync>);
+
+impl ContextMenuViewFn {
+    /// `draw`, which the tree calls while the menu is open, once for each pass of a layout:
+    /// more than once a frame when the pass repeats.
+    pub fn new(draw: impl Fn(&ContextMenuView<'_>) -> (Element, Size) + Send + Sync + 'static) -> Self {
+        Self(Arc::new(draw))
+    }
+
+    pub(crate) fn draw(&self, view: &ContextMenuView<'_>) -> (Element, Size) {
+        (self.0)(view)
+    }
+}
+
+impl std::fmt::Debug for ContextMenuViewFn {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("ContextMenuViewFn")
     }
 }
 
@@ -388,8 +529,7 @@ pub(crate) fn edit_bar(
     (bar, width)
 }
 
-#[doc(hidden)]
-pub fn row_id(index: usize) -> String {
+pub(crate) fn row_id(index: usize) -> String {
     format!("__context_menu:item:{index}")
 }
 

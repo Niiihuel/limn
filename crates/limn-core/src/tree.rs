@@ -1903,6 +1903,8 @@ pub struct UiTree {
     edit_menu_on_release: Option<Point>,
     context_menu_palette: crate::ComponentPalette,
     context_menu_sizes: crate::context_menu::Sizes,
+    /// Draws every context menu without a view of its own; see `set_context_menu_view`.
+    context_menu_view: Option<crate::ContextMenuViewFn>,
     /// Text menus drawn as iOS 26's edit menu, in this glass; see `set_touch_text_menu`.
     touch_text_menu: Option<crate::GlassMaterial>,
     context_menu_swallow_release: bool,
@@ -2002,6 +2004,7 @@ impl UiTree {
             touch_text_menu: None,
             edit_menu_on_release: None,
             context_menu_sizes: crate::context_menu::Sizes::default(),
+            context_menu_view: None,
             context_menu_swallow_release: false,
             ime_owner: None,
             field_drag: None,

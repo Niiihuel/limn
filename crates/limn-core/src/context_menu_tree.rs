@@ -1,6 +1,6 @@
 use super::*;
 use crate::context_menu::{self, ContextMenuDefinition};
-use crate::{ComponentPalette, ContextMenuEntry, ContextMenuItem};
+use crate::{ComponentPalette, ContextMenuEntry, ContextMenuItem, ContextMenuView, ContextMenuViewFn};
 
 #[derive(Clone, Debug)]
 pub(super) struct ContextMenuRegion {
@@ -41,7 +41,8 @@ enum Target {
     Input { id: String },
     Editor { id: String, document_id: u64 },
     Text { block: usize, source: String },
-    Custom { id: String },
+    /// A host's menu, with the view it was given.
+    Custom { id: String, view: Option<ContextMenuViewFn> },
 }
 
 pub(super) struct ContextMenuState {
@@ -85,7 +86,7 @@ impl ContextMenuState {
                 .text_blocks
                 .get(*block)
                 .is_some_and(|text| text.source == *source),
-            Target::Custom { id } => frame.context_menu_regions.iter().any(|region| {
+            Target::Custom { id, .. } => frame.context_menu_regions.iter().any(|region| {
                 region.definition.id == *id && region.definition.open_action.is_none()
                     && region.definition.entries == self.entries
             }),
@@ -129,6 +130,15 @@ impl UiTree {
         self.context_menu_sizes = sizing.into();
     }
 
+    /// Draw every context menu with `view`, rather than limn's look: the menus of text, a
+    /// field's, an editor's or a page's, on a pointer or on a touch screen, and a host's menu
+    /// that has no view of its own from `ContextMenu::view`. `None`, the default, draws them
+    /// with limn's. The tree still opens, places, drives and dismisses them; `ContextMenuView`
+    /// says what the drawing owes it.
+    pub fn set_context_menu_view(&mut self, view: Option<ContextMenuViewFn>) {
+        self.context_menu_view = view;
+    }
+
     fn close_context_menu(&mut self, now: Instant) {
         if self.context_menu.is_some() {
             self.invalidate_paste_targets();
@@ -144,23 +154,12 @@ impl UiTree {
         viewport: Rect,
     ) -> Option<(Element, Rect, Option<String>, Option<String>)> {
         let menu = self.context_menu.as_ref()?;
-        if let (Some(material), false) = (self.touch_text_menu, matches!(menu.target, Target::Custom { .. })) {
-            let measure = |text: &str, size: f32| {
-                measured_width(self.text_measurer.as_deref(), text, size, FontFamily::Sans, self.sans_metrics.at_size(size).char_width)
-            };
-            let (bar, width) = context_menu::edit_bar(&menu.entries, menu.palette, material, &measure);
-            let height = context_menu::EDIT_BAR_HEIGHT;
-            let margin = 8.0_f32.min(viewport.width / 2.0);
-            let x = (menu.position.x - width / 2.0).clamp(margin, (viewport.width - width - margin).max(margin));
-            // Over what was held, as iOS's; under it where the screen's top leaves no room.
-            let above = menu.anchor.y - EDIT_BAR_GAP - height;
-            let y = if above >= margin { above } else { (menu.anchor.y + menu.anchor.height + EDIT_BAR_GAP).min(viewport.height - height - margin) };
-            return Some((bar, Rect::new(x, y, width, height), menu.selected.map(context_menu::row_id), menu.pressed.map(context_menu::row_id)));
-        }
+        // A host's menu is a pointer's even on a touch screen, and its own view wins.
+        let (touch, own) = match &menu.target {
+            Target::Custom { view, .. } => (None, view.as_ref()),
+            _ => (self.touch_text_menu, None),
+        };
         let sizes = self.context_menu_sizes;
-        let width = sizes.width.min((viewport.width - 16.0).max(0.0));
-        // As a native menu, it takes the window's height before it scrolls.
-        let max_height = (viewport.height - 16.0).max(0.0);
         let measure = |text: &str, size: f32| {
             measured_width(
                 self.text_measurer.as_deref(),
@@ -170,15 +169,34 @@ impl UiTree {
                 self.sans_metrics.at_size(size).char_width,
             )
         };
-        let (surface, height) = context_menu::surface(
-            &menu.entries,
-            menu.palette,
-            width,
-            max_height,
-            &measure,
-            self.sans_metrics.at_size(sizes.label_size).line_height,
-            sizes,
-        );
+        let view = ContextMenuView {
+            entries: &menu.entries,
+            palette: menu.palette,
+            width: sizes.width.min((viewport.width - 16.0).max(0.0)),
+            // As a native menu, it takes the window's height before it scrolls.
+            max_height: (viewport.height - 16.0).max(0.0),
+            measure: &measure,
+            line_height: self.sans_metrics.at_size(sizes.label_size).line_height,
+            row_height: sizes.row_height,
+            label_size: sizes.label_size,
+            icon_size: sizes.icon_size,
+            padding: sizes.padding,
+            gap: sizes.gap,
+            scrollbar_gutter: sizes.gutter,
+            touch,
+        };
+        let (surface, Size { width, height }) = match own.or(self.context_menu_view.as_ref()) {
+            Some(draw) => draw.draw(&view),
+            None => view.default_element(),
+        };
+        if touch.is_some() {
+            let margin = 8.0_f32.min(viewport.width / 2.0);
+            let x = (menu.position.x - width / 2.0).clamp(margin, (viewport.width - width - margin).max(margin));
+            // Over what was held, as iOS's; under it where the screen's top leaves no room.
+            let above = menu.anchor.y - EDIT_BAR_GAP - height;
+            let y = if above >= margin { above } else { (menu.anchor.y + menu.anchor.height + EDIT_BAR_GAP).min(viewport.height - height - margin) };
+            return Some((surface, Rect::new(x, y, width, height), menu.selected.map(context_menu::row_id), menu.pressed.map(context_menu::row_id)));
+        }
         let margin_x = 8.0_f32.min(viewport.width / 2.0);
         let margin_y = 8.0_f32.min(viewport.height / 2.0);
         let rect = Rect::new(
@@ -271,6 +289,7 @@ impl UiTree {
             (
                 Target::Custom {
                     id: region.definition.id,
+                    view: region.definition.view,
                 },
                 region.definition.entries,
                 region.definition.palette,
@@ -914,3 +933,7 @@ fn text_entries(copy: bool, cut: bool, paste: bool, select_all: bool) -> Vec<Con
 #[cfg(test)]
 #[path = "context_menu_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "context_menu_view_tests.rs"]
+mod view_tests;
