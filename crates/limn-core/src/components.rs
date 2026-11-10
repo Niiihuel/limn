@@ -48,7 +48,7 @@ pub struct Tooltip {
     described: bool,
     options: TooltipOptions,
     background: Option<Color>,
-    content: Option<Element>,
+    content: Option<Box<Element>>,
 }
 
 impl Tooltip {
@@ -275,7 +275,7 @@ impl Tooltip {
     /// nothing more: nothing in it can be clicked, focused or read, so the
     /// title is still what the platform is told.
     pub fn content(mut self, content: Element) -> Self {
-        self.content = Some(content);
+        self.content = Some(Box::new(content));
         self
     }
 }
@@ -326,7 +326,7 @@ impl Component for Tooltip {
             *sections = self.sections;
             *max_width = self.max_width;
             *options = self.options;
-            *content = self.content.map(Box::new);
+            *content = self.content;
         }
         element
     }
@@ -443,9 +443,7 @@ impl TooltipSpec {
         if let Some(width) = self.max_width {
             tooltip = tooltip.max_width(width);
         }
-        if let Some(content) = self.content {
-            tooltip = tooltip.content(*content);
-        }
+        tooltip.content = self.content;
         tooltip.hint()
     }
 }
