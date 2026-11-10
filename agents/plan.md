@@ -101,8 +101,11 @@ itself stable.
 
 Small gaps, each a commit of its own:
 
-- `scroll_to_end` and `scroll_to_index` keep a request for an ID that is
-  never laid out (invariant 5).
+- ~~`scroll_to_end` and `scroll_to_index` keep a request for an ID that is
+  never laid out (invariant 5).~~ Done: a waiting request is kept for the 64
+  IDs asked of most recently. It still outlives a layout that does not place
+  its area, because two of the applications rely on that: a search's results
+  behind their loading state, a conversation behind a pane grown over it.
 - `sheet_detents`, `sheet_frames` and `popover_order` are maps of the tree
   that came with liquid glass, from before R3. They belong in the store.
 - `Frame::duplicate_ids` does not see the rows of a virtual list (invariant 2).

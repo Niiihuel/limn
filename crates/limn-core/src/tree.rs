@@ -16,6 +16,9 @@ mod corner_mask_tree;
 mod plot_tree;
 #[path = "zoom_view_tree.rs"]
 mod zoom_view_tree;
+#[path = "scroll_request_tree.rs"]
+mod scroll_request_tree;
+use scroll_request_tree::ScrollRequests;
 #[cfg(test)]
 #[path = "popover_initial_focus_tests.rs"]
 mod popover_initial_focus_tests;
@@ -1820,8 +1823,8 @@ pub struct UiTree {
     scroll_offsets: HashMap<String, f32>,
     scroll_transitions: HashMap<String, ScalarTransition>,
     scrollbar_states: HashMap<String, ScrollbarState>,
-    scroll_to_end: HashSet<String>,
-    scroll_to_index: HashMap<String, usize>,
+    scroll_to_end: ScrollRequests<()>,
+    scroll_to_index: ScrollRequests<usize>,
     /// What each measured list keeps between layouts, by its ID.
     measured_lists: HashMap<String, MeasuredListState>,
     scroll_drag: Option<ScrollDrag>,
@@ -1950,8 +1953,8 @@ impl UiTree {
             scroll_transitions: HashMap::new(),
             scrollbar_states: HashMap::new(),
             measured_lists: HashMap::new(),
-            scroll_to_end: HashSet::new(),
-            scroll_to_index: HashMap::new(),
+            scroll_to_end: ScrollRequests::default(),
+            scroll_to_index: ScrollRequests::default(),
             scroll_drag: None,
             horizontal_pan: None,
             scroll_button_hold: None,
@@ -2745,6 +2748,9 @@ impl UiTree {
     }
 
     /// Scrolls to the bottom on the next layout, after new content is measured.
+    /// A scroll area or list that layout does not place takes the request
+    /// from the first layout that does, as a list a loading state stands in
+    /// for: such a request is kept among the 64 IDs asked for most recently.
     pub fn scroll_to_end(&mut self, id: &str) {
         self.scroll_transitions.remove(id);
         self.cancel_scroll_hold(id);
@@ -2763,7 +2769,9 @@ impl UiTree {
     }
 
     /// Keeps one fixed-height list row in view on the next layout. The scroll
-    /// position is unchanged if the row is already fully visible.
+    /// position is unchanged if the row is already fully visible. A list
+    /// that layout does not place takes the request from the first layout
+    /// that does, as [`Self::scroll_to_end`] says.
     pub fn scroll_to_index(&mut self, id: &str, index: usize) {
         self.scroll_transitions.remove(id);
         self.cancel_scroll_hold(id);
@@ -6576,8 +6584,8 @@ struct LayoutBuilder<'a> {
     scroll_transitions: &'a mut HashMap<String, ScalarTransition>,
     scrollbar_states: &'a mut HashMap<String, ScrollbarState>,
     measured_lists: &'a mut HashMap<String, MeasuredListState>,
-    scroll_to_end: &'a mut HashSet<String>,
-    scroll_to_index: &'a mut HashMap<String, usize>,
+    scroll_to_end: &'a mut ScrollRequests<()>,
+    scroll_to_index: &'a mut ScrollRequests<usize>,
     hovered_scrollbar: Option<&'a str>,
     dragging_scrollbar: Option<&'a str>,
     dragging_horizontal: Option<&'a str>,

@@ -180,8 +180,11 @@ drop(states);                                     // before measuring or placing
   `closed_submenu_triggers`, and the sheets' `sheet_detents` and
   `sheet_frames` with the popovers' `popover_order`, which are newer than R3
   and belong in the store.
-- `scroll_to_end` and `scroll_to_index` are not swept: a request for an ID
-  that is never laid out stays. See [invariant 5](invariants.md#the-table).
+- `scroll_to_end` and `scroll_to_index` are `ScrollRequests`
+  (`scroll_request_tree.rs`): the layout that places the area takes its
+  request, and one that waits for its area is kept for the 64 IDs asked of
+  most recently, since a host may ask before the view that holds the list is
+  shown. See [invariant 5](invariants.md#the-table).
 
 ## Events
 

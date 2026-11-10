@@ -22,7 +22,7 @@ Status is one of:
 | 2 | One ID, one mounted control. | R2 | `Frame::duplicate_ids`; `a_frame_lists_the_ids_two_controls_took_but_not_a_link_linked_twice`. | Reported, for controls that take focus; see below |
 | 3 | A key the tree derives cannot meet a host's ID. | R2 | Nothing. | Open |
 | 4 | Measuring changes no state. | R4 | `states_mut!` asserts it in debug builds, under the whole suite. | Held |
-| 5 | Kept state is bounded by what is on screen. | R3, R5 | `StateStore::sweep`; `state_out_of_sight_is_kept_only_for_the_ids_laid_out_most_recently`, which asserts `inputs` and `scroll_offsets`. | Partly |
+| 5 | Kept state is bounded by what is on screen. | R3, R5 | `StateStore::sweep`; `state_out_of_sight_is_kept_only_for_the_ids_laid_out_most_recently`, which asserts `inputs` and `scroll_offsets`; `scrolls_asked_of_ids_never_laid_out_are_kept_only_for_the_most_recent`. | Partly |
 | 6 | An event is answered from the last frame; a request waits for the next layout. | R6 | `handle_event_at` lays nothing out; `a_focus_asked_for_before_its_control_is_laid_out_lands_in_the_layout_that_adds_it`. | Held |
 | 7 | The host lays out once a frame. | R6 | The loop of `docs/backend.md` and of `limn-egui`'s examples. | Held for hosts; see below |
 | 8 | After a layout, hover is what is under the pointer. | | `stationary_pointer_retargets_hover_after_tree_rebuild`. | Held |
@@ -64,8 +64,12 @@ can, which is why R3 forbids a new one. Still on maps of their own: `inputs`,
 `scroll_offsets`, `measured_lists` and `horizontal_scrolls` (trimmed to the
 dormant 64 by `keep_recent`), the popover family, the code views
 (`trim_code_view_cache`), and the smaller ones [State](architecture.md#state)
-lists. What does not hold: `scroll_to_end` and `scroll_to_index` keep a
-request for an ID that is never laid out.
+lists. A `scroll_to_end` or `scroll_to_index` waits for its scroll area
+across layouts, since hosts ask before the view that holds the list is shown
+(a search's results behind its loading state, a conversation behind a pane
+grown over it); `ScrollRequests` keeps those for the 64 IDs asked of most
+recently. Partly, because a test asserts the bound only for `inputs`,
+`scroll_offsets` and the scroll requests: the other maps are read in review.
 
 **6. Last frame, next layout.** A `focus(id)` that returns `false` because
 the control is not on screen yet, so the host lays out, focuses and lays out
