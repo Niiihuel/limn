@@ -212,6 +212,12 @@ pub struct Tokens {
     /// for that one hint; the hints the engine draws itself, such as a menu
     /// row's, take them as they are.
     pub tooltip_options: TooltipOptions,
+    /// The ring drawn around the control that has the keyboard focus:
+    /// 2 px of #AAAAAA inside its bounds, following its corners, unless
+    /// set. An element given its own with
+    /// [`Element::focus_ring_style`](crate::Element::focus_ring_style)
+    /// keeps it.
+    pub focus_ring: crate::Ring,
 }
 
 impl Tokens {
@@ -223,6 +229,7 @@ impl Tokens {
         tooltip: None,
         shortcut_style: ShortcutStyle::Keycaps,
         tooltip_options: TooltipOptions::DEFAULT,
+        focus_ring: crate::Ring { color: crate::Color::rgb(170, 170, 170), width: 2.0, offset: 0.0, radius: None },
     };
 }
 

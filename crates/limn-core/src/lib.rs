@@ -63,6 +63,7 @@ pub use element::{
     TooltipOptions, TooltipShape, TooltipStyle, UniformList, MeasuredRows, UnitGrid, UnitGridPart, MarkRail, RailMark, DEFAULT_FONT_SIZE, ICON_SIZE, SMALL_ICON_SIZE,
     ZoomControl, ZoomView,
 };
+pub use element::Ring;
 pub use zoom_view::{zoom_percent, ZOOM_VIEW_MAX_SCALE};
 pub use diagram::{Diagram, DiagramError};
 pub use flowchart::{

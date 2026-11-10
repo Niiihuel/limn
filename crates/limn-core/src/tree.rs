@@ -7886,7 +7886,7 @@ impl LayoutBuilder<'_> {
     /// Paint formatted text laid out in a `TextLayout`: its spans' targets
     /// and hints, its selection, what it draws, its actions' focus and hover
     /// marks, and the selectable block a pointer reads it back from.
-    fn paint_laid_out_formatted(&mut self, spans: &[TextSpan], content: Rect, style: Style, clip: Option<Rect>) {
+    fn paint_laid_out_formatted(&mut self, spans: &[TextSpan], content: Rect, style: Style, clip: Option<Rect>, element: &Element) {
         let layout = self.laid_out_formatted(spans, style, content.width);
         let origin = Point::new(content.x, content.y);
         let at = |area: Rect| Rect::new(origin.x + area.x, origin.y + area.y, area.width, area.height);
@@ -7929,7 +7929,7 @@ impl LayoutBuilder<'_> {
             }
             for bounds in layout.span_bounds(index).into_iter().map(at) {
                 if focused {
-                    self.draw_focus_ring(bounds, style);
+                    self.draw_focus_ring(bounds, style, element);
                 }
                 if hovered {
                     self.frame.commands.push(DrawCommand::FillRect {
@@ -8327,21 +8327,29 @@ impl LayoutBuilder<'_> {
         }
     }
 
-    fn draw_focus_ring(&mut self, rect: Rect, style: Style) {
+    fn draw_focus_ring(&mut self, rect: Rect, style: Style, element: &Element) {
         if !style.focus_ring {
             return;
         }
-        let edge = 2.0_f32.min(rect.width / 2.0).min(rect.height / 2.0);
-        let ink = Color::rgb(170, 170, 170);
+        let ring = element.kept.as_ref().and_then(|kept| kept.focus_ring).unwrap_or(crate::tokens().focus_ring).sanitized();
+        let rect = ring.around(rect);
+        let edge = ring.width.min(rect.width / 2.0).min(rect.height / 2.0);
+        // Corners that follow the element's grow with the ring, so the two stay concentric.
+        let grow = |radius: f32| radius + ring.offset;
+        let (radius, corners) = match ring.radius {
+            Some(radius) => (radius, None),
+            None => (
+                grow(style.radius),
+                style.corner_radii.map(|radii| CornerRadii {
+                    top_left: grow(radii.top_left),
+                    top_right: grow(radii.top_right),
+                    bottom_right: grow(radii.bottom_right),
+                    bottom_left: grow(radii.bottom_left),
+                }),
+            ),
+        };
         if edge > 0.0 {
-            paint_corner_rect(
-                &mut self.frame.commands,
-                rect,
-                ink,
-                Some(edge),
-                style.radius,
-                style.corner_radii,
-            );
+            paint_corner_rect(&mut self.frame.commands, rect, ring.color, Some(edge), radius, corners);
         }
     }
 
@@ -10430,7 +10438,7 @@ impl LayoutBuilder<'_> {
                     self.underline_text(first, first_block, content, style);
                 }
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                    self.draw_focus_ring(rect, style);
+                    self.draw_focus_ring(rect, style, element);
                 }
             }
             ElementKind::Overlay { base, floating } => {
@@ -11145,7 +11153,7 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::FormattedText(spans) if self.text_layout => {
-                self.paint_laid_out_formatted(spans, content, style, clip);
+                self.paint_laid_out_formatted(spans, content, style, clip, element);
             }
             ElementKind::FormattedText(spans) => {
                 let source = spans
@@ -11260,7 +11268,7 @@ impl LayoutBuilder<'_> {
                             );
                             if let Some(id) = &fragment.action {
                                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                                    self.draw_focus_ring(fragment_rect, style);
+                                    self.draw_focus_ring(fragment_rect, style, element);
                                 }
                             }
                             source_byte += fragment.text.len();
@@ -11361,7 +11369,7 @@ impl LayoutBuilder<'_> {
                         }
                         if let Some(id) = &fragment.action {
                             if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                                self.draw_focus_ring(fragment_rect, style);
+                                self.draw_focus_ring(fragment_rect, style, element);
                             }
                             if self.hovered == Some(id.as_str()) {
                                 self.frame.commands.push(DrawCommand::FillRect {
@@ -11435,7 +11443,7 @@ impl LayoutBuilder<'_> {
             } => {
                 self.add_region(id, rect, HitKind::Button, clip);
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                    self.draw_focus_ring(rect, style);
+                    self.draw_focus_ring(rect, style, element);
                 }
                 let trailing_side = if trailing_icon.is_some() {
                     ICON_SIZE.min(content.width).min(content.height).max(0.0)
@@ -11516,7 +11524,7 @@ impl LayoutBuilder<'_> {
             } => {
                 self.add_region(id, rect, HitKind::Button, clip);
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                    self.draw_focus_ring(rect, style);
+                    self.draw_focus_ring(rect, style, element);
                 }
                 let side = style
                     .icon_side
@@ -12615,6 +12623,7 @@ impl LayoutBuilder<'_> {
                             radius: style.radius.max(8.0),
                             ..style
                         },
+                        element,
                     );
                 }
             }

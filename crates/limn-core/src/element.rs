@@ -1126,6 +1126,60 @@ impl BoxShadow {
     }
 }
 
+/// A ring stroked around something: keyboard focus, a coach mark's target.
+/// [`Tokens::focus_ring`](crate::Tokens::focus_ring) and
+/// [`Element::focus_ring_style`] set the focus ring; [`CoachAnchor::ring`]
+/// a coach mark's. A width that is negative or not finite draws no ring, an
+/// offset that is not finite is 0, and a radius that is negative or not
+/// finite is 0.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ring {
+    /// Color of the stroke.
+    pub color: Color,
+    /// Stroke thickness in logical pixels.
+    pub width: f32,
+    /// How far outside the bounds the ring's outer edge is; 0 strokes inside the bounds.
+    pub offset: f32,
+    /// Corner radius of the ring; `None` follows the corners of what it rings.
+    pub radius: Option<f32>,
+}
+
+/// The library's focus ring, [`Tokens::DEFAULT`](crate::Tokens::DEFAULT)'s:
+/// 2 px of #AAAAAA inside the bounds, following their corners.
+impl Default for Ring {
+    fn default() -> Self {
+        crate::Tokens::DEFAULT.focus_ring
+    }
+}
+
+impl Ring {
+    /// The ring with numbers safe to paint, as [`Ring`] says.
+    pub(crate) fn sanitized(self) -> Self {
+        let px = |value: f32| if value.is_finite() { value.max(0.0) } else { 0.0 };
+        Self {
+            width: px(self.width),
+            offset: if self.offset.is_finite() { self.offset } else { 0.0 },
+            radius: self.radius.map(px),
+            ..self
+        }
+    }
+
+    /// The rectangle stroked inside, for a ring around `bounds`: `bounds`
+    /// grown by the offset on every side.
+    pub(crate) fn around(self, bounds: Rect) -> Rect {
+        Rect::new(
+            bounds.x - self.offset,
+            bounds.y - self.offset,
+            (bounds.width + self.offset * 2.0).max(0.0),
+            (bounds.height + self.offset * 2.0).max(0.0),
+        )
+    }
+}
+
+#[cfg(test)]
+#[path = "ring_tests.rs"]
+mod ring_tests;
+
 /// Paint under a text's glyphs, as [`Element::text_stroke`] and
 /// [`Element::text_shadow`] ask for it: never a change to the text's size,
 /// where it wraps or is cut, its selection or its targets, and it may reach
@@ -1232,6 +1286,9 @@ pub(crate) struct Kept {
     pub(crate) pulse_ms: Option<u16>,
     /// Set by [`Element::focus_area`]: a clickable that only takes the focus.
     pub(crate) focus_area: bool,
+    /// Set by [`Element::focus_ring_style`]: the ring its keyboard focus
+    /// shows in place of the tokens'.
+    pub(crate) focus_ring: Option<Ring>,
     /// Set by [`Element::pointer_only`]: a clickable the keyboard and the
     /// platform do not know of.
     pub(crate) pointer_only: bool,
@@ -4628,6 +4685,14 @@ impl Element {
     /// default.
     pub fn focus_ring(mut self, visible: bool) -> Self {
         self.style.focus_ring = visible;
+        self
+    }
+
+    /// The ring this element shows under the keyboard focus, in place of
+    /// [`Tokens::focus_ring`](crate::Tokens::focus_ring). Whether it is
+    /// drawn is still [`Self::focus_ring`]'s to say.
+    pub fn focus_ring_style(mut self, ring: Ring) -> Self {
+        self.kept.get_or_insert_default().focus_ring = Some(ring);
         self
     }
 
