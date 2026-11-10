@@ -138,6 +138,10 @@ In order, by how much of a host's own design each one blocks:
    `ComponentPalette` and their measures from constants. A host cannot
    restyle them without a change to the engine. Each takes its look from
    what the element carries, given by the component that asks for it.
+   - A tooltip's content can be the component's own (`Tooltip::content`,
+     placed by `paint_tooltip` in `tooltip_tree.rs`); still hard-wired are
+     the built-in layout's measures, text hints (`TextSpan::tooltip`), the
+     code editor's diagnostics and the mark rail's hint.
 2. **The controls in `components.rs`**: `Button`, `IconButton`, `Link`,
    `Kbd`, `Tooltip`, `TextField`, `TextArea`, `SearchField`, `Switch`, `Tabs`,
    `SegmentedControl`, `Popover`, with `spinner.rs` and `scroll_area.rs`.

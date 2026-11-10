@@ -42,7 +42,7 @@ Button::new("save", "Save", palette)
 
 [Button](button.md) and `IconButton` take their hint directly, so they need
 no wrapper. `tooltip_with(TooltipSpec)` takes a description, a placement and
-a width as well.
+a width as well, and `content` for a body of your own.
 
 ## Shortcut, description and footer
 
@@ -147,6 +147,36 @@ Discord draws its hints; a transparent `border` draws neither. `open_scale` grow
 scale about the pointer's tip as it fades in, over `enter_ms` when set, on
 `enter_easing`: `Easing::Spring` grows it a little past full size and back
 as a spring does. See [Tokens](../tokens.md#tooltip).
+
+## Content of your own
+
+```rust
+Tooltip::new(anchor, "deploy", "Deploy to production", palette)
+    .content(
+        Element::column(vec![
+            Element::text("Deploy to production"),
+            Element::row(vec![Element::icon(Icon::Check), Element::text("All checks passed")]).gap(6.0),
+        ])
+        .gap(4.0),
+    )
+    .render()
+```
+
+`content(element)` lays the body out as an element you build, in place of
+the title, shortcut and sections, for a layout the sections do not offer.
+The body is sized to it, at most `max_width` wide, with the shape's padding
+round it: 8 at the sides and 6 above and below without a `TooltipShape`.
+The rest is the hint's own: when it shows, the side it opens on and how it
+flips and stays in the window, its fill, border, radius and shadow, its
+pointer and its entrance. `title_font_size`, `title_font_family` and
+`centered` are the built-in layout's and do not reach it.
+
+What it holds is painted and nothing more: nothing in it can be clicked,
+focused or read by a screen reader. So the title is still required, and is
+what the platform is told; see [Accessibility](#accessibility). An element
+in it that moves or keeps state by its ID does so while the hint shows, as
+anywhere else. `TooltipSpec::content` gives a `Button` or an `IconButton`
+such a hint.
 
 ## Placement
 

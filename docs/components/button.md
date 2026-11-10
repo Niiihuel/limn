@@ -133,7 +133,8 @@ Button::new("search", "Search", palette)
     .render()
 ```
 
-`tooltip_with` takes a whole `TooltipSpec`: description, placement, width.
+`tooltip_with` takes a whole `TooltipSpec`: description, placement, width,
+and `content` for a body of your own.
 
 ## Ink, gap and radius
 
