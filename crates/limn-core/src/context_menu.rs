@@ -388,7 +388,8 @@ pub(crate) fn edit_bar(
     (bar, width)
 }
 
-pub(crate) fn row_id(index: usize) -> String {
+#[doc(hidden)]
+pub fn row_id(index: usize) -> String {
     format!("__context_menu:item:{index}")
 }
 

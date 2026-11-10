@@ -7,7 +7,7 @@
 
 use web_time::{SystemTime, UNIX_EPOCH};
 
-use crate::components::{Component, ComponentPalette, ControlSize, IconButton, TextField};
+use crate::{Component, ComponentPalette, ControlSize, IconButton, TextField};
 use crate::{Access, Color, Element, FontFamily, Icon, Role};
 
 // Seven columns plus gaps and panel padding stay within a 248 px modal body.

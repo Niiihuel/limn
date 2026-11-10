@@ -1,6 +1,6 @@
 //! A button that shows the current choice and opens the list of the others.
 
-use crate::components::{control_radius, input_surface, lighter};
+use crate::{control_radius, input_surface, lighter};
 use crate::{
     Access, Button, ButtonVariant, Color, Component, ComponentPalette, ContextMenuMetrics,
     ControlSize, DropdownMenu, DropdownOption, Element, FontFamily, Icon, PopoverPlacement,

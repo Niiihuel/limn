@@ -12,7 +12,8 @@ use crate::{
 };
 
 /// A longer source is not read: its host shows it as written.
-pub(crate) const MAX_SOURCE_BYTES: usize = 64 * 1024;
+#[doc(hidden)]
+pub const MAX_SOURCE_BYTES: usize = 64 * 1024;
 /// The length of an arrowhead; a line stops half of it short of the tip.
 pub(crate) const ARROW: f32 = 7.0;
 const CORNER: f32 = 6.0;
@@ -226,7 +227,8 @@ impl Diagram {
         }
     }
 
-    pub(crate) fn palette(&self) -> ComponentPalette {
+    #[doc(hidden)]
+    pub fn palette(&self) -> ComponentPalette {
         match self {
             Self::Flowchart(chart) => chart.palette(),
             Self::Sequence(chart) => chart.palette(),

@@ -2,7 +2,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use crate::code_syntax::{highlight_spans, CodeSyntaxColors};
+use crate::{highlight_spans, CodeSyntaxColors};
 use crate::{
     Clipboard, CodeLanguage, Component, ComponentPalette, ControlSize, Element, FontFamily,
     RadiusRole, TextRole, TextSpan,

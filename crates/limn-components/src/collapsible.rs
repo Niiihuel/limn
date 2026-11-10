@@ -238,7 +238,7 @@ impl Component for Collapsible {
         // the body opens and closes in place instead of appearing at once.
         let expanded = body.is_some();
         let block = Element::column(vec![header, Collapse::new(body_id, body).expand().render()])
-            .radius(crate::components::surface_radius());
+            .radius(crate::surface_radius());
         if expanded {
             block.background(palette.hover)
         } else {

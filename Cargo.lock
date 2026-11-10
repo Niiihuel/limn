@@ -2015,6 +2015,8 @@ version = "0.1.43"
 dependencies = [
  "limn-components",
  "limn-core",
+ "limn-editor",
+ "web-time",
 ]
 
 [[package]]

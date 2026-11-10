@@ -269,7 +269,8 @@ impl ScrollbarAppearance {
         width.clamp(1.0, 24.0).min(viewport_width / 3.0)
     }
 
-    pub(crate) fn content_width(self, viewport_width: f32, overflowing: bool) -> f32 {
+    #[doc(hidden)]
+    pub fn content_width(self, viewport_width: f32, overflowing: bool) -> f32 {
         if overflowing && self.placement == ScrollbarPlacement::Reserved {
             viewport_width - self.effective_rail_width(viewport_width)
         } else {

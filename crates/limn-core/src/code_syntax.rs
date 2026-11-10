@@ -212,15 +212,18 @@ impl CodeSyntaxColors {
 
 /// Code longer than this many bytes is shown plain by [`highlight_spans`], which runs
 /// on the UI thread while a tree is built.
-pub(crate) const MAX_HIGHLIGHT_BYTES: usize = 64 * 1024;
+#[doc(hidden)]
+pub const MAX_HIGHLIGHT_BYTES: usize = 64 * 1024;
 /// Code with more lines than this is shown plain by [`highlight_spans`].
-pub(crate) const MAX_HIGHLIGHT_LINES: usize = 2_000;
+#[doc(hidden)]
+pub const MAX_HIGHLIGHT_LINES: usize = 2_000;
 
 /// `text` as monospaced spans of `size`, colored by the line lexer for `language` in
 /// `colors`; `dark` says how the Markdown lexer's other inks read. The spans' text is `text`
 /// exactly. `None`, for the caller to paint plain text, when the language is plain, nothing
 /// gets a color, or `text` is past the bounds above.
-pub(crate) fn highlight_spans(
+#[doc(hidden)]
+pub fn highlight_spans(
     text: &str,
     language: CodeLanguage,
     colors: CodeSyntaxColors,

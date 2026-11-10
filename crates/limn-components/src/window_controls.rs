@@ -1,4 +1,4 @@
-use crate::components::{ComponentPalette, Tooltip};
+use crate::{ComponentPalette, Tooltip};
 use crate::{Access, Color, Component, Element, Icon, Role};
 
 // Windows' caption glyphs: hairlines in a 10 pixel square.

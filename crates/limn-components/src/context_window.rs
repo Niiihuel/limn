@@ -1,6 +1,6 @@
 //! What fills a model's context window, share by share.
 
-use crate::components::control_radius;
+use crate::control_radius;
 use crate::page::px;
 use crate::{
     Color, Component, ComponentPalette, Element, FontFamily, FramedCard, Icon, Spinner, Ticker,
@@ -856,7 +856,7 @@ mod tests {
             })
         };
         let start = Instant::now() - Duration::from_secs(10);
-        let exit = crate::tree::slot_settle();
+        let exit = crate::slot_settle();
         let mut tree = UiTree::new(files(&["first", "second"]));
         let before = tree.layout_at(SIZE, start);
         let (second, foot) = (y(&before, "second.sql").unwrap(), y(&before, "left").unwrap());

@@ -1,6 +1,6 @@
 //! Shared action menu built on the retained popover and color transitions.
 
-use crate::components::{
+use crate::{
     Component, ComponentPalette, ControlState, Kbd, Popover, Tooltip, lighter,
 };
 use crate::menu::{DetailRow, MenuCheck, SWITCH_WIDTH, action_style};
@@ -1494,7 +1494,7 @@ impl Component for DropdownMenu {
                     .size(Some(self.width), None)
                     .background(palette.surface)
                     .border(palette.border, 1.0)
-                    .radius(crate::components::surface_radius())
+                    .radius(crate::surface_radius())
                     .clip_children(),
             ])
             .gap(4.0)

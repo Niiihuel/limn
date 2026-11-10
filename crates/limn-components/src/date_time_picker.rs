@@ -1,6 +1,6 @@
 //! Composition of the shared calendar and 24-hour time controls.
 
-use crate::components::{Component, ComponentPalette};
+use crate::{Component, ComponentPalette};
 use crate::date_picker::DatePicker;
 use crate::time_picker::TimePicker;
 use crate::{Element, FontFamily};

@@ -874,7 +874,7 @@ mod tests {
         let frame = tree.layout(SIZE);
         // Album and day, in the order of the columns, both shown.
         assert_eq!(icons(&frame, &[Icon::Check]).len(), 2);
-        let added = region(&frame, &crate::context_menu::row_id(1));
+        let added = region(&frame, &crate::row_id(1));
         assert_eq!(click(&mut tree, middle(added)), clicked("t:column:added"));
         // A row is not the header.
         let mut tree = tree_of(table(WIDTH).render());

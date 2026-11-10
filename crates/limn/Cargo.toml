@@ -26,3 +26,9 @@ hot = ["limn-core/hot"]
 [dependencies]
 limn-core = { version = "0.1.43", path = "../limn-core", default-features = false }
 limn-components = { version = "0.1.43", path = "../limn-components", default-features = false }
+
+# The integration tests build buffers and read the clock as the old single
+# crate's did, through its dependencies.
+[dev-dependencies]
+limn-editor = { version = "0.1.43", path = "../limn-editor" }
+web-time = "1.1"

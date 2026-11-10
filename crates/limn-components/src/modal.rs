@@ -1,6 +1,6 @@
 //! A reusable centered modal for forms and other multi-step content.
 
-use crate::components::{Component, ComponentPalette, Tooltip};
+use crate::{Component, ComponentPalette, Tooltip};
 use crate::{
     Access, Color, CornerRadii, Element, FontFamily, Icon, Point, PopoverPlacement, Role, ScrollArea,
     ScrollbarAppearance, TextSpan,
@@ -471,11 +471,11 @@ impl Component for Modal {
                 Element::spacer().size(Some(15.0), None), close.centered_y(), name, end.centered_y(), Element::spacer().size(Some(15.0), None),
             ]).gap(8.0).size(None, Some(60.0));
             let grip = Element::column(vec![
-                Element::spacer().size(None, Some(crate::sheet_geometry::GRABBER_TOP)),
+                Element::spacer().size(None, Some(crate::GRABBER_TOP)),
                 Element::row(vec![
                     Element::spacer().flex(1.0),
-                    Element::spacer().size(Some(crate::sheet_geometry::GRABBER.0), Some(crate::sheet_geometry::GRABBER.1))
-                        .background(Color { a: 77, ..self.palette.text }).radius(crate::sheet_geometry::GRABBER.1 / 2.0),
+                    Element::spacer().size(Some(crate::GRABBER.0), Some(crate::GRABBER.1))
+                        .background(Color { a: 77, ..self.palette.text }).radius(crate::GRABBER.1 / 2.0),
                     Element::spacer().flex(1.0),
                 ]),
                 Element::spacer().flex(1.0),
@@ -632,7 +632,7 @@ impl Component for Modal {
         if let Some(spec) = ios {
             // Black at 20% behind it at every height; it goes down in a third of a second.
             popover = popover.popover_sheet(spec)
-                .popover_scrim(Color::rgba(0, 0, 0, crate::sheet_geometry::DIM_ALPHA))
+                .popover_scrim(Color::rgba(0, 0, 0, crate::DIM_ALPHA))
                 .popover_close_animation_ms(SHEET_CLOSE_MS);
         }
         popover
