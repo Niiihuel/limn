@@ -33,7 +33,7 @@ nix-shell                                               # compiler and window li
 cargo run -p limn-egui --example counter              # the smallest application
 cargo run -p limn-gallery                             # every component
 dx serve --hot-patch -p limn-gallery --features hot   # the gallery with hot reload
-cargo test -p limn -p limn-egui -p limn-gallery   # the tests
+cargo test -p limn -p limn-core -p limn-components -p limn-egui -p limn-gallery   # the tests
 ```
 
 ## Documentation

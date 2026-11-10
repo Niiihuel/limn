@@ -44,7 +44,7 @@ Where things go:
 
 | The change | Goes in |
 | --- | --- |
-| A new control or a new look | A component: a file of its own in `crates/limn/src/`. See [`docs/contributing.md`](../docs/contributing.md). |
+| A new control or a new look | A component: a file of its own in `crates/limn-components/src/`. See [`docs/contributing.md`](../docs/contributing.md). |
 | Something the layout must remember for an element | A type in the `StateStore`. See [State](architecture.md#state). |
 | Something a feature needs inside the layout | A child module of `tree`, `<feature>_tree.rs`, with its tests in `<feature>_tests.rs`. |
 | How a frame is painted | `crates/limn-egui`, and [`docs/backend.md`](../docs/backend.md) when the contract changes. |
@@ -52,12 +52,19 @@ Where things go:
 
 ## Check
 
-While editing, run the narrowest thing that answers:
+While editing, run the narrowest thing that answers, in the crate the test
+or the change is in:
 
 ```sh
-cargo test -p limn <name of the test>
-cargo clippy -p limn --all-targets -- -D warnings
+cargo test -p <crate> <name of the test>
+cargo clippy -p <crate> --all-targets -- -D warnings
 ```
+
+| The test or the change is of | Its crate | Its files |
+| --- | --- | --- |
+| The engine | `limn-core` | `crates/limn-core/src/` |
+| A component | `limn-components` | `crates/limn-components/src/` |
+| A screen, through the public API | `limn` | `crates/limn/tests/` |
 
 Before the pull request, run what CI runs, on Rust 1.99.1, and read the
 output:
@@ -66,7 +73,7 @@ output:
 cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy -p limn-gallery --all-targets --features hot -- -D warnings
 cargo test --workspace
-cargo test -p limn --no-default-features
+cargo test -p limn -p limn-core -p limn-components --no-default-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 ```
 

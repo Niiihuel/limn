@@ -1,7 +1,7 @@
 # Contributing a component
 
 The steps to add a component, and the conventions the existing ones follow.
-`crates/limn/src/progress.rs` is the shortest complete example: read it
+`crates/limn-components/src/progress.rs` is the shortest complete example: read it
 alongside this page.
 
 ## 1. Decide whether it is a component
@@ -15,7 +15,11 @@ are an option on something that exists.
 
 ## 2. Write it
 
-Create `crates/limn/src/<name>.rs`.
+Create `crates/limn-components/src/<name>.rs`.
+
+A component is built from what `limn-core`, the engine, makes public. The
+crate's `lib.rs` brings all of it in, so a component names it as
+`crate::Element`, as below. The tree's private state is out of its reach.
 
 ```rust
 //! One line saying what this is for.
@@ -40,7 +44,9 @@ impl Component for Progress {
 }
 ```
 
-Then declare it in `crates/limn/src/lib.rs`: a `mod` line and a `pub use`.
+Then declare it in `crates/limn-components/src/lib.rs`: a `mod` line and a
+`pub use`. The `limn` crate re-exports all of `limn-components`, so
+`use limn::Progress` works with no line of its own.
 
 ### Conventions
 
@@ -171,7 +177,7 @@ programs. [Button](components/button.md), [Slider](components/slider.md) and
 
 A component stores nothing; an element the tree lays out sometimes must, from
 one frame to the next: where a spring stands, when a pulse started. That state
-goes in the tree's `StateStore` (`crates/limn/src/state_store.rs`), not in a
+goes in the tree's `StateStore` (`crates/limn-core/src/state_store.rs`), not in a
 field of its own:
 
 - Give the state a type of its own, even a newtype over an `Instant`: the
@@ -190,6 +196,6 @@ field of its own:
 
 - [ ] Module, `mod` and `pub use` added.
 - [ ] No literal colors, radii or durations.
-- [ ] Tests pass: `cargo test -p limn -p limn-egui -p limn-gallery`.
+- [ ] Tests pass: `cargo test -p limn -p limn-components -p limn-egui -p limn-gallery`.
 - [ ] Shown in the gallery, checked in both themes and with square corners.
 - [ ] Row in `docs/components.md`; doc comments on the public API.
