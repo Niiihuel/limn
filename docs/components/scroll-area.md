@@ -7,7 +7,7 @@ each take their own, only the rows in view.
 ## Import
 
 ```rust
-use limn::{Component, ScrollArea, ScrollMotion, ScrollbarAppearance, ScrollbarVisibility};
+use limn::{Component, ScrollArea, ScrollMotion, ScrollbarAppearance, ScrollbarTrack, ScrollbarVisibility};
 ```
 
 ## Usage
@@ -138,10 +138,29 @@ width. Content that fits shows no scrollbar and reserves no rail.
 | `min_thumb_length` | 24 | The shortest the thumb gets |
 | `tint` | `None` | The scrollbar's color; `None` uses the element's foreground |
 | `idle_thumb_opacity`, `hover_thumb_opacity`, `active_thumb_opacity` | 72, 118, 164 | The thumb at rest, under the pointer and dragged, out of 255 |
-| `hover_track_opacity` | 14 | The rail under the pointer; at rest it is transparent |
+| `hover_track_opacity` | 14 | The track, when `track` shows it. An end button under the pointer is filled at twice it, three times held |
+| `track` | `ScrollbarTrack::WhenActive` | When the track shows: under the pointer or while dragged, `Always` or `Never` |
+| `button_inset` | 1 | How far inside its square an end button's fill under the pointer is drawn |
+| `button_radius` | `None` (`tokens().radius.control`) | The corner of that fill |
+| `arrow` | 7 by 4 | The largest box an end button's arrow takes; a small button draws it smaller |
 
 `ScrollArea::buttons(enabled)` and `ScrollArea::tint(color)` change that one
 field and keep the rest of the appearance.
+
+`.track`, `.button_inset`, `.button_radius` and `.arrow` set the last four.
+A length that is not finite, given to them or set on the field, takes its
+default; a negative one is 0:
+
+```rust
+ScrollArea::new("files", content)
+    .appearance(
+        ScrollbarAppearance::default()
+            .track(ScrollbarTrack::Always)
+            .button_radius(0.0)
+            .arrow(Size::new(8.0, 5.0)),
+    )
+    .render()
+```
 
 To show a scrollbar only after scrolling, opt in to activity visibility:
 
@@ -187,6 +206,23 @@ until release. Only the indicator's paint hides: the viewport still scrolls,
 drags and dispatches child controls while it is hidden. The indicator overlays
 the same content bounds throughout. Without `drag_to_pan()` no indicator is
 added. Its default is still `Always`, with the existing geometry and opacity.
+
+`horizontal_scrollbar_appearance(ScrollbarAppearance)` gives the indicator a
+look of its own. `ScrollbarAppearance::pan_bar()` is the bar as it is drawn
+by default, 3 thick, 1.5 round, at 114 of 255:
+
+```rust
+Element::horizontal_scroll_2d("shelf", cards)
+    .drag_to_pan()
+    .horizontal_scrollbar_appearance(ScrollbarAppearance::pan_bar().thumb_width(4.0).tint(accent))
+```
+
+The bar reads four fields: `thumb_width` is its thickness, at least 1 and at
+most the viewport's height; `thumb_radius` its corners; `tint`, or else the
+viewport's foreground, its color; and `idle_thumb_opacity` its opacity,
+dragged or not. Without an appearance it is drawn at 0.45 of the
+foreground's alpha, which for a foreground that is not opaque can be one
+level of alpha apart from `pan_bar()`.
 
 ## Motion
 

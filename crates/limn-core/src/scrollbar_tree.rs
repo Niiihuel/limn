@@ -1,5 +1,9 @@
 use super::*;
 
+#[cfg(test)]
+#[path = "scrollbar_look_tests.rs"]
+mod scrollbar_look_tests;
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) struct ScrollbarGeometry {
     pub(super) rail: Rect,
@@ -150,9 +154,14 @@ impl LayoutBuilder<'_> {
             )
         };
         self.frame.commands.push(DrawCommand::PushClip(visible));
-        // The overlay rail never paints a permanent gray stripe behind
-        // content. Its track appears only while interacting with it.
-        if active || hovered {
+        // By default an overlay rail never paints a permanent gray stripe
+        // behind content: its track appears only while interacting with it.
+        let track = match appearance.track {
+            crate::ScrollbarTrack::WhenActive => active || hovered,
+            crate::ScrollbarTrack::Always => true,
+            crate::ScrollbarTrack::Never => false,
+        };
+        if track {
             self.frame.commands.push(DrawCommand::FillRect {
                 rect: geometry.track,
                 color: appearance.track_color(ink),
@@ -185,19 +194,20 @@ impl LayoutBuilder<'_> {
                     .is_some_and(|hold| hold.id == id && hold.direction == direction);
             if over {
                 self.frame.commands.push(DrawCommand::FillRect {
-                    rect: button.inset(1.0),
+                    rect: button.inset(appearance.button_fill_inset()),
                     color: alpha(appearance.hover_track_opacity.saturating_mul(if pressed {
                         3
                     } else {
                         2
                     })),
-                    radius: crate::tokens().radius.control,
+                    radius: appearance.button_fill_radius(),
                 });
             }
             let x = button.x + button.width / 2.0;
             let y = button.y + button.height / 2.0;
-            let half_width = (button.width * 0.25).min(3.5);
-            let half_height = (button.height * 0.15).min(2.0);
+            let arrow = appearance.arrow_box();
+            let half_width = (button.width * 0.25).min(arrow.width / 2.0);
+            let half_height = (button.height * 0.15).min(arrow.height / 2.0);
             let direction = f32::from(direction);
             self.frame.commands.push(DrawCommand::FillTriangle {
                 points: [

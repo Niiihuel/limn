@@ -10642,7 +10642,7 @@ impl LayoutBuilder<'_> {
                     clip,
                     style.horizontal_edge_fade,
                     *vertical_wheel,
-                    drag_pan.then_some(style.foreground),
+                    drag_pan.then_some((style.foreground, element.kept.as_ref().and_then(|kept| kept.pan_bar_appearance))),
                     scrollbar_visibility,
                 );
             }

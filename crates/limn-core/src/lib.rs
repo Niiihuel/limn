@@ -99,6 +99,7 @@ pub use motion::{
 };
 pub use raster_image::{RasterImage, RasterImageFormat};
 pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement, ScrollbarVisibility};
+pub use scroll_area::ScrollbarTrack;
 pub use selector_sizing::SelectorSizing;
 pub use sequence::{
     SequenceArrow, SequenceBlockKind, SequenceBlockLayout, SequenceDiagram, SequenceEvent, SequenceGraph,
