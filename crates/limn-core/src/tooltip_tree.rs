@@ -790,6 +790,64 @@ impl LayoutBuilder<'_> {
         self.frame.commands.push(DrawCommand::PopClip);
         Some(origin)
     }
+
+    pub(super) fn place_tooltip_anchor(&mut self, element: &Element, content: Rect, clip: Option<Rect>) {
+        let ElementKind::Tooltip {
+            anchor,
+            anchor_id,
+            title,
+            shortcut,
+            sections,
+            max_width,
+            placement,
+            colors,
+            options,
+            content: own,
+        } = &element.kind else { unreachable!() };
+        let region_start = self.frame.regions.len();
+        self.place(anchor, content, clip);
+        if !self.frame.regions[region_start..]
+            .iter()
+            .any(|region| region.id == *anchor_id)
+        {
+            let region_end = self.frame.regions.len();
+            self.add_region(anchor_id, content, HitKind::Hover, clip);
+            if self.frame.regions.len() > region_end {
+                // Descendant controls retain precedence over this hint.
+                self.frame.regions[region_start..].rotate_right(1);
+            }
+        }
+        let delay = Duration::from_millis(u64::from(options.delay_ms));
+        self.observed_tooltips.insert(anchor_id.clone(), delay);
+        if let Some(keyboard_focused) = self.hint_due(anchor_id, delay) {
+            // The hint points at the control it describes. Inside a
+            // larger anchor, such as a link in a paragraph, that is
+            // the control's own bounds, and the part of them under
+            // the pointer when it runs over several lines.
+            let target = {
+                let mut parts = self.frame.regions[region_start..]
+                    .iter()
+                    .filter(|region| region.id == *anchor_id)
+                    .map(|region| region.rect);
+                let under = self
+                    .pointer
+                    .filter(|_| !keyboard_focused)
+                    .and_then(|pointer| parts.clone().find(|rect| rect.contains(pointer)));
+                under.or_else(|| parts.next()).unwrap_or(content)
+            };
+            self.overlays.push_back(DeferredOverlay::Tooltip {
+                anchor: target,
+                title: title.clone(),
+                shortcut: shortcut.clone(),
+                sections: sections.clone(),
+                max_width: *max_width,
+                placement: *placement,
+                colors: *colors,
+                options: *options,
+                content: own.clone(),
+            });
+        }
+    }
 }
 
 #[cfg(test)]
