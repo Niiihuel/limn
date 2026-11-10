@@ -94,6 +94,7 @@ mod scroll_area;
 mod dismiss_drag;
 mod select;
 mod selector_sizing;
+mod drag_handle;
 mod resize_handle;
 mod separator;
 mod sequence;
@@ -252,6 +253,7 @@ pub use scroll_area::{ScrollArea, ScrollbarAppearance, ScrollbarPlacement, Scrol
 pub use dismiss_drag::DismissDrag;
 pub use select::{Select, SelectVariant};
 pub use selector_sizing::SelectorSizing;
+pub use drag_handle::DragHandle;
 pub use resize_handle::ResizeHandle;
 pub use separator::Separator;
 pub use side_rail::{SideRail, SideRailItem};
