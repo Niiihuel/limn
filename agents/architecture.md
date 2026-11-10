@@ -108,7 +108,7 @@ Layout is two functions of `LayoutBuilder` that call each other down the tree.
 | Cached | In `MeasurementCache`, for this pass. | No. |
 
 - `measure_uncached` is the `match` on `ElementKind` that measures;
-  `place_inner` is the one that places. `place_inner` is about 2,750 lines:
+  `place_inner` is the one that places. `place_inner` is about 2,900 lines:
   the largest function in the crate, and where most features meet.
 - The key of a measurement is the element's address, the room it was offered
   and a scope. The address is stable because the tree is not changed during a
@@ -160,8 +160,10 @@ drop(states);                                     // before measuring or placing
   express.
 - Other maps by ID that sweep themselves: `scroll_transitions`,
   `scrollbar_states`, `zoom_views`, the code views (`code_editors`,
-  `code_diffs`), `tooltip_triggers`, `settled_spinners` and
-  `closed_submenu_triggers`.
+  `code_diffs`), `tooltip_triggers`, `settled_spinners`,
+  `closed_submenu_triggers`, and the sheets' `sheet_detents` and
+  `sheet_frames` with the popovers' `popover_order`, which are newer than R3
+  and belong in the store.
 - `scroll_to_end` and `scroll_to_index` are not swept: a request for an ID
   that is never laid out stays. See [invariant 5](invariants.md#the-table).
 
@@ -250,19 +252,21 @@ what a screen reader asked for.
 
 Four commands describe a widget, not a shape: `Spinner`, `Record`,
 `ProgressRing` and `EffortSlider`. A backend has to know how each looks.
-They are debt; see R8 and the [plan](plan.md).
+They are debt; see R8 and the [plan](plan.md). `Glass`, `GlassSelection` and
+`TextEffect` came with liquid glass and with a host's faces, and have not been
+read against R8 yet.
 
 ## Cost
 
 `crates/limn/examples/layout_bench.rs` builds and lays out a scroll area of
 N rows, each a text, a spacer and a `Button`, in a 1280 by 800 window. On a
-Ryzen 9 270, pinned to one core, on 2026-11-09:
+Ryzen 9 270, pinned to one core, on 2026-11-10:
 
 | Rows | Building the view | Layout |
 | ---: | ---: | ---: |
-| 100 | 0.02 ms | 0.13 ms |
-| 1,000 | 0.21 ms | 1.09 ms |
-| 4,000 | 1.35 ms | 7.7 ms |
+| 100 | 0.02 ms | 0.14 ms |
+| 1,000 | 0.22 ms | 1.15 ms |
+| 4,000 | 1.3 ms | 7.8 ms |
 
 - The frame paints 82 commands at every size: only what is in view is
   emitted. The time is the walk, which reaches every element.
@@ -314,7 +318,7 @@ Each is in the [plan](plan.md) with its order.
 
 | Debt | Shows as |
 | --- | --- |
-| `tree.rs` is 22,000 lines and `place_inner` 2,750. | Every feature edits the same file; pull requests conflict. |
+| `tree.rs` is 24,000 lines and `place_inner` 2,900. | Every feature edits the same file; pull requests conflict. |
 | `ElementKind` is closed and holds widgets (`Flowchart`, `SequenceDiagram`, the plots, `Record`, `EffortSlider`). | A widget that could be a component is matched across the layout. |
 | Four widget commands in `DrawCommand`. | A backend must know how a widget looks. |
 | One walk measures, places, paints and animates. | No subtree can be skipped when nothing in it changed. |

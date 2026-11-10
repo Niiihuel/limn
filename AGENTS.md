@@ -145,6 +145,8 @@ after, and written in the pull request.
 
 **R17. One topic, one branch from `main`, one pull request.** Nothing is
 pushed to `main`. A change a host can see adds its line to `CHANGELOG.md`.
+Until the repository opens to contributors, [the plan](agents/plan.md#how-work-lands-now)
+says how work lands instead.
 
 **R18. `cargo fmt` is never run over the workspace.** The tree is not in
 rustfmt's style, and CI does not check it: a reformat buries the change and

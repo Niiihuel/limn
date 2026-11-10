@@ -4,6 +4,9 @@ From a task to a merged pull request: where to work, what to run, how to
 write the commit and the pull request, and how to measure. The rules are in
 [`AGENTS.md`](../AGENTS.md#3-rules); this page is how to follow them.
 
+Until the new repository opens there are no pull requests: [the plan](plan.md#how-work-lands-now)
+says how work lands meanwhile. Everything else on this page applies now.
+
 ## Branch
 
 One topic, one branch from `main`, named `<type>/<topic>`: `feat/drag-handle`,
@@ -104,6 +107,8 @@ builds and passes on its own.
 ## Changelog
 
 Add one bullet at the top of `## Unreleased` in `CHANGELOG.md`.
+`.gitattributes` merges that file by union: when two branches each add a
+line, a merge keeps both.
 
 - It says what changed for a host, in a sentence a host understands without
   the code: the name of what is new, what it does, what it replaces.
