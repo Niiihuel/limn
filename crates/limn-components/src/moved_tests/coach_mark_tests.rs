@@ -1,6 +1,21 @@
+// Staged by the crate split, not yet a module of this crate: these tests
+// build their trees with `CoachMark` and `Tour`, which live here now.
+//
+// Came from: the whole of `crates/limn-core/src/coach_mark_tests.rs`, a
+// child module of `tree` there; all 18 tests, unchanged. Its `use super::*`
+// (the engine's `tree` module) is replaced by `use crate::*` and the clock.
+//
+// Engine items they use that `limn-core` does not make public:
+// - `COACH_RING_GAP`, `COACH_RING_WIDTH`, `COACH_CARET`: private consts in `tree.rs`.
+// - `UiTree::visual_animation_repaint_after_at(Instant)`: private method in
+//   `tree.rs`; the public `animation_repaint_after` reads `Instant::now()` and
+//   adds the caret, so it is no equivalent.
+// - `UiTree::coach_motion` (private field), its private type `CoachMotion`
+//   and that type's `values` field, read by
+//   `reduced_motion_puts_a_new_step_in_place_at_once`.
 //! A coach mark is anchored to controls it does not wrap, by their IDs.
-use super::*;
-use crate::{CoachMark, Component, ComponentPalette, Tour, TourStep};
+use crate::*;
+use web_time::{Duration, Instant};
 
 const VIEWPORT: Size = Size::new(800.0, 600.0);
 const RADIUS: f32 = 5.0;

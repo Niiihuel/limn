@@ -9,11 +9,11 @@
 //! # struct State; fn view(_: &State) {} fn request_repaint() {}
 //! # let state = State;
 //! // 1. First thing in `main`.
-//! limn::hot::connect();
+//! limn_core::hot::connect();
 //! // 2. Once, when the window exists: paint again when a patch lands.
-//! limn::hot::on_patch(request_repaint);
+//! limn_core::hot::on_patch(request_repaint);
 //! // 3. Every frame: build the view through the patch table.
-//! let root = limn::hot::call(|| view(&state));
+//! let root = limn_core::hot::call(|| view(&state));
 //! ```
 //!
 //! A patch replaces functions, not values: a new field on a live struct
@@ -82,9 +82,9 @@ impl Shape {
 ///
 /// ```no_run
 /// # struct State;
-/// let launched = limn::hot_shape!(State);
+/// let launched = limn_core::hot_shape!(State);
 /// // ... every frame:
-/// if limn::hot_shape!(State) != launched {
+/// if limn_core::hot_shape!(State) != launched {
 ///     // The state in memory is not a `State` any more.
 /// }
 /// ```
