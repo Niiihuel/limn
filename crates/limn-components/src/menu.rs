@@ -21,47 +21,8 @@ pub(crate) fn named_by_hint(element: Element) -> Element {
     }
 }
 
-/// The editor's context menu defines the visual standard for action menus.
-/// Selector menus can keep their own density and richer option content.
-pub(crate) mod action_style {
-    use crate::{BoxShadow, Color, ComponentPalette, Element, Point};
-
-    pub(crate) const ROW_HEIGHT: f32 = 26.0;
-    pub(crate) const INSET: f32 = 4.0;
-    pub(crate) const WIDTH: f32 = 352.0;
-    pub(crate) const MAX_HEIGHT: f32 = 480.0;
-    pub(crate) const LABEL_FONT_SIZE: f32 = 13.0;
-    pub(crate) const SHORTCUT_FONT_SIZE: f32 = 12.0;
-    pub(crate) fn row_radius() -> f32 {
-        crate::components::control_radius()
-    }
-    pub(crate) const HORIZONTAL_PADDING: f32 = 8.0;
-    pub(crate) const GAP: f32 = 8.0;
-    pub(crate) const SEPARATOR_HEIGHT: f32 = 9.0;
-    pub(crate) const SCROLLBAR_GUTTER: f32 = 14.0;
-    pub(crate) const HEADER_HEIGHT: f32 = 24.0;
-
-    pub(crate) fn surface(
-        content: Element,
-        palette: ComponentPalette,
-        width: f32,
-        height: Option<f32>,
-        inset: f32,
-        border: Option<Color>,
-        shadow: Option<BoxShadow>,
-    ) -> Element {
-        let shadow =
-            shadow.unwrap_or_else(|| BoxShadow::new(palette.shadow, Point::new(0.0, 6.0), 18.0, 0.0));
-        Element::panel(content)
-            .padding(inset)
-            .background(palette.surface)
-            .border(border.unwrap_or(palette.border), 1.0)
-            .radius(crate::components::surface_radius())
-            .shadow(shadow.color, shadow.offset, shadow.blur, shadow.spread)
-            .size(Some(width), height)
-            .clip_children()
-    }
-}
+// The engine paints its context menu with these, so it holds them.
+pub(crate) use limn_core::action_style;
 
 /// The width of a switch's track, which the check column takes in a menu
 /// with switches, in place of an icon's.

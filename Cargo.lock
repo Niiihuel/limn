@@ -2013,6 +2013,26 @@ dependencies = [
 name = "limn"
 version = "0.1.43"
 dependencies = [
+ "limn-components",
+ "limn-core",
+]
+
+[[package]]
+name = "limn-components"
+version = "0.1.43"
+dependencies = [
+ "limn-core",
+ "limn-editor",
+ "unicode-segmentation",
+ "unicode-width",
+ "url",
+ "web-time",
+]
+
+[[package]]
+name = "limn-core"
+version = "0.1.43"
+dependencies = [
  "dioxus-devtools",
  "foldhash 0.2.0",
  "limn-editor",
@@ -2022,7 +2042,6 @@ dependencies = [
  "unicode-linebreak",
  "unicode-segmentation",
  "unicode-width",
- "url",
  "web-time",
 ]
 

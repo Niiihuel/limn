@@ -1,0 +1,31 @@
+[package]
+name = "limn-components"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "The design that ships with limn: every component, built on limn-core"
+
+[lints]
+workspace = true
+
+[features]
+default = ["syntax", "bundled-fonts"]
+# As limn-core's: its own faces, and Tree-sitter highlighting.
+bundled-fonts = ["limn-core/bundled-fonts"]
+syntax = ["limn-core/syntax"]
+
+[dependencies]
+limn-core = { version = "0.1.43", path = "../limn-core", default-features = false }
+# The standard clock everywhere but a browser, where std's panics.
+web-time = "1.1"
+unicode-segmentation = "1.12"
+unicode-width = "0.2"
+# Parses link destinations; nothing is ever fetched.
+url = "2"
+
+[dev-dependencies]
+limn-editor = { version = "0.1.43", path = "../limn-editor" }

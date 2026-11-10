@@ -8,7 +8,7 @@ repository.workspace = true
 readme = "README.md"
 keywords.workspace = true
 categories.workspace = true
-description = "Original retained-state UI tree, layout, events and backend-neutral drawing"
+description = "A native UI library: the limn engine and the components that ship with it, under one name"
 
 [lints]
 workspace = true
@@ -17,31 +17,12 @@ workspace = true
 default = ["syntax", "bundled-fonts"]
 # The faces `Fonts::bundled` lays text out in: Ubuntu, Hack and three Noto
 # fallbacks, 4.9 MB. Without it the host gives its own with `set_fonts`.
-bundled-fonts = []
+bundled-fonts = ["limn-core/bundled-fonts", "limn-components/bundled-fonts"]
 # Tree-sitter highlighting. Without it code views fall back to the line lexer.
-syntax = ["dep:limn-language"]
-# Hot reload under `dx serve --hot-patch`; see `limn::hot`. Development only:
-# these two must be the version of the `dx` binary, so they are pinned.
-hot = ["dep:subsecond", "dep:dioxus-devtools"]
+syntax = ["limn-core/syntax", "limn-components/syntax"]
+# Hot reload under `dx serve --hot-patch`; see `limn::hot`. Development only.
+hot = ["limn-core/hot"]
 
 [dependencies]
-# The standard clock everywhere but a browser, where std's panics.
-web-time = "1.1"
-# Hashes the layout's own tables: SipHash took a third of a long list's
-# layout. Already built for parley through hashbrown, so it adds no crate.
-foldhash = "0.2"
-limn-editor = { version = "0.1.43", path = "../limn-editor" }
-limn-language = { version = "0.1.43", path = "../limn-language", optional = true }
-# Lays text out: shaping, line breaking, bidi and the caret's place. Only
-# the text module names it; nothing of it is in limn's own API.
-parley = { version = "0.12", default-features = false, features = ["std"] }
-unicode-linebreak = "0.1.5"
-unicode-segmentation = "1.12"
-unicode-width = "0.2"
-# Parses link destinations; nothing is ever fetched.
-url = "2"
-
-# Only where a process can be patched: not in a browser.
-[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-subsecond = { version = "=0.7.9", optional = true }
-dioxus-devtools = { version = "=0.7.9", optional = true }
+limn-core = { version = "0.1.43", path = "../limn-core", default-features = false }
+limn-components = { version = "0.1.43", path = "../limn-components", default-features = false }

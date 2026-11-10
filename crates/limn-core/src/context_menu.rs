@@ -2,7 +2,7 @@
 //! dismissal and keyboard navigation; hosts own the meaning of custom IDs.
 //! Original native implementation; UX reference: Rust/UI Context Menu.
 
-use crate::menu::action_style::{
+use crate::action_style::{
     self, GAP, HORIZONTAL_PADDING, SCROLLBAR_GUTTER, SEPARATOR_HEIGHT,
 };
 use crate::{Access, Color, Component, ComponentPalette, Element, FontFamily, Icon, Kbd, Role, ScrollArea};

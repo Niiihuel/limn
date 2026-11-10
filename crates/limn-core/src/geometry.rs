@@ -140,3 +140,57 @@ mod tests {
         assert_eq!(a.intersection(Rect::new(20.0, 0.0, 1.0, 1.0)), None);
     }
 }
+
+/// A length a host gave, made safe: one that is not finite reads as zero, and
+/// so does a negative one.
+#[doc(hidden)]
+pub fn px(value: f32) -> f32 {
+    if value.is_finite() {
+        value.max(0.0)
+    } else {
+        0.0
+    }
+}
+
+/// `from` moved toward `to` by `amount` of 255.
+#[doc(hidden)]
+pub fn blend(from: Color, to: Color, amount: u16) -> Color {
+    let channel = |a: u8, b: u8| ((u16::from(a) * (255 - amount) + u16::from(b) * amount + 127) / 255) as u8;
+    Color::rgb(channel(from.r, to.r), channel(from.g, to.g), channel(from.b, to.b))
+}
+
+/// The contrast ratio of two colors, from 1 to 21.
+#[doc(hidden)]
+pub fn contrast(a: Color, b: Color) -> f32 {
+    let luminance = |color: Color| {
+        let channel = |value: u8| {
+            let value = f32::from(value) / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+        0.2126 * channel(color.r) + 0.7152 * channel(color.g) + 0.0722 * channel(color.b)
+    };
+    let (a, b) = (luminance(a), luminance(b));
+    (a.max(b) + 0.05) / (a.min(b) + 0.05)
+}
+
+/// `candidate` as it looks on `surface`, moved toward white or black until it
+/// stands at `minimum` contrast on it. The rule a chip and an alert keep their inks
+/// to, so both correct a color of one tone alike.
+#[doc(hidden)]
+pub fn readable_ink(candidate: Color, surface: Color, minimum: f32) -> Color {
+    let candidate = blend(surface, Color::rgb(candidate.r, candidate.g, candidate.b), u16::from(candidate.a));
+    if contrast(candidate, surface) >= minimum {
+        return candidate;
+    }
+    let black = Color::rgb(0, 0, 0);
+    let end = if contrast(Color::WHITE, surface) >= contrast(black, surface) { Color::WHITE } else { black };
+    (8..=248)
+        .step_by(8)
+        .map(|amount| blend(candidate, end, amount))
+        .find(|ink| contrast(*ink, surface) >= minimum)
+        .unwrap_or(end)
+}

@@ -4785,6 +4785,12 @@ fn visual_cursor(lines: &[VisualLine], cursor: usize) -> (usize, usize) {
     )
 }
 
+/// Whether `id` is one a code block made for itself, having none of its own:
+/// its horizontal scroll belongs to the tree it was built in, not to the next.
+fn is_anonymous_code_scroll_id(id: &str) -> bool {
+    id.strip_prefix("markdown:").unwrap_or(id).starts_with("code_block:auto:")
+}
+
 /// The retained state and last laid-out frame of an application surface.
 pub struct UiTree {
     paste_epoch: Arc<()>,
@@ -5099,7 +5105,7 @@ impl UiTree {
         self.root = root;
         self.action_aliases.clear();
         // Anonymous code viewports belong to the replaced instance; explicit IDs retain state.
-        self.horizontal_scrolls.retain(|id, _| !crate::code_block::is_anonymous_code_scroll_id(id));
+        self.horizontal_scrolls.retain(|id, _| !is_anonymous_code_scroll_id(id));
     }
 
     /// The text a text input or text area holds now. `None` until a field

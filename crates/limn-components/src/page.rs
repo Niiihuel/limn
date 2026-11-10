@@ -6,13 +6,7 @@ use crate::{
 };
 
 // A profile is plain data from the host; a bad number stops here.
-pub(crate) fn px(value: f32) -> f32 {
-    if value.is_finite() {
-        value.max(0.0)
-    } else {
-        0.0
-    }
-}
+pub(crate) use limn_core::px;
 
 fn sans(value: String, size: f32, truncate: bool) -> Element {
     if truncate {
