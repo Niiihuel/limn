@@ -28,6 +28,8 @@ pub struct AlertDialog {
     closable: bool,
     scrim: Option<Color>,
     title_gap: Option<f32>,
+    title_size: f32,
+    title_family: FontFamily,
     button_sizing: ButtonSizing,
     animation_ms: u16,
     body: Option<Element>,
@@ -67,6 +69,8 @@ impl AlertDialog {
             closable: true,
             scrim: None,
             title_gap: None,
+            title_size: 16.0,
+            title_family: FontFamily::Sans,
             button_sizing: ControlSize::Compact.button_sizing(),
             animation_ms: crate::tokens().motion.enter_ms,
             body: None,
@@ -146,6 +150,18 @@ impl AlertDialog {
     /// The space under the title row; see [`Modal::title_gap`].
     pub fn title_gap(mut self, gap: f32) -> Self {
         self.title_gap = Some(gap);
+        self
+    }
+
+    /// The title's size in logical pixels; see [`Modal::title_size`].
+    pub fn title_size(mut self, size: f32) -> Self {
+        self.title_size = size;
+        self
+    }
+
+    /// The title's face; see [`Modal::title_family`].
+    pub fn title_family(mut self, family: FontFamily) -> Self {
+        self.title_family = family;
         self
     }
 
@@ -271,6 +287,8 @@ impl Component for AlertDialog {
         .initial_focus(self.cancel_id)
         .backdrop_dismiss(false)
         .closable(self.closable)
+        .title_size(self.title_size)
+        .title_family(self.title_family)
         .animation_ms(self.animation_ms);
         if let Some(color) = self.scrim {
             modal = modal.scrim(color);
@@ -371,6 +389,26 @@ mod tests {
             assert_eq!(rect.height, 30.0);
         }
         assert!(frame.commands.iter().any(|c| matches!(c, DrawCommand::Text { text, font_size, .. } if text == "Cancel" && *font_size == 14.0)));
+    }
+
+    #[test]
+    fn the_title_takes_the_size_and_face_asked_for_and_keeps_16_regular_otherwise() {
+        let title = |dialog: AlertDialog| {
+            let mut tree = UiTree::new(dialog.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(800.0, 600.0));
+            frame.commands.iter().find_map(|c| match c {
+                // Broken into pieces at 96 px.
+                DrawCommand::Text { text, font_size, font_family, .. } if "¿Confirmas?".starts_with(text.as_str()) => Some((*font_size, *font_family)),
+                _ => None,
+            }).unwrap()
+        };
+        let dialog = || AlertDialog::new(Element::spacer(), true, "¿Confirmas?", "", "ok", "cancel", ComponentPalette::neutral_dark());
+        assert_eq!(title(dialog()), (16.0, FontFamily::Sans));
+        assert_eq!(title(dialog().title_size(20.0).title_family(FontFamily::SansSemibold)), (20.0, FontFamily::SansSemibold));
+        // Through the modal's own checks: not finite or not positive is ignored, the rest kept to 8..=96.
+        assert_eq!([f32::NAN, f32::INFINITY, 0.0, -3.0].map(|size| title(dialog().title_size(size)).0), [16.0; 4]);
+        assert_eq!((title(dialog().title_size(2.0)).0, title(dialog().title_size(400.0)).0), (8.0, 96.0));
     }
 
     #[test]

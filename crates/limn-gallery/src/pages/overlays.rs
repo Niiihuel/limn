@@ -145,6 +145,8 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 trigger(cx, "overlay-alert=open", "Open confirmation"),
             ]),
             caption(cx, &format!("Confirmation: {}", state.text("overlay-alert"))),
+            row(vec![trigger(cx, "overlay-question=open", "Open a chat app's question")]),
+            caption(cx, ".title_size(20.0).title_family(FontFamily::SansSemibold).scrim(black at 72 %)"),
         ]),
         section(cx, "Bottom sheet", vec![
             row(vec![trigger(cx, "overlay-sheet=open", "Open bottom sheet")]),
@@ -352,6 +354,20 @@ pub fn layers(cx: &Cx, base: Element) -> Element {
     .confirm_label("Delete")
     .cancel_label("Cancel")
     .destructive(Color::rgb(161, 67, 71))
+    .render();
+    let base = AlertDialog::new(
+        base,
+        state.text("overlay-question") == "open",
+        "Leave the voice channel?",
+        "Updating now ends your call.",
+        "overlay-question=confirmed",
+        "overlay-question=cancelled",
+        palette,
+    )
+    .confirm_label("Update anyway")
+    .title_size(20.0)
+    .title_family(FontFamily::SansSemibold)
+    .scrim(Color::rgba(0, 0, 0, 184))
     .render();
     let toasts = if state.text("overlay-toast") == "shown" {
         vec![
