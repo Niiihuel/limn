@@ -1,0 +1,503 @@
+//! A brief, caller-timed card announcing an event in a corner of the window.
+
+use crate::{
+    Access, AlertColors, AlertTone, Button, ButtonSize, ButtonVariant, Component,
+    ComponentPalette, ControlSize, Element, FontFamily, Icon, IconButton, Point, Progress, Role,
+};
+
+const EDGE_INSET: f32 = 12.0;
+
+/// One announcement. The host decides when it appears and when it goes away;
+/// the card itself has no timer and never takes keyboard focus.
+pub struct Toast {
+    id: Option<String>,
+    title: String,
+    description: String,
+    tone: AlertTone,
+    palette: ComponentPalette,
+    action: Option<String>,
+    dismiss: Option<String>,
+    width: f32,
+    icon: Option<Icon>,
+    buttons: Vec<(String, String)>,
+    progress: Option<f32>,
+}
+
+impl Toast {
+    /// A neutral toast 360 wide with this title and no description, action or close button.
+    pub fn new(title: impl Into<String>, palette: ComponentPalette) -> Self {
+        Self {
+            id: None,
+            title: title.into(),
+            description: String::new(),
+            tone: AlertTone::Neutral,
+            palette,
+            action: None,
+            dismiss: None,
+            width: 360.0,
+            icon: None,
+            buttons: Vec::new(),
+            progress: None,
+        }
+    }
+
+    /// Tell this toast from another with the same title. Two shown at once
+    /// are told apart by their titles unless each has an ID: with neither,
+    /// they would appear and leave as one.
+    pub fn id(mut self, id: impl Into<String>) -> Self {
+        self.id = Some(id.into());
+        self
+    }
+
+    /// A muted line under the title, which is also the toast's description to the platform.
+    /// A blank one is left out.
+    pub fn description(mut self, description: impl Into<String>) -> Self {
+        self.description = description.into();
+        self
+    }
+
+    /// Colours the title; the surface stays neutral.
+    pub fn tone(mut self, tone: AlertTone) -> Self {
+        self.tone = tone;
+        self
+    }
+
+    /// Makes the card's copy a single click target dispatching `id`.
+    pub fn action(mut self, id: impl Into<String>) -> Self {
+        self.action = Some(id.into());
+        self
+    }
+
+    /// Adds a close button dispatching `id`.
+    pub fn dismissible(mut self, id: impl Into<String>) -> Self {
+        self.dismiss = Some(id.into());
+        self
+    }
+
+    /// A glyph before the copy, in the tone's colour: what kind of notice it is.
+    pub fn icon(mut self, icon: Icon) -> Self {
+        self.icon = Some(icon);
+        self
+    }
+
+    /// Adds a button under the copy, at the card's right edge, dispatching
+    /// `id`. The first one added is the primary action and the rest are
+    /// secondary, in the order added.
+    pub fn button(mut self, id: impl Into<String>, label: impl Into<String>) -> Self {
+        self.buttons.push((id.into(), label.into()));
+        self
+    }
+
+    /// A thin bar along the card's lower edge with the share of work done,
+    /// from 0 to 1, as [`Progress`] takes it.
+    pub fn progress(mut self, fraction: f32) -> Self {
+        self.progress = Some(fraction);
+        self
+    }
+
+    /// Set the card's width in logical pixels, never below 120 (360 by default). A value
+    /// that is not finite is ignored.
+    pub fn width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.width = width.max(120.0);
+        }
+        self
+    }
+
+    /// Floats `toasts` over `base`, stacked upward from the bottom right
+    /// corner and `bottom_inset` above the window's lower edge. Everything
+    /// outside the cards stays interactive.
+    pub fn layer(base: Element, toasts: Vec<Element>, bottom_inset: f32) -> Element {
+        if toasts.is_empty() {
+            return base;
+        }
+        // An inset that is not a number is none.
+        let bottom_inset = crate::page::px(bottom_inset);
+        Element::overlay(
+            base,
+            Element::column(vec![
+                Element::spacer().flex(1.0),
+                Element::row(vec![
+                    Element::spacer().flex(1.0),
+                    Element::column(toasts).gap(8.0),
+                    Element::spacer().size(Some(EDGE_INSET), None),
+                ]),
+                Element::spacer().size(None, Some(bottom_inset.max(0.0))),
+            ]),
+        )
+    }
+}
+
+impl Component for Toast {
+    fn render(self) -> Element {
+        // The card fades in when it appears and out in place when the host
+        // drops it, and is known between frames by its ID, or by its title.
+        let presence = format!("toast:{}", self.id.as_deref().unwrap_or(&self.title));
+        // The platform knows the card as it is known between frames.
+        let said = Access::new(Role::Alert)
+            .id(self.id.clone().unwrap_or_else(|| presence.clone()))
+            .name(self.title.clone());
+        let said = if self.description.trim().is_empty() {
+            said
+        } else {
+            said.description(self.description.clone())
+        };
+        let colors = AlertColors::for_tone(self.tone, self.palette);
+        // Copy wraps inside the card's width and the card grows downward: a
+        // notice is never cut with an ellipsis.
+        let line = |value: String, size: f32, color| {
+            Element::text(value)
+                .font_family(FontFamily::Sans)
+                .font_size(size)
+                .foreground(color)
+        };
+        let title_ink = if self.tone == AlertTone::Neutral {
+            colors.title
+        } else {
+            colors.accent
+        };
+        let mut copy = vec![line(self.title, 13.0, title_ink)];
+        if !self.description.trim().is_empty() {
+            copy.push(line(self.description, 12.0, self.palette.muted));
+        }
+        let copy = Element::column(copy).gap(3.0).padding(12.0);
+        let copy = match self.action {
+            Some(id) => self
+                .palette
+                .interactive_surface(Element::clickable(id, copy)),
+            None => copy,
+        };
+        let mut cells = Vec::new();
+        if let Some(icon) = self.icon {
+            // Level with the title's first line, however far the copy wraps.
+            let tint = if self.tone == AlertTone::Neutral {
+                self.palette.muted
+            } else {
+                colors.accent
+            };
+            cells.push(Element::spacer().size(Some(12.0), None));
+            cells.push(Element::column(vec![
+                Element::spacer().size(None, Some(13.0)),
+                Element::icon(icon).foreground(tint).size(Some(16.0), Some(16.0)),
+            ]));
+        }
+        cells.push(copy.flex(1.0));
+        if let Some(id) = self.dismiss {
+            // The row stretches its cells, so the button is held in the middle
+            // of the card: its hover square stays centered on the glyph and on
+            // the copy beside it, whatever the card's height.
+            cells.push(Element::column(vec![
+                Element::spacer().flex(1.0),
+                IconButton::new(id, Icon::Close, self.palette)
+                    .button_size(ButtonSize::IconSmall)
+                    .variant(ButtonVariant::Ghost)
+                    .render()
+                    .accessibility_label(crate::labels().dismiss_notice),
+                Element::spacer().flex(1.0),
+            ]));
+            cells.push(Element::spacer().size(Some(8.0), None));
+        }
+        let mut card = vec![Element::row(cells).gap(2.0)];
+        if !self.buttons.is_empty() {
+            let mut row = vec![Element::spacer().flex(1.0)];
+            let edge = || Element::spacer().size(Some(12.0), Some(12.0));
+            for (index, (id, label)) in self.buttons.into_iter().enumerate() {
+                row.push(
+                    Button::new(id, label, self.palette)
+                        .variant(if index == 0 { ButtonVariant::Default } else { ButtonVariant::Secondary })
+                        .size(ControlSize::Dense)
+                        .render(),
+                );
+            }
+            row.push(edge());
+            card.push(Element::row(row).gap(6.0));
+            card.push(edge());
+        }
+        if let Some(fraction) = self.progress {
+            card.push(Progress::new(fraction, self.palette).height(2.0).flat().render());
+        }
+        Element::column(card)
+            .clip_children()
+            .background(self.palette.raised)
+            .border(self.palette.border, 1.0)
+            .radius(crate::surface_radius())
+            .shadow(self.palette.shadow, Point::new(0.0, 3.0), 10.0, 0.0)
+            .size(Some(self.width), None)
+            .animate_presence(presence)
+            .accessible(said)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{DrawCommand, Frame, Size, UiAction, UiEvent, UiTree};
+
+    fn texts(frame: &Frame) -> Vec<&str> {
+        frame
+            .commands
+            .iter()
+            .filter_map(|command| match command {
+                DrawCommand::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_card_is_an_alert_named_by_its_title_and_its_close_button_has_a_name() {
+        let palette = ComponentPalette::neutral_dark();
+        let card = Toast::new("Copia guardada", palette)
+            .id("saved")
+            .description("En Documentos.")
+            .action("open")
+            .dismissible("close");
+        let frame = UiTree::new(Toast::layer(base(), vec![card.render()], 0.0)).layout(Size::new(800.0, 500.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let said = node("saved");
+        assert_eq!((said.role, said.name.as_str()), (Role::Alert, "Copia guardada"));
+        assert_eq!(said.description.as_deref(), Some("En Documentos."));
+        assert!(!said.actionable);
+        assert_eq!((node("open").role, node("open").name.as_str()), (Role::Button, "Copia guardada En Documentos."));
+        assert_eq!((node("close").role, node("close").name.as_str()), (Role::Button, crate::labels().dismiss_notice));
+        // Without an ID it is known as it is between frames: by its title.
+        let untold = UiTree::new(Toast::new("Listo", palette).render()).layout(Size::new(800.0, 500.0));
+        assert_eq!((untold.access[0].id.as_str(), untold.access[0].description.as_deref()), ("toast:Listo", None));
+    }
+
+    fn base() -> Element {
+        Element::clickable("base", Element::spacer()).size(Some(800.0), Some(500.0))
+    }
+
+    #[test]
+    fn cards_stack_in_the_bottom_right_corner_without_blocking_the_window() {
+        let palette = ComponentPalette::neutral_dark();
+        let size = Size::new(800.0, 500.0);
+        let untouched = UiTree::new(Toast::layer(base(), Vec::new(), 36.0)).layout(size);
+        assert_eq!(untouched.regions.len(), 1);
+
+        let toasts = vec![
+            Toast::new("Turno fallido", palette)
+                .description("Migrar la base")
+                .tone(AlertTone::Error)
+                .action("open:1")
+                .dismissible("close:1")
+                .render(),
+            Toast::new("Turno completado", palette)
+                .action("open:2")
+                .render(),
+        ];
+        let mut tree = UiTree::new(Toast::layer(base(), toasts, 36.0));
+        let frame = tree.layout(size);
+        assert_eq!(texts(&frame), ["Turno fallido", "Migrar la base", "Turno completado"]);
+        let rect = |id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+        let (first, second) = (rect("open:1"), rect("open:2"));
+        assert!(first.y + first.height <= second.y, "cards do not overlap");
+        assert!(second.y + second.height <= 500.0 - 36.0);
+        for card in [first, second] {
+            assert!(card.x >= 800.0 - EDGE_INSET - 360.0 && card.x + card.width <= 800.0 - EDGE_INSET);
+        }
+        assert_eq!(frame.hit_test(Point::new(100.0, 100.0)), Some("base"));
+        assert!(!frame.regions.iter().any(|region| region.id == "close:2"));
+
+        // The error title takes the status colour; neutral copy keeps the text ink.
+        let ink = |label: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, color, .. } if text == label => Some(*color),
+                _ => None,
+            })
+        };
+        assert_ne!(ink("Turno fallido"), ink("Turno completado"));
+
+        for id in ["open:1", "close:1", "open:2"] {
+            let target = rect(id);
+            let point = Point::new(target.x + target.width / 2.0, target.y + target.height / 2.0);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(
+                tree.handle_event(UiEvent::PointerUp(point)),
+                [UiAction::Clicked { id: id.into() }]
+            );
+        }
+    }
+
+    #[test]
+    fn buttons_sit_under_the_copy_primary_first_and_the_progress_bar_spans_the_lower_edge() {
+        let palette = ComponentPalette::neutral_dark();
+        let card = Toast::new("Actualización lista", palette)
+            .icon(Icon::InfoCircle)
+            .description("Se instala al reiniciar.")
+            .dismissible("close")
+            .button("restart", "Reiniciar")
+            .button("later", "Más tarde")
+            .progress(0.5)
+            .render();
+        let mut tree = UiTree::new(Toast::layer(base(), vec![card], 0.0));
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 500.0));
+        assert_eq!(texts(&frame), ["Actualización lista", "Se instala al reiniciar.", "Reiniciar", "Más tarde"]);
+        let rect = |id: &str| frame.regions.iter().find(|region| region.id == id).unwrap().rect;
+        let (restart, later, close) = (rect("restart"), rect("later"), rect("close"));
+        assert!(restart.x + restart.width <= later.x, "the primary comes first");
+        assert!(later.x + later.width <= 800.0 - EDGE_INSET - 12.0 + 0.01, "{later:?}");
+        assert!(restart.y > close.y + close.height - 0.01, "under the copy");
+        assert!(frame.commands.iter().any(|command| matches!(command, DrawCommand::Icon { icon: Icon::InfoCircle, .. })));
+        // The filled half of the bar: as wide as half the card, on its lower edge.
+        let surface = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, radius, .. } if *radius == crate::surface_radius() => Some(*rect),
+                _ => None,
+            })
+            .unwrap();
+        let fill = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, color, .. }
+                    if *color == palette.text && (rect.height - 2.0).abs() < 0.01 =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .expect("progress fill");
+        assert!((fill.width - surface.width / 2.0).abs() < 1.5, "{fill:?} of {surface:?}");
+        assert!((fill.y + fill.height - (surface.y + surface.height)).abs() < 1.5, "{fill:?} of {surface:?}");
+        for id in ["restart", "later"] {
+            let target = rect(id);
+            let point = Point::new(target.x + target.width / 2.0, target.y + target.height / 2.0);
+            tree.handle_event(UiEvent::PointerDown(point));
+            assert_eq!(tree.handle_event(UiEvent::PointerUp(point)), [UiAction::Clicked { id: id.into() }]);
+        }
+    }
+
+    #[test]
+    fn long_copy_wraps_and_the_card_grows_instead_of_cutting_it() {
+        let palette = ComponentPalette::neutral_dark();
+        let height = |title: &str| {
+            let toast = Toast::new(title, palette).dismissible("close").render();
+            let mut tree = UiTree::new(Element::column(vec![toast, Element::spacer().flex(1.0)]));
+            tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 8.0);
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(800.0, 600.0));
+            assert!(texts(&frame).iter().all(|text| !text.contains('…')), "{:?}", texts(&frame));
+            let painted: String = texts(&frame).join(" ");
+            assert!(painted.split_whitespace().eq(title.split_whitespace()), "{painted}");
+            // The dismiss button sits at the card's middle: it moves down as
+            // the card grows with its copy.
+            let close = frame.regions.iter().find(|region| region.id == "close").unwrap().rect;
+            close.y + close.height / 2.0
+        };
+        let short = height("Listo");
+        let long = height("Acceso completo habilitado para los próximos turnos de esta conversación en este proyecto");
+        assert!(long > short + 8.0, "{long} vs {short}");
+    }
+
+    #[test]
+    fn a_card_without_actions_is_passive_and_respects_its_width() {
+        let card = Toast::new("Guardado", ComponentPalette::neutral_dark())
+            .description("   ")
+            .width(40.0)
+            .render();
+        let mut tree = UiTree::new(Toast::layer(base(), vec![card], 0.0));
+        // Checked at rest, not partway through its entrance.
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 500.0));
+        assert_eq!(texts(&frame), ["Guardado"]);
+        assert_eq!(frame.regions.len(), 1, "only the base is interactive");
+        let surface = frame
+            .commands
+            .iter()
+            .find_map(|command| match command {
+                DrawCommand::FillRect { rect, radius, .. }
+                    if *radius == crate::surface_radius() =>
+                {
+                    Some(*rect)
+                }
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(surface.width, 120.0);
+        assert!((surface.y + surface.height - 500.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_card_fades_in_and_lingers_fading_once_the_host_drops_it() {
+        use web_time::{Duration, Instant};
+        let palette = ComponentPalette::neutral_dark();
+        let shown = || {
+            Toast::layer(base(), vec![Toast::new("Guardado", palette).render()], 0.0)
+        };
+        // Opacity of the card's surface, or none when it is not painted.
+        let surface = |frame: &crate::Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::FillRect { color, radius, .. }
+                    if *radius == crate::surface_radius() =>
+                {
+                    Some(color.a)
+                }
+                _ => None,
+            })
+        };
+        let size = Size::new(800.0, 500.0);
+        let start = Instant::now();
+        let after = |ms| start + Duration::from_millis(ms);
+        let mut tree = UiTree::new(shown());
+        assert_eq!(surface(&tree.layout_at(size, start)), Some(0));
+        let entering = surface(&tree.layout_at(size, after(40))).unwrap();
+        assert!(entering > 0 && entering < 255, "{entering}");
+        assert_eq!(surface(&tree.layout_at(size, after(200))), Some(255));
+
+        tree.set_root(base());
+        // The frame that drops the card still shows it whole, then it fades.
+        assert_eq!(surface(&tree.layout_at(size, after(240))), Some(255));
+        let leaving = surface(&tree.layout_at(size, after(290))).unwrap();
+        assert!(leaving > 0 && leaving < 255, "{leaving}");
+        assert_eq!(surface(&tree.layout_at(size, after(500))), None);
+
+        // Reduced motion shows and removes the card at once.
+        let mut still = UiTree::new(shown());
+        still.set_reduced_motion(true);
+        assert_eq!(surface(&still.layout_at(size, start)), Some(255));
+        still.set_root(base());
+        assert_eq!(surface(&still.layout_at(size, after(10))), None);
+    }
+
+    #[test]
+    fn ids_let_same_title_cards_leave_independently() {
+        use web_time::{Duration, Instant};
+        let palette = ComponentPalette::neutral_dark();
+        let shown = |both| {
+            let mut cards = Vec::new();
+            if both {
+                cards.push(Toast::new("Saved", palette).id("first").description("First file").render());
+            }
+            cards.push(Toast::new("Saved", palette).id("second").description("Second file").render());
+            Toast::layer(base(), cards, 0.0)
+        };
+        let opacity = |frame: &Frame, label: &str| {
+            frame.commands.iter().find_map(|command| match command {
+                DrawCommand::Text { text, color, .. } if text == label => Some(color.a),
+                _ => None,
+            })
+        };
+        let size = Size::new(800.0, 500.0);
+        let start = Instant::now();
+        let after = |ms| start + Duration::from_millis(ms);
+        let mut tree = UiTree::new(shown(true));
+        tree.layout_at(size, start);
+        tree.layout_at(size, after(200));
+        tree.set_root(shown(false));
+        let dropped = tree.layout_at(size, after(240));
+        assert_eq!(opacity(&dropped, "First file"), Some(255), "the removed card starts its exit");
+        assert_eq!(opacity(&dropped, "Second file"), Some(255));
+        let leaving = tree.layout_at(size, after(290));
+        let first = opacity(&leaving, "First file").unwrap();
+        assert!(first > 0 && first < 255, "{first}");
+        assert_eq!(opacity(&leaving, "Second file"), Some(255), "the retained card stays visible");
+        let gone = tree.layout_at(size, after(500));
+        assert_eq!(opacity(&gone, "First file"), None);
+        assert_eq!(opacity(&gone, "Second file"), Some(255));
+    }
+}

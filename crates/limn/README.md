@@ -20,6 +20,10 @@ fn view(count: u32) -> Element {
 }
 ```
 
+`limn` is two crates under one name: `limn-core`, the engine, and
+`limn-components`, the design that ships with it. An application that wants
+a design of its own depends on `limn-core` alone.
+
 Keep one `UiTree` per window. Each frame, describe the interface, lay it out,
 deliver input, apply the resulting `UiAction` values to your application
 state, and paint the resulting `Frame`.

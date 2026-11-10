@@ -1,0 +1,1110 @@
+//! A reusable centered modal for forms and other multi-step content.
+
+use crate::{Component, ComponentPalette, Tooltip};
+use crate::{
+    Access, Color, CornerRadii, Element, FontFamily, Icon, Point, PopoverPlacement, Role, ScrollArea,
+    ScrollbarAppearance, TextSpan,
+};
+
+/// A shared compact close icon with a mouse/keyboard target.
+/// Hosts keep ownership of dismissal; this component only dispatches its action.
+pub struct DismissButton {
+    id: String,
+    action_id: Option<String>,
+    enabled: bool,
+    target_size: f32,
+    palette: ComponentPalette,
+}
+
+impl DismissButton {
+    /// A close button 24 logical pixels a side that reports `id` when clicked. Its name and
+    /// its hint are `Labels::close`.
+    pub fn new(id: impl Into<String>, palette: ComponentPalette) -> Self {
+        Self {
+            id: id.into(),
+            action_id: None,
+            enabled: true,
+            target_size: 24.0,
+            palette,
+        }
+    }
+
+    /// Report `action` instead of the button's own ID, which stays the ID of the control
+    /// and of its tooltip. A disabled button reports nothing.
+    pub fn dispatch_as(mut self, action: impl Into<String>) -> Self {
+        self.action_id = Some(action.into());
+        self
+    }
+
+    /// Enlarge the square pointer/keyboard target while keeping its icon
+    /// centered at 16 pixels. The default and minimum are 24; use 44 for touch.
+    /// A value that is not finite is ignored.
+    pub fn target_size(mut self, size: f32) -> Self {
+        if size.is_finite() { self.target_size = size.max(24.0); }
+        self
+    }
+
+    /// A disabled one is passive: the same icon and hint in the same place,
+    /// with no hover, hit region or focus, and nothing dispatched.
+    pub fn enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+
+    /// Disable it; the same as `enabled(false)`.
+    pub fn disabled(self) -> Self {
+        self.enabled(false)
+    }
+}
+
+impl Component for DismissButton {
+    fn render(self) -> Element {
+        let icon = Element::column(vec![
+            Element::spacer().flex(1.0),
+            Element::row(vec![
+                Element::spacer().flex(1.0),
+                Element::icon(Icon::Close)
+                    .foreground(self.palette.muted)
+                    .size(Some(16.0), Some(16.0)),
+                Element::spacer().flex(1.0),
+            ])
+            .size(None, Some(16.0)),
+            Element::spacer().flex(1.0),
+        ]);
+        // An icon alone: its hint is its name.
+        let said = Access::new(Role::Button).name(crate::labels().close);
+        let mut button = if self.enabled {
+            self.palette
+                .interactive_surface(Element::clickable(self.id.clone(), icon))
+                .accessible(said)
+        } else {
+            Element::panel(icon).accessible(said.id(self.id.clone()).disabled(true))
+        }
+        .size(Some(self.target_size), Some(self.target_size));
+        if let Some(action) = self.action_id.filter(|_| self.enabled) {
+            button = button.dispatch_as(action);
+        }
+        Tooltip::new(button, self.id, crate::labels().close, self.palette)
+            .shortcut("Esc")
+            .render()
+    }
+}
+
+// The card's inset and the rail its body reserves for the scrollbar.
+const PADDING: f32 = 14.0;
+const RAIL_WIDTH: f32 = 14.0;
+// The least space kept between the card and the window, both sides together.
+const VIEWPORT_MARGIN: f32 = 24.0;
+/// The header of a modal whose body reaches the card's edges.
+const FLUSH_HEADER: f32 = 44.0;
+/// The card's outline, in logical pixels.
+const OUTLINE: f32 = 1.0;
+/// The corner of a modal in glass, as iOS 26's alerts and route picker are drawn, measured
+/// off an iPhone's screen.
+const GLASS_RADIUS: f32 = 32.0;
+/// `from` toward `to` by `share`, opaque.
+fn mix(from: Color, to: Color, share: f32) -> Color {
+    let channel = |a: u8, b: u8| (f32::from(a) + (f32::from(b) - f32::from(a)) * share).round() as u8;
+    Color::rgb(channel(from.r, to.r), channel(from.g, to.g), channel(from.b, to.b))
+}
+
+/// How long an iOS sheet takes to go down past the foot of the screen.
+const SHEET_CLOSE_MS: u16 = 340;
+
+struct SheetLayout {
+    max_height: f32,
+    safe_area_bottom: f32,
+}
+
+/// A controlled modal with a fixed header and footer. Only the body scrolls,
+/// up to `height` or to 480 without one, keeping its actions visible in a
+/// short viewport.
+pub struct Modal {
+    base: Element,
+    open: bool,
+    title: String,
+    description: String,
+    close_id: String,
+    palette: ComponentPalette,
+    width: f32,
+    height: Option<f32>,
+    body: Option<Element>,
+    footer: Option<Element>,
+    initial_focus: Option<String>,
+    return_focus: Option<String>,
+    backdrop_dismiss: bool,
+    closable: bool,
+    scrim: Color,
+    outline: Option<Color>,
+    title_gap: f32,
+    title_size: f32,
+    title_family: FontFamily,
+    flush: bool,
+    headless: bool,
+    animation_ms: u16,
+    role: Role,
+    spoken_description: String,
+    sheet: Option<SheetLayout>,
+    glass: Option<crate::GlassMaterial>,
+    /// A bottom sheet drawn and moving as iOS 26's.
+    ios: Option<crate::SheetSpec>,
+    /// Its prominent confirmation at the header's end: what it reports, its name, and
+    /// whether it can be pressed.
+    confirm: Option<(String, String, bool)>,
+}
+
+impl Modal {
+    /// A modal over `base`, drawn only while `open`; closed, it renders `base` alone. The
+    /// close button reports `close_id`, which also prefixes the modal's own IDs,
+    /// `{close_id}:close` and `{close_id}:dialog`. An empty `description` is left out. The
+    /// card is 520 wide by default.
+    pub fn new(
+        base: Element,
+        open: bool,
+        title: impl Into<String>,
+        description: impl Into<String>,
+        close_id: impl Into<String>,
+        palette: ComponentPalette,
+    ) -> Self {
+        Self {
+            base,
+            open,
+            title: title.into(),
+            description: description.into(),
+            close_id: close_id.into(),
+            palette,
+            width: 520.0,
+            height: None,
+            body: None,
+            footer: None,
+            initial_focus: None,
+            return_focus: None,
+            backdrop_dismiss: false,
+            closable: true,
+            scrim: Color::rgba(0, 0, 0, 180),
+            outline: None,
+            title_gap: 10.0,
+            title_size: 16.0,
+            title_family: FontFamily::Sans,
+            flush: false,
+            headless: false,
+            animation_ms: crate::tokens().motion.enter_ms,
+            role: Role::Dialog,
+            spoken_description: String::new(),
+            sheet: None,
+            glass: None,
+            ios: None,
+            confirm: None,
+        }
+    }
+
+    /// Sample the host's backdrop through the dialog shell, keeping content sharp.
+    pub fn glass(mut self, material: crate::GlassMaterial) -> Self {
+        self.glass = Some(material);
+        self
+    }
+
+    /// An alert dialog shows its description in its body: say it is one,
+    /// described by that.
+    pub(crate) fn alert(mut self, description: &str) -> Self {
+        self.role = Role::AlertDialog;
+        self.spoken_description = description.to_owned();
+        self
+    }
+
+    /// Draw the bottom sheet as iOS 26's; see [`crate::BottomSheet::ios`].
+    pub(crate) fn ios_sheet(mut self, spec: crate::SheetSpec) -> Self {
+        self.ios = Some(spec);
+        self
+    }
+
+    /// The iOS sheet's prominent confirmation; see [`crate::BottomSheet::confirm`].
+    pub(crate) fn confirm(mut self, id: String, label: String, enabled: bool) -> Self {
+        self.confirm = Some((id, label, enabled));
+        self
+    }
+
+    // BottomSheet shares this composition, changing only its presentation.
+    pub(crate) fn bottom_sheet(mut self, max_height: f32, safe_area_bottom: f32) -> Self {
+        self.sheet = Some(SheetLayout { max_height, safe_area_bottom });
+        self
+    }
+
+    /// Set the card's width in logical pixels, never below 240 (520 by default). A value
+    /// that is not finite is ignored.
+    pub fn width(mut self, width: f32) -> Self {
+        if width.is_finite() {
+            self.width = width.max(240.0);
+        }
+        self
+    }
+
+    /// The width for a card that prefers `max` in a window `viewport_width`
+    /// wide: it gives way so the window's margin stays clear.
+    pub fn fit_width(viewport_width: f32, max: f32) -> f32 {
+        (viewport_width - VIEWPORT_MARGIN).min(max)
+    }
+
+    /// The width a body can count on in a card `modal_width` wide: what is
+    /// left inside the padding and the rail reserved while the body scrolls.
+    /// A body that does not scroll is laid out one rail wider.
+    pub fn body_width(modal_width: f32) -> f32 {
+        (modal_width - 2.0 * PADDING - RAIL_WIDTH).max(0.0)
+    }
+
+    /// The width of a body that fits its card without scrolling: no rail is
+    /// reserved, so it reaches the padding on both sides.
+    pub fn fitted_body_width(modal_width: f32) -> f32 {
+        (modal_width - 2.0 * PADDING).max(0.0)
+    }
+
+    /// Set a bounded card height. The body receives the remaining space and
+    /// becomes scrollable; the viewport can clamp the card further.
+    pub fn height(mut self, height: f32) -> Self {
+        if height.is_finite() {
+            self.height = Some(height.max(160.0));
+        }
+        self
+    }
+
+    /// The content between the header and the footer. It is the only part that scrolls.
+    pub fn body(mut self, body: Element) -> Self {
+        self.body = Some(body);
+        self
+    }
+
+    /// Content under the body, such as the row of actions. It does not scroll with the
+    /// body.
+    pub fn footer(mut self, footer: Element) -> Self {
+        self.footer = Some(footer);
+        self
+    }
+
+    /// The control inside the modal that takes focus when it opens.
+    pub fn initial_focus(mut self, id: impl Into<String>) -> Self {
+        self.initial_focus = Some(id.into());
+        self
+    }
+
+    /// The control that takes focus when the modal closes.
+    pub fn return_focus(mut self, id: impl Into<String>) -> Self {
+        self.return_focus = Some(id.into());
+        self
+    }
+
+    /// Whether a click on the backdrop dismisses the modal; off by default. The backdrop
+    /// blocks the content underneath either way.
+    pub fn backdrop_dismiss(mut self, enabled: bool) -> Self {
+        self.backdrop_dismiss = enabled;
+        self
+    }
+
+    /// Set how long the modal takes to appear, in milliseconds. The default is the
+    /// `enter_ms` motion token.
+    pub fn animation_ms(mut self, duration: u16) -> Self {
+        self.animation_ms = duration;
+        self
+    }
+
+    /// Whether the title row has a close button; on by default. Without it
+    /// Escape still reports `close_id`.
+    pub fn closable(mut self, closable: bool) -> Self {
+        self.closable = closable;
+        self
+    }
+
+    /// The color laid over the window behind the card, black at about 70 %
+    /// opacity by default.
+    pub fn scrim(mut self, color: Color) -> Self {
+        self.scrim = color;
+        self
+    }
+
+    /// The card's one pixel outline in this color, in place of the palette's
+    /// border, which still draws the hairline under a flush body's header:
+    /// a dark settings window outlines its card more quietly than it parts
+    /// the header from the body.
+    pub fn outline(mut self, color: Color) -> Self {
+        self.outline = Some(color);
+        self
+    }
+
+    /// The space under the title row, which is at least 24 high, in logical
+    /// pixels; 10 by default, as between the other sections. A negative value
+    /// becomes zero and one that is not finite is ignored.
+    pub fn title_gap(mut self, gap: f32) -> Self {
+        if gap.is_finite() {
+            self.title_gap = gap.max(0.0);
+        }
+        self
+    }
+
+    /// The title's size in logical pixels, 16 by default, such as 20 for a
+    /// confirmation that leads with its question. A size that is not finite
+    /// and positive is ignored; the rest is kept between 8 and 96.
+    pub fn title_size(mut self, size: f32) -> Self {
+        if size.is_finite() && size > 0.0 {
+            self.title_size = size.clamp(8.0, 96.0);
+        }
+        self
+    }
+
+    /// The title's face, [`FontFamily::Sans`] by default, such as
+    /// [`FontFamily::SansSemibold`] for a title that stands apart from the
+    /// body under it.
+    pub fn title_family(mut self, family: FontFamily) -> Self {
+        self.title_family = family;
+        self
+    }
+
+    /// Lay the body out to the card's edges, under a 44-high header and a
+    /// hairline, for a body that is a layout of its own: a column of pages
+    /// beside their content, as a settings window has. The body takes the
+    /// card's width inside its one pixel outline, which stays whole on every
+    /// side, and the height the header and the footer leave, and
+    /// scrolls what it wants to itself: the modal puts no scroll area round
+    /// it. The header and the footer keep their padding.
+    pub fn flush_body(mut self, flush: bool) -> Self {
+        self.flush = flush;
+        self
+    }
+
+    /// Leave the title row out: the body starts at the card's top edge and
+    /// reaches its sides inside the one pixel outline, for a card that opens
+    /// on a picture, as an announcement does. The title and the description
+    /// still name and describe the dialog to assistive technology, Escape
+    /// still reports `close_id`, and the host places its own close, such as
+    /// a [`DismissButton`] over the picture. The body is as tall as its
+    /// content, or takes what a [`height`](Self::height) leaves; it is not
+    /// put in a scroll area. The footer keeps its padding.
+    pub fn headless(mut self, headless: bool) -> Self {
+        self.headless = headless;
+        self
+    }
+}
+
+impl Component for Modal {
+    fn render(self) -> Element {
+        if !self.open {
+            return self.base;
+        }
+
+        let close = DismissButton::new(format!("{}:close", self.close_id), self.palette)
+            .target_size(if self.sheet.is_some() { 44.0 } else { 24.0 })
+            .dispatch_as(self.close_id.clone())
+            .render();
+
+        // Known by an ID of its own: `close_id` may be a button's inside it.
+        let mut said = Access::new(self.role).id(format!("{}:dialog", self.close_id)).name(self.title.clone());
+        let description = if self.description.is_empty() { self.spoken_description } else { self.description.clone() };
+        if !description.is_empty() {
+            said = said.description(description);
+        }
+
+        let named = self.title.clone();
+        let title = Element::formatted_text(vec![TextSpan::new(
+            self.title, self.palette.text, self.title_size, self.title_family,
+        )]);
+        // A sheet's grabber, the whole strip it heads to be held by: dragged down, the sheet
+        // follows and leaves; pressed, it closes.
+        let grabber = |top: f32, height: f32| {
+            let mark = Element::column(vec![
+                Element::spacer().size(None, Some(top)),
+                Element::row(vec![
+                    Element::spacer().flex(1.0),
+                    Element::spacer().size(Some(36.0), Some(4.0))
+                        .background(self.palette.muted).radius(2.0),
+                    Element::spacer().flex(1.0),
+                ]).size(None, Some(4.0)),
+                Element::spacer().flex(1.0),
+            ]);
+            // A handle lights nothing under a pointer or a press: the header row it spans is
+            // the sheet's own, and a fill there reads as a second panel.
+            let handle = Element::clickable(format!("{}:drag", self.close_id), mark);
+            // An iOS sheet's grabber steps through its heights; another's closes the sheet.
+            let handle = if self.ios.is_some() { handle } else { handle.dispatch_as(self.close_id.clone()) };
+            self.palette.interactive_surface(
+                handle
+                    .draggable_in_place()
+                    .accessible(Access::new(Role::Button).name(crate::labels().close))
+            ).hover_background(Color::TRANSPARENT).pressed_background(Color::TRANSPARENT).size(None, Some(height))
+        };
+        let ios = self.ios.is_some() && self.sheet.is_some();
+        let header = if ios {
+            // iOS 26's: the grabber over a bar of 44-point circles, the cross at its start and the
+            // prominent check at its end, the title centred between them. The whole bar holds
+            // the sheet; its buttons win their own presses.
+            let circle = |content: Element, fill: Option<Color>| {
+                let circle = Element::panel(content.centered()).round().size(Some(44.0), Some(44.0));
+                // Over the sheet's own glass a circle of it reads as a light disc: opaque, its
+                // tint mixed in already, as a translucent one shows the seams it is drawn with.
+                circle.background(fill.unwrap_or_else(|| mix(self.palette.surface, self.palette.text, 0.16)))
+            };
+            let cross = Element::icon(Icon::Close).foreground(self.palette.text).size(Some(16.0), Some(16.0));
+            // Apple's convention (HIG, Sheets): a Cancel goes with a Done, and what asks before it
+            // does something keeps its way out; a sheet that only offers choices is put away by
+            // a swipe, its grabber or a press beside it, with no cross. Its close still stands
+            // where the cross would, unseen, for a screen reader, which has no swipe to use.
+            let crossed = self.confirm.is_some() || self.role == Role::AlertDialog;
+            let face = if crossed { circle(cross, None) } else { Element::spacer().size(Some(44.0), Some(44.0)) };
+            // The circle is the target, so a keyboard's ring rounds it.
+            let close = Element::clickable(format!("{}:close", self.close_id), face)
+                .dispatch_as(self.close_id.clone())
+                .accessible(Access::new(Role::Button).name(crate::labels().close))
+                .size(Some(44.0), Some(44.0))
+                .round();
+            let end = match &self.confirm {
+                Some((id, label, enabled)) => {
+                    let ink = if *enabled { Color::rgb(0, 0, 0) } else { self.palette.muted };
+                    let fill = if *enabled { self.palette.text } else { mix(self.palette.surface, self.palette.text, 0.18) };
+                    let check = circle(Element::icon(Icon::Check).foreground(ink).size(Some(18.0), Some(18.0)), Some(fill));
+                    let said = Access::new(Role::Button).name(label.clone());
+                    if *enabled { Element::clickable(id.clone(), check).accessible(said).size(Some(44.0), Some(44.0)).round() }
+                    else { check.accessible(said.id(id.clone()).disabled(true)) }
+                }
+                None => Element::spacer().size(Some(44.0), Some(44.0)),
+            };
+            let name = Element::formatted_text(vec![TextSpan::new(
+                named.clone(), self.palette.text, 17.0, FontFamily::SansSemibold,
+            )]).centered_x().flex(1.0).centered_y();
+            let bar = Element::row(vec![
+                Element::spacer().size(Some(15.0), None), close.centered_y(), name, end.centered_y(), Element::spacer().size(Some(15.0), None),
+            ]).gap(8.0).size(None, Some(60.0));
+            let grip = Element::column(vec![
+                Element::spacer().size(None, Some(crate::GRABBER_TOP)),
+                Element::row(vec![
+                    Element::spacer().flex(1.0),
+                    Element::spacer().size(Some(crate::GRABBER.0), Some(crate::GRABBER.1))
+                        .background(Color { a: 77, ..self.palette.text }).radius(crate::GRABBER.1 / 2.0),
+                    Element::spacer().flex(1.0),
+                ]),
+                Element::spacer().flex(1.0),
+            ]);
+            // Held, it moves the sheet; pressed, it steps through its heights.
+            let handle = self.palette.interactive_surface(
+                Element::clickable(format!("{}:drag", self.close_id), grip)
+                    .draggable_in_place()
+                    .accessible(Access::new(Role::Button).name(named.clone()).description(crate::labels().next))
+            ).hover_background(Color::TRANSPARENT).pressed_background(Color::TRANSPARENT).size(None, Some(72.0));
+            Element::stack(vec![handle, Element::column(vec![Element::spacer().size(None, Some(12.0)), bar])]).size(None, Some(72.0))
+        } else if self.sheet.is_some() {
+            // Share one touch-height header: a separate fixed handle row
+            // would crowd the footer when the keyboard shortens the viewport.
+            // These are sibling controls, so the close button wins hit tests
+            // without nesting interactive accessibility nodes.
+            let handle = grabber(0.0, 44.0);
+            let title = Element::column(vec![
+                Element::spacer().size(None, Some(12.0)), title,
+            ]).flex(1.0);
+            Element::stack(vec![handle, Element::row(vec![title, close]).gap(8.0)])
+                .size(None, Some(44.0))
+        } else if self.flush {
+            let mut row = vec![
+                Element::spacer().size(Some(PADDING + 2.0), None),
+                title.flex(1.0).centered_y(),
+            ];
+            if self.closable {
+                row.push(close.centered_y());
+            }
+            row.push(Element::spacer().size(Some(PADDING - 2.0), None));
+            Element::column(vec![
+                Element::row(row).gap(8.0).size(None, Some(FLUSH_HEADER)),
+                Element::spacer().background(self.palette.border).size(None, Some(1.0)),
+            ])
+        } else {
+            let mut row = vec![title.flex(1.0)];
+            if self.closable {
+                row.push(close);
+            }
+            Element::row(row).gap(8.0).min_size(0.0, 24.0)
+        };
+        // Headless, a sheet still has its grabber: a strip over its body, as iOS's share sheet.
+        let mut sections = match (self.headless, self.sheet.is_some()) {
+            (true, true) => vec![grabber(8.0, 20.0)],
+            (true, false) => vec![],
+            (false, _) => vec![header],
+        };
+        let mut body = self.body;
+
+        if !self.description.is_empty() && !self.headless {
+            let description = Element::text(self.description)
+                    .foreground(self.palette.muted)
+                    .font_family(FontFamily::Sans)
+                    .font_size(12.0);
+            if self.sheet.is_some() {
+                let mut content = vec![description];
+                if let Some(body) = body { content.push(body); }
+                body = Some(Element::column(content).gap(10.0));
+            } else if self.flush { sections.push(description.padding(PADDING)); } else { sections.push(description); }
+        }
+
+        if self.flush || self.headless {
+            if let Some(body) = body.take() {
+                // Headless and as tall as its content, the body has no height to fill.
+                let fills = !self.headless || self.height.is_some();
+                sections.push(if fills { body.flex(1.0) } else { body });
+            }
+        }
+        if let Some(body) = body {
+            // An iOS sheet's body fills the height the sheet has, which the tree gives it.
+            let body = if ios { body.padding(PADDING) } else { body };
+            let limit = if ios { f32::INFINITY } else { self.sheet.as_ref().map_or(self.height.unwrap_or(480.0), |s| s.max_height) };
+            sections.push(
+                ScrollArea::new(format!("modal_body:{}", self.close_id), body)
+                    // A dedicated rail keeps the thumb outside bordered form
+                    // sections and never covers controls at the right edge.
+                    .appearance(
+                        ScrollbarAppearance::reserved()
+                            .rail_width(RAIL_WIDTH)
+                            .thumb_width(4.0)
+                            .tint(self.palette.muted),
+                    )
+                    .render()
+                    .max_height(limit)
+                    .flex(1.0),
+            );
+        }
+
+        if let Some(footer) = self.footer {
+            sections.push(if self.flush || self.headless || ios { footer.padding(PADDING) } else { footer });
+        }
+
+        let mut spaced = Vec::with_capacity(sections.len() * 2);
+        for (index, section) in sections.into_iter().enumerate() {
+            if index > 0 && !self.flush && !self.headless && !ios {
+                let gap = if index == 1 { self.title_gap } else { 10.0 };
+                spaced.push(Element::spacer().size(None, Some(gap)));
+            }
+            spaced.push(section);
+        }
+        let mut content = Element::column(spaced);
+        if let Some(sheet) = &self.sheet {
+            if sheet.safe_area_bottom > 0.0 {
+                content = Element::column(vec![
+                    content.flex(1.0),
+                    Element::spacer().size(None, Some(sheet.safe_area_bottom)),
+                ]);
+            }
+        }
+        let mut card = Element::panel(content)
+            // Flush, the body stops inside the outline, so its own fills never cover it.
+            .padding(if self.flush || self.headless || ios { OUTLINE } else { PADDING })
+            .size(Some(self.width), self.height)
+            .background(self.palette.surface)
+            .border(self.outline.unwrap_or(self.palette.border), OUTLINE)
+            .radius(crate::tokens().radius.panel)
+            .shadow(self.palette.shadow, Point::new(0.0, 16.0), 32.0, 0.0)
+            .clip_children()
+            .accessible(said);
+
+        if let Some(material) = self.glass {
+            card.style.background = None;
+            card.style.border = None;
+            card = card.glass(material);
+            // A pane of glass in the middle is iOS 26's alert, its corners as round as its.
+            if self.sheet.is_none() { card = card.radius(crate::tokens().radius.panel.max(GLASS_RADIUS)); }
+        }
+
+        let ios = self.ios.filter(|_| self.sheet.is_some());
+        let placement = if let Some(sheet) = self.sheet {
+            // An iOS sheet's size and corners are the tree's, from the height it stands at.
+            if ios.is_none() {
+                card = card.max_height(sheet.max_height)
+                    .corner_radii(CornerRadii::top(crate::tokens().radius.panel));
+            } else {
+                card.style.width = None;
+                card.style.border = None;
+            }
+            PopoverPlacement::Bottom
+        } else { PopoverPlacement::Center };
+
+        let mut popover =
+            Element::popover(self.base, card, self.close_id, placement)
+                .popover_scrim(self.scrim)
+                .popover_backdrop_dismiss(self.backdrop_dismiss)
+                .popover_animation_ms(self.animation_ms);
+        if let Some(id) = self.initial_focus {
+            popover = popover.popover_initial_focus(id);
+        }
+        if let Some(id) = self.return_focus {
+            popover = popover.popover_return_focus(id);
+        }
+        if let Some(spec) = ios {
+            // Black at 20% behind it at every height; it goes down in a third of a second.
+            popover = popover.popover_sheet(spec)
+                .popover_scrim(Color::rgba(0, 0, 0, crate::DIM_ALPHA))
+                .popover_close_animation_ms(SHEET_CLOSE_MS);
+        }
+        popover
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{HitKind, Key, Size, UiAction, UiEvent, UiTree};
+
+    #[test]
+    fn a_modal_is_a_dialog_named_by_its_title_and_its_close_button_is_named_enabled_or_not() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = UiTree::new(
+            Modal::new(Element::spacer(), true, "Nuevo proyecto", "Elige una carpeta.", "new", palette)
+                .footer(DismissButton::new("locked", palette).disabled().render())
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let node = |id: &str| frame.access.iter().find(|node| node.id == id).unwrap();
+        let dialog = node("new:dialog");
+        assert_eq!((dialog.role, dialog.name.as_str()), (Role::Dialog, "Nuevo proyecto"));
+        assert_eq!(dialog.description.as_deref(), Some("Elige una carpeta."));
+        assert!(!dialog.actionable && dialog.rect.width == 520.0);
+        let close = node("new:close");
+        assert_eq!((close.role, close.name.as_str()), (Role::Button, crate::labels().close));
+        assert!(close.actionable && !close.disabled);
+        let locked = node("locked");
+        assert_eq!((locked.role, locked.name.as_str()), (Role::Button, crate::labels().close));
+        assert!(locked.disabled && !locked.actionable);
+    }
+
+    #[test]
+    fn the_title_is_painted_at_the_size_and_in_the_face_asked_for() {
+        let palette = ComponentPalette::neutral_dark();
+        let painted = |modal: Modal| {
+            let mut tree = UiTree::new(modal.render());
+            tree.set_reduced_motion(true);
+            let frame = tree.layout(Size::new(800.0, 600.0));
+            frame.commands.iter().find_map(|command| match command {
+                // The title is the only text, broken into pieces at 96 px.
+                crate::DrawCommand::Text { text, font_size, font_family, .. } if "¿Confirmas?".starts_with(text.as_str()) => {
+                    Some((*font_size, *font_family))
+                }
+                _ => None,
+            }).unwrap()
+        };
+        let modal = || Modal::new(Element::spacer(), true, "¿Confirmas?", "", "switch", palette);
+        assert_eq!(painted(modal()), (16.0, FontFamily::Sans));
+        assert_eq!(
+            painted(modal().title_size(20.0).title_family(FontFamily::SansSemibold)),
+            (20.0, FontFamily::SansSemibold)
+        );
+        assert_eq!(painted(modal().title_size(f32::NAN)).0, 16.0);
+        assert_eq!((painted(modal().title_size(1.0)).0, painted(modal().title_size(200.0)).0), (8.0, 96.0));
+    }
+
+    #[test]
+    fn a_flush_body_reaches_the_cards_edges_under_its_header() {
+        let palette = ComponentPalette::neutral_dark();
+        let body = Element::clickable("body", Element::spacer().flex(1.0));
+        let mut tree = UiTree::new(
+            Modal::new(Element::spacer(), true, "Settings", "", "settings", palette)
+                .width(600.0)
+                .height(400.0)
+                .flush_body(true)
+                .outline(Color::rgb(42, 42, 42))
+                .body(body)
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let card = frame.access.iter().find(|n| n.id == "settings:dialog").unwrap().rect;
+        // The outline takes its own color; the hairline under the header keeps the border's.
+        assert!(frame.commands.iter().any(|c| matches!(c,
+            crate::DrawCommand::StrokeRect { color, .. } if *color == Color::rgb(42, 42, 42))));
+        assert!(frame.commands.iter().any(|c| matches!(c,
+            crate::DrawCommand::FillRect { rect, color, .. } if *color == palette.border && rect.height == 1.0)));
+        let body = frame.regions.iter().find(|r| r.id == "body").unwrap().rect;
+        // Inside the outline on every side, so a body's own fill never covers it.
+        assert_eq!((body.x, body.width), (card.x + 1.0, card.width - 2.0));
+        assert_eq!(body.y, card.y + 1.0 + FLUSH_HEADER + 1.0);
+        assert_eq!(body.y + body.height, card.y + card.height - 1.0);
+        assert!(!frame.regions.iter().any(|r| r.id.starts_with("modal_body:")));
+    }
+
+    #[test]
+    fn a_headless_card_opens_on_its_body_named_by_its_title_and_escape_still_closes() {
+        let palette = ComponentPalette::neutral_dark();
+        let picture = Element::clickable("picture", Element::spacer().size(None, Some(180.0)));
+        let mut tree = UiTree::new(
+            Modal::new(Element::spacer(), true, "A browser beside the chat", "Hidden words", "news", palette)
+                .width(400.0)
+                .headless(true)
+                .body(picture)
+                .footer(Element::button("ok", "Got it"))
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
+        let frame = tree.layout(Size::new(800.0, 600.0));
+        let dialog = frame.access.iter().find(|n| n.id == "news:dialog").unwrap();
+        assert_eq!(dialog.name, "A browser beside the chat");
+        assert_eq!(dialog.description.as_deref(), Some("Hidden words"));
+        let card = dialog.rect;
+        let picture = frame.regions.iter().find(|r| r.id == "picture").unwrap().rect;
+        // At the top edge and the sides, inside the outline; no title, close or description drawn.
+        assert_eq!((picture.x, picture.y, picture.width), (card.x + 1.0, card.y + 1.0, card.width - 2.0));
+        assert!(!frame.regions.iter().any(|r| r.id == "news:close" || r.id.starts_with("modal_body:")));
+        assert!(!frame.commands.iter().any(|c| matches!(c,
+            crate::DrawCommand::Text { text, .. } if text.contains("browser") || text.contains("Hidden"))));
+        // As tall as what it holds: the picture, then the footer in its padding.
+        let ok = frame.regions.iter().find(|r| r.id == "ok").unwrap().rect;
+        assert_eq!(ok.y, picture.y + picture.height);
+        assert!(ok.height > 2.0 * PADDING);
+        assert_eq!(card.y + card.height, ok.y + ok.height + 1.0);
+        assert_eq!(
+            tree.handle_event(UiEvent::Key { key: Key::Escape, shift: false, ctrl: false, alt: false }),
+            vec![UiAction::Clicked { id: "news".into() }]
+        );
+    }
+
+    #[test]
+    fn dismiss_icon_is_centered_at_rest_hover_and_focus_and_dispatches_once() {
+        let palette = ComponentPalette::neutral_dark();
+        let mut tree = UiTree::new(
+            DismissButton::new("close", palette)
+                .dispatch_as("dismiss")
+                .render(),
+        );
+        tree.set_reduced_motion(true);
+        tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 7.0);
+        let viewport = Size::new(24.0, 24.0);
+        for hover in [false, true] {
+            if hover {
+                tree.handle_event(UiEvent::PointerMove(Point::new(12.0, 12.0)));
+            }
+            let frame = tree.layout(viewport);
+            let icon = frame
+                .commands
+                .iter()
+                .find_map(|command| match command {
+                    crate::DrawCommand::Icon {
+                        rect,
+                        icon: Icon::Close,
+                        ..
+                    } => Some(rect),
+                    _ => None,
+                })
+                .expect("shared close icon");
+            assert!((icon.x + icon.width / 2.0 - 12.0).abs() < 0.1);
+            assert!((icon.y + icon.height / 2.0 - 12.0).abs() < 0.1);
+            assert!(!frame.commands.iter().any(|command| matches!(command,
+                crate::DrawCommand::Text { text, font_family: FontFamily::Sans, .. } if text == "Esc"
+            )));
+            assert_eq!(
+                frame
+                    .regions
+                    .iter()
+                    .filter(|region| region.kind == HitKind::Button)
+                    .count(),
+                1
+            );
+        }
+        tree.handle_event(UiEvent::PointerDown(Point::new(12.0, 12.0)));
+        assert_eq!(
+            tree.handle_event(UiEvent::PointerUp(Point::new(12.0, 12.0))),
+            vec![UiAction::Clicked {
+                id: "dismiss".into()
+            }]
+        );
+        assert!(tree.focus("close"));
+        assert_eq!(
+            tree.handle_event(UiEvent::Key {
+                key: Key::Enter,
+                shift: false,
+                ctrl: false,
+                alt: false
+            }),
+            vec![UiAction::Clicked {
+                id: "dismiss".into()
+            }]
+        );
+    }
+
+    #[test]
+    fn a_disabled_dismiss_icon_keeps_its_place_and_takes_no_pointer_or_focus() {
+        let palette = ComponentPalette::neutral_dark();
+        let tree_of = |enabled| {
+            let mut tree = UiTree::new(
+                DismissButton::new("close", palette)
+                    .dispatch_as("dismiss")
+                    .enabled(enabled)
+                    .render(),
+            );
+            tree.set_reduced_motion(true);
+            tree
+        };
+        let icon = |frame: &crate::Frame| {
+            frame.commands.iter().find_map(|command| match command {
+                crate::DrawCommand::Icon { rect, icon: Icon::Close, tint, .. } => Some((*rect, *tint)),
+                _ => None,
+            })
+        };
+        let viewport = Size::new(24.0, 24.0);
+        let enabled = tree_of(true).layout(viewport);
+        let mut tree = tree_of(false);
+        let disabled = tree.layout(viewport);
+        assert!(!disabled.regions.iter().any(|region| region.kind == HitKind::Button));
+        let point = Point::new(12.0, 12.0);
+        tree.handle_event(UiEvent::PointerMove(point));
+        assert!(tree.handle_event(UiEvent::PointerDown(point)).is_empty());
+        assert!(tree.handle_event(UiEvent::PointerUp(point)).is_empty());
+        for id in ["close", "dismiss"] {
+            assert!(!tree.focus(id));
+        }
+        let enter = UiEvent::Key { key: Key::Enter, shift: false, ctrl: false, alt: false };
+        assert!(tree.handle_event(enter).is_empty());
+        assert_eq!(icon(&disabled), icon(&enabled));
+        assert_eq!(icon(&disabled).unwrap().1, palette.muted);
+        // No hover fill: under the pointer it paints what it did at rest.
+        assert_eq!(tree.layout(viewport).commands, disabled.commands);
+    }
+
+    #[test]
+    fn modal_backdrop_respects_its_policy_and_never_clicks_the_underlying_control() {
+        for dismiss in [false, true] {
+            let mut tree = UiTree::new(
+                Modal::new(
+                    Element::button("behind", "Background"),
+                    true,
+                    "History",
+                    "",
+                    "dismiss",
+                    ComponentPalette::neutral_dark(),
+                )
+                .width(320.0)
+                .height(180.0)
+                .body(Element::text("No output yet"))
+                .backdrop_dismiss(dismiss)
+                .animation_ms(0)
+                .render(),
+            );
+            tree.set_reduced_motion(true);
+            tree.layout(Size::new(640.0, 480.0));
+            let point = Point::new(4.0, 4.0);
+            let mut actions = tree.handle_event(UiEvent::PointerDown(point));
+            actions.extend(tree.handle_event(UiEvent::PointerUp(point)));
+            assert_eq!(
+                actions,
+                if dismiss {
+                    vec![UiAction::Clicked {
+                        id: "dismiss".into(),
+                    }]
+                } else {
+                    Vec::new()
+                }
+            );
+        }
+    }
+
+    #[test]
+    fn body_width_is_the_rendered_inner_width_and_fit_width_keeps_the_margin() {
+        for width in [240.0, 361.0, 520.0, 860.0] {
+            for (content, rail) in [(600.0, 0.0), (20.0, RAIL_WIDTH)] {
+                let mut tree = UiTree::new(
+                    Modal::new(
+                        Element::spacer(),
+                        true,
+                        "Title",
+                        "",
+                        "dismiss",
+                        ComponentPalette::neutral_dark(),
+                    )
+                    .width(width)
+                    .height(300.0)
+                    .body(Element::column(vec![
+                        Element::text_input("fill", "", ""),
+                        Element::spacer().size(None, Some(content)),
+                    ]))
+                    .render(),
+                );
+                tree.set_reduced_motion(true);
+                let frame = tree.layout(Size::new(1200.0, 600.0));
+                let field = frame.regions.iter().find(|region| region.id == "fill").unwrap().rect;
+                assert_eq!(field.width, Modal::body_width(width) + rail, "{width} {content}");
+                if rail > 0.0 {
+                    assert_eq!(field.width, Modal::fitted_body_width(width), "{width}");
+                }
+            }
+        }
+        assert_eq!(Modal::body_width(10.0), 0.0);
+        assert_eq!(Modal::fit_width(1200.0, 560.0), 560.0);
+        assert_eq!(Modal::fit_width(360.0, 560.0), 336.0);
+    }
+
+    fn sample_modal() -> Element {
+        Modal::new(
+            Element::button("behind", "Background"),
+            true,
+            "Add source",
+            "Choose a folder.",
+            "dismiss",
+            ComponentPalette::neutral_dark(),
+        )
+        .width(420.0)
+        .height(300.0)
+        .body(Element::column(vec![
+            Element::text_input("path", "", "Folder"),
+            Element::spacer().size(None, Some(600.0)),
+            Element::text_input("later", "", "Later field"),
+        ]))
+        .footer(Element::button("save", "Save"))
+        .initial_focus("path")
+        .render()
+    }
+
+    #[test]
+    fn modal_centers_body_scrolls_and_footer_stays_visible() {
+        let mut tree = UiTree::new(sample_modal());
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        let surface = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "popover_surface:dismiss")
+            .expect("modal card");
+        assert!((surface.rect.x + surface.rect.width / 2.0 - 320.0).abs() < 1.0);
+        assert!((surface.rect.y + surface.rect.height / 2.0 - 240.0).abs() < 1.0);
+        assert_eq!(tree.focused_id(), Some("path"));
+        assert!(frame
+            .regions
+            .iter()
+            .any(|region| region.id == "modal_body:dismiss" && region.kind == HitKind::Scroll));
+        let scrollbar = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "modal_body:dismiss" && region.kind == HitKind::Scrollbar)
+            .expect("modal scrollbar");
+        let field = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "path")
+            .unwrap();
+        assert!(
+            field.rect.x + field.rect.width <= scrollbar.rect.x,
+            "scrollbar stays outside the form's available width"
+        );
+        let footer = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "save")
+            .unwrap();
+        assert!(footer.rect.y >= surface.rect.y);
+        assert!(footer.rect.y + footer.rect.height <= surface.rect.y + surface.rect.height);
+    }
+
+    #[test]
+    fn modal_traps_focus_blocks_backdrop_and_escape_dismisses() {
+        let mut tree = UiTree::new(Element::button("behind", "Background"));
+        tree.layout(Size::new(640.0, 480.0));
+        assert!(tree.focus("behind"));
+        tree.set_root(sample_modal());
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        assert_eq!(tree.focused_id(), Some("path"));
+        assert!(frame
+            .regions
+            .iter()
+            .any(|region| { region.id == "dismiss" && region.kind == HitKind::Surface }));
+        tree.handle_event(UiEvent::Key {
+            key: Key::Tab,
+            shift: false,
+            ctrl: false,
+            alt: false,
+        });
+        assert_ne!(tree.focused_id(), Some("behind"));
+        assert_eq!(
+            tree.handle_event(UiEvent::Key {
+                key: Key::Escape,
+                shift: false,
+                ctrl: false,
+                alt: false,
+            }),
+            vec![UiAction::Clicked {
+                id: "dismiss".into()
+            }]
+        );
+        tree.set_root(Element::button("behind", "Background"));
+        tree.layout(Size::new(640.0, 480.0));
+        assert_eq!(tree.focused_id(), Some("behind"));
+    }
+
+    #[test]
+    fn focusing_an_offscreen_modal_field_reveals_it_in_the_outer_scroll_area() {
+        let mut tree = UiTree::new(sample_modal());
+        tree.layout(Size::new(640.0, 480.0));
+        assert!(tree.focus("later"));
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        assert!(tree.scroll_offset("modal_body:dismiss") > 0.0);
+        assert!(frame.regions.iter().any(|region| region.id == "later"));
+    }
+
+    #[test]
+    fn tab_reaches_an_offscreen_modal_field_and_reveals_it() {
+        let mut tree = UiTree::new(sample_modal());
+        tree.layout(Size::new(640.0, 480.0));
+        assert!(tree.focus("path"));
+        tree.handle_event(UiEvent::Key {
+            key: Key::Tab,
+            shift: false,
+            ctrl: false,
+            alt: false,
+        });
+        assert_eq!(tree.focused_id(), Some("later"));
+        let frame = tree.layout(Size::new(640.0, 480.0));
+        assert!(tree.scroll_offset("modal_body:dismiss") > 0.0);
+        assert!(frame.regions.iter().any(|region| region.id == "later"));
+    }
+
+    #[test]
+    fn narrow_viewport_keeps_close_field_and_footer_inside_card() {
+        let mut tree = UiTree::new(sample_modal());
+        let frame = tree.layout(Size::new(320.0, 240.0));
+        let card = frame
+            .regions
+            .iter()
+            .find(|region| region.id == "popover_surface:dismiss")
+            .unwrap()
+            .rect;
+        assert!(card.x >= 8.0 && card.y >= 8.0);
+        assert!(card.x + card.width <= 312.0);
+        assert!(card.y + card.height <= 232.0);
+        for id in ["dismiss:close", "path", "save"] {
+            let control = frame.regions.iter().find(|region| region.id == id).unwrap();
+            assert!(control.rect.x >= card.x, "{id}");
+            assert!(control.rect.y >= card.y, "{id}");
+            assert!(
+                control.rect.x + control.rect.width <= card.x + card.width,
+                "{id}"
+            );
+            assert!(
+                control.rect.y + control.rect.height <= card.y + card.height,
+                "{id}"
+            );
+        }
+    }
+
+    #[test]
+    fn return_focus_uses_stable_control_when_opening_menu_item_disappears() {
+        let mut tree = UiTree::new(Element::button("temporary_menu_item", "Folder"));
+        tree.layout(Size::new(640.0, 480.0));
+        assert!(tree.focus("temporary_menu_item"));
+        let base = || Element::button("add_menu", "Add source");
+        tree.set_root(
+            Modal::new(
+                base(),
+                true,
+                "Add source",
+                "",
+                "cancel",
+                ComponentPalette::neutral_dark(),
+            )
+            .body(Element::text_input("path", "", "Folder"))
+            .initial_focus("path")
+            .return_focus("add_menu")
+            .render(),
+        );
+        tree.layout(Size::new(640.0, 480.0));
+        assert_eq!(tree.focused_id(), Some("path"));
+        tree.set_root(base());
+        tree.layout(Size::new(640.0, 480.0));
+        assert_eq!(tree.focused_id(), Some("add_menu"));
+    }
+}

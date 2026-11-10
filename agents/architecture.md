@@ -34,7 +34,13 @@ keeps the frame, and `layout` returns a clone of it.
 
 ## The files of the core
 
-All of `limn` is flat in `crates/limn/src/`: no folders.
+The engine and the design are separate crates, each flat in its `src/`: no
+folders. `limn-core` is the engine, in `crates/limn-core/src/`; it never
+depends on the design. `limn-components` is the design, in
+`crates/limn-components/src/`; it depends on `limn-core` and reaches only what
+`limn-core` makes public. `limn` re-exports both under one name.
+
+In `crates/limn-core/src/`:
 
 | File | Holds |
 | --- | --- |
@@ -45,11 +51,19 @@ All of `limn` is flat in `crates/limn/src/`: no folders.
 | `measurement_cache.rs` | `MeasurementCache`: the sizes one layout pass has measured. |
 | `text_layout.rs`, `text_layout_cache.rs`, `text_width_cache.rs`, `formatted_text_cache.rs`, `fonts.rs` | Text: shaping and line breaking with parley, and the caches that outlive a frame. |
 | `motion.rs` | `ScalarTransition`, `ScalarSpring`, `ColorTransition`, `Easing`: values on their way somewhere. |
-| `tokens.rs`, `theme.rs`, `scheme.rs` | `tokens()`: radii and durations. `Theme` and `Scheme`: a window's colors. |
+| `tokens.rs` | `tokens()`: radii and durations. |
 | `access.rs` | `AccessNode`, `Role`: what a frame tells the platform. |
 | `components.rs` | The `Component` trait, `ComponentPalette`, `Button` and the first components. |
-| every other file | Mostly one component each, with its tests in a `#[cfg(test)]` module or a `*_tests.rs` beside it. Also helpers (`geometry.rs`, `labels.rs`, `typography.rs`, `hot.rs`), the `code_editor_*.rs` modules of the code editor, and two more child modules of `tree`: `inline_menu_navigation.rs` and `captured_paste.rs`. |
-| `*_tests.rs` | Tests split out of the file they test. `tree.rs` and its child modules declare theirs with `#[path]`, so those see the tree's private state. The rest are declared in `lib.rs` or from the component they test. |
+| every other file | What the engine lays out or opens itself, one file each: the code editor (`code_editor.rs` and its `code_editor_*.rs` modules), `code_diff.rs`, `flowchart.rs`, `sequence.rs`, `spinner.rs`, `context_menu.rs` and more. Also helpers (`geometry.rs`, `labels.rs`, `typography.rs`, `hot.rs`), and two more child modules of `tree`: `inline_menu_navigation.rs` and `captured_paste.rs`. |
+| `*_tests.rs` | Tests split out of the file they test. `tree.rs` and its child modules declare theirs with `#[path]`, so those see the tree's private state. The rest are declared with `#[path]` from the file they test. |
+
+In `crates/limn-components/src/`:
+
+| File | Holds |
+| --- | --- |
+| `theme.rs`, `scheme.rs` | `Theme` and `Scheme`: a window's colors. |
+| every other file | Mostly one component each, with its tests in a `#[cfg(test)]` module or a `*_tests.rs` beside it. |
+| `*_tests.rs` | Tests split out of the file they test, declared in `lib.rs` or from the component they test. |
 
 Tests that use only the public API are in `crates/limn/tests/`. Two of them
 are tables kept by hand: `controls.rs`, which every control that reports an
@@ -216,7 +230,7 @@ What is kept across frames, and its bound:
 
 The tables read for every element (the state store, the measurement and
 width caches, the focus walk's set) hash with foldhash (`FastMap`, `FastSet`
-in `lib.rs`): SipHash was a third of a long list's layout. The frame's own
+in `limn-core`'s `lib.rs`): SipHash was a third of a long list's layout. The frame's own
 maps and the other text caches still use std's.
 
 ## Motion and repaint
@@ -295,6 +309,7 @@ with them as an idea, and what it leaves.
 | The scene | A few primitives; the renderer knows no widget. | A few primitives in layers. | Primitives, and four widget commands (debt). |
 | Who owns the window | GPUI: platform, executor, GPU. | WarpUI. | The host. limn returns data. |
 | An ID taken twice | Not detected. | Not detected. | Listed in `Frame::duplicate_ids`. |
+| Components with a look | In a crate apart (`ui`); the engine has none. | In a crate apart (`ui_components`). | In a crate apart (`limn-components`); the engine still holds some, see [Known debts](#known-debts). |
 
 Decided, with the reason:
 
@@ -325,3 +340,5 @@ Each is in the [plan](plan.md) with its order.
 | `UiEvent` grew by case: `PointerDown`, `PointerDownModified`, `PointerDownEditor`. | A new modifier is a new variant. |
 | Keys the tree derives are strings (`extend/{id}`, `slide/{id}`), and a region is known as a popover's by its `popover_surface:` prefix. | A host's ID with that prefix would be misread. |
 | `layout` returns a clone of the frame. | Not measured on a large screen. |
+| The engine still holds design: the controls in `components.rs`, the tooltips, context menu and scrollbars the tree paints itself, the widgets in `ElementKind`, liquid glass and sheets. | An application with a design of its own cannot change them. |
+| The design reaches the engine through seams, `#[doc(hidden)] pub`. | Each one is a component a host could not have built. |

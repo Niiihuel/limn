@@ -14,13 +14,15 @@ core needs no window, no GPU and no async runtime.
 
 | Crate | Holds | Depends on |
 | --- | --- | --- |
-| `limn` | The core: elements, layout, events, retained state, the frame, and every component. | `limn-editor`; `limn-language` with the `syntax` feature |
+| `limn` | The facade: re-exports `limn-core` and `limn-components` under one name, so `use limn::Button` works. Holds the integration tests and `layout_bench`. | `limn-core`, `limn-components` |
+| `limn-core` | The engine: elements, layout, events, retained state, text, the frame. | `limn-editor`; `limn-language` with the `syntax` feature |
+| `limn-components` | The design: every component with a look, built from what `limn-core` makes public. | `limn-core` |
 | `limn-egui` | The backend: paints a frame with egui and wgpu, translates input, publishes accessibility. | `limn` |
 | `limn-editor` | The text buffer and viewport under the code editor. | none of the others |
 | `limn-language` | Tree-sitter highlighting, Markdown analysis, a language server client. | `limn-editor` |
 | `limn-dnd` | Files dragged in from other applications, and out to them, on Wayland. | none of the others |
 | `limn-video` | Short muted H.264 clips on a `limn-egui` surface. | `limn`, `limn-egui` |
-| `limn-gallery` | Every component running, with hot reload. The site is built from it. | all but `limn-language` |
+| `limn-gallery` | Every component running, with hot reload. The site is built from it. | `limn`, `limn-egui`, `limn-editor`, `limn-video`, `limn-dnd` |
 
 ## 2. Read first
 
@@ -78,12 +80,13 @@ loop in [`docs/backend.md`](docs/backend.md#the-frame-loop).
 
 ### The boundaries
 
-**R7. `limn` names no window, GPU or backend.** No type of a third-party
-crate appears in its public API, but `web_time::Instant`, the clock that also
-runs in a browser. A new dependency of `limn` needs its reason in the pull
-request.
+**R7. Neither the engine nor the design names a window, a GPU or a
+backend.** No type of a third-party crate appears in their public API, but
+`web_time::Instant`, the clock that also runs in a browser. A new dependency
+of `limn-core` or `limn-components` needs its reason in the pull request.
 *Why:* a frame is plain data that any backend can paint and any test can
-read. *Check:* review of `crates/limn/Cargo.toml`.
+read. *Check:* review of `Cargo.toml` in `crates/limn`, `crates/limn-core`
+and `crates/limn-components`.
 
 **R8. `DrawCommand` gets no command for one widget.** A new look is built from
 the commands there are: rectangles, gradients, meshes, polylines, glyphs,
@@ -105,6 +108,21 @@ layout goes in a child module of `tree`, as `zoom_view_tree.rs` and
 The call into that module is all `tree.rs` gains.
 *Why:* a file every change meets is a conflict in every pull request.
 *Check:* review.
+
+**R22. `limn-core` gets no component.** A control with a look of its own is a
+file in `limn-components`, built from what `limn-core` makes public. What the
+engine still holds of the design is listed in the [plan](agents/plan.md), and
+that list only shrinks.
+*Why:* an application with a design of its own builds on the engine alone.
+Whatever the engine paints by itself, that application cannot change.
+*Check:* the compiler: `limn-components` cannot see inside `limn-core`.
+
+**R23. What `limn-core` opens only for `limn-components` is a seam:
+`#[doc(hidden)] pub`, never documented API.** A seam is opened only when a
+component cannot be built without it, it gives no `&mut` into the tree, and
+their number only goes down.
+*Why:* a seam is something a host's own design cannot rely on, so each one
+marks a component that only limn can build. *Check:* `seams_do_not_grow`.
 
 ### Components
 
@@ -173,7 +191,7 @@ CI runs these on Rust 1.99.1, and a pull request passes them all:
 cargo clippy --workspace --all-targets -- -D warnings
 cargo clippy -p limn-gallery --all-targets --features hot -- -D warnings
 cargo test --workspace
-cargo test -p limn --no-default-features
+cargo test -p limn -p limn-core -p limn-components --no-default-features
 RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps
 ```
 
@@ -181,7 +199,9 @@ On Linux, `limn-dnd` links the system's Wayland client and winit needs
 xkbcommon: `libwayland-dev`, `libxkbcommon-dev` and `pkg-config` on Debian.
 
 While editing, run the narrowest thing that answers:
-`cargo test -p limn <name of the test>`.
+`cargo test -p <crate> <name of the test>`, in the crate the test is in:
+`limn-core` for the engine's, `limn-components` for a component's, `limn`
+for a screen's in `crates/limn/tests/`.
 
 ## 5. Roles
 

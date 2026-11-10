@@ -159,7 +159,7 @@ inside monospace text. `attach_fonts` measures the same fallback that paints.
 
 The bundled font adds about 1 MiB and uses SIL OFL-1.1; its unchanged license,
 version, pinned source and hashes are in
-[`crates/limn/assets/fonts/NOTICE.md`](../crates/limn/assets/fonts/NOTICE.md).
+[`crates/limn-core/assets/fonts/NOTICE.md`](../crates/limn-core/assets/fonts/NOTICE.md).
 This is additional mathematical coverage, not general Unicode shaping,
 CJK coverage or color emoji. No fonts are read from the host's system or
 downloaded at runtime.

@@ -30,6 +30,7 @@ Status is one of:
 | 10 | Tokens have a scope. | R11 | `with_tokens_holds_on_its_own_thread_until_it_returns_or_unwinds`. | Held |
 | 11 | Whatever moves is driven by the layout's clock, and can stand still. | R12 | `layout_at(viewport, now)`; `set_reduced_motion`. | Held |
 | 12 | A broken contract is loud in a debug build and harmless in a release one. | | See below. | Partly |
+| 13 | The engine holds no design. | R22, R23 | The compiler: `limn-components` sees only what `limn-core` makes public; `seams_do_not_grow`. | Partly |
 
 ## What breaking each one looks like
 
@@ -111,6 +112,13 @@ asked for the next frame and the motion stops halfway.
 
 Not in place: an ID taken twice does not panic in debug (see 2), and a
 derived key that meets a host's ID is not seen at all (see 3).
+
+**13. No design in the engine.** A host that wants its own look finds it
+cannot change one: a tooltip, a scrollbar, a button's fill, because the tree
+paints it itself. Held for every component in `limn-components`: none can
+reach inside the engine, and what was opened for them is counted. Not held
+for what the engine still carries; the [plan](plan.md) lists it. A new
+component that needs a seam is the sign: the engine lacks a general piece.
 
 ## Adding an invariant
 
