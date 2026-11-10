@@ -3144,7 +3144,9 @@ impl UiTree {
                         );
                         let (rect, coach_side) = match coach {
                             Some(coach) => {
-                                place_coach(anchor, measured, viewport_rect, coach.side, coach.align)
+                                let (ring, caret) = coach.look();
+                                let gap = ring.offset + ring.width + caret.map_or(0.0, |caret| caret.height);
+                                place_coach(anchor, measured, viewport_rect, coach.side, coach.align, gap)
                             }
                             None => {
                                 let [left, top, right, bottom] = anchor_outset;
@@ -3220,18 +3222,14 @@ impl UiTree {
                         builder.focus_path.extend(floating_path);
                         let mut travel = (0.0, 0.0);
                         if let Some(coach) = coach {
+                            let (look, _) = coach.look();
                             let radius = coach
                                 .targets
                                 .iter()
                                 .find_map(|id| find_radius(&self.root, id))
                                 .unwrap_or(crate::tokens().radius.control);
-                            let ring = Rect::new(
-                                anchor.x - COACH_RING_GAP,
-                                anchor.y - COACH_RING_GAP,
-                                anchor.width + COACH_RING_GAP * 2.0,
-                                anchor.height + COACH_RING_GAP * 2.0,
-                            );
-                            let (ring, offset) = builder.coach_travel(&coach.key, ring, rect);
+                            let (radius, _) = look.corners(radius, None);
+                            let (ring, offset) = builder.coach_travel(&coach.key, look.around(anchor), rect);
                             travel = offset;
                             if let Some(color) = coach.dim {
                                 let right = ring.x + ring.width;
@@ -3253,22 +3251,26 @@ impl UiTree {
                                     }
                                 }
                             }
-                            builder.frame.commands.push(DrawCommand::StrokeRect {
-                                rect: ring,
-                                color: coach.fill,
-                                width: COACH_RING_WIDTH,
-                                radius: (radius + COACH_RING_GAP)
-                                    .min(ring.width / 2.0)
-                                    .min(ring.height / 2.0),
-                            });
+                            if look.width > 0.0 {
+                                builder.frame.commands.push(DrawCommand::StrokeRect {
+                                    rect: ring,
+                                    color: look.color,
+                                    width: look.width,
+                                    radius: radius
+                                        .min(ring.width / 2.0)
+                                        .min(ring.height / 2.0),
+                                });
+                            }
                         }
                         let bubble_start = builder.frame.commands.len();
                         builder.place_translated(&floating, rect, Some(viewport_rect));
                         if let (Some(coach), Some(side)) = (coach, coach_side) {
-                            builder.frame.commands.push(DrawCommand::FillTriangle {
-                                points: coach_caret(anchor, rect, side),
-                                color: coach.fill,
-                            });
+                            if let Some(caret) = coach.look().1 {
+                                builder.frame.commands.push(DrawCommand::FillTriangle {
+                                    points: coach_caret(anchor, rect, side, caret),
+                                    color: coach.fill,
+                                });
+                            }
                         }
                         let slide_sign = if placement == PopoverPlacement::Bottom
                             || rect.y >= anchor.y + anchor.height {
@@ -6819,29 +6821,30 @@ fn place_popover(
     Rect::new(x, y, width, height)
 }
 
-/// Space between a coach mark's target and the ring around it.
-#[doc(hidden)]
+/// How far outside a coach mark's target the outer edge of its ring is, in
+/// logical pixels, unless [`CoachAnchor::ring`] says otherwise.
 pub const COACH_RING_GAP: f32 = 3.0;
-/// The width of the stroke of a coach mark's ring.
-#[doc(hidden)]
+/// The width of the stroke of a coach mark's ring, in logical pixels, unless
+/// [`CoachAnchor::ring`] says otherwise.
 pub const COACH_RING_WIDTH: f32 = 2.0;
-/// How far the caret reaches from the bubble towards the ring.
-#[doc(hidden)]
+/// How far a coach mark's caret reaches from the bubble towards the ring, and
+/// half its base, in logical pixels, unless [`CoachAnchor::caret`] says
+/// otherwise.
 pub const COACH_CARET: f32 = 7.0;
 
 /// Where a coach mark sits against `target`, and on which side it ended up:
 /// the preferred side, else the opposite one, else the other axis. With room
 /// nowhere it stays on the roomiest side and overlaps the target, and has no
-/// side to point from.
+/// side to point from. It stands `gap` off the target.
 fn place_coach(
     target: Rect,
     desired: Size,
     viewport: Rect,
     side: CoachSide,
     align: CoachAlign,
+    gap: f32,
 ) -> (Rect, Option<CoachSide>) {
     let inset = 8.0;
-    let gap = COACH_RING_GAP + COACH_RING_WIDTH + COACH_CARET;
     let width = desired.width.max(0.0).min((viewport.width - inset * 2.0).max(0.0));
     let height = desired.height.max(0.0).min((viewport.height - inset * 2.0).max(0.0));
     let room = |side| match side {
@@ -6887,9 +6890,9 @@ fn place_coach(
 }
 
 /// The caret from the bubble's edge towards the middle of its target, kept
-/// clear of the bubble's corners.
-fn coach_caret(target: Rect, bubble: Rect, side: CoachSide) -> [Point; 3] {
-    let half = COACH_CARET;
+/// clear of the bubble's corners: `size` wide at its base and deep.
+fn coach_caret(target: Rect, bubble: Rect, side: CoachSide, size: Size) -> [Point; 3] {
+    let (half, depth) = (size.width / 2.0, size.height);
     let margin = crate::tokens().radius.surface + half;
     let clamp = |value: f32, start: f32, length: f32| {
         value.clamp(start + margin, (start + length - margin).max(start + margin))
@@ -6901,14 +6904,14 @@ fn coach_caret(target: Rect, bubble: Rect, side: CoachSide) -> [Point; 3] {
         [
             Point::new(x - half, edge - sign),
             Point::new(x + half, edge - sign),
-            Point::new(x, edge + sign * COACH_CARET),
+            Point::new(x, edge + sign * depth),
         ]
     };
     let horizontal = |edge: f32, sign: f32| {
         [
             Point::new(edge - sign, y - half),
             Point::new(edge - sign, y + half),
-            Point::new(edge + sign * COACH_CARET, y),
+            Point::new(edge + sign * depth, y),
         ]
     };
     match side {
@@ -7886,7 +7889,7 @@ impl LayoutBuilder<'_> {
     /// Paint formatted text laid out in a `TextLayout`: its spans' targets
     /// and hints, its selection, what it draws, its actions' focus and hover
     /// marks, and the selectable block a pointer reads it back from.
-    fn paint_laid_out_formatted(&mut self, spans: &[TextSpan], content: Rect, style: Style, clip: Option<Rect>) {
+    fn paint_laid_out_formatted(&mut self, spans: &[TextSpan], content: Rect, style: Style, clip: Option<Rect>, element: &Element) {
         let layout = self.laid_out_formatted(spans, style, content.width);
         let origin = Point::new(content.x, content.y);
         let at = |area: Rect| Rect::new(origin.x + area.x, origin.y + area.y, area.width, area.height);
@@ -7929,7 +7932,7 @@ impl LayoutBuilder<'_> {
             }
             for bounds in layout.span_bounds(index).into_iter().map(at) {
                 if focused {
-                    self.draw_focus_ring(bounds, style);
+                    self.draw_focus_ring(bounds, style, element);
                 }
                 if hovered {
                     self.frame.commands.push(DrawCommand::FillRect {
@@ -8327,21 +8330,16 @@ impl LayoutBuilder<'_> {
         }
     }
 
-    fn draw_focus_ring(&mut self, rect: Rect, style: Style) {
+    fn draw_focus_ring(&mut self, rect: Rect, style: Style, element: &Element) {
         if !style.focus_ring {
             return;
         }
-        let edge = 2.0_f32.min(rect.width / 2.0).min(rect.height / 2.0);
-        let ink = Color::rgb(170, 170, 170);
+        let ring = element.kept.as_ref().and_then(|kept| kept.focus_ring).unwrap_or(crate::tokens().focus_ring).sanitized();
+        let rect = ring.around(rect);
+        let edge = ring.width.min(rect.width / 2.0).min(rect.height / 2.0);
+        let (radius, corners) = ring.corners(style.radius, style.corner_radii);
         if edge > 0.0 {
-            paint_corner_rect(
-                &mut self.frame.commands,
-                rect,
-                ink,
-                Some(edge),
-                style.radius,
-                style.corner_radii,
-            );
+            paint_corner_rect(&mut self.frame.commands, rect, ring.color, Some(edge), radius, corners);
         }
     }
 
@@ -10430,7 +10428,7 @@ impl LayoutBuilder<'_> {
                     self.underline_text(first, first_block, content, style);
                 }
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                    self.draw_focus_ring(rect, style);
+                    self.draw_focus_ring(rect, style, element);
                 }
             }
             ElementKind::Overlay { base, floating } => {
@@ -11145,7 +11143,7 @@ impl LayoutBuilder<'_> {
                 }
             }
             ElementKind::FormattedText(spans) if self.text_layout => {
-                self.paint_laid_out_formatted(spans, content, style, clip);
+                self.paint_laid_out_formatted(spans, content, style, clip, element);
             }
             ElementKind::FormattedText(spans) => {
                 let source = spans
@@ -11260,7 +11258,7 @@ impl LayoutBuilder<'_> {
                             );
                             if let Some(id) = &fragment.action {
                                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                                    self.draw_focus_ring(fragment_rect, style);
+                                    self.draw_focus_ring(fragment_rect, style, element);
                                 }
                             }
                             source_byte += fragment.text.len();
@@ -11361,7 +11359,7 @@ impl LayoutBuilder<'_> {
                         }
                         if let Some(id) = &fragment.action {
                             if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                                self.draw_focus_ring(fragment_rect, style);
+                                self.draw_focus_ring(fragment_rect, style, element);
                             }
                             if self.hovered == Some(id.as_str()) {
                                 self.frame.commands.push(DrawCommand::FillRect {
@@ -11435,7 +11433,7 @@ impl LayoutBuilder<'_> {
             } => {
                 self.add_region(id, rect, HitKind::Button, clip);
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                    self.draw_focus_ring(rect, style);
+                    self.draw_focus_ring(rect, style, element);
                 }
                 let trailing_side = if trailing_icon.is_some() {
                     ICON_SIZE.min(content.width).min(content.height).max(0.0)
@@ -11516,7 +11514,7 @@ impl LayoutBuilder<'_> {
             } => {
                 self.add_region(id, rect, HitKind::Button, clip);
                 if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                    self.draw_focus_ring(rect, style);
+                    self.draw_focus_ring(rect, style, element);
                 }
                 let side = style
                     .icon_side
@@ -12615,6 +12613,7 @@ impl LayoutBuilder<'_> {
                             radius: style.radius.max(8.0),
                             ..style
                         },
+                        element,
                     );
                 }
             }

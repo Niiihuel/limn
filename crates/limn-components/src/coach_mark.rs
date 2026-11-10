@@ -6,7 +6,7 @@ use crate::modal::DismissButton;
 use crate::theme::mix;
 use crate::{
     Button, ButtonVariant, CoachAlign, CoachSide, Color, Component, ComponentPalette, ControlSize,
-    Element, Point, PopoverPlacement, Text, TextRole,
+    Element, Point, PopoverPlacement, Ring, Size, Text, TextRole,
 };
 
 /// One step of a guided tour: a bubble with a caret towards its target and a
@@ -40,6 +40,8 @@ pub struct CoachMark {
     width: f32,
     accent: Option<(Color, Color)>,
     dim: Option<Color>,
+    ring: Option<Ring>,
+    caret: Option<Size>,
     next_label: String,
     done_label: String,
     back_label: String,
@@ -76,6 +78,8 @@ impl CoachMark {
             width: 320.0,
             accent: None,
             dim: None,
+            ring: None,
+            caret: None,
             next_label: crate::labels().next.into(),
             done_label: crate::labels().done.into(),
             back_label: crate::labels().back.into(),
@@ -178,6 +182,20 @@ impl CoachMark {
     /// Dim the window around the target.
     pub fn dim(mut self, color: Color) -> Self {
         self.dim = Some(color);
+        self
+    }
+
+    /// The ring around the target, in place of 2 px of the bubble's fill
+    /// whose outer edge is 3 px outside it. See [`CoachAnchor::ring`].
+    pub fn ring(mut self, ring: Ring) -> Self {
+        self.ring = Some(ring);
+        self
+    }
+
+    /// The caret's width at its base and its depth, in place of 14 by 7; a
+    /// side that is zero draws none. See [`CoachAnchor::caret`].
+    pub fn caret(mut self, size: Size) -> Self {
+        self.caret = Some(size);
         self
     }
 
@@ -353,6 +371,8 @@ impl Component for CoachMark {
                 dim: self.dim,
                 back: back_action,
                 next: Some(next_action),
+                ring: self.ring,
+                caret: self.caret,
             })
     }
 }

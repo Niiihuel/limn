@@ -255,8 +255,10 @@ maps and the other text caches still use std's.
 `tokens()` returns the tokens of the innermost `with_tokens` on this thread,
 else the process's (`set_tokens`). Both `view` and `layout` read them, so a
 window with tokens of its own runs both inside `with_tokens`. Colors are
-passed, not global: a `ComponentPalette` goes to each component. The one
-exception is `Tokens::tooltip`, the colors of every tooltip.
+passed, not global: a `ComponentPalette` goes to each component. The
+exceptions are `Tokens::tooltip`, the colors of every tooltip, and
+`Tokens::focus_ring`, the keyboard focus ring, which an element may override
+with `Element::focus_ring_style`.
 
 ## The backend's side
 

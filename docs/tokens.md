@@ -188,6 +188,33 @@ use limn::{set_tokens, ShortcutStyle, Tokens};
 set_tokens(Tokens { shortcut_style: ShortcutStyle::Text, ..Tokens::DEFAULT });
 ```
 
+## Focus ring
+
+`focus_ring` is the `Ring` drawn around the control that has the keyboard
+focus: a button, a clickable, a link in text, the effort slider.
+
+```rust
+use limn::{set_tokens, Color, Ring, Tokens};
+
+set_tokens(Tokens {
+    focus_ring: Ring { color: Color::rgb(0, 120, 255), width: 2.0, offset: 2.0, radius: None },
+    ..Tokens::DEFAULT
+});
+```
+
+| Field | Default | What it changes |
+| --- | --- | --- |
+| `color` | #AAAAAA | The stroke's color. |
+| `width` | 2 | Its thickness in logical pixels, never more than half the ringed rectangle's side. |
+| `offset` | 0 | How far outside the control the ring's outer edge is; 0 strokes inside it. |
+| `radius` | `None` | The ring's corner radius. `None` follows the control's radius or corner radii, grown by the offset so the two stay concentric. |
+
+`Element::focus_ring_style(ring)` gives one element a ring of its own in
+place of the token's, and `Element::focus_ring(false)` still turns it off. A
+width that is negative or not finite draws no ring, and an offset that is not
+finite or a radius that is negative or not finite is 0. `Ring::default()` is
+the library's ring.
+
 ## Per-component overrides
 
 Most animated components accept an explicit duration that takes precedence

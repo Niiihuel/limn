@@ -34,6 +34,8 @@ place where the control is built does not change.
 | `.also(id)` | Rings the area the targets cover together, such as a group of buttons. |
 | `.accent(fill, ink)` | Paints the bubble, the caret and the ring in a statement color of the host. |
 | `.dim(color)` | Dims the window around the target. |
+| `.ring(ring)` | The ring around the target, a `Ring` of a color, a width, an offset outside the target and a radius, in place of 2 px of the bubble's fill whose outer edge is 3 px out. With `radius: None` it follows the target's own, grown by the offset. |
+| `.caret(size)` | The caret's width at its base and its depth, in place of 14 by 7. A side that is zero draws none. The bubble stands the ring's offset and width and the caret's depth off the target, 12 px by default. |
 | `.skip(label)` | Adds an action to leave the tour, on every step but the last. |
 | `.next_label`, `.done_label`, `.back_label`, `.counter(text)` | Replace "Next", "Got it", "Back" and the counter. Without them the words come from the library's [labels](theming.md#language). |
 | `.on_next(action)`, `.on_back(action)`, `.on_skip(action)` | Report another action. The controls keep their own IDs. |
@@ -87,6 +89,10 @@ frame.
   [A target that is not there](#a-target-that-is-not-there).
 - When no side of the target has room, the bubble stays whole inside the
   window, covers part of the target and has no caret.
+- A design built on `limn-core` alone makes a coach mark of its own: a bubble
+  in `Element::popover(base, bubble, id, placement)`, with
+  `.popover_coach(CoachAnchor { .. })` naming the targets, the side, the fill,
+  the ring and the caret. `CoachMark` is one built that way.
 
 ## Tour
 
