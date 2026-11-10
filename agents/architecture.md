@@ -214,7 +214,7 @@ the second.
 
 | Path | Who measures | Painted as |
 | --- | --- | --- |
-| limn's own layout (`attach_fonts` in `limn-egui` turns it on, and installs the measurer for the rest) | `text_layout.rs`, with parley, in the faces of `limn::fonts()`. | `DrawCommand::Glyphs`: placed glyphs, nothing left to lay out. |
+| limn's own layout (`attach_fonts` in `limn-egui` turns it on, gives `limn::fonts()` the host's own faces in egui's, and installs the measurer for the rest) | `text_layout.rs`, with parley, in the faces of `limn::fonts()`, each family at the instance of its first face (`Font::with_variations`). | `DrawCommand::Glyphs`: placed glyphs, nothing left to lay out. |
 | Measured text | The host's `set_text_measurer`, or an estimate from `FontMetrics`. | `DrawCommand::Text`: a wrapped run the backend paints with its own font. |
 
 Most tests use the second path with no measurer, so no font is loaded and
