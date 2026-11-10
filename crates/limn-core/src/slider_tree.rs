@@ -284,3 +284,60 @@ impl SliderMotion {
                 && now.saturating_duration_since(self.ultra_started) < SLIDER_ULTRA_FADE_DURATION)
     }
 }
+
+impl LayoutBuilder<'_> {
+    pub(super) fn place_effort_slider(&mut self, element: &Element, rect: Rect, content: Rect, clip: Option<Rect>, style: Style) {
+        let ElementKind::EffortSlider {
+            id,
+            fraction,
+            steps,
+            ultra_available,
+        } = &element.kind else { unreachable!() };
+        let drag = self.slider_drag.filter(|drag| drag.id == *id);
+        let mut states = states_mut!(self);
+        let motion = states.touch(id, self.now, || SliderMotion::new(self.now));
+        let (phase, visual_fraction, ultra_mix, burst_age) = motion.sample(
+            self.now,
+            *fraction,
+            drag.map(|drag| drag.fraction),
+            *steps,
+            *ultra_available,
+            self.reduced_motion,
+        );
+        self.frame.commands.push(DrawCommand::EffortSlider {
+            rect: content,
+            fraction: visual_fraction,
+            steps: *steps,
+            phase,
+            dragging: drag.is_some(),
+            reduced_motion: self.reduced_motion,
+            ultra_mix,
+            burst_age,
+            opacity: 1.0,
+        });
+        self.add_region(id, rect, HitKind::Button, clip);
+        self.frame.sliders.insert(
+            id.clone(),
+            SliderGeometry {
+                rect: content,
+                steps: *steps,
+                fraction: *fraction,
+                ultra_available: *ultra_available,
+                inset: SLIDER_THUMB_INSET,
+                animated: true,
+                y: None,
+                vertical: false,
+            },
+        );
+        if self.keyboard_focus && self.focused == Some(id.as_str()) {
+            self.draw_focus_ring(
+                rect,
+                Style {
+                    radius: style.radius.max(8.0),
+                    ..style
+                },
+                element,
+            );
+        }
+    }
+}

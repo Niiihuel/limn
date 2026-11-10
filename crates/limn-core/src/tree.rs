@@ -158,6 +158,8 @@ mod control_tree;
 mod container_tree;
 #[path = "scroll_tree.rs"]
 mod scroll_tree;
+#[path = "media_tree.rs"]
+mod media_tree;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
     GlassMaterial, BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
@@ -10225,45 +10227,9 @@ impl LayoutBuilder<'_> {
                 self.paint_laid_out_formatted(spans, content, style, clip, element);
             }
             ElementKind::FormattedText(_) => self.place_formatted_text(element, content, clip, style),
-            ElementKind::RasterImage(image) => {
-                self.frame.commands.push(DrawCommand::RasterImage {
-                    rect: content,
-                    image: image.clone(),
-                    opacity: 1.0,
-                    radius: style.radius,
-                });
-            }
-            ElementKind::Surface {
-                id,
-                label,
-                fit,
-                mirrored,
-            } => {
-                self.frame.commands.push(DrawCommand::Surface {
-                    rect: content,
-                    id: id.clone(),
-                    label: label.clone(),
-                    opacity: 1.0,
-                    fit: *fit,
-                    radius: style.radius,
-                    mirrored: *mirrored,
-                });
-            }
-            ElementKind::Icon(icon) => {
-                let side = style
-                    .icon_side
-                    .unwrap_or(ICON_SIZE)
-                    .min(content.width)
-                    .min(content.height)
-                    .max(0.0);
-                let icon_rect = Rect::new(
-                    content.x + (content.width - side) / 2.0,
-                    content.y + (content.height - side) / 2.0,
-                    side,
-                    side,
-                );
-                self.draw_icon(*icon, icon_rect, style);
-            }
+            ElementKind::RasterImage(_) => self.place_raster_image(element, content, style),
+            ElementKind::Surface { .. } => self.place_surface(element, content, style),
+            ElementKind::Icon(_) => self.place_icon(element, content, style),
             ElementKind::Button { .. } => self.place_button(element, rect, content, clip, style, metrics),
             ElementKind::IconButton { .. } => self.place_icon_button(element, rect, content, clip, style, metrics),
             ElementKind::TextInput { .. } => self.place_text_input(element, rect, content, clip, style, metrics),
@@ -10442,21 +10408,7 @@ impl LayoutBuilder<'_> {
             ElementKind::PiePlot(plot) => self.paint_pie_plot(plot, content, clip),
             ElementKind::RadarPlot(plot) => self.paint_radar_plot(plot, content, clip),
             ElementKind::HeatPlot(plot) => self.paint_heat_plot(plot, content, clip),
-            ElementKind::Drawing(drawing) => {
-                self.frame.commands.push(DrawCommand::PushClip(content));
-                // The drawing's own clips stay balanced, so none outlives it.
-                let mut open = 0;
-                for command in drawing.draw(Size::new(content.width, content.height)) {
-                    match command {
-                        DrawCommand::PushClip(_) => open += 1,
-                        DrawCommand::PopClip if open == 0 => continue,
-                        DrawCommand::PopClip => open -= 1,
-                        _ => {}
-                    }
-                    self.frame.commands.push(command.moved(content.x, content.y, 1.0));
-                }
-                self.frame.commands.extend(std::iter::repeat_n(DrawCommand::PopClip, open + 1));
-            }
+            ElementKind::Drawing(_) => self.place_drawing(element, content),
             ElementKind::LevelBars(bars) => {
                 let pitch = bars.bar + bars.gap;
                 let fit = if bars.bar > 0.0 && pitch > 0.0 { ((content.width + bars.gap) / pitch).floor() } else { 0.0 };
@@ -10550,133 +10502,11 @@ impl LayoutBuilder<'_> {
                     every_arrow: false,
                 });
             }
-            ElementKind::ProgressRing {
-                fraction,
-                track,
-                fill,
-            } => {
-                self.frame.commands.push(DrawCommand::ProgressRing {
-                    rect: content,
-                    fraction: *fraction,
-                    track: *track,
-                    fill: *fill,
-                });
-            }
-            ElementKind::Record { id, image, out, spinning, peek } => {
-                let now = self.now;
-                let peeked = peek.as_deref().is_some_and(|control| self.hovered == Some(control));
-                let target = if *out || peeked { 1.0 } else { 0.0 };
-                let mut states = states_mut!(self);
-                let motion = states.touch(id, now, || RecordMotion {
-                    out: ScalarTransition::new(target, now),
-                    turned: 0.0,
-                    spinning_since: None,
-                });
-                if motion.out.target() != target {
-                    let travel = Duration::from_millis(u64::from(crate::tokens().motion.move_ms));
-                    motion.out.retarget_with_motion(target, now, travel, self.reduced_motion);
-                }
-                motion.spin(*spinning && !self.reduced_motion, now);
-                if rect.width > 0.0 && rect.height > 0.0 {
-                    self.frame.commands.push(DrawCommand::Record {
-                        rect,
-                        image: image.clone(),
-                        fill: style.background.unwrap_or(Color::TRANSPARENT),
-                        out: motion.out.value(now),
-                        angle: motion.angle(now),
-                        radius: style.radius,
-                        opacity: 1.0,
-                    });
-                }
-            }
-            ElementKind::Spinner { id, color, variant } => {
-                // Under reduced motion a spinner starts on every frame: it does not turn.
-                let started = if self.reduced_motion {
-                    self.now
-                } else {
-                    states_mut!(self).touch(id, self.now, || SpinnerStart(self.now)).0
-                };
-                paint_spinner(
-                    &mut self.frame.commands,
-                    rect,
-                    *color,
-                    *variant,
-                    started,
-                    self.now,
-                    self.reduced_motion,
-                );
-            }
-            ElementKind::Scribble { id, color, stroke, drawing } => {
-                let started = states_mut!(self).touch(id, self.now, || SpinnerStart(self.now)).0;
-                let (commands, moving) = crate::scribble::paint(
-                    rect,
-                    *color,
-                    *stroke,
-                    drawing.as_deref(),
-                    started,
-                    self.now,
-                    self.reduced_motion,
-                );
-                // A drawing written once stops asking for frames when its pen has gone; its
-                // start is still kept, so it is not written again.
-                if !moving {
-                    self.settled_spinners.insert(id.clone());
-                }
-                self.frame.commands.extend(commands);
-            }
-            ElementKind::EffortSlider {
-                id,
-                fraction,
-                steps,
-                ultra_available,
-            } => {
-                let drag = self.slider_drag.filter(|drag| drag.id == *id);
-                let mut states = states_mut!(self);
-                let motion = states.touch(id, self.now, || SliderMotion::new(self.now));
-                let (phase, visual_fraction, ultra_mix, burst_age) = motion.sample(
-                    self.now,
-                    *fraction,
-                    drag.map(|drag| drag.fraction),
-                    *steps,
-                    *ultra_available,
-                    self.reduced_motion,
-                );
-                self.frame.commands.push(DrawCommand::EffortSlider {
-                    rect: content,
-                    fraction: visual_fraction,
-                    steps: *steps,
-                    phase,
-                    dragging: drag.is_some(),
-                    reduced_motion: self.reduced_motion,
-                    ultra_mix,
-                    burst_age,
-                    opacity: 1.0,
-                });
-                self.add_region(id, rect, HitKind::Button, clip);
-                self.frame.sliders.insert(
-                    id.clone(),
-                    SliderGeometry {
-                        rect: content,
-                        steps: *steps,
-                        fraction: *fraction,
-                        ultra_available: *ultra_available,
-                        inset: SLIDER_THUMB_INSET,
-                        animated: true,
-                        y: None,
-                        vertical: false,
-                    },
-                );
-                if self.keyboard_focus && self.focused == Some(id.as_str()) {
-                    self.draw_focus_ring(
-                        rect,
-                        Style {
-                            radius: style.radius.max(8.0),
-                            ..style
-                        },
-                        element,
-                    );
-                }
-            }
+            ElementKind::ProgressRing { .. } => self.place_progress_ring(element, content),
+            ElementKind::Record { .. } => self.place_record(element, rect, style),
+            ElementKind::Spinner { .. } => self.place_spinner(element, rect),
+            ElementKind::Scribble { .. } => self.place_scribble(element, rect),
+            ElementKind::EffortSlider { .. } => self.place_effort_slider(element, rect, content, clip, style),
             ElementKind::ZoomView(view) => self.place_zoom_view(view, content, clip, style.shadow),
             // A rolling number was placed as its text above.
             ElementKind::Skeleton { .. }
