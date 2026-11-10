@@ -13,10 +13,14 @@ use crate::FontFamily;
 /// One face of a font file: what limn lays text out in, and what a backend
 /// draws the glyphs of a [`crate::GlyphRun`] from. Clones share the bytes
 /// and the [`id`](Self::id).
+///
+/// A variable font is drawn at the instance [`Font::with_variations`] names:
+/// one file can be several weights, each a `Font` of its own.
 #[derive(Clone)]
 pub struct Font {
     data: FontData,
     compiled: Option<&'static [u8]>,
+    variations: Arc<[([u8; 4], f32)]>,
 }
 
 impl Font {
@@ -37,12 +41,38 @@ impl Font {
         Self::checked(Blob::new(Arc::new(bytes)), 0, Some(bytes))
     }
 
+    /// The face at `index` of a file another owner keeps too, such as a
+    /// backend's own copy of it: limn shares the bytes rather than copy them.
+    pub fn from_shared(bytes: Arc<dyn AsRef<[u8]> + Send + Sync>, index: u32) -> Result<Self, FontError> {
+        Self::checked(Blob::new(bytes), index, None)
+    }
+
     fn checked(blob: Blob<u8>, index: u32, compiled: Option<&'static [u8]>) -> Result<Self, FontError> {
         // The collection reads the face's tables as layout will.
         let faces = Collection::new(CollectionOptions { shared: false, system_fonts: false })
             .register_fonts(blob.clone(), None);
         let found = faces.iter().flat_map(|(_, faces)| faces).any(|face| face.index() == index);
-        found.then(|| Self { data: FontData::new(blob, index), compiled }).ok_or(FontError)
+        found.then(|| Self { data: FontData::new(blob, index), compiled, variations: Arc::new([]) }).ok_or(FontError)
+    }
+
+    /// The same face at the instance `axes` name, for a variable font: each
+    /// an axis' four-letter tag and its value in the axis' own units, as
+    /// `(*b"wght", 560.0)` for a weight of 560. These replace the instance
+    /// named before. limn lays out, measures and draws the text of every
+    /// family this face stands first for at it, and characters that family
+    /// takes from another variable face too. A value outside its axis' range
+    /// is taken as the nearest end; an axis the face lacks, and every axis of
+    /// a static face, is ignored. Without them, a variable face is drawn at
+    /// the weight of its family, as CSS draws one.
+    pub fn with_variations(mut self, axes: impl IntoIterator<Item = ([u8; 4], f32)>) -> Self {
+        self.variations = axes.into_iter().collect();
+        self
+    }
+
+    /// The instance [`Font::with_variations`] named, in the order given;
+    /// empty when none was.
+    pub fn variations(&self) -> &[([u8; 4], f32)] {
+        &self.variations
     }
 
     /// The whole file the face is in.
@@ -75,7 +105,7 @@ impl Font {
 
 impl PartialEq for Font {
     fn eq(&self, other: &Self) -> bool {
-        self.id() == other.id() && self.index() == other.index()
+        self.id() == other.id() && self.index() == other.index() && self.variations == other.variations
     }
 }
 
@@ -86,6 +116,7 @@ impl fmt::Debug for Font {
             .field("id", &self.id())
             .field("index", &self.index())
             .field("bytes", &self.bytes().len())
+            .field("variations", &self.variations)
             .finish()
     }
 }
@@ -196,7 +227,7 @@ impl Fonts {
         let mut all = self.faces.iter().map(|(_, font)| font).chain(&self.fallbacks).chain(&self.emoji);
         all.find(|font| font.id() == data.data.id() && font.index() == data.index)
             .cloned()
-            .unwrap_or_else(|| Font { data: data.clone(), compiled: None })
+            .unwrap_or_else(|| Font { data: data.clone(), compiled: None, variations: Arc::new([]) })
     }
 }
 
@@ -244,6 +275,23 @@ mod tests {
     fn bytes_that_are_not_a_font_are_refused() {
         assert_eq!(Font::new(vec![0_u8; 64]), Err(FontError));
         assert_eq!(Font::from_static(b"not a font"), Err(FontError));
+    }
+
+    #[cfg(feature = "bundled-fonts")]
+    #[test]
+    fn a_shared_face_keeps_the_bytes_it_is_given_and_each_instance_is_a_face_of_its_own() {
+        let emoji = Fonts::bundled().emoji_face().unwrap().clone();
+        let bytes: Arc<dyn AsRef<[u8]> + Send + Sync> = Arc::new(emoji.bytes().to_vec());
+        let shared = Font::from_shared(bytes.clone(), 0).unwrap();
+        assert_eq!(shared.bytes().as_ptr(), (*bytes).as_ref().as_ptr(), "shared, not copied");
+        assert_eq!(Font::from_shared(bytes, 1), Err(FontError), "the file has one face");
+        assert!(shared.variations().is_empty());
+        let light = shared.clone().with_variations([(*b"wght", 300.0)]);
+        assert_eq!(light.variations(), [(*b"wght", 300.0)]);
+        assert_eq!(light.id(), shared.id(), "the same bytes");
+        assert_ne!(light, shared, "another instance");
+        assert_ne!(light, light.clone().with_variations([(*b"wght", 700.0)]));
+        assert_eq!(light, shared.with_variations([(*b"wght", 300.0)]));
     }
 
     #[cfg(feature = "bundled-fonts")]
