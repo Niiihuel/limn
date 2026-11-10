@@ -22,7 +22,7 @@ Until the new repository opens, there are no pull requests.
 
 | # | Condition | Today |
 | --- | --- | --- |
-| 1 | One line of work. No feature waits behind it in a branch, and applications build on it or on a tag. | The line exists: `next` holds every branch. The applications still build on their own branches. |
+| 1 | One line of work. No feature waits behind it in a branch, and applications build on it or on a tag. | The line exists: `next` holds every branch. Each application builds and passes on `next` in a branch of its own; none is merged or was run. |
 | 2 | Every [invariant](invariants.md) is **Held**. | Seven are not: 1, 2, 3, 5, 9, 12 and 13. |
 | 3 | What a host or a backend compiles against is settled: every breaking change known today has landed. | No. See stage B. |
 | 4 | An application can build a design of its own on the engine, and change nothing in it. | Partly. The engine is a crate of its own; it still holds some design. See stage C. |
@@ -45,6 +45,8 @@ Until the new repository opens, there are no pull requests.
 | `CHANGELOG.md` merges by union: two branches that add a line both keep theirs. | `next` |
 | The eleven open features, on the core as it is now: the code look, `centered_y`, Markdown's line height, a modal's title, drag handles, the floating surfaces and what was stacked on them (looping icons, a hint with a picture, a host's faces, a radio's accent), and liquid glass. | `next` (were #179, #180, #182, #186 to #193) |
 | The engine and the design in crates of their own: `limn-core`, `limn-components`, and `limn` over both. | `next`; stage C, its first step |
+| `tree.rs` split along its seams, from 23,860 lines to 13,458, with no change of behaviour. | `next`; stage D.1 |
+| What the tree paints by itself takes its look from outside: the focus ring, a coach mark's ring and caret, scrollbars, a tooltip's content, the context menu's view. With nothing given, each is drawn as before. | `next`; stage C.1 |
 
 What the features needed to stand on the new core, so the next one knows:
 
@@ -55,13 +57,14 @@ What the features needed to stand on the new core, so the next one knows:
 - The gallery's glass page read its bar before the input, for a loop that
   laid out twice. It reads it before the view is described.
 
-Checked after the cut, on 2026-11-10: the five commands pass (2,353 tests;
-1,847 without the default features). Every name `limn` exported before, it
-exports now. `layout_bench` lays out as fast as before the cut: 1.12 to
-1.14 ms for 1,000 rows against 1.14 to 1.15. Building the view of 4,000 rows
-read slower in three runs, 1.5 ms against 1.3 to 1.4; the cause was not
-looked for. Not checked: the gallery running, so nothing here says the
-windows look as they did.
+Checked on 2026-11-10, after the cut, the split of `tree.rs` and stage C.1:
+the five commands pass (2,380 tests; 1,874 without the default features).
+Every name `limn` exported before the cut, it exports now. `layout_bench`
+lays out as fast as before the cut: 1.10 to 1.12 ms for 1,000 rows against
+1.11 to 1.15, and 7.9 to 8.1 ms for 4,000 against 7.8 to 8.0. Each change of
+stage C.1 was compared, draw command by draw command, with what the engine
+drew before it, over the cases its own page of notes lists. Not checked:
+the gallery running, so nothing here says the windows look as they did.
 
 ## Order of work
 
@@ -71,8 +74,13 @@ one before it, only for those it names.
 ### A. One line of work
 
 1. ~~Bring every branch onto the core as it is.~~ Done: `next`.
-2. **Point the applications at `next`**, one at a time, and fix what each
-   meets. One of them builds on a limn 315 commits behind `main`.
+2. **Point the applications at `next`.** Done in a branch of each, not
+   merged: all three build and pass their own suites. Two needed only the
+   new paths and `..` in one pattern of `DrawCommand::Icon`. The third, 315
+   commits behind, needed no change to compile, and keeps its text on the
+   faces it gives egui with `set_text_layout(false)`; see the faces in
+   stage B. Left to each application: its CI still fetches the old line of
+   limn, and none was run, so nothing was seen.
 3. **Close the old pull requests** without merging, once the applications
    build: their work is in `next`.
 
@@ -89,6 +97,7 @@ itself stable.
 | A key the tree derives is a type a host cannot write. | Invariant 3 | `extend/`, `slide/`, `scale/`, `__sheet:` and `popover_surface:` first. |
 | An ID taken twice is loud in a debug build. | Invariants 2, 12 | *Needs a decision*: a panic in debug stops an application that works today. |
 | What is public by accident: the fields of `Element` and `Style`. | Condition 3 | An audit; then a check of the public API in CI. |
+| A host's own faces reach limn's text layout. `attach_fonts` turns that layout on, and it knows only `limn::fonts()`: faces given to egui with `font_definitions_with` are not used for `Element::text`, and a `Font` takes no variation weights. The comment on `font_definitions_with` and `docs/theming.md` still say `attach_fonts` is enough. | Found by an application | `UiFaces` given to `limn::set_fonts` too, and variation coordinates on `Font`. Until then a host keeps its faces with `set_text_layout(false)`. |
 
 Small gaps, each a commit of its own:
 
@@ -103,6 +112,12 @@ Small gaps, each a commit of its own:
   (R11).
 - `crates/limn-gallery/examples/captured_paste.rs` lays out after each event
   (R6).
+- What a tooltip's content floats by itself, a popover or an overlay, is
+  placed outside the inert subtree and could take the pointer
+  (`Element::inert`).
+- A press on a separator or a disabled row of a context menu closes it.
+- `CoachAnchor` has public fields and no constructor: a field added later
+  breaks every literal. The same holds for `ScrollbarAppearance`.
 
 ### C. The engine apart from the design
 
@@ -123,8 +138,8 @@ application with a look of its own depends on `limn-core`, uses none of
   engine (R22).
 - What the components did reach for was opened as seams, `#[doc(hidden)]
   pub` (R23). `seams_do_not_grow` holds their number: 70 on 2026-11-10,
-  where there were none to count before, because nothing stopped a
-  component from reaching in.
+  down from 86 at the cut. Before it there were none to count, because
+  nothing stopped a component from reaching in.
 - The engine's tests stand on the engine alone: 738 of them. The 47 that
   need a component are tests of `limn-components` now, and none was lost.
 
