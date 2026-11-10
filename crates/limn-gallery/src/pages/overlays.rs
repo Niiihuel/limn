@@ -133,9 +133,11 @@ pub fn view(cx: &Cx) -> Vec<Section> {
                 )
                 .width(200.0)
                 .render(),
+                accent_radios(cx),
             ]),
             caption(cx, &format!("Notifications: {}", state.choice("overlay-items-level", "mentions"))),
             caption(cx, ".leading(element) puts a mark of the host's in the icon's slot: here an Avatar's initial."),
+            caption(cx, ".filled_choice(accent, white): the chosen radio is the accent round a white dot, in its submenus too."),
         ]),
         section(cx, "Context menu", vec![row(vec![context])]),
         section(cx, "Menu at a point", vec![point_menu(cx)]),
@@ -216,6 +218,38 @@ fn item_entries(state: &State, close: &str) -> Vec<DropdownMenuEntry> {
             .disabled()
             .into(),
     ]
+}
+
+/// Radio items, and a submenu of them, marked as `filled_choice` has it.
+fn accent_radios(cx: &Cx) -> Element {
+    let choice = |key: &str, value: &str, label: &str, default: &str| {
+        DropdownMenuItem::new(format!("{key}={value}&overlay-accent=closed"), label)
+            .radio(cx.state.choice(key, default) == value)
+            .into()
+    };
+    DropdownMenu::new(
+        trigger(cx, "overlay-accent=open", "In the accent"),
+        vec![
+            choice("overlay-items-level", "all", "All messages", "mentions"),
+            choice("overlay-items-level", "mentions", "Only @mentions", "mentions"),
+            choice("overlay-items-level", "nothing", "Nothing", "mentions"),
+            DropdownMenuEntry::Separator,
+            DropdownMenuItem::new("overlay-accent-mute", "Mute for")
+                .submenu(vec![
+                    choice("overlay-accent-mute", "15m", "15 minutes", "1h"),
+                    choice("overlay-accent-mute", "1h", "An hour", "1h"),
+                    choice("overlay-accent-mute", "8h", "8 hours", "1h"),
+                ])
+                .into(),
+        ],
+        cx.state.text("overlay-accent") == "open",
+        "overlay-accent=closed",
+        cx.palette,
+    )
+    .context_menu_style()
+    .filled_choice(cx.state.theme().accent, Color::WHITE)
+    .width(240.0)
+    .render()
 }
 
 /// A menu that opens where the secondary click was, with the same items, or
