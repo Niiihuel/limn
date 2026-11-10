@@ -208,7 +208,20 @@ These move code. Nothing waits behind them now, so they can start.
    with `step_sheet`, `sheet_of`, `recede_scene`, `rubber_band` and the
    constants of a sheet's drag.
 2. **Split `place_inner` by kind**: each arm of its `match` a function in the
-   module of its kind.
+   module of its kind. Done, with no change of behaviour, one family per
+   commit: `place_inner` from about 2,900 lines to about 550, and `tree.rs`
+   to about 11,100. Text (`text_tree.rs`), controls and mark rails
+   (`control_tree.rs`), containers (`container_tree.rs`, a tooltip's anchor
+   in `tooltip_tree.rs`), a scroll area and a uniform list
+   (`scroll_tree.rs`), pictures and media (`media_tree.rs`, an effort slider
+   in `slider_tree.rs`), the code editor and diff (`code_tree.rs`), diagrams,
+   unit grids and level bars (`plot_tree.rs`). Each method binds its kind's
+   fields with the arm's own pattern and takes the locals of `place_inner`
+   it read. Left: the arms that are one call or a few lines (a panel, a
+   stack, a shortcut hint, text laid out by limn, a measured list, a
+   horizontal scroll, the plots, a zoom view); the work every element shares
+   before and after the `match`, in `place_inner`; and `measure_uncached`,
+   its measuring twin, one `match` in `tree.rs` still.
 3. **Adopt rustfmt**, in one commit named in `.git-blame-ignore-revs`, and
    check it in CI. It touches more than 238 files.
 

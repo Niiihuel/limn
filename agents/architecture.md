@@ -48,7 +48,7 @@ In `crates/limn-core/src/`:
 | `tree.rs` | `UiTree` (state and events) and `LayoutBuilder` (one layout pass, with `measure_uncached` and `place_inner`). What has moved out of it is in the child modules below. |
 | `draw_command.rs`, `events.rs`, `frame.rs` | Child modules of `tree` with what a backend reads and sends: `DrawCommand`; `Key`, `OtherButton`, `UiEvent`, `Modifiers`, `UiAction`; `Frame`, `HitRegion`, `HitKind`, `TextLayoutBlock`, `TextLayoutRun` and hit testing. `tree.rs` re-exports them, so `lib.rs` exports them as before. |
 | `input_state.rs`, `formatted_text.rs` | Child modules of `tree`: the state of a text field (`InputState`, `FieldLayout`, `VisualLine`), and formatted text flowed into lines and cut to its `max_lines` with «…» (`layout_formatted`, `clamp_formatted`). |
-| `*_tree.rs` | Parts of the layout that have moved out of `tree.rs`: child modules of `tree`, so they reach its private items. `zoom_view_tree.rs`, `horizontal_scroll_tree.rs`, `plot_tree.rs`, `corner_mask_tree.rs`, `context_menu_tree.rs`, `ime_tree.rs`, `tooltip_tree.rs`, `scrollbar_tree.rs`, `slider_tree.rs`, `sheet_tree.rs`. |
+| `*_tree.rs` | Parts of the layout that have moved out of `tree.rs`: child modules of `tree`, so they reach its private items. `zoom_view_tree.rs`, `horizontal_scroll_tree.rs`, `plot_tree.rs`, `corner_mask_tree.rs`, `context_menu_tree.rs`, `ime_tree.rs`, `tooltip_tree.rs`, `scrollbar_tree.rs`, `slider_tree.rs`, `sheet_tree.rs`. The arms of `place_inner` are methods of `LayoutBuilder` here, by family: `text_tree.rs`, `control_tree.rs`, `container_tree.rs`, `scroll_tree.rs`, `media_tree.rs`, `code_tree.rs`; a tooltip's anchor in `tooltip_tree.rs`, an effort slider in `slider_tree.rs`, diagrams, unit grids and level bars in `plot_tree.rs`. |
 | `state_store.rs` | `StateStore`: what the layout keeps for an element, by its ID and the state's type. |
 | `measurement_cache.rs` | `MeasurementCache`: the sizes one layout pass has measured. |
 | `text_layout.rs`, `text_layout_cache.rs`, `text_width_cache.rs`, `formatted_text_cache.rs`, `fonts.rs` | Text: shaping and line breaking with parley, and the caches that outlive a frame. |
@@ -124,8 +124,10 @@ Layout is two functions of `LayoutBuilder` that call each other down the tree.
 | Cached | In `MeasurementCache`, for this pass. | No. |
 
 - `measure_uncached` is the `match` on `ElementKind` that measures;
-  `place_inner` is the one that places. `place_inner` is about 2,900 lines:
-  the largest function in the crate, and where most features meet.
+  `place_inner` is the one that places. `place_inner` is about 550 lines:
+  what every element shares, before and after a `match` whose arms each call
+  the method that places their kind in a `*_tree.rs` module, as
+  `place_text` in `text_tree.rs`.
 - The key of a measurement is the element's address, the room it was offered
   and a scope. The address is stable because the tree is not changed during a
   pass; the scope tells apart trees built during the pass (a virtual list's
@@ -337,7 +339,7 @@ Each is in the [plan](plan.md) with its order.
 
 | Debt | Shows as |
 | --- | --- |
-| `tree.rs` is 13,500 lines and `place_inner` 2,900. | Every feature edits the same file; pull requests conflict. |
+| `tree.rs` is 11,100 lines and `place_inner` 550. | Every feature edits the same file; pull requests conflict. |
 | `ElementKind` is closed and holds widgets (`Flowchart`, `SequenceDiagram`, the plots, `Record`, `EffortSlider`). | A widget that could be a component is matched across the layout. |
 | Four widget commands in `DrawCommand`. | A backend must know how a widget looks. |
 | One walk measures, places, paints and animates. | No subtree can be skipped when nothing in it changed. |
