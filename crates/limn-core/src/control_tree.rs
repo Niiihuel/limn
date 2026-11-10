@@ -1,5 +1,5 @@
 //! How the tree places the controls it draws itself: clickables, buttons,
-//! text inputs and text areas.
+//! text inputs, text areas and mark rails.
 
 use super::*;
 
@@ -837,5 +837,64 @@ impl LayoutBuilder<'_> {
                 }
             }
         }
+    }
+
+    pub(super) fn place_mark_rail(&mut self, element: &Element, content: Rect, clip: Option<Rect>) {
+        let ElementKind::MarkRail(rail) = &element.kind else { unreachable!() };
+        let pitch = (content.height / rail.marks.len().max(1) as f32).min(rail.pitch);
+        let at = |id: Option<&str>| {
+            id.and_then(|id| rail.marks.iter().position(|mark| mark.id == id))
+        };
+        // As for a tooltip, the keyboard leads until the pointer moves again.
+        let lead = at(self.focused.filter(|_| self.keyboard_tooltip_focus)).or(at(self.hovered));
+        let thickness = rail.thickness.min(pitch);
+        for (index, mark) in rail.marks.iter().enumerate() {
+            let row = Rect::new(
+                content.x,
+                content.y + index as f32 * pitch,
+                content.width,
+                pitch,
+            );
+            self.add_region(&mark.id, row, HitKind::Button, clip);
+            let rest = rail.length(index, None);
+            let length =
+                self.spring(&format!("{}/{}", rail.id, mark.id), rail.length(index, lead));
+            // The ink follows the length, so only the raised mark is lit.
+            let lit = ((length - rest) / (rail.peak - rest).max(1.0)).clamp(0.0, 1.0);
+            let base = if rail.active == Some(index) { rail.active_ink } else { rail.ink };
+            self.frame.commands.push(DrawCommand::FillRect {
+                rect: Rect::new(row.x, row.y + (pitch - thickness) / 2.0, length, thickness),
+                color: mix(base, rail.lead_ink, lit.powi(3)),
+                radius: thickness / 2.0,
+            });
+        }
+        if let Some(index) = lead {
+            let mark = &rail.marks[index];
+            // Muted under the title, which is what the turn is known by.
+            let preview = (!mark.preview.is_empty())
+                .then(|| TooltipSection::Footer(mark.preview.clone()));
+            // A rail is read by moving along it: no wait before the hint.
+            self.overlays.push_back(DeferredOverlay::Tooltip {
+                anchor: Rect::new(
+                    content.x,
+                    content.y + index as f32 * pitch,
+                    rail.peak,
+                    pitch,
+                ),
+                title: mark.title.clone(),
+                shortcut: None,
+                sections: preview.into_iter().collect(),
+                max_width: 320.0,
+                placement: TooltipPlacement::Right,
+                colors: rail.tooltip,
+                options: crate::tokens().tooltip_options,
+                content: None,
+            });
+        }
+        self.frame.tab_focus.push(TabFocusScope {
+            action_ids: rail.marks.iter().map(|mark| mark.id.clone()).collect(),
+            vertical: true,
+            every_arrow: false,
+        });
     }
 }
