@@ -103,6 +103,10 @@ pub struct CodeDiff {
     pub margin_bar: bool,
     /// The colours of changed rows, words, markers and bars.
     pub colors: DiffColors,
+    /// The host's inks for the built-in syntax colours, as `CodeEditor::syntax_colors` takes
+    /// them, so a diff reads in the same colours as the editor. `None` keeps limn's. Set with
+    /// `syntax_colors`.
+    pub syntax_colors: Option<crate::CodeSyntaxColors>,
 }
 
 impl CodeDiff {
@@ -124,6 +128,7 @@ impl CodeDiff {
             word_ranges: Arc::from([]),
             margin_bar: true,
             colors: DiffColors::default(),
+            syntax_colors: None,
         }
     }
     /// Use this palette for the surface, the text and the gutter.
@@ -199,20 +204,35 @@ impl CodeDiff {
         self.colors = colors;
         self
     }
+    /// Paint the built-in syntax colours in the host's inks, as the editor does with its own.
+    pub fn syntax_colors(mut self, colors: crate::CodeSyntaxColors) -> Self {
+        self.syntax_colors = Some(colors);
+        self
+    }
 }
 
-/// The control laid over a `Folded` row: its label, reporting `{id}:expand:{row}`.
+/// The control laid over a `Folded` row, reporting `{id}:expand:{row}`: a chevron in the
+/// column of the marks and the label, muted in the proportional face, where the code starts.
 pub(crate) fn expand_control(diff: &CodeDiff, row: usize, indent: f32, size: (f32, f32)) -> Element {
     let label = diff.lines[row].text.trim_end_matches(['\r', '\n']).to_owned();
+    let icon = diff.font_size;
+    let lead = (indent - 16.0).max(0.0);
     diff.palette
         .bar_item_surface(Element::clickable(
             format!("{}:expand:{row}", diff.id),
             Element::row(vec![
-                Element::spacer().size(Some(indent), Some(1.0)),
+                Element::spacer().size(Some(lead), Some(1.0)),
+                Element::icon(Icon::ChevronDown)
+                    .foreground(diff.palette.muted)
+                    .size(Some(icon), Some(icon))
+                    .centered_y(),
+                Element::spacer().size(Some((indent - lead - icon).max(4.0)), Some(1.0)),
                 Element::truncated_text(label.clone())
+                    .font_family(FontFamily::Sans)
                     .font_size(diff.font_size)
                     .foreground(diff.palette.muted)
-                    .shrink_to_fit(),
+                    .shrink_to_fit()
+                    .centered_y(),
             ])
             .clip_children(),
         ))
@@ -408,6 +428,34 @@ mod tests {
                 assert!(texts(&frame).iter().any(|(_, color)| *color == bar_color));
             }
         }
+    }
+
+    #[test]
+    fn syntax_colors_paint_the_rows_in_the_hosts_inks() {
+        let host = Color::rgb(1, 2, 3);
+        let colors = crate::CodeSyntaxColors {
+            keyword: host,
+            ..crate::CodeSyntaxColors::for_palette(ComponentPalette::neutral_dark())
+        };
+        let lines: Arc<[CodeDiffLine]> = vec![line(CodeDiffLineKind::Added, 1, "fn main() {}")].into();
+        let keyword_ink = |diff: CodeDiff| {
+            let mut tree = UiTree::new(diff.render());
+            tree.set_reduced_motion(true);
+            tree.set_text_measurer(|text, _, _| text.chars().count() as f32 * 8.0);
+            // The colours are worked out beside the frame: lay out until they are in.
+            for _ in 0..400 {
+                let frame = tree.layout(Size::new(400.0, 120.0));
+                let ink = texts(&frame).into_iter().find(|(text, _)| text.starts_with("fn")).map(|(_, ink)| ink);
+                if tree.animation_repaint_after().is_none() {
+                    return ink;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            None
+        };
+        let diff = || CodeDiff::new("diff", lines.clone()).language(CodeLanguage::Rust);
+        assert_eq!(keyword_ink(diff().syntax_colors(colors)), Some(host));
+        assert_ne!(keyword_ink(diff()), Some(host), "without them, limn's own");
     }
 
     #[test]
