@@ -49,7 +49,7 @@ pub enum Cursor {
     /// Two arrows pointing up and down: the boundary between two rows.
     ResizeRow,
     /// An open hand: something the pointer can pick up and move, as a
-    /// [`DragHandle`](crate::DragHandle). The platform's own, as every shape.
+    /// `DragHandle`. The platform's own, as every shape.
     Grab,
     /// A closed hand: something the pointer is moving.
     Grabbing,
@@ -2704,7 +2704,7 @@ impl Element {
     /// changes under the same `id`, it rises into place from its own height
     /// below while the previous paint moves up by the same distance and
     /// fades. Layout does not change. Place it in a parent that clips, as
-    /// [`crate::Ticker`] does, so neither paint leaves the slot.
+    /// `Ticker` does, so neither paint leaves the slot.
     pub fn animate_replace(mut self, id: impl Into<String>, key: impl Into<String>) -> Self {
         self.replacement = Some(Box::new((id.into(), key.into())));
         self
@@ -2717,7 +2717,7 @@ impl Element {
     /// With `expand` it also opens from zero over `enter_ms` when content
     /// arrives in a slot that was rendered empty. Siblings follow the height on every frame. The element must
     /// stay in the tree, empty, for as long as it may animate: see
-    /// [`crate::Collapse`]. Replaces `animate_enter` on the same element.
+    /// `Collapse`. Replaces `animate_enter` on the same element.
     pub fn animate_height(mut self, id: impl Into<String>, expand: bool) -> Self {
         self.presence = Some((id.into(), false));
         self.animate_height = Some(expand);
@@ -2765,7 +2765,7 @@ impl Element {
     /// Place this element and what is inside it `y` logical pixels below its
     /// slot, as [`Element::translate`] does; a negative `y` places it above.
     /// Its siblings keep their places, so a parent that clips shows a window
-    /// onto a taller column, as [`crate::RollingNumber`] does. The offset is
+    /// onto a taller column, as `RollingNumber` does. The offset is
     /// kept under `id` and springs to a new one over three `move_ms`, long
     /// enough to see what passes, or changes at once under reduced motion. An
     /// offset that is not finite is ignored.
@@ -3684,7 +3684,7 @@ impl Element {
     /// takes: what an item of the list opens in place. It scrolls with the
     /// rows, the rows after it move down by its height, and the list still
     /// builds only what is in view. One row is open at a time; pass
-    /// `content` on every rebuild while it is. A [`crate::Collapse`] as
+    /// `content` on every rebuild while it is. A `Collapse` as
     /// `content` opens and closes it on the spring. Does nothing on an
     /// element that is not a uniform list.
     pub fn list_expansion(mut self, index: usize, content: Self) -> Self {

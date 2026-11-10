@@ -144,7 +144,7 @@ const SPAN_INKS: [(Color, Color, Color); 4] = [
 
 /// The inks of highlighted code in Markdown's fenced blocks.
 /// [`CodeSyntaxColors::for_palette`] is the default; a host passes its own
-/// with [`crate::Markdown::code_syntax_colors`].
+/// with `Markdown::code_syntax_colors`.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct CodeSyntaxColors {
     /// Everything else: names, operators and punctuation.

@@ -1,6 +1,6 @@
 use super::*;
 use crate::{
-    CodeEditor, Component, ContextMenu, ContextMenuEntry, ContextMenuItem, EditorController, Modal,
+    CodeEditor, Component, ContextMenu, ContextMenuEntry, ContextMenuItem, EditorController,
 };
 
 #[test]
@@ -27,7 +27,8 @@ fn controlled_context_requests_the_hosts_action_without_opening_a_menu_or_clicki
 fn context_hit_testing_does_not_reach_through_a_modal_backdrop() {
     let palette = ComponentPalette::neutral_dark();
     let row = ContextMenu::new("song-context", Element::button("song", "Song"), Vec::new(), palette).open_action("more:song").render();
-    let root = Modal::new(row, true, "Actions", "", "close", palette).body(Element::button("action", "Action")).render();
+    let root = Element::popover(row, Element::button("action", "Action"), "close", PopoverPlacement::Center)
+        .popover_scrim(Color::rgba(0, 0, 0, 180)).popover_backdrop_dismiss(false);
     let frame = UiTree::new(root).layout(Size::new(320.0, 480.0));
     assert_eq!(frame.context_menu_at(Point::new(5.0, 5.0)), None);
 }
@@ -201,10 +202,10 @@ fn compact_menu_shortcuts_share_tooltip_keycaps_without_partial_chords() {
             crate::shortcut::width("Ctrl+Shift+Z", |key| key.chars().count() as f32 * 9.0);
         let available = crate::context_menu::WIDTH.min(width - 16.0)
             - crate::context_menu::INSET * 2.0
-            - crate::menu::action_style::HORIZONTAL_PADDING * 2.0;
+            - crate::action_style::HORIZONTAL_PADDING * 2.0;
         assert_eq!(
             caps.len(),
-            if chord_width + crate::menu::action_style::GAP + 40.0 <= available {
+            if chord_width + crate::action_style::GAP + 40.0 <= available {
                 3
             } else {
                 0
@@ -387,18 +388,14 @@ fn context_static_text_preserves_selection_and_cannot_cross_modal_layers() {
         vec![UiAction::CopyRequested { text: selected }]
     );
     tree.set_root(
-        Modal::new(
+        Element::popover(
             Element::text("Copiar ñ 東京"),
-            true,
-            "Modal",
-            "",
+            Element::text("Interior").size(Some(220.0), Some(160.0)),
             "dismiss",
-            ComponentPalette::neutral_dark(),
+            PopoverPlacement::Center,
         )
-        .body(Element::text("Interior"))
-        .width(220.0)
-        .height(160.0)
-        .render(),
+        .popover_scrim(Color::rgba(0, 0, 0, 180))
+        .popover_backdrop_dismiss(false),
     );
     tree.layout(Size::new(300.0, 240.0));
     tree.handle_event(UiEvent::ContextMenu {

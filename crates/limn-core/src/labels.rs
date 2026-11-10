@@ -7,10 +7,10 @@ use std::sync::{PoisonError, RwLock};
 /// English unless the host says otherwise:
 ///
 /// ```
-/// limn::set_labels(limn::Labels::SPANISH);
+/// limn_core::set_labels(limn_core::Labels::SPANISH);
 /// // Or a few of them, in any language:
-/// limn::set_labels(limn::Labels { close: "Fermer", cancel: "Annuler", ..limn::Labels::ENGLISH });
-/// # limn::set_labels(limn::Labels::ENGLISH);
+/// limn_core::set_labels(limn_core::Labels { close: "Fermer", cancel: "Annuler", ..limn_core::Labels::ENGLISH });
+/// # limn_core::set_labels(limn_core::Labels::ENGLISH);
 /// ```
 ///
 /// A component that takes a label of its own, such as an alert dialog's

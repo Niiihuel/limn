@@ -119,28 +119,6 @@ impl Color {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn rectangles_have_half_open_edges() {
-        let rect = Rect::new(10.0, 20.0, 30.0, 40.0);
-        assert!(rect.contains(Point::new(10.0, 20.0)));
-        assert!(!rect.contains(Point::new(40.0, 20.0)));
-        assert!(!rect.contains(Point::new(10.0, 60.0)));
-    }
-
-    #[test]
-    fn intersection_and_inset_never_make_negative_size() {
-        let a = Rect::new(0.0, 0.0, 20.0, 20.0);
-        let b = Rect::new(15.0, 5.0, 10.0, 10.0);
-        assert_eq!(a.intersection(b), Some(Rect::new(15.0, 5.0, 5.0, 10.0)));
-        assert_eq!(a.inset(15.0), Rect::new(15.0, 15.0, 0.0, 0.0));
-        assert_eq!(a.intersection(Rect::new(20.0, 0.0, 1.0, 1.0)), None);
-    }
-}
-
 /// A length a host gave, made safe: one that is not finite reads as zero, and
 /// so does a negative one.
 #[doc(hidden)]
@@ -193,4 +171,26 @@ pub fn readable_ink(candidate: Color, surface: Color, minimum: f32) -> Color {
         .map(|amount| blend(candidate, end, amount))
         .find(|ink| contrast(*ink, surface) >= minimum)
         .unwrap_or(end)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rectangles_have_half_open_edges() {
+        let rect = Rect::new(10.0, 20.0, 30.0, 40.0);
+        assert!(rect.contains(Point::new(10.0, 20.0)));
+        assert!(!rect.contains(Point::new(40.0, 20.0)));
+        assert!(!rect.contains(Point::new(10.0, 60.0)));
+    }
+
+    #[test]
+    fn intersection_and_inset_never_make_negative_size() {
+        let a = Rect::new(0.0, 0.0, 20.0, 20.0);
+        let b = Rect::new(15.0, 5.0, 10.0, 10.0);
+        assert_eq!(a.intersection(b), Some(Rect::new(15.0, 5.0, 5.0, 10.0)));
+        assert_eq!(a.inset(15.0), Rect::new(15.0, 15.0, 0.0, 0.0));
+        assert_eq!(a.intersection(Rect::new(20.0, 0.0, 1.0, 1.0)), None);
+    }
 }

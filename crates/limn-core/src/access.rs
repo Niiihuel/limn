@@ -85,7 +85,7 @@ pub enum Role {
 /// what is left out the tree works out from the element.
 ///
 /// ```
-/// use limn::{Access, Role};
+/// use limn_core::{Access, Role};
 /// let access = Access::new(Role::Switch).name("Wi-Fi").toggled(true);
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]

@@ -115,15 +115,18 @@ fn files_from_another_application_resolve_the_drop_target_under_the_pointer() {
 
 #[test]
 fn files_cannot_reach_a_target_behind_a_modal_but_can_reach_its_body() {
-    use crate::{Component, ComponentPalette, Modal};
-    let palette = ComponentPalette::neutral_dark();
+    use crate::{Color, PopoverPlacement};
     let background = Element::button("behind", "Background")
         .size(Some(480.0), Some(480.0))
         .drop_target();
-    let modal = Modal::new(background, true, "Import", "", "close", palette)
-        .width(280.0)
-        .body(Element::button("inside", "Import files").drop_target())
-        .render();
+    let modal = Element::popover(
+        background,
+        Element::button("inside", "Import files").drop_target().size(Some(280.0), None),
+        "close",
+        PopoverPlacement::Center,
+    )
+    .popover_scrim(Color::rgba(0, 0, 0, 180))
+    .popover_backdrop_dismiss(false);
     let mut tree = UiTree::new(modal);
     tree.set_reduced_motion(true);
     let frame = tree.layout(Size::new(480.0, 480.0));
