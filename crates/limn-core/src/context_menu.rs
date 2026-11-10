@@ -236,7 +236,8 @@ impl ContextMenuView<'_> {
 pub struct ContextMenuViewFn(Arc<dyn Fn(&ContextMenuView<'_>) -> (Element, Size) + Send + Sync>);
 
 impl ContextMenuViewFn {
-    /// `draw`, which the tree calls at each layout while the menu is open.
+    /// `draw`, which the tree calls while the menu is open, once for each pass of a layout:
+    /// more than once a frame when the pass repeats.
     pub fn new(draw: impl Fn(&ContextMenuView<'_>) -> (Element, Size) + Send + Sync + 'static) -> Self {
         Self(Arc::new(draw))
     }
