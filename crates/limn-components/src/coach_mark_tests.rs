@@ -503,3 +503,25 @@ fn a_host_names_the_actions_while_the_controls_keep_their_ids() {
     assert_eq!(tree.handle_event(key(Key::Enter)), clicked("step=2"));
     assert_eq!(click(&mut tree, region(&frame, "tour:skip")), clicked("step=off"));
 }
+
+#[test]
+fn ring_and_caret_pass_through_and_the_defaults_draw_what_none_draws() {
+    let fill = Color::rgb(20, 90, 200);
+    let (_, plain) = settled(mark("top-right").accent(fill, Color::WHITE).render());
+    let library = Ring { color: fill, width: COACH_RING_WIDTH, offset: COACH_RING_GAP, radius: None };
+    let caret_size = Size::new(COACH_CARET * 2.0, COACH_CARET);
+    let (_, spelled) = settled(mark("top-right").accent(fill, Color::WHITE).ring(library).caret(caret_size).render());
+    assert_eq!(spelled.commands, plain.commands);
+
+    let own = Ring { color: Color::rgb(250, 200, 0), width: 3.0, offset: 1.0, radius: Some(0.0) };
+    let (_, frame) = settled(mark("top-right").accent(fill, Color::WHITE).ring(own).caret(Size::new(0.0, 0.0)).render());
+    let target = region(&frame, "top-right");
+    let stroke = frame.commands.iter().find_map(|command| match command {
+        DrawCommand::StrokeRect { rect, color, width, radius } if *color == own.color => Some((*rect, *width, *radius)),
+        _ => None,
+    });
+    let grown = Rect::new(target.x - 1.0, target.y - 1.0, target.width + 2.0, target.height + 2.0);
+    assert_eq!(stroke, Some((grown, 3.0, 0.0)));
+    assert!(!frame.commands.iter().any(|command| matches!(command, DrawCommand::FillTriangle { color, .. } if *color == fill)));
+    assert_eq!(bubble(&frame).y, target.y + target.height + 1.0 + 3.0);
+}

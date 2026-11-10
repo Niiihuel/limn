@@ -87,31 +87,71 @@ pub enum CoachAlign {
 }
 
 /// Ties a popover to controls that already exist in the tree, by their IDs,
-/// instead of to the element it wraps. Built by `CoachMark`.
+/// instead of to the element it wraps: a coach mark, given to
+/// [`Element::popover_coach`]. `CoachMark` in `limn-components` is one.
+///
+/// Once the rest of the tree is laid out, the engine rings the area the
+/// targets cover, places the popover's surface, the bubble, on `side` of it
+/// with a caret pointing at its middle, and dims the rest of the window if
+/// asked. The bubble stands the ring's offset and width and the caret's
+/// depth away from the targets, 12 px by default, and 8 px inside the
+/// window. When `key` changes, ring and bubble spring from the last targets
+/// to the new ones over [`Motion::move_ms`](crate::Motion::move_ms). When no
+/// target is laid out in view nothing is painted, and
+/// [`Frame::missing_coach_target`](crate::Frame::missing_coach_target) names
+/// the first.
 #[derive(Clone, Debug, PartialEq)]
-#[doc(hidden)]
 pub struct CoachAnchor {
-    /// The bubble points at the union of the regions with these IDs.
-    #[doc(hidden)]
+    /// The IDs of the controls or scroll areas pointed at: the bubble points
+    /// at the union of their regions in view.
     pub targets: Vec<String>,
-    #[doc(hidden)]
+    /// The side of the targets the bubble prefers. It takes the opposite
+    /// side, then the other axis, when that one has no room.
     pub side: CoachSide,
-    #[doc(hidden)]
+    /// Where the bubble sits along that side.
     pub align: CoachAlign,
     /// Names the step: when it changes the bubble travels to the new target.
-    #[doc(hidden)]
     pub key: String,
-    /// The bubble's fill, shared by its caret and the ring on the target.
-    #[doc(hidden)]
+    /// The bubble's fill, shared by its caret and, unless `ring` is set, the
+    /// ring on the target.
     pub fill: Color,
-    /// Dims everything but the target.
-    #[doc(hidden)]
+    /// Dims everything but the ring and what it holds with this color;
+    /// `None` dims nothing.
     pub dim: Option<Color>,
-    /// Actions reported by the Left and Right arrow keys.
-    #[doc(hidden)]
+    /// The action the Left arrow key reports while the coach mark is
+    /// open, whichever of its controls has focus; `None` reports nothing.
     pub back: Option<String>,
-    #[doc(hidden)]
+    /// The action the Right arrow key reports while the coach mark is
+    /// open, whichever of its controls has focus; `None` reports nothing.
     pub next: Option<String>,
+    /// The ring around the targets. `None` is [`COACH_RING_WIDTH`](crate::COACH_RING_WIDTH)
+    /// (2) px of `fill` whose outer edge is [`COACH_RING_GAP`](crate::COACH_RING_GAP)
+    /// (3) px outside them, its radius the first target's own (the control
+    /// radius when the target has none) plus that gap. A ring that follows
+    /// grows the radius by its offset in the same way. A ring's radius never
+    /// passes half its side.
+    pub ring: Option<Ring>,
+    /// The caret's width at its base and its depth from the bubble, in
+    /// logical pixels. `None` is 14 wide and [`COACH_CARET`](crate::COACH_CARET)
+    /// (7) deep. A side that is zero, negative or not finite draws no caret,
+    /// and the bubble then stands only the ring's offset and width away.
+    pub caret: Option<Size>,
+}
+
+impl CoachAnchor {
+    /// The ring and the caret this coach mark draws, defaults filled in and
+    /// numbers made safe; `None` for no caret.
+    pub(crate) fn look(&self) -> (Ring, Option<Size>) {
+        let ring = self.ring.unwrap_or(Ring {
+            color: self.fill,
+            width: crate::COACH_RING_WIDTH,
+            offset: crate::COACH_RING_GAP,
+            radius: None,
+        });
+        let caret = Some(self.caret.unwrap_or(Size::new(crate::COACH_CARET * 2.0, crate::COACH_CARET)))
+            .filter(|size| [size.width, size.height].iter().all(|side| side.is_finite() && *side > 0.0));
+        (ring.sanitized(), caret)
+    }
 }
 
 /// Preferred side of a non-interactive tooltip. The engine flips to the
@@ -1173,6 +1213,25 @@ impl Ring {
             (bounds.width + self.offset * 2.0).max(0.0),
             (bounds.height + self.offset * 2.0).max(0.0),
         )
+    }
+
+    /// The ring's radius, or its radii, around something rounded by `radius`
+    /// or `corners`: its own on every corner, else theirs grown by the
+    /// offset, so the two stay concentric.
+    pub(crate) fn corners(self, radius: f32, corners: Option<CornerRadii>) -> (f32, Option<CornerRadii>) {
+        let grow = |radius: f32| radius + self.offset;
+        match self.radius {
+            Some(radius) => (radius, None),
+            None => (
+                grow(radius),
+                corners.map(|radii| CornerRadii {
+                    top_left: grow(radii.top_left),
+                    top_right: grow(radii.top_right),
+                    bottom_right: grow(radii.bottom_right),
+                    bottom_left: grow(radii.bottom_left),
+                }),
+            ),
+        }
     }
 }
 
@@ -3383,9 +3442,10 @@ impl Element {
         )
     }
 
-    /// Place the surface against existing controls, found by their IDs once
-    /// the anchor has been laid out, with a caret and a ring on them.
-    #[doc(hidden)]
+    /// Make this popover a coach mark: its surface placed against existing
+    /// controls, found by their IDs once the rest of the tree has been laid
+    /// out, with a caret and a ring on them, as [`CoachAnchor`] says. Does
+    /// nothing on an element that is not a [`Self::popover`].
     pub fn popover_coach(mut self, value: CoachAnchor) -> Self {
         if let ElementKind::Popover { coach, .. } = &mut self.kind {
             *coach = Some(Box::new(value));

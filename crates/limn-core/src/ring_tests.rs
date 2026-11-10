@@ -1,4 +1,6 @@
-//! The focus ring takes its look from the tokens, or from its element.
+//! The focus ring takes its look from the tokens, or from its element; a
+//! coach mark built on the engine alone takes its ring and caret from its
+//! anchor.
 use crate::{
     with_tokens, Color, CornerRadii, DrawCommand, Element, FontFamily, Frame, Key, Rect, Ring, Size, TextSpan,
     Tokens, UiEvent, UiTree,
@@ -108,4 +110,80 @@ fn numbers_that_cannot_be_painted_are_made_safe() {
         let frame = focused(button().focus_ring_style(Ring { radius: Some(radius), ..Ring::default() }));
         assert_eq!(rings(&frame)[0].3, [0.0; 4], "{radius}");
     }
+}
+
+/// A coach mark built on the engine alone: a bubble below the button
+/// `target`, painted in blue.
+fn coach(ring: Option<Ring>, caret: Option<Size>) -> Frame {
+    use crate::{CoachAlign, CoachAnchor, CoachSide, PopoverPlacement};
+    let base = Element::column(vec![Element::button("target", "Target").size(Some(80.0), Some(30.0)).radius(5.0)])
+        .padding(20.0);
+    let bubble = Element::panel(Element::text("Here")).size(Some(200.0), Some(60.0)).background(BLUE);
+    let root = Element::popover(base, bubble, "tip", PopoverPlacement::BottomStart).popover_coach(CoachAnchor {
+        targets: vec!["target".into()],
+        side: CoachSide::Below,
+        align: CoachAlign::Start,
+        key: "step".into(),
+        fill: BLUE,
+        dim: None,
+        back: None,
+        next: None,
+        ring,
+        caret,
+    });
+    let mut tree = UiTree::new(root);
+    tree.set_reduced_motion(true);
+    tree.layout(Size::new(400.0, 300.0))
+}
+
+fn region(frame: &Frame, id: &str) -> Rect {
+    frame.regions.iter().find(|region| region.id == id).map(|region| region.rect).unwrap()
+}
+
+fn carets(frame: &Frame) -> Vec<[crate::Point; 3]> {
+    frame
+        .commands
+        .iter()
+        .filter_map(|command| match command {
+            DrawCommand::FillTriangle { points, color } if *color == BLUE => Some(*points),
+            _ => None,
+        })
+        .collect()
+}
+
+#[test]
+fn a_coach_mark_draws_a_ring_and_a_caret_of_its_own_and_stands_off_by_them() {
+    let ring = Ring { color: RED, width: 4.0, offset: 6.0, radius: None };
+    let frame = coach(Some(ring), Some(Size::new(20.0, 10.0)));
+    let (target, bubble) = (region(&frame, "target"), region(&frame, "popover_surface:tip"));
+    let grown = Rect::new(target.x - 6.0, target.y - 6.0, target.width + 12.0, target.height + 12.0);
+    // The target's own radius, grown with the ring.
+    assert_eq!(rings(&frame), vec![(grown, RED, 4.0, [11.0; 4])]);
+    assert_eq!(bubble.y, target.y + target.height + 6.0 + 4.0 + 10.0);
+    let [[a, b, tip]] = carets(&frame)[..] else { panic!("one caret") };
+    assert_eq!((b.x - a.x, tip.y), (20.0, bubble.y - 10.0));
+    assert_eq!(tip.x, target.x + target.width / 2.0);
+    let frame = coach(Some(Ring { radius: Some(2.0), ..ring }), None);
+    assert_eq!(rings(&frame)[0].3, [2.0; 4]);
+    // The library's caret, 14 by 7, and the bubble 6 + 4 + 7 off.
+    let [[a, b, tip]] = carets(&frame)[..] else { panic!("one caret") };
+    let bubble = region(&frame, "popover_surface:tip");
+    assert_eq!((b.x - a.x, tip.y), (14.0, bubble.y - 7.0));
+    assert_eq!(bubble.y, target.y + target.height + 17.0);
+}
+
+#[test]
+fn a_coach_mark_without_a_caret_draws_none_and_bad_numbers_are_made_safe() {
+    let frame = coach(None, Some(Size::new(0.0, 7.0)));
+    let (target, bubble) = (region(&frame, "target"), region(&frame, "popover_surface:tip"));
+    assert!(carets(&frame).is_empty());
+    // The default ring, 2 px of the fill 3 px out, and the bubble only that far off.
+    assert_eq!(rings(&frame).iter().map(|ring| (ring.1, ring.2)).collect::<Vec<_>>(), vec![(BLUE, 2.0)]);
+    assert_eq!(bubble.y, target.y + target.height + 3.0 + 2.0);
+    let bad = Ring { color: RED, width: f32::NAN, offset: f32::INFINITY, radius: Some(f32::NAN) };
+    let frame = coach(Some(bad), Some(Size::new(f32::NAN, 7.0)));
+    let (target, bubble) = (region(&frame, "target"), region(&frame, "popover_surface:tip"));
+    assert!(rings(&frame).iter().all(|ring| ring.1 != RED));
+    assert!(carets(&frame).is_empty());
+    assert_eq!(bubble.y, target.y + target.height);
 }
