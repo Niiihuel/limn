@@ -1,5 +1,5 @@
 use super::*;
-use crate::ScrollbarVisibility;
+use crate::{ScrollbarAppearance, ScrollbarVisibility};
 
 const INK: Color = Color::rgb(17, 37, 57);
 const SIZE: Size = Size::new(200.0, 60.0);
@@ -182,4 +182,44 @@ fn horizontal_defaults_and_policy_changes_keep_geometry_and_remove_stale_wakeups
     tree.set_root(Element::spacer());
     tree.layout_at(SIZE, now);
     assert_eq!(tree.animation_repaint_after_at(now), None);
+}
+
+/// The pan bar of a strip inked `ink` and given `appearance`, if any: its
+/// rect, color and corner.
+fn pan_bar(appearance: Option<ScrollbarAppearance>, ink: Color) -> (Rect, Color, f32) {
+    let strip = strip(false, ScrollbarVisibility::Always).foreground(ink);
+    let strip = match appearance {
+        Some(appearance) => strip.horizontal_scrollbar_appearance(appearance),
+        None => strip,
+    };
+    let frame = UiTree::new(strip).layout(SIZE);
+    frame.commands.iter().find_map(|command| match command {
+        DrawCommand::FillRect { rect, color, radius } if rect.y + rect.height == SIZE.height && rect.width < SIZE.width => Some((*rect, *color, *radius)),
+        _ => None,
+    }).expect("a pan bar")
+}
+
+#[test]
+fn a_pan_bar_given_an_appearance_takes_its_thickness_corner_tint_and_opacity() {
+    let red = Color::rgb(200, 0, 0);
+    let own = ScrollbarAppearance { idle_thumb_opacity: 200, ..ScrollbarAppearance::pan_bar().thumb_width(6.0).thumb_radius(0.0).tint(red) };
+    let (rect, color, radius) = pan_bar(Some(own), INK);
+    assert_eq!((rect.y, rect.height, radius, color), (54.0, 6.0, 0.0, Color::rgba(200, 0, 0, 200)));
+    // Untinted, it takes the viewport's foreground, as a vertical bar does.
+    assert_eq!(pan_bar(Some(ScrollbarAppearance { tint: None, ..own }), INK).1, Color::rgba(INK.r, INK.g, INK.b, 200));
+    // A thickness that is not finite is the pan bar's; one taller than the
+    // viewport is held to it.
+    assert_eq!(pan_bar(Some(ScrollbarAppearance { thumb_width: f32::NAN, ..own }), INK).0.height, 3.0);
+    assert_eq!(pan_bar(Some(ScrollbarAppearance { thumb_width: 500.0, ..own }), INK).0.height, SIZE.height);
+}
+
+#[test]
+fn the_default_pan_bar_keeps_its_look_and_pan_bar_describes_it() {
+    // Without an appearance: 3 tall, 1.5 round, at 0.45 of the ink's alpha
+    // by a float multiply, where an opacity of 114 out of 255 gives 89.
+    let (rect, color, radius) = pan_bar(None, Color::rgba(INK.r, INK.g, INK.b, 200));
+    assert_eq!((rect.height, radius, color.a), (3.0, 1.5, 90));
+    // Given explicitly, `pan_bar()` paints the same bar for an opaque ink.
+    assert_eq!(pan_bar(None, INK).1.a, 114);
+    assert_eq!(pan_bar(Some(ScrollbarAppearance::pan_bar()), INK), pan_bar(None, INK));
 }

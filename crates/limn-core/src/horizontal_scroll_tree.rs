@@ -318,7 +318,7 @@ impl LayoutBuilder<'_> {
         clip: Option<Rect>,
         fade: Option<(Color, f32)>,
         vertical_wheel: bool,
-        pan_bar: Option<Color>,
+        pan_bar: Option<(Color, Option<crate::ScrollbarAppearance>)>,
         visibility: crate::ScrollbarVisibility,
     ) {
         self.add_region(id, content, HitKind::Scroll, clip);
@@ -433,19 +433,30 @@ impl LayoutBuilder<'_> {
                     }
                 }
             }
-            if let Some(color) = pan_bar.filter(|_| width > content.width + 0.5) {
+            if let Some((color, appearance)) = pan_bar.filter(|_| width > content.width + 0.5) {
                 let opacity = self.scrollbar_opacity(id, offset, self.dragging_horizontal == Some(id), visibility, content);
                 if opacity > 0.0 {
                     let scale = content.width / width;
+                    let (thickness, color, radius) = match appearance {
+                        // A float multiply that no opacity out of 255 repeats exactly.
+                        None => (3.0, Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45 * opacity) as u8), 1.5),
+                        Some(appearance) => {
+                            let thickness = (if appearance.thumb_width.is_finite() { appearance.thumb_width } else { 3.0 }).max(1.0).min(content.height);
+                            let ink = appearance.tint.unwrap_or(color);
+                            let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
+                            let ink = crate::ScrollbarAppearance { tint: None, ..appearance }.thumb_color(ink, false, false);
+                            (thickness, ink, appearance.corner(thickness))
+                        }
+                    };
                     self.frame.commands.push(DrawCommand::FillRect {
                         rect: Rect::new(
                             content.x + offset * scale,
-                            content.y + content.height - 3.0,
+                            content.y + content.height - thickness,
                             content.width * scale,
-                            3.0,
+                            thickness,
                         ),
-                        color: Color::rgba(color.r, color.g, color.b, (f32::from(color.a) * 0.45 * opacity) as u8),
-                        radius: 1.5,
+                        color,
+                        radius,
                     });
                 }
             }

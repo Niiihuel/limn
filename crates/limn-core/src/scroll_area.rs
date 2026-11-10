@@ -228,6 +228,21 @@ impl ScrollbarAppearance {
         Self::default()
     }
 
+    /// The thin bar [`Element::drag_to_pan`] shows under a horizontal viewport,
+    /// to change through [`Element::horizontal_scrollbar_appearance`]: 3 thick
+    /// (`thumb_width`), its corners 1.5 round (`thumb_radius`), at 114 of 255
+    /// (`idle_thumb_opacity`). A viewport given no appearance paints the same
+    /// bar at 0.45 of its ink's alpha, which can be one level of alpha apart
+    /// from this for an ink that is not opaque.
+    pub fn pan_bar() -> Self {
+        Self {
+            thumb_width: 3.0,
+            thumb_radius: Some(1.5),
+            idle_thumb_opacity: 114,
+            ..Self::default()
+        }
+    }
+
     /// Draw the scrollbar in this color instead of the scroll element's foreground. The
     /// opacities still apply.
     pub fn tint(mut self, tint: Color) -> Self {

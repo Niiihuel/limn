@@ -1218,6 +1218,9 @@ pub(crate) struct Kept {
     pub(crate) text_shadow: Option<TextEffect>,
     pub(crate) text_stroke: Option<TextEffect>,
     pub(crate) scrollbar_visibility: crate::ScrollbarVisibility,
+    /// Set by [`Element::horizontal_scrollbar_appearance`]; `None` paints
+    /// the pan bar as it always was.
+    pub(crate) pan_bar_appearance: Option<ScrollbarAppearance>,
     pub(crate) translation: Option<Point>,
     pub(crate) pointer_blocker: Option<String>,
     /// Set by [`Element::extend_on_hover`]: the ID its spring is kept under,
@@ -4586,6 +4589,20 @@ impl Element {
     pub fn drag_to_pan(mut self) -> Self {
         if let ElementKind::HorizontalScroll { drag_pan, .. } = &mut self.kind {
             *drag_pan = true;
+        }
+        self
+    }
+
+    /// Draw the bar [`Element::drag_to_pan`] shows with `appearance`, starting
+    /// from [`ScrollbarAppearance::pan_bar`]. Its `thumb_width` is the bar's
+    /// thickness, at least 1 and at most the viewport's height (3 when not
+    /// finite); `thumb_radius` its corners; `tint`, or else the viewport's
+    /// foreground, its ink; and `idle_thumb_opacity` its opacity, dragged or
+    /// not. The rest of the appearance does not apply to it. Only a
+    /// horizontal viewport takes it.
+    pub fn horizontal_scrollbar_appearance(mut self, appearance: ScrollbarAppearance) -> Self {
+        if matches!(self.kind, ElementKind::HorizontalScroll { .. }) {
+            self.kept.get_or_insert_default().pan_bar_appearance = Some(appearance);
         }
         self
     }
