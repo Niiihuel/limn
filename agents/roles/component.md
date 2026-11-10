@@ -34,9 +34,10 @@ there are, without touching the layout.
 - **Every ID it creates derives from the caller's** (R2):
   `format!("{id}:body")`.
 - **No literal color, radius or duration** (R11): the palette and `tokens()`.
-- **It does not touch `tree.rs` or `element.rs`.** If it seems to need to,
-  stop: that is a task for the [core](core.md) role, in a pull request of its
-  own, first.
+- **It does not touch `limn-core`.** It is built from what the engine makes
+  public (R22). If it seems to need something the engine keeps to itself,
+  stop: that is a task for the [core](core.md) role, in a change of its own,
+  first. A new seam is the last answer, not the first (R23).
 - **Show every state in the gallery**, not one happy example: disabled,
   loading, empty, long text, narrow.
 

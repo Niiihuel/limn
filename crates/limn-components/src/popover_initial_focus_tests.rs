@@ -1,38 +1,12 @@
-// Staged by the crate split, not yet a module of this crate: these tests
-// build their trees with `DropdownMenu`, `Select` and `Modal`, which live
-// here now.
-//
-// Came from `crates/limn-core/src/popover_initial_focus_tests.rs` (a child
-// module of `tree` there), unchanged in what they assert:
-// - `leaving_action_menu_row_clears_activation_without_stealing_form_input_focus`
-// - `nested_action_menu_left_and_escape_close_child_without_focus_reopening_it`
-// - `modal_select_escape_closes_the_select_before_the_modal`
-// - `modal_select_tab_and_arrows_stay_in_the_open_child`
-// - `modal_masks_background_scopes_even_when_they_are_deferred_after_it`
-// - `modal_menu_keeps_nested_hover_submenus_reachable_with_the_keyboard`
-// - `clicking_blank_space_in_an_open_modal_blurs_instead_of_refocusing_its_first_field`
-// - `a_modal_hands_back_the_focus_as_the_pointer_or_the_keyboard_gave_it`
-// with the helpers `modal_with_select` and `modal_over_button`, moved, and
-// `VIEWPORT`, `Surface`, `root` and `key`, copied: the tests that stayed in
-// the engine use them too. Its `use super::*` (the engine's `tree` module) is
-// replaced by `use crate::*`.
-//
-// Engine items they use that `limn-core` does not make public:
-// - `Frame::popover_focus` (private field) and the private type
-//   `PopoverFocusScope` with its `dismiss_id` field, read by
-//   `modal_masks_background_scopes_even_when_they_are_deferred_after_it`.
-// Where they read the private field `UiTree::frame`, they read the public
-// `UiTree::frame()` instead: `tree.frame().popover_focus` in that test and
-// `tree.frame().regions` in `modal_menu_keeps_nested_hover_submenus_reachable_with_the_keyboard`.
 //! Initial focus is a one-time transition, not an effect of every layout.
+//! These tests exercise the engine's popover and modal focus scopes through
+//! `DropdownMenu`, `Select` and `Modal`.
 use crate::*;
 
 const VIEWPORT: Size = Size::new(460.0, 320.0);
 
 #[derive(Clone, Copy)]
 enum Surface {
-    Closed,
-    Menu,
     Rename,
 }
 
@@ -40,16 +14,6 @@ fn root(surface: Surface, preferred: Option<&str>) -> Element {
     let selector = Element::button("selector", "Terminal").size(Some(160.0), Some(32.0));
     let more = Element::button("more", "Actions").size(Some(90.0), Some(32.0));
     let (selector, more) = match surface {
-        Surface::Closed => (selector, more),
-        Surface::Menu => (
-            selector,
-            Element::popover(
-                more,
-                Element::button("rename", "Rename").size(Some(180.0), Some(32.0)),
-                "menu_dismiss",
-                PopoverPlacement::BottomEnd,
-            ),
-        ),
         Surface::Rename => {
             let mut form = Element::popover(
                 selector,
@@ -312,14 +276,14 @@ fn modal_masks_background_scopes_even_when_they_are_deferred_after_it() {
     let mut tree = UiTree::new(modal_with_select(false, true));
     tree.set_reduced_motion(true);
     tree.layout(VIEWPORT);
-    let scopes = &tree.frame().popover_focus;
+    let scopes = tree.frame().popover_focus_dismiss_ids();
     let modal = scopes
         .iter()
-        .position(|scope| scope.dismiss_id == "modal_dismiss")
+        .position(|dismiss_id| dismiss_id == "modal_dismiss")
         .unwrap();
     let behind = scopes
         .iter()
-        .position(|scope| scope.dismiss_id == "behind_child_dismiss")
+        .position(|dismiss_id| dismiss_id == "behind_child_dismiss")
         .unwrap();
     assert!(
         behind > modal,
@@ -337,14 +301,14 @@ fn modal_masks_background_scopes_even_when_they_are_deferred_after_it() {
     );
     tree.set_root(modal_with_select(true, true));
     tree.layout(VIEWPORT);
-    let scopes = &tree.frame().popover_focus;
+    let scopes = tree.frame().popover_focus_dismiss_ids();
     let choice = scopes
         .iter()
-        .position(|scope| scope.dismiss_id == "choice_dismiss")
+        .position(|dismiss_id| dismiss_id == "choice_dismiss")
         .unwrap();
     let behind = scopes
         .iter()
-        .position(|scope| scope.dismiss_id == "behind_grandchild_dismiss")
+        .position(|dismiss_id| dismiss_id == "behind_grandchild_dismiss")
         .unwrap();
     assert!(
         behind > choice,

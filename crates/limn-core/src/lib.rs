@@ -6,6 +6,9 @@
 //! [`UiEvent`] and paints the resulting [`Frame`].
 #![warn(missing_docs)]
 
+#[cfg(test)]
+mod seams_tests;
+
 mod caret_blink;
 mod code_diff;
 mod code_editor;
@@ -88,7 +91,7 @@ pub use element::CoachAnchor;
 #[doc(hidden)]
 pub use sheet_geometry::{DIM_ALPHA, GRABBER, GRABBER_TOP};
 #[doc(hidden)]
-pub use tree::{slot_settle, TOOLTIP_HOVER_DELAY};
+pub use tree::{slot_settle, COACH_CARET, COACH_RING_GAP, COACH_RING_WIDTH, TOOLTIP_HOVER_DELAY};
 pub use fonts::{fonts, set_fonts, Font, FontError, Fonts};
 pub use text_layout::{Glyph, GlyphRun, Leading, TextLayout, TextLine, TextStyle};
 pub use motion::{

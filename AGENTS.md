@@ -80,10 +80,10 @@ loop in [`docs/backend.md`](docs/backend.md#the-frame-loop).
 
 ### The boundaries
 
-**R7. `limn` names no window, GPU or backend.** No type of a third-party
-crate appears in its public API, but `web_time::Instant`, the clock that also
-runs in a browser. A new dependency of `limn` needs its reason in the pull
-request.
+**R7. Neither the engine nor the design names a window, a GPU or a
+backend.** No type of a third-party crate appears in their public API, but
+`web_time::Instant`, the clock that also runs in a browser. A new dependency
+of `limn-core` or `limn-components` needs its reason in the pull request.
 *Why:* a frame is plain data that any backend can paint and any test can
 read. *Check:* review of `Cargo.toml` in `crates/limn`, `crates/limn-core`
 and `crates/limn-components`.
@@ -108,6 +108,21 @@ layout goes in a child module of `tree`, as `zoom_view_tree.rs` and
 The call into that module is all `tree.rs` gains.
 *Why:* a file every change meets is a conflict in every pull request.
 *Check:* review.
+
+**R22. `limn-core` gets no component.** A control with a look of its own is a
+file in `limn-components`, built from what `limn-core` makes public. What the
+engine still holds of the design is listed in the [plan](agents/plan.md), and
+that list only shrinks.
+*Why:* an application with a design of its own builds on the engine alone.
+Whatever the engine paints by itself, that application cannot change.
+*Check:* the compiler: `limn-components` cannot see inside `limn-core`.
+
+**R23. What `limn-core` opens only for `limn-components` is a seam:
+`#[doc(hidden)] pub`, never documented API.** A seam is opened only when a
+component cannot be built without it, it gives no `&mut` into the tree, and
+their number only goes down.
+*Why:* a seam is something a host's own design cannot rely on, so each one
+marks a component that only limn can build. *Check:* `seams_do_not_grow`.
 
 ### Components
 

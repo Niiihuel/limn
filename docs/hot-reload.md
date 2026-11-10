@@ -118,8 +118,8 @@ without changing a struct, so adding a control never needs a restart.
 
 ## Costs and limits
 
-- `limn`'s `hot` feature pins `subsecond` and `dioxus-devtools` to one exact
-  version, because they must be the version of the `dx` binary: 0.7.9 today.
+- `limn`'s `hot` feature turns on `limn-core`'s, which pins `subsecond` and
+  `dioxus-devtools` to one exact version, because they must be the version of the `dx` binary: 0.7.9 today.
   With another `dx`, patches are refused.
 - Each patch loads new code and leaves the old in memory, a few megabytes
   each time. Restart after a long session.

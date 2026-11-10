@@ -309,6 +309,7 @@ with them as an idea, and what it leaves.
 | The scene | A few primitives; the renderer knows no widget. | A few primitives in layers. | Primitives, and four widget commands (debt). |
 | Who owns the window | GPUI: platform, executor, GPU. | WarpUI. | The host. limn returns data. |
 | An ID taken twice | Not detected. | Not detected. | Listed in `Frame::duplicate_ids`. |
+| Components with a look | In a crate apart (`ui`); the engine has none. | In a crate apart (`ui_components`). | In a crate apart (`limn-components`); the engine still holds some, see [Known debts](#known-debts). |
 
 Decided, with the reason:
 
@@ -339,3 +340,5 @@ Each is in the [plan](plan.md) with its order.
 | `UiEvent` grew by case: `PointerDown`, `PointerDownModified`, `PointerDownEditor`. | A new modifier is a new variant. |
 | Keys the tree derives are strings (`extend/{id}`, `slide/{id}`), and a region is known as a popover's by its `popover_surface:` prefix. | A host's ID with that prefix would be misread. |
 | `layout` returns a clone of the frame. | Not measured on a large screen. |
+| The engine still holds design: the controls in `components.rs`, the tooltips, context menu and scrollbars the tree paints itself, the widgets in `ElementKind`, liquid glass and sheets. | An application with a design of its own cannot change them. |
+| The design reaches the engine through seams, `#[doc(hidden)] pub`. | Each one is a component a host could not have built. |

@@ -115,6 +115,26 @@ mod selection_scope_tests;
 mod text_measurement_tests;
 #[cfg(test)]
 mod cursor_tests;
+#[cfg(test)]
+mod breadcrumb_width_cap_tests;
+#[cfg(test)]
+mod coach_mark_tests;
+#[cfg(test)]
+mod dropdown_anchor_tests;
+#[cfg(test)]
+mod horizontal_scroll_tests;
+#[cfg(test)]
+mod inline_menu_navigation_tests;
+#[cfg(test)]
+mod menu_entrance_tests;
+#[cfg(test)]
+mod modal_wheel_tests;
+#[cfg(test)]
+mod popover_initial_focus_tests;
+#[cfg(test)]
+mod popover_secondary_actions_tests;
+#[cfg(test)]
+mod switch_accent_tests;
 pub use accordion::{Accordion, AccordionItem};
 pub use alert::{Alert, AlertColors, AlertTone};
 pub use alert_dialog::AlertDialog;

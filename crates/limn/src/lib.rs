@@ -6,5 +6,8 @@
 //! the design that ships with it, [`limn_components`]. An application with a
 //! design of its own depends on `limn-core` alone.
 
+// Inline, so this crate's reference lists every type and not two lines of re-exports.
+#[doc(inline)]
 pub use limn_components::*;
+#[doc(inline)]
 pub use limn_core::*;

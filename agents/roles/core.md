@@ -29,6 +29,8 @@ every frame of every application, and read by every later change.
 
 - **Ask first whether the core must change.** An option on an element, a
   component over existing elements, or `Element::drawing` often does it (R9).
+- **Nothing with a look goes in.** What a component needs from the engine is
+  a documented, general piece any design could use, not a seam (R22, R23).
 - **State goes in the `StateStore`**, as a type of its own, changed while
   placing and only read while measuring (R3, R4).
 - **Say how long the state lasts** in the doc comment of its type: while laid

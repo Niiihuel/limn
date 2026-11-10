@@ -173,6 +173,12 @@ impl UiTree {
             .map_or(0.0, |state| state.offset)
     }
 
+    /// How many `horizontal_scroll` areas the tree keeps an offset for.
+    #[doc(hidden)]
+    pub fn horizontal_scroll_count(&self) -> usize {
+        self.horizontal_scrolls.len()
+    }
+
     /// Position a `horizontal_scroll` from the host, for example from a
     /// spring. The next layout clamps it to the content.
     pub fn set_horizontal_scroll_offset(&mut self, id: &str, offset: f32) {

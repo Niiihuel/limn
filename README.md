@@ -73,7 +73,9 @@ Rust: `cd site && vercel build --prod && vercel deploy --prebuilt --prod`.
 
 | Crate | Purpose |
 | --- | --- |
-| `limn` | The library: elements, layout, events, animation and components. No backend dependency. |
+| `limn` | The library under one name: the engine and the components that ship with it. No backend dependency. |
+| `limn-core` | The engine alone: elements, layout, events, animation, text and the frame. An application with a design of its own builds on this. |
+| `limn-components` | The design: every component, built on `limn-core`. |
 | `limn-egui` | Backend: paints a frame with egui and wgpu and translates its input. |
 | `limn-editor` | The text document behind the code editor: rope, selection, search. |
 | `limn-video` | Plays short muted H.264 clips on a `Video`'s surface in a `limn-egui` window, decoded on a worker thread by Cisco's OpenH264 library, which the host fetches from Cisco. [Video](docs/components/video.md). |

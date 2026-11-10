@@ -8,7 +8,10 @@ pub(super) struct InlineMenuFocusScope {
 }
 
 impl UiTree {
-    pub(super) fn step_inline_menu_option(&mut self, key: Key) -> bool {
+    /// Move the focus among the options of the inline menu that holds it,
+    /// for `key`; says whether it moved.
+    #[doc(hidden)]
+    pub fn step_inline_menu_option(&mut self, key: Key) -> bool {
         // Floating menus retain priority, including submenus opened from one
         // of these inline options. Do not route through a modal to the card.
         if !self.frame.popover_focus.is_empty() {

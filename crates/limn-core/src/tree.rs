@@ -1885,6 +1885,27 @@ impl Frame {
         &self.duplicate_ids
     }
 
+    /// Whether the control `id` was kept with its rectangle inside a scroll
+    /// area, for focus to reveal it.
+    #[doc(hidden)]
+    pub fn has_scroll_focus_target(&self, id: &str) -> bool {
+        self.scroll_focus_targets.contains_key(id)
+    }
+
+    /// Whether the control `id` was kept by its ID alone, out of sight in a
+    /// scroll area, for focus to reach it.
+    #[doc(hidden)]
+    pub fn has_scroll_focus_candidate(&self, id: &str) -> bool {
+        self.scroll_focus_candidates.contains(id)
+    }
+
+    /// The dismiss IDs of the popovers that hold keyboard focus, in the
+    /// order their scopes were laid out.
+    #[doc(hidden)]
+    pub fn popover_focus_dismiss_ids(&self) -> Vec<String> {
+        self.popover_focus.iter().map(|scope| scope.dismiss_id.clone()).collect()
+    }
+
     /// Whether anything is painted over the host-fed surface `id` after it: a
     /// menu, a tooltip, a dialog, a panel sliding in. A host that shows a
     /// native view where the surface is laid out hides the view while this
@@ -5592,7 +5613,10 @@ impl UiTree {
         }
     }
 
-    fn visual_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
+    /// How soon the next frame is needed at `now` for what moves, the
+    /// blinking caret left out; `None` at rest.
+    #[doc(hidden)]
+    pub fn visual_animation_repaint_after_at(&self, now: Instant) -> Option<Duration> {
         let animation = match (self.other_animation_repaint_after_at(now), self.zoom_repaint_after(now)) {
             (Some(other), Some(zoom)) => Some(other.min(zoom)),
             (other, zoom) => other.or(zoom),
@@ -7011,6 +7035,13 @@ impl UiTree {
     /// The frame of the last layout.
     pub fn frame(&self) -> &Frame {
         &self.frame
+    }
+
+    /// Whether the springs that carry a coach mark's ring and bubble to a new
+    /// step are all at rest at `now`; `None` when no coach mark is kept.
+    #[doc(hidden)]
+    pub fn coach_motion_at_rest(&self, now: Instant) -> Option<bool> {
+        self.coach_motion.as_ref().map(|motion| motion.values.iter().all(|value| !value.is_active(now)))
     }
 
     /// The Vim mode a code editor is in. `None` when no editor has this ID or
@@ -9911,10 +9942,14 @@ fn place_popover(
 }
 
 /// Space between a coach mark's target and the ring around it.
-const COACH_RING_GAP: f32 = 3.0;
-const COACH_RING_WIDTH: f32 = 2.0;
+#[doc(hidden)]
+pub const COACH_RING_GAP: f32 = 3.0;
+/// The width of the stroke of a coach mark's ring.
+#[doc(hidden)]
+pub const COACH_RING_WIDTH: f32 = 2.0;
 /// How far the caret reaches from the bubble towards the ring.
-const COACH_CARET: f32 = 7.0;
+#[doc(hidden)]
+pub const COACH_CARET: f32 = 7.0;
 
 /// Where a coach mark sits against `target`, and on which side it ended up:
 /// the preferred side, else the opposite one, else the other axis. With room
@@ -17765,6 +17800,93 @@ mod tests {
                 .unwrap();
             assert!(next.rect.y >= bottom + 12.0 - 0.1,
                 "wrapped paragraph consumed its following gap at {width}: bottom={bottom}, next={:?}", next.rect);
+        }
+    }
+
+    #[test]
+    fn intrinsic_width_cap_lays_out_a_truncated_link_and_its_trailing_controls_alike_with_the_cache_off() {
+        use crate::{Access, Component, ComponentPalette, Role, Tooltip};
+
+        let measured_width = |text: &str| {
+            text.chars()
+                .map(|character| match character {
+                    'W' => 12.0,
+                    'i' => 3.0,
+                    _ => 6.0,
+                })
+                .sum::<f32>()
+        };
+        let palette = ComponentPalette::neutral_dark();
+        let budget = 140.0;
+        for label in [
+            "README.md",
+            "Wider_resource_with_a_long_filename_for_this_header.md",
+        ] {
+            // The row a breadcrumb of one linked resource renders to: a faded
+            // label in a link that a stretching slot hugs, the row capped in
+            // width, and a stat and a button after it.
+            let layout = |cache_disabled: bool| {
+                let visual = Element::row(vec![Element::faded_text(label, 16.0)
+                    .font_family(FontFamily::Sans)
+                    .font_size(11.5)
+                    .foreground(palette.text)
+                    .size(None, Some(20.0))
+                    .min_size(0.0, 0.0)
+                    .flex(1.0)])
+                .gap(4.0)
+                .clip_children();
+                let link = Element::clickable("open_path", visual)
+                    .underline_on_hover()
+                    .accessible(Access::new(Role::Link))
+                    .padding(2.0)
+                    .size(None, Some(24.0));
+                let tooltip = Tooltip::new(link, "open_path", label, palette).max_width(320.0);
+                let tooltip = if label.chars().count() > 40 {
+                    tooltip.description(label)
+                } else {
+                    tooltip
+                };
+                let path = Element::row(vec![Element::row(vec![
+                    tooltip.render(),
+                    Element::spacer().flex(1.0),
+                ])
+                .clip_children()
+                .flex(1.0)])
+                .gap(4.0)
+                .size(Some(budget), Some(24.0))
+                .clip_children()
+                .size(None, Some(24.0))
+                .max_width(budget);
+                let mut tree = UiTree::new(
+                    Element::row(vec![
+                        path,
+                        Element::text("Local +62 −5")
+                            .font_family(FontFamily::Sans)
+                            .size(Some(80.0), Some(24.0)),
+                        Element::spacer().flex(1.0),
+                        Element::icon_button("refresh", Icon::Refresh, "")
+                            .size(Some(24.0), Some(24.0)),
+                    ])
+                    .gap(8.0),
+                );
+                tree.measurement_cache.get_mut().disabled = cache_disabled;
+                tree.set_reduced_motion(true);
+                tree.set_text_measurer(move |text, _, _| measured_width(text));
+                tree.layout(Size::new(320.0, 24.0))
+            };
+            let cached = layout(false);
+            let rect = |id: &str| {
+                cached
+                    .regions
+                    .iter()
+                    .find(|region| region.id == id && region.kind == HitKind::Button)
+                    .unwrap()
+                    .rect
+            };
+            let expected_width = (measured_width(label) + 4.0).min(budget);
+            assert_eq!(rect("open_path"), Rect::new(0.0, 0.0, expected_width, 24.0));
+            assert_eq!(rect("refresh"), Rect::new(296.0, 0.0, 24.0, 24.0));
+            assert_eq!(layout(true), cached, "{label}");
         }
     }
 

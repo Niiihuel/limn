@@ -23,11 +23,12 @@ Until the new repository opens, there are no pull requests.
 | # | Condition | Today |
 | --- | --- | --- |
 | 1 | One line of work. No feature waits behind it in a branch, and applications build on it or on a tag. | The line exists: `next` holds every branch. The applications still build on their own branches. |
-| 2 | Every [invariant](invariants.md) is **Held**. | Six are not: 1, 2, 3, 5, 9 and 12. |
+| 2 | Every [invariant](invariants.md) is **Held**. | Seven are not: 1, 2, 3, 5, 9, 12 and 13. |
 | 3 | What a host or a backend compiles against is settled: every breaking change known today has landed. | No. See stage B. |
-| 4 | A new control edits no file that another change is likely to edit. | No. The eleven features that landed added 2,000 lines to `tree.rs`. |
-| 5 | CI holds every rule a machine can hold, on every platform limn claims. | Partly. No check of formatting; Linux only; two tests of `limn-dnd` fail now and then. |
-| 6 | A release is cut by following a page. | No such page. |
+| 4 | An application can build a design of its own on the engine, and change nothing in it. | Partly. The engine is a crate of its own; it still holds some design. See stage C. |
+| 5 | A new control edits no file that another change is likely to edit. | Better: a component is a file of `limn-components`. A change to the layout still meets `tree.rs`. |
+| 6 | CI holds every rule a machine can hold, on every platform limn claims. | Partly. No check of formatting; Linux only; two tests of `limn-dnd` fail now and then. |
+| 7 | A release is cut by following a page. | No such page. |
 
 ## Done
 
@@ -43,6 +44,7 @@ Until the new repository opens, there are no pull requests.
 | These pages, and `layout_bench`. | `next` |
 | `CHANGELOG.md` merges by union: two branches that add a line both keep theirs. | `next` |
 | The eleven open features, on the core as it is now: the code look, `centered_y`, Markdown's line height, a modal's title, drag handles, the floating surfaces and what was stacked on them (looping icons, a hint with a picture, a host's faces, a radio's accent), and liquid glass. | `next` (were #179, #180, #182, #186 to #193) |
+| The engine and the design in crates of their own: `limn-core`, `limn-components`, and `limn` over both. | `next`; stage C, its first step |
 
 What the features needed to stand on the new core, so the next one knows:
 
@@ -53,11 +55,13 @@ What the features needed to stand on the new core, so the next one knows:
 - The gallery's glass page read its bar before the input, for a loop that
   laid out twice. It reads it before the view is described.
 
-Checked after the last merge, on 2026-11-10: the five commands pass (2,351
-tests; 1,845 without the default features). No public name of `limn` or
-`limn-egui` that the applications' branches had is missing from `next`, and
-no line of their changelogs. The layout of `layout_bench` is 3% slower than
-before the features: 1.15 ms for 1,000 rows, 7.8 ms for 4,000.
+Checked after the cut, on 2026-11-10: the five commands pass (2,353 tests;
+1,847 without the default features). Every name `limn` exported before, it
+exports now. `layout_bench` lays out as fast as before the cut: 1.12 to
+1.14 ms for 1,000 rows against 1.14 to 1.15. Building the view of 4,000 rows
+read slower in three runs, 1.5 ms against 1.3 to 1.4; the cause was not
+looked for. Not checked: the gallery running, so nothing here says the
+windows look as they did.
 
 ## Order of work
 
@@ -99,7 +103,64 @@ Small gaps, each a commit of its own:
 - `crates/limn-gallery/examples/captured_paste.rs` lays out after each event
   (R6).
 
-### C. Open the core
+### C. The engine apart from the design
+
+The aim: limn is an engine anyone builds a design on, as GPUI is, and the
+design that ships with it is one design among those that could be. An
+application with a look of its own depends on `limn-core`, uses none of
+`limn-components`, and changes nothing in the engine to get there.
+
+**Done, the first step: the cut.**
+
+| Crate | Holds | May depend on |
+| --- | --- | --- |
+| `limn-core` | The engine: elements, layout, events, retained state, text, the frame. | Nothing of the design. |
+| `limn-components` | The design: 106 modules, every component the engine does not name. | `limn-core`, through what it makes public. |
+| `limn` | Both, re-exported: `use limn::Button` and every import an application has still work. | Both. |
+
+- The compiler holds the line now: a component cannot reach inside the
+  engine (R22).
+- What the components did reach for was opened as seams, `#[doc(hidden)]
+  pub` (R23). `seams_do_not_grow` holds their number: 86 on 2026-11-10,
+  where there were none to count before, because nothing stopped a
+  component from reaching in.
+- The engine's tests stand on the engine alone: 738 of them. The 47 that
+  need a component are tests of `limn-components` now, and none was lost.
+
+**Left: what the engine still holds of the design.** Each item ends with the
+engine offering a general piece and the look moving to `limn-components`.
+In order, by how much of a host's own design each one blocks:
+
+1. **What the tree paints by itself**: tooltips, the context menu
+   (`context_menu.rs`, `action_style.rs`), scrollbars, the focus ring, a
+   coach mark's ring and caret. They take their colors from
+   `ComponentPalette` and their measures from constants. A host cannot
+   restyle them without a change to the engine. Each takes its look from
+   what the element carries, given by the component that asks for it.
+2. **The controls in `components.rs`**: `Button`, `IconButton`, `Link`,
+   `Kbd`, `Tooltip`, `TextField`, `TextArea`, `SearchField`, `Switch`, `Tabs`,
+   `SegmentedControl`, `Popover`, with `spinner.rs` and `scroll_area.rs`.
+   They are builders over kinds the engine paints (`ElementKind::Button`,
+   `TextInput`, `TabStrip`). The engine keeps the behaviour (press, focus,
+   caret, selection) on a kind with no look; the look becomes a component.
+3. **The widgets in `ElementKind`**: the code editor and its diff
+   (`code_editor*.rs`, `code_diff.rs`, `code_syntax.rs`), `Flowchart`,
+   `SequenceDiagram` and `diagram.rs`, the plots, `Record`, `EffortSlider`,
+   `Sketch`, `Scribble`, `ZoomView`. First a drawing that can say its own
+   size and take the pointer; then each becomes a component over it and
+   leaves the enum.
+4. **Looks**: liquid glass and iOS sheets (`glass.rs`, `liquid.rs`,
+   `sheet_geometry.rs`), the words of built-in controls (`labels.rs`), an
+   icon set (`file_icons.rs`), and `ComponentPalette` itself, which is the
+   design's palette and lives in the engine because the engine paints with
+   it. The engine keeps the material a backend renders; the look goes.
+5. **The seams.** Each one is a component a host could not have written.
+   They close as the items above land: a seam becomes a documented, general
+   piece, or its user moves beside it.
+6. **One ID the engine reads**: `code_block:auto:`, which a code block
+   makes for itself (`is_anonymous_code_scroll_id`, against R2).
+
+### D. Open the core
 
 These move code. Nothing waits behind them now, so they can start.
 
@@ -109,13 +170,10 @@ These move code. Nothing waits behind them now, so they can start.
    glass. Each becomes a child module of `tree`, as `zoom_view_tree.rs` is.
 2. **Split `place_inner` by kind**: each arm of its `match` a function in the
    module of its kind.
-3. **Take the widgets out of `ElementKind`.** A drawing that can say its own
-   size, then `Flowchart`, `SequenceDiagram`, the plots and the bars as
-   components over it. Each removes a variant and an arm.
-4. **Adopt rustfmt**, in one commit named in `.git-blame-ignore-revs`, and
+3. **Adopt rustfmt**, in one commit named in `.git-blame-ignore-revs`, and
    check it in CI. It touches more than 238 files.
 
-### D. Scale
+### E. Scale
 
 The cost of a frame grows with the whole tree. These make it grow with what
 changed.
@@ -130,7 +188,7 @@ changed.
 4. **`layout` returns a clone of the frame.** Measure it on a large screen
    before deciding whether to lend the frame instead.
 
-### E. The project
+### F. The project
 
 1. **CI on macOS and Windows**: build, test, run the gallery.
 2. **No test that fails sometimes.** Two of `limn-dnd` do, and passed when
@@ -146,8 +204,8 @@ changed.
 5. **The rename, into a new repository**, last and alone.
    - The name is not chosen. `refine` was checked on 2026-11-10 and is taken:
      a crate of that name is on crates.io, and `refinedev/refine` is a widely
-     used React framework. Check a name on crates.io for all the crates before
-     settling on it.
+     used React framework. `guil` was checked the same day and is free on
+     crates.io for every crate. Check a name there before settling on it.
    - Crate names, `use` paths, pages and the site change in one commit, with
      nothing else under way.
    - The new repository takes the whole history, so `blame` and `bisect`
@@ -160,4 +218,5 @@ changed.
 
 - Scoping IDs by their place in the tree. See
   [Lineage](architecture.md#lineage) for why.
-- A window, an event loop or a renderer inside `limn`. The host keeps them.
+- A window, an event loop or a renderer inside `limn-core`. The host keeps
+  them.
