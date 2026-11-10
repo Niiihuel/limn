@@ -3,7 +3,7 @@
 //! content and lazily built uniform lists.
 
 use crate::motion::ScalarTransition;
-use crate::{Color, Component, Element, ScrollMotion};
+use crate::{Color, Component, Element, ScrollMotion, Size};
 use web_time::{Duration, Instant};
 
 /// When an ordinary, virtual or horizontal scroll surface shows its indicator.
@@ -111,6 +111,20 @@ pub enum ScrollbarPlacement {
     Reserved,
 }
 
+/// When a vertical scrollbar paints its track, the stripe its thumb runs
+/// along, at [`ScrollbarAppearance::hover_track_opacity`].
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum ScrollbarTrack {
+    /// While the scrollbar is under the pointer or its thumb is dragged, so
+    /// an overlay rail leaves no stripe over the content at rest. The default.
+    #[default]
+    WhenActive,
+    /// Always, at rest too.
+    Always,
+    /// Never: the thumb alone.
+    Never,
+}
+
 /// Visual and pointer policy for a vertical scrollbar, in logical pixels.
 ///
 /// The default reserves a separate rail while content overflows, keeping
@@ -144,15 +158,31 @@ pub struct ScrollbarAppearance {
     /// The thumb while it is dragged, and the arrow of an end button held down.
     /// 164 by default.
     pub active_thumb_opacity: u8,
-    /// The track, which shows only while the scrollbar is hovered or dragged. An
-    /// end button under the pointer is filled at twice this, three times when
-    /// held. 14 by default.
+    /// The track, which shows when [`Self::track`] says: by default only while
+    /// the scrollbar is hovered or dragged. An end button under the pointer is
+    /// filled at twice this, three times when held. 14 by default.
     pub hover_track_opacity: u8,
     /// The corner of the thumb and of its track, in logical pixels. `None`, the
     /// default, rounds their ends fully; `Some(0.0)` draws them square, as
     /// Spotify's desktop client on Windows and Linux. Clamped to half the
     /// thumb's width; a value that is not finite counts as `None`.
     pub thumb_radius: Option<f32>,
+    /// How far inside its square an end button's hover fill is drawn, in
+    /// logical pixels: 1 by default. A value that is not finite counts as 1, a
+    /// negative one as 0.
+    pub button_inset: f32,
+    /// The corner of an end button's hover fill, in logical pixels. `None`, the
+    /// default, takes `tokens().radius.control`; a value that is not finite
+    /// counts as `None`, a negative one as 0.
+    pub button_radius: Option<f32>,
+    /// The largest box an end button's arrow is drawn in, in logical pixels: 7
+    /// wide and 4 tall by default. A smaller button draws it smaller still, at
+    /// most half the button's width and 0.3 of its height. A side that is not
+    /// finite counts as the default's, a negative one as 0.
+    pub arrow: Size,
+    /// When the track shows behind the thumb: [`ScrollbarTrack::WhenActive`]
+    /// by default.
+    pub track: ScrollbarTrack,
 }
 
 impl Default for ScrollbarAppearance {
@@ -169,8 +199,18 @@ impl Default for ScrollbarAppearance {
             active_thumb_opacity: 164,
             hover_track_opacity: 14,
             thumb_radius: None,
+            button_inset: 1.0,
+            button_radius: None,
+            arrow: Size::new(7.0, 4.0),
+            track: ScrollbarTrack::WhenActive,
         }
     }
+}
+
+/// A length from a caller, made safe: `default` when it is not finite, and
+/// never below zero.
+fn length_or(value: f32, default: f32) -> f32 {
+    if value.is_finite() { value.max(0.0) } else { default }
 }
 
 impl ScrollbarAppearance {
@@ -258,6 +298,53 @@ impl ScrollbarAppearance {
     pub(crate) fn corner(self, width: f32) -> f32 {
         let round = width / 2.0;
         self.thumb_radius.filter(|radius| radius.is_finite()).map_or(round, |radius| radius.clamp(0.0, round))
+    }
+
+    /// Draw an end button's hover fill `inset` logical pixels inside its
+    /// square, 1 by default. A value that is not finite is 1; a negative one
+    /// is 0.
+    pub fn button_inset(mut self, inset: f32) -> Self {
+        self.button_inset = length_or(inset, Self::default().button_inset);
+        self
+    }
+
+    /// Round an end button's hover fill by `radius` logical pixels in place of
+    /// `tokens().radius.control`. A value that is not finite takes the token
+    /// again; a negative one is 0.
+    pub fn button_radius(mut self, radius: f32) -> Self {
+        self.button_radius = radius.is_finite().then_some(radius.max(0.0));
+        self
+    }
+
+    /// Draw an end button's arrow at most `size` large, in logical pixels: 7
+    /// wide and 4 tall by default. A side that is not finite keeps the
+    /// default's; a negative one is 0.
+    pub fn arrow(mut self, size: Size) -> Self {
+        self.arrow = size;
+        self.arrow = self.arrow_box();
+        self
+    }
+
+    /// Choose when the track shows behind the thumb.
+    pub fn track(mut self, track: ScrollbarTrack) -> Self {
+        self.track = track;
+        self
+    }
+
+    /// The inset of an end button's hover fill, as painted.
+    pub(crate) fn button_fill_inset(self) -> f32 {
+        length_or(self.button_inset, Self::default().button_inset)
+    }
+
+    /// The corner of an end button's hover fill, as painted.
+    pub(crate) fn button_fill_radius(self) -> f32 {
+        self.button_radius.filter(|radius| radius.is_finite()).map_or_else(|| crate::tokens().radius.control, |radius| radius.max(0.0))
+    }
+
+    /// The box an end button's arrow is drawn in at most, as painted.
+    pub(crate) fn arrow_box(self) -> Size {
+        let default = Self::default().arrow;
+        Size::new(length_or(self.arrow.width, default.width), length_or(self.arrow.height, default.height))
     }
 
     pub(crate) fn effective_rail_width(self, viewport_width: f32) -> f32 {
@@ -442,6 +529,25 @@ mod tests {
         assert_eq!(thumb(ScrollbarAppearance::default().thumb_radius(40.0)), 5.0, "never past half its width");
         assert_eq!(ScrollbarAppearance::default().thumb_radius(f32::NAN).thumb_radius, None);
         assert_eq!(ScrollbarAppearance::default().thumb_radius(-3.0).thumb_radius, Some(0.0));
+    }
+
+    #[test]
+    fn an_end_buttons_numbers_from_a_caller_are_made_safe() {
+        let default = ScrollbarAppearance::default();
+        assert_eq!((default.button_inset, default.button_radius, default.arrow, default.track), (1.0, None, Size::new(7.0, 4.0), ScrollbarTrack::WhenActive));
+        assert_eq!(default.button_inset(3.0).button_inset, 3.0);
+        assert_eq!(default.button_inset(f32::NAN).button_inset, 1.0, "not finite: the default");
+        assert_eq!(default.button_inset(-2.0).button_inset, 0.0);
+        assert_eq!(default.button_radius(2.0).button_radius, Some(2.0));
+        assert_eq!(default.button_radius(f32::INFINITY).button_radius, None, "not finite: the token");
+        assert_eq!(default.button_radius(-1.0).button_radius, Some(0.0));
+        assert_eq!(default.arrow(Size::new(9.0, 5.0)).arrow, Size::new(9.0, 5.0));
+        assert_eq!(default.arrow(Size::new(f32::NAN, -3.0)).arrow, Size::new(7.0, 0.0));
+        // Set on the fields, they are made safe where they are painted.
+        let raw = ScrollbarAppearance { button_inset: f32::INFINITY, button_radius: Some(f32::NAN), arrow: Size::new(-1.0, f32::NEG_INFINITY), ..default };
+        assert_eq!((raw.button_fill_inset(), raw.button_fill_radius(), raw.arrow_box()), (1.0, crate::tokens().radius.control, Size::new(0.0, 4.0)));
+        let raw = ScrollbarAppearance { button_inset: -4.0, button_radius: Some(-4.0), ..default };
+        assert_eq!((raw.button_fill_inset(), raw.button_fill_radius()), (0.0, 0.0));
     }
 
     #[test]
