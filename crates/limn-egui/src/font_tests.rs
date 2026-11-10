@@ -422,3 +422,50 @@ fn variation_selectors_and_supported_joined_emoji_have_one_painted_glyph() {
     }
 }
 
+
+#[test]
+fn an_installed_face_is_measured_and_painted_in_egui_and_limn_and_falls_back_on_sans() {
+    const ID: u16 = 4242;
+    let custom = FontFamily::Custom(ID);
+    let ctx = context(true);
+    let named = egui::FontFamily::Name(custom_family(ID).into());
+    // Not installed: Sans, in egui and in limn's own layout.
+    assert_eq!(egui_family(&ctx, custom), egui::FontFamily::Proportional);
+    let laid = |family| limn::TextLayout::new("Ada iiii", limn::TextStyle::new(14.0, family)).size();
+    assert_eq!(laid(custom), laid(FontFamily::Sans));
+    assert_eq!(install_face(&ctx, ID, vec![0_u8; 64]), Err(limn::FontError));
+
+    // Hack, a monospace face, as the downloaded one.
+    let hack = limn::Fonts::bundled().face_of(FontFamily::Monospace).unwrap().bytes().to_vec();
+    install_face(&ctx, ID, hack).unwrap();
+    ctx.run_ui(egui::RawInput::default(), |_| {}).textures_delta.clear();
+    assert_eq!(egui_family(&ctx, custom), named);
+    let definitions = ctx.fonts(|fonts| fonts.definitions().clone());
+    let chain = &definitions.families[&named];
+    assert_eq!(chain[0], custom_family(ID));
+    assert_eq!(chain[1..], definitions.families[&egui::FontFamily::Proportional]);
+    // What Hack lacks is drawn as interface text is.
+    assert!(covers(&ctx, &named, '𝓡') && covers(&ctx, &named, '🦀'));
+
+    // A tree measures it as egui paints it: every letter as wide.
+    let mut tree = limn::UiTree::new(limn::Element::text("x"));
+    attach_fonts(&mut tree, &ctx);
+    let (font, _) = egui_font(&ctx, 14.0, custom);
+    let painted = |text: &str| ctx.fonts_mut(|fonts| fonts.layout_no_wrap(text.into(), font.clone(), Color32::WHITE).size().x);
+    assert!((painted("iiii") - painted("WWWW")).abs() < 0.01);
+    assert!(painted("iiii") > ctx.fonts_mut(|fonts| fonts.layout_no_wrap("iiii".into(), egui::FontId::proportional(14.0), Color32::WHITE).size().x));
+    assert!((laid(custom).width - limn::TextLayout::new("Ada WWWW", limn::TextStyle::new(14.0, custom)).size().width).abs() < 0.01);
+
+    // A host's own definitions keep the face, behind its chosen interface face.
+    let bundled = font_definitions();
+    let mut own = font_definitions_with(UiFaces {
+        regular: (*bundled.font_data["Sans-Bold"]).clone(),
+        medium: None,
+        semibold: None,
+        bold: None,
+    });
+    assert_eq!(own.families[&named][1], "limn-ui-regular");
+    own.families.remove(&named);
+    add_installed_faces(&mut own);
+    assert_eq!(own.families[&named][..2], [custom_family(ID), "limn-ui-regular".to_owned()]);
+}

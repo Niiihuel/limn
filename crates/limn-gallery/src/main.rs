@@ -71,6 +71,11 @@ impl Host {
     }
 
     fn start(&mut self, ctx: &egui::Context) {
+        // The Text page's face given at run time, as a host installs one it downloaded.
+        let face = limn::Fonts::bundled().face_of(limn::FontFamily::Monospace).map(|font| font.bytes().to_vec());
+        if let Some(bytes) = face {
+            limn_egui::install_face(ctx, pages::RUN_TIME_FACE, bytes).expect("a bundled face is a font");
+        }
         limn_egui::attach_fonts(&mut self.tree, ctx);
         limn_egui::repaint_on_patch(ctx);
     }

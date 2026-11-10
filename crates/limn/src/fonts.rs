@@ -108,7 +108,9 @@ impl std::error::Error for FontError {}
 ///
 /// A family without a face of its own takes the one it is a style of:
 /// `SansItalic`, `SansMedium` and `SansBold` take `Sans`, slanted or
-/// emboldened, `SansSemibold` takes `SansBold`, then `SansMedium`, then `Sans`, and `MonospaceBold` takes `Monospace`. Behind `Sans` comes every fallback, then `Monospace`, then
+/// emboldened, `SansSemibold` takes `SansBold`, then `SansMedium`, then `Sans`, and `MonospaceBold` takes `Monospace`. A
+/// `Custom` family is its face, at the weight and slant the face has, with
+/// everything `Sans` tries behind it; without a face it is `Sans`. Behind `Sans` comes every fallback, then `Monospace`, then
 /// the emoji face; behind `Monospace` comes `Sans`, every fallback, then the
 /// emoji face. The emoji face is last so it never takes a symbol a text face
 /// has.
@@ -171,6 +173,12 @@ impl Fonts {
     /// The face `family` has of its own, if any.
     pub fn face_of(&self, family: FontFamily) -> Option<&Font> {
         self.faces.iter().find(|(given, _)| *given == family).map(|(_, font)| font)
+    }
+
+    /// Every family given a face of its own with [`Self::face`], and its
+    /// face, in the order they were given.
+    pub fn faces(&self) -> impl Iterator<Item = (FontFamily, &Font)> + '_ {
+        self.faces.iter().map(|(family, font)| (*family, font))
     }
 
     /// The fallbacks, in the order they are tried.

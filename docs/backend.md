@@ -150,6 +150,7 @@ stamps, single-use semantics and the limits of tree observation.
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
 | `Glyphs(GlyphRun)` | Glyphs limn has already shaped and placed: draw each from `run.font` at `run.size`, at its place from `run.origin`, tinted `run.color`; slant by `run.skew` degrees and thicken when `run.embolden`. Lay nothing out again. See [TextLayout](components/text-layout.md#drawing-the-glyphs). |
+| `TextEffect { effect, runs }` | An outline (`TextEffect::Stroke { width, color }`) or a shadow (`TextEffect::Shadow { offset, blur, color }`) of the `Text` or `Glyphs` commands in `runs`, which are painted after it: their glyphs' shape in the effect's color, not their own ink. A backend that paints no effects may skip it. See [Layout](layout.md#text). |
 | `Icon { icon, rect, tint, transform }` | A semantic icon. The backend chooses the artwork, and turns and stretches it about the middle of `rect` as `transform` says: identity at rest, otherwise while a `hover_motion` plays. |
 | `RasterImage { .. }` | A decoded image: a cover fills the rectangle and is cropped, a full-resolution picture fills it at its proportions, enlarged if need be, and any other is fitted inside it, never past its pixels. `image.quarter_turns()` turns it; `image.is_checkerboard()` asks for a checkerboard behind its transparent pixels; `image.dissolved()` is the share of its height at the bottom that fades to nothing. |
 | `Surface { rect, id, label, opacity }` | Pixels the host hands to the backend under `id`, outside the frame. They start at the rectangle's top-left corner, one pixel per physical pixel when rendered for this display, and are clipped to the rectangle, never stretched to it. |
@@ -192,6 +193,8 @@ The egui backend exposes:
 | --- | --- |
 | `install_fonts(&ctx)` | Installs the UI font. Once, at window creation. |
 | `font_definitions_with(UiFaces)` | The bundled fonts with the host's faces first for interface text, to install with `Context::set_fonts`. See [A font of the person's choice](theming.md#a-font-of-the-persons-choice). |
+| `install_face(&ctx, id, bytes)` | Lays `FontFamily::Custom(id)` out and paints it in a TrueType or OpenType face the host loaded at run time, in limn's layout and egui's. See [A face given at run time](theming.md#a-face-given-at-run-time). |
+| `add_installed_faces(&mut definitions)` | Gives fonts a host builds itself the families of the faces `install_face` installed, before `Context::set_fonts`. |
 | `attach_fonts(&mut tree, &ctx)` | Makes a tree measure with egui's fonts. Once per tree. |
 | `normalize_keyboard_input(&ctx)` | Fixes key and text events on remapped layouts. Each frame, before `events`. |
 | `events(&ctx, origin)` | This frame's input as `UiEvent`s. |

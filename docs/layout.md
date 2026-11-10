@@ -185,6 +185,39 @@ fonts without those faces paints the regular one. `FontFamily::SansItalic` is th
 slanted by the host. Bold code is `FontFamily::MonospaceBold`, Hack Bold in
 `limn-egui`, as wide as the regular face; without it the regular one is painted.
 
+`FontFamily::Custom(id)` is a face the host gives at run time, as
+`limn_egui::install_face` installs one; until it does the text is `Sans`. See
+[A face given at run time](theming.md#a-face-given-at-run-time).
+
+`.text_stroke(width, color)` and `.text_shadow(offset, blur, color)` paint
+under a text's glyphs, plain or truncated, as CSS's `-webkit-text-stroke`
+(with `paint-order: stroke`) and `text-shadow` do: a line `width` wide
+centred on the glyphs' edges, half of it showing round them, and the
+glyphs' shape moved by `offset` and blurred by `blur`, a glow when the
+offset is zero and a hard shadow when the blur is. The shadow goes under
+the stroke, and both under the bands of a `.foreground_gradient` (see
+[Containers](#containers)), painted once for the whole line. They change
+nothing about the text's size, where it wraps or is cut, its selection or
+its targets, and may reach past its box; the foreground's alpha scales
+their colors.
+
+```rust
+// A name in neon: a white fill, an edge in the person's color and its glow.
+let em = 16.0;
+Element::truncated_text(name)
+    .font_size(em)
+    .foreground(Color::WHITE)
+    .text_stroke(1.0 + 0.04 * em, color)
+    .text_shadow(Point::new(0.0, 0.0), 4.0 + 0.12 * em, color)
+```
+
+Each is one `DrawCommand::TextEffect` before the text, holding the text's
+runs. `limn-egui` paints a stroke as rings of copies of the glyphs in its
+color, out to half its width a pixel or less apart, and a blurred shadow as
+faint copies on rings out to its blur radius, weighed by a Gaussian; copies of
+a translucent color add up where they overlap. An emoji the host draws as a
+picture has its glyph's shape outlined.
+
 ## Containers
 
 | Constructor | Use |
