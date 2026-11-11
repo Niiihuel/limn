@@ -2060,30 +2060,11 @@ mod tests {
             }
         )));
         let phase = |frame: &crate::Frame| {
-            frame
-                .commands
-                .iter()
-                .find_map(|command| match command {
-                    DrawCommand::Spinner {
-                        rect: spinner,
-                        angle,
-                        variant: crate::SpinnerVariant::Circle,
-                        ..
-                    } => {
-                        assert_eq!(spinner.width, 16.0);
-                        assert_eq!(spinner.height, 16.0);
-                        assert!(
-                            spinner.x >= rect.x && spinner.x + spinner.width <= rect.x + rect.width
-                        );
-                        assert!(
-                            spinner.y >= rect.y
-                                && spinner.y + spinner.height <= rect.y + rect.height
-                        );
-                        Some(*angle)
-                    }
-                    _ => None,
-                })
-                .expect("standard circular loading spinner")
+            let (spinner, angle) = crate::indicators::tests::circle_spinner(&frame.commands).expect("standard circular loading spinner");
+            assert!((spinner.width - 16.0).abs() < 0.01);
+            assert!(spinner.x >= rect.x && spinner.x + spinner.width <= rect.x + rect.width + 0.01);
+            assert!(spinner.y >= rect.y && spinner.y + spinner.height <= rect.y + rect.height + 0.01);
+            angle
         };
         let first = phase(&busy);
         assert!(tree.animation_repaint_after().is_some());
@@ -2106,10 +2087,7 @@ mod tests {
                 .rect,
             rect
         );
-        assert!(!restored
-            .commands
-            .iter()
-            .any(|command| matches!(command, DrawCommand::Spinner { .. })));
+        assert!(crate::indicators::tests::circle_spinner(&restored.commands).is_none());
         assert_eq!(tree.animation_repaint_after(), None);
         assert!(tree.focus("refresh"));
     }

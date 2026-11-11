@@ -112,15 +112,8 @@ impl LayoutBuilder<'_> {
         } else {
             states_mut!(self).touch(id, self.now, || SpinnerStart(self.now)).0
         };
-        paint_spinner(
-            &mut self.frame.commands,
-            rect,
-            *color,
-            *variant,
-            started,
-            self.now,
-            self.reduced_motion,
-        );
+        let angle = crate::motion::spinner_angle(started, self.now, self.reduced_motion, variant.period());
+        crate::indicators::spinner(&mut self.frame.commands, rect, *color, angle, *variant);
     }
 
     pub(super) fn place_scribble(&mut self, element: &Element, rect: Rect) {

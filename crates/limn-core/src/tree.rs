@@ -102,7 +102,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, Kept, MeasuredRows, UniformList};
 use crate::motion::{
-    skeleton_color, spinner_angle, SKELETON_PERIOD, ColorTransition, ScalarSpring, ScalarTransition,
+    skeleton_color, SKELETON_PERIOD, ColorTransition, ScalarSpring, ScalarTransition,
 };
 use crate::shortcut;
 use crate::scroll_area::ScrollbarState;
@@ -307,26 +307,6 @@ impl RecordMotion {
     fn is_moving(&self, now: Instant) -> bool {
         self.spinning_since.is_some() || self.out.is_active(now)
     }
-}
-
-fn paint_spinner(
-    commands: &mut Vec<DrawCommand>,
-    rect: Rect,
-    color: Color,
-    variant: SpinnerVariant,
-    started: Instant,
-    now: Instant,
-    reduced_motion: bool,
-) {
-    if rect.width <= 0.0 || rect.height <= 0.0 {
-        return;
-    }
-    commands.push(DrawCommand::Spinner {
-        rect,
-        color,
-        angle: spinner_angle(started, now, reduced_motion, variant.period()),
-        variant,
-    });
 }
 
 /// A vertical fade that keeps to its element's rounded corners. The straight

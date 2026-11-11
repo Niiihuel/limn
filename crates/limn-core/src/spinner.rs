@@ -94,17 +94,17 @@ mod tests {
 
     #[test]
     fn spinner_supports_both_outline_variants() {
-        for variant in [SpinnerVariant::Circle, SpinnerVariant::Spokes, SpinnerVariant::Dots] {
+        // Polylines and the discs that round their ends, or dots alone.
+        for (variant, lines, discs) in [(SpinnerVariant::Circle, 1, 2), (SpinnerVariant::Spokes, 8, 16), (SpinnerVariant::Dots, 0, 4)] {
             let frame = UiTree::new(
                 Spinner::new("loading", Color::WHITE)
                     .variant(variant)
                     .render(),
             )
             .layout(Size::new(16.0, 16.0));
-            assert!(frame.commands.iter().any(|command| matches!(
-                command,
-                DrawCommand::Spinner { variant: painted, .. } if *painted == variant
-            )));
+            let count = |shape: fn(&DrawCommand) -> bool| frame.commands.iter().filter(|command| shape(command)).count();
+            assert_eq!(count(|command| matches!(command, DrawCommand::Polyline { .. })), lines, "{variant:?}");
+            assert_eq!(count(|command| matches!(command, DrawCommand::FillRect { .. })), discs, "{variant:?}");
         }
     }
 
@@ -118,14 +118,8 @@ mod tests {
         assert_eq!(named[0].name, "Searching");
     }
 
-    fn spinners(frame: &crate::Frame) -> Vec<f32> {
-        frame
-            .commands
-            .iter()
-            .filter_map(|command| match command {
-                DrawCommand::Spinner { angle, .. } => Some(*angle),
-                _ => None,
-            })
-            .collect()
+    /// The arc each spinner of the frame draws.
+    fn spinners(frame: &crate::Frame) -> Vec<DrawCommand> {
+        frame.commands.iter().filter(|command| matches!(command, DrawCommand::Polyline { .. })).cloned().collect()
     }
 }
