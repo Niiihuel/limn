@@ -126,7 +126,15 @@ fn an_emoji_in_text_limn_lays_out_is_a_picture_where_its_glyph_was_and_the_text_
     // Sized as measured text sizes it: by the room the same glyph takes in its line.
     let (measured, _) = pictures_and_glyphs(&painted_commands(vec![measured("a🙂b", Color::WHITE)]));
     assert!((measured[0].width() - picture.width()).abs() < 0.01, "{measured:?} and {picture:?}");
+    // A heart with VS16 is drawn from Noto Sans Symbols 2, whose box reaches far below its ink,
+    // and VS16 is an empty glyph of no advance: the picture stands at the height of the heart's
+    // ink, across the room the heart takes, short of the y.
+    let drawn = pictures_and_glyphs(&painted_commands(laid_out("x❤\u{fe0f}y", Color::WHITE))).0;
     set_color_emoji(None);
+    let glyphs = pictures_and_glyphs(&painted_commands(laid_out("x❤\u{fe0f}y", Color::WHITE))).1;
+    let (heart, y) = (glyphs[1], glyphs[2]);
+    assert!(drawn[0].contains_rect(heart) && (drawn[0].center().y - heart.center().y).abs() < 0.75, "{drawn:?} over the glyph's {heart:?}");
+    assert!(drawn[0].max.x <= y.min.x + 0.5, "{drawn:?} reaches into the y's {y:?}");
     assert_eq!(pictures_and_glyphs(&painted_commands(commands)), (Vec::new(), before), "removed, the glyph is back");
 }
 

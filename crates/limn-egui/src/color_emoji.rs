@@ -248,8 +248,9 @@ pub(crate) fn paint_glyphs(painter: &egui::Painter, run: &GlyphRun, origin: Pos2
     let mut kept = vec![true; run.glyphs.len()];
     let mut places = Vec::new();
     for (range, id) in &ready {
-        // The room its glyphs take in the line: from where the first starts to where the last ends.
-        let mut room: Option<(f32, f32, f32)> = None;
+        // The room its glyphs take in the line, from where the first starts to where the last
+        // ends, and the height their ink takes, so the picture stands where they stood.
+        let (mut room, mut bare, mut ink, mut baseline) = (None, None, None, 0.0);
         for (index, glyph) in run.glyphs.iter().enumerate() {
             if !range.contains(&(run.clusters[index] as usize)) {
                 continue;
@@ -257,12 +258,23 @@ pub(crate) fn paint_glyphs(painter: &egui::Painter, run: &GlyphRun, origin: Pos2
             kept[index] = false;
             let start = origin.x + run.origin.x + glyph.x;
             let end = start + advances.advance_width(GlyphId::new(glyph.id)).unwrap_or(0.0);
-            let baseline = origin.y + run.origin.y + glyph.y;
-            room = Some(room.map_or((start, end, baseline), |(from, to, at)| (from.min(start), to.max(end), at)));
+            let widen = |room: Option<(f32, f32)>| Some(room.map_or((start, end), |(from, to)| (from.min(start), to.max(end))));
+            baseline = origin.y + run.origin.y + glyph.y;
+            match advances.bounds(GlyphId::new(glyph.id)).filter(|bounds| bounds.y_max > bounds.y_min) {
+                Some(bounds) => {
+                    room = widen(room);
+                    let (top, bottom) = (baseline - bounds.y_max, baseline - bounds.y_min);
+                    ink = Some(ink.map_or((top, bottom), |(above, below): (f32, f32)| (above.min(top), below.max(bottom))));
+                }
+                // A variation selector or a joiner is shaped as an empty glyph with no advance,
+                // where its face's own advance would widen the room.
+                None => bare = widen(bare),
+            }
         }
-        if let Some((start, end, baseline)) = room {
-            // The face's box at that place, so the picture is centered where the glyph stood.
-            let edge = |x: f32| Rect::from_min_max(Pos2::new(x, baseline - metrics.ascent), Pos2::new(x, baseline - metrics.descent));
+        if let Some((start, end)) = room.or(bare) {
+            // Glyphs with no ink, such as a joiner alone, stand in their face's box.
+            let (top, bottom) = ink.unwrap_or((baseline - metrics.ascent, baseline - metrics.descent));
+            let edge = |x: f32| Rect::from_min_max(Pos2::new(x, top), Pos2::new(x, bottom));
             places.push((*id, picture_rect(edge(start), edge(end), run.size)));
         }
     }
