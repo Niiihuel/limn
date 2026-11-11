@@ -144,6 +144,38 @@ fn content_of_the_components_own_takes_no_pointer_focus_or_reader() {
 }
 
 #[test]
+fn what_content_of_the_components_own_floats_takes_no_pointer_focus_or_reader() {
+    let view = |content: Option<Element>| {
+        let hint = match content {
+            Some(content) => hint().content(content),
+            None => hint(),
+        };
+        Element::row(vec![hint.render(), Element::button("after", "After")])
+    };
+    let built_in = shown(view(None), 134.0, 120.0);
+    // Each floats a button to the layout's top layer, past the hint's body.
+    let floats = [
+        ("an open popover", Element::popover(block(40.0, 20.0), Element::button("inside", "Press"), "inside-dismiss", PopoverPlacement::Bottom)),
+        ("an overlay", Element::overlay(block(40.0, 20.0), Element::button("inside", "Press"))),
+    ];
+    for (float, content) in floats {
+        let own = shown(view(Some(content.clone())), 134.0, 120.0);
+        assert!(!own.regions.iter().any(|region| region.id == "inside"), "{float}");
+        assert!(!own.access.iter().any(|node| node.id == "inside"), "{float}");
+        assert_eq!(own.regions, built_in.regions, "{float}");
+        assert_eq!(own.access, built_in.access, "{float}");
+        // Tab goes from the anchor to the next control, past what it floats.
+        let mut tree = UiTree::new(at(view(Some(content)), 134.0, 120.0));
+        tree.layout(WINDOW);
+        assert!(tree.focus("mark"));
+        tree.layout(WINDOW);
+        tree.handle_event(UiEvent::Key { key: Key::Tab, shift: false, ctrl: false, alt: false });
+        tree.layout(WINDOW);
+        assert_eq!(tree.focused_id(), Some("after"), "{float}");
+    }
+}
+
+#[test]
 fn a_hint_of_the_components_own_is_placed_flipped_and_clamped_as_a_built_in_one_of_its_size() {
     // "Server" is 48 wide on one line: a body 64 by 24, as content 48 by 12
     // with 8 at its sides and 6 over and under it.

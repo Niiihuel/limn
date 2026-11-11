@@ -172,7 +172,7 @@ cargo run -p limn-gallery -- --page dropdown-menu --set overlay-menu=open --scre
 | `--set <id=value>` | Start as if that control had been clicked. Repeatable. Use it to capture an open menu or dialog. |
 | `--hover <id>` | Hold the pointer over a control, to capture its hover state or tooltip. |
 | `--end` | Scroll the page to its end. |
-| `--screenshot <file.png>` | Save the window and exit. Runs with reduced motion so nothing is caught mid-transition. |
+| `--screenshot <file.png>` | Save the window and exit. Runs with reduced motion so nothing is caught mid-transition, and the gallery's own moving pictures stand still: the band of light on its middle frame, the glass page's scene at its start, a video on its poster. |
 
 The screenshot is the size the window manager gives the window, so a tiling
 window manager will produce different sizes at different times.

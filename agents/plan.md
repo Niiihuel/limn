@@ -116,18 +116,14 @@ Small gaps, each a commit of its own:
   (R11).
 - `crates/limn-gallery/examples/captured_paste.rs` lays out after each event
   (R6).
-- What a tooltip's content floats by itself, a popover or an overlay, is
-  placed outside the inert subtree and could take the pointer
-  (`Element::inert`).
 - A press on a separator or a disabled row of a context menu closes it.
-- `ScrollbarAppearance` has public fields, constructors (`Default`,
-  `overlay`, `reserved`, `pan_bar`) and builders for all of them but
-  `min_thumb_length` and the four opacities, which only a struct literal
-  sets: two applications do, over `..ScrollbarAppearance::overlay()`, as
-  `limn-components` does for other fields. A field added later breaks no
-  literal with `..`. `#[non_exhaustive]` would forbid those literals, so it
-  follows only once those five fields have builders and the applications
-  use them. (`CoachAnchor` is done: a constructor, builders and
+- `ScrollbarAppearance` is not `#[non_exhaustive]` yet. Every field but
+  `placement`, which the constructors choose, has a builder, and nothing in
+  this repository writes a literal of it but its own constructors. Left: two
+  applications build it with a literal over `..ScrollbarAppearance::overlay()`,
+  Rustcord in `Look::scrollbar` (`rustcord-components/src/look.rs`) and Surco
+  in `spotify_bar` (`crates/app/src/view.rs`). Once they use the builders,
+  the attribute follows. (`CoachAnchor` is done: a constructor, builders and
   `#[non_exhaustive]`.)
 
 ### C. The engine apart from the design

@@ -9661,6 +9661,7 @@ impl LayoutBuilder<'_> {
             self.frame.inline_menu_focus.len(),
             self.frame.context_menu_regions.len(),
             self.frame.text_blocks.len(),
+            self.overlays.len(),
         ));
         let outer_inert = self.inert;
         self.inert |= inert.is_some();
@@ -9751,14 +9752,16 @@ impl LayoutBuilder<'_> {
             self.drag_ghost = Some(start..self.frame.commands.len());
         }
         self.note_access(element, rect, clip, for_this);
-        if let Some((regions, access, tabs, menus, context, text)) = inert {
-            // Only its paint stays: nothing in it takes the pointer, the focus or a reader.
+        if let Some((regions, access, tabs, menus, context, text, overlays)) = inert {
+            // Only its paint stays: nothing in it takes the pointer, the focus or a reader,
+            // and what it floats, which the top layer would place outside it, is dropped.
             self.frame.regions.truncate(regions);
             self.frame.access.truncate(access);
             self.frame.tab_focus.truncate(tabs);
             self.frame.inline_menu_focus.truncate(menus);
             self.frame.context_menu_regions.truncate(context);
             self.frame.text_blocks.truncate(text);
+            self.overlays.truncate(overlays);
         }
         self.inert = outer_inert;
     }

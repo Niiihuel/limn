@@ -41,10 +41,20 @@ pub(super) const ANIMATION: &str = "media-animation";
 const ANIMATION_FRAMES: usize = 12;
 const ANIMATION_STEP: Duration = Duration::from_millis(90);
 
+/// The frame of the animation to show `elapsed` after it began. A `still`
+/// one, for a screenshot, is the same on every run: the band in the middle.
+fn animation_frame(still: bool, elapsed: Duration) -> usize {
+    if still {
+        return ANIMATION_FRAMES / 2;
+    }
+    (elapsed.as_millis() / ANIMATION_STEP.as_millis()) as usize % ANIMATION_FRAMES
+}
+
 /// Present the animation's current frame wherever `frame` draws its surface,
-/// and say when the next one is due. Its frames are converted once and
-/// presented again, shared, every time it loops.
-pub fn present_animation(ctx: &eframe::egui::Context, frame: &limn::Frame) -> Option<Duration> {
+/// and say when the next one is due: never when `still`, which holds one
+/// frame. Its frames are converted once and presented again, shared, every
+/// time it loops.
+pub fn present_animation(ctx: &eframe::egui::Context, frame: &limn::Frame, still: bool) -> Option<Duration> {
     static FRAMES: OnceLock<(Instant, Vec<limn_egui::SurfaceFrame>)> = OnceLock::new();
     if !frame.commands.iter().any(|command| matches!(command, limn::DrawCommand::Surface { id, .. } if id == ANIMATION)) {
         return None;
@@ -67,9 +77,8 @@ pub fn present_animation(ctx: &eframe::egui::Context, frame: &limn::Frame) -> Op
             .collect();
         (Instant::now(), frames)
     });
-    let elapsed = started.elapsed().as_millis() / ANIMATION_STEP.as_millis();
-    limn_egui::present_surface(ctx, ANIMATION, frames[elapsed as usize % ANIMATION_FRAMES].clone());
-    Some(ANIMATION_STEP)
+    limn_egui::present_surface(ctx, ANIMATION, frames[animation_frame(still, started.elapsed())].clone());
+    (!still).then_some(ANIMATION_STEP)
 }
 
 /// What the viewer shows: `open`, `loading`, `failed`, `animation`, or nothing.
@@ -330,6 +339,18 @@ mod tests {
     use super::*;
     use crate::app::{self, State};
     use limn::{DrawCommand, Key, UiEvent, UiTree};
+
+    #[test]
+    fn a_still_animation_shows_one_frame_whenever_it_is_asked() {
+        let at = |millis| Duration::from_millis(millis);
+        // Running, it steps every 90 ms and loops after twelve.
+        assert_eq!(animation_frame(false, at(0)), 0);
+        assert_eq!(animation_frame(false, at(95)), 1);
+        assert_eq!(animation_frame(false, at(90 * 12 + 10)), 0);
+        // Still, as for a screenshot, it is the same frame at any instant.
+        let shown: Vec<usize> = [0, 95, 500, 90 * 12 + 10, 60_000].into_iter().map(|millis| animation_frame(true, at(millis))).collect();
+        assert_eq!(shown, [ANIMATION_FRAMES / 2; 5]);
+    }
 
     #[test]
     fn the_viewer_opens_on_a_picture_steps_with_the_arrows_and_closes_on_escape() {

@@ -202,7 +202,7 @@ impl Component for SideRail {
         }
         let items = std::mem::take(&mut self.items).into_iter().map(|item| self.item(item)).collect();
         // A thin bar over the items, which keep their width, without arrows.
-        let bar = ScrollbarAppearance { buttons: false, ..ScrollbarAppearance::overlay() };
+        let bar = ScrollbarAppearance::overlay().buttons(false);
         let list = Element::scroll(format!("{}:items", self.id), Element::column(items).padding(MARGIN))
             .scrollbar_appearance(bar)
             .flex(1.0);

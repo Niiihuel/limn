@@ -46,7 +46,9 @@ The content is laid out at `content_width(px)`, the open panel's width (320
 unless set), from the strip's left edge and clipped to the strip, so what
 shows is how the panel begins. A veil of the surface at 0.9 opacity covers
 it. The content is only painted there: its controls take no pointer, no
-focus and no reader until the panel is open.
+focus and no reader until the panel is open. What it would float over the
+window, such as an open popover or an overlay that does not clip its
+children, is not shown.
 
 ## Side
 

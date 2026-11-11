@@ -273,7 +273,9 @@ impl Tooltip {
     /// sides and 6 above and below without one), and keeps its fill, border,
     /// shadow, pointer, placement and entrance. The content is painted and
     /// nothing more: nothing in it can be clicked, focused or read, so the
-    /// title is still what the platform is told.
+    /// title is still what the platform is told. What it would float over
+    /// the window, such as an open popover or an overlay that does not clip
+    /// its children, is left out.
     pub fn content(mut self, content: Element) -> Self {
         self.content = Some(Box::new(content));
         self

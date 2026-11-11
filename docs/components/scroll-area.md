@@ -135,7 +135,7 @@ width. Content that fits shows no scrollbar and reserves no rail.
 | `rail_width` | 14 | From 4 to 24 through `.rail_width` |
 | `thumb_width` | 5 | From 2 to 12 through `.thumb_width` |
 | `thumb_radius` | `None` (round ends) | The corner of the thumb and its track; `.thumb_radius(0.0)` draws them square. Never past half the thumb's width |
-| `min_thumb_length` | 24 | The shortest the thumb gets |
+| `min_thumb_length` | 24 | The shortest the thumb gets: at least 1 through `.min_thumb_length`, and never more than half the track |
 | `tint` | `None` | The scrollbar's color; `None` uses the element's foreground |
 | `idle_thumb_opacity`, `hover_thumb_opacity`, `active_thumb_opacity` | 72, 118, 164 | The thumb at rest, under the pointer and dragged, out of 255 |
 | `hover_track_opacity` | 14 | The track, when `track` shows it. An end button under the pointer is filled at twice it, three times held |
@@ -146,6 +146,20 @@ width. Content that fits shows no scrollbar and reserves no rail.
 
 `ScrollArea::buttons(enabled)` and `ScrollArea::tint(color)` change that one
 field and keep the rest of the appearance.
+
+Every field but `placement`, which `overlay()` and `reserved()` choose, has a
+builder of its name. Build an appearance with them rather than with a struct
+literal, which a later release may forbid. The opacities are out of 255, so
+any value is one:
+
+```rust
+ScrollbarAppearance::overlay()
+    .buttons(false)
+    .min_thumb_length(30.0)
+    .idle_thumb_opacity(0)
+    .hover_thumb_opacity(140)
+    .hover_track_opacity(0)
+```
 
 `.track`, `.button_inset`, `.button_radius` and `.arrow` set the last four.
 A length that is not finite, given to them or set on the field, takes its
