@@ -85,8 +85,9 @@ events, `update`, `set_root(view(state))`, `layout`, paint. Inside
    IDs taken twice (`Frame::duplicate_ids`). `collect_action_metadata` gathers
    the aliases of `dispatch_as`. A focus asked for earlier (`pending_focus`)
    lands here if this tree holds its control. A control in a row of a virtual
-   list is known only once placed: it takes the focus after step 4. A request
-   that no control answers is dropped by this layout.
+   list is known only once placed: it takes the focus after step 4, and its ID
+   is checked for duplicates as its row is placed (`collect_row_focus`). A
+   request that no control answers is dropped by this layout.
 3. **Place the root.** The `MeasurementCache` is cleared. A `LayoutBuilder`
    borrows the tree's state for the pass and places the root in the viewport.
    See [Measure and place](#measure-and-place).
@@ -182,8 +183,11 @@ drop(states);                                     // before measuring or placing
   `closed_submenu_triggers`, and the sheets' `sheet_detents` and
   `sheet_frames` with the popovers' `popover_order`, which are newer than R3
   and belong in the store.
-- `scroll_to_end` and `scroll_to_index` are not swept: a request for an ID
-  that is never laid out stays. See [invariant 5](invariants.md#the-table).
+- `scroll_to_end` and `scroll_to_index` are `ScrollRequests`
+  (`scroll_request_tree.rs`): the layout that places the area takes its
+  request, and one that waits for its area is kept for the 64 IDs asked of
+  most recently, since a host may ask before the view that holds the list is
+  shown. See [invariant 5](invariants.md#the-table).
 
 ## Events
 

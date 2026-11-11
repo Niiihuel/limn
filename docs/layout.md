@@ -332,7 +332,10 @@ could land under it. Uniform lists have no sticky rows.
 ### Scrolling from the host
 
 The tree keeps each scroll area's offset. The host moves it with a request
-that is resolved at the next layout, once sizes are known.
+that is resolved at the next layout, once sizes are known. A
+`scroll_to_end` or `scroll_to_index` asked of an area that layout does not
+place waits for the first layout that does, as a list a loading state stands
+in for; the tree keeps such requests for the 64 IDs asked of most recently.
 
 | Method | Effect |
 | --- | --- |

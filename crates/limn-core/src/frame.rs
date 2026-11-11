@@ -112,7 +112,10 @@ impl Frame {
     /// buttons, inputs, clickables and editors. Two controls under one ID share
     /// its hover, press, focus and transitions, and Tab stops at it once, so
     /// a test asserts this is empty. A link's action in formatted
-    /// text is not counted: the same target may be linked twice.
+    /// text is not counted: the same target may be linked twice. The rows of
+    /// a virtual list in view count as well, after the rest, in the order they
+    /// were placed: an ID taken twice in a row, in two rows, or by a row and a
+    /// control around the list. What is inert counts nowhere.
     pub fn duplicate_ids(&self) -> &[String] {
         &self.duplicate_ids
     }

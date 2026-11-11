@@ -144,7 +144,7 @@ impl LayoutBuilder<'_> {
                 let previous_scope = self.enter_measurement_scope();
                 let mut focusables = Vec::new();
                 let mut seen = crate::FastSet::default();
-                collect_focus_order(&row, &mut focusables, &mut seen);
+                self.collect_row_focus(&row, &mut focusables, &mut seen);
                 self.place(
                     &row,
                     Rect::new(
@@ -156,7 +156,7 @@ impl LayoutBuilder<'_> {
                     Some(visible),
                 );
                 if let Some((_, opened)) = open.filter(|(open, _)| *open == index) {
-                    collect_focus_order(opened, &mut focusables, &mut seen);
+                    self.collect_row_focus(opened, &mut focusables, &mut seen);
                     self.place(
                         opened,
                         Rect::new(

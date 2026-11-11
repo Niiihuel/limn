@@ -101,11 +101,15 @@ itself stable.
 
 Small gaps, each a commit of its own:
 
-- `scroll_to_end` and `scroll_to_index` keep a request for an ID that is
-  never laid out (invariant 5).
+- ~~`scroll_to_end` and `scroll_to_index` keep a request for an ID that is
+  never laid out (invariant 5).~~ Done: a waiting request is kept for the 64
+  IDs asked of most recently. It still outlives a layout that does not place
+  its area, because two of the applications rely on that: a search's results
+  behind their loading state, a conversation behind a pane grown over it.
 - `sheet_detents`, `sheet_frames` and `popover_order` are maps of the tree
   that came with liquid glass, from before R3. They belong in the store.
-- `Frame::duplicate_ids` does not see the rows of a virtual list (invariant 2).
+- ~~`Frame::duplicate_ids` does not see the rows of a virtual list (invariant
+  2).~~ Done: the rows in view are checked as they are placed.
 - The code editor's `EditorView::update` reads the wall clock (invariant 11).
 - Durations written as constants in `tree.rs`: a popover's change of view,
   the effort slider (one of its three in `slider_tree.rs`), a tooltip's delay
@@ -116,8 +120,15 @@ Small gaps, each a commit of its own:
   placed outside the inert subtree and could take the pointer
   (`Element::inert`).
 - A press on a separator or a disabled row of a context menu closes it.
-- `CoachAnchor` has public fields and no constructor: a field added later
-  breaks every literal. The same holds for `ScrollbarAppearance`.
+- `ScrollbarAppearance` has public fields, constructors (`Default`,
+  `overlay`, `reserved`, `pan_bar`) and builders for all of them but
+  `min_thumb_length` and the four opacities, which only a struct literal
+  sets: two applications do, over `..ScrollbarAppearance::overlay()`, as
+  `limn-components` does for other fields. A field added later breaks no
+  literal with `..`. `#[non_exhaustive]` would forbid those literals, so it
+  follows only once those five fields have builders and the applications
+  use them. (`CoachAnchor` is done: a constructor, builders and
+  `#[non_exhaustive]`.)
 
 ### C. The engine apart from the design
 

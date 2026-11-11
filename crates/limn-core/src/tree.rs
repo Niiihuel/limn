@@ -16,6 +16,11 @@ mod corner_mask_tree;
 mod plot_tree;
 #[path = "zoom_view_tree.rs"]
 mod zoom_view_tree;
+#[path = "scroll_request_tree.rs"]
+mod scroll_request_tree;
+use scroll_request_tree::ScrollRequests;
+#[path = "row_claims_tree.rs"]
+mod row_claims_tree;
 #[cfg(test)]
 #[path = "popover_initial_focus_tests.rs"]
 mod popover_initial_focus_tests;
@@ -1832,8 +1837,8 @@ pub struct UiTree {
     scroll_offsets: HashMap<String, f32>,
     scroll_transitions: HashMap<String, ScalarTransition>,
     scrollbar_states: HashMap<String, ScrollbarState>,
-    scroll_to_end: HashSet<String>,
-    scroll_to_index: HashMap<String, usize>,
+    scroll_to_end: ScrollRequests<()>,
+    scroll_to_index: ScrollRequests<usize>,
     /// What each measured list keeps between layouts, by its ID.
     measured_lists: HashMap<String, MeasuredListState>,
     scroll_drag: Option<ScrollDrag>,
@@ -1962,8 +1967,8 @@ impl UiTree {
             scroll_transitions: HashMap::new(),
             scrollbar_states: HashMap::new(),
             measured_lists: HashMap::new(),
-            scroll_to_end: HashSet::new(),
-            scroll_to_index: HashMap::new(),
+            scroll_to_end: ScrollRequests::default(),
+            scroll_to_index: ScrollRequests::default(),
             scroll_drag: None,
             horizontal_pan: None,
             scroll_button_hold: None,
@@ -2757,6 +2762,9 @@ impl UiTree {
     }
 
     /// Scrolls to the bottom on the next layout, after new content is measured.
+    /// A scroll area or list that layout does not place takes the request
+    /// from the first layout that does, as a list a loading state stands in
+    /// for: such a request is kept among the 64 IDs asked for most recently.
     pub fn scroll_to_end(&mut self, id: &str) {
         self.scroll_transitions.remove(id);
         self.cancel_scroll_hold(id);
@@ -2775,7 +2783,9 @@ impl UiTree {
     }
 
     /// Keeps one fixed-height list row in view on the next layout. The scroll
-    /// position is unchanged if the row is already fully visible.
+    /// position is unchanged if the row is already fully visible. A list
+    /// that layout does not place takes the request from the first layout
+    /// that does, as [`Self::scroll_to_end`] says.
     pub fn scroll_to_index(&mut self, id: &str, index: usize) {
         self.scroll_transitions.remove(id);
         self.cancel_scroll_hold(id);
@@ -2880,8 +2890,8 @@ impl UiTree {
         let previous_popovers = self.frame.popover_focus.clone();
         let mut focus_order = Vec::new();
         let mut seen = crate::FastSet::default();
-        let mut duplicate_ids = Vec::new();
-        collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut duplicate_ids);
+        let mut claims = Claims::default();
+        collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut claims);
         // A focus asked for before this tree was laid out lands now, so this
         // layout already paints it and brings it into view.
         if let Some((id, keyboard)) = self.pending_focus.take_if(|(id, _)| takes_focus(&focus_order, id)) {
@@ -2929,6 +2939,9 @@ impl UiTree {
                 translated_overflow: crate::FastMap::default(),
                 focus_path,
                 focus_probe: probe,
+                claimed: &seen,
+                row_claims: crate::FastSet::default(),
+                inert: false,
                 spatial_focus: self.spatial_focus,
                 drag_source: self
                     .pointer_drag
@@ -3798,7 +3811,14 @@ impl UiTree {
             }
         });
         self.scrollbar_states.retain(|_, state| state.seen);
-        frame.duplicate_ids = duplicate_ids;
+        // What the walk found, in tree order, then what placing the rows of
+        // virtual lists found.
+        let placed = std::mem::replace(&mut frame.duplicate_ids, claims.twice);
+        for id in placed {
+            if !frame.duplicate_ids.contains(&id) {
+                frame.duplicate_ids.push(id);
+            }
+        }
         self.frame = frame;
         self.finish_paste_layout();
         if previous_popovers != self.frame.popover_focus {
@@ -6094,7 +6114,18 @@ fn collect_focus_order(
     order: &mut Vec<(String, HitKind)>,
     seen: &mut crate::FastSet<String>,
 ) {
-    collect_focus_claims(element, order, seen, &mut Vec::new());
+    collect_focus_claims(element, order, seen, &mut Claims::default());
+}
+
+/// What a walk for focus claims notes besides the order.
+#[derive(Default)]
+struct Claims<'a> {
+    /// The IDs two elements claimed, in the order found.
+    twice: Vec<String>,
+    /// While a row of a virtual list is walked: what the walk of the tree
+    /// met, and what the rows placed before it claimed. A claim of one of
+    /// those is noted too.
+    rows: Option<(&'a crate::FastSet<String>, &'a mut crate::FastSet<String>)>,
 }
 
 /// Gives `id` its place in the focus order, or notes it in `duplicates` when
@@ -6104,12 +6135,17 @@ fn claim_focus(
     kind: HitKind,
     order: &mut Vec<(String, HitKind)>,
     seen: &mut crate::FastSet<String>,
-    duplicates: &mut Vec<String>,
+    duplicates: &mut Claims,
 ) {
-    if seen.insert(id.to_owned()) {
+    let mut twice = !seen.insert(id.to_owned());
+    if !twice {
         order.push((id.to_owned(), kind));
-    } else if !duplicates.iter().any(|duplicate| duplicate == id) {
-        duplicates.push(id.to_owned());
+    }
+    if let Some((tree, rows)) = duplicates.rows.as_mut() {
+        twice |= tree.contains(id) || !rows.insert(id.to_owned());
+    }
+    if twice && !duplicates.twice.iter().any(|duplicate| duplicate == id) {
+        duplicates.twice.push(id.to_owned());
     }
 }
 
@@ -6118,7 +6154,7 @@ fn collect_focus_claims(
     element: &Element,
     order: &mut Vec<(String, HitKind)>,
     seen: &mut crate::FastSet<String>,
-    duplicates: &mut Vec<String>,
+    duplicates: &mut Claims,
 ) {
     if element.kept.as_ref().is_some_and(|kept| kept.inert) {
         return;
@@ -6542,6 +6578,12 @@ struct LayoutBuilder<'a> {
     translated_overflow: crate::FastMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
+    /// The IDs the walk for focus claims met, and those the rows of virtual
+    /// lists placed in this pass claimed: what a row's control must not take.
+    claimed: &'a crate::FastSet<String>,
+    row_claims: crate::FastSet<String>,
+    /// Placing inside an inert element, where nothing takes the focus.
+    inert: bool,
     /// Whether the arrows move the focus, which needs the bounds of the
     /// controls held out of sight.
     spatial_focus: bool,
@@ -6588,8 +6630,8 @@ struct LayoutBuilder<'a> {
     scroll_transitions: &'a mut HashMap<String, ScalarTransition>,
     scrollbar_states: &'a mut HashMap<String, ScrollbarState>,
     measured_lists: &'a mut HashMap<String, MeasuredListState>,
-    scroll_to_end: &'a mut HashSet<String>,
-    scroll_to_index: &'a mut HashMap<String, usize>,
+    scroll_to_end: &'a mut ScrollRequests<()>,
+    scroll_to_index: &'a mut ScrollRequests<usize>,
     hovered_scrollbar: Option<&'a str>,
     dragging_scrollbar: Option<&'a str>,
     dragging_horizontal: Option<&'a str>,
@@ -8568,7 +8610,7 @@ impl LayoutBuilder<'_> {
                 let previous = self.measurement_scope;
                 self.measurement_scope = *scope;
                 let mut focusables = Vec::new();
-                collect_focus_order(row, &mut focusables, &mut crate::FastSet::default());
+                self.collect_row_focus(row, &mut focusables, &mut crate::FastSet::default());
                 self.place(
                     row,
                     Rect::new(
@@ -9620,6 +9662,8 @@ impl LayoutBuilder<'_> {
             self.frame.context_menu_regions.len(),
             self.frame.text_blocks.len(),
         ));
+        let outer_inert = self.inert;
+        self.inert |= inert.is_some();
         let reveal = element.hover_reveal;
         let around = self.region_hovered;
         if reveal == HoverReveal::Region {
@@ -9716,6 +9760,7 @@ impl LayoutBuilder<'_> {
             self.frame.context_menu_regions.truncate(context);
             self.frame.text_blocks.truncate(text);
         }
+        self.inert = outer_inert;
     }
 
     /// The box an [`Element::extend_on_hover`] element is placed in: `rect`
