@@ -48,7 +48,7 @@ pub use code_syntax::{CodeLanguage, CodeSyntaxColors};
 pub use components::{
     ActiveHover, Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component,
     ComponentPalette, ControlSize, ControlState, IconButton, Kbd,
-    Search, SearchField, SegmentedControl, Tab, Tabs, TabsVariant, TextArea, TextField,
+    Search, SearchField, TextArea, TextField,
     Tooltip,
     TooltipSpec,
 };

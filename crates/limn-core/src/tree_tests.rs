@@ -2,12 +2,35 @@ use super::*;
 
 #[test]
 fn glass_selection_captures_labels_without_feedback_and_preserves_hit_targets() {
-    use crate::{Component, Tab, Tabs};
     let palette = ComponentPalette::neutral_dark();
-    let view = |selected: &str| Tabs::new(vec![
-        Tab::new("home", "Home", 80.0).active(selected == "home"),
-        Tab::new("browse", "Browse", 80.0).active(selected == "browse"),
-    ], palette).id("glass-tabs").render().glass_selection(GlassMaterial::new(palette.surface));
+    // Two tabs of 80 on a track 2 pixels around them, under a glass selection.
+    let view = |selected: &str| {
+        let tab = |id: &str, label: &str| {
+            let active = id == selected;
+            let (ink, hover) = if active { (palette.text, crate::lighter(palette.text, 12)) } else { (palette.muted, palette.text) };
+            Element::button(id, label)
+                .background(Color::TRANSPARENT)
+                .hover_foreground(hover)
+                .pressed_foreground(hover)
+                .foreground(ink)
+                .font_family(FontFamily::Sans)
+                .font_size(11.5)
+                .padding(4.0)
+                .gap(4.0)
+                .radius(crate::control_radius())
+                .center_content()
+                .size(Some(80.0), Some(24.0))
+                .accessible(crate::Access::new(crate::Role::Tab).selected(active))
+        };
+        Element::tab_strip(vec![tab("home", "Home"), tab("browse", "Browse")], vec!["home".into(), "browse".into()])
+            .gap(2.0)
+            .padding(2.0)
+            .size(None, Some(28.0))
+            .background(palette.surface)
+            .radius(crate::surface_radius())
+            .tab_selection("glass-tabs", selected, palette.selected, crate::control_radius(), crate::tokens().motion.move_ms)
+            .glass_selection(GlassMaterial::new(palette.surface))
+    };
     let size = Size::new(200.0, 40.0);
     let now = Instant::now();
     let mut tree = UiTree::new(view("home"));
@@ -654,7 +677,7 @@ fn independent_corners_preserve_hover_press_focus_and_action_geometry() {
         assert_eq!(clips, 0);
     }
 }
-use crate::{Component, ComponentPalette, Tab, Tabs, Tooltip};
+use crate::{Component, ComponentPalette, Tooltip};
 
 #[test]
 fn row_measure_wraps_flex_column_at_assigned_width() {
@@ -1114,16 +1137,33 @@ fn clip_children_limits_descendant_hitboxes_without_clipping_parent_surface() {
 #[test]
 fn tab_indicator_moves_without_moving_click_regions_and_reduced_motion_snaps() {
     let palette = ComponentPalette::neutral_dark();
+    // Tabs of 80 and 96 on a track 2 pixels around them, under a selection
+    // that slides between them.
     let make_tabs = |active: &str| {
-        Tabs::new(
-            vec![
-                Tab::new("group", "Grupo", 80.0).active(active == "group"),
-                Tab::new("project", "Proyecto", 96.0).active(active == "project"),
-            ],
-            palette,
-        )
-        .id("session-grouping")
-        .render()
+        let tab = |id: &str, label: &str, width: f32| {
+            let chosen = id == active;
+            let (ink, hover) = if chosen { (palette.text, crate::lighter(palette.text, 12)) } else { (palette.muted, palette.text) };
+            Element::button(id, label)
+                .background(Color::TRANSPARENT)
+                .hover_foreground(hover)
+                .pressed_foreground(hover)
+                .foreground(ink)
+                .font_family(FontFamily::Sans)
+                .font_size(11.5)
+                .padding(4.0)
+                .gap(4.0)
+                .radius(crate::control_radius())
+                .center_content()
+                .size(Some(width), Some(24.0))
+                .accessible(crate::Access::new(crate::Role::Tab).selected(chosen))
+        };
+        Element::tab_strip(vec![tab("group", "Grupo", 80.0), tab("project", "Proyecto", 96.0)], vec!["group".into(), "project".into()])
+            .gap(2.0)
+            .padding(2.0)
+            .size(None, Some(28.0))
+            .background(palette.surface)
+            .radius(crate::surface_radius())
+            .tab_selection("session-grouping", active, palette.selected, crate::control_radius(), crate::tokens().motion.move_ms)
     };
     let start = Instant::now();
     let mut tree = UiTree::new(make_tabs("group"));
