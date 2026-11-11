@@ -188,9 +188,27 @@ In order, by how much of a host's own design each one blocks:
      `SegmentedControl` and `Popover`, which no engine code built, are
      components of `limn-components`, in a file each, with their tests. The
      helpers only they used went with them, and five seams closed with them.
+   - Done: a clickable can stand where a button draws its label and its
+     ring. `Element::content_takes_ink` paints what it holds in its hover and
+     pressed inks, and `Element::focus_ring_under` draws its ring under what
+     it holds. Both are off by default, and without them a clickable draws
+     what it drew, compared draw command by draw command.
    - Left: `Button` and `IconButton`, which the code editor's review bar
      builds; `Kbd`, which the context menu builds; `Tooltip`, which the code
      editor's fold and breakpoint controls build; and the kinds themselves.
+   - Left: `Link` and `Tabs` still build the `Button` and `IconButton`
+     kinds. Rebuilt over a clickable, they were compared draw command by
+     draw command, and four things still differ from a button. A clickable
+     offered a finite width takes all of it, where a button keeps its
+     label's (`fills_available_width`): a link alone in a popover's surface
+     is as wide as the surface. A clickable's underline is cut to its box
+     (`underline_text`): its width can be one ulp off the label's, and an
+     empty label gets none. A clickable's padding insets four sides where a
+     button's insets two, so a centred label can sit one ulp away. And a row
+     of an icon and a label is not `place_icon_button`'s group, which
+     centres the icon, the gap and the label as one and cuts the label to
+     the room the icon leaves: in the rows tried, an icon alone and a label
+     too long for its tab came out elsewhere.
 3. **The widgets in `ElementKind`**: the code editor and its diff
    (`code_editor*.rs`, `code_diff.rs`, `code_syntax.rs`), `Flowchart`,
    `SequenceDiagram` and `diagram.rs`, the plots, `Record`, `EffortSlider`,

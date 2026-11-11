@@ -213,7 +213,8 @@ set_tokens(Tokens {
 place of the token's, and `Element::focus_ring(false)` still turns it off. A
 width that is negative or not finite draws no ring, and an offset that is not
 finite or a radius that is negative or not finite is 0. `Ring::default()` is
-the library's ring.
+the library's ring. A button draws its ring under its label, a clickable over
+what it holds unless it has `Element::focus_ring_under()`.
 
 ## Per-component overrides
 
