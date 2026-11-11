@@ -3314,7 +3314,9 @@ impl Element {
 
     /// Paint this element and what it holds, and nothing more: no pointer
     /// target, focus stop or accessibility node is made inside it, as for a
-    /// glimpse of a panel that is not open.
+    /// glimpse of a panel that is not open. What it would float over the
+    /// window, such as an open popover or an overlay that does not clip its
+    /// children, is not placed at all.
     #[doc(hidden)]
     pub fn inert(mut self) -> Self {
         self.kept.get_or_insert_default().inert = true;

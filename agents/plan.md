@@ -116,9 +116,6 @@ Small gaps, each a commit of its own:
   (R11).
 - `crates/limn-gallery/examples/captured_paste.rs` lays out after each event
   (R6).
-- What a tooltip's content floats by itself, a popover or an overlay, is
-  placed outside the inert subtree and could take the pointer
-  (`Element::inert`).
 - A press on a separator or a disabled row of a context menu closes it.
 - `ScrollbarAppearance` is not `#[non_exhaustive]` yet. Every field but
   `placement`, which the constructors choose, has a builder, and nothing in

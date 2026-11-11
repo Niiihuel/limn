@@ -173,7 +173,9 @@ pointer and its entrance. `title_font_size`, `title_font_family` and
 
 What it holds is painted and nothing more: nothing in it can be clicked,
 focused or read by a screen reader. So the title is still required, and is
-what the platform is told; see [Accessibility](#accessibility). An element
+what the platform is told; see [Accessibility](#accessibility). What it would
+float over the window, such as an open popover or an overlay that does not
+clip its children, is left out, since it would be placed outside the hint. An element
 in it that moves or keeps state by its ID does so while the hint shows, as
 anywhere else. `TooltipSpec::content` gives a `Button` or an `IconButton`
 such a hint.
