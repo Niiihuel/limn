@@ -120,8 +120,15 @@ Small gaps, each a commit of its own:
   placed outside the inert subtree and could take the pointer
   (`Element::inert`).
 - A press on a separator or a disabled row of a context menu closes it.
-- `CoachAnchor` has public fields and no constructor: a field added later
-  breaks every literal. The same holds for `ScrollbarAppearance`.
+- `ScrollbarAppearance` has public fields, constructors (`Default`,
+  `overlay`, `reserved`, `pan_bar`) and builders for all of them but
+  `min_thumb_length` and the four opacities, which only a struct literal
+  sets: two applications do, over `..ScrollbarAppearance::overlay()`, as
+  `limn-components` does for other fields. A field added later breaks no
+  literal with `..`. `#[non_exhaustive]` would forbid those literals, so it
+  follows only once those five fields have builders and the applications
+  use them. (`CoachAnchor` is done: a constructor, builders and
+  `#[non_exhaustive]`.)
 
 ### C. The engine apart from the design
 

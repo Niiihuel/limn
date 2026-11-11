@@ -115,22 +115,14 @@ fn numbers_that_cannot_be_painted_are_made_safe() {
 /// A coach mark built on the engine alone: a bubble below the button
 /// `target`, painted in blue.
 fn coach(ring: Option<Ring>, caret: Option<Size>) -> Frame {
-    use crate::{CoachAlign, CoachAnchor, CoachSide, PopoverPlacement};
+    use crate::{CoachAnchor, PopoverPlacement};
     let base = Element::column(vec![Element::button("target", "Target").size(Some(80.0), Some(30.0)).radius(5.0)])
         .padding(20.0);
     let bubble = Element::panel(Element::text("Here")).size(Some(200.0), Some(60.0)).background(BLUE);
-    let root = Element::popover(base, bubble, "tip", PopoverPlacement::BottomStart).popover_coach(CoachAnchor {
-        targets: vec!["target".into()],
-        side: CoachSide::Below,
-        align: CoachAlign::Start,
-        key: "step".into(),
-        fill: BLUE,
-        dim: None,
-        back: None,
-        next: None,
-        ring,
-        caret,
-    });
+    let mut anchor = CoachAnchor::new(["target"], "step", BLUE);
+    anchor.ring = ring;
+    anchor.caret = caret;
+    let root = Element::popover(base, bubble, "tip", PopoverPlacement::BottomStart).popover_coach(anchor);
     let mut tree = UiTree::new(root);
     tree.set_reduced_motion(true);
     tree.layout(Size::new(400.0, 300.0))
@@ -186,4 +178,24 @@ fn a_coach_mark_without_a_caret_draws_none_and_bad_numbers_are_made_safe() {
     assert!(rings(&frame).iter().all(|ring| ring.1 != RED));
     assert!(carets(&frame).is_empty());
     assert_eq!(bubble.y, target.y + target.height);
+}
+
+#[test]
+fn a_coach_anchor_starts_below_its_targets_and_its_builders_set_the_rest() {
+    use crate::{CoachAlign, CoachAnchor, CoachSide};
+    let anchor = CoachAnchor::new(["save", "open"], "step", BLUE);
+    assert_eq!(anchor.targets, ["save", "open"]);
+    assert_eq!((anchor.side, anchor.align, anchor.key.as_str(), anchor.fill), (CoachSide::Below, CoachAlign::Start, "step", BLUE));
+    assert_eq!((anchor.dim, &anchor.back, &anchor.next, anchor.ring, anchor.caret), (None, &None, &None, None, None));
+    let ring = Ring { width: 4.0, ..Ring::default() };
+    let anchor = anchor
+        .placement(CoachSide::Left, CoachAlign::End)
+        .dim(RED)
+        .back("tour:back")
+        .next("tour:next")
+        .ring(ring)
+        .caret(Size::new(10.0, 5.0));
+    assert_eq!((anchor.side, anchor.align, anchor.dim), (CoachSide::Left, CoachAlign::End, Some(RED)));
+    assert_eq!((anchor.back.as_deref(), anchor.next.as_deref()), (Some("tour:back"), Some("tour:next")));
+    assert_eq!((anchor.ring, anchor.caret), (Some(ring), Some(Size::new(10.0, 5.0))));
 }

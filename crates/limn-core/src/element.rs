@@ -99,8 +99,10 @@ pub enum CoachAlign {
 /// to the new ones over [`Motion::move_ms`](crate::Motion::move_ms). When no
 /// target is laid out in view nothing is painted, and
 /// [`Frame::missing_coach_target`](crate::Frame::missing_coach_target) names
-/// the first.
+/// the first. Built with [`CoachAnchor::new`] and its builders; its fields
+/// can be read and set, and more may come.
 #[derive(Clone, Debug, PartialEq)]
+#[non_exhaustive]
 pub struct CoachAnchor {
     /// The IDs of the controls or scroll areas pointed at: the bubble points
     /// at the union of their regions in view.
@@ -139,6 +141,65 @@ pub struct CoachAnchor {
 }
 
 impl CoachAnchor {
+    /// A coach mark on the controls `targets` for the step `key`, its bubble,
+    /// caret and ring in `fill`: below the targets, at their start, dimming
+    /// nothing, the arrow keys reporting nothing, with the default ring and
+    /// caret.
+    pub fn new(targets: impl IntoIterator<Item = impl Into<String>>, key: impl Into<String>, fill: Color) -> Self {
+        Self {
+            targets: targets.into_iter().map(Into::into).collect(),
+            side: CoachSide::Below,
+            align: CoachAlign::Start,
+            key: key.into(),
+            fill,
+            dim: None,
+            back: None,
+            next: None,
+            ring: None,
+            caret: None,
+        }
+    }
+
+    /// The side of the targets the bubble prefers, and where it sits along
+    /// it.
+    pub fn placement(mut self, side: CoachSide, align: CoachAlign) -> Self {
+        self.side = side;
+        self.align = align;
+        self
+    }
+
+    /// Dim everything but the ring and what it holds with `color`.
+    pub fn dim(mut self, color: Color) -> Self {
+        self.dim = Some(color);
+        self
+    }
+
+    /// Report `action` for the Left arrow key while the coach mark is open.
+    pub fn back(mut self, action: impl Into<String>) -> Self {
+        self.back = Some(action.into());
+        self
+    }
+
+    /// Report `action` for the Right arrow key while the coach mark is open.
+    pub fn next(mut self, action: impl Into<String>) -> Self {
+        self.next = Some(action.into());
+        self
+    }
+
+    /// Draw `ring` around the targets in place of the default one.
+    pub fn ring(mut self, ring: Ring) -> Self {
+        self.ring = Some(ring);
+        self
+    }
+
+    /// Draw a caret `size.width` wide at its base and `size.height` deep in
+    /// place of 14 by 7; a side that is zero, negative or not finite draws
+    /// none.
+    pub fn caret(mut self, size: Size) -> Self {
+        self.caret = Some(size);
+        self
+    }
+
     /// The ring and the caret this coach mark draws, defaults filled in and
     /// numbers made safe; `None` for no caret.
     pub(crate) fn look(&self) -> (Ring, Option<Size>) {

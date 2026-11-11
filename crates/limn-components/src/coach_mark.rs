@@ -356,24 +356,20 @@ impl Component for CoachMark {
         let key = self
             .key
             .unwrap_or_else(|| format!("{}:{index}", self.targets.join("+")));
+        let mut anchor = CoachAnchor::new(self.targets, key, fill)
+            .placement(self.side, self.align)
+            .next(next_action);
+        anchor.dim = self.dim;
+        anchor.back = back_action;
+        anchor.ring = self.ring;
+        anchor.caret = self.caret;
         Element::popover(self.base, card, self.id, PopoverPlacement::BottomStart)
             // Transparent: the scope is modal, so focus stays in the bubble
             // and returns where it was, without painting over the window.
             .popover_scrim(Color::rgba(0, 0, 0, 0))
             .popover_backdrop_dismiss(false)
             .popover_initial_focus(next_id.clone())
-            .popover_coach(CoachAnchor {
-                targets: self.targets,
-                side: self.side,
-                align: self.align,
-                key,
-                fill,
-                dim: self.dim,
-                back: back_action,
-                next: Some(next_action),
-                ring: self.ring,
-                caret: self.caret,
-            })
+            .popover_coach(anchor)
     }
 }
 

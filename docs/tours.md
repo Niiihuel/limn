@@ -91,8 +91,15 @@ frame.
   window, covers part of the target and has no caret.
 - A design built on `limn-core` alone makes a coach mark of its own: a bubble
   in `Element::popover(base, bubble, id, placement)`, with
-  `.popover_coach(CoachAnchor { .. })` naming the targets, the side, the fill,
-  the ring and the caret. `CoachMark` is one built that way.
+  `.popover_coach(CoachAnchor::new(targets, key, fill))` naming the targets,
+  the step and the fill, and its builders `placement`, `dim`, `back`, `next`,
+  `ring` and `caret` for the rest. `CoachMark` is one built that way.
+
+  ```rust
+  let bubble = Element::panel(Element::text("Drafts are kept here")).padding(12.0).background(fill);
+  let root = Element::popover(root, bubble, "tip", PopoverPlacement::BottomStart)
+      .popover_coach(CoachAnchor::new(["drafts"], "tip:drafts", fill).placement(CoachSide::Right, CoachAlign::Center));
+  ```
 
 ## Tour
 
