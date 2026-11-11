@@ -132,7 +132,7 @@ impl Component for Progress {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, Size, UiTree};
+    use crate::{DrawCommand, Point, Size, UiTree};
 
     fn fill_width(fraction: f32) -> f32 {
         let palette = ComponentPalette::neutral_dark();
@@ -190,23 +190,46 @@ mod tests {
     #[test]
     fn a_ring_draws_its_fraction_in_a_square_of_its_diameter() {
         let palette = ComponentPalette::neutral_dark();
+        // The side of the square the ring is drawn in, from its track: a circle that closes,
+        // a pixel inside the square. Then the track's color, and the share of a turn its arc
+        // sweeps with the arc's color.
         let ring = |progress: Progress| {
             let root = Element::row(vec![progress.render(), Element::spacer().flex(1.0)]);
             let frame = UiTree::new(root).layout(Size::new(400.0, 40.0));
-            frame.commands.iter().find_map(|command| match command {
-                DrawCommand::ProgressRing { rect, fraction, track, fill } => Some((rect.width, rect.height, *fraction, *track, *fill)),
-                _ => None,
-            })
+            let lines: Vec<_> = frame
+                .commands
+                .iter()
+                .filter_map(|command| match command {
+                    DrawCommand::Polyline { points, color, .. } => Some((points.clone(), *color)),
+                    _ => None,
+                })
+                .collect();
+            let (circle, track) = lines.first()?.clone();
+            let corners = &circle[1..];
+            let sum = corners.iter().fold(Point::new(0.0, 0.0), |sum, point| Point::new(sum.x + point.x, sum.y + point.y));
+            let center = Point::new(sum.x / corners.len() as f32, sum.y / corners.len() as f32);
+            let radius = (circle[0].x - center.x).hypot(circle[0].y - center.y);
+            let arc = lines.get(1).map(|(arc, fill)| {
+                let swept: f32 = arc
+                    .windows(2)
+                    .map(|pair| 2.0 * ((pair[1].x - pair[0].x).hypot(pair[1].y - pair[0].y) / (2.0 * radius)).asin())
+                    .sum();
+                ((swept / std::f32::consts::TAU * 1000.0).round() / 1000.0, *fill)
+            });
+            Some(((2.0 * (radius + 1.0) * 100.0).round() / 100.0, track, arc))
         };
-        assert_eq!(
-            ring(Progress::new(0.25, palette).ring(16.0)),
-            Some((16.0, 16.0, Some(0.25), palette.selected, palette.text))
-        );
+        assert_eq!(ring(Progress::new(0.25, palette).ring(16.0)), Some((16.0, palette.selected, Some((0.25, palette.text)))));
         // The bar's builders do not reach it, and bad values are clamped or ignored.
         assert_eq!(ring(Progress::new(0.25, palette).width(200.0).height(8.0).flat().ring(16.0)).unwrap().0, 16.0);
-        assert_eq!(ring(Progress::new(7.0, palette).ring(-3.0)).map(|ring| (ring.0, ring.2)), Some((1.0, Some(1.0))));
-        assert_eq!(ring(Progress::new(f32::NAN, palette).ring(16.0)).unwrap().2, Some(0.0));
+        assert_eq!(ring(Progress::new(7.0, palette).ring(16.0)).unwrap().2, Some((1.0, palette.text)));
+        // NaN is empty: the track alone.
+        assert_eq!(ring(Progress::new(f32::NAN, palette).ring(16.0)), Some((16.0, palette.selected, None)));
         assert_eq!(ring(Progress::new(0.25, palette).ring(f32::INFINITY)), None);
+        // Below 1 across, a ring is 1 across: too small to draw anything.
+        let tiny = UiTree::new(Element::row(vec![Progress::new(7.0, palette).id("tiny").ring(-3.0).render()])).layout(Size::new(400.0, 40.0));
+        let node = tiny.access.iter().find(|node| node.id == "tiny").unwrap();
+        assert_eq!((node.rect.width, node.rect.height, node.value), (1.0, 1.0, Some(1.0)));
+        assert_eq!(ring(Progress::new(7.0, palette).ring(-3.0)), None);
 
         let root = Element::row(vec![Progress::new(0.4, palette).id("context").ring(16.0).render().accessibility_label("Context used")]);
         let frame = UiTree::new(root).layout(Size::new(400.0, 40.0));

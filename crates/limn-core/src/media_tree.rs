@@ -72,12 +72,7 @@ impl LayoutBuilder<'_> {
             track,
             fill,
         } = &element.kind else { unreachable!() };
-        self.frame.commands.push(DrawCommand::ProgressRing {
-            rect: content,
-            fraction: *fraction,
-            track: *track,
-            fill: *fill,
-        });
+        crate::indicators::progress_ring(&mut self.frame.commands, content, *fraction, *track, *fill);
     }
 
     pub(super) fn place_record(&mut self, element: &Element, rect: Rect, style: Style) {
