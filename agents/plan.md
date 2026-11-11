@@ -137,7 +137,7 @@ application with a look of its own depends on `limn-core`, uses none of
 - The compiler holds the line now: a component cannot reach inside the
   engine (R22).
 - What the components did reach for was opened as seams, `#[doc(hidden)]
-  pub` (R23). `seams_do_not_grow` holds their number: 70 on 2026-11-10,
+  pub` (R23). `seams_do_not_grow` holds their number: 65 on 2026-11-11,
   down from 86 at the cut. Before it there were none to count, because
   nothing stopped a component from reaching in.
 - The engine's tests stand on the engine alone: 738 of them. The 47 that
@@ -167,12 +167,19 @@ In order, by how much of a host's own design each one blocks:
      `UiTree::set_context_menu_view`); still hard-wired: its default look,
      which lives in the engine (`ContextMenuView::default_element`), its
      entrance and its 8-pixel margins in the window.
-2. **The controls in `components.rs`**: `Button`, `IconButton`, `Link`,
-   `Kbd`, `Tooltip`, `TextField`, `TextArea`, `SearchField`, `Switch`, `Tabs`,
-   `SegmentedControl`, `Popover`, with `spinner.rs` and `scroll_area.rs`.
-   They are builders over kinds the engine paints (`ElementKind::Button`,
-   `TextInput`, `TabStrip`). The engine keeps the behaviour (press, focus,
-   caret, selection) on a kind with no look; the look becomes a component.
+2. **The controls in `components.rs`**: `Button`, `IconButton`, `Kbd` and
+   `Tooltip`, with `spinner.rs` and `scroll_area.rs`. They, and the controls
+   that have moved, are builders over kinds the engine paints
+   (`ElementKind::Button`, `TextInput`, `TabStrip`). The engine keeps the
+   behaviour (press, focus, caret, selection) on a kind with no look; the
+   look becomes a component.
+   - Done: `Link`, `TextField`, `TextArea`, `SearchField`, `Switch`, `Tabs`,
+     `SegmentedControl` and `Popover`, which no engine code built, are
+     components of `limn-components`, in a file each, with their tests. The
+     helpers only they used went with them, and five seams closed with them.
+   - Left: `Button` and `IconButton`, which the code editor's review bar
+     builds; `Kbd`, which the context menu builds; `Tooltip`, which the code
+     editor's fold and breakpoint controls build; and the kinds themselves.
 3. **The widgets in `ElementKind`**: the code editor and its diff
    (`code_editor*.rs`, `code_diff.rs`, `code_syntax.rs`), `Flowchart`,
    `SequenceDiagram` and `diagram.rs`, the plots, `Record`, `EffortSlider`,

@@ -55,7 +55,7 @@ In `crates/limn-core/src/`:
 | `motion.rs` | `ScalarTransition`, `ScalarSpring`, `ColorTransition`, `Easing`: values on their way somewhere. |
 | `tokens.rs` | `tokens()`: radii and durations. |
 | `access.rs` | `AccessNode`, `Role`: what a frame tells the platform. |
-| `components.rs` | The `Component` trait, `ComponentPalette`, `Button` and the first components. |
+| `components.rs` | The `Component` trait, `ComponentPalette`, `ControlSize`, `ControlState`, and the four components the engine still builds: `Button` and `IconButton` (the code editor's review bar), `Kbd` (the context menu) and `Tooltip` (the code editor's fold and breakpoint controls). |
 | every other file | What the engine lays out or opens itself, one file each: the code editor (`code_editor.rs` and its `code_editor_*.rs` modules), `code_diff.rs`, `flowchart.rs`, `sequence.rs`, `spinner.rs`, `context_menu.rs` and more. Also helpers (`geometry.rs`, `labels.rs`, `typography.rs`, `hot.rs`), and two more child modules of `tree`: `inline_menu_navigation.rs` and `captured_paste.rs`. |
 | `*_tests.rs` | Tests split out of the file they test. `tree.rs` and its child modules declare theirs with `#[path]`, so those see the tree's private state; `tree.rs`'s own are `tree_tests.rs`, the module `tree::tests`. The rest are declared with `#[path]` from the file they test. |
 
@@ -64,7 +64,7 @@ In `crates/limn-components/src/`:
 | File | Holds |
 | --- | --- |
 | `theme.rs`, `scheme.rs` | `Theme` and `Scheme`: a window's colors. |
-| every other file | Mostly one component each, with its tests in a `#[cfg(test)]` module or a `*_tests.rs` beside it. |
+| every other file | Mostly one component each, with its tests in a `#[cfg(test)]` module or a `*_tests.rs` beside it. What a few share is in the file of one of them, private to the crate: `text_field.rs` holds `disabled_field` and `input_surface`, which the other fields, `Select` and `TopBar` use; `search_field.rs` holds `clear_button`, which `TopBar` uses; `tabs.rs` holds the measures `SegmentedControl` reads. |
 | `*_tests.rs` | Tests split out of the file they test, declared in `lib.rs` or from the component they test. |
 
 Tests that use only the public API are in `crates/limn/tests/`. Two of them
@@ -346,5 +346,5 @@ Each is in the [plan](plan.md) with its order.
 | `UiEvent` grew by case: `PointerDown`, `PointerDownModified`, `PointerDownEditor`. | A new modifier is a new variant. |
 | Keys the tree derives are strings (`extend/{id}`, `slide/{id}`), and a region is known as a popover's by its `popover_surface:` prefix. | A host's ID with that prefix would be misread. |
 | `layout` returns a clone of the frame. | Not measured on a large screen. |
-| The engine still holds design: the controls in `components.rs`, the tooltips, context menu and scrollbars the tree paints itself, the widgets in `ElementKind`, liquid glass and sheets. | An application with a design of its own cannot change them. |
+| The engine still holds design: the controls in `components.rs` (`Button`, `IconButton`, `Kbd`, `Tooltip`), the tooltips, context menu and scrollbars the tree paints itself, the widgets in `ElementKind`, liquid glass and sheets. | An application with a design of its own cannot change them. |
 | The design reaches the engine through seams, `#[doc(hidden)] pub`. | Each one is a component a host could not have built. |
