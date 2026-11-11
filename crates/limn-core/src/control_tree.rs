@@ -3,6 +3,36 @@
 
 use super::*;
 
+#[cfg(test)]
+#[path = "clickable_ink_tests.rs"]
+mod clickable_ink_tests;
+
+/// Paint in `now` what `element` holds in `rest`. What floats away from it,
+/// a popover's surface or a hint, and the rows of a list keep their ink.
+fn take_ink(element: &mut Element, rest: Color, now: Color) {
+    if element.style.foreground == rest {
+        element.style.foreground = now;
+    }
+    match &mut element.kind {
+        ElementKind::Column(children)
+        | ElementKind::Row(children)
+        | ElementKind::Stack(children)
+        | ElementKind::TabStrip { children, .. } => children.iter_mut().for_each(|child| take_ink(child, rest, now)),
+        ElementKind::Panel(child)
+        | ElementKind::Clickable { child, .. }
+        | ElementKind::Scroll { child, .. }
+        | ElementKind::HorizontalScroll { child, .. }
+        | ElementKind::ShortcutHint { child, .. }
+        | ElementKind::Popover { anchor: child, .. }
+        | ElementKind::Tooltip { anchor: child, .. } => take_ink(child, rest, now),
+        ElementKind::Overlay { base, floating } => {
+            take_ink(base, rest, now);
+            take_ink(floating, rest, now);
+        }
+        _ => {}
+    }
+}
+
 impl LayoutBuilder<'_> {
     pub(super) fn place_clickable(&mut self, element: &Element, rect: Rect, content: Rect, clip: Option<Rect>, style: Style) {
         let ElementKind::Clickable { id, child } = &element.kind else { unreachable!() };
@@ -28,9 +58,25 @@ impl LayoutBuilder<'_> {
                 },
             );
         }
+        let kept = element.kept.as_deref();
+        let ringed = self.keyboard_focus && self.focused == Some(id.as_str());
+        let under = kept.is_some_and(|kept| kept.ring_under);
+        if ringed && under {
+            self.draw_focus_ring(rect, style, element);
+        }
         let first = self.frame.commands.len();
         let first_block = self.frame.text_blocks.len();
-        self.place(child, content, clip);
+        let rest = element.style.foreground;
+        if kept.is_some_and(|kept| kept.content_ink) && style.foreground != rest {
+            // Placed again in the ink it has now, as `animate_foreground` is.
+            let mut inked = (**child).clone();
+            take_ink(&mut inked, rest, style.foreground);
+            let previous_scope = self.enter_measurement_scope();
+            self.place(&inked, content, clip);
+            self.measurement_scope = previous_scope;
+        } else {
+            self.place(child, content, clip);
+        }
         if let Some(draft) = self.sketch_draft.filter(|draft| draft.id == *id) {
             self.frame.commands.push(DrawCommand::PushClip(content));
             self.frame.commands.extend(crate::sketch::mark_commands(&draft.mark(), content));
@@ -42,7 +88,7 @@ impl LayoutBuilder<'_> {
         {
             self.underline_text(first, first_block, content, style);
         }
-        if self.keyboard_focus && self.focused == Some(id.as_str()) {
+        if ringed && !under {
             self.draw_focus_ring(rect, style, element);
         }
     }
