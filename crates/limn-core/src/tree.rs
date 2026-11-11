@@ -170,7 +170,7 @@ mod code_tree;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
     GlassMaterial, BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
-    RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextEffect, TextHint, TextSpan, TooltipItem,
+    RasterImage, Rect, ScrollMotion, Size, Style, TextEffect, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 
@@ -818,10 +818,6 @@ fn animate_popover_command(
             *radius *= scale;
             *own_opacity *= opacity.clamp(0.0, 1.0);
         }
-        DrawCommand::Spinner { rect, color, .. } => {
-            scale_rect(rect, scale, origin, slide_y);
-            fade(color, opacity);
-        }
         DrawCommand::Record {
             rect,
             opacity: record_opacity,
@@ -831,13 +827,6 @@ fn animate_popover_command(
             scale_rect(rect, scale, origin, slide_y);
             *record_opacity *= opacity.clamp(0.0, 1.0);
             *radius *= scale;
-        }
-        DrawCommand::ProgressRing {
-            rect, track, fill, ..
-        } => {
-            scale_rect(rect, scale, origin, slide_y);
-            fade(track, opacity);
-            fade(fill, opacity);
         }
         DrawCommand::Surface {
             rect,
