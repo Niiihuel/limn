@@ -4,7 +4,7 @@
 /// How many there are. A seam is a debt (R23): each marks a component that
 /// only limn could build, since a host cannot rely on what is hidden. When
 /// one closes, lower this; it never goes up.
-const SEAMS: usize = 70;
+const SEAMS: usize = 69;
 
 #[test]
 fn seams_do_not_grow() {

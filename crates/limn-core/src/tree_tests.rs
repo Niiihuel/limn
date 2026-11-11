@@ -115,10 +115,25 @@ fn a_segmented_knob_lifts_for_half_its_way_and_lands_in_its_slot_as_auroras() {
 
 #[test]
 fn glass_switch_lifts_on_press_and_tracks_a_drag_without_moving_hit_regions() {
-    use crate::{Component, Switch};
     let p = ComponentPalette::neutral_dark();
-    let view = || Switch::new("switch", false, p).track_size(64.0, 28.0)
-        .glass(GlassMaterial::new(p.surface)).render();
+    // A glass switch of 64 by 28, off: its 22-pixel thumb is the selection of
+    // a strip with an "off" and an "on" slot, 3 pixels inside the track.
+    let view = || {
+        let slot = |name: &str| Element::spacer().size(Some(22.0), Some(22.0)).indicator_slot(name);
+        let thumb = Element::tab_strip(vec![slot("off"), Element::spacer().size(Some(14.0), Some(22.0)), slot("on")], Vec::new())
+            .tab_selection("switch:thumb", "off", p.text, 11.0, crate::tokens().motion.move_ms)
+            .glass_selection(GlassMaterial::new(p.surface))
+            .selection_press("switch");
+        Element::clickable("switch", thumb)
+            .hover_background(crate::lighter(p.selected, 10))
+            .pressed_background(crate::lighter(p.selected, 16))
+            .transition_ms(crate::hover_ms())
+            .background(p.selected)
+            .padding(3.0)
+            .radius(14.0)
+            .size(Some(64.0), Some(28.0))
+            .accessible(crate::Access::new(crate::Role::Switch).id("switch").toggled(false).disabled(false))
+    };
     let mut tree = UiTree::new(view());
     let now = Instant::now();
     let size = Size::new(80.0, 40.0);
@@ -141,11 +156,27 @@ fn glass_switch_lifts_on_press_and_tracks_a_drag_without_moving_hit_regions() {
 
 #[test]
 fn glass_switch_drag_sets_the_endpoint_while_taps_toggle_and_cancel_is_inert() {
-    use crate::{Component, Switch};
     let palette = ComponentPalette::neutral_dark();
-    let make = |checked| {
-        let mut tree = UiTree::new(Switch::new("switch", checked, palette).track_size(64.0, 28.0)
-            .thumb_inset(2.0).thumb_width(40.0).glass(GlassMaterial::new(palette.surface)).render());
+    let make = |checked: bool| {
+        // A glass switch of 64 by 28 with a 40-pixel thumb 2 pixels inside the
+        // track: the thumb is the selection of a strip of two 30-pixel slots.
+        let track = if checked { palette.text } else { palette.selected };
+        let slot = |name: &str| Element::spacer().size(Some(30.0), Some(24.0)).indicator_slot(name);
+        let thumb = Element::tab_strip(vec![slot("off"), slot("on")], Vec::new())
+            .tab_selection("switch:thumb", if checked { "on" } else { "off" }, palette.text, 12.0, crate::tokens().motion.move_ms)
+            .selection_width(40.0)
+            .glass_selection(GlassMaterial::new(palette.surface))
+            .selection_press("switch");
+        let switch = Element::clickable("switch", thumb)
+            .hover_background(crate::lighter(track, 10))
+            .pressed_background(crate::lighter(track, 16))
+            .transition_ms(crate::hover_ms())
+            .background(track)
+            .padding(2.0)
+            .radius(14.0)
+            .size(Some(64.0), Some(28.0))
+            .accessible(crate::Access::new(crate::Role::Switch).id("switch").toggled(checked).disabled(false));
+        let mut tree = UiTree::new(switch);
         tree.layout(Size::new(80.0, 40.0));
         tree
     };
@@ -695,7 +726,23 @@ fn row_measure_wraps_flex_column_at_assigned_width() {
 
 #[test]
 fn row_measure_keeps_inline_switch_and_next_setting_below_wrapped_copy() {
-    use crate::Switch;
+    // A switch, off: a 36 by 20 track around a strip whose selection is its
+    // 14-pixel thumb.
+    let switch = || {
+        let p = ComponentPalette::neutral_dark();
+        let slot = |name: &str| Element::spacer().size(Some(14.0), Some(14.0)).indicator_slot(name);
+        let thumb = Element::tab_strip(vec![slot("off"), Element::spacer().size(Some(2.0), Some(14.0)), slot("on")], Vec::new())
+            .tab_selection("approval-switch:thumb", "off", p.text, 7.0, crate::tokens().motion.move_ms);
+        Element::clickable("approval-switch", thumb)
+            .hover_background(crate::lighter(p.selected, 10))
+            .pressed_background(crate::lighter(p.selected, 16))
+            .transition_ms(crate::hover_ms())
+            .background(p.selected)
+            .padding(3.0)
+            .radius(10.0)
+            .size(Some(36.0), Some(20.0))
+            .accessible(crate::Access::new(crate::Role::Switch).id("approval-switch").toggled(false).disabled(false))
+    };
 
     let description_ink = Color::rgb(121, 135, 147);
     let row_surface = Color::rgb(28, 32, 35);
@@ -714,8 +761,7 @@ fn row_measure_keeps_inline_switch_and_next_setting_below_wrapped_copy() {
             ])
             .gap(6.0)
             .flex(1.0),
-            Switch::new("approval-switch", false, ComponentPalette::neutral_dark())
-                .render(),
+            switch(),
         ])
         .gap(24.0)
         .min_size(0.0, 54.0)

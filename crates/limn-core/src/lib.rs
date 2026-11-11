@@ -48,7 +48,7 @@ pub use code_syntax::{CodeLanguage, CodeSyntaxColors};
 pub use components::{
     ActiveHover, Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component,
     ComponentPalette, ControlSize, ControlState, IconButton, Kbd,
-    Search, SearchField, SegmentedControl, Switch, SwitchVariant, Tab, Tabs, TabsVariant, TextArea, TextField,
+    Search, SearchField, SegmentedControl, Tab, Tabs, TabsVariant, TextArea, TextField,
     Tooltip,
     TooltipSpec,
 };
@@ -82,7 +82,7 @@ pub mod action_style;
 pub use code_syntax::{highlight_spans, MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_LINES};
 #[doc(hidden)]
 pub use components::{
-    accent_switch_colors, clear_button, control_radius, darker, disabled_field, hover_ms, input_surface, lighter,
+    clear_button, control_radius, darker, disabled_field, hover_ms, input_surface, lighter,
     surface_radius, CLEAR_SIDE,
 };
 #[doc(hidden)]
