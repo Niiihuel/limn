@@ -1,6 +1,10 @@
 //! Color pictures painted over the glyphs of emoji in text; see [`set_color_emoji`].
 
+use crate::glyph_atlas::{self, Display};
 use eframe::egui::{self, Color32, FontId, Pos2, Rect};
+use limn::GlyphRun;
+use skrifa::instance::{LocationRef, NormalizedCoord, Size};
+use skrifa::{GlyphId, MetadataProvider as _};
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, VecDeque};
 use std::ops::Range;
@@ -157,6 +161,21 @@ pub(crate) fn picture_rect(start: Rect, end: Rect, font_size: f32) -> Rect {
     )
 }
 
+/// The clusters of `text`, set `size` points high, that the installed source
+/// draws and whose pictures are ready, with their textures.
+fn ready(ctx: &egui::Context, text: &str, size: f32) -> Vec<(Range<usize>, egui::TextureId)> {
+    let Some(source) = SOURCE.with(Cell::get) else {
+        return Vec::new();
+    };
+    let side = size * MAX_EMS * ctx.pixels_per_point();
+    // Sizes in steps of 4 pixels share textures.
+    let pixels = (side.ceil().clamp(4.0, MAX_SOURCE_SIDE as f32) as u32).div_ceil(4) * 4;
+    runs(text, source)
+        .into_iter()
+        .filter_map(|(range, png)| texture(ctx, png, pixels).map(|id| (range, id)))
+        .collect()
+}
+
 /// Paint `text` from its top-left corner `at` as `Painter::text` would, with
 /// the clusters the installed source draws as pictures. False, having
 /// painted nothing, when there is nothing to draw: the caller paints the text.
@@ -168,21 +187,7 @@ pub(crate) fn paint(
     italics: bool,
     ink: Color32,
 ) -> bool {
-    let Some(source) = SOURCE.with(Cell::get) else {
-        return false;
-    };
-    let runs = runs(text, source);
-    if runs.is_empty() {
-        return false;
-    }
-    let ctx = painter.ctx();
-    let side = font.size * MAX_EMS * ctx.pixels_per_point();
-    // Sizes in steps of 4 pixels share textures.
-    let pixels = (side.ceil().clamp(4.0, MAX_SOURCE_SIDE as f32) as u32).div_ceil(4) * 4;
-    let ready: Vec<(Range<usize>, egui::TextureId)> = runs
-        .into_iter()
-        .filter_map(|(range, png)| texture(ctx, png, pixels).map(|id| (range, id)))
-        .collect();
+    let ready = ready(painter.ctx(), text, font.size);
     if ready.is_empty() {
         return false;
     }
@@ -219,5 +224,61 @@ pub(crate) fn paint(
         painter.image(*id, place, whole, tint);
     }
     painter.galley(at, galley, ink);
+    true
+}
+
+/// Paint `run`, laid out at `origin`, as [`glyph_atlas::paint`] would, with
+/// the clusters the installed source draws as pictures in place of their
+/// glyphs, fitted as [`paint`] fits them. False, having painted nothing, when
+/// there is nothing to draw: the caller paints the run.
+pub(crate) fn paint_glyphs(painter: &egui::Painter, run: &GlyphRun, origin: Pos2, display: Display) -> bool {
+    if run.clusters.len() != run.glyphs.len() {
+        return false;
+    }
+    let ready = ready(painter.ctx(), &run.text, run.size);
+    if ready.is_empty() {
+        return false;
+    }
+    let Ok(font) = skrifa::FontRef::from_index(run.font.bytes(), run.font.index()) else {
+        return false;
+    };
+    let coords: Vec<NormalizedCoord> = run.coords.iter().map(|coord| NormalizedCoord::from_bits(*coord)).collect();
+    let (size, location) = (Size::new(run.size), LocationRef::new(&coords));
+    let (advances, metrics) = (font.glyph_metrics(size, location), font.metrics(size, location));
+    let mut kept = vec![true; run.glyphs.len()];
+    let mut places = Vec::new();
+    for (range, id) in &ready {
+        // The room its glyphs take in the line: from where the first starts to where the last ends.
+        let mut room: Option<(f32, f32, f32)> = None;
+        for (index, glyph) in run.glyphs.iter().enumerate() {
+            if !range.contains(&(run.clusters[index] as usize)) {
+                continue;
+            }
+            kept[index] = false;
+            let start = origin.x + run.origin.x + glyph.x;
+            let end = start + advances.advance_width(GlyphId::new(glyph.id)).unwrap_or(0.0);
+            let baseline = origin.y + run.origin.y + glyph.y;
+            room = Some(room.map_or((start, end, baseline), |(from, to, at)| (from.min(start), to.max(end), at)));
+        }
+        if let Some((start, end, baseline)) = room {
+            // The face's box at that place, so the picture is centered where the glyph stood.
+            let edge = |x: f32| Rect::from_min_max(Pos2::new(x, baseline - metrics.ascent), Pos2::new(x, baseline - metrics.descent));
+            places.push((*id, picture_rect(edge(start), edge(end), run.size)));
+        }
+    }
+    if places.is_empty() {
+        return false;
+    }
+    let tint = Color32::from_white_alpha(run.color.a);
+    let whole = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    for (id, place) in places {
+        painter.image(id, place, whole, tint);
+    }
+    let mut rest = run.clone();
+    rest.glyphs = run.glyphs.iter().zip(&kept).filter(|(_, kept)| **kept).map(|(glyph, _)| *glyph).collect();
+    if !rest.glyphs.is_empty() {
+        // shortcut: a run with a picture builds its mesh again each frame, since these glyphs are new; keep them per run if that ever shows in a profile.
+        glyph_atlas::paint(painter, &rest, origin, display);
+    }
     true
 }

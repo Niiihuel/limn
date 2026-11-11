@@ -2210,7 +2210,10 @@ fn paint_commands(ui: &egui::Ui, commands: &[DrawCommand], origin: Pos2,
                 }
             }
             DrawCommand::Glyphs(run) => {
-                glyph_atlas::paint(&ui.painter().with_clip_rect(*clips.last().unwrap()), run, origin, display);
+                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
+                if !color_emoji::paint_glyphs(&painter, run, origin, display) {
+                    glyph_atlas::paint(&painter, run, origin, display);
+                }
             }
             DrawCommand::TextEffect { effect, runs } => {
                 let painter = ui.painter().with_clip_rect(*clips.last().unwrap());

@@ -124,10 +124,16 @@ pub struct GlyphRun {
     pub skew: Option<f32>,
     /// The glyphs in the order they are drawn.
     pub glyphs: Arc<[Glyph]>,
+    /// For each of `glyphs`, at the same index, the byte offset in `text`
+    /// where the cluster it was shaped from starts. The glyphs of one emoji,
+    /// one ligature or one letter with its marks share it, so a backend that
+    /// draws some clusters its own way, as `limn-egui` draws color emoji,
+    /// finds their glyphs by it.
+    pub clusters: Arc<[u32]>,
     /// The ink. A monochrome glyph is drawn in it; a color one keeps its own.
     pub color: Color,
     /// The text the run shows: for tests, tools and accessibility, never
-    /// drawn.
+    /// drawn as text.
     pub text: Arc<str>,
 }
 
@@ -544,6 +550,9 @@ impl TextLayout {
                     }
                     None => extents.push((index, from, to)),
                 };
+                // Where each glyph's characters start in the text, for the run of the line being
+                // placed: its glyphs are its clusters' in visual order, and its glyph runs take them in turn.
+                let mut starts: (Option<usize>, Vec<usize>, usize) = (None, Vec::new(), 0);
                 for item in line.items() {
                     match item {
                         PositionedLayoutItem::GlyphRun(placed) => {
@@ -554,10 +563,22 @@ impl TextLayout {
                                     extend(index, placed.offset(), placed.offset() + placed.advance());
                                 }
                             }
-                            if span.is_some_and(|span| span.image.is_some()) || placed.glyphs().next().is_none() {
+                            let run = placed.run();
+                            if starts.0 != Some(run.index()) {
+                                let each = run.visual_clusters().flat_map(|cluster| std::iter::repeat_n(cluster.text_range().start, cluster.glyphs().count()));
+                                starts = (Some(run.index()), each.collect(), 0);
+                            }
+                            let count = placed.glyphs().count();
+                            let taken = starts.2.min(starts.1.len())..(starts.2 + count).min(starts.1.len());
+                            starts.2 += count;
+                            if span.is_some_and(|span| span.image.is_some()) || count == 0 {
                                 continue;
                             }
-                            let run = placed.run();
+                            // Spans of one font are shaped together; the brush says whose text this is.
+                            let shaped = run.text_range();
+                            let own = span.map_or(shaped.clone(), |span| {
+                                shaped.start.max(span.range.start)..shaped.end.min(span.range.end)
+                            });
                             let synthesis = run.synthesis();
                             let ink = span.and_then(|span| span.color);
                             parts.push(Part::Glyphs(
@@ -572,15 +593,9 @@ impl TextLayout {
                                         .positioned_glyphs()
                                         .map(|glyph| Glyph { id: glyph.id, x: glyph.x, y: glyph.y + lift })
                                         .collect(),
+                                    clusters: starts.1[taken].iter().map(|start| start.saturating_sub(own.start) as u32).collect(),
                                     color: Color::rgba(0, 0, 0, 0),
-                                    // Spans of one font are shaped together; the brush says whose text this is.
-                                    text: {
-                                        let shaped = run.text_range();
-                                        let own = span.map_or(shaped.clone(), |span| {
-                                            shaped.start.max(span.range.start)..shaped.end.min(span.range.end)
-                                        });
-                                        self.text.get(own).unwrap_or_default().into()
-                                    },
+                                    text: self.text.get(own).unwrap_or_default().into(),
                                 },
                                 ink,
                             ));
