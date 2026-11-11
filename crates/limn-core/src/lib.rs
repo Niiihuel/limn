@@ -20,6 +20,7 @@ mod element;
 mod file_icons;
 mod flowchart;
 mod geometry;
+mod indicators;
 mod zoom_view;
 mod fonts;
 mod text_layout;

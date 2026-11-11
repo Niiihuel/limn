@@ -288,7 +288,7 @@ mod tests {
         assert!(!moving
             .commands
             .iter()
-            .any(|command| matches!(command, DrawCommand::Spinner { .. })));
+            .any(|command| matches!(command, DrawCommand::Polyline { .. })));
         assert_ne!(first.commands, moving.commands);
         assert_eq!(first.text_layouts(), moving.text_layouts());
         assert_eq!(first.text_layouts()[0].source, "Pensando");
@@ -376,7 +376,7 @@ mod tests {
         assert!(frame
             .commands
             .iter()
-            .any(|command| matches!(command, DrawCommand::Spinner { .. })));
+            .any(|command| matches!(command, DrawCommand::Polyline { .. })));
         assert!(!frame.commands.iter().any(|command| matches!(
             command,
             DrawCommand::Icon {

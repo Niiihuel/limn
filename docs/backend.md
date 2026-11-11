@@ -140,7 +140,7 @@ stamps, single-use semantics and the limits of tree observation.
 
 | Command | Paints |
 | --- | --- |
-| `FillRect { rect, color, radius }` | A filled rectangle with uniformly rounded corners. |
+| `FillRect { rect, color, radius }` | A filled rectangle with uniformly rounded corners. A square whose radius is half its side is a disc: the dots of a spinner, the round ends of its strokes. |
 | `FillCornerRect { rect, color, radii }` | A filled rectangle with a radius per corner. |
 | `StrokeRect { rect, color, width, radius }` | An outline drawn inside the rectangle. |
 | `StrokeCornerRect { .. }` | An outline with a radius per corner. |
@@ -148,7 +148,7 @@ stamps, single-use semantics and the limits of tree observation.
 | `FillHorizontalGradient { .. }` | A gradient from left to right, with square corners: the length of a bar that lies down. |
 | `FillMesh { points, colors, indices }` | Triangles with a color at each corner, blended across each: the area under a line, a slice of a pie, a radar's shape. Its edges need no smoothing; the tree strokes them. |
 | `FillTriangle { points, color }` | A triangle, used for tooltip pointers. |
-| `Polyline { points, color, width, dashed }` | An open stroked path centered on its points, dashed in short marks when asked: the connectors and the decision outline of a `Flowchart`, the lifelines and messages of a `SequenceDiagram`. |
+| `Polyline { points, color, width, dashed }` | An open stroked path centered on its points, dashed in short marks when asked: the connectors and the decision outline of a `Flowchart`, the lifelines and messages of a `SequenceDiagram`, the arc and spokes of a spinner, the circle and arc of a progress ring. Its ends are cut flat at its first and last points; a round end is a disc drawn over each. |
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
 | `Glyphs(GlyphRun)` | Glyphs limn has already shaped and placed: draw each from `run.font` at `run.size`, at its place from `run.origin`, tinted `run.color`; slant by `run.skew` degrees and thicken when `run.embolden`. Lay nothing out again. `run.clusters` says where in `run.text` each glyph's cluster starts, for a backend that draws some clusters its own way. See [TextLayout](components/text-layout.md#drawing-the-glyphs). |
@@ -156,7 +156,6 @@ stamps, single-use semantics and the limits of tree observation.
 | `Icon { icon, rect, tint, transform }` | A semantic icon. The backend chooses the artwork, and turns and stretches it about the middle of `rect` as `transform` says: identity at rest, otherwise while a `hover_motion` plays. |
 | `RasterImage { .. }` | A decoded image: a cover fills the rectangle and is cropped, a full-resolution picture fills it at its proportions, enlarged if need be, and any other is fitted inside it, never past its pixels. `image.quarter_turns()` turns it; `image.is_checkerboard()` asks for a checkerboard behind its transparent pixels; `image.dissolved()` is the share of its height at the bottom that fades to nothing. |
 | `Surface { rect, id, label, opacity }` | Pixels the host hands to the backend under `id`, outside the frame. They start at the rectangle's top-left corner, one pixel per physical pixel when rendered for this display, and are clipped to the rectangle, never stretched to it. |
-| `Spinner { .. }`, `ProgressRing { .. }` | Vector progress indicators. |
 | `SelectionContour { .. }`, `CornerMask { .. }` | Text selection outlines and rounded clipping of images. |
 | `EffortSlider { .. }` | A specialized slider track. |
 | `PushClip(rect)`, `PopClip` | Begin and end a clipping rectangle. |

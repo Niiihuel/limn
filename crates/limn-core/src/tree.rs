@@ -102,7 +102,7 @@ use unicode_segmentation::UnicodeSegmentation;
 
 use crate::element::{CoachAlign, CoachAnchor, CoachSide, HoverReveal, Kept, MeasuredRows, UniformList};
 use crate::motion::{
-    skeleton_color, spinner_angle, SKELETON_PERIOD, ColorTransition, ScalarSpring, ScalarTransition,
+    skeleton_color, SKELETON_PERIOD, ColorTransition, ScalarSpring, ScalarTransition,
 };
 use crate::shortcut;
 use crate::scroll_area::ScrollbarState;
@@ -170,7 +170,7 @@ mod code_tree;
 use crate::typography::{truncate_measured, wrap_measured};
 use crate::{
     GlassMaterial, BoxShadow, Color, CornerRadii, Cursor, Easing, Element, ElementKind, FontFamily, Icon, InlineImage, Point, PopoverPlacement,
-    RasterImage, Rect, ScrollMotion, Size, SpinnerVariant, Style, TextEffect, TextHint, TextSpan, TooltipItem,
+    RasterImage, Rect, ScrollMotion, Size, Style, TextEffect, TextHint, TextSpan, TooltipItem,
     TooltipOptions, TooltipPlacement, TooltipSection, TooltipStyle, DEFAULT_FONT_SIZE, ICON_SIZE,
 };
 
@@ -307,26 +307,6 @@ impl RecordMotion {
     fn is_moving(&self, now: Instant) -> bool {
         self.spinning_since.is_some() || self.out.is_active(now)
     }
-}
-
-fn paint_spinner(
-    commands: &mut Vec<DrawCommand>,
-    rect: Rect,
-    color: Color,
-    variant: SpinnerVariant,
-    started: Instant,
-    now: Instant,
-    reduced_motion: bool,
-) {
-    if rect.width <= 0.0 || rect.height <= 0.0 {
-        return;
-    }
-    commands.push(DrawCommand::Spinner {
-        rect,
-        color,
-        angle: spinner_angle(started, now, reduced_motion, variant.period()),
-        variant,
-    });
 }
 
 /// A vertical fade that keeps to its element's rounded corners. The straight
@@ -838,10 +818,6 @@ fn animate_popover_command(
             *radius *= scale;
             *own_opacity *= opacity.clamp(0.0, 1.0);
         }
-        DrawCommand::Spinner { rect, color, .. } => {
-            scale_rect(rect, scale, origin, slide_y);
-            fade(color, opacity);
-        }
         DrawCommand::Record {
             rect,
             opacity: record_opacity,
@@ -851,13 +827,6 @@ fn animate_popover_command(
             scale_rect(rect, scale, origin, slide_y);
             *record_opacity *= opacity.clamp(0.0, 1.0);
             *radius *= scale;
-        }
-        DrawCommand::ProgressRing {
-            rect, track, fill, ..
-        } => {
-            scale_rect(rect, scale, origin, slide_y);
-            fade(track, opacity);
-            fade(fill, opacity);
         }
         DrawCommand::Surface {
             rect,

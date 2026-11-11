@@ -10,7 +10,7 @@ use eframe::egui::{
 };
 use limn::{
     Color, DrawCommand, FontFamily, Frame, Icon, Key, Point, RasterImage, RasterImageFormat, Rect,
-    OtherButton, SpinnerVariant, TextEffect, UiEvent,
+    OtherButton, TextEffect, UiEvent,
 };
 use std::cell::RefCell;
 use std::collections::{HashMap, VecDeque};
@@ -1243,56 +1243,6 @@ fn rect(origin: Pos2, value: Rect) -> EguiRect {
     )
 }
 
-fn spinner_arc_points(area: EguiRect, angle: f32, stroke_width: f32) -> Vec<Pos2> {
-    let radius = (area.width().min(area.height()) / 2.0 - stroke_width / 2.0 - 1.0).max(0.0);
-    let sweep = std::f32::consts::TAU * 5.0 / 6.0;
-    let steps = ((radius * sweep / 1.4).ceil() as usize).clamp(16, 80);
-    (0..=steps)
-        .map(|step| {
-            let theta = angle - std::f32::consts::FRAC_PI_2 + sweep * step as f32 / steps as f32;
-            Pos2::new(
-                area.center().x + radius * theta.cos(),
-                area.center().y + radius * theta.sin(),
-            )
-        })
-        .collect()
-}
-
-fn paint_progress_ring(
-    painter: &egui::Painter,
-    area: EguiRect,
-    fraction: Option<f32>,
-    track: Color32,
-    fill: Color32,
-) {
-    let side = area.width().min(area.height());
-    if !side.is_finite() || side <= 2.0 {
-        return;
-    }
-    let center = area.center();
-    let radius = (side / 2.0 - 1.0).max(0.0);
-    painter.circle_stroke(center, radius, Stroke::new(1.7, track));
-    if let Some(fraction) = fraction
-        .filter(|value| value.is_finite())
-        .map(|value| value.clamp(0.0, 1.0))
-        .filter(|value| *value > 0.0)
-    {
-        if fraction == 1.0 {
-            painter.circle_stroke(center, radius, Stroke::new(1.7, fill));
-        } else {
-            let count = (fraction * 64.0).ceil().max(2.0) as usize;
-            let points = (0..=count)
-                .map(|index| {
-                    let angle = -std::f32::consts::FRAC_PI_2
-                        + fraction * std::f32::consts::TAU * index as f32 / count as f32;
-                    center + egui::vec2(angle.cos() * radius, angle.sin() * radius)
-                })
-                .collect();
-            painter.add(egui::Shape::line(points, Stroke::new(1.7, fill)));
-        }
-    }
-}
-
 /// A vinyl record behind `sleeve`: at `out` 0 it is centered on the sleeve
 /// and hidden by it, at 1 it shows `RECORD_REACH` of the sleeve's side
 /// beyond its end. The sheen turns with `angle`; the grooves are the same
@@ -1322,86 +1272,6 @@ fn paint_record(painter: &egui::Painter, sleeve: EguiRect, out: f32, angle: f32,
     }
     painter.circle_filled(center, radius * 0.14, dark(54));
     painter.circle_filled(center, radius * 0.05, dark(8));
-}
-
-fn paint_spinner(
-    painter: &egui::Painter,
-    area: EguiRect,
-    ink: Color32,
-    angle: f32,
-    variant: SpinnerVariant,
-) {
-    let side = area.width().min(area.height());
-    if !side.is_finite() || side <= 0.0 {
-        return;
-    }
-    let width = (side * 0.12).clamp(1.5, 2.8);
-    let stroke = Stroke::new(width, ink);
-    match variant {
-        SpinnerVariant::Circle => {
-            let points = spinner_arc_points(area, angle, width);
-            if let (Some(&first), Some(&last)) = (points.first(), points.last()) {
-                painter.add(egui::Shape::line(points, stroke));
-                painter.circle_filled(first, width / 2.0, ink);
-                painter.circle_filled(last, width / 2.0, ink);
-            }
-        }
-        SpinnerVariant::Spokes => {
-            let outer = (side / 2.0 - width / 2.0 - 1.0).max(0.0);
-            let inner = outer * 0.55;
-            for index in 0..8 {
-                let theta = angle + std::f32::consts::TAU * index as f32 / 8.0;
-                let direction = egui::vec2(theta.cos(), theta.sin());
-                let from = area.center() + direction * inner;
-                let to = area.center() + direction * outer;
-                painter.line_segment([from, to], stroke);
-                painter.circle_filled(from, width / 2.0, ink);
-                painter.circle_filled(to, width / 2.0, ink);
-            }
-        }
-        SpinnerVariant::Dots => {
-            for (offset, radius) in spinner_dots(angle, side) {
-                painter.circle_filled(area.center() + offset, radius, ink);
-            }
-        }
-    }
-}
-
-/// The four dots of a `Dots` spinner, as offsets from its center and a
-/// radius. The angle runs a full turn per cycle: the first half lines the
-/// dots up on one diagonal, the second half on the other.
-fn spinner_dots(angle: f32, side: f32) -> [(egui::Vec2, f32); 4] {
-    let half = side * 0.31;
-    let radius = side * 0.11;
-    let turn = (angle / std::f32::consts::TAU).rem_euclid(1.0) * 2.0;
-    let phase = turn.fract();
-    let smooth = |t: f32| {
-        let t = t.clamp(0.0, 1.0);
-        t * t * (3.0 - 2.0 * t)
-    };
-    // Out over a fifth of the half, held, then back; at rest the rest of it.
-    let reach = smooth(phase / 0.2) - smooth((phase - 0.35) / 0.2);
-    let corner = |x: f32, y: f32| egui::vec2(x, y) * half;
-    let toward = |from: egui::Vec2, to: egui::Vec2| from + (to - from) * reach;
-    let third = 1.0 / 3.0;
-    let dots = if turn < 1.0 {
-        // "/": the top right and bottom left stay; the others slide inward.
-        [
-            corner(1.0, -1.0),
-            corner(-1.0, 1.0),
-            toward(corner(-1.0, -1.0), corner(third, -third)),
-            toward(corner(1.0, 1.0), corner(-third, third)),
-        ]
-    } else {
-        // "\": the top left and bottom right stay.
-        [
-            corner(-1.0, -1.0),
-            corner(1.0, 1.0),
-            toward(corner(1.0, -1.0), corner(-third, -third)),
-            toward(corner(-1.0, 1.0), corner(third, third)),
-        ]
-    };
-    dots.map(|offset| (offset, radius))
 }
 
 fn effort_color(r: u8, g: u8, b: u8, alpha: u8, opacity: f32) -> Color32 {
@@ -2385,21 +2255,6 @@ fn paint_commands(ui: &egui::Ui, commands: &[DrawCommand], origin: Pos2,
                     paint_texture(&painter, texture, (target, mirror(uv)), *radius, round, *opacity, true);
                 }
             }
-            DrawCommand::ProgressRing {
-                rect: area,
-                fraction,
-                track,
-                fill,
-            } => {
-                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                paint_progress_ring(
-                    &painter,
-                    rect(origin, *area),
-                    *fraction,
-                    color(*track),
-                    color(*fill),
-                );
-            }
             DrawCommand::Record {
                 rect: area,
                 image,
@@ -2427,15 +2282,6 @@ fn paint_commands(ui: &egui::Ui, commands: &[DrawCommand], origin: Pos2,
                         painter.rect_filled(sleeve, corner, color(*fill).gamma_multiply(opacity.clamp(0.0, 1.0)));
                     }
                 }
-            }
-            DrawCommand::Spinner {
-                rect: area,
-                color: ink,
-                angle,
-                variant,
-            } => {
-                let painter = ui.painter().with_clip_rect(*clips.last().unwrap());
-                paint_spinner(&painter, rect(origin, *area), color(*ink), *angle, *variant);
             }
             DrawCommand::EffortSlider {
                 rect: area,
@@ -4911,44 +4757,5 @@ mod tests {
                 }
             }
         }
-    }
-
-    #[test]
-    fn spinner_arc_is_open_rotates_and_stays_inside_its_square() {
-        let area = EguiRect::from_min_size(Pos2::new(10.0, 20.0), egui::Vec2::splat(32.0));
-        let initial = spinner_arc_points(area, 0.0, 2.4);
-        let rotated = spinner_arc_points(area, std::f32::consts::FRAC_PI_2, 2.4);
-        assert!(initial.len() >= 17);
-        assert_ne!(initial.first(), initial.last());
-        assert_ne!(initial.first(), rotated.first());
-        for point in initial.into_iter().chain(rotated) {
-            assert!(point.x > area.left() && point.x < area.right());
-            assert!(point.y > area.top() && point.y < area.bottom());
-        }
-    }
-}
-
-#[cfg(test)]
-mod spinner_dots_tests {
-    use super::spinner_dots;
-    use std::f32::consts::TAU;
-
-    fn corners(angle: f32) -> Vec<(i32, i32)> {
-        let mut dots: Vec<_> = spinner_dots(angle, 16.0)
-            .iter()
-            .map(|(offset, _)| (offset.x.round() as i32, offset.y.round() as i32))
-            .collect();
-        dots.sort();
-        dots
-    }
-
-    #[test]
-    fn dots_rest_on_a_square_and_line_up_on_each_diagonal() {
-        let square = vec![(-5, -5), (-5, 5), (5, -5), (5, 5)];
-        assert_eq!(corners(0.0), square);
-        assert_eq!(corners(TAU * 0.4), square);
-        // A quarter into each half the moving dots sit on the other diagonal.
-        assert_eq!(corners(TAU * 0.14), vec![(-5, 5), (-2, 2), (2, -2), (5, -5)]);
-        assert_eq!(corners(TAU * 0.64), vec![(-5, -5), (-2, -2), (2, 2), (5, 5)]);
     }
 }

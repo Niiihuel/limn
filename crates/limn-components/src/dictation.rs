@@ -388,7 +388,7 @@ mod tests {
                 frame
                     .commands
                     .iter()
-                    .any(|command| matches!(command, DrawCommand::Spinner { .. })),
+                    .any(|command| matches!(command, DrawCommand::Polyline { .. })),
                 state != DictationState::Listening
             );
             tree.set_reduced_motion(true);

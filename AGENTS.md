@@ -92,9 +92,9 @@ and `crates/limn-components`.
 the commands there are: rectangles, gradients, meshes, polylines, glyphs,
 images, clips.
 *Why:* every backend must paint every command; a command per widget makes
-each widget every backend's work. *Check:* review. `Spinner`, `Record`,
-`ProgressRing` and `EffortSlider` are the debt this rule stops from growing;
-see the [plan](agents/plan.md).
+each widget every backend's work. *Check:* review. `Record` and
+`EffortSlider` are the debt this rule stops from growing; see the
+[plan](agents/plan.md).
 
 **R9. `ElementKind` gets a variant only for a new way to lay out.** A new
 control is a component: a struct in a file of its own that renders to

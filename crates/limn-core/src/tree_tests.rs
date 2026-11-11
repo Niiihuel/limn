@@ -6380,40 +6380,6 @@ fn a_top_background_fade_is_painted_behind_the_children_from_the_top_edge_down()
 }
 
 #[test]
-fn spinner_phase_moves_and_reduced_motion_is_static() {
-    let start = Instant::now();
-    let area = Rect::new(0.0, 0.0, 32.0, 32.0);
-    let ink = Color::rgb(220, 220, 220);
-    let colors = |at, reduced| {
-        let mut commands = Vec::new();
-        paint_spinner(
-            &mut commands,
-            area,
-            ink,
-            SpinnerVariant::Circle,
-            start,
-            at,
-            reduced,
-        );
-        commands
-            .into_iter()
-            .filter_map(|command| match command {
-                DrawCommand::Spinner { angle, .. } => Some(angle),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-    };
-    assert_ne!(
-        colors(start, false),
-        colors(start + Duration::from_millis(225), false)
-    );
-    assert_eq!(
-        colors(start, true),
-        colors(start + Duration::from_secs(1), true)
-    );
-}
-
-#[test]
 fn rounded_dashed_border_paints_all_four_corners_inside_bounds() {
     let area = Rect::new(10.0, 20.0, 320.0, 240.0);
     let mut commands = Vec::new();

@@ -298,8 +298,26 @@ fn footer_row(id: &str, palette: ComponentPalette, enabled: bool) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{DrawCommand, HitKind, Key, Point, Size, UiAction, UiEvent, UiTree};
+    use crate::{DrawCommand, HitKind, Key, Point, Rect, Size, UiAction, UiEvent, UiTree};
     use web_time::{Duration, Instant};
+
+    /// The square the loading spinner is drawn in, read back from its arc:
+    /// the circle through three of its points, with a pixel and half its
+    /// stroke round it.
+    fn spinner_square(frame: &crate::Frame) -> Option<Rect> {
+        let (points, width) = frame.commands.iter().find_map(|command| match command {
+            DrawCommand::Polyline { points, width, .. } if points.len() >= 3 => Some((points.clone(), *width)),
+            _ => None,
+        })?;
+        let a = points[0];
+        let (b, c) = (points[points.len() / 2], points[points.len() - 1]);
+        let (b, c) = (Point::new(b.x - a.x, b.y - a.y), Point::new(c.x - a.x, c.y - a.y));
+        let (d, bb, cc) = (2.0 * (b.x * c.y - b.y * c.x), b.x * b.x + b.y * b.y, c.x * c.x + c.y * c.y);
+        let center = Point::new(a.x + (c.y * bb - b.y * cc) / d, a.y + (b.x * cc - c.x * bb) / d);
+        let side = 2.0 * ((a.x - center.x).hypot(a.y - center.y) + width / 2.0 + 1.0);
+        let round = |value: f32| (value * 100.0).round() / 100.0;
+        Some(Rect::new(round(center.x - side / 2.0), round(center.y - side / 2.0), round(side), round(side)))
+    }
 
     #[test]
     fn the_header_says_whether_it_is_open_and_the_footer_has_a_name_enabled_or_not() {
@@ -664,12 +682,7 @@ mod tests {
                 assert!(detail.1.x + measure(detail.0) <= icons[1].x - 6.0 + 0.1);
                 assert!(detail.1.y >= 0.0 && detail.1.y + 11.0 <= HEADER_HEIGHT);
             }
-            assert!(
-                !moving
-                    .commands
-                    .iter()
-                    .any(|command| matches!(command, DrawCommand::Spinner { .. }))
-            );
+            assert!(spinner_square(&moving).is_none());
             let brain = |frame: &crate::Frame| {
                 frame
                     .commands
@@ -764,14 +777,7 @@ mod tests {
         );
         for width in [100.0, 180.0, 240.0, 360.0, 900.0] {
             let frame = tree.layout(Size::new(width, HEADER_HEIGHT));
-            let spinner = frame
-                .commands
-                .iter()
-                .find_map(|command| match command {
-                    DrawCommand::Spinner { rect, .. } => Some(*rect),
-                    _ => None,
-                })
-                .unwrap();
+            let spinner = spinner_square(&frame).unwrap();
             assert_eq!(spinner.width, 14.0);
             assert_eq!(spinner.height, 14.0);
             assert_eq!(spinner.y + spinner.height / 2.0, 14.0);

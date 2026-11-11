@@ -235,18 +235,6 @@ pub enum DrawCommand {
         /// them; see [`Element::surface_mirrored`](crate::Element::surface_mirrored).
         mirrored: bool,
     },
-    /// An activity indicator that turns, sized to the shorter side of `rect`.
-    Spinner {
-        /// Bounds of the indicator.
-        rect: Rect,
-        /// Stroke color.
-        color: Color,
-        /// Rotation in radians, from 0 to a full turn every 0.9 seconds. Always
-        /// 0 under reduced motion.
-        angle: f32,
-        /// Which shape turns: an open circle or eight spokes.
-        variant: SpinnerVariant,
-    },
     /// A record behind its sleeve. `rect` is the sleeve; the record's
     /// diameter is `RECORD_SHARE` of its side and at `out` 1 it shows
     /// `RECORD_REACH` of the side beyond the sleeve's end. `fill` paints a
@@ -269,20 +257,6 @@ pub enum DrawCommand {
         radius: f32,
         /// Opacity from 0 to 1: 1 unless a transition is fading the element.
         opacity: f32,
-    },
-    /// A circle of `track` with an arc of `fill` over it, starting at twelve
-    /// o'clock and running clockwise. It is centered in `rect` and sized to the
-    /// shorter side.
-    ProgressRing {
-        /// Bounds of the ring.
-        rect: Rect,
-        /// Share of the circle the arc covers, from 0 to 1. `None` draws the
-        /// track alone.
-        fraction: Option<f32>,
-        /// Color of the whole circle underneath.
-        track: Color,
-        /// Color of the arc.
-        fill: Color,
     },
     /// The animated effort slider: a pill-shaped rail filled up to a round
     /// knob, with a dot for each step and particles drifting in the fill.
@@ -359,7 +333,6 @@ impl DrawCommand {
             | Self::CornerMask { rect, color, .. }
             | Self::StrokeRect { rect, color, .. }
             | Self::StrokeCornerRect { rect, color, .. }
-            | Self::Spinner { rect, color, .. }
             | Self::Icon { rect, tint: color, .. } => seen(color).then_some(*rect),
             Self::FillVerticalGradient { rect, top, bottom } => (seen(top) || seen(bottom)).then_some(*rect),
             Self::FillHorizontalGradient { rect, left, right } => (seen(left) || seen(right)).then_some(*rect),
@@ -369,7 +342,6 @@ impl DrawCommand {
             | Self::Record { rect, opacity, .. }
             | Self::Surface { rect, opacity, .. }
             | Self::EffortSlider { rect, opacity, .. } => (*opacity > 0.0).then_some(*rect),
-            Self::ProgressRing { rect, .. } => Some(*rect),
             Self::SelectionContour { points, color } => seen(color).then(|| around(points, 0.0)).flatten(),
             Self::FillTriangle { points, color } => seen(color).then(|| around(points, 0.0)).flatten(),
             Self::Polyline { points, color, width, .. } => seen(color).then(|| around(points, width / 2.0)).flatten(),
@@ -423,7 +395,6 @@ impl DrawCommand {
             | Self::CornerMask { rect, color, .. }
             | Self::StrokeRect { rect, color, .. }
             | Self::StrokeCornerRect { rect, color, .. }
-            | Self::Spinner { rect, color, .. }
             | Self::Icon {
                 rect, tint: color, ..
             } => {
@@ -439,13 +410,6 @@ impl DrawCommand {
                 shift(rect);
                 fade(left);
                 fade(right);
-            }
-            Self::ProgressRing {
-                rect, track, fill, ..
-            } => {
-                shift(rect);
-                fade(track);
-                fade(fill);
             }
             Self::GlassSelection { rect, opacity, backdrop_rect, backdrop, .. } => {
                 shift(rect);

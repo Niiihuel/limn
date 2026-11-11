@@ -92,9 +92,10 @@ event.
 that left stays lit, or its tooltip opens over another row.
 
 **9. A frame is data.** `limn` builds and runs its tests with no display.
-The part that does not hold: `DrawCommand::Spinner`, `Record`, `ProgressRing`
-and `EffortSlider` say which widget to draw, not what to draw, and
-`limn-egui` knows how each looks. `Icon` names an icon of the library, and
+The part that does not hold: `DrawCommand::Record` and `EffortSlider` say
+which widget to draw, not what to draw, and `limn-egui` knows how each looks.
+`Spinner` and `ProgressRing` were two more; the engine draws both with
+polylines and discs now. `Icon` names an icon of the library, and
 `Surface` a host's pixels by ID: those two are references, and stay.
 
 **10. Scoped tokens.** A test that changes the radius reshapes the tests
