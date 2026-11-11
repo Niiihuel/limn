@@ -1,6 +1,6 @@
 //! The accent switch keeps a thumb that reads on its track, on a dark, a
-//! light and a theme's palette. This test exercises the engine's `Switch`
-//! with the palette of `Theme`.
+//! light and a theme's palette. This test exercises `Switch` with the
+//! palette of `Theme`.
 use crate::*;
 
 /// A switch at its own size, settled: its track's rectangle and color,

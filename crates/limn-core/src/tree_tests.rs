@@ -2,12 +2,35 @@ use super::*;
 
 #[test]
 fn glass_selection_captures_labels_without_feedback_and_preserves_hit_targets() {
-    use crate::{Component, Tab, Tabs};
     let palette = ComponentPalette::neutral_dark();
-    let view = |selected: &str| Tabs::new(vec![
-        Tab::new("home", "Home", 80.0).active(selected == "home"),
-        Tab::new("browse", "Browse", 80.0).active(selected == "browse"),
-    ], palette).id("glass-tabs").render().glass_selection(GlassMaterial::new(palette.surface));
+    // Two tabs of 80 on a track 2 pixels around them, under a glass selection.
+    let view = |selected: &str| {
+        let tab = |id: &str, label: &str| {
+            let active = id == selected;
+            let (ink, hover) = if active { (palette.text, crate::lighter(palette.text, 12)) } else { (palette.muted, palette.text) };
+            Element::button(id, label)
+                .background(Color::TRANSPARENT)
+                .hover_foreground(hover)
+                .pressed_foreground(hover)
+                .foreground(ink)
+                .font_family(FontFamily::Sans)
+                .font_size(11.5)
+                .padding(4.0)
+                .gap(4.0)
+                .radius(crate::control_radius())
+                .center_content()
+                .size(Some(80.0), Some(24.0))
+                .accessible(crate::Access::new(crate::Role::Tab).selected(active))
+        };
+        Element::tab_strip(vec![tab("home", "Home"), tab("browse", "Browse")], vec!["home".into(), "browse".into()])
+            .gap(2.0)
+            .padding(2.0)
+            .size(None, Some(28.0))
+            .background(palette.surface)
+            .radius(crate::surface_radius())
+            .tab_selection("glass-tabs", selected, palette.selected, crate::control_radius(), crate::tokens().motion.move_ms)
+            .glass_selection(GlassMaterial::new(palette.surface))
+    };
     let size = Size::new(200.0, 40.0);
     let now = Instant::now();
     let mut tree = UiTree::new(view("home"));
@@ -115,10 +138,25 @@ fn a_segmented_knob_lifts_for_half_its_way_and_lands_in_its_slot_as_auroras() {
 
 #[test]
 fn glass_switch_lifts_on_press_and_tracks_a_drag_without_moving_hit_regions() {
-    use crate::{Component, Switch};
     let p = ComponentPalette::neutral_dark();
-    let view = || Switch::new("switch", false, p).track_size(64.0, 28.0)
-        .glass(GlassMaterial::new(p.surface)).render();
+    // A glass switch of 64 by 28, off: its 22-pixel thumb is the selection of
+    // a strip with an "off" and an "on" slot, 3 pixels inside the track.
+    let view = || {
+        let slot = |name: &str| Element::spacer().size(Some(22.0), Some(22.0)).indicator_slot(name);
+        let thumb = Element::tab_strip(vec![slot("off"), Element::spacer().size(Some(14.0), Some(22.0)), slot("on")], Vec::new())
+            .tab_selection("switch:thumb", "off", p.text, 11.0, crate::tokens().motion.move_ms)
+            .glass_selection(GlassMaterial::new(p.surface))
+            .selection_press("switch");
+        Element::clickable("switch", thumb)
+            .hover_background(crate::lighter(p.selected, 10))
+            .pressed_background(crate::lighter(p.selected, 16))
+            .transition_ms(crate::hover_ms())
+            .background(p.selected)
+            .padding(3.0)
+            .radius(14.0)
+            .size(Some(64.0), Some(28.0))
+            .accessible(crate::Access::new(crate::Role::Switch).id("switch").toggled(false).disabled(false))
+    };
     let mut tree = UiTree::new(view());
     let now = Instant::now();
     let size = Size::new(80.0, 40.0);
@@ -141,11 +179,27 @@ fn glass_switch_lifts_on_press_and_tracks_a_drag_without_moving_hit_regions() {
 
 #[test]
 fn glass_switch_drag_sets_the_endpoint_while_taps_toggle_and_cancel_is_inert() {
-    use crate::{Component, Switch};
     let palette = ComponentPalette::neutral_dark();
-    let make = |checked| {
-        let mut tree = UiTree::new(Switch::new("switch", checked, palette).track_size(64.0, 28.0)
-            .thumb_inset(2.0).thumb_width(40.0).glass(GlassMaterial::new(palette.surface)).render());
+    let make = |checked: bool| {
+        // A glass switch of 64 by 28 with a 40-pixel thumb 2 pixels inside the
+        // track: the thumb is the selection of a strip of two 30-pixel slots.
+        let track = if checked { palette.text } else { palette.selected };
+        let slot = |name: &str| Element::spacer().size(Some(30.0), Some(24.0)).indicator_slot(name);
+        let thumb = Element::tab_strip(vec![slot("off"), slot("on")], Vec::new())
+            .tab_selection("switch:thumb", if checked { "on" } else { "off" }, palette.text, 12.0, crate::tokens().motion.move_ms)
+            .selection_width(40.0)
+            .glass_selection(GlassMaterial::new(palette.surface))
+            .selection_press("switch");
+        let switch = Element::clickable("switch", thumb)
+            .hover_background(crate::lighter(track, 10))
+            .pressed_background(crate::lighter(track, 16))
+            .transition_ms(crate::hover_ms())
+            .background(track)
+            .padding(2.0)
+            .radius(14.0)
+            .size(Some(64.0), Some(28.0))
+            .accessible(crate::Access::new(crate::Role::Switch).id("switch").toggled(checked).disabled(false));
+        let mut tree = UiTree::new(switch);
         tree.layout(Size::new(80.0, 40.0));
         tree
     };
@@ -623,7 +677,7 @@ fn independent_corners_preserve_hover_press_focus_and_action_geometry() {
         assert_eq!(clips, 0);
     }
 }
-use crate::{Component, ComponentPalette, Tab, Tabs, Tooltip};
+use crate::{Component, ComponentPalette, Tooltip};
 
 #[test]
 fn row_measure_wraps_flex_column_at_assigned_width() {
@@ -695,7 +749,23 @@ fn row_measure_wraps_flex_column_at_assigned_width() {
 
 #[test]
 fn row_measure_keeps_inline_switch_and_next_setting_below_wrapped_copy() {
-    use crate::Switch;
+    // A switch, off: a 36 by 20 track around a strip whose selection is its
+    // 14-pixel thumb.
+    let switch = || {
+        let p = ComponentPalette::neutral_dark();
+        let slot = |name: &str| Element::spacer().size(Some(14.0), Some(14.0)).indicator_slot(name);
+        let thumb = Element::tab_strip(vec![slot("off"), Element::spacer().size(Some(2.0), Some(14.0)), slot("on")], Vec::new())
+            .tab_selection("approval-switch:thumb", "off", p.text, 7.0, crate::tokens().motion.move_ms);
+        Element::clickable("approval-switch", thumb)
+            .hover_background(crate::lighter(p.selected, 10))
+            .pressed_background(crate::lighter(p.selected, 16))
+            .transition_ms(crate::hover_ms())
+            .background(p.selected)
+            .padding(3.0)
+            .radius(10.0)
+            .size(Some(36.0), Some(20.0))
+            .accessible(crate::Access::new(crate::Role::Switch).id("approval-switch").toggled(false).disabled(false))
+    };
 
     let description_ink = Color::rgb(121, 135, 147);
     let row_surface = Color::rgb(28, 32, 35);
@@ -714,8 +784,7 @@ fn row_measure_keeps_inline_switch_and_next_setting_below_wrapped_copy() {
             ])
             .gap(6.0)
             .flex(1.0),
-            Switch::new("approval-switch", false, ComponentPalette::neutral_dark())
-                .render(),
+            switch(),
         ])
         .gap(24.0)
         .min_size(0.0, 54.0)
@@ -1068,16 +1137,33 @@ fn clip_children_limits_descendant_hitboxes_without_clipping_parent_surface() {
 #[test]
 fn tab_indicator_moves_without_moving_click_regions_and_reduced_motion_snaps() {
     let palette = ComponentPalette::neutral_dark();
+    // Tabs of 80 and 96 on a track 2 pixels around them, under a selection
+    // that slides between them.
     let make_tabs = |active: &str| {
-        Tabs::new(
-            vec![
-                Tab::new("group", "Grupo", 80.0).active(active == "group"),
-                Tab::new("project", "Proyecto", 96.0).active(active == "project"),
-            ],
-            palette,
-        )
-        .id("session-grouping")
-        .render()
+        let tab = |id: &str, label: &str, width: f32| {
+            let chosen = id == active;
+            let (ink, hover) = if chosen { (palette.text, crate::lighter(palette.text, 12)) } else { (palette.muted, palette.text) };
+            Element::button(id, label)
+                .background(Color::TRANSPARENT)
+                .hover_foreground(hover)
+                .pressed_foreground(hover)
+                .foreground(ink)
+                .font_family(FontFamily::Sans)
+                .font_size(11.5)
+                .padding(4.0)
+                .gap(4.0)
+                .radius(crate::control_radius())
+                .center_content()
+                .size(Some(width), Some(24.0))
+                .accessible(crate::Access::new(crate::Role::Tab).selected(chosen))
+        };
+        Element::tab_strip(vec![tab("group", "Grupo", 80.0), tab("project", "Proyecto", 96.0)], vec!["group".into(), "project".into()])
+            .gap(2.0)
+            .padding(2.0)
+            .size(None, Some(28.0))
+            .background(palette.surface)
+            .radius(crate::surface_radius())
+            .tab_selection("session-grouping", active, palette.selected, crate::control_radius(), crate::tokens().motion.move_ms)
     };
     let start = Instant::now();
     let mut tree = UiTree::new(make_tabs("group"));
@@ -1653,14 +1739,23 @@ fn input_trailing_space_keeps_the_end_free_of_text_caret_and_hint() {
 
 #[test]
 fn persistent_input_placeholder_survives_focus_edits_and_refocus() {
-    use crate::{Component, ComponentPalette, TextField};
-
     let palette = ComponentPalette::neutral_dark();
     let root = || {
         Element::column(vec![
-            TextField::new("replace", "", "Reemplazar", palette)
+            // A field 32 high, its text in the palette's ink, 8 inside its outline.
+            Element::text_input("replace", "", "Reemplazar")
                 .persistent_placeholder(true)
-                .render(),
+                .background(palette.raised)
+                .hover_background(crate::lighter(palette.raised, 5))
+                .border(palette.border, 1.0)
+                .focus_border(crate::lighter(palette.border, 70), 1.5)
+                .foreground(palette.text)
+                .font_family(FontFamily::Sans)
+                .font_size(13.0)
+                .padding(8.0)
+                .radius(crate::control_radius())
+                .min_size(80.0, 32.0)
+                .size(None, Some(32.0)),
             Element::button("other", "Other").size(None, Some(32.0)),
         ])
     };
@@ -1747,13 +1842,23 @@ fn input_placeholder_still_hides_on_focus_by_default() {
 
 #[test]
 fn a_text_area_keeps_its_placeholder_while_focused_only_when_asked() {
-    use crate::{Component, ComponentPalette, TextArea};
-
     let viewport = Size::new(240.0, 120.0);
     for persistent in [false, true] {
-        let area = TextArea::new("notes", "", "Notes", ComponentPalette::neutral_dark())
+        // An area 96 high, its text in the palette's ink, 8 inside its outline.
+        let palette = ComponentPalette::neutral_dark();
+        let area = Element::text_area("notes", "", "Notes")
             .persistent_placeholder(persistent)
-            .render();
+            .background(palette.raised)
+            .hover_background(crate::lighter(palette.raised, 5))
+            .border(palette.border, 1.0)
+            .focus_border(crate::lighter(palette.border, 70), 1.5)
+            .foreground(palette.text)
+            .font_family(FontFamily::Sans)
+            .font_size(13.0)
+            .padding(8.0)
+            .radius(crate::control_radius())
+            .min_size(80.0, 96.0)
+            .size(None, Some(96.0));
         let mut tree = UiTree::new(area);
         tree.set_reduced_motion(true);
         tree.layout(viewport);
@@ -4374,13 +4479,23 @@ fn selecting_all_in_an_empty_input_preserves_the_first_typed_character() {
             if multiline {
                 Element::text_area("query", value, "Search")
             } else {
-                crate::SearchField::new(
-                    "query",
-                    value,
-                    "Search",
-                    crate::ComponentPalette::neutral_dark(),
-                )
-                .render()
+                // A search field 36 high: a magnifier before its text.
+                let palette = ComponentPalette::neutral_dark();
+                Element::text_input("query", value, "Search")
+                    .leading_icon(Icon::Search)
+                    .leading_icon_tint(palette.muted)
+                    .background(palette.raised)
+                    .hover_background(crate::lighter(palette.raised, 5))
+                    .border(palette.border, 1.0)
+                    .focus_border(crate::lighter(palette.border, 70), 1.5)
+                    .foreground(palette.text)
+                    .font_family(FontFamily::Sans)
+                    .font_size(13.0)
+                    .padding(8.0)
+                    .radius(crate::control_radius())
+                    .min_size(80.0, 36.0)
+                    .size(None, Some(36.0))
+                    .accessible(crate::Access::new(crate::Role::SearchInput))
             }
         };
         let viewport = Size::new(320.0, 88.0);

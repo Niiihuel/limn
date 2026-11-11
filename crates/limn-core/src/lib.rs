@@ -47,8 +47,7 @@ pub use code_editor::{CaretStyle, CodeBreakpoint, CodeBreakpointState, CodeChang
 pub use code_syntax::{CodeLanguage, CodeSyntaxColors};
 pub use components::{
     ActiveHover, Button, ButtonContent, ButtonSize, ButtonSizing, ButtonVariant, Component,
-    ComponentPalette, ControlSize, ControlState, IconButton, Kbd, Link,
-    Popover, Search, SearchField, SegmentedControl, Switch, SwitchVariant, Tab, Tabs, TabsVariant, TextArea, TextField,
+    ComponentPalette, ControlSize, ControlState, IconButton, Kbd,
     Tooltip,
     TooltipSpec,
 };
@@ -82,8 +81,8 @@ pub mod action_style;
 pub use code_syntax::{highlight_spans, MAX_HIGHLIGHT_BYTES, MAX_HIGHLIGHT_LINES};
 #[doc(hidden)]
 pub use components::{
-    accent_switch_colors, clear_button, control_radius, darker, disabled_field, hover_ms, input_surface, lighter,
-    surface_radius, CLEAR_SIDE,
+    control_radius, darker, hover_ms, lighter,
+    surface_radius,
 };
 #[doc(hidden)]
 pub use diagram::MAX_SOURCE_BYTES;
