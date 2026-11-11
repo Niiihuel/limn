@@ -1412,6 +1412,12 @@ pub(crate) struct Kept {
     /// Set by [`Element::focus_ring_style`]: the ring its keyboard focus
     /// shows in place of the tokens'.
     pub(crate) focus_ring: Option<Ring>,
+    /// Set by [`Element::content_takes_ink`]: what a clickable holds in its
+    /// foreground is painted in the foreground it has now.
+    pub(crate) content_ink: bool,
+    /// Set by [`Element::focus_ring_under`]: a clickable draws its ring
+    /// before what it holds.
+    pub(crate) ring_under: bool,
     /// Set by [`Element::pointer_only`]: a clickable the keyboard and the
     /// platform do not know of.
     pub(crate) pointer_only: bool,
@@ -4745,6 +4751,19 @@ impl Element {
         self
     }
 
+    /// Paint what this clickable holds in the ink it has now, as a button
+    /// paints its label: each element inside it whose foreground is the
+    /// clickable's own takes its hover foreground while it is hovered and
+    /// its pressed foreground while it is pressed. The change is at once,
+    /// as a button's is; an element inside with
+    /// [`animate_foreground`](Self::animate_foreground) fades to it instead.
+    /// An element in another ink keeps its own, and so do the rows of a list,
+    /// a popover's surface and a hint. Only a clickable reads it.
+    pub fn content_takes_ink(mut self) -> Self {
+        self.kept.get_or_insert_default().content_ink = true;
+        self
+    }
+
     /// Border a text input or text area shows in place of its own while it has
     /// the focus. Another control shows it while it has the keyboard focus if
     /// its [focus ring](Self::focus_ring) is off, as its mark of that focus.
@@ -4839,6 +4858,15 @@ impl Element {
     /// drawn is still [`Self::focus_ring`]'s to say.
     pub fn focus_ring_style(mut self, ring: Ring) -> Self {
         self.kept.get_or_insert_default().focus_ring = Some(ring);
+        self
+    }
+
+    /// Draw this clickable's focus ring before what it holds, as a button
+    /// draws its ring under its label, instead of over it: where the
+    /// content reaches into the ring's band, the content shows. Only a
+    /// clickable reads it.
+    pub fn focus_ring_under(mut self) -> Self {
+        self.kept.get_or_insert_default().ring_under = true;
         self
     }
 

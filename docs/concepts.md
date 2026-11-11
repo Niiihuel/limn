@@ -146,6 +146,27 @@ ID of its own and alias the action:
 Element::clickable("viewer:picture", picture).pointer_only().dispatch_as("close");
 ```
 
+What a clickable holds keeps its own ink: its `hover_foreground` and
+`pressed_foreground` change the clickable's ink, which nothing inside reads.
+`.content_takes_ink()` paints what it holds as a button paints its label:
+each element inside it in the clickable's own foreground takes the hover or
+pressed one while the clickable is hovered or pressed. The change is at once,
+as a button's; an element with `animate_foreground` fades to it. Its focus
+ring is drawn over what it holds; `.focus_ring_under()` draws it first, as a
+button's is drawn under its label.
+
+```rust
+let ink = palette.muted;
+Element::clickable("open", Element::row(vec![
+    Element::icon(Icon::Folder).foreground(ink),
+    Element::truncated_text("Open").foreground(ink),
+]))
+.foreground(ink)
+.hover_foreground(palette.text)
+.content_takes_ink()
+.focus_ring_under()
+```
+
 ## See also
 
 - [Layout](layout.md) for arranging elements.
