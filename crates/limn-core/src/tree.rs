@@ -19,6 +19,8 @@ mod zoom_view_tree;
 #[path = "scroll_request_tree.rs"]
 mod scroll_request_tree;
 use scroll_request_tree::ScrollRequests;
+#[path = "row_claims_tree.rs"]
+mod row_claims_tree;
 #[cfg(test)]
 #[path = "popover_initial_focus_tests.rs"]
 mod popover_initial_focus_tests;
@@ -2876,8 +2878,8 @@ impl UiTree {
         let previous_popovers = self.frame.popover_focus.clone();
         let mut focus_order = Vec::new();
         let mut seen = crate::FastSet::default();
-        let mut duplicate_ids = Vec::new();
-        collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut duplicate_ids);
+        let mut claims = Claims::default();
+        collect_focus_claims(&self.root, &mut focus_order, &mut seen, &mut claims);
         // A focus asked for before this tree was laid out lands now, so this
         // layout already paints it and brings it into view.
         if let Some((id, keyboard)) = self.pending_focus.take_if(|(id, _)| takes_focus(&focus_order, id)) {
@@ -2925,6 +2927,9 @@ impl UiTree {
                 translated_overflow: crate::FastMap::default(),
                 focus_path,
                 focus_probe: probe,
+                claimed: &seen,
+                row_claims: crate::FastSet::default(),
+                inert: false,
                 spatial_focus: self.spatial_focus,
                 drag_source: self
                     .pointer_drag
@@ -3794,7 +3799,14 @@ impl UiTree {
             }
         });
         self.scrollbar_states.retain(|_, state| state.seen);
-        frame.duplicate_ids = duplicate_ids;
+        // What the walk found, in tree order, then what placing the rows of
+        // virtual lists found.
+        let placed = std::mem::replace(&mut frame.duplicate_ids, claims.twice);
+        for id in placed {
+            if !frame.duplicate_ids.contains(&id) {
+                frame.duplicate_ids.push(id);
+            }
+        }
         self.frame = frame;
         self.finish_paste_layout();
         if previous_popovers != self.frame.popover_focus {
@@ -6090,7 +6102,18 @@ fn collect_focus_order(
     order: &mut Vec<(String, HitKind)>,
     seen: &mut crate::FastSet<String>,
 ) {
-    collect_focus_claims(element, order, seen, &mut Vec::new());
+    collect_focus_claims(element, order, seen, &mut Claims::default());
+}
+
+/// What a walk for focus claims notes besides the order.
+#[derive(Default)]
+struct Claims<'a> {
+    /// The IDs two elements claimed, in the order found.
+    twice: Vec<String>,
+    /// While a row of a virtual list is walked: what the walk of the tree
+    /// met, and what the rows placed before it claimed. A claim of one of
+    /// those is noted too.
+    rows: Option<(&'a crate::FastSet<String>, &'a mut crate::FastSet<String>)>,
 }
 
 /// Gives `id` its place in the focus order, or notes it in `duplicates` when
@@ -6100,12 +6123,17 @@ fn claim_focus(
     kind: HitKind,
     order: &mut Vec<(String, HitKind)>,
     seen: &mut crate::FastSet<String>,
-    duplicates: &mut Vec<String>,
+    duplicates: &mut Claims,
 ) {
-    if seen.insert(id.to_owned()) {
+    let mut twice = !seen.insert(id.to_owned());
+    if !twice {
         order.push((id.to_owned(), kind));
-    } else if !duplicates.iter().any(|duplicate| duplicate == id) {
-        duplicates.push(id.to_owned());
+    }
+    if let Some((tree, rows)) = duplicates.rows.as_mut() {
+        twice |= tree.contains(id) || !rows.insert(id.to_owned());
+    }
+    if twice && !duplicates.twice.iter().any(|duplicate| duplicate == id) {
+        duplicates.twice.push(id.to_owned());
     }
 }
 
@@ -6114,7 +6142,7 @@ fn collect_focus_claims(
     element: &Element,
     order: &mut Vec<(String, HitKind)>,
     seen: &mut crate::FastSet<String>,
-    duplicates: &mut Vec<String>,
+    duplicates: &mut Claims,
 ) {
     if element.kept.as_ref().is_some_and(|kept| kept.inert) {
         return;
@@ -6538,6 +6566,12 @@ struct LayoutBuilder<'a> {
     translated_overflow: crate::FastMap<(u64, usize), bool>,
     focus_path: HashSet<usize>,
     focus_probe: Option<&'a str>,
+    /// The IDs the walk for focus claims met, and those the rows of virtual
+    /// lists placed in this pass claimed: what a row's control must not take.
+    claimed: &'a crate::FastSet<String>,
+    row_claims: crate::FastSet<String>,
+    /// Placing inside an inert element, where nothing takes the focus.
+    inert: bool,
     /// Whether the arrows move the focus, which needs the bounds of the
     /// controls held out of sight.
     spatial_focus: bool,
@@ -8564,7 +8598,7 @@ impl LayoutBuilder<'_> {
                 let previous = self.measurement_scope;
                 self.measurement_scope = *scope;
                 let mut focusables = Vec::new();
-                collect_focus_order(row, &mut focusables, &mut crate::FastSet::default());
+                self.collect_row_focus(row, &mut focusables, &mut crate::FastSet::default());
                 self.place(
                     row,
                     Rect::new(
@@ -9616,6 +9650,8 @@ impl LayoutBuilder<'_> {
             self.frame.context_menu_regions.len(),
             self.frame.text_blocks.len(),
         ));
+        let outer_inert = self.inert;
+        self.inert |= inert.is_some();
         let reveal = element.hover_reveal;
         let around = self.region_hovered;
         if reveal == HoverReveal::Region {
@@ -9712,6 +9748,7 @@ impl LayoutBuilder<'_> {
             self.frame.context_menu_regions.truncate(context);
             self.frame.text_blocks.truncate(text);
         }
+        self.inert = outer_inert;
     }
 
     /// The box an [`Element::extend_on_hover`] element is placed in: `rect`
@@ -10803,7 +10840,7 @@ impl LayoutBuilder<'_> {
                         let previous_scope = self.enter_measurement_scope();
                         let mut focusables = Vec::new();
                         let mut seen = crate::FastSet::default();
-                        collect_focus_order(&row, &mut focusables, &mut seen);
+                        self.collect_row_focus(&row, &mut focusables, &mut seen);
                         self.place(
                             &row,
                             Rect::new(
@@ -10815,7 +10852,7 @@ impl LayoutBuilder<'_> {
                             Some(visible),
                         );
                         if let Some((_, opened)) = open.filter(|(open, _)| *open == index) {
-                            collect_focus_order(opened, &mut focusables, &mut seen);
+                            self.collect_row_focus(opened, &mut focusables, &mut seen);
                             self.place(
                                 opened,
                                 Rect::new(

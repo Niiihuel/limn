@@ -39,7 +39,7 @@ column beside a flexible spacer to test it at its own size.
 | That something is passive | No region with its ID. |
 | What is painted, and where | `frame.commands`: match on `DrawCommand::Text`, `FillRect`, `Icon`, and so on. |
 | What a click would hit | `frame.hit_test(point)`. |
-| That no two controls share an ID | `frame.duplicate_ids()` is empty. |
+| That no two controls share an ID | `frame.duplicate_ids()` is empty. A virtual list's rows count only while in view: scroll it to check the others. |
 | What an event does | The `Vec<UiAction>` returned by `tree.handle_event`. |
 | A builder's effect on an element | `element.style` before it goes in a tree. |
 

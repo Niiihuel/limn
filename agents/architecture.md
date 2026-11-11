@@ -85,8 +85,9 @@ events, `update`, `set_root(view(state))`, `layout`, paint. Inside
    IDs taken twice (`Frame::duplicate_ids`). `collect_action_metadata` gathers
    the aliases of `dispatch_as`. A focus asked for earlier (`pending_focus`)
    lands here if this tree holds its control. A control in a row of a virtual
-   list is known only once placed: it takes the focus after step 4. A request
-   that no control answers is dropped by this layout.
+   list is known only once placed: it takes the focus after step 4, and its ID
+   is checked for duplicates as its row is placed (`collect_row_focus`). A
+   request that no control answers is dropped by this layout.
 3. **Place the root.** The `MeasurementCache` is cleared. A `LayoutBuilder`
    borrows the tree's state for the pass and places the root in the viewport.
    See [Measure and place](#measure-and-place).

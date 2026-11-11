@@ -108,7 +108,8 @@ Small gaps, each a commit of its own:
   behind their loading state, a conversation behind a pane grown over it.
 - `sheet_detents`, `sheet_frames` and `popover_order` are maps of the tree
   that came with liquid glass, from before R3. They belong in the store.
-- `Frame::duplicate_ids` does not see the rows of a virtual list (invariant 2).
+- ~~`Frame::duplicate_ids` does not see the rows of a virtual list (invariant
+  2).~~ Done: the rows in view are checked as they are placed.
 - The code editor's `EditorView::update` reads the wall clock (invariant 11).
 - Durations written as constants in `tree.rs`: a popover's change of view,
   the effort slider (one of its three in `slider_tree.rs`), a tooltip's delay
