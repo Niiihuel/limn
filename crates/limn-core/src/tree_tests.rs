@@ -1739,14 +1739,23 @@ fn input_trailing_space_keeps_the_end_free_of_text_caret_and_hint() {
 
 #[test]
 fn persistent_input_placeholder_survives_focus_edits_and_refocus() {
-    use crate::{Component, ComponentPalette, TextField};
-
     let palette = ComponentPalette::neutral_dark();
     let root = || {
         Element::column(vec![
-            TextField::new("replace", "", "Reemplazar", palette)
+            // A field 32 high, its text in the palette's ink, 8 inside its outline.
+            Element::text_input("replace", "", "Reemplazar")
                 .persistent_placeholder(true)
-                .render(),
+                .background(palette.raised)
+                .hover_background(crate::lighter(palette.raised, 5))
+                .border(palette.border, 1.0)
+                .focus_border(crate::lighter(palette.border, 70), 1.5)
+                .foreground(palette.text)
+                .font_family(FontFamily::Sans)
+                .font_size(13.0)
+                .padding(8.0)
+                .radius(crate::control_radius())
+                .min_size(80.0, 32.0)
+                .size(None, Some(32.0)),
             Element::button("other", "Other").size(None, Some(32.0)),
         ])
     };
@@ -1833,13 +1842,23 @@ fn input_placeholder_still_hides_on_focus_by_default() {
 
 #[test]
 fn a_text_area_keeps_its_placeholder_while_focused_only_when_asked() {
-    use crate::{Component, ComponentPalette, TextArea};
-
     let viewport = Size::new(240.0, 120.0);
     for persistent in [false, true] {
-        let area = TextArea::new("notes", "", "Notes", ComponentPalette::neutral_dark())
+        // An area 96 high, its text in the palette's ink, 8 inside its outline.
+        let palette = ComponentPalette::neutral_dark();
+        let area = Element::text_area("notes", "", "Notes")
             .persistent_placeholder(persistent)
-            .render();
+            .background(palette.raised)
+            .hover_background(crate::lighter(palette.raised, 5))
+            .border(palette.border, 1.0)
+            .focus_border(crate::lighter(palette.border, 70), 1.5)
+            .foreground(palette.text)
+            .font_family(FontFamily::Sans)
+            .font_size(13.0)
+            .padding(8.0)
+            .radius(crate::control_radius())
+            .min_size(80.0, 96.0)
+            .size(None, Some(96.0));
         let mut tree = UiTree::new(area);
         tree.set_reduced_motion(true);
         tree.layout(viewport);
@@ -4460,13 +4479,23 @@ fn selecting_all_in_an_empty_input_preserves_the_first_typed_character() {
             if multiline {
                 Element::text_area("query", value, "Search")
             } else {
-                crate::SearchField::new(
-                    "query",
-                    value,
-                    "Search",
-                    crate::ComponentPalette::neutral_dark(),
-                )
-                .render()
+                // A search field 36 high: a magnifier before its text.
+                let palette = ComponentPalette::neutral_dark();
+                Element::text_input("query", value, "Search")
+                    .leading_icon(Icon::Search)
+                    .leading_icon_tint(palette.muted)
+                    .background(palette.raised)
+                    .hover_background(crate::lighter(palette.raised, 5))
+                    .border(palette.border, 1.0)
+                    .focus_border(crate::lighter(palette.border, 70), 1.5)
+                    .foreground(palette.text)
+                    .font_family(FontFamily::Sans)
+                    .font_size(13.0)
+                    .padding(8.0)
+                    .radius(crate::control_radius())
+                    .min_size(80.0, 36.0)
+                    .size(None, Some(36.0))
+                    .accessible(crate::Access::new(crate::Role::SearchInput))
             }
         };
         let viewport = Size::new(320.0, 88.0);
