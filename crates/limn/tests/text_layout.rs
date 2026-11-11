@@ -3,7 +3,7 @@
 // They lay text out in the bundled faces.
 #![cfg(feature = "bundled-fonts")]
 
-use limn::{fonts, Color, DrawCommand, FontFamily, GlyphRun, Point, TextLayout, TextStyle};
+use limn::{fonts, Color, DrawCommand, FontFamily, GlyphRun, Point, TextLayout, TextSpan, TextStyle};
 
 const INK: Color = Color::rgb(10, 20, 30);
 const PROSE: &str = "Text laid out by limn itself: shaped, broken into lines and placed.";
@@ -125,6 +125,26 @@ fn a_character_the_face_lacks_comes_from_a_fallback() {
     assert!(runs.iter().all(|run| run.glyphs.iter().all(|glyph| glyph.id != 0)), "no missing glyphs");
     let shown: String = runs.iter().map(|run| &*run.text).collect();
     assert_eq!(shown, "sum 𝑥 😀");
+}
+
+#[test]
+fn each_glyph_says_where_in_its_run_s_text_its_cluster_starts() {
+    let family = "👨\u{200d}👩\u{200d}👧\u{200d}👦";
+    let text = format!("office {family} é 1\u{fe0f}\u{20e3} abc אבג and a line that wraps");
+    for run in runs(&sans(&text).wrapped(90.0)) {
+        assert_eq!(run.clusters.len(), run.glyphs.len(), "{:?}", run.text);
+        assert!(run.clusters.iter().all(|start| (*start as usize) < run.text.len() && run.text.is_char_boundary(*start as usize)), "{run:?}");
+    }
+    // A joined sequence is one cluster: each of its glyphs starts where it starts.
+    let emoji = runs(&sans(&format!("a{family}b"))).into_iter().find(|run| run.text.contains(family)).unwrap();
+    let at = emoji.text.find(family).unwrap();
+    assert!(emoji.clusters.contains(&(at as u32)), "{emoji:?}");
+    assert!(emoji.clusters.iter().all(|start| !(at + 1..at + family.len()).contains(&(*start as usize))), "{emoji:?}");
+    // Two spans of one font are shaped together; each run counts from its own text.
+    let spans = [TextSpan::new("ab", INK, 14.0, FontFamily::Sans), TextSpan::new("cd", Color::WHITE, 14.0, FontFamily::Sans)];
+    let formatted = runs(&TextLayout::formatted(&spans, TextStyle::new(14.0, FontFamily::Sans)));
+    let clusters: Vec<(&str, &[u32])> = formatted.iter().map(|run| (&*run.text, &*run.clusters)).collect();
+    assert_eq!(clusters, [("ab", &[0, 1][..]), ("cd", &[0, 1][..])]);
 }
 
 #[test]
