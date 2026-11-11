@@ -226,7 +226,8 @@ impl eframe::App for Host {
         }
         let frame = self.tree.layout(window);
         if self.state.choice("page", "") == "glass" { pages::glass::track_geometry(&mut self.state, &frame); }
-        let animation_due = pages::present_animation(&ctx, &frame);
+        // A screenshot holds one frame, so two captures are the same picture.
+        let animation_due = pages::present_animation(&ctx, &frame, self.screenshot.is_some());
         #[cfg(not(target_arch = "wasm32"))]
         if self.screenshot.is_none() {
             pages::present_videos(&ctx, &frame, &self.state);
@@ -258,7 +259,7 @@ impl eframe::App for Host {
         } else if let Some(after) = self.tree.animation_repaint_after() {
             ctx.request_repaint_after(after);
         }
-        if let Some(after) = animation_due.filter(|_| self.screenshot.is_none()) {
+        if let Some(after) = animation_due {
             ctx.request_repaint_after(after);
         }
     }
