@@ -151,7 +151,7 @@ stamps, single-use semantics and the limits of tree observation.
 | `Polyline { points, color, width, dashed }` | An open stroked path centered on its points, dashed in short marks when asked: the connectors and the decision outline of a `Flowchart`, the lifelines and messages of a `SequenceDiagram`. |
 | `Shadow { rect, shadow, radius }` | A blurred shadow under a rounded rectangle. |
 | `Text { position, text, color, font_size, font_family }` | One run of text from its top-left corner. |
-| `Glyphs(GlyphRun)` | Glyphs limn has already shaped and placed: draw each from `run.font` at `run.size`, at its place from `run.origin`, tinted `run.color`; slant by `run.skew` degrees and thicken when `run.embolden`. Lay nothing out again. See [TextLayout](components/text-layout.md#drawing-the-glyphs). |
+| `Glyphs(GlyphRun)` | Glyphs limn has already shaped and placed: draw each from `run.font` at `run.size`, at its place from `run.origin`, tinted `run.color`; slant by `run.skew` degrees and thicken when `run.embolden`. Lay nothing out again. `run.clusters` says where in `run.text` each glyph's cluster starts, for a backend that draws some clusters its own way. See [TextLayout](components/text-layout.md#drawing-the-glyphs). |
 | `TextEffect { effect, runs }` | An outline (`TextEffect::Stroke { width, color }`) or a shadow (`TextEffect::Shadow { offset, blur, color }`) of the `Text` or `Glyphs` commands in `runs`, which are painted after it: their glyphs' shape in the effect's color, not their own ink. A backend that paints no effects may skip it. See [Layout](layout.md#text). |
 | `Icon { icon, rect, tint, transform }` | A semantic icon. The backend chooses the artwork, and turns and stretches it about the middle of `rect` as `transform` says: identity at rest, otherwise while a `hover_motion` plays. |
 | `RasterImage { .. }` | A decoded image: a cover fills the rectangle and is cropped, a full-resolution picture fills it at its proportions, enlarged if need be, and any other is fitted inside it, never past its pixels. `image.quarter_turns()` turns it; `image.is_checkerboard()` asks for a checkerboard behind its transparent pixels; `image.dissolved()` is the share of its height at the bottom that fades to nothing. |
@@ -296,11 +296,25 @@ so the host decides presentation (for example drawing `❤️` but not `❤` or
 `❤︎`). All-ASCII text is never asked about.
 
 Nothing about the text changes: the tree measures and wraps with the font,
-the glyph keeps its place and is painted transparent, and the picture is
-fitted to that place, between 1 and 1.2 ems wide, centered on the line and
-tinted with the text's alpha. Selection, copied text and accessibility keep
-the original characters. This covers every `DrawCommand::Text`: labels,
-formatted text, tooltips and editors alike.
+the glyph keeps its place and is not seen, and the picture is fitted to that
+place, between 1 and 1.2 ems wide, tinted with the text's alpha and clipped
+as the text is. Selection, copied text and accessibility keep the original
+characters. This covers both paths of text:
+
+- Every `DrawCommand::Text` (labels, tooltips, editors, and formatted text
+  in a tree that does not lay it out itself): the glyph is painted
+  transparent, and the picture is fitted to the room egui gives the
+  cluster's characters and centered on the line.
+- Every `DrawCommand::Glyphs`, the text limn lays out itself: the source is
+  asked about the clusters of each run's `text`, `GlyphRun::clusters` says
+  which glyphs each one became, those glyphs are not painted, and the
+  picture is fitted to the room their advances take (an empty glyph, as a
+  variation selector or a joiner is shaped, adds none) and stands at the
+  height of their ink.
+
+On both, a `TextEffect` before the text strokes or shadows the glyph's shape,
+under the picture, and gradient ink paints the picture in its own colors in
+each band, at that band's alpha.
 
 Pictures are decoded on the UI thread, downscaled to the size drawn in steps
 of 4 pixels, and cached per egui context (1024 textures). A paint pass

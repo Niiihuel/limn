@@ -172,8 +172,12 @@ A backend draws each `GlyphRun` from `run.font.bytes()` at `run.size`, at the
 instance `run.coords` gives (normalized, one for each axis; empty at a face's
 default), glyph by glyph where the run places it, slanting the outlines by
 `run.skew` degrees and thickening them when `run.embolden` asks. `run.text` is the text the run
-shows, for tests and tools. `limn-egui` draws them from an atlas of its own,
-rasterized as egui rasterizes its own text, so both look alike.
+shows, for tests and tools, and `run.clusters` says for each glyph where in
+that text the cluster it was shaped from starts: the glyphs of one emoji
+sequence, flag or keycap share it, which is how `limn-egui` finds the glyphs
+to paint a [color emoji](../backend.md#color-emoji) over. `limn-egui` draws
+them from an atlas of its own, rasterized as egui rasterizes its own text, so
+both look alike.
 
 ## Limits
 
@@ -195,3 +199,10 @@ rasterized as egui rasterizes its own text, so both look alike.
   each interface family and the faces after limn's emoji face: one a host
   puts elsewhere in a chain, or first in `Monospace`, stays egui's alone.
 - Tabs take the width of a space.
+- With `limn_egui::set_color_emoji`, a picture is fitted to the room the
+  cluster's shaped glyphs take, where measured text fits it to the room egui
+  gives its characters, so the two can differ in width: at 16 px, `👍🏽` is
+  19.2 px wide laid out by limn and 16.3 measured, `1️⃣` 17.6 and 16. `❤️`
+  and keycaps are drawn from Noto Sans Symbols 2, whose line is taller: a
+  line with one is 27.2 px tall at 16 px, against 19.0 without; a measured
+  line keeps its height.
