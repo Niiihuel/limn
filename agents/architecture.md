@@ -274,11 +274,12 @@ turns egui's input into `UiEvent`s, `paint` carries out a frame, `attach_fonts`
 gives the tree the fonts it paints with, `apply_access_requests` brings back
 what a screen reader asked for.
 
-Four commands describe a widget, not a shape: `Spinner`, `Record`,
-`ProgressRing` and `EffortSlider`. A backend has to know how each looks.
-They are debt; see R8 and the [plan](plan.md). `Glass`, `GlassSelection` and
-`TextEffect` came with liquid glass and with a host's faces, and have not been
-read against R8 yet.
+Two commands describe a widget, not a shape: `Record` and `EffortSlider`. A
+backend has to know how each looks. They are debt; see R8 and the
+[plan](plan.md). A spinner and a progress ring were two more: the engine
+draws them now, with polylines and discs, in `indicators.rs`. `Glass`,
+`GlassSelection` and `TextEffect` came with liquid glass and with a host's
+faces, and have not been read against R8 yet.
 
 ## Cost
 
@@ -316,7 +317,7 @@ with them as an idea, and what it leaves.
 | Forgetting it | What a frame did not ask for dies with the frame. | By hand, in the application. | The sweep after each pass, plus the dormant 64. |
 | Identity | The path of IDs from the root. | A global position string. | A flat string the host chooses, also the name in its actions. |
 | Phases | Layout, prepaint, paint. | Layout, paint. | One walk: measure inside place. |
-| The scene | A few primitives; the renderer knows no widget. | A few primitives in layers. | Primitives, and four widget commands (debt). |
+| The scene | A few primitives; the renderer knows no widget. | A few primitives in layers. | Primitives, and two widget commands (debt). |
 | Who owns the window | GPUI: platform, executor, GPU. | WarpUI. | The host. limn returns data. |
 | An ID taken twice | Not detected. | Not detected. | Listed in `Frame::duplicate_ids`. |
 | Components with a look | In a crate apart (`ui`); the engine has none. | In a crate apart (`ui_components`). | In a crate apart (`limn-components`); the engine still holds some, see [Known debts](#known-debts). |
@@ -345,7 +346,7 @@ Each is in the [plan](plan.md) with its order.
 | --- | --- |
 | `tree.rs` is 11,100 lines and `place_inner` 550. | Every feature edits the same file; pull requests conflict. |
 | `ElementKind` is closed and holds widgets (`Flowchart`, `SequenceDiagram`, the plots, `Record`, `EffortSlider`). | A widget that could be a component is matched across the layout. |
-| Four widget commands in `DrawCommand`. | A backend must know how a widget looks. |
+| Two widget commands in `DrawCommand`: `Record` and `EffortSlider`. | A backend must know how a widget looks. |
 | One walk measures, places, paints and animates. | No subtree can be skipped when nothing in it changed. |
 | `UiEvent` grew by case: `PointerDown`, `PointerDownModified`, `PointerDownEditor`. | A new modifier is a new variant. |
 | Keys the tree derives are strings (`extend/{id}`, `slide/{id}`), and a region is known as a popover's by its `popover_surface:` prefix. | A host's ID with that prefix would be misread. |

@@ -5,7 +5,7 @@ says what stable means here, what is done, and the order of what is left. It
 is the one page here that changes every week: the change that moves its
 facts changes the page.
 
-Last brought up to date: 2026-11-10.
+Last brought up to date: 2026-11-11.
 
 ## How work lands now
 
@@ -91,7 +91,7 @@ itself stable.
 
 | Item | Closes | What it takes |
 | --- | --- | --- |
-| Widget commands leave `DrawCommand`: `Spinner` and `ProgressRing` become polylines; `Record` and `EffortSlider` are composed in the core from the commands there are. | Invariant 9 | Finding which shape is missing first (a turned image, for `Record`). Looked at in the gallery: a test does not see it. |
+| Widget commands leave `DrawCommand`. Done for `Spinner` and `ProgressRing`: the engine draws them with polylines and discs (`indicators.rs` in `limn-core`). Left: `Record` and `EffortSlider`, composed in the core from the commands there are. | Invariant 9 | No shape is missing for either, read from `paint_record` and `paint_effort_slider` in `limn-egui`. The record turns no image: its picture is the sleeve's, cropped to cover it (`RasterImage` of a cover copy, or `FillRect` without one); the record is discs (`FillRect`), five groove rings stroked outside their radius (`Polyline`) and four wedges of light that turn (`FillTriangle`). The effort slider is a rail, a fill and a knob with two shadow discs (`FillRect`), a gradient of three stops with round ends (`FillMesh` and two discs) clipped to the fill (`PushClip`), step dots, drifting particles and a burst (`FillRect` discs) and the knob's outline (`Polyline`). Its colors are `limn_egui::EffortPalette`, which a host sets on the backend with `set_effort_palette`: they move to the engine first, which breaks those hosts. Both draw discs that can be 2 px across or less, which `limn-egui` paints as squares at a scale factor of 1, as it does the round ends of a spinner 16 px across; painting a `FillRect` that is a circle with egui's own circle is the likely mend for all three, not tried. Looked at in the gallery: a test does not see it. |
 | `Glass`, `GlassSelection` and `TextEffect`, which the features added, are read against R8. | Invariant 9 | Not looked at yet. |
 | One shape for a press: position, button, modifiers, click count. `PointerDown`, `PointerDownModified` and `PointerDownEditor` stay as deprecated spellings of it (R14). | A debt | Every test writes `UiEvent::PointerDown(point)`, so the old form must keep compiling. |
 | A key the tree derives is a type a host cannot write. | Invariant 3 | `extend/`, `slide/`, `scale/`, `__sheet:` and `popover_surface:` first. |
