@@ -1422,7 +1422,7 @@ impl Component for DropdownMenu {
         let content = if scroll_container {
             let bar = self.scrollbar.unwrap_or_else(|| ScrollbarAppearance::reserved().rail_width(scrollbar_gutter));
             let content = ScrollArea::new(format!("{}:options", self.dismiss_id), list)
-                .appearance(ScrollbarAppearance { tint: bar.tint.or(Some(palette.muted)), ..bar })
+                .appearance(bar.tint(bar.tint.unwrap_or(palette.muted)))
                 .visibility(self.scrollbar_visibility)
                 .render();
             if contextual {

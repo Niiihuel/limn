@@ -151,6 +151,9 @@ pub struct ScrollbarAppearance {
     /// the scrollbar through its ordinary typography token.
     pub tint: Option<Color>,
     /// The four opacities run from 0 to 255 and multiply the ink's alpha.
+    /// This one is the thumb at rest and the arrow of an end button not under
+    /// the pointer, and at a third of it an arrow that cannot scroll further.
+    /// 72 by default.
     pub idle_thumb_opacity: u8,
     /// The thumb while the scrollbar is hovered, and the arrow of an end
     /// button under the pointer. 118 by default.
@@ -271,6 +274,47 @@ impl ScrollbarAppearance {
         if width.is_finite() {
             self.thumb_width = width.clamp(2.0, 12.0);
         }
+        self
+    }
+
+    /// Set the shortest the thumb gets in logical pixels, however long the
+    /// content: 24 by default. It is at least 1, and when laid out never more
+    /// than half the track. A value that is not finite is ignored.
+    pub fn min_thumb_length(mut self, length: f32) -> Self {
+        if length.is_finite() {
+            self.min_thumb_length = length.max(1.0);
+        }
+        self
+    }
+
+    /// Set the opacity of the thumb at rest, out of 255: 72 by default. Like
+    /// the other three it multiplies the ink's alpha, and every value of a
+    /// `u8` is in range: at 0 the thumb shows only under the pointer or
+    /// dragged.
+    pub fn idle_thumb_opacity(mut self, opacity: u8) -> Self {
+        self.idle_thumb_opacity = opacity;
+        self
+    }
+
+    /// Set the opacity of the thumb while the scrollbar is under the pointer,
+    /// and of an end button's arrow under it, out of 255: 118 by default.
+    pub fn hover_thumb_opacity(mut self, opacity: u8) -> Self {
+        self.hover_thumb_opacity = opacity;
+        self
+    }
+
+    /// Set the opacity of the thumb while it is dragged, and of an end
+    /// button's arrow held down, out of 255: 164 by default.
+    pub fn active_thumb_opacity(mut self, opacity: u8) -> Self {
+        self.active_thumb_opacity = opacity;
+        self
+    }
+
+    /// Set the opacity of the track, when [`Self::track`] shows it, out of
+    /// 255: 14 by default. An end button under the pointer is filled at twice
+    /// this and held at three times, at most 255.
+    pub fn hover_track_opacity(mut self, opacity: u8) -> Self {
+        self.hover_track_opacity = opacity;
         self
     }
 
@@ -559,10 +603,30 @@ mod tests {
         assert_eq!(default.arrow(Size::new(9.0, 5.0)).arrow, Size::new(9.0, 5.0));
         assert_eq!(default.arrow(Size::new(f32::NAN, -3.0)).arrow, Size::new(7.0, 0.0));
         // Set on the fields, they are made safe where they are painted.
-        let raw = ScrollbarAppearance { button_inset: f32::INFINITY, button_radius: Some(f32::NAN), arrow: Size::new(-1.0, f32::NEG_INFINITY), ..default };
+        let mut raw = default;
+        (raw.button_inset, raw.button_radius, raw.arrow) = (f32::INFINITY, Some(f32::NAN), Size::new(-1.0, f32::NEG_INFINITY));
         assert_eq!((raw.button_fill_inset(), raw.button_fill_radius(), raw.arrow_box()), (1.0, crate::tokens().radius.control, Size::new(0.0, 4.0)));
-        let raw = ScrollbarAppearance { button_inset: -4.0, button_radius: Some(-4.0), ..default };
+        (raw.button_inset, raw.button_radius) = (-4.0, Some(-4.0));
         assert_eq!((raw.button_fill_inset(), raw.button_fill_radius()), (0.0, 0.0));
+    }
+
+    #[test]
+    fn the_shortest_thumb_and_the_opacities_have_builders_that_keep_them_safe() {
+        let default = ScrollbarAppearance::default();
+        assert_eq!(
+            (default.min_thumb_length, default.idle_thumb_opacity, default.hover_thumb_opacity, default.active_thumb_opacity, default.hover_track_opacity),
+            (24.0, 72, 118, 164, 14)
+        );
+        assert_eq!(default.min_thumb_length(30.0).min_thumb_length, 30.0);
+        assert_eq!(default.min_thumb_length(f32::NAN).min_thumb_length, 24.0, "not finite: ignored");
+        assert_eq!(default.min_thumb_length(f32::INFINITY).min_thumb_length, 24.0, "not finite: ignored");
+        assert_eq!(default.min_thumb_length(-5.0).min_thumb_length, 1.0, "at least 1");
+        let set = default.idle_thumb_opacity(0).hover_thumb_opacity(200).active_thumb_opacity(255).hover_track_opacity(9);
+        assert_eq!((set.idle_thumb_opacity, set.hover_thumb_opacity, set.active_thumb_opacity, set.hover_track_opacity), (0, 200, 255, 9));
+        // An opacity is a `u8`, so none is out of range; each builder leaves the rest.
+        let mut fields = default;
+        (fields.idle_thumb_opacity, fields.hover_thumb_opacity, fields.active_thumb_opacity, fields.hover_track_opacity) = (0, 200, 255, 9);
+        assert_eq!(set, fields);
     }
 
     #[test]

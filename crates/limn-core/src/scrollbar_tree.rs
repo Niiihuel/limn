@@ -144,7 +144,8 @@ impl LayoutBuilder<'_> {
         if opacity <= 0.0 { return; }
         let ink = appearance.tint.unwrap_or(ink);
         let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
-        let appearance = crate::ScrollbarAppearance { tint: None, ..appearance };
+        // The ink is tinted and faded already.
+        let appearance = appearance.tint(ink);
         let alpha = |opacity: u8| {
             Color::rgba(
                 ink.r,

@@ -444,7 +444,7 @@ impl LayoutBuilder<'_> {
                             let thickness = (if appearance.thumb_width.is_finite() { appearance.thumb_width } else { 3.0 }).max(1.0).min(content.height);
                             let ink = appearance.tint.unwrap_or(color);
                             let ink = Color { a: (f32::from(ink.a) * opacity).round() as u8, ..ink };
-                            let ink = crate::ScrollbarAppearance { tint: None, ..appearance }.thumb_color(ink, false, false);
+                            let ink = appearance.tint(ink).thumb_color(ink, false, false);
                             (thickness, ink, appearance.corner(thickness))
                         }
                     };

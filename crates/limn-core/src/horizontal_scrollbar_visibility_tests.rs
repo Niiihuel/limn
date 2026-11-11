@@ -202,15 +202,21 @@ fn pan_bar(appearance: Option<ScrollbarAppearance>, ink: Color) -> (Rect, Color,
 #[test]
 fn a_pan_bar_given_an_appearance_takes_its_thickness_corner_tint_and_opacity() {
     let red = Color::rgb(200, 0, 0);
-    let own = ScrollbarAppearance { idle_thumb_opacity: 200, ..ScrollbarAppearance::pan_bar().thumb_width(6.0).thumb_radius(0.0).tint(red) };
+    let own = ScrollbarAppearance::pan_bar().thumb_width(6.0).thumb_radius(0.0).tint(red).idle_thumb_opacity(200);
     let (rect, color, radius) = pan_bar(Some(own), INK);
     assert_eq!((rect.y, rect.height, radius, color), (54.0, 6.0, 0.0, Color::rgba(200, 0, 0, 200)));
+    // `own` with one field set on it, past what a builder allows.
+    let changed = |set: fn(&mut ScrollbarAppearance)| {
+        let mut appearance = own;
+        set(&mut appearance);
+        Some(appearance)
+    };
     // Untinted, it takes the viewport's foreground, as a vertical bar does.
-    assert_eq!(pan_bar(Some(ScrollbarAppearance { tint: None, ..own }), INK).1, Color::rgba(INK.r, INK.g, INK.b, 200));
+    assert_eq!(pan_bar(changed(|own| own.tint = None), INK).1, Color::rgba(INK.r, INK.g, INK.b, 200));
     // A thickness that is not finite is the pan bar's; one taller than the
     // viewport is held to it.
-    assert_eq!(pan_bar(Some(ScrollbarAppearance { thumb_width: f32::NAN, ..own }), INK).0.height, 3.0);
-    assert_eq!(pan_bar(Some(ScrollbarAppearance { thumb_width: 500.0, ..own }), INK).0.height, SIZE.height);
+    assert_eq!(pan_bar(changed(|own| own.thumb_width = f32::NAN), INK).0.height, 3.0);
+    assert_eq!(pan_bar(changed(|own| own.thumb_width = 500.0), INK).0.height, SIZE.height);
 }
 
 #[test]
